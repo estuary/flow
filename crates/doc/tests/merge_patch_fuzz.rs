@@ -96,14 +96,21 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
             doc::Validator::new(schema).unwrap(),
         )
     };
-    let memtable_1 = MemTable::new(Spec::with_bindings(
-        [spec(false), spec(true)].into_iter(),
-        Vec::new(),
-    ));
-    let memtable_2 = MemTable::new(Spec::with_bindings(
-        [spec(false), spec(true)].into_iter(),
-        Vec::new(),
-    ));
+    // Identity mapping: one validator per binding.
+    let make_spec = || {
+        let [
+            (full_0, key_0, name_0, validator_0),
+            (full_1, key_1, name_1, validator_1),
+        ] = [spec(false), spec(true)];
+
+        Spec::with_bindings(
+            [(full_0, key_0, 0u32), (full_1, key_1, 1u32)],
+            [(name_0, validator_0), (name_1, validator_1)],
+            Vec::new(),
+        )
+    };
+    let memtable_1 = MemTable::new(make_spec());
+    let memtable_2 = MemTable::new(make_spec());
 
     let seed = json!({"hello": "world", "null": null});
     let mut expect = seed.clone();

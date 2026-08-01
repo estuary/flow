@@ -96,11 +96,16 @@ impl Entries {
                 return Ok(());
             }
             let rhs = &next[index];
+            let (binding, validator) = (
+                rhs.meta.binding(),
+                self.spec.validator_index[rhs.meta.binding()] as usize,
+            );
 
             let rhs_outcomes = validate_root(
                 &rhs.root,
-                &mut validators[rhs.meta.binding()],
-                &self.spec.names[rhs.meta.binding()],
+                &mut validators[validator],
+                &self.spec.names[validator],
+                binding,
                 validation::reduce_filter,
             )?;
 
@@ -432,10 +437,12 @@ impl MemTable {
             if doc.meta.front() || doc.meta.known_valid() {
                 continue;
             }
+            let validator = spec.validator_index[doc.meta.binding()] as usize;
             let outcomes = validate_root(
                 &doc.root,
-                &mut spec.validators[doc.meta.binding()],
-                &spec.names[doc.meta.binding()],
+                &mut spec.validators[validator],
+                &spec.names[validator],
+                doc.meta.binding(),
                 validation::redact_filter,
             )?;
             doc.meta.set_known_valid(true);
@@ -513,10 +520,13 @@ impl MemDrainer {
             meta.set_front(); // Transfer stale existence onto the fresh output.
         }
 
-        let is_full = self.spec.is_full[meta.binding()];
-        let keys = self.spec.keys[meta.binding()].as_ref();
-        let name = &self.spec.names[meta.binding()];
-        let validator = &mut self.spec.validators[meta.binding()];
+        let binding = meta.binding();
+        let validator = self.spec.validator_index[binding] as usize;
+
+        let is_full = self.spec.is_full[binding];
+        let keys = self.spec.keys[binding].as_ref();
+        let name = &self.spec.names[validator];
+        let validator = &mut self.spec.validators[validator];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
@@ -531,8 +541,13 @@ impl MemDrainer {
                 break;
             }
 
-            let rhs_outcomes =
-                validate_root(&next.root, validator, name, validation::reduce_filter)?;
+            let rhs_outcomes = validate_root(
+                &next.root,
+                validator,
+                name,
+                binding,
+                validation::reduce_filter,
+            )?;
 
             match reduce_roots(&root, &next.root, &rhs_outcomes, &self.zz_alloc, is_full) {
                 Ok((node, deleted)) => {
@@ -553,7 +568,7 @@ impl MemDrainer {
             Vec::new() // Skip validation.
         } else {
             meta.set_known_valid(true); // Optimistic.
-            validate_root(&root, validator, name, validation::redact_filter)?
+            validate_root(&root, validator, name, binding, validation::redact_filter)?
         };
 
         // If we don't need to apply redaction outcomes, return the root as-is.
@@ -628,6 +643,7 @@ fn validate_root<'v, F>(
     root: &HeapRoot,
     validator: &'v mut crate::Validator,
     name: &str,
+    binding: usize,
     filter: F,
 ) -> Result<Vec<validation::ScopedOutcome<'v>>, Error>
 where
@@ -637,7 +653,12 @@ where
         Ok(heap_node) => validator.validate(&heap_node, &filter),
         Err(embedded) => validator.validate(embedded.get(), &filter),
     };
-    valid.map_err(|invalid| Error::FailedValidation(name.to_string(), invalid))
+    valid.map_err(|invalid| Error::FailedValidation(failed_name(name, binding), invalid))
+}
+
+/// Name a failed validation: the shared validator's name qualified by its binding.
+pub(super) fn failed_name(name: &str, binding: usize) -> String {
+    format!("{name} (binding {binding})")
 }
 
 /// Reduce two HeapRoot entries, dispatching each through `access()` to
@@ -730,7 +751,7 @@ mod test {
     /// `v` array reduces by append. A closure (not `vec![…; N]`) because
     /// `Validator` isn't `Clone`.
     fn append_merge_spec(n_bindings: usize) -> Spec {
-        let binding = || {
+        let validator = || {
             let schema = build_schema(
                 &url::Url::parse("http://example/schema").unwrap(),
                 &json!({
@@ -739,18 +760,51 @@ mod test {
                 }),
             )
             .unwrap();
-            (
-                true, // Full reduction.
-                vec![Extractor::with_default(
-                    "/key",
-                    &SerPolicy::noop(),
-                    json!("def"),
-                )],
-                "test",
-                Validator::new(schema).unwrap(),
-            )
+            ("test", Validator::new(schema).unwrap())
         };
-        Spec::with_bindings(std::iter::repeat_with(binding).take(n_bindings), Vec::new())
+        let key = || {
+            vec![Extractor::with_default(
+                "/key",
+                &SerPolicy::noop(),
+                json!("def"),
+            )]
+        };
+        // Identity mapping: one validator per binding.
+        Spec::with_bindings(
+            (0..n_bindings).map(|binding| (true, key(), binding as u32)),
+            std::iter::repeat_with(validator).take(n_bindings),
+            Vec::new(),
+        )
+    }
+
+    /// A Spec over three bindings and *two* validators: bindings 0 and 1 share
+    /// validator "shared" (whose `v` items must be strings) while binding 2 has
+    /// validator "solo" (whose `v` items must be integers). The two schemas are
+    /// mutually exclusive, so any leak of one validator onto the other's binding
+    /// surfaces as a validation failure rather than silently passing.
+    fn shared_validator_spec() -> Spec {
+        let validator = |name: &'static str, item_type: &str| {
+            let schema = build_schema(
+                &url::Url::parse("http://example/schema").unwrap(),
+                &json!({
+                    "properties": { "v": {
+                        "type": "array",
+                        "items": { "type": item_type },
+                        "reduce": { "strategy": "append" },
+                    } },
+                    "reduce": { "strategy": "merge" }
+                }),
+            )
+            .unwrap();
+            (name, Validator::new(schema).unwrap())
+        };
+        let key = || vec![Extractor::new("/key", &SerPolicy::noop())];
+
+        Spec::with_bindings(
+            [(true, key(), 0), (true, key(), 0), (true, key(), 1)],
+            [validator("shared", "string"), validator("solo", "integer")],
+            Vec::new(),
+        )
     }
 
     /// Force the Accumulator's current MemTable into a new spill segment,
@@ -771,6 +825,107 @@ mod test {
             serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap(),
             doc.meta.front(),
         )
+    }
+
+    #[test]
+    fn test_shared_validators() {
+        // Bindings which share a validator must still combine and drain
+        // separately: `Meta` remains keyed by binding, and only `names` and
+        // `validators` are validator-indexed.
+        assert_eq!(shared_validator_spec().binding_count(), 3);
+        assert_eq!(shared_validator_spec().validator_count(), 2);
+
+        // All three bindings write key "k", so any collapse across bindings
+        // would show up as a reduction that shouldn't have happened.
+        let add_all = |mt: &MemTable| {
+            for (binding, v) in [
+                (0, json!(["a"])),
+                (0, json!(["b"])), // Reduces into binding 0's "a".
+                (1, json!(["c"])),
+                (2, json!([7])),
+            ] {
+                mt.add(
+                    binding,
+                    HeapNode::from_node(&json!({"key": "k", "v": v}), mt.alloc()),
+                    false,
+                )
+                .unwrap();
+            }
+        };
+        let expected = vec![
+            (0, json!({"key": "k", "v": ["a", "b"]}), false),
+            (1, json!({"key": "k", "v": ["c"]}), false),
+            // Validated by validator 1, which alone accepts integer items.
+            (2, json!({"key": "k", "v": [7]}), false),
+        ];
+
+        // In-memory drain.
+        {
+            let memtable = MemTable::new(shared_validator_spec());
+            add_all(&memtable);
+
+            let drained = memtable
+                .try_into_drainer()
+                .unwrap()
+                .map_ok(project)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(drained, expected, "in-memory drain");
+        }
+
+        // Spill drain: sharing survives a MemTable→segment→SpillDrainer
+        // round-trip, which carries `Meta` (and thus the binding) through the
+        // spill format while the Spec is moved along with it.
+        {
+            let mut acc = crate::combine::Accumulator::new(
+                shared_validator_spec(),
+                tempfile::tempfile().unwrap(),
+            )
+            .unwrap();
+            add_all(acc.memtable().unwrap());
+            force_spill(&mut acc);
+            add_all(acc.memtable().unwrap());
+
+            let drained = acc
+                .into_drainer()
+                .unwrap()
+                .map_ok(project)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+
+            // Each binding's two rounds reduce together, still per-binding.
+            let expected = vec![
+                (0, json!({"key": "k", "v": ["a", "b", "a", "b"]}), false),
+                (1, json!({"key": "k", "v": ["c", "c"]}), false),
+                (2, json!({"key": "k", "v": [7, 7]}), false),
+            ];
+            assert_eq!(drained, expected, "spill drain");
+        }
+
+        // A failure on binding 1 names its validator *and* its binding, even
+        // though the validator is named "shared" and is reached from two bindings.
+        {
+            let memtable = MemTable::new(shared_validator_spec());
+            memtable
+                .add(
+                    1,
+                    HeapNode::from_node(&json!({"key": "k", "v": [7]}), memtable.alloc()),
+                    false,
+                )
+                .unwrap();
+
+            let err = memtable
+                .try_into_drainer()
+                .unwrap()
+                .map_ok(project)
+                .collect::<Result<Vec<_>, _>>()
+                .expect_err("integer item is invalid for the shared validator");
+
+            assert!(
+                matches!(&err, Error::FailedValidation(n, _) if n == "shared (binding 1)"),
+                "unexpected error: {err:?}",
+            );
+        }
     }
 
     #[test]
@@ -1146,9 +1301,9 @@ mod test {
                     &SerPolicy::noop(),
                     json!("def"),
                 )],
-                "test",
-                Validator::new(schema).unwrap(),
+                0, // Slot.
             )],
+            [("test", Validator::new(schema).unwrap())],
             Vec::new(),
         );
         let mut acc =
@@ -1197,6 +1352,7 @@ mod test {
             json!("def"),
         )];
         let spec = Spec::with_bindings(
+            (0..2).map(|binding| (true /* Full reduction. */, key.clone(), binding as u32)),
             std::iter::repeat_with(|| {
                 let schema = build_schema(
                     &url::Url::parse("http://example/schema").unwrap(),
@@ -1213,12 +1369,7 @@ mod test {
                 )
                 .unwrap();
 
-                (
-                    true, // Full reduction.
-                    key.clone(),
-                    "source-name",
-                    Validator::new(schema).unwrap(),
-                )
+                ("source-name", Validator::new(schema).unwrap())
             })
             .take(2),
             Vec::new(),
@@ -1478,8 +1629,10 @@ mod test {
                 .unwrap(),
             )
         };
+        let [full, associative] = [spec(true), spec(false)];
         let memtable = MemTable::new(Spec::with_bindings(
-            [spec(true), spec(false)].into_iter(),
+            [(full.0, full.1, 0u32), (associative.0, associative.1, 1u32)],
+            [(full.2, full.3), (associative.2, associative.3)],
             Vec::new(),
         ));
 
@@ -1774,7 +1927,9 @@ mod test {
 
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         let out = memtable.spill(&mut spill, CHUNK_TARGET_SIZE);
-        assert!(matches!(out, Err(Error::FailedValidation(n, _)) if n == "source-name"));
+        assert!(
+            matches!(out, Err(Error::FailedValidation(n, _)) if n == "source-name (binding 0)")
+        );
     }
 
     #[test]

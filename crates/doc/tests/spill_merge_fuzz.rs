@@ -34,8 +34,19 @@ fn make_spec() -> combine::Spec {
     let ser_policy = doc::SerPolicy::noop();
 
     combine::Spec::with_bindings(
-        // Binding 0: full reduction. Binding 1: associative (non-full) reduction.
-        [true, false].into_iter().map(|is_full| {
+        // Binding 0: full reduction. Binding 1: associative (non-full)
+        // reduction. Identity mapping: one validator per binding.
+        [true, false]
+            .into_iter()
+            .enumerate()
+            .map(|(index, is_full)| {
+                (
+                    is_full,
+                    vec![Extractor::new("/key", &ser_policy)],
+                    index as u32,
+                )
+            }),
+        std::iter::repeat_with(|| {
             let schema = build_schema(
                 &url::Url::parse("http://example/schema").unwrap(),
                 &json!({
@@ -55,13 +66,9 @@ fn make_spec() -> combine::Spec {
             )
             .unwrap();
 
-            (
-                is_full,
-                vec![Extractor::new("/key", &ser_policy)],
-                "source-name",
-                Validator::new(schema).unwrap(),
-            )
-        }),
+            ("source-name", Validator::new(schema).unwrap())
+        })
+        .take(2),
         Vec::new(),
     )
 }

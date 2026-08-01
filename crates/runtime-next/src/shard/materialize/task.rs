@@ -188,9 +188,17 @@ pub fn combine_spec(bindings: &[Binding]) -> anyhow::Result<doc::combine::Spec> 
         ));
     }
 
-    // Build combiner Spec with all bindings, plus one extra for state reductions.
+    let (spec_bindings, spec_validators): (Vec<_>, Vec<_>) = combiner_specs
+        .into_iter()
+        .enumerate()
+        .map(|(index, (is_full, key, name, validator))| {
+            ((is_full, key, index as u32), (name, validator))
+        })
+        .unzip();
+
     Ok(doc::combine::Spec::with_bindings(
-        combiner_specs,
+        spec_bindings,
+        spec_validators,
         Vec::new(),
     ))
 }
