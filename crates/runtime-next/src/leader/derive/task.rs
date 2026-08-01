@@ -31,22 +31,16 @@ impl Task {
         let mut binding_journal_read_suffixes = Vec::with_capacity(transforms.len());
         let mut binding_transform_names = Vec::with_capacity(transforms.len());
 
-        for transform in transforms {
+        for (transform, resolved) in derivation.resolved_transforms() {
             let flow::collection_spec::derivation::Transform {
                 name,
-                collection,
                 journal_read_suffix,
                 ..
             } = transform;
 
-            let flow::CollectionSpec {
-                name: collection_name,
-                ..
-            } = collection
-                .as_ref()
-                .context("missing transform collection")?;
+            let (collection, _identity) = resolved.context("missing transform collection")?;
 
-            binding_collection_names.push(collection_name.clone());
+            binding_collection_names.push(collection.name.clone());
             binding_journal_read_suffixes.push(journal_read_suffix.clone());
             binding_transform_names.push(name.clone());
         }

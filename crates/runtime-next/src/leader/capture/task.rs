@@ -61,8 +61,10 @@ impl Task {
             explicit_acknowledgements,
         } = opened.clone().opened.context("expected Opened")?;
 
+        let spec = spec.as_ref().context("missing capture")?;
+
         let flow::CaptureSpec {
-            bindings,
+            bindings: _,
             config_json: _,
             connector_type: _,
             interval_seconds,
@@ -74,7 +76,7 @@ impl Task {
             redact_salt,
             created_at: _,
             linked_collections: _,
-        } = spec.as_ref().context("missing capture")?;
+        } = spec;
         let range = range.context("missing range")?;
 
         if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
@@ -96,10 +98,14 @@ impl Task {
             .try_into()?;
 
         let ser_policy = doc::SerPolicy::noop();
-        let bindings = bindings
-            .iter()
+        let bindings = spec
+            .resolved_bindings()
             .enumerate()
-            .map(|(index, spec)| Binding::new(spec, ser_policy.clone()).context(index))
+            .map(|(index, (binding, resolved))| {
+                let (collection, _identity) =
+                    resolved.context("missing collection").context(index)?;
+                Binding::new(binding, collection, ser_policy.clone()).context(index)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         // A Clock one poll `interval` from now, on the same wall-clock base as
@@ -208,10 +214,14 @@ impl Task {
 }
 
 impl Binding {
-    fn new(spec: &flow::capture_spec::Binding, ser_policy: doc::SerPolicy) -> anyhow::Result<Self> {
+    fn new(
+        spec: &flow::capture_spec::Binding,
+        collection: &flow::CollectionSpec,
+        ser_policy: doc::SerPolicy,
+    ) -> anyhow::Result<Self> {
         let flow::capture_spec::Binding {
             backfill: _,
-            collection,
+            collection: _,
             collection_index: _,
             resource_config_json: _,
             resource_path: _,
@@ -229,7 +239,7 @@ impl Binding {
             read_schema_json: _,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing collection")?;
+        } = collection;
 
         let partition_template = partition_template
             .as_ref()

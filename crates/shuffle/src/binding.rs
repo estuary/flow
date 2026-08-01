@@ -87,11 +87,12 @@ impl Binding {
                     .context("CollectionSpec missing derivation")?;
 
                 let pairs = derivation
-                    .transforms
-                    .iter()
+                    .resolved_transforms()
                     .enumerate()
-                    .map(|(index, transform)| {
-                        Self::from_derivation_transform(index as u16, transform)
+                    .map(|(index, (transform, resolved))| {
+                        let (collection, _identity) =
+                            resolved.context("missing source collection")?;
+                        Self::from_derivation_transform(index as u16, transform, collection)
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -99,11 +100,12 @@ impl Binding {
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
                 let pairs = materialization
-                    .bindings
-                    .iter()
+                    .resolved_bindings()
                     .enumerate()
-                    .map(|(index, binding)| {
-                        Self::from_materialization_binding(index as u16, binding)
+                    .map(|(index, (binding, resolved))| {
+                        let (collection, _identity) =
+                            resolved.context("missing source collection")?;
+                        Self::from_materialization_binding(index as u16, binding, collection)
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -148,10 +150,11 @@ impl Binding {
     fn from_derivation_transform(
         index: u16,
         spec: &flow::collection_spec::derivation::Transform,
+        collection: &flow::CollectionSpec,
     ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::collection_spec::derivation::Transform {
             backfill: _,
-            collection,
+            collection: _,
             collection_index: _,
             journal_read_suffix,
             lambda_config_json: _,
@@ -178,7 +181,7 @@ impl Binding {
             read_schema_json,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing source collection")?;
+        } = collection;
 
         let partition_template_name = partition_template
             .as_ref()
@@ -244,10 +247,11 @@ impl Binding {
     fn from_materialization_binding(
         index: u16,
         spec: &flow::materialization_spec::Binding,
+        collection: &flow::CollectionSpec,
     ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::materialization_spec::Binding {
             backfill: _,
-            collection,
+            collection: _,
             collection_index: _,
             delta_updates: _,
             deprecated_shuffle: _,
@@ -274,7 +278,7 @@ impl Binding {
             read_schema_json,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing source collection")?;
+        } = collection;
 
         let partition_template_name = partition_template
             .as_ref()
