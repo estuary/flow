@@ -655,6 +655,53 @@ fn decode_checkpoint(
     Ok(Some(checkpoint))
 }
 
+/// Record what a merge binding was handed as a reduction base, and what came back.
+///
+/// Only for non-delta tables, because they are the only ones whose stored value depends
+/// on what `Load` returned: the runtime reduces new documents onto that base and stores
+/// the result. A wrong base is invisible in the delivered *set* and shows up only as a
+/// wrong sum, which is exactly the failure this exists to explain — the merge binding
+/// disagreeing with its collection while the delta binding over the same collection
+/// agrees.
+fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i64) {
+    if table.delta {
+        return;
+    }
+    // Opt-in: this writes two lines per merge-binding document, and a measured run should
+    // not pay for it. Set `FLOW_CONSISTENCY_TRACE_REDUCE=1` in the catalog's connector
+    // environment to investigate a wrong stored sum.
+    if std::env::var_os("FLOW_CONSISTENCY_TRACE_REDUCE").is_none() {
+        return;
+    }
+    let Ok(dir) = std::env::var(crate::protocol::ENV_RUN_DIR) else {
+        return;
+    };
+    let delta = doc.and_then(|doc| {
+        serde_json::from_str::<serde_json::Value>(doc)
+            .ok()
+            .and_then(|v| v.get("balanceDelta").and_then(|d| d.as_i64()))
+    });
+    let seq = doc.and_then(|doc| {
+        serde_json::from_str::<serde_json::Value>(doc)
+            .ok()
+            .and_then(|v| v.get("seq").and_then(|d| d.as_i64()))
+    });
+
+    let line = serde_json::json!({
+        "event": event, "table": table.name, "key": key,
+        "balanceDelta": delta, "seq": seq, "txn": txn, "pid": std::process::id(),
+    });
+
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(std::path::Path::new(&dir).join("reduce.jsonl"))
+    {
+        use std::io::Write;
+        let _ = file.write_all(format!("{line}\n").as_bytes());
+    }
+}
+
 fn load_document(
     session: &mut Session,
     load: materialize::request::Load,
@@ -666,10 +713,23 @@ fn load_document(
 
     let key = std::str::from_utf8(&load.key_json).context("Load key is not UTF-8")?;
 
-    let Some(doc) = session
-        .store
-        .load(session.key_begin, session.key_end, &binding.table, key)?
-    else {
+    let loaded = session.store.load(
+        session.key_begin,
+        session.key_end,
+        &binding.table,
+        key,
+        session.committed_txn,
+    )?;
+
+    trace_reduce(
+        "load",
+        &binding.table,
+        key,
+        loaded.as_deref(),
+        session.staging_txn,
+    );
+
+    let Some(doc) = loaded else {
         return Ok(Vec::new()); // Keys not found MUST be omitted.
     };
 
@@ -709,6 +769,14 @@ fn store_document(session: &mut Session, store: materialize::request::Store) -> 
             .to_string(),
         delete: store.delete,
     };
+
+    trace_reduce(
+        "store",
+        &table,
+        &row.key,
+        Some(&row.doc),
+        session.staging_txn,
+    );
 
     session.stored += 1;
 

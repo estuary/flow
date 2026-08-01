@@ -291,14 +291,16 @@ impl Store {
         key_end: u32,
         table: &Table,
         key: &str,
+        committed_txn: i64,
     ) -> anyhow::Result<Option<String>> {
         let staged: Option<(String, i64)> = self
             .conn
             .query_row(
                 "SELECT doc, del FROM _flow_staged
                  WHERE shard <= ?1 AND shard_end >= ?2 AND tbl = ?3 AND key = ?4
+                   AND txn <= ?5
                  ORDER BY ord DESC LIMIT 1",
-                (key_begin, key_end, &table.name, key),
+                (key_begin, key_end, &table.name, key, committed_txn),
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
@@ -667,7 +669,7 @@ mod test {
 
         assert_eq!(
             store
-                .load(0, u32::MAX, &standard, "[1]")
+                .load(0, u32::MAX, &standard, "[1]", i64::MAX)
                 .unwrap()
                 .as_deref(),
             Some(r#"{"id":1}"#)
@@ -791,7 +793,10 @@ mod test {
             .unwrap();
         assert!(store.apply_staged(0, u32::MAX, 1, true).unwrap());
         assert_eq!(
-            store.load(0, u32::MAX, &table, "[1]").unwrap().as_deref(),
+            store
+                .load(0, u32::MAX, &table, "[1]", i64::MAX)
+                .unwrap()
+                .as_deref(),
             Some(r#"{"balance":10}"#),
         );
 
@@ -801,7 +806,10 @@ mod test {
             .stage(0, u32::MAX, 2, &[(table.clone(), row(r#"{"balance":25}"#))])
             .unwrap();
         assert_eq!(
-            store.load(0, u32::MAX, &table, "[1]").unwrap().as_deref(),
+            store
+                .load(0, u32::MAX, &table, "[1]", i64::MAX)
+                .unwrap()
+                .as_deref(),
             Some(r#"{"balance":25}"#),
             "a Load must reflect staged-but-unapplied writes",
         );
@@ -810,7 +818,7 @@ mod test {
         // whose staged rows still sit under the parent's wider range.
         assert_eq!(
             store
-                .load(0x8000_0000, 0xffff_ffff, &table, "[1]")
+                .load(0x8000_0000, 0xffff_ffff, &table, "[1]", i64::MAX)
                 .unwrap()
                 .as_deref(),
             Some(r#"{"balance":25}"#),
@@ -830,7 +838,7 @@ mod test {
             .unwrap();
         assert_eq!(
             store
-                .load(0, 0x7fff_ffff, &table, "[1]")
+                .load(0, 0x7fff_ffff, &table, "[1]", i64::MAX)
                 .unwrap()
                 .as_deref(),
             Some(r#"{"balance":25}"#),
@@ -838,7 +846,7 @@ mod test {
         );
         assert_eq!(
             store
-                .load(0x8000_0000, 0xffff_ffff, &table, "[1]")
+                .load(0x8000_0000, 0xffff_ffff, &table, "[1]", i64::MAX)
                 .unwrap()
                 .as_deref(),
             Some(r#"{"balance":40}"#),
@@ -862,7 +870,10 @@ mod test {
                 )],
             )
             .unwrap();
-        assert_eq!(store.load(0, u32::MAX, &table, "[1]").unwrap(), None);
+        assert_eq!(
+            store.load(0, u32::MAX, &table, "[1]", i64::MAX).unwrap(),
+            None
+        );
     }
 
     /// Staged work is identified by its whole key range, so a split child can tell an
@@ -959,6 +970,60 @@ mod test {
             "the parent must be fenced by its children"
         );
         assert!(high >= low);
+    }
+
+    /// A merge binding's reduction base must not include a transaction the recovery log
+    /// has not committed.
+    ///
+    /// This is the difference between a wrong stored sum and a correct one. The runtime
+    /// reduces new documents onto whatever `load` returns and stores the result, so if the
+    /// base came from a transaction that is later discarded, the runtime re-delivers those
+    /// documents and reduces them onto a base that already counted them. Nothing is
+    /// missing and nothing is duplicated in the delivered *set* — only the sums are wrong,
+    /// which is why it went unnoticed while every set-based check passed.
+    #[test]
+    fn a_load_excludes_staging_the_log_has_not_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        let table = Table {
+            name: "accounts".to_string(),
+            delta: false,
+        };
+        store.ensure_table(&table).unwrap();
+
+        let row = |doc: &str| Row {
+            binding: 0,
+            key: "[1]".to_string(),
+            doc: doc.to_string(),
+            delete: false,
+        };
+
+        // Transaction 1 committed; transaction 2 is staged but still in flight.
+        store
+            .stage(0, u32::MAX, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
+            .unwrap();
+        store
+            .stage(0, u32::MAX, 2, &[(table.clone(), row(r#"{"balance":99}"#))])
+            .unwrap();
+
+        assert_eq!(
+            store
+                .load(0, u32::MAX, &table, "[1]", 1)
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"balance":10}"#),
+            "the in-flight transaction's write must not become a reduction base",
+        );
+
+        // Once its commit is durable, it is the base.
+        assert_eq!(
+            store
+                .load(0, u32::MAX, &table, "[1]", 2)
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"balance":99}"#),
+        );
     }
 
     /// A join's survivor must adopt no checkpoint, even though a row for its exact
