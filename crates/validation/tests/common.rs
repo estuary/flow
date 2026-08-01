@@ -93,6 +93,37 @@ impl Outcome {
     }
 }
 
+/// Define `$name`, which rewrites the bindings of a live built spec into indirect
+/// form: collections move into a `linked_collections` table which bindings then
+/// name by index. It mimics a task last published under the `indirect-specs` flag.
+///
+/// Entries are ordered by first use rather than by name -- unlike the builder
+/// under test -- so that a spec which copied a live index instead of resolving
+/// through it is caught.
+macro_rules! indirect {
+    ($name:ident, $msg:ty) => {
+        fn $name(spec: &mut $msg) {
+            let mut table: Vec<flow::CollectionSpec> = Vec::new();
+
+            for binding in spec.bindings.iter_mut() {
+                let collection = binding.collection.take().unwrap();
+
+                binding.collection_index = match table.iter().position(|c| *c == collection) {
+                    Some(index) => index as u32,
+                    None => {
+                        table.push(collection);
+                        table.len() as u32 - 1
+                    }
+                };
+            }
+            spec.linked_collections = table;
+        }
+    };
+}
+
+indirect!(indirect_capture, flow::CaptureSpec);
+indirect!(indirect_materialization, flow::MaterializationSpec);
+
 pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     let mut fixture: serde_json::Value = serde_yaml::from_str(fixture_yaml).unwrap();
     let patch: serde_json::Value = serde_yaml::from_str(patch_yaml).unwrap();
@@ -174,7 +205,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             })
             .collect();
 
-        let built_spec = flow::CaptureSpec {
+        let mut built_spec = flow::CaptureSpec {
             name: capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             interval_seconds: 100,
@@ -188,6 +219,9 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             created_at: String::new(),
             linked_collections: Vec::new(),
         };
+        if mock.indirect_specs {
+            indirect_capture(&mut built_spec);
+        }
         live.captures.insert_row(
             capture,
             mock.control_id,
@@ -342,7 +376,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             })
             .collect();
 
-        let built_spec = flow::MaterializationSpec {
+        let mut built_spec = flow::MaterializationSpec {
             name: materialization.to_string(),
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
             network_ports: Vec::new(),
@@ -356,6 +390,9 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             sync_schedule_json: bytes::Bytes::new(),
             linked_collections: Vec::new(),
         };
+        if mock.indirect_specs {
+            indirect_materialization(&mut built_spec);
+        }
         live.materializations.insert_row(
             materialization,
             mock.control_id,
@@ -535,6 +572,10 @@ struct MockLiveCapture {
     last_build_id: Option<models::Id>,
     #[serde(default)]
     bindings: Vec<models::CaptureBinding>,
+    /// Build this live spec in indirect form, as if last published under the
+    /// `indirect-specs` flag.
+    #[serde(default)]
+    indirect_specs: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -566,6 +607,10 @@ struct MockLiveMaterialization {
     bindings: Vec<models::MaterializationBinding>,
     #[serde(default)]
     last_fields: Vec<flow::FieldSelection>,
+    /// Build this live spec in indirect form, as if last published under the
+    /// `indirect-specs` flag.
+    #[serde(default)]
+    indirect_specs: bool,
 }
 
 #[derive(serde::Deserialize)]

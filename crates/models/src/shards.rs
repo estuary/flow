@@ -102,6 +102,17 @@ pub struct ShardTemplate {
 /// label (`labels::RUNTIME_V2_FLAG`) at build time.
 pub const ENABLE_RUNTIME_V2: &str = "enable-runtime-v2";
 
+/// The `indirect-specs` [`ShardTemplate::flags`] key, which asserts that the
+/// task's built spec, its Validate and Apply requests, every hop within the
+/// data plane, *and its connector* all handle indirected collections: a
+/// per-message `linked_collections` table which bindings name by index,
+/// instead of a full `CollectionSpec` inlined in every binding.
+///
+/// The assertion is end-to-end and its only valid value is `"true"`. A
+/// connector which hasn't been updated simply doesn't work with a task that
+/// truly needs this flag -- such tasks don't function today in any case.
+pub const INDIRECT_SPECS: &str = "indirect-specs";
+
 impl ShardTemplate {
     pub fn example() -> Self {
         Self {

@@ -1,0 +1,18 @@
+---
+source: crates/validation/tests/indirect_specs_tests.rs
+assertion_line: 105
+expression: summarize_all(&outcome)
+---
+capture acmeCo/capture:
+  ["one", "a"] => [-] acmeCo/one
+  ["two", "a"] => [-] acmeCo/two
+  ["one", "b"] => [-] acmeCo/one
+  ["one", "c"] => [-] acmeCo/one
+derivation acmeCo/derived:
+  fromOneA => [-] acmeCo/one
+  fromOneB => [-] acmeCo/one
+  fromTwo => [-] acmeCo/two
+materialization acmeCo/materialization:
+  ["m", "one", "by-id"] => [-] acmeCo/one
+  ["m", "one", "by-val"] => [-] acmeCo/one
+  ["m", "one", "also-by-id"] => [-] acmeCo/one

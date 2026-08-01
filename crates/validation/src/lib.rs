@@ -9,6 +9,7 @@ mod derivation;
 mod errors;
 pub mod field_selection;
 mod indexed;
+mod linked;
 mod materialization;
 mod noop;
 mod reference;
@@ -709,6 +710,45 @@ fn validate_resource_paths<'a>(
             rhs_index: r_i,
         }
         .push(scope.push_prop("bindings").push_item(r_i), errors);
+    }
+}
+
+/// Look up an unprefixed shard feature flag by name, returning its value.
+/// `flags` is a task's `shards.flags`; the `estuary.dev/flag/` label prefix is
+/// applied only when shard labels are emitted, not in the model.
+fn flag_value<'a>(
+    flags: &'a std::collections::BTreeMap<models::Token, models::Token>,
+    name: &str,
+) -> Option<&'a str> {
+    flags
+        .iter()
+        .find_map(|(k, v)| (k.as_str() == name).then(|| v.as_str()))
+}
+
+/// Read the `indirect-specs` flag of a task, which asks that its built spec and
+/// Validate request indirect their collections. This crate is the sole
+/// reader of the flag, and the sole writer of indirect form.
+///
+/// The flag is an end-to-end assertion reaching all the way to the connector,
+/// so a value other than `"true"` -- most likely a typo, since disabling is
+/// spelled by omitting the flag -- is an error rather than a silent no-op.
+fn indirect_specs_flag(
+    scope: Scope,
+    flags: &std::collections::BTreeMap<models::Token, models::Token>,
+    errors: &mut tables::Errors,
+) -> bool {
+    match flag_value(flags, models::INDIRECT_SPECS) {
+        None => false,
+        Some("true") => true,
+        Some(value) => {
+            Error::InvalidShardFlagValue {
+                flag: models::INDIRECT_SPECS,
+                value: value.to_string(),
+                expect: "true",
+            }
+            .push(scope.push_prop("shards").push_prop("flags"), errors);
+            false
+        }
     }
 }
 

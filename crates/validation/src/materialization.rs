@@ -1,6 +1,6 @@
 use super::{
-    Connectors, Error, NoOpConnectors, Scope, collection, field_selection, indexed, reference,
-    walk_transition,
+    Connectors, Error, NoOpConnectors, Scope, collection, field_selection, indexed, linked,
+    reference, walk_transition,
 };
 use futures::SinkExt;
 use json::schema::types;
@@ -144,6 +144,8 @@ async fn walk_materialization<C: Connectors>(
         models::Materialization::regex(),
         errors,
     );
+
+    let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
 
     if bindings_model.len() > crate::MAX_BINDINGS {
         Error::TooManyBindings {
@@ -292,14 +294,26 @@ async fn walk_materialization<C: Connectors>(
         return None;
     }
 
-    // Filter to validation requests of active bindings.
+    // Filter to validation requests of active bindings, interning the source
+    // collection of each into the request's shared table. Two bindings of one
+    // collection intern separately if their `group_by` rewrote `key` or
+    // `projections` differently.
+    let mut interner = linked::Interner::default();
     let bindings_validate: Vec<materialize::request::validate::Binding> = bindings
         .iter()
         .filter_map(|(_path, _model, _disable_task, validate)| validate.clone())
+        .map(|mut binding| {
+            let source = binding
+                .collection
+                .take()
+                .expect("active binding resolved its source collection");
+            binding.collection_index = interner.intern(source);
+            binding
+        })
         .collect();
     let bindings_validate_len = bindings_validate.len();
 
-    let validate_request = materialize::request::Validate {
+    let mut validate_request = materialize::request::Validate {
         name: materialization.to_string(),
         connector_type,
         config_json: config_json.clone(),
@@ -312,6 +326,7 @@ async fn walk_materialization<C: Connectors>(
         },
         linked_collections: Vec::new(),
     };
+    linked::install_materialize_validate(&mut validate_request, interner, indirect_specs);
 
     // Send Request.Validate and receive Response.Validated.
     _ = request_tx
@@ -372,6 +387,9 @@ async fn walk_materialization<C: Connectors>(
     let mut bindings_model = Vec::with_capacity(bindings_model_len);
     let mut bindings_spec = Vec::with_capacity(bindings_validate_len);
     let mut n_meta_updated = 0;
+    // Source collections of the built spec, interned into its own table: the
+    // table of the Validate request covers active bindings only.
+    let mut interner = linked::Interner::default();
 
     // Map `bindings` into destructured binding models and built specs.
     for (index, (mut path, mut model, validate_validated)) in bindings.into_iter().enumerate() {
@@ -555,7 +573,7 @@ async fn walk_materialization<C: Connectors>(
         let spec = flow::materialization_spec::Binding {
             resource_config_json,
             resource_path: path.clone(),
-            collection: Some(collection),
+            collection: None,
             partition_selector,
             priority: model.priority,
             field_selection: Some(field_selection),
@@ -567,7 +585,7 @@ async fn walk_materialization<C: Connectors>(
             backfill: model.backfill,
             state_key,
             ser_policy: *ser_policy,
-            collection_index: 0,
+            collection_index: interner.intern(collection),
         };
 
         bindings_path.push(path);
@@ -632,13 +650,16 @@ async fn walk_materialization<C: Connectors>(
     // If `shards.disable` was or has become true, then all live bindings are inactive.
     // Otherwise remove built bindings from `live_bindings_spec`, and the remainder must be inactive.
     let inactive_bindings = if shards.disable {
+        // Discarded active bindings take their interned collections with them,
+        // so that the built table has no entry which no binding references.
         bindings_spec.clear();
-        inactive_bindings(&live_bindings_spec)
+        interner = linked::Interner::default();
+        inactive_bindings(&mut interner, &live_bindings_spec)
     } else {
         for binding in &bindings_spec {
             live_bindings_spec.remove(binding.resource_path.as_slice());
         }
-        inactive_bindings(&live_bindings_spec)
+        inactive_bindings(&mut interner, &live_bindings_spec)
     };
 
     let recovery_log_template = assemble::recovery_log_template(
@@ -687,7 +708,7 @@ async fn walk_materialization<C: Connectors>(
         }
     };
 
-    let spec = flow::MaterializationSpec {
+    let mut spec = flow::MaterializationSpec {
         name: materialization.to_string(),
         connector_type,
         config_json,
@@ -701,6 +722,8 @@ async fn walk_materialization<C: Connectors>(
         sync_schedule_json,
         linked_collections: Vec::new(),
     };
+    linked::install_materialization_spec(&mut spec, interner, indirect_specs);
+
     let model = models::MaterializationDef {
         source: sources,
         target_naming,
@@ -913,6 +936,8 @@ fn walk_materialization_binding<'a>(
         projection.is_primary_key = group_by_fields.contains(&projection.field);
     }
 
+    // The binding inlines its collection while it's detached from a request:
+    // interning happens in `walk_materialization`, which holds the shared table.
     let validate = materialize::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
         collection: Some(source_spec),
@@ -926,21 +951,23 @@ fn walk_materialization_binding<'a>(
 }
 
 /// Carry live bindings over as inactive bindings of the spec being built,
-/// re-inlining each resolved collection: an index into the *live* spec's
-/// table is meaningless in the spec we're building, so it's never copied
-/// across generations.
+/// re-interning each resolved collection into `interner`: an index into the
+/// *live* spec's table is meaningless in the spec we're building, so it's never
+/// copied across generations. A binding whose collection doesn't resolve is
+/// dropped, as the live spec which gave it meaning is malformed.
 fn inactive_bindings(
+    interner: &mut linked::Interner,
     live_bindings_spec: &LiveBindings,
 ) -> Vec<flow::materialization_spec::Binding> {
     live_bindings_spec
         .values()
-        .map(
-            |(binding, collection)| flow::materialization_spec::Binding {
-                collection: collection.map(Clone::clone),
-                collection_index: 0,
+        .filter_map(|(binding, collection)| {
+            Some(flow::materialization_spec::Binding {
+                collection: None,
+                collection_index: interner.intern_ref((*collection)?),
                 ..(*binding).clone()
-            },
-        )
+            })
+        })
         .collect()
 }
 

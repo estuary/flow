@@ -1,0 +1,17 @@
+---
+source: crates/validation/tests/indirect_specs_tests.rs
+assertion_line: 156
+expression: summarize_all(&outcome)
+---
+capture acmeCo/capture:
+  [0] acmeCo/one key=["/id"]
+  [1] acmeCo/one key=[]
+  [2] acmeCo/two key=[]
+  ["one", "a"] => [0] acmeCo/one
+  ["one", "b"] => [1] acmeCo/one
+  ["two", "a"] => [2] acmeCo/two
+materialization acmeCo/materialization:
+  [0] acmeCo/one key=["/id"]
+  [1] acmeCo/two key=[]
+  ["m", "one"] => [0] acmeCo/one
+  ["m", "two"] => [1] acmeCo/two
