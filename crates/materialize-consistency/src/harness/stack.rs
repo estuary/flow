@@ -103,19 +103,35 @@ impl Stack {
     /// publish retry can act on.
     const INVOCATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(150);
 
+    /// For invocations whose duration scales with how much data a run produced,
+    /// rather than with how busy the control plane is.
+    ///
+    /// Reading a collection scans the whole thing, so its cost grows with every
+    /// document the workload wrote — and the scenarios that run longest write the
+    /// most. One blanket bound failed `join-after-split` on exactly that: a
+    /// `collections read` of the collection it had spent 270 seconds filling took
+    /// longer than a publish ever would, and 150s cut it off.
+    const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
     async fn run(&self, args: &[&str]) -> anyhow::Result<String> {
-        let output = tokio::time::timeout(
-            Self::INVOCATION_TIMEOUT,
-            async_process::output(self.command().args(args)),
-        )
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "flowctl {args:?} did not return within {}s",
-                Self::INVOCATION_TIMEOUT.as_secs(),
-            )
-        })?
-        .with_context(|| format!("running flowctl {args:?}"))?;
+        self.run_bounded(args, Self::INVOCATION_TIMEOUT).await
+    }
+
+    async fn run_bounded(
+        &self,
+        args: &[&str],
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<String> {
+        let output =
+            tokio::time::timeout(timeout, async_process::output(self.command().args(args)))
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "flowctl {args:?} did not return within {}s",
+                        timeout.as_secs(),
+                    )
+                })?
+                .with_context(|| format!("running flowctl {args:?}"))?;
 
         if !output.status.success() {
             anyhow::bail!(
@@ -281,14 +297,17 @@ impl Stack {
     /// tail-truncated materialization is internally consistent.
     pub async fn read_collection(&self, collection: &str) -> anyhow::Result<Vec<Event>> {
         let stdout = self
-            .run(&[
-                "collections",
-                "read",
-                "--collection",
-                collection,
-                "-o",
-                "json",
-            ])
+            .run_bounded(
+                &[
+                    "collections",
+                    "read",
+                    "--collection",
+                    collection,
+                    "-o",
+                    "json",
+                ],
+                Self::READ_TIMEOUT,
+            )
             .await
             .with_context(|| format!("reading collection {collection}"))?;
 
@@ -406,8 +425,18 @@ impl Stack {
             cmd.arg("--delta");
         }
 
-        let output = async_process::output(&mut cmd)
+        // Bounded for the same reason as a collection read, and separately, because
+        // this spawns the connector rather than flowctl: a connector that hangs
+        // reading its own destination would otherwise sit under every deadline the
+        // scenario has.
+        let output = tokio::time::timeout(Self::READ_TIMEOUT, async_process::output(&mut cmd))
             .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "the connector did not finish reading {table} within {}s",
+                    Self::READ_TIMEOUT.as_secs(),
+                )
+            })?
             .with_context(|| format!("reading destination resource {table}"))?;
 
         anyhow::ensure!(
