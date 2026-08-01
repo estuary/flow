@@ -200,17 +200,6 @@ impl Stack {
         Ok(())
     }
 
-    /// Delete a task's ops log and stats journal partitions.
-    ///
-    /// See `harness::cleanup` for why this is necessary and why it must run before the
-    /// task's specification is deleted.
-    pub async fn delete_ops_journals(&self, task: &str) -> anyhow::Result<()> {
-        self.run(&["raw", "delete-ops-journals", "--task", task])
-            .await
-            .with_context(|| format!("deleting ops journals of {task}"))?;
-        Ok(())
-    }
-
     /// Every shard of a task, as the data plane reports it.
     pub async fn shards(
         &self,

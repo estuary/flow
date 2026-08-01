@@ -20,7 +20,6 @@ mod shards;
 mod spec;
 mod join_shards;
 mod split_shards;
-mod delete_ops_journals;
 mod unassign_shards;
 
 #[derive(Debug, clap::Args)]
@@ -82,8 +81,6 @@ pub enum Command {
     JoinShards(join_shards::Join),
     /// Unassign a task's failed shards, so they can be scheduled again.
     UnassignShards(unassign_shards::Unassign),
-    /// Delete a task's ops log and stats journal partitions.
-    DeleteOpsJournals(delete_ops_journals::DeleteOpsJournals),
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
@@ -242,9 +239,6 @@ impl Advanced {
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::SplitShards(split) => split_shards::do_split(ctx, split).await,
             Command::JoinShards(join) => join_shards::do_join(ctx, join).await,
-            Command::DeleteOpsJournals(args) => {
-                delete_ops_journals::do_delete_ops_journals(ctx, args).await
-            }
             Command::UnassignShards(unassign) => {
                 unassign_shards::do_unassign(ctx, unassign).await
             }

@@ -299,22 +299,6 @@ pub fn sink_disabled(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
     Ok(catalog)
 }
 
-/// The scenario's catalog with every task disabled.
-///
-/// Used at cleanup, so that nothing is still writing when the run's ops journals are
-/// deleted — a live task would recreate its logs partition immediately.
-pub fn all_disabled(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
-    let mut catalog = build(plan)?;
-
-    for def in catalog.materializations.values_mut() {
-        def.shards.disable = true;
-    }
-    for def in catalog.captures.values_mut() {
-        def.shards.disable = true;
-    }
-    Ok(catalog)
-}
-
 fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef> {
     let mut env = std::collections::BTreeMap::new();
     env.insert(

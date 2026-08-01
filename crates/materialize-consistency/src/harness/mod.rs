@@ -185,9 +185,15 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
     // Clean up whether or not the scenario passed, so repeated runs do not
     // accumulate debris. The run directory is left behind on failure: its trace is
     // the only record of what the shim actually did.
-    if let Err(err) = cleanup(&stack, &names, &plan).await {
-        tracing::error!(%err, prefix = %names.prefix, "failed to clean up the run's tasks");
+    if let Err(err) = stack.delete_prefix(&names.prefix).await {
+        tracing::error!(%err, prefix = %names.prefix, "failed to delete the run's tasks");
     }
+
+    // The run's ops log and stats partitions outlive its specifications, and nothing
+    // here can remove them: they live under `ops/`, and a task-scoped authorization does
+    // not reach that far. `mise run ci:consistency` purges them against etcd before each
+    // suite run, which is the only level with the access. See that task for why the leak
+    // matters — it saturated the broker allocator once and cost a whole run.
 
     let outcome = result?;
 
@@ -557,46 +563,6 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
 /// Polled rather than done once: the unassign has to land *after* the shard has
 /// reached FAILED, and a fault fires a moment before that. Retrying is simpler and
 /// more robust than trying to observe that transition.
-/// Remove everything the run created: its ops journals, then its specifications.
-///
-/// The order matters, and so does the disable that precedes it.
-///
-/// Deleting a task's specification does not remove its ops log and stats journal
-/// partitions. Those are partitions of the data plane's shared ops collections, one
-/// pair per task, and they outlive the task — so a suite that publishes and deletes
-/// three tasks per scenario, twice per scenario, leaks about two hundred journals per
-/// full run. That is not cosmetic: at around fourteen hundred of them this data plane's
-/// four brokers ran out of assignment slots and newly published journals got no primary
-/// broker at all, so every scenario failed waiting for a capture that had published
-/// fine and could never append. A whole suite run was lost to it before the cause was
-/// found, and the symptom points at the connector rather than at the leak.
-///
-/// The ops journals have to go *before* the specifications, because their names are
-/// resolved from the task's authorization and a deleted task cannot be authorized. And
-/// the tasks have to be disabled before that, or a still-running task simply writes its
-/// logs partition straight back.
-async fn cleanup(
-    stack: &stack::Stack,
-    names: &catalog::Names,
-    plan: &catalog::Plan<'_>,
-) -> anyhow::Result<()> {
-    // Best-effort: a scenario that never got as far as publishing has nothing to
-    // disable, and the deletion below is what actually matters.
-    if let Err(err) = stack.publish(&catalog::all_disabled(plan)?).await {
-        tracing::debug!(%err, "could not disable the run's tasks before cleaning up");
-    }
-
-    for task in [&names.source_merged, &names.source_log, &names.sink] {
-        if let Err(err) = stack.delete_ops_journals(task).await {
-            // Not fatal, and reported at warn: the leak is slow enough that one run's
-            // worth is harmless, and failing cleanup would discard a good result.
-            tracing::warn!(%err, %task, "could not delete the task's ops journals");
-        }
-    }
-
-    stack.delete_prefix(&names.prefix).await
-}
-
 /// Take the task down and bring it back, for a fault that failed the whole task
 /// rather than one shard.
 ///

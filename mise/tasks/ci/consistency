@@ -27,6 +27,61 @@ if [ ! -x "$(flow_repo_root)/.venv/bin/python" ]; then
     poetry install --no-root
 fi
 
+# Purge ops journals of scenario tasks that no longer exist.
+#
+# A task's ops log and stats partitions are not deleted when its specification is —
+# they belong to the data plane's shared `ops/tasks/...` collections — so this suite
+# leaks a pair per task, about two hundred per full run. That is not cosmetic: at
+# roughly fourteen hundred partitions this data plane's four brokers ran out of
+# assignment slots, newly published journals got no primary broker at all, and every
+# scenario failed waiting for a capture that had published fine and could never
+# append. One whole suite run was lost to it, and every symptom pointed at the
+# connector rather than at the leak.
+#
+# Done here, against etcd, rather than in the harness, because a task-scoped
+# authorization cannot reach these: `user_task_admin` authorizes a journal client for
+# the task's own prefix, while ops journals live under `ops/`, which no grant available
+# to the test user covers. Four attempts to do it through `flowctl` silently matched
+# nothing for that reason. A local stack's own test suite may tidy its own data plane;
+# a connector-facing tool may not, and should not.
+#
+# The right long-term fix is for the control plane to delete a task's ops partitions
+# when it deletes the task. Until then this keeps the suite from degrading itself.
+purge_orphan_ops_journals() {
+    local root="/gazette/${FLOW_CLUSTER}"
+    local endpoint="localhost:${FLOW_PORT_ETCD}"
+
+    # Tasks the suite currently has published. Anything else naming this tenant's
+    # consistency prefix is debris from a finished run.
+    local live
+    live=$(psql "${FLOW_PG_URL}" -tAc \
+        "SELECT catalog_name FROM live_specs WHERE catalog_name LIKE '${FLOW_TEST_TENANT}/consistency/%'" \
+        | sed 's|/|%2F|g')
+
+    local keys
+    keys=$(ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" get --prefix --keys-only \
+        "${root}/items/ops/tasks" 2>/dev/null | grep "${FLOW_TEST_TENANT}%2Fconsistency%2F" || true)
+
+    local removed=0
+    local key rel name
+    for key in ${keys}; do
+        # The partition's `name=` path segment holds the task, URL-encoded.
+        name=$(printf '%s' "${key}" | sed -n 's|.*/name=\([^/]*\)/.*|\1|p')
+        if [ -n "${name}" ] && printf '%s\n' "${live}" | grep -qxF "${name}"; then
+            continue # Still published; its partitions are in use.
+        fi
+
+        rel=${key#"${root}/items/"}
+        ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del "${key}" >/dev/null 2>&1
+        ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del --prefix "${root}/assign/${rel}" >/dev/null 2>&1
+        removed=$((removed + 1))
+    done
+
+    if [ "${removed}" -gt 0 ]; then
+        echo "Purged ${removed} ops journal(s) of finished scenario tasks."
+    fi
+}
+
 echo "Provisioning the test tenant..."
 mise run local:test-tenant
 source "${FLOW_STACK_DIR}/test-tenant-test.env" # Default tenant is 'test'.
@@ -64,6 +119,8 @@ if [ "${WARM_CODE}" != "200" ]; then
     echo "       Shard splits and crash recovery both need it; see the grant above." >&2
     exit 1
 fi
+
+purge_orphan_ops_journals
 
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
 
