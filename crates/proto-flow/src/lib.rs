@@ -5,6 +5,7 @@ pub mod capture;
 pub mod derive;
 pub mod flow;
 mod internal;
+pub mod linked;
 pub mod materialize;
 pub mod ops;
 pub mod runtime;
