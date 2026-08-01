@@ -26,13 +26,14 @@ impl super::Reader for StreamingReader {
         derivation: &flow::CollectionSpec,
         resume: consumer::Checkpoint,
     ) -> Self::Stream {
-        let transforms = &derivation.derivation.as_ref().unwrap().transforms;
-
-        let index = transforms
-            .iter()
+        let index = derivation
+            .derivation
+            .as_ref()
+            .unwrap()
+            .resolved_transforms()
             .enumerate()
-            .map(|(index, t)| {
-                let collection = t.collection.as_ref().unwrap();
+            .map(|(index, (_transform, resolved))| {
+                let (collection, _identity) = resolved.unwrap();
                 (
                     collection.name.clone(),
                     (index, json::Pointer::from_str(&collection.uuid_ptr)),
@@ -60,11 +61,10 @@ impl super::Reader for StreamingReader {
         resume: consumer::Checkpoint,
     ) -> Self::Stream {
         let index = materialization
-            .bindings
-            .iter()
+            .resolved_bindings()
             .enumerate()
-            .map(|(index, t)| {
-                let collection = t.collection.as_ref().unwrap();
+            .map(|(index, (_binding, resolved))| {
+                let (collection, _identity) = resolved.unwrap();
                 (
                     collection.name.clone(),
                     (index, json::Pointer::from_str(&collection.uuid_ptr)),
