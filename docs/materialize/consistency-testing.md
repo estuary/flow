@@ -363,16 +363,15 @@ a snapshot would add a stale artifact without adding information.
 | Workload published once per stack | Workload published per run | The spec's model leaves no quiescent moment to read, and per-run is strictly more isolated |
 | Link `gazette`/`labels` to drive splits | Shell out to `flowctl raw split-shards`, and a new `join-shards` | Splitting already existed as a subcommand that refuses non-V2 tasks and returns a status rather than text to parse. Joining did not exist, and was added beside it rather than reimplemented here — see below |
 
-## Findings from the reconfiguration scenarios
+## Rules the reference connector obeys
 
-The shard-split and join scenarios were the last to work, and getting them to run
-surfaced more than they were written to check. One lead remains open at the bottom.
+Two rules govern the post-commit-apply class, and both are load-bearing rather than
+stylistic: a connector of this class that breaks either delivers a destination that
+disagrees with its own collection while every delivered row looks correct.
 
-**`split-during-commit` — one root cause found and fixed, one still open.**
+### A `Load` must see staged writes, including an ancestor's
 
-### Found: a `Load` must see staged writes, including an ancestor's
-
-The proof is one account from a failing run's `evidence.json`. Same collection, same
+What establishes it, from one account's `evidence.json`. Same collection, same
 transactions, two bindings:
 
 | binding | value | uses `Load`? |
@@ -407,15 +406,16 @@ Own-shard-only fails because a split child's inherited keys have their staged ro
 the *parent's* wider range. Containment admits ancestors and excludes siblings, which is
 the correct rule — sibling ranges never contain one another.
 
-### Found: apply every committed-but-unapplied transaction, not just the newest
+### Recovery applies every committed-but-unapplied transaction, not just the newest
 
-`acknowledge` applied only `committed_txn`, the newest, while `discard_staged_after`
-removes only transactions *after* it. A transaction staged and log-committed but never
-acknowledged, with a newer one behind it, is therefore neither applied nor discarded —
-it leaks permanently. A split fences the parent mid-flight, which is exactly how two of
-them pile up.
+`acknowledge` must apply *every* staged transaction at or below `committed_txn`, not only
+that transaction itself, because `discard_staged_after` removes only transactions *after*
+it. A transaction that is staged and log-committed but never acknowledged, with a newer one
+behind it, would otherwise be neither applied nor discarded — it would leak permanently. A
+split fences the parent mid-flight, which is precisely how two of them come to pile up.
 
-Counting located it where reasoning had not. The shim's trace records documents Stored
+The measurement that establishes this is worth keeping as a technique. The shim's trace
+records documents Stored
 per binding, and comparing that against the destination gave, over three failing runs:
 
 | Stored | delivered | in the collection |
@@ -516,8 +516,8 @@ it makes the limitation's consequences the safer of the two.
 
 **Why only one scenario is marked.** `split-during-commit` stalls `StartCommit` and splits
 inside the stall, which reaches the window reliably. A *crash* cannot be aimed at that window
-as directly, and the attempts to do so produced three findings worth recording on their own —
-see "Crashing a split shard" below.
+as directly; see "Crashing a split shard" for how the counted-channel scenarios are aimed
+instead.
 
 **What passes anyway.** A split with no transaction in flight is survived cleanly: the
 counted-channel class passed three consecutive runs across a split of 1196, 1458 and 1498
@@ -571,22 +571,6 @@ So `split-during-commit` against the post-commit-apply class is testing somethin
 class cannot do. The options are to pair the scenario with a connector class that can
 (document-counter), or to keep it as a declared exemption with this reasoning attached.
 Either way it should not be silently made green.
-
-### Open: the paired defect no longer bites
-
-`IgnoreKeyRange` makes both shards claim the *identical* full range, so containment
-admits them to each other's staging and repairs part of the damage the defect exists to
-cause. The scenario needs a defect containment cannot repair — `DropDocuments` is the
-obvious candidate — but re-pairing it while the clean half still fails would only hide
-the open bug above.
-
-**`join-after-split` — the task does not resume committing after the join.** The
-join itself applies correctly (verified by hand: two shards collapse to one covering
-the full range, and the survivor keeps its ID). What is unresolved is recovery
-afterwards: the runner's unassign-until-progress loop times out. A join deletes a
-shard while the survivor widens, so the likely candidates are the departing shard's
-assignment lingering, or the survivor needing to re-open before it will commit under
-its new range.
 
 ## Deferred
 
@@ -650,34 +634,32 @@ that is also shard zero — it owns half the keyspace and holds the recovery log
 stateless: no recovery log, its state arriving by leader broadcast, so it is rebuilt from
 nothing rather than replayed from a log.
 
-Three things had to be got wrong before these scenarios said anything.
+Three properties shape how these scenarios are written, and each is a constraint rather
+than a preference.
 
-**A split alone perturbs nothing this class can get wrong.** It lands at a transaction
-boundary, so nothing is replayed, so no channel has anything to skip — and skipping is the
-whole of the counted-channel's behaviour. A split-only scenario was paired with
-`drop-document-counter` and then with `ignore-key-range`, and each time the clean run passed
-*and the defective run passed too*, three runs each. The fault has to create a replay before
-either defect has anything to get wrong. This is exactly what the paired-defect rule exists
-to catch: without it, the scenario would have been counted as coverage.
+**A split alone perturbs nothing a counted channel can get wrong.** It lands at a
+transaction boundary, so nothing is replayed, so no channel has anything to skip — and
+skipping is the whole of the class's behaviour. Both scenarios therefore inject a crash as
+well: without a replay, a defect about skipping wrongly has no opportunity to misbehave,
+and the scenario would pass in both halves while establishing nothing.
 
-**A fault cannot be aimed after a membership change by occurrence count.** `arm_after` counts
-a session's own committed transactions, and a split child starts at zero, so any threshold low
-enough for a child to reach is one the pre-split parent reaches first. A crash keyed that way
-fires in the parent while the split is being applied, kills the shard, and the split never
-lands — three runs deadlocked that way with no child range in the trace. Hence
-`ShardTarget`, which selects the shard by its range rather than by when it got there.
+**A fault cannot be aimed after a membership change by occurrence count.** `arm_after`
+counts a session's own committed transactions, and a split child's count starts at zero, so
+any threshold low enough for a child to reach is one the pre-split parent reaches first — the
+fault lands before the split rather than after it, and a crash there kills the shard while
+the split is still being applied, so the split never lands at all. `ShardTarget` selects the
+shard by its *range* instead, which is a property the session has at `Open` rather than one
+it accumulates.
 
-**Either shard's death fails the whole task, not just its own shard.** Whichever one dies, the
-survivor reports `expected leader message ... unexpected EOF` and the task goes down. Measured
-in both directions: a crash confirmed in `00000000-7fffffff` still left the run waiting out
-its deadline for a primary. Repeatedly unassigning the failed shards — a 5-second loop for
-three minutes — brought the task back only about two runs in three. So both scenarios set
-`restart_after_fault`, which disables the materialization to tear its shards down and
-republishes to build them again. A restart, not a reschedule, and what an operator would do.
+**Either shard's death fails the whole task, not just its own shard.** Whichever one dies,
+the survivor reports `expected leader message ... unexpected EOF`. Unassigning the failed
+shards is not a reliable remedy for that — it restores the task about two runs in three — so
+`harness::recover` escalates after a third of its budget to republishing the task disabled
+and then enabled, which tears the shards down and rebuilds them from the recovery log. A
+restart rather than a reschedule, and what an operator would do.
 
-The remaining honest gap: whether a V2 task *should* need a republish to survive a connector
-crash in a split shard is a question about the runtime, not about a connector. This suite now
-measures it either way.
+Whether a V2 task *should* need a republish to survive a connector crash in a split shard is
+a question about the runtime rather than about a connector. The suite measures it either way.
 
 ### Any split scenario inherits the prepared-transaction gap
 
@@ -715,41 +697,3 @@ pass whenever the race falls the other way — three consecutive runs at 4827, 4
 5677 documents. A failure showing duplicates and no losses in a scenario that splits is
 this gap, not a connector defect; the same runtime guarantee closes all of them.
 
-### An open defect: a merge binding's sums, once
-
-`replayed-acknowledge` failed its clean run once with 85 oracle-agreement violations, and
-the cause is not yet known. It is recorded here rather than left in a tracker because the
-signature is precise and whoever meets it next should not have to re-derive it.
-
-What was measured, from one failing run:
-
-| | |
-|---|---|
-| log binding | 610 of 610, no losses, no duplicates |
-| merged **delta** binding, summed per account | correct for **40 of 40** |
-| merged **standard** binding | correct for **12 of 40** |
-| errors | both directions — one account off by 1, another short by 305, another over by 292 |
-
-Both merged bindings are written from the same `Store` requests in one transaction, so
-delivery is correct and the stored *value* is wrong. A standard binding holds the
-runtime-reduced document, reduced onto whatever `Load` returned, so the fault is in the
-load-and-reduce path — and the delta binding staying exact is consistent with that,
-because it never consults a base.
-
-Ruled out so far: staged rows surviving a non-idempotent apply (the clean path always
-deletes); `staged_txns` ordering (it orders by transaction); `write_rows` upsert semantics;
-Load and Store disagreeing about a key (both use `key_json`); and a reduction base drawn
-from uncommitted staging, which was a real defect, is fixed, and did *not* fix this — the
-failure occurred with that fix in place, verified by timestamp.
-
-It has not reproduced since: fifteen consecutive passes, of which seven are full-suite
-runs. A three-scenario subset intended to reproduce the concurrency cheaply produced four
-clean runs and disproved the assumption that concurrency alone is the trigger.
-
-The tool for the next occurrence is in place. Setting `FLOW_CONSISTENCY_TRACE_REDUCE=1` in
-the connector's environment records, per merge-binding key, the base each `Load` returned
-and the value each `Store` wrote, with the connector's pid and transaction. The invariant
-to check is that a `load`'s base equals the preceding `store`'s value for that key; the
-first violation is the fault, and a pid change at that point would implicate an unplanned
-restart. It is off by default because it writes two lines per merge-binding document and
-one scenario's trace reached 61 MB.

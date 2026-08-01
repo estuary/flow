@@ -432,9 +432,9 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
 /// The split alone perturbs nothing worth checking: it lands at a transaction
 /// boundary, so nothing is replayed, so no channel has anything to skip — and
 /// skipping is the whole of this class's behaviour. Both `drop-document-counter` and
-/// `ignore-key-range` were paired with a split-only scenario in turn, and each time
-/// the clean run passed and the defective run passed too, over three runs each. The
-/// fault has to create a replay for either defect to have anything to get wrong.
+/// `ignore-key-range` are invisible to a split-only scenario, which passes in both halves
+/// and establishes nothing. The fault has to create a replay for either defect to have
+/// anything to get wrong.
 ///
 /// Neither is the prepared-transaction window: the split has fully landed before the
 /// crash in both, so a correct connector recovers and the limitation recorded in the

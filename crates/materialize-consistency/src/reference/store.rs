@@ -976,11 +976,11 @@ mod test {
     /// has not committed.
     ///
     /// This is the difference between a wrong stored sum and a correct one. The runtime
-    /// reduces new documents onto whatever `load` returns and stores the result, so if the
-    /// base came from a transaction that is later discarded, the runtime re-delivers those
-    /// documents and reduces them onto a base that already counted them. Nothing is
-    /// missing and nothing is duplicated in the delivered *set* — only the sums are wrong,
-    /// which is why it went unnoticed while every set-based check passed.
+    /// reduces new documents onto whatever `load` returns and stores the result, so a base
+    /// from a transaction that is later discarded means the runtime re-delivers those
+    /// documents and reduces them onto a base that already counted them. Nothing is missing
+    /// and nothing is duplicated in the delivered *set* — only the sums are wrong, so every
+    /// set-based check still passes.
     #[test]
     fn a_load_excludes_staging_the_log_has_not_committed() {
         let dir = tempfile::tempdir().unwrap();
@@ -1026,12 +1026,11 @@ mod test {
         );
     }
 
-    /// A join's survivor must adopt no checkpoint, even though a row for its exact
-    /// range exists — that row belongs to the pre-split parent and its close-clock
-    /// comes from a history the split superseded. Handing it to the runtime is
-    /// rejected as `connector_checkpoint has clock ... which doesn't match Recover's
-    /// committed_close or hinted_close`, and the shard crash-loops instead of
-    /// resuming. This is what wedged `join-after-split` for 33 restarts.
+    /// A join's survivor must adopt no checkpoint, even though a row for its exact range
+    /// exists — that row belongs to the pre-split parent and its close-clock comes from a
+    /// history the split superseded. The runtime rejects such a checkpoint outright
+    /// (`connector_checkpoint has clock ... which doesn't match Recover's committed_close
+    /// or hinted_close`) and the shard then crash-loops rather than resuming.
     #[test]
     fn a_join_survivor_adopts_no_checkpoint() {
         let dir = tempfile::tempdir().unwrap();
