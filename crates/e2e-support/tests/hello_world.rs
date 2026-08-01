@@ -53,8 +53,8 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         .as_ref()
         .expect("built collection should have a spec");
 
-    let binding = publisher::Binding::from_collection_spec(collection_spec)
-        .expect("should build binding from collection spec");
+    let target = publisher::Target::from_collection_spec(collection_spec)
+        .expect("should build target from collection spec");
 
     let factory: gazette::journal::ClientFactory = Arc::new({
         let journal_client = journal_client.clone();
@@ -64,7 +64,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
     // Create a Publisher with deterministic identity for reproducible snapshots.
     let mut publisher = publisher::Publisher::new(
         String::new(), // No AuthZ subject.
-        vec![binding],
+        vec![target],
         factory,
         uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]),
         uuid::Clock::UNIX_EPOCH,
@@ -118,7 +118,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         .expect("ACK write should succeed");
 
     // Snapshot the partition listing from the Publisher's own watch.
-    let (_client, partitions) = publisher.mapped_binding_client(0);
+    let (_client, partitions) = publisher.mapped_target_client(0);
     let partitions_watch = partitions.ready().await;
     let splits = partitions_watch.token();
     let splits = splits.result().expect("partitions should be available");

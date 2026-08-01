@@ -146,18 +146,18 @@ impl PublisherFactory for JournalPublisherFactory {
         stats_journal: &str,
         collection_specs: &[&proto_flow::flow::CollectionSpec],
     ) -> anyhow::Result<JournalPublisher> {
-        let mut bindings = Vec::with_capacity(collection_specs.len() + 1);
+        let mut targets = Vec::with_capacity(collection_specs.len() + 1);
 
-        // Binding zero is the fixed ops-stats journal.
-        bindings.push(publisher::Binding::for_fixed_journal(stats_journal));
+        // Target zero is the fixed ops-stats journal.
+        targets.push(publisher::Target::for_fixed_journal(stats_journal));
 
         for spec in collection_specs {
-            bindings.push(publisher::Binding::from_collection_spec(spec)?);
+            targets.push(publisher::Target::from_collection_spec(spec)?);
         }
 
         let mut publisher = publisher::Publisher::new(
             authz_subject,
-            bindings,
+            targets,
             self.client_factory.clone(),
             producer,
             uuid::Clock::zero(),
@@ -216,14 +216,14 @@ impl Publisher for JournalPublisher {
         mut doc: doc::OwnedNode,
         uuid_ptr: &json::Pointer,
     ) -> tonic::Result<usize> {
-        // Publisher binding zero is reserved for the fixed ops stats journal.
-        let publisher_binding = binding_index + 1;
+        // Publisher target zero is reserved for the fixed ops stats journal.
+        let publisher_target = binding_index + 1;
         let (_, bytes_written) = self
             .0
             .enqueue_owned(
                 |uuid| {
                     patch_document_uuid(&mut doc, uuid_ptr, uuid)?;
-                    Ok((publisher_binding, doc))
+                    Ok((publisher_target, doc))
                 },
                 uuid::Flags::CONTINUE_TXN,
             )
@@ -239,7 +239,7 @@ impl Publisher for JournalPublisher {
         &mut self,
         binding_index: usize,
     ) -> tonic::Result<Option<(uuid::Producer, uuid::Clock, Vec<String>)>> {
-        // Task-binding index `i` maps to publisher binding `i + 1` (binding 0 is
+        // Task-binding index `i` maps to publisher target `i + 1` (target 0 is
         // the fixed ops-stats journal), mirroring `publish_doc`.
         Ok(Some(self.0.marker_commit(binding_index + 1).await?))
     }
