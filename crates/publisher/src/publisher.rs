@@ -5,15 +5,10 @@ use proto_gazette::{broker, uuid};
 /// Publisher is responsible for transactional publishing of documents to
 /// journal partitions, creating partitions on-demand and as needed.
 pub struct Publisher {
-    // Re-useable Appenders for binding journals.
+    // Re-useable Appenders for target journals.
     appenders: super::AppenderGroup,
     // Subject used to scope journal authorizations.
     authz_subject: String,
-    // Bindings of this Publisher.
-    bindings: Vec<super::Binding>,
-    // Lazily-initialized journal Client (and, for Mapped bindings, partitions
-    // watch) for each `bindings` entry.
-    binding_clients: Vec<super::LazyBindingClient>,
     // Factory for building journal Clients on demand.
     client_factory: gazette::journal::ClientFactory,
     // Clock used to stamp published document UUIDs.
@@ -24,48 +19,53 @@ pub struct Publisher {
     prefix_buf: String,
     // Producer used to stamp published document UUIDs.
     producer: uuid::Producer,
+    // Lazily-initialized journal Client (and, for Mapped targets, partitions
+    // watch) for each `targets` entry.
+    target_clients: Vec<super::LazyTargetClient>,
+    // Journal destinations of this Publisher.
+    targets: Vec<super::Target>,
 }
 
 impl Publisher {
-    /// Create a new Publisher for the given bindings, producer identity, and clock.
+    /// Create a new Publisher for the given targets, producer identity, and clock.
     ///
-    /// `client_factory` is used to build lazy per-binding journal clients
-    /// (one per entry of `bindings`), and to build ephemeral clients inside
-    /// `write_intents` for ACK intents that do not match any current binding.
+    /// `client_factory` is used to build lazy per-target journal clients
+    /// (one per entry of `targets`), and to build ephemeral clients inside
+    /// `write_intents` for ACK intents that do not match any current target.
     /// `authz_subject` is passed through to this factory without modification,
-    /// and a binding's `authz_object()` is the AuthZ object.
+    /// and a target's `authz_object()` is the AuthZ object.
     ///
     /// The `producer` identifies this Publisher as a distinct writer and is
     /// embedded in every UUID it generates. The `clock` provides a monotonic
     /// timestamp for ordering documents within this producer's stream.
     pub fn new(
         authz_subject: String,
-        bindings: Vec<super::Binding>,
+        targets: Vec<super::Target>,
         client_factory: gazette::journal::ClientFactory,
         producer: uuid::Producer,
         clock: uuid::Clock,
     ) -> Self {
-        let binding_clients = bindings
+        let target_clients = targets
             .iter()
-            .map(|b| {
+            .map(|t| {
                 let factory = client_factory.clone();
                 let authz_subject = authz_subject.clone();
-                let authz_object = b.authz_object().to_string();
+                let authz_object = t.authz_object().to_string();
 
-                match b {
-                    super::Binding::Mapped(_) => {
+                match t {
+                    super::Target::Mapped(_) => {
                         let init: crate::MappedClientInit = Box::new(move || {
                             let client = factory(authz_subject, authz_object.clone());
                             let partitions =
                                 crate::watch::watch_partitions(client.clone(), &authz_object);
                             (client, partitions)
                         });
-                        super::LazyBindingClient::Mapped(std::sync::LazyLock::new(init))
+                        super::LazyTargetClient::Mapped(std::sync::LazyLock::new(init))
                     }
-                    super::Binding::Fixed(_) => {
+                    super::Target::Fixed(_) => {
                         let init: crate::FixedClientInit =
                             Box::new(move || factory(authz_subject, authz_object));
-                        super::LazyBindingClient::Fixed(std::sync::LazyLock::new(init))
+                        super::LazyTargetClient::Fixed(std::sync::LazyLock::new(init))
                     }
                 }
             })
@@ -74,13 +74,13 @@ impl Publisher {
         Self {
             appenders: super::AppenderGroup::new(),
             authz_subject,
-            binding_clients,
-            bindings,
             client_factory,
             clock,
             packed_key_buf: bytes::BytesMut::new(),
             prefix_buf: String::new(),
             producer,
+            target_clients,
+            targets,
         }
     }
 
@@ -100,9 +100,9 @@ impl Publisher {
     /// Enqueue a document for publication to the appropriate journal partition.
     ///
     /// Assigns a UUID with the given `flags` and passes it to `doc`, which
-    /// returns `(binding_index, document)`. For Mapped bindings the document
+    /// returns `(target_index, document)`. For Mapped targets the document
     /// is mapped to a physical partition (creating one if needed, which may
-    /// issue an Apply RPC). For Fixed bindings the binding's journal is used
+    /// issue an Apply RPC). For Fixed targets the target's journal is used
     /// directly, with no key extraction or partition mapping. The document is
     /// serialized as newline-delimited JSON into the partition's Appender
     /// buffer, and checkpoint'd. The checkpoint may start a background Append
@@ -118,24 +118,23 @@ impl Publisher {
 
         // Sequence the document.
         let uuid = proto_gazette::uuid::build(self.producer, self.clock.tick(), flags);
-        let (binding_idx, doc) = doc(uuid)?;
+        let (target_idx, doc) = doc(uuid)?;
 
-        let (mut journal, mut packed_key) = match &self.bindings[binding_idx] {
-            super::Binding::Mapped(mapped) => {
-                let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[binding_idx]
-                else {
-                    unreachable!("Mapped binding has Mapped lazy client");
+        let (mut journal, mut packed_key) = match &self.targets[target_idx] {
+            super::Target::Mapped(mapped) => {
+                let super::LazyTargetClient::Mapped(lazy) = &self.target_clients[target_idx] else {
+                    unreachable!("Mapped target has Mapped lazy client");
                 };
                 super::mapping::map_partition(mapped, lazy, &doc, prefix, packed_key).await?
             }
-            super::Binding::Fixed(fixed) => {
+            super::Target::Fixed(fixed) => {
                 let mut prefix = prefix;
                 prefix.push_str(&fixed.journal);
                 (prefix, packed_key)
             }
         };
 
-        let client = self.binding_clients[binding_idx].client();
+        let client = self.target_clients[target_idx].client();
         let appender = self.appenders.activate(&journal, client);
 
         // Enqueue the serialization to the Appender's buffer, then checkpoint.
@@ -172,24 +171,23 @@ impl Publisher {
 
         // Sequence the document.
         let uuid = proto_gazette::uuid::build(self.producer, self.clock.tick(), flags);
-        let (binding_idx, doc) = doc(uuid)?;
+        let (target_idx, doc) = doc(uuid)?;
 
-        let (doc, mut journal, mut packed_key) = match &self.bindings[binding_idx] {
-            super::Binding::Mapped(mapped) => {
-                let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[binding_idx]
-                else {
-                    unreachable!("Mapped binding has Mapped lazy client");
+        let (doc, mut journal, mut packed_key) = match &self.targets[target_idx] {
+            super::Target::Mapped(mapped) => {
+                let super::LazyTargetClient::Mapped(lazy) = &self.target_clients[target_idx] else {
+                    unreachable!("Mapped target has Mapped lazy client");
                 };
                 super::mapping::map_partition_owned(mapped, lazy, doc, prefix, packed_key).await?
             }
-            super::Binding::Fixed(fixed) => {
+            super::Target::Fixed(fixed) => {
                 let mut prefix = prefix;
                 prefix.push_str(&fixed.journal);
                 (doc, prefix, packed_key)
             }
         };
 
-        let client = self.binding_clients[binding_idx].client();
+        let client = self.target_clients[target_idx].client();
         let appender = self.appenders.activate(&journal, client);
 
         // Enqueue the serialization to the Appender's buffer, then checkpoint.
@@ -238,20 +236,19 @@ impl Publisher {
     }
 
     /// Snapshot a backfill marker broadcast: every partition journal of a Mapped
-    /// collection binding, plus a ticked commit clock and producer identity. Unlike
+    /// collection target, plus a ticked commit clock and producer identity. Unlike
     /// [`Self::commit_intents`] (only appended journals), a marker must reach *every*
     /// partition so a reader observes it regardless of its selector.
     pub async fn marker_commit(
         &mut self,
-        binding_idx: usize,
+        target_idx: usize,
     ) -> tonic::Result<(uuid::Producer, uuid::Clock, Vec<String>)> {
         // Snapshot the journals to broadcast to, releasing the partitions watch
         // borrow before returning.
-        let journals: Vec<String> = match &self.bindings[binding_idx] {
-            super::Binding::Mapped(_) => {
-                let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[binding_idx]
-                else {
-                    unreachable!("Mapped binding has Mapped lazy client");
+        let journals: Vec<String> = match &self.targets[target_idx] {
+            super::Target::Mapped(_) => {
+                let super::LazyTargetClient::Mapped(lazy) = &self.target_clients[target_idx] else {
+                    unreachable!("Mapped target has Mapped lazy client");
                 };
                 let (_client, partitions) = &(**lazy);
                 let partitions = partitions.ready().await;
@@ -262,8 +259,8 @@ impl Publisher {
                     .map(|split| split.name.to_string())
                     .collect()
             }
-            super::Binding::Fixed(_) => {
-                unreachable!("backfill markers are only broadcast to Mapped collection bindings")
+            super::Target::Fixed(_) => {
+                unreachable!("backfill markers are only broadcast to Mapped collection targets")
             }
         };
 
@@ -276,9 +273,9 @@ impl Publisher {
     /// Takes the output of `intents::build_transaction_intents()` — per-journal
     /// NDJSON `Bytes` — and appends each to its journal in parallel. For each
     /// journal, this uses a hybrid client strategy:
-    /// - If the journal matches a binding, reuse that binding's client.
-    ///   For Mapped bindings the match is a prefix-match on the binding's
-    ///   partitions prefix; for Fixed bindings it's an exact name match.
+    /// - If the journal matches a target, reuse that target's client.
+    ///   For Mapped targets the match is a prefix-match on the target's
+    ///   partitions prefix; for Fixed targets it's an exact name match.
     /// - Otherwise, build an ephemeral client. This supports recovered ACK
     ///   intents that may reference journals no longer bound to the current
     ///   task (e.g. from a prior published task). For this class of journals,
@@ -296,20 +293,20 @@ impl Publisher {
         for (journal, intents) in journal_intents {
             super::validate_ndjson(&journal, &intents)?;
 
-            // Attempt to find a binding that covers `journal`.
-            // TODO(johnny): We're walking bindings for each ACK intent journal.
+            // Attempt to find a target that covers `journal`.
+            // TODO(johnny): We're walking targets for each ACK intent journal.
             // This is probably fine but _could_ be faster.
-            // We can do this by building a sorted index of partition template name => binding.
-            let binding_client = self
-                .bindings
+            // We can do this by building a sorted index of partition template name => target.
+            let target_client = self
+                .targets
                 .iter()
-                .position(|b| match b {
-                    super::Binding::Mapped(m) => journal.starts_with(&m.partitions_prefix),
-                    super::Binding::Fixed(f) => journal == f.journal,
+                .position(|t| match t {
+                    super::Target::Mapped(m) => journal.starts_with(&m.partitions_prefix),
+                    super::Target::Fixed(f) => journal == f.journal,
                 })
-                .map(|i| self.binding_clients[i].client());
+                .map(|i| self.target_clients[i].client());
 
-            let appender = if let Some(client) = binding_client {
+            let appender = if let Some(client) = target_client {
                 self.appenders.activate(&journal, client)
             } else {
                 let client = (self.client_factory)(self.authz_subject.clone(), journal.clone());
@@ -319,7 +316,7 @@ impl Publisher {
             appender.buffer.extend_from_slice(&intents);
         }
 
-        // Require that binding appenders flush nominally: journals must exist.
+        // Require that target appenders flush nominally: journals must exist.
         self.appenders.flush().await?;
         self.appenders.sweep();
 
@@ -327,7 +324,7 @@ impl Publisher {
         //
         // Only *recovered* intents reach this path: a live transaction's
         // intents are keyed on journals it just wrote, and every such journal
-        // came from a binding. An ephemeral journal is therefore always one
+        // came from a target. An ephemeral journal is therefore always one
         // this task published to under an earlier specification.
         //
         // Fail-open is the only terminating choice for these. Nothing clears an
@@ -371,7 +368,7 @@ impl Publisher {
     /// Build a detached future which attempts to split partition `journal` at
     /// its key-range midpoint (see [`super::mapping::split_partition`]).
     ///
-    /// Returns None when `journal` is not a partition of any Mapped binding
+    /// Returns None when `journal` is not a partition of any Mapped target
     /// (e.g. the fixed ops-stats journal) — such journals can never be split.
     ///
     /// The future owns cloned journal-client and partitions-watch handles, so
@@ -384,22 +381,22 @@ impl Publisher {
     ) -> Option<futures::future::BoxFuture<'static, tonic::Result<super::SplitOutcome>>> {
         use futures::FutureExt;
 
-        let index = self.bindings.iter().position(|b| match b {
-            super::Binding::Mapped(m) => journal.starts_with(&m.partitions_prefix),
-            super::Binding::Fixed(_) => false,
+        let index = self.targets.iter().position(|t| match t {
+            super::Target::Mapped(m) => journal.starts_with(&m.partitions_prefix),
+            super::Target::Fixed(_) => false,
         })?;
-        let super::Binding::Mapped(binding) = &self.bindings[index] else {
-            unreachable!("position matched a Mapped binding");
+        let super::Target::Mapped(target) = &self.targets[index] else {
+            unreachable!("position matched a Mapped target");
         };
-        let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[index] else {
-            unreachable!("Mapped binding has a Mapped lazy client");
+        let super::LazyTargetClient::Mapped(lazy) = &self.target_clients[index] else {
+            unreachable!("Mapped target has a Mapped lazy client");
         };
 
         // Force the lazy client + watch (warm in practice — `journal` was
-        // appended to through this binding) and clone owned handles into the
-        // detached future, along with the only part of the binding a split
+        // appended to through this target) and clone owned handles into the
+        // detached future, along with the only part of the target a split
         // reads: its partition template.
-        let partitions_template = binding.partitions_template.clone();
+        let partitions_template = target.partitions_template.clone();
         let (client, partitions) = &**lazy;
         let (client, partitions) = (client.clone(), partitions.clone());
         let journal = journal.to_string();
@@ -425,14 +422,14 @@ impl Publisher {
         active_backfills: &std::collections::BTreeMap<usize, u64>,
     ) -> tonic::Result<()> {
         for (&index, &clock) in active_backfills {
-            let target = labels::truncated_at_value(clock);
+            let label_value = labels::truncated_at_value(clock);
 
-            let super::Binding::Mapped(binding) = &self.bindings[index] else {
+            let super::Target::Mapped(target) = &self.targets[index] else {
                 return Err(tonic::Status::internal(format!(
-                    "binding {index} has an active backfill but is not a Mapped collection binding"
+                    "target {index} has an active backfill but is not a Mapped collection target"
                 )));
             };
-            let client = self.binding_clients[index].client();
+            let client = self.target_clients[index].client();
 
             // Watch the partition listing: the watch handles transient-error
             // backoff and restates the journals after every change, so a lost CAS
@@ -442,7 +439,7 @@ impl Publisher {
                 selector: Some(broker::LabelSelector {
                     include: Some(labels::build_set([(
                         "name:prefix",
-                        binding.partitions_prefix.as_str(),
+                        target.partitions_prefix.as_str(),
                     )])),
                     exclude: None,
                 }),
@@ -454,7 +451,7 @@ impl Publisher {
             loop {
                 match watch.next().await {
                     Some(Ok(listing)) => {
-                        if advance_truncated_at_labels(client, listing, &target).await? {
+                        if advance_truncated_at_labels(client, listing, &label_value).await? {
                             break;
                         }
                     }
@@ -470,19 +467,19 @@ impl Publisher {
         Ok(())
     }
 
-    /// Access the lazy Client and partitions watch for the Mapped binding at
-    /// `index`. Panics if the binding is Fixed. Primarily used by tests.
-    pub fn mapped_binding_client(
+    /// Access the lazy Client and partitions watch for the Mapped target at
+    /// `index`. Panics if the target is Fixed. Primarily used by tests.
+    pub fn mapped_target_client(
         &self,
         index: usize,
     ) -> &(
         gazette::journal::Client,
         tokens::PendingWatch<Vec<super::watch::PartitionSplit>>,
     ) {
-        match &self.binding_clients[index] {
-            super::LazyBindingClient::Mapped(lazy) => &**lazy,
-            super::LazyBindingClient::Fixed(_) => {
-                panic!("binding {index} is Fixed, not Mapped")
+        match &self.target_clients[index] {
+            super::LazyTargetClient::Mapped(lazy) => &**lazy,
+            super::LazyTargetClient::Fixed(_) => {
+                panic!("target {index} is Fixed, not Mapped")
             }
         }
     }
@@ -734,10 +731,10 @@ mod test {
         }
     }
 
-    /// Publisher over a single Fixed binding, whose every journal Client denies
+    /// Publisher over a single Fixed target, whose every journal Client denies
     /// authorization. The denial is raised while acquiring the append token, so
     /// no broker is contacted.
-    fn denied_publisher(binding_journal: &str) -> Publisher {
+    fn denied_publisher(target_journal: &str) -> Publisher {
         let factory: gazette::journal::ClientFactory = std::sync::Arc::new(|_sub, obj| {
             gazette::journal::Client::new_with_tokens(
                 |_token: &()| unreachable!("extract is not called for an errored token"),
@@ -751,7 +748,7 @@ mod test {
 
         Publisher::new(
             "shard-id".to_string(),
-            vec![crate::Binding::for_fixed_journal(binding_journal)],
+            vec![crate::Target::for_fixed_journal(target_journal)],
             factory,
             uuid::Producer::from_bytes([0x01, 0, 0, 0, 0, 0x01]),
             uuid::Clock::UNIX_EPOCH,
@@ -761,7 +758,7 @@ mod test {
     // ACK intents are NDJSON, and `write_intents` validates the shape.
     const ACK: &[u8] = b"{\"_meta\":{\"uuid\":\"whatever\"}}\n";
 
-    /// A recovered intent naming a journal outside every binding is discarded
+    /// A recovered intent naming a journal outside every target is discarded
     /// rather than failing the session: nothing but writing it can clear the
     /// intent, so failing here would crash-loop the task forever.
     #[tokio::test]
@@ -779,10 +776,10 @@ mod test {
     }
 
     /// The tolerance is scoped to the ephemeral path. A journal the task still
-    /// binds is a live write, and losing authorization to it must fail loudly:
+    /// targets is a live write, and losing authorization to it must fail loudly:
     /// the task is actively publishing there and cannot make correct progress.
     #[tokio::test]
-    async fn test_write_intents_fails_unauthorized_binding() {
+    async fn test_write_intents_fails_unauthorized_target() {
         let mut publisher = denied_publisher("ops/current/stats/pivot=00");
 
         let status = publisher

@@ -372,12 +372,21 @@ fn make_publisher(
         move |_authz_sub, _authz_obj| journal_client.clone()
     });
 
-    let bindings = publisher::Binding::from_capture_spec(capture_spec)
-        .expect("build bindings from capture spec");
+    let targets = capture_spec
+        .resolved_bindings()
+        .enumerate()
+        .map(|(index, (_binding, resolved))| {
+            let (collection_spec, _identity) =
+                resolved.unwrap_or_else(|| panic!("capture binding {index} missing collection"));
+
+            publisher::Target::from_collection_spec(collection_spec)
+                .expect("build target from collection spec")
+        })
+        .collect();
 
     publisher::Publisher::new(
         String::new(), // Empty AuthZ subject.
-        bindings,
+        targets,
         factory,
         producer,
         // Deterministic base clock. Must be >= UNIX_EPOCH so document clocks
