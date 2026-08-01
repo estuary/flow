@@ -338,14 +338,12 @@ pub enum Error {
         value: String,
         expect: &'static str,
     },
-    #[error(
-        "{entity} {name} has {count} bindings, which exceeds the maximum of {} bindings",
-        crate::MAX_BINDINGS
-    )]
+    #[error("{entity} {name} has {count} bindings, which exceeds the maximum of {limit} bindings")]
     TooManyBindings {
         entity: &'static str,
         name: String,
         count: usize,
+        limit: usize,
     },
 
     #[error(

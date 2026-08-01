@@ -137,11 +137,14 @@ async fn walk_capture<C: Connectors>(
 
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
 
-    if bindings_model.len() > crate::MAX_BINDINGS {
+    let max_bindings = crate::max_bindings(indirect_specs);
+
+    if bindings_model.len() > max_bindings {
         Error::TooManyBindings {
             entity: "capture",
             name: capture.to_string(),
             count: bindings_model.len(),
+            limit: max_bindings,
         }
         .push(scope, errors);
         return None;

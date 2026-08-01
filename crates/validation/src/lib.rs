@@ -20,9 +20,28 @@ mod test_step;
 pub use errors::Error;
 pub use noop::NoOpConnectors;
 
+/// Combiner slots reserved for runtime-internal bindings (today: the capture
+/// connector-state pseudo-binding). Internal additions must not move the
+/// user-visible binding ceilings.
+pub const RESERVED_BINDINGS: usize = 100;
 /// Maximum number of bindings allowed in a capture, derivation, or materialization.
 /// We have a hard upper limit of 65,535 because doc::combine uses u16 indices.
 pub const MAX_BINDINGS: usize = 10_000;
+/// Maximum number of bindings allowed in a task which sets the `indirect-specs`
+/// shard flag: the doc::combine u16 format limit of 65,536 slots, less the
+/// internal reserve. Indirect form interns each collection of a spec once, so its
+/// size grows with the number of bindings and not with their product with the
+/// size of an inlined collection, which is what holds MAX_BINDINGS down.
+pub const MAX_BINDINGS_INDIRECT_SPECS: usize = 65_536 - RESERVED_BINDINGS;
+
+/// Binding ceiling of a task, which its `indirect-specs` shard flag raises.
+pub fn max_bindings(indirect_specs: bool) -> usize {
+    if indirect_specs {
+        MAX_BINDINGS_INDIRECT_SPECS
+    } else {
+        MAX_BINDINGS
+    }
+}
 
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always
