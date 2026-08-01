@@ -16,8 +16,15 @@ use anyhow::Context;
 use runtime_next::{LoggerFactory, PublisherFactory, ShuffleSessionFactory};
 use tokio_stream::wrappers::TcpListenerStream;
 
-/// Run-scoped resources for one local run. Field order matters for `Drop`: the server task aborts before the tempdirs disappear
-/// out from under any in-flight handler.
+/// Run-scoped resources for one local run.
+///
+/// [`Drop`] aborts the server and admin tasks before the tempdirs are removed,
+/// so an idle handler cannot observe its directory vanishing. This is a backstop,
+/// not a guarantee: `abort` only *requests* cancellation at the task's next await
+/// point, and cannot interrupt blocking RocksDB work already handed to a
+/// `spawn_blocking` thread. Callers must therefore stop their sessions and await
+/// their completion *before* dropping a `Run` — deleting these tempdirs while a
+/// RocksDB inside one is still open crashes the process.
 pub struct Run {
     // Materialize/derive-only: in-process tonic server + shuffle log tempdir.
     _server_task: Option<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>>,
@@ -36,6 +43,20 @@ pub struct Run {
     // Triggered on `Run::drop` (via the channel closing) to stop the admin
     // surface gracefully alongside the tonic server.
     _shutdown_tx: tokio::sync::broadcast::Sender<()>,
+}
+
+impl Drop for Run {
+    fn drop(&mut self) {
+        // Dropping a `JoinHandle` only detaches its task, so abort explicitly:
+        // otherwise the tonic server outlives this `Run` and keeps serving
+        // handlers against tempdirs that are about to be removed.
+        if let Some(task) = &self._server_task {
+            task.abort();
+        }
+        if let Some(task) = &self._admin_task {
+            task.abort();
+        }
+    }
 }
 
 impl Run {
