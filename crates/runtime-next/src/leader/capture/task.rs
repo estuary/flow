@@ -35,6 +35,13 @@ pub struct Binding {
     pub collection_generation_id: models::Id,
     // JSON pointer at which document UUIDs are added.
     pub document_uuid_ptr: json::Pointer,
+    // Do other active bindings of this task also write this binding's journals?
+    // When true, the binding's truncation effects are suppressed: a `TRUNCATE`
+    // of one source table doesn't mean the logical collection should be
+    // truncated, and one binding doesn't get to make a decision that's
+    // load-bearing for its peers. Keyed on `partition_template_name` because
+    // the hazard is about journals, and journals come from the partition prefix.
+    pub fan_in: bool,
     // Key components which are extracted from written documents.
     pub key_extractors: Vec<doc::Extractor>,
     // Partition template name for journals of the target collection.
@@ -112,7 +119,7 @@ impl Task {
         }
 
         let ser_policy = doc::SerPolicy::noop();
-        let bindings = spec
+        let mut bindings = spec
             .resolved_bindings()
             .enumerate()
             .map(|(index, (binding, resolved))| {
@@ -121,6 +128,24 @@ impl Task {
                 Binding::new(binding, collection, ser_policy.clone()).context(index)
             })
             .collect::<Result<Vec<_>, _>>()?;
+
+        // Stamp `fan_in` from the count of *active* bindings sharing each
+        // partition prefix. `spec.bindings` holds exactly the active ones.
+        let fan_in = {
+            let mut counts = BTreeMap::<&str, usize>::new();
+            for binding in &bindings {
+                *counts
+                    .entry(binding.partition_template_name.as_str())
+                    .or_default() += 1;
+            }
+            bindings
+                .iter()
+                .map(|binding| counts[binding.partition_template_name.as_str()] > 1)
+                .collect::<Vec<_>>()
+        };
+        for (binding, fan_in) in bindings.iter_mut().zip(fan_in) {
+            binding.fan_in = fan_in;
+        }
 
         // A Clock one poll `interval` from now, on the same wall-clock base as
         // the actor's monotonic `now`, so the HeadFSM computes the restart wait
@@ -286,6 +311,7 @@ impl Binding {
             collection_name: name.clone(),
             collection_generation_id,
             document_uuid_ptr,
+            fan_in: false, // Stamped by Task::new, which sees the binding's peers.
             key_extractors,
             partition_template_name: partition_template.name.clone(),
             state_key: state_key.clone(),
@@ -375,6 +401,27 @@ mod tests {
             ..Default::default()
         };
         (open, opened)
+    }
+
+    /// `fan_in` counts active bindings sharing a `partition_template_name`:
+    /// journal identity, because the truncation hazard it gates is about journals.
+    #[test]
+    fn task_stamps_fan_in_bindings() {
+        let fan_in = |collections, bindings| {
+            let (open, opened) = mk_open(collections, bindings);
+            Task::new(&open, &opened, 0)
+                .unwrap()
+                .bindings
+                .iter()
+                .map(|binding| binding.fan_in)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(fan_in(1, 1), [false]); // Sole binding of its collection.
+        assert_eq!(fan_in(2, 2), [false, false]);
+        assert_eq!(fan_in(1, 2), [true, true]);
+        // Round-robin: collection 0 takes bindings 0 and 2, collection 1 takes 1.
+        assert_eq!(fan_in(2, 3), [true, false, true]);
     }
 
     /// The runtime guards `doc::combine`'s u16 binding index independently of

@@ -208,6 +208,31 @@ journal reads once they read through hinted spans. This prevents over-read
 from consuming disk quota, and prevents starving lower-priority bindings.
 See `crates/shuffle/README.md` and issue #3246.
 
+## Backfill truncation (capture)
+
+A capture `BackfillBegin` publishes an isolated, document-free marker
+transaction and stamps `estuary.dev/truncated-at` on every partition of the
+target collection — the boundary that materializations above classify against.
+
+**Fan-in suppresses truncation.** When the binding's target journals are also
+written by another *active* binding of the task (`Binding::fan_in`, keyed on
+`partition_template_name` because the hazard is about journals), the runtime
+drops the Begin at the actor's `WriteStats` dispatch
+(`suppress_fan_in_backfill`): no boundary clock, no marker intents, no
+`truncated-at` label, and no `ActiveBackfillChange::Begin` — so nothing is
+persisted. A `TRUNCATE` of one source table doesn't mean the logical collection
+should be truncated, and one binding doesn't get to make a decision that is
+load-bearing for its peers. The backfill itself always proceeds: the connector
+re-captures and documents merge on key.
+
+The predicate is evaluated exactly once, at the Begin, and never on recovery in
+either direction: absence from the persisted `active_backfills` map *is* the
+decision. A backfill begun while its binding was sole therefore completes even
+if a later spec update makes the binding fan-in, and a suppressed backfill's
+`BackfillComplete` takes the orphaned-complete no-op path. "All bindings of the
+collection are backfilling" gets no special case — there is no correct clock to
+truncate at; the collection-scoped operation is a **collection reset**.
+
 ## Backfill truncation (materialize)
 
 When a source collection is backfill-truncated, documents a materialization

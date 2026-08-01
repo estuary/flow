@@ -523,6 +523,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
             fsm::Action::WriteStats { stats, backfill } => {
                 let mut publisher = self.publisher.take().context("missing capture publisher")?;
+                let backfill = suppress_fan_in_backfill(&self.task, backfill);
                 // A BackfillComplete truncates to its matching begin's clock,
                 // recovered from the shard's active-backfill state; snapshot it
                 // before the future moves `publisher`.
@@ -736,6 +737,58 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     }
 }
 
+/// Drop a `BackfillBegin` whose binding shares its target journals with other
+/// active bindings of the task, so that none of the Begin's truncation effects
+/// are ever built: no `truncated-at` boundary clock, no marker intents, and --
+/// because no [`proto::persist::ActiveBackfillChange::Begin`] is returned -- no
+/// entry in `active_backfills` and nothing persisted. Absence from the persisted
+/// map *is* the decision, so recovery replays nothing and the predicate is
+/// evaluated exactly once, here, at the point the signal is acted on.
+///
+/// The backfill itself proceeds: the connector re-captures, documents are
+/// written, and they merge on key into the existing collection. What's
+/// suppressed is only the truncation, which a single binding doesn't get to
+/// decide on behalf of its peers. The transaction likewise still converges --
+/// it commits as an ordinary, document-free transaction, and a later
+/// `BackfillComplete` for a never-begun binding is already a no-op.
+///
+/// `BackfillComplete` is deliberately never gated on the predicate: a backfill
+/// begun while its binding was sole must complete even if a later spec update
+/// made the binding fan-in.
+fn suppress_fan_in_backfill(
+    task: &Task,
+    backfill: Option<fsm::BackfillMessage>,
+) -> Option<fsm::BackfillMessage> {
+    let Some(fsm::BackfillMessage::BackfillBegin { binding }) = backfill else {
+        return backfill;
+    };
+    // Checked when the message was received (`on_connector_rx`).
+    let spec = &task.bindings[binding as usize];
+
+    if !spec.fan_in {
+        return backfill;
+    }
+    let bindings = task
+        .bindings
+        .iter()
+        .filter(|peer| peer.partition_template_name == spec.partition_template_name)
+        .count();
+
+    // Once per transition, not per session: a capture re-Opens every poll
+    // `interval`, so anything keyed on recovered state would re-log forever.
+    // INFO because this is a statement of fact, not a warning about a mistake.
+    service_kit::event!(
+        tracing::Level::INFO,
+        "connector",
+        binding,
+        collection = spec.collection_name.clone(),
+        bindings,
+        "backfilling a collection written by multiple bindings of this task; \
+         the backfill is additive and its truncation is suppressed",
+    );
+    None
+}
+
 /// Snapshot this transaction's ACK intents, plus its resolved
 /// [`proto::persist::ActiveBackfillChange`] for a marker transaction. An ordinary
 /// transaction (`backfill` is `None`) ACKs only journals it appended; a marker
@@ -881,6 +934,7 @@ mod tests {
             collection_name: collection_name.to_string(),
             collection_generation_id: models::Id::zero(),
             document_uuid_ptr: json::Pointer::from(uuid_ptr),
+            fan_in: false,
             key_extractors: Vec::new(),
             partition_template_name: collection_name.to_string(),
             state_key: state_key.to_string(),
@@ -1161,77 +1215,78 @@ mod tests {
     /// (never-begun binding) is a no-op. `truncated_at` is 0 — the preview
     /// publisher's no-op marker clock. Each backfill message is sealed by its own
     /// terminating Checkpoint.
-    #[tokio::test]
-    async fn serve_backfill_lifecycle() {
-        // One capture session over `db`: feed `responses`, drain `expect_acks`
-        // Acknowledges (one per committed marker transaction, so each commits
-        // before Stop), then Stop and return the db.
-        async fn run_capture_session(
-            db: crate::shard::RocksDB,
-            active_backfills: BTreeMap<u32, u64>,
-            responses: Vec<tonic::Result<Response>>,
-            expect_acks: usize,
-        ) -> crate::shard::RocksDB {
-            let (connector_tx, mut actor_to_conn_rx) =
-                mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
-            let (conn_resp_tx, conn_resp_rx) =
-                mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
-            let (controller_tx, controller_rx) =
-                mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
+    /// One capture session over `db`: feed `responses`, drain `expect_acks`
+    /// Acknowledges (one per committed marker transaction, so each commits
+    /// before Stop), then Stop and return the db.
+    async fn run_capture_session(
+        task: Task,
+        db: crate::shard::RocksDB,
+        active_backfills: BTreeMap<u32, u64>,
+        responses: Vec<tonic::Result<Response>>,
+        expect_acks: usize,
+    ) -> crate::shard::RocksDB {
+        let (connector_tx, mut actor_to_conn_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+        let (conn_resp_tx, conn_resp_rx) =
+            mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
+        let (controller_tx, controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
 
-            let task = std::sync::Arc::new(mk_task(true));
-            let publisher = crate::publish::NoopPublisher;
-            let shapes = task.binding_shapes_by_index(Default::default());
+        let task = std::sync::Arc::new(task);
+        let publisher = crate::publish::NoopPublisher;
+        let shapes = task.binding_shapes_by_index(Default::default());
 
-            let actor = Actor::new(
-                active_backfills,
-                vec!["stateA".to_string(), "stateB".to_string()],
-                connector_tx,
-                db,
-                true,
-                super::super::Metrics::new("test/shard"),
-                crate::TracingLogger,
-                publisher,
-                shapes,
-                task,
-                None, // token_restart_at
-            );
+        let actor = Actor::new(
+            active_backfills,
+            vec!["stateA".to_string(), "stateB".to_string()],
+            connector_tx,
+            db,
+            true,
+            super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
+            publisher,
+            shapes,
+            task,
+            None, // token_restart_at
+        );
 
-            let serve = tokio::spawn(async move {
-                let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
-                actor
-                    .serve(
-                        ReceiverStream::new(conn_resp_rx),
-                        &mut controller_rx,
-                        fsm::Head::Idle(fsm::HeadIdle::default()),
-                        fsm::Tail::Recover(fsm::TailRecover {
-                            checkpoints: 0,
-                            ack_intents: BTreeMap::new(),
-                        }),
-                    )
-                    .await
-            });
+        let serve = tokio::spawn(async move {
+            let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
+            actor
+                .serve(
+                    ReceiverStream::new(conn_resp_rx),
+                    &mut controller_rx,
+                    fsm::Head::Idle(fsm::HeadIdle::default()),
+                    fsm::Tail::Recover(fsm::TailRecover {
+                        checkpoints: 0,
+                        ack_intents: BTreeMap::new(),
+                    }),
+                )
+                .await
+        });
 
-            for response in responses {
-                conn_resp_tx.send(response).await.unwrap();
-            }
-            for _ in 0..expect_acks {
-                assert!(actor_to_conn_rx.recv().await.unwrap().acknowledge.is_some());
-            }
-
-            controller_tx
-                .send(Ok(proto::Capture {
-                    stop: Some(proto::Stop {}),
-                    ..Default::default()
-                }))
-                .unwrap();
-            let (db, _shapes) = serve.await.unwrap().unwrap();
-            db
+        for response in responses {
+            conn_resp_tx.send(response).await.unwrap();
+        }
+        for _ in 0..expect_acks {
+            assert!(actor_to_conn_rx.recv().await.unwrap().acknowledge.is_some());
         }
 
+        controller_tx
+            .send(Ok(proto::Capture {
+                stop: Some(proto::Stop {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        let (db, _shapes) = serve.await.unwrap().unwrap();
+        db
+    }
+
+    #[tokio::test]
+    async fn serve_backfill_lifecycle() {
         let state_keys = || vec!["stateA".to_string(), "stateB".to_string()];
 
         let db = run_capture_session(
+            mk_task(true),
             crate::shard::RocksDB::open(None).await.unwrap(),
             BTreeMap::new(),
             vec![
@@ -1252,6 +1307,7 @@ mod tests {
         );
 
         let db = run_capture_session(
+            mk_task(true),
             db,
             recover.active_backfills,
             vec![
@@ -1275,6 +1331,69 @@ mod tests {
             BTreeMap::new(),
             "complete removed binding 0; orphaned complete for binding 1 was a no-op",
         );
+    }
+
+    /// A binding which shares its target journals with another active binding
+    /// never persists a Begin at all: absence from `active_backfills` *is* the
+    /// suppression decision, so recovery replays nothing and no `truncated-at`
+    /// label or marker intent is ever built. The backfill's own lifecycle still
+    /// converges — its Complete takes the orphaned-complete no-op path.
+    #[tokio::test]
+    async fn serve_fan_in_backfill_is_suppressed() {
+        // Both bindings target one collection, so each is fan-in. `fan_in` is
+        // stamped by `Task::new`; these literal Bindings set it directly.
+        let mk_fan_in_task = || {
+            let mut task = mk_task(true);
+            task.bindings = vec![
+                mk_binding("test/collectionA", "stateA", "/_meta/uuid"),
+                mk_binding("test/collectionA", "stateB", ""),
+            ];
+            for binding in task.bindings.iter_mut() {
+                binding.fan_in = true;
+            }
+            task
+        };
+        let state_keys = || vec!["stateA".to_string(), "stateB".to_string()];
+
+        let db = run_capture_session(
+            mk_fan_in_task(),
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            BTreeMap::new(),
+            vec![
+                Ok(Response {
+                    backfill_begin: Some(response::BackfillBegin { binding: 0 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"1"}"#),
+            ],
+            1,
+        )
+        .await;
+        let (db, recover) = db.scan(state_keys()).await.unwrap();
+        assert_eq!(
+            recover.active_backfills,
+            BTreeMap::new(),
+            "a suppressed begin persisted nothing",
+        );
+
+        // The Complete still commits, as an orphaned complete.
+        let db = run_capture_session(
+            mk_fan_in_task(),
+            db,
+            recover.active_backfills,
+            vec![
+                Ok(Response {
+                    backfill_complete: Some(response::BackfillComplete { binding: 0 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"2"}"#),
+            ],
+            1,
+        )
+        .await;
+        let (_db, recover) = db.scan(state_keys()).await.unwrap();
+        assert_eq!(recover.active_backfills, BTreeMap::new());
+        assert_eq!(recover.connector_state_json.as_ref(), br#"{"cursor":"2"}"#);
     }
 
     /// A shard recovered mid-backfill (non-empty `active_backfills`) re-applies its

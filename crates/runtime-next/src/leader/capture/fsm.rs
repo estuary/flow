@@ -937,6 +937,7 @@ mod tests {
             collection_name: collection_name.to_string(),
             collection_generation_id: models::Id::zero(),
             document_uuid_ptr: json::Pointer::empty(),
+            fan_in: false,
             key_extractors: Vec::new(),
             partition_template_name: collection_name.to_string(),
             state_key: state_key.to_string(),
