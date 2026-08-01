@@ -941,6 +941,9 @@ impl serde::Serialize for request::Validate {
         if !self.last_version.is_empty() {
             len += 1;
         }
+        if !self.linked_collections.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Validate", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -964,6 +967,9 @@ impl serde::Serialize for request::Validate {
         if !self.last_version.is_empty() {
             struct_ser.serialize_field("lastVersion", &self.last_version)?;
         }
+        if !self.linked_collections.is_empty() {
+            struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
+        }
         struct_ser.end()
     }
 }
@@ -984,6 +990,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             "lastCapture",
             "last_version",
             "lastVersion",
+            "linked_collections",
+            "linkedCollections",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -994,6 +1002,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             Bindings,
             LastCapture,
             LastVersion,
+            LinkedCollections,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1022,6 +1031,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             "bindings" => Ok(GeneratedField::Bindings),
                             "lastCapture" | "last_capture" => Ok(GeneratedField::LastCapture),
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
+                            "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1047,6 +1057,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 let mut bindings__ = None;
                 let mut last_capture__ = None;
                 let mut last_version__ = None;
+                let mut linked_collections__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -1087,6 +1098,12 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             }
                             last_version__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LinkedCollections => {
+                            if linked_collections__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("linkedCollections"));
+                            }
+                            linked_collections__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1099,6 +1116,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                     bindings: bindings__.unwrap_or_default(),
                     last_capture: last_capture__,
                     last_version: last_version__.unwrap_or_default(),
+                    linked_collections: linked_collections__.unwrap_or_default(),
                 })
             }
         }
@@ -1122,6 +1140,9 @@ impl serde::Serialize for request::validate::Binding {
         if self.backfill != 0 {
             len += 1;
         }
+        if self.collection_index != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Validate.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1133,6 +1154,9 @@ impl serde::Serialize for request::validate::Binding {
         }
         if self.backfill != 0 {
             struct_ser.serialize_field("backfill", &self.backfill)?;
+        }
+        if self.collection_index != 0 {
+            struct_ser.serialize_field("collectionIndex", &self.collection_index)?;
         }
         struct_ser.end()
     }
@@ -1148,6 +1172,8 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
             "resourceConfig",
             "collection",
             "backfill",
+            "collection_index",
+            "collectionIndex",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1155,6 +1181,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
             ResourceConfigJson,
             Collection,
             Backfill,
+            CollectionIndex,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1180,6 +1207,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                             "resourceConfig" | "resource_config_json" => Ok(GeneratedField::ResourceConfigJson),
                             "collection" => Ok(GeneratedField::Collection),
                             "backfill" => Ok(GeneratedField::Backfill),
+                            "collectionIndex" | "collection_index" => Ok(GeneratedField::CollectionIndex),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1202,6 +1230,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                 let mut resource_config_json__ = None;
                 let mut collection__ = None;
                 let mut backfill__ = None;
+                let mut collection_index__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -1226,6 +1255,14 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::CollectionIndex => {
+                            if collection_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("collectionIndex"));
+                            }
+                            collection_index__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1235,6 +1272,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                     resource_config_json: resource_config_json__.unwrap_or_default(),
                     collection: collection__,
                     backfill: backfill__.unwrap_or_default(),
+                    collection_index: collection_index__.unwrap_or_default(),
                 })
             }
         }

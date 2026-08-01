@@ -30,6 +30,7 @@ impl Task {
             inactive_bindings: _,
             redact_salt,
             created_at: _,
+            linked_collections: _,
         } = spec.as_ref().context("missing capture")?;
         let range = range.context("missing range")?;
 
@@ -138,6 +139,7 @@ impl Binding {
         let flow::capture_spec::Binding {
             backfill: _,
             collection,
+            collection_index: _,
             resource_config_json: _,
             resource_path: _,
             state_key,

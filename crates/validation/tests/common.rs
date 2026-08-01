@@ -186,6 +186,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             inactive_bindings: Vec::new(),
             redact_salt: b"pass-through-capture-salt".as_slice().into(),
             created_at: String::new(),
+            linked_collections: Vec::new(),
         };
         live.captures.insert_row(
             capture,
@@ -262,6 +263,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 transforms,
                 inactive_transforms: Vec::new(),
                 redact_salt: b"pass-through-derivation-salt".as_slice().into(),
+                linked_collections: Vec::new(),
             })
         } else {
             None
@@ -352,6 +354,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             triggers_json: bytes::Bytes::new(),
             created_at: String::new(),
             sync_schedule_json: bytes::Bytes::new(),
+            linked_collections: Vec::new(),
         };
         live.materializations.insert_row(
             materialization,

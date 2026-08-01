@@ -25,6 +25,7 @@ impl Task {
             triggers_json: _,
             created_at: _,
             sync_schedule_json: _,
+            linked_collections: _,
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 
@@ -110,6 +111,7 @@ impl Binding {
         let flow::materialization_spec::Binding {
             backfill: _,
             collection,
+            collection_index: _,
             delta_updates,
             deprecated_shuffle: _,
             field_selection,

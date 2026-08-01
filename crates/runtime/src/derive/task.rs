@@ -44,6 +44,7 @@ impl Task {
             transforms,
             inactive_transforms: _,
             redact_salt,
+            linked_collections: _,
         } = derivation.as_ref().context("missing derivation")?;
 
         if key.is_empty() {
@@ -118,6 +119,7 @@ impl Transform {
         let flow::collection_spec::derivation::Transform {
             backfill: _,
             collection,
+            collection_index: _,
             journal_read_suffix: _,
             lambda_config_json: _,
             name,

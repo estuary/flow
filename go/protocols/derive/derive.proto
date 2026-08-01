@@ -53,6 +53,8 @@ message Request {
       // Stable name of this transform.
       string name = 1;
       // Sourced collection of this transform.
+      // Unset if the request uses `linked_collections`, in which case
+      // `collection_index` identifies the source collection instead.
       flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
       // JSON-encoded object which specifies the shuffle lambda configuration.
       // If this transform has no shuffle lambda, this is empty.
@@ -67,6 +69,10 @@ message Request {
       ];
       // Backfill counter for this transform.
       uint32 backfill = 5;
+      // Index of this transform's source collection within the request's
+      // `linked_collections`. Used instead of `collection` when the request is
+      // in indirect form, and unset otherwise.
+      uint32 collection_index = 6;
     }
     repeated Transform transforms = 4;
     // JSON types of shuffle key components extracted by the transforms of this derivation.
@@ -86,6 +92,24 @@ message Request {
     flow.CollectionSpec last_collection = 8;
     // Version of the last validated CollectionSpec.
     string last_version = 9;
+    // Table of source collections referenced by `collection_index` of this
+    // request's transforms, in place of an inlined `collection`
+    // (the "indirect" form).
+    //
+    // The form is a property of the request as a whole: if
+    // `linked_collections` is non-empty then every transform leaves
+    // `collection` unset and resolves through `collection_index`. If it's
+    // empty then every transform inlines its `collection` and
+    // `collection_index` is unset. Mixed forms are invalid. The derived
+    // `collection` and `last_collection` are self-contained and unaffected.
+    //
+    // Entries have `derivation` cleared, as inlined collections always do.
+    // Builders emit entries which are unique by value and ordered on name,
+    // but that's a convention only and not an invariant of the message:
+    // readers resolve `collection_index` and must not assume that entries
+    // are unique on name.
+    repeated flow.CollectionSpec linked_collections = 10
+        [ (gogoproto.nullable) = false ];
   }
   Validate validate = 2;
 
