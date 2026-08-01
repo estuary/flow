@@ -19,13 +19,20 @@ pub enum Error {
     SpillIO(#[from] io::Error),
 }
 
-/// Specification of how Combine operations are to be done
-/// over one or more bindings.
+/// Specification of how Combine operations are to be done over one or more
+/// bindings, each mapping to one or more validators.
 pub struct Spec {
+    // Full or partial reduction? (binding-indexed)
     is_full: Vec<bool>,
+    // Key to be combined over (binding-indexed)
     keys: Arc<[Box<[Extractor]>]>,
+    // Name of each validator (validator-indexed)
     names: Vec<String>,
+    // Effective salt to use for redacted values.
     redact_salt: Vec<u8>,
+    // Mapping from binding to validator (binding-indexed)
+    validator_index: Vec<u32>,
+    // JSON schema validators (validator-indexed)
     validators: Vec<Validator>,
 }
 
@@ -50,36 +57,60 @@ impl Spec {
             keys: vec![key.into()].into(),
             names: vec![name.into()],
             redact_salt,
+            validator_index: vec![0],
             validators: vec![validator],
         }
     }
 
-    /// Build a Spec from an Iterator of (is-full-reduction, key, schema, validator).
-    pub fn with_bindings<I, K, N>(bindings: I, redact_salt: Vec<u8>) -> Self
+    /// Build a Spec from a per-binding Iterator of (is-full-reduction, key,
+    /// validator index), and a validator-indexed Iterator of (name, validator).
+    ///
+    /// Panics if a binding names a validator which was not provided.
+    pub fn with_bindings<B, V, K, N>(bindings: B, validators: V, redact_salt: Vec<u8>) -> Self
     where
-        I: IntoIterator<Item = (bool, K, N, Validator)>,
+        B: IntoIterator<Item = (bool, K, u32)>,
+        V: IntoIterator<Item = (N, Validator)>,
         K: Into<Box<[Extractor]>>,
         N: Into<String>,
     {
-        let mut full = Vec::new();
-        let mut keys = Vec::new();
-        let mut names = Vec::new();
-        let mut validators = Vec::new();
+        let (names, validators): (Vec<String>, Vec<Validator>) = validators
+            .into_iter()
+            .map(|(name, validator)| (name.into(), validator))
+            .unzip();
 
-        for (index, (is_full, key, name, validator)) in bindings.into_iter().enumerate() {
-            full.push(is_full);
+        let mut is_full = Vec::new();
+        let mut keys = Vec::new();
+        let mut validator_index = Vec::new();
+
+        for (binding, (full, key, index)) in bindings.into_iter().enumerate() {
+            assert!(
+                (index as usize) < validators.len(),
+                "binding {binding} names validator {index}, but only {} validators were given",
+                validators.len(),
+            );
+            is_full.push(full);
             keys.push(key.into());
-            names.push(format!("{} (binding {index})", name.into()));
-            validators.push(validator);
+            validator_index.push(index);
         }
 
         Self {
-            is_full: full,
+            is_full,
             keys: keys.into(),
             names,
             redact_salt,
+            validator_index,
             validators,
         }
+    }
+
+    /// Number of bindings of this Spec.
+    pub fn binding_count(&self) -> usize {
+        self.validator_index.len()
+    }
+
+    /// Number of validators of this Spec.
+    pub fn validator_count(&self) -> usize {
+        self.validators.len()
     }
 }
 
