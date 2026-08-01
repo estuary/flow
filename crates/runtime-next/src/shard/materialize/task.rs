@@ -8,7 +8,7 @@ pub fn build_bindings(
     shard: &ops::proto::ShardLabeling,
 ) -> anyhow::Result<(Vec<Binding>, ops::ShardRef)> {
     let flow::MaterializationSpec {
-        bindings,
+        bindings: _,
         config_json: _,
         connector_type: _,
         name,
@@ -34,10 +34,13 @@ pub fn build_bindings(
         anyhow::bail!("materialization cannot split on r-clock: {range:?}");
     }
 
-    let bindings = bindings
-        .into_iter()
+    let bindings = spec
+        .resolved_bindings()
         .enumerate()
-        .map(|(index, spec)| build_binding(spec).context(index))
+        .map(|(index, (binding, resolved))| {
+            let (collection, _identity) = resolved.context("missing collection").context(index)?;
+            build_binding(binding, collection).context(index)
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let shard_ref = ops::ShardRef {
@@ -52,10 +55,13 @@ pub fn build_bindings(
 }
 
 // Build the runtime structure for a single binding.
-fn build_binding(spec: &flow::materialization_spec::Binding) -> anyhow::Result<Binding> {
+fn build_binding(
+    spec: &flow::materialization_spec::Binding,
+    collection: &flow::CollectionSpec,
+) -> anyhow::Result<Binding> {
     let flow::materialization_spec::Binding {
         backfill: _,
-        collection,
+        collection: _,
         collection_index: _,
         delta_updates,
         deprecated_shuffle: _,
@@ -91,7 +97,7 @@ fn build_binding(spec: &flow::materialization_spec::Binding) -> anyhow::Result<B
         read_schema_json,
         uuid_ptr,
         write_schema_json,
-    } = collection.as_ref().context("missing collection")?;
+    } = collection;
 
     // The policy is negotiated via the connector protocol: connectors return it
     // in their Validated response and it's baked into the built binding spec.
