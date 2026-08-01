@@ -313,8 +313,7 @@ monotonicity — the sharpest checks here.
 
 ### A known runtime limitation: a prepared transaction must outlive a membership change
 
-Two scenarios fail for a reason that is not a connector defect. The runtime does not yet
-provide a capability that
+The runtime does not yet provide a capability that
 [discussion 2581](https://github.com/estuary/flow/discussions/2581) names as a requirement
 for materialization scale-out:
 
@@ -323,22 +322,20 @@ for materialization scale-out:
 > before a shard scale up / down is applied.
 
 Put the other way: a change in the number of shards should only become active once any
-prepared transaction has been fully processed. Without that, a split or join landing
-between "prepared" and "checkpoint committed" re-delivers documents already applied under
-the old shard set.
+prepared transaction has been fully processed.
 
-**What survives it and what does not.** An append-only binding survives: the destinations
-this class targets recognise a load they have already accepted — re-running the same
-`COPY INTO` of the same staged file is a no-op — so a re-delivered batch is absorbed. A
-*merge* binding cannot be protected the same way. The runtime recomputes the reduced value
-from a `Load` that already reflects those documents and stores the result, so the sum counts
-them twice. The connector faithfully writes what it was given; there is nothing for it to
-deduplicate.
+**Which strategies this reaches, and which it does not.** It reaches the counted channel,
+because that class writes during `Store`. The rows of a prepared-but-uncommitted
+transaction are already in the destination when the split lands, and cannot be taken back;
+the children open fresh channels at offset zero and append the replayed input a second
+time. Scaling down is the mirror image — a survivor reads one departing channel's counter,
+skips too few, and duplicates. `counter-split-during-commit` is marked
+`blocked_on_runtime` for exactly this, and is the suite's one expected failure.
 
-The counted-channel strategy has its own version of this, set out in the same discussion:
-scaling down, a survivor reads one departing channel's counter and skips too few, giving
-duplicates; scaling up, a child reading "the channel whose range starts at 0" skips too many
-and misses data.
+It does **not** reach post-commit-apply, which applies only at `Acknowledge`, after the
+recovery log has committed. A transaction that never committed was never applied, so its
+staging is discarded and the replay is clean — for a merge binding and an append-only one
+alike. `split-during-commit` is therefore held to a clean result rather than excused.
 
 **One property worth carrying elsewhere.** Keying a channel by the shard's whole range
 rather than by `key_begin` alone converts the scaling-up failure from silent data loss into
