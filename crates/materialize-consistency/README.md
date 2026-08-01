@@ -57,6 +57,48 @@ credentials and no cloud spend.
 | `harness/stack.rs` | Everything needed from the stack, all through `flowctl`. |
 | `tests/scenarios.rs` | The suite's one seam: every scenario, run clean and then defective. |
 
+`FaultRule` carries a `ShardTarget` — `Any`, `SplitLeader` or `SplitNonLeader` —
+because occurrence counts cannot express "after the membership change": a split child's
+count starts at zero, so any threshold it can reach the pre-split parent reaches first,
+and the fault lands mid-split instead. A `Scenario` may also carry
+`known_limitation`, which makes it an *expected failure*: it runs and fails with its
+violation count, which is the measurement of a runtime gap, and the marker is removed
+when the gap closes.
+
+## Where a run can go wrong that is not the connector's fault
+
+Most of the debugging this suite has cost has been here rather than in a connector,
+so the roadmap says it plainly.
+
+**Recovery.** `harness::recover` is the only gate that matters after a perturbation:
+it unassigns FAILED shards until the task commits again, and after a third of its
+budget escalates to republishing the task disabled-then-enabled. Nothing waits on
+shard *status* after a perturbation — a crashed shard is what most scenarios inject,
+so an `await_primary` there fails before recovery is attempted.
+
+**Completion.** The two collections need different measures, because they are keyed
+differently. `log` is keyed `[/id, /seq]`, so every document is its own row and a row
+count is exact. `merged` is keyed `[/id]` and reduced, so the runtime delivers one row
+per key per *transaction*: its row count is always below the document count.
+Completion there is per-account — every account must reach its highest expected `seq`.
+Getting this wrong has produced both false losses and a gate that could never be met.
+
+**A short drain is reported as a shortfall, not as violations.** If the destination
+stops short, whether the connector lost those documents or the runner stopped waiting
+cannot be told apart, so `drain` fails naming the shortfall rather than handing an
+incomplete destination to the checkers.
+
+**Faults must arm after the warmup.** The warmup gate has no recovery step, so a
+crash landing inside it wedges the run. A unit test enforces this for every `Crash`
+rule; other actions leave the shard running and are exempt.
+
+**The environment.** Two symptoms are worth recognising on sight, because both look
+like connector faults and neither is: `etcdserver: mvcc: database space exceeded`
+stops shards reaching primary, with no shard error to explain it — compact and defrag
+(the database reached 2.1 GB of stale revisions once, and compacted to 3.5 MB); and a
+crash-looping systemd unit rebuilds from source in `ExecStartPre`, so a restart loop
+is a compile loop and can drive load high enough to expire etcd leases.
+
 ## The two rules
 
 **Scenarios are keyed on protocol events, never on document identity.** The
