@@ -104,7 +104,7 @@ func (m *CollectionSpec_Derivation_Transform) Validate() error {
 	} else if err := m.PartitionSelector.Validate(); err != nil {
 		return pb.ExtendContext(err, "PartitionSelector")
 	} else if len(m.LambdaConfigJson) == 0 {
-		return pb.ExtendContext(err, "missing LambdaConfigJson")
+		return pb.NewValidationError("missing LambdaConfigJson")
 	}
 	return nil
 }
