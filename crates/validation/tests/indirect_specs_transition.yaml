@@ -1,0 +1,121 @@
+# Live capture and materialization whose built specs are in indirect form, drafted
+# without the `indirect-specs` flag. Bindings dropped from each draft carry over as
+# inactive bindings, and must resolve through the live table rather than copy an
+# index of it.
+test://example/catalog.yaml:
+  collections:
+    acmeCo/one:
+      key: [/id]
+      schema: &schema
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+
+    acmeCo/two:
+      key: [/id]
+      schema: *schema
+
+  captures:
+    acmeCo/capture:
+      endpoint:
+        connector:
+          image: an/image
+          config: { a: config }
+      bindings:
+        - target: acmeCo/one
+          resource:
+            _meta: { path: [one, a] }
+            source: one-a
+
+  materializations:
+    acmeCo/materialization:
+      endpoint:
+        connector:
+          image: other/image
+          config: { a: config }
+      bindings:
+        - source: acmeCo/one
+          resource:
+            _meta: { path: [m, one] }
+            target: one
+          fields: { recommended: true }
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+
+  liveCollections:
+    acmeCo/one:
+      key: [/id]
+      schema: *schema
+      lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:01"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+    acmeCo/two:
+      key: [/id]
+      schema: *schema
+      lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:02"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+
+  liveCaptures:
+    acmeCo/capture:
+      lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:03"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      indirectSpecs: true
+      # `acmeCo/two` is interned first, so the live table orders it before
+      # `acmeCo/one` -- unlike the name-ordered table of the built spec.
+      bindings:
+        - target: acmeCo/two
+          resource:
+            _meta: { path: [two, a] }
+            source: two-a
+        - target: acmeCo/one
+          resource:
+            _meta: { path: [one, a] }
+            source: one-a
+        - target: acmeCo/one
+          resource:
+            _meta: { path: [one, b] }
+            source: one-b
+
+  liveMaterializations:
+    acmeCo/materialization:
+      lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:04"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      indirectSpecs: true
+      bindings:
+        - source: acmeCo/two
+          resource:
+            _meta: { path: [m, two] }
+            target: two
+          fields: { recommended: true }
+        - source: acmeCo/one
+          resource:
+            _meta: { path: [m, one] }
+            target: one
+          fields: { recommended: true }
+
+  captures:
+    acmeCo/capture:
+      connectorType: IMAGE
+      config:
+        image: an/image
+        config: { a: config }
+      bindings:
+        - resourcePath: [one, a]
+
+  materializations:
+    acmeCo/materialization:
+      connectorType: IMAGE
+      config:
+        image: other/image
+        config: { a: config }
+      bindings:
+        - constraints:
+            id: { type: 2, reason: "location required" }
+            flow_document: { type: 2, reason: "location required" }
+          resourcePath: [m, one]

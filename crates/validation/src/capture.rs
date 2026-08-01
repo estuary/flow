@@ -1,4 +1,4 @@
-use super::{Connectors, Error, NoOpConnectors, Scope, indexed, reference};
+use super::{Connectors, Error, NoOpConnectors, Scope, indexed, linked, reference};
 use futures::SinkExt;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;
@@ -135,6 +135,8 @@ async fn walk_capture<C: Connectors>(
 
     indexed::walk_name(scope, "capture", capture, models::Capture::regex(), errors);
 
+    let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+
     if bindings_model.len() > crate::MAX_BINDINGS {
         Error::TooManyBindings {
             entity: "capture",
@@ -256,14 +258,24 @@ async fn walk_capture<C: Connectors>(
         return None;
     }
 
-    // Filter to validation requests of active bindings.
+    // Filter to validation requests of active bindings, interning the target
+    // collection of each into the request's shared table.
+    let mut interner = linked::Interner::default();
     let bindings_validate: Vec<capture::request::validate::Binding> = bindings
         .iter()
         .filter_map(|(_path, _model, validate)| validate.clone())
+        .map(|mut binding| {
+            let target = binding
+                .collection
+                .take()
+                .expect("active binding resolved its target collection");
+            binding.collection_index = interner.intern(target);
+            binding
+        })
         .collect();
     let bindings_validate_len = bindings_validate.len();
 
-    let validate_request = capture::request::Validate {
+    let mut validate_request = capture::request::Validate {
         name: capture.to_string(),
         connector_type,
         config_json: config_json.clone(),
@@ -276,6 +288,7 @@ async fn walk_capture<C: Connectors>(
         },
         linked_collections: Vec::new(),
     };
+    linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
     // Send Request.Validate and receive Response.Validated.
     _ = request_tx
@@ -336,6 +349,9 @@ async fn walk_capture<C: Connectors>(
     let mut bindings_model = Vec::with_capacity(bindings_model_len);
     let mut bindings_spec = Vec::with_capacity(bindings_validate_len);
     let mut n_meta_updated = 0;
+    // Target collections of the built spec, interned into its own table: the
+    // table of the Validate request covers active bindings only.
+    let mut interner = linked::Interner::default();
 
     // Map `bindings` into destructured binding models and built specs.
     for (index, (mut path, mut model, validate_validated)) in bindings.into_iter().enumerate() {
@@ -383,10 +399,11 @@ async fn walk_capture<C: Connectors>(
         let spec = flow::capture_spec::Binding {
             resource_config_json,
             resource_path: path.clone(),
-            collection,
+            collection: None,
             backfill: model.backfill,
             state_key,
-            collection_index: 0,
+            collection_index: interner
+                .intern(collection.expect("active binding resolved its target collection")),
         };
 
         bindings_path.push(path);
@@ -428,15 +445,19 @@ async fn walk_capture<C: Connectors>(
     for binding in &bindings_spec {
         live_bindings_spec.remove(binding.resource_path.as_slice());
     }
-    // Carry over inactive bindings, re-inlining each resolved collection: an
+    // Carry over inactive bindings, re-interning each resolved collection: an
     // index into the *live* spec's table is meaningless in the spec we're
-    // building, so it's never copied across generations.
+    // building, so it's never copied across generations. A binding whose
+    // collection doesn't resolve is dropped, as the live spec which gave it
+    // meaning is malformed.
     let inactive_bindings = live_bindings_spec
         .values()
-        .map(|(binding, collection)| flow::capture_spec::Binding {
-            collection: collection.map(Clone::clone),
-            collection_index: 0,
-            ..(*binding).clone()
+        .filter_map(|(binding, collection)| {
+            Some(flow::capture_spec::Binding {
+                collection: None,
+                collection_index: interner.intern_ref((*collection)?),
+                ..(*binding).clone()
+            })
         })
         .collect();
 
@@ -469,7 +490,7 @@ async fn walk_capture<C: Connectors>(
         false, // Don't disable wait_for_ack.
         &network_ports,
     );
-    let spec = flow::CaptureSpec {
+    let mut spec = flow::CaptureSpec {
         name: capture.to_string(),
         connector_type,
         config_json,
@@ -483,6 +504,8 @@ async fn walk_capture<C: Connectors>(
         created_at: crate::created_at_date(control_id),
         linked_collections: Vec::new(),
     };
+    linked::install_capture_spec(&mut spec, interner, indirect_specs);
+
     let model = models::CaptureDef {
         auto_discover,
         endpoint,
@@ -580,6 +603,8 @@ fn walk_capture_binding<'a>(
         model.backfill += 1;
     }
 
+    // The binding inlines its collection while it's detached from a request:
+    // interning happens in `walk_capture`, which holds the shared table.
     let validate = capture::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
         collection: Some(target_spec),
