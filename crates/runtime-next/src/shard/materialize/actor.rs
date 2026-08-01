@@ -1011,6 +1011,7 @@ mod tests {
     fn backfill_binding() -> Binding {
         Binding {
             collection_name: "test/collection".to_string(),
+            collection_index: None,
             delta_updates: false,
             document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
             key_extractors: vec![doc::Extractor::with_default(

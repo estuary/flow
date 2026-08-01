@@ -79,8 +79,9 @@ src/
 │   │                     #   factory (preview installs its own fixture replay from flowctl)
 │   ├── capture/
 │   │   ├── fsm.rs           # head/tail state machines for capture transactions
-│   │   └── task.rs          # per-capture task: bindings, and the inference slots
-│   │                         #   (one per target collection) they group into
+│   │   └── task.rs          # per-capture task: bindings, and the collection /
+│   │                         #   inference slots (one per target collection) they
+│   │                         #   group into
 │   └── materialize/
 │       ├── handler.rs       # gRPC stream handler, dispatches to startup/actor
 │       ├── startup.rs       # Recover / Open / Apply / Recovered phase
@@ -211,6 +212,40 @@ with differing priorities. The shuffle Session mirrors this split, stopping
 journal reads once they read through hinted spans. This prevents over-read
 from consuming disk quota, and prevents starving lower-priority bindings.
 See `crates/shuffle/README.md` and issue #3246.
+
+## Collection slots
+
+A capture fanning many source tables into few collections would otherwise build
+every collection-derived structure once per binding: a parsed JSON Schema and
+its validation scratch, a journal-publishing target with its own lazy Gazette
+client and partitions watch. Bindings are instead grouped into **collection
+slots**, one per distinct target collection, and the derived state is built once
+per slot.
+
+The grouping key is the indirect encoding's `collection_index` — a proof of full
+`CollectionSpec` value equality established by the spec interner — and never the
+collection *name*: a materialization's `group_by` can rewrite two bindings of one
+named collection to differing read schemas, and a name-keyed slot would silently
+share derived state between them. A binding of an inline-form spec carries no
+index and is its own slot, so an unflagged task behaves exactly as before.
+
+Two consumers, both fed by the caller rather than re-deriving identity:
+
+- **Combiner validators.** `combine_spec` builds one `(name, Validator)` per
+  slot and maps bindings onto it through `doc::combine::Spec`'s `binding_slot`
+  remap. Keys, `is_full`, and the combiner's `Meta` stay binding-indexed, so
+  combined output is separated by binding however many share a validator. Both
+  the capture (`leader/capture/task.rs`) and materialize
+  (`shard/materialize/task.rs`) shards do this; derive is a single collection.
+- **Publisher targets.** `PublisherFactory::open` takes the distinct collections
+  plus a binding→target remap (`shard/capture/handler.rs::publisher_targets`),
+  so a fan-in capture holds one journal client and one partitions watch per
+  collection. `Publisher::binding_index` still means *task binding*; the remap
+  is resolved inside `JournalPublisher`.
+
+This is distinct from the inference slots below, which key on *journal* identity
+for a reason that section gives. The two coincide for captures, and `Task::new`
+`debug_assert`s that they do.
 
 ## Schema inference (capture)
 

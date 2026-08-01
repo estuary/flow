@@ -933,6 +933,7 @@ mod tests {
         Binding {
             collection_name: collection_name.to_string(),
             collection_generation_id: models::Id::zero(),
+            collection_slot: 0,
             document_uuid_ptr: json::Pointer::from(uuid_ptr),
             fan_in: false,
             inference_slot: 0,
@@ -958,11 +959,12 @@ mod tests {
     /// A Task over `bindings`, with inference slots (and each binding's
     /// `inference_slot` / `fan_in`) assigned as `Task::new` would.
     fn mk_task_over(explicit_acknowledgements: bool, mut bindings: Vec<Binding>) -> Task {
-        let inference_slots =
-            crate::leader::capture::task::assign_inference_slots(&mut bindings).unwrap();
+        let (collection_slots, inference_slots) =
+            crate::leader::capture::task::assign_inline_slots(&mut bindings);
 
         Task {
             bindings,
+            collection_slots,
             inference_slots,
             // Wide thresholds: a transaction closes as soon as the connector
             // idles (its checkpoint sequence completes and no further input is

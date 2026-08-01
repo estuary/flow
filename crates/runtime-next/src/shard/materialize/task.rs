@@ -50,8 +50,8 @@ pub fn build_bindings(
         .resolved_bindings()
         .enumerate()
         .map(|(index, (binding, resolved))| {
-            let (collection, _identity) = resolved.context("missing collection").context(index)?;
-            build_binding(binding, collection).context(index)
+            let (collection, identity) = resolved.context("missing collection").context(index)?;
+            build_binding(binding, collection, identity).context(index)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -70,6 +70,7 @@ pub fn build_bindings(
 fn build_binding(
     spec: &flow::materialization_spec::Binding,
     collection: &flow::CollectionSpec,
+    collection_index: Option<u32>,
 ) -> anyhow::Result<Binding> {
     let flow::materialization_spec::Binding {
         backfill: _,
@@ -151,6 +152,7 @@ fn build_binding(
 
     Ok(Binding {
         collection_name: collection_name.clone(),
+        collection_index,
         delta_updates: *delta_updates,
         document_uuid_ptr: json::Pointer::from(uuid_ptr.as_str()),
         key_extractors,
@@ -162,43 +164,94 @@ fn build_binding(
     })
 }
 
+/// Build the combiner Spec of a materialization: one validator slot per distinct
+/// source collection, shared by every binding which reads it.
+///
+/// Slots group on `collection_index` -- a proof of full `CollectionSpec` value
+/// equality, and therefore of an equal `read_schema_json` -- so a binding of an
+/// inline-form spec, which carries no identity, is its own slot. Keys and
+/// full-reduction flags stay per-binding: they follow the binding's field
+/// selection and `delta_updates`, not its collection.
 pub fn combine_spec(bindings: &[Binding]) -> anyhow::Result<doc::combine::Spec> {
-    let mut combiner_specs = Vec::with_capacity(bindings.len());
+    let mut slots = Vec::new();
+    let mut slots_by_identity = std::collections::BTreeMap::<u32, u32>::new();
+    let mut spec_bindings = Vec::with_capacity(bindings.len());
 
     for Binding {
         state_key,
         read_schema_json,
         delta_updates,
         key_extractors,
+        collection_index,
         collection_name,
         ..
     } in bindings
     {
-        let built_schema = doc::validation::build_bundle(read_schema_json)
-            .context("collection read_schema_json is not a JSON schema")?;
-        let validator = doc::Validator::new(built_schema).with_context(|| {
-            format!("could not build a schema validator for binding {state_key}",)
-        })?;
+        let slot = match collection_index.and_then(|i| slots_by_identity.get(&i)) {
+            Some(slot) => *slot,
+            None => {
+                let built_schema = doc::validation::build_bundle(read_schema_json)
+                    .context("collection read_schema_json is not a JSON schema")?;
+                let validator = doc::Validator::new(built_schema).with_context(|| {
+                    format!("could not build a schema validator for binding {state_key}",)
+                })?;
 
-        combiner_specs.push((
-            !delta_updates,
-            key_extractors.clone(),
-            format!("materialized collection {collection_name}"),
-            validator,
-        ));
+                slots.push((
+                    format!("materialized collection {collection_name}"),
+                    validator,
+                ));
+                let slot = slots.len() as u32 - 1;
+
+                if let Some(collection_index) = collection_index {
+                    slots_by_identity.insert(*collection_index, slot);
+                }
+                slot
+            }
+        };
+        spec_bindings.push((!delta_updates, key_extractors.clone(), slot));
     }
-
-    let (spec_bindings, spec_validators): (Vec<_>, Vec<_>) = combiner_specs
-        .into_iter()
-        .enumerate()
-        .map(|(index, (is_full, key, name, validator))| {
-            ((is_full, key, index as u32), (name, validator))
-        })
-        .unzip();
 
     Ok(doc::combine::Spec::with_bindings(
         spec_bindings,
-        spec_validators,
+        slots,
         Vec::new(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bindings reading one collection share a combiner validator, and bindings
+    /// of a spec which carries no identity keep one validator each.
+    #[test]
+    fn combine_spec_groups_validators_by_collection() {
+        let binding = |collection_index| Binding {
+            collection_name: "acmeCo/collection".to_string(),
+            collection_index,
+            delta_updates: false,
+            document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
+            key_extractors: Vec::new(),
+            read_schema_json: bytes::Bytes::from_static(br#"{"type":"object"}"#),
+            ser_policy: doc::SerPolicy::noop(),
+            state_key: "state".to_string(),
+            store_document: false,
+            value_plan: doc::ExtractorPlan::new(&[]),
+        };
+
+        // Indirect form: five bindings over two distinct collection values.
+        let bindings: Vec<Binding> = [0, 1, 0, 1, 0]
+            .into_iter()
+            .map(|i| binding(Some(i)))
+            .collect();
+        let spec = combine_spec(&bindings).unwrap();
+        assert_eq!(spec.binding_count(), 5);
+        assert_eq!(spec.validator_count(), 2);
+
+        // Inline form: identity, even though every binding names one collection.
+        let bindings: Vec<Binding> = (0..5).map(|_| binding(None)).collect();
+        let spec = combine_spec(&bindings).unwrap();
+        assert_eq!(spec.binding_count(), 5);
+        assert_eq!(spec.validator_count(), 5);
+    }
 }

@@ -82,7 +82,13 @@ impl Metrics {
 
 #[derive(Debug)]
 struct Binding {
-    collection_name: String,             // Source collection.
+    collection_name: String, // Source collection.
+    // Identity of the source collection's *value* within the task's linked
+    // collection table, or None if the spec is in inline form. Bindings which
+    // share an identity read an identical CollectionSpec and share a combiner
+    // validator. Not keyed on collection name: `group_by` can rewrite two
+    // bindings of one named collection to differing read schemas.
+    collection_index: Option<u32>,
     delta_updates: bool,                 // Delta updates, or standard?
     document_uuid_ptr: json::Pointer,    // Document UUID pointer (often /_meta/uuid).
     key_extractors: Vec<doc::Extractor>, // Key extractors for this collection.

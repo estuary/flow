@@ -113,6 +113,7 @@ fn open_publisher(
             runtime_next::new_producer(),
             "testing/ops/stats",
             &[spec],
+            &[0],
         )
         .expect("open JournalPublisher")
 }

@@ -113,6 +113,7 @@ pub(super) async fn run<
             crate::publish::producer_from_bytes(&publisher_id)?,
             &ops_stats_journal,
             &[],
+            &[],
         )
         .context("opening publisher")?;
 

@@ -225,7 +225,7 @@ fn complexity_limit(shape: &doc::Shape) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::leader::capture::task::{Binding, assign_inference_slots};
+    use crate::leader::capture::task::{Binding, assign_inline_slots};
 
     /// A Logger which records the ops::Logs its events flatten into.
     #[derive(Clone, Default)]
@@ -241,6 +241,7 @@ mod tests {
         Binding {
             collection_name: collection_name.to_string(),
             collection_generation_id: models::Id::zero(),
+            collection_slot: 0,
             document_uuid_ptr: json::Pointer::empty(),
             fan_in: false,
             inference_slot: 0,
@@ -262,10 +263,11 @@ mod tests {
             mk_binding("acmeCo/one", "stateB"),
             mk_binding("acmeCo/two", "stateC"),
         ];
-        let inference_slots = assign_inference_slots(&mut bindings).unwrap();
+        let (collection_slots, inference_slots) = assign_inline_slots(&mut bindings);
 
         let task = std::sync::Arc::new(Task {
             bindings,
+            collection_slots,
             inference_slots,
             close_policy: crate::leader::close_policy::Policy::new(
                 std::time::Duration::ZERO,

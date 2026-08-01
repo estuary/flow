@@ -110,16 +110,23 @@ pub trait PublisherFactory: Clone + Send + Sync + 'static {
     /// Concrete per-session publisher this factory produces.
     type Publisher: Publisher;
 
-    /// Open a [`Publisher`] for the given task bindings. `collection_specs` are
-    /// the capture / derive collection bindings (empty for a leader's
-    /// stats-only publisher); `stats_journal` is the fixed ops-stats binding.
+    /// Open a [`Publisher`] over the given journal targets. `collection_specs`
+    /// are the distinct collections this task writes (empty for a leader's
+    /// stats-only publisher), and `binding_targets` maps each task binding onto
+    /// one of them. `stats_journal` is the fixed ops-stats target.
     /// `authz_subject` and `producer` identify the publisher.
+    ///
+    /// The remap is the caller's: several bindings of a fan-in capture write one
+    /// collection, and one target -- with one journal client and one partitions
+    /// watch -- serves them all. The factory never re-derives which bindings are
+    /// equivalent; it cannot know.
     fn open(
         &self,
         authz_subject: String,
         producer: uuid::Producer,
         stats_journal: &str,
         collection_specs: &[&proto_flow::flow::CollectionSpec],
+        binding_targets: &[u32],
     ) -> anyhow::Result<Self::Publisher>;
 }
 
@@ -145,6 +152,7 @@ impl PublisherFactory for JournalPublisherFactory {
         producer: uuid::Producer,
         stats_journal: &str,
         collection_specs: &[&proto_flow::flow::CollectionSpec],
+        binding_targets: &[u32],
     ) -> anyhow::Result<JournalPublisher> {
         let mut targets = Vec::with_capacity(collection_specs.len() + 1);
 
@@ -155,6 +163,20 @@ impl PublisherFactory for JournalPublisherFactory {
             targets.push(publisher::Target::from_collection_spec(spec)?);
         }
 
+        // Fold target zero's offset into the remap, so the hot path is a lookup.
+        let binding_targets = binding_targets
+            .iter()
+            .enumerate()
+            .map(|(binding, &target)| {
+                anyhow::ensure!(
+                    (target as usize) < collection_specs.len(),
+                    "binding {binding} maps to target {target}, but only {} were given",
+                    collection_specs.len(),
+                );
+                Ok(target as usize + 1)
+            })
+            .collect::<anyhow::Result<Vec<usize>>>()?;
+
         let mut publisher = publisher::Publisher::new(
             authz_subject,
             targets,
@@ -164,7 +186,10 @@ impl PublisherFactory for JournalPublisherFactory {
         );
         publisher.update_clock();
 
-        Ok(JournalPublisher(publisher))
+        Ok(JournalPublisher {
+            inner: publisher,
+            binding_targets,
+        })
     }
 }
 
@@ -172,7 +197,12 @@ impl PublisherFactory for JournalPublisherFactory {
 /// Gazette journal IO. The inner `publisher::Publisher` is an implementation
 /// detail; from the leader / shard perspective the operative publisher is the
 /// [`Publisher`] trait.
-pub struct JournalPublisher(publisher::Publisher);
+pub struct JournalPublisher {
+    inner: publisher::Publisher,
+    /// Publisher target of each task binding, with target zero's fixed ops-stats
+    /// offset already folded in. Many bindings may name one target.
+    binding_targets: Vec<usize>,
+}
 
 impl JournalPublisher {
     /// Access the wrapped [`publisher::Publisher`] for low-level enqueues.
@@ -180,17 +210,17 @@ impl JournalPublisher {
     /// against a live broker; not part of the leader / shard hot path.
     #[doc(hidden)]
     pub fn inner_mut(&mut self) -> &mut publisher::Publisher {
-        &mut self.0
+        &mut self.inner
     }
 }
 
 impl Publisher for JournalPublisher {
     fn update_clock(&mut self) {
-        self.0.update_clock()
+        self.inner.update_clock()
     }
 
     async fn publish_stats(&mut self, mut stats: ops::proto::Stats) -> tonic::Result<()> {
-        self.0
+        self.inner
             .enqueue(
                 |uuid| {
                     // Binding index 0 is the fixed ops_stats journal.
@@ -207,7 +237,7 @@ impl Publisher for JournalPublisher {
                 uuid::Flags::CONTINUE_TXN,
             )
             .await?;
-        self.0.flush().await
+        self.inner.flush().await
     }
 
     async fn publish_doc(
@@ -216,10 +246,9 @@ impl Publisher for JournalPublisher {
         mut doc: doc::OwnedNode,
         uuid_ptr: &json::Pointer,
     ) -> tonic::Result<usize> {
-        // Publisher target zero is reserved for the fixed ops stats journal.
-        let publisher_target = binding_index + 1;
+        let publisher_target = self.binding_targets[binding_index];
         let (_, bytes_written) = self
-            .0
+            .inner
             .enqueue_owned(
                 |uuid| {
                     patch_document_uuid(&mut doc, uuid_ptr, uuid)?;
@@ -232,16 +261,15 @@ impl Publisher for JournalPublisher {
     }
 
     async fn flush(&mut self) -> tonic::Result<()> {
-        self.0.flush().await
+        self.inner.flush().await
     }
 
     async fn marker_commit(
         &mut self,
         binding_index: usize,
     ) -> tonic::Result<Option<(uuid::Producer, uuid::Clock, Vec<String>)>> {
-        // Task-binding index `i` maps to publisher target `i + 1` (target 0 is
-        // the fixed ops-stats journal), mirroring `publish_doc`.
-        Ok(Some(self.0.marker_commit(binding_index + 1).await?))
+        let publisher_target = self.binding_targets[binding_index];
+        Ok(Some(self.inner.marker_commit(publisher_target).await?))
     }
 
     async fn apply_truncated_at_labels(
@@ -250,31 +278,43 @@ impl Publisher for JournalPublisher {
     ) -> tonic::Result<()> {
         let mapped: BTreeMap<usize, u64> = active_backfills
             .iter()
-            .map(|(&binding, &clock)| (binding as usize + 1, clock))
+            .map(|(&binding, &clock)| (self.binding_targets[binding as usize], clock))
             .collect();
-        self.0.apply_truncated_at_labels(&mapped).await
+
+        // A target written by more than one active binding cannot carry a
+        // per-binding truncation clock, and `collect()` would silently keep
+        // whichever binding sorts last. The capture actor forecloses this by
+        // never beginning a backfill of a fan-in binding, so only sole-binding
+        // collections ever have entries here.
+        debug_assert_eq!(
+            mapped.len(),
+            active_backfills.len(),
+            "active backfills of {active_backfills:?} collapse onto shared publisher targets",
+        );
+
+        self.inner.apply_truncated_at_labels(&mapped).await
     }
 
     fn commit_intents(&mut self) -> Option<(uuid::Producer, uuid::Clock, Vec<String>)> {
-        Some(self.0.commit_intents())
+        Some(self.inner.commit_intents())
     }
 
     fn take_throttle_samples(&mut self) -> Vec<publisher::ThrottleSample<'_>> {
-        self.0.take_throttle_samples()
+        self.inner.take_throttle_samples()
     }
 
     fn split_partition(
         &self,
         journal: &str,
     ) -> Option<futures::future::BoxFuture<'static, tonic::Result<publisher::SplitOutcome>>> {
-        self.0.split_partition(journal)
+        self.inner.split_partition(journal)
     }
 
     async fn write_intents(
         &mut self,
         journal_intents: BTreeMap<String, Bytes>,
     ) -> tonic::Result<()> {
-        self.0.write_intents(journal_intents).await
+        self.inner.write_intents(journal_intents).await
     }
 }
 
@@ -299,12 +339,15 @@ impl JournalPublisher {
             });
         let collection_specs: Vec<&proto_flow::flow::CollectionSpec> =
             collection_specs.into_iter().collect();
+        let binding_targets: Vec<u32> = (0..collection_specs.len() as u32).collect();
+
         JournalPublisherFactory::new(factory)
             .open(
                 "test".to_string(),
                 new_producer(),
                 "test/ops/stats",
                 &collection_specs,
+                &binding_targets,
             )
             .unwrap()
     }

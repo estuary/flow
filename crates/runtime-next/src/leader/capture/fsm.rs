@@ -916,11 +916,12 @@ mod tests {
             mk_binding("test/collectionA", "stateA"),
             mk_binding("test/collectionB", "stateB"),
         ];
-        let inference_slots =
-            crate::leader::capture::task::assign_inference_slots(&mut bindings).unwrap();
+        let (collection_slots, inference_slots) =
+            crate::leader::capture::task::assign_inline_slots(&mut bindings);
 
         Task {
             bindings,
+            collection_slots,
             inference_slots,
             // Wide thresholds: `policy_extend` is always true and `policy_close`
             // is always satisfiable, so a close is driven only by
@@ -941,6 +942,7 @@ mod tests {
         Binding {
             collection_name: collection_name.to_string(),
             collection_generation_id: models::Id::zero(),
+            collection_slot: 0,
             document_uuid_ptr: json::Pointer::empty(),
             fan_in: false,
             inference_slot: 0,

@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 pub struct Task {
     /// Bindings of this Task.
     pub bindings: Vec<Binding>,
+    /// Representative binding of each collection slot, in binding-scan order.
+    /// See [`Binding::collection_slot`].
+    pub collection_slots: Vec<u32>,
     /// Schema-inference slots of this Task, one per distinct target collection.
     pub inference_slots: Vec<InferenceSlot>,
     /// Policy for how transactions close.
@@ -35,6 +38,21 @@ pub struct Binding {
     pub collection_name: String,
     // Generation id of the collection, which must be output as part of updating inferred schemas.
     pub collection_generation_id: models::Id,
+    // Index of this binding's collection slot: the group of bindings which write
+    // an identical `CollectionSpec` *value*, and can therefore share the derived
+    // state built from it -- a combiner validator and a publisher target.
+    //
+    // Slots key on the indirect encoding's `collection_index`, which is a proof of
+    // full value equality established by the spec interner, and not on collection
+    // name: a materialization's `group_by` can rewrite two bindings of one named
+    // collection to differing values, and a name-keyed slot would silently share
+    // derived state between them. An inline-form spec carries no index, so each
+    // of its bindings is its own slot and its behavior is unchanged.
+    //
+    // Distinct from `inference_slot`, which keys on *journal* identity because
+    // inferred shapes outlive the build that produced an index. The two provably
+    // coincide for captures; see `assert_slot_groupings`.
+    pub collection_slot: u32,
     // JSON pointer at which document UUIDs are added.
     pub document_uuid_ptr: json::Pointer,
     // Index of this binding's inference slot within `Task::inference_slots`.
@@ -163,6 +181,7 @@ impl Task {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let collection_slots = assign_collection_slots(&mut bindings, &identities)?;
         let inference_slots = assign_inference_slots(&mut bindings)?;
 
         #[cfg(debug_assertions)]
@@ -191,6 +210,7 @@ impl Task {
 
         Ok(Self {
             bindings,
+            collection_slots,
             inference_slots,
             close_policy,
             explicit_acknowledgements,
@@ -250,28 +270,47 @@ impl Task {
             .collect()
     }
 
+    /// Build the combiner Spec of this Task: one validator slot per distinct
+    /// target collection, plus a final slot for the connector-state
+    /// pseudo-binding which rides the same combiner at index `bindings.len()`.
+    ///
+    /// Keys and full-reduction flags stay per-binding, so combined output is
+    /// separated by binding however many bindings share a validator.
     pub fn combine_spec(&self) -> anyhow::Result<doc::combine::Spec> {
         let state_schema = doc::reduce::merge_patch_schema().to_string();
         let state_schema = doc::validation::build_bundle(state_schema.as_bytes()).unwrap();
         let state_validator = doc::Validator::new(state_schema).unwrap();
 
-        // Identity mapping: one validator per binding, plus the
-        // connector-state pseudo-binding at index `bindings.len()`.
-        let (bindings, validators): (Vec<_>, Vec<_>) = self
-            .bindings
+        let validators = self
+            .collection_slots
             .iter()
-            .map(|binding| binding.combiner_spec())
+            .map(|&binding| {
+                let binding = &self.bindings[binding as usize];
+
+                (
+                    format!("captured collection {}", binding.collection_name),
+                    // Safe to unwrap() because `assign_collection_slots` already
+                    // built a validator over this slot's write schema.
+                    build_write_validator(&binding.write_schema_json).unwrap(),
+                )
+            })
             .chain(std::iter::once((
-                false,
-                Vec::new(),
                 "connector state".to_string(),
                 state_validator,
-            )))
-            .enumerate()
-            .map(|(index, (is_full, key, name, validator))| {
-                ((is_full, key, index as u32), (name, validator))
+            )));
+
+        let state_slot = self.collection_slots.len() as u32;
+        let bindings = self
+            .bindings
+            .iter()
+            .map(|binding| {
+                (
+                    false,
+                    binding.key_extractors.clone(),
+                    binding.collection_slot,
+                )
             })
-            .unzip();
+            .chain(std::iter::once((false, Vec::new(), state_slot)));
 
         Ok(doc::combine::Spec::with_bindings(
             bindings,
@@ -319,13 +358,10 @@ impl Binding {
         let document_uuid_ptr = json::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(key, projections, &ser_policy)?;
 
-        // Built here -- and dropped -- so that the schema is checked once per
-        // binding, up front, and `combiner_spec`'s rebuild can unwrap.
-        _ = build_write_validator(write_schema_json)?;
-
         Ok(Self {
             collection_name: name.clone(),
             collection_generation_id,
+            collection_slot: 0, // Stamped by Task::new, which groups bindings into slots.
             document_uuid_ptr,
             fan_in: false,     // Stamped by Task::new, which sees the binding's peers.
             inference_slot: 0, // Stamped by Task::new, which groups bindings into slots.
@@ -334,19 +370,6 @@ impl Binding {
             state_key: state_key.clone(),
             write_schema_json: write_schema_json.clone(),
         })
-    }
-
-    fn combiner_spec(&self) -> (bool, Vec<doc::Extractor>, String, doc::Validator) {
-        // Safe to unwrap() because it was previously run over
-        // `self.write_schema_json` by Binding::new().
-        let validator = build_write_validator(&self.write_schema_json).unwrap();
-
-        (
-            false,
-            self.key_extractors.clone(),
-            format!("captured collection {}", self.collection_name),
-            validator,
-        )
     }
 }
 
@@ -365,6 +388,42 @@ impl InferenceSlot {
     }
 }
 
+/// Group `bindings` into collection slots -- one per distinct `collection_index`
+/// identity, in binding-scan order -- stamping each binding's `collection_slot`
+/// and returning the representative binding of each slot.
+///
+/// A binding of an inline-form spec has no identity and is its own slot, so an
+/// unflagged task keeps one slot per binding. See [`Binding::collection_slot`].
+///
+/// Each slot's write schema is built here -- and dropped -- so that a bad schema
+/// is an error at Task::new rather than mid-session, and so [`Task::combine_spec`]
+/// can unwrap its rebuild.
+fn assign_collection_slots(
+    bindings: &mut [Binding],
+    identities: &[Option<u32>],
+) -> anyhow::Result<Vec<u32>> {
+    let mut slots = Vec::new();
+    let mut slots_by_identity = BTreeMap::<u32, u32>::new();
+
+    for (index, (binding, identity)) in bindings.iter_mut().zip(identities).enumerate() {
+        binding.collection_slot = match identity.and_then(|i| slots_by_identity.get(&i)) {
+            Some(slot) => *slot,
+            None => {
+                _ = build_write_validator(&binding.write_schema_json).context(index)?;
+
+                slots.push(index as u32);
+                let slot = slots.len() as u32 - 1;
+
+                if let Some(identity) = identity {
+                    slots_by_identity.insert(*identity, slot);
+                }
+                slot
+            }
+        };
+    }
+    Ok(slots)
+}
+
 /// Group `bindings` into inference slots -- one per distinct
 /// `partition_template_name`, in binding-scan order -- stamping each binding's
 /// `inference_slot` and its `fan_in`.
@@ -372,9 +431,7 @@ impl InferenceSlot {
 /// Both fall out of the same grouping because both are about journals: inference
 /// describes the collection its bindings write, and a binding sharing journals
 /// with a peer must not truncate them. See [`InferenceSlot`] and [`Binding::fan_in`].
-pub(crate) fn assign_inference_slots(
-    bindings: &mut [Binding],
-) -> anyhow::Result<Vec<InferenceSlot>> {
+fn assign_inference_slots(bindings: &mut [Binding]) -> anyhow::Result<Vec<InferenceSlot>> {
     let mut slots = Vec::<InferenceSlot>::new();
     // Slot of each binding, and count of bindings in each slot.
     let mut binding_slots = Vec::with_capacity(bindings.len());
@@ -404,6 +461,23 @@ pub(crate) fn assign_inference_slots(
     Ok(slots)
 }
 
+/// Assign both slot groupings over hand-built test `bindings`, exactly as
+/// `Task::new` does for an inline-form spec: no binding carries a
+/// `collection_index`, so each is its own collection slot, while inference slots
+/// still group by `partition_template_name`.
+#[cfg(test)]
+pub(crate) fn assign_inline_slots(bindings: &mut [Binding]) -> (Vec<u32>, Vec<InferenceSlot>) {
+    let identities = vec![None; bindings.len()];
+
+    let collection_slots = assign_collection_slots(bindings, &identities).unwrap();
+    let inference_slots = assign_inference_slots(bindings).unwrap();
+
+    #[cfg(debug_assertions)]
+    assert_slot_groupings(bindings, &identities);
+
+    (collection_slots, inference_slots)
+}
+
 fn build_write_validator(write_schema_json: &[u8]) -> anyhow::Result<doc::Validator> {
     let built_schema = doc::validation::build_bundle(write_schema_json)
         .context("collection write_schema_json is not a JSON schema")?;
@@ -421,26 +495,27 @@ fn assert_slot_groupings(bindings: &[Binding], identities: &[Option<u32>]) {
     if identities.first().is_some_and(Option::is_some) {
         // Indirect form: journal identity and value identity must coincide. They do
         // for captures -- nothing rewrites a capture binding's collection the way
-        // materialize's `group_by` does -- but derived state groups on
+        // materialize's `group_by` does -- but collection slots group on
         // `collection_index` while inference groups on the journal name, so the
         // coincidence is checked rather than assumed.
-        let mut slot_of = BTreeMap::new();
-        let mut identity_of = BTreeMap::new();
+        let mut inference_of = BTreeMap::new();
+        let mut collection_of = BTreeMap::new();
 
-        for (binding, identity) in bindings.iter().zip(identities) {
-            let identity = identity.expect("indirect form: every binding has an identity");
-
+        for binding in bindings {
             debug_assert_eq!(
-                *slot_of.entry(identity).or_insert(binding.inference_slot),
+                *inference_of
+                    .entry(binding.collection_slot)
+                    .or_insert(binding.inference_slot),
                 binding.inference_slot,
-                "collection_index {identity} spans two inference slots",
+                "collection slot {} spans two inference slots",
+                binding.collection_slot,
             );
             debug_assert_eq!(
-                *identity_of
+                *collection_of
                     .entry(binding.inference_slot)
-                    .or_insert(identity),
-                identity,
-                "inference slot {} spans two collection_index values",
+                    .or_insert(binding.collection_slot),
+                binding.collection_slot,
+                "inference slot {} spans two collection slots",
                 binding.inference_slot,
             );
         }
@@ -540,6 +615,21 @@ mod tests {
         Task::new(&open, &opened, 0).unwrap()
     }
 
+    /// The same task in inline form: each binding carries its own copy of its
+    /// collection and the linked table is dropped, so no binding has an identity.
+    fn mk_inline_task(collections: usize, binding_collections: &[usize]) -> Task {
+        let (mut open, opened) = mk_open_over(collections, binding_collections);
+
+        let spec = open.open.as_mut().unwrap().capture.as_mut().unwrap();
+        let table = std::mem::take(&mut spec.linked_collections);
+
+        for binding in &mut spec.bindings {
+            binding.collection = Some(table[binding.collection_index as usize].clone());
+            binding.collection_index = 0;
+        }
+        Task::new(&open, &opened, 0).unwrap()
+    }
+
     /// Bindings collapse into one inference slot per distinct target collection,
     /// and `fan_in` -- which shares the grouping, because both are about journals
     /// -- marks every binding of a collection written by more than one.
@@ -584,6 +674,42 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["acmeCo/collection-1", "acmeCo/collection-0"],
         );
+    }
+
+    /// Bindings which write one collection share a combiner validator slot: a
+    /// parsed schema, its index, and its validation scratch are built once per
+    /// collection rather than once per binding. Keys stay per-binding, as does
+    /// the connector-state pseudo-binding riding the same combiner.
+    #[test]
+    fn combine_spec_groups_validators_by_collection() {
+        // Five bindings over two collections, plus connector state.
+        let task = mk_task(2, &[0, 1, 0, 1, 0]);
+        assert_eq!(task.collection_slots, [0, 1]);
+        assert_eq!(
+            task.bindings
+                .iter()
+                .map(|binding| binding.collection_slot)
+                .collect::<Vec<_>>(),
+            [0, 1, 0, 1, 0],
+        );
+
+        let spec = task.combine_spec().unwrap();
+        assert_eq!(spec.binding_count(), 6);
+        assert_eq!(spec.validator_count(), 3);
+
+        // Slots follow binding-scan order, not collection index.
+        let task = mk_task(3, &[2, 1, 2]);
+        assert_eq!(task.collection_slots, [0, 1]);
+        assert_eq!(task.combine_spec().unwrap().validator_count(), 3);
+
+        // An inline-form task carries no identity, so each binding is its own
+        // slot and its combiner is bit-for-bit what it was before de-duplication.
+        let task = mk_inline_task(2, &[0, 1, 0, 1, 0]);
+        assert_eq!(task.collection_slots, [0, 1, 2, 3, 4]);
+
+        let spec = task.combine_spec().unwrap();
+        assert_eq!(spec.binding_count(), 6);
+        assert_eq!(spec.validator_count(), 6);
     }
 
     /// Slot indices move when a spec update reorders bindings, so shapes are

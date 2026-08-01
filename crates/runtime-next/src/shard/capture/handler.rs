@@ -355,10 +355,7 @@ where
         max_transactions,
     )?);
 
-    let collection_specs: Vec<&flow::CollectionSpec> = spec
-        .resolved_bindings()
-        .filter_map(|(_binding, resolved)| resolved.map(|(collection, _identity)| collection))
-        .collect();
+    let (collection_specs, binding_targets) = publisher_targets(&spec, &task)?;
     let publisher = service
         .publisher_factory
         .open(
@@ -366,6 +363,7 @@ where
             producer,
             &labeling.stats_journal,
             &collection_specs,
+            &binding_targets,
         )
         .context("opening publisher")?;
 
@@ -417,6 +415,39 @@ where
         ..Default::default()
     }));
     Ok(db)
+}
+
+/// Resolve the publisher targets of `spec`: the distinct collections its
+/// bindings write, and the binding-indexed remap onto them.
+///
+/// Targets follow the Task's collection slots, so a fan-in capture opens one
+/// journal client and one partitions watch per collection rather than per
+/// binding, and the combiner validator and publisher target of a binding are
+/// grouped identically.
+pub(crate) fn publisher_targets<'a>(
+    spec: &'a flow::CaptureSpec,
+    task: &crate::leader::capture::Task,
+) -> anyhow::Result<(Vec<&'a flow::CollectionSpec>, Vec<u32>)> {
+    let resolved: Vec<&flow::CollectionSpec> = spec
+        .resolved_bindings()
+        .enumerate()
+        .map(|(index, (_binding, resolved))| {
+            Ok(resolved.context("missing collection").context(index)?.0)
+        })
+        .collect::<anyhow::Result<_>>()?;
+
+    let collection_specs = task
+        .collection_slots
+        .iter()
+        .map(|&binding| resolved[binding as usize])
+        .collect();
+    let binding_targets = task
+        .bindings
+        .iter()
+        .map(|binding| binding.collection_slot)
+        .collect();
+
+    Ok((collection_specs, binding_targets))
 }
 
 /// Run the connector's Apply action until it converges, then promote the
