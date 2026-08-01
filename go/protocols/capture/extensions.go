@@ -55,6 +55,18 @@ func (m *Response_Discovered_Binding) Validate() error {
 	return nil
 }
 
+// BindingCollection returns the CollectionSpec of a binding of this request,
+// resolving it through LinkedCollections if the request is in indirect form.
+// It returns nil if the binding cannot be resolved, which Validate() rejects.
+func (m *Request_Validate) BindingCollection(b *Request_Validate_Binding) *pf.CollectionSpec {
+	if len(m.LinkedCollections) == 0 {
+		return &b.Collection
+	} else if int(b.CollectionIndex) >= len(m.LinkedCollections) {
+		return nil
+	}
+	return &m.LinkedCollections[b.CollectionIndex]
+}
+
 // Validate returns an error if the ValidateRequest isn't well-formed.
 func (m *Request_Validate) Validate() error {
 	if err := m.Name.Validate(); err != nil {
@@ -65,8 +77,11 @@ func (m *Request_Validate) Validate() error {
 		return pb.NewValidationError("missing ConfigJson")
 	}
 
+	if err := pf.ValidateLinkedCollections(m.LinkedCollections); err != nil {
+		return err
+	}
 	for i := range m.Bindings {
-		if err := m.Bindings[i].Validate(); err != nil {
+		if err := m.Bindings[i].validate(m); err != nil {
 			return pb.ExtendContext(err, "Bindings[%d]", i)
 		}
 	}
@@ -74,10 +89,34 @@ func (m *Request_Validate) Validate() error {
 }
 
 // Validate returns an error if the ValidateRequest_Binding isn't well-formed.
+// It validates the binding's inlined Collection, and so is meaningful only for
+// a binding of an inline-form request. An indirect-form binding must instead be
+// validated through its parent, which resolves its collection.
 func (m *Request_Validate_Binding) Validate() error {
 	if err := m.Collection.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
-	} else if len(m.ResourceConfigJson) == 0 {
+	}
+	return m.validateResource()
+}
+
+// validate checks this binding within the context of its parent request, which
+// determines whether the binding inlines its collection or indexes the parent's
+// LinkedCollections.
+func (m *Request_Validate_Binding) validate(parent *Request_Validate) error {
+	if err := pf.ValidateBindingCollection(
+		len(parent.LinkedCollections), m.Collection.ProtoSize(), m.CollectionIndex,
+	); err != nil {
+		return err
+	} else if len(parent.LinkedCollections) == 0 {
+		if err := m.Collection.Validate(); err != nil {
+			return pb.ExtendContext(err, "Collection")
+		}
+	}
+	return m.validateResource()
+}
+
+func (m *Request_Validate_Binding) validateResource() error {
+	if len(m.ResourceConfigJson) == 0 {
 		return pb.NewValidationError("missing ResourceConfigJson")
 	}
 	return nil
