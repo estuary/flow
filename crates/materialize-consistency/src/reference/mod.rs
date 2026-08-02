@@ -176,6 +176,9 @@ pub struct Session {
     /// Documents of the transaction in progress, awaiting whatever the class does
     /// with them.
     buffered: Vec<(Table, Row)>,
+    /// Load keys staged by this transaction, read when `Flush` arrives. See
+    /// [`stage_load`] for why the read cannot happen sooner.
+    pending_loads: Vec<(u32, String)>,
     /// Work staged by the transaction in progress, not yet published in a checkpoint.
     pending: BTreeMap<String, PendingApply>,
     /// Work whose transaction the log has confirmed, awaiting release.
@@ -288,13 +291,11 @@ fn handle(
         .context("received a transaction request before Open")?;
 
     if let Some(load) = request.load {
-        return load_document(session, load);
+        stage_load(session, load)?;
+        return Ok(Vec::new());
     }
     if request.flush.is_some() {
-        return Ok(vec![materialize::Response {
-            flushed: Some(materialize::response::Flushed { state: None }),
-            ..Default::default()
-        }]);
+        return flush_loads(session);
     }
     if let Some(store) = request.store {
         store_document(session, store)?;
@@ -549,6 +550,7 @@ fn open_session(
         key_end,
         nonce,
         buffered: Vec::new(),
+        pending_loads: Vec::new(),
         pending: BTreeMap::new(),
         // Recovered work is known committed, so it is releasable from the first
         // `Acknowledge` — which the protocol delivers before this session's first `Load`.
@@ -753,38 +755,63 @@ fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i
     }
 }
 
-fn load_document(
-    session: &mut Session,
-    load: materialize::request::Load,
-) -> anyhow::Result<Vec<materialize::Response>> {
-    let binding = session
-        .bindings
-        .get(load.binding as usize)
-        .context("Load names an unknown binding")?;
-
+/// Stage a load key. The destination is *not* read here.
+///
+/// Every real connector of every class does it this way — `materialize-databricks`,
+/// `-snowflake` and `-bigquery` write keys to a staging file inside the `it.Next()` loop,
+/// and `materialize-postgres` queues them into a temp table — and only after the loop, once
+/// `Flush` has arrived, do they join against the target table.
+///
+/// That is not merely a batching convenience: `Flush` is the runtime's signal that the
+/// previous transaction was acknowledged **by every shard**. A connector where one shard
+/// applies staged work on behalf of its peers has no other way to know that. Reading the
+/// destination as each `Load` arrives would read a base that the applying shard has not
+/// finished writing, and a merged binding reduced onto that base loses the difference.
+fn stage_load(session: &mut Session, load: materialize::request::Load) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        (load.binding as usize) < session.bindings.len(),
+        "Load names an unknown binding",
+    );
     let key = std::str::from_utf8(&load.key_json).context("Load key is not UTF-8")?;
 
-    let loaded = session.store.load(&binding.table, key)?;
+    session.pending_loads.push((load.binding, key.to_string()));
+    Ok(())
+}
 
-    trace_reduce(
-        "load",
-        &binding.table,
-        key,
-        loaded.as_deref(),
-        session.batch_seq as i64,
-    );
+/// Read every staged load key, at `Flush`.
+///
+/// Keys not found MUST be omitted rather than answered as null.
+fn flush_loads(session: &mut Session) -> anyhow::Result<Vec<materialize::Response>> {
+    let mut responses = Vec::new();
 
-    let Some(doc) = loaded else {
-        return Ok(Vec::new()); // Keys not found MUST be omitted.
-    };
+    for (binding, key) in std::mem::take(&mut session.pending_loads) {
+        let table = session.bindings[binding as usize].table.clone();
+        let loaded = session.store.load(&table, &key)?;
 
-    Ok(vec![materialize::Response {
-        loaded: Some(materialize::response::Loaded {
-            binding: load.binding,
-            doc_json: doc.into(),
-        }),
+        trace_reduce(
+            "load",
+            &table,
+            &key,
+            loaded.as_deref(),
+            session.batch_seq as i64,
+        );
+
+        if let Some(doc) = loaded {
+            responses.push(materialize::Response {
+                loaded: Some(materialize::response::Loaded {
+                    binding,
+                    doc_json: doc.into(),
+                }),
+                ..Default::default()
+            });
+        }
+    }
+
+    responses.push(materialize::Response {
+        flushed: Some(materialize::response::Flushed { state: None }),
         ..Default::default()
-    }])
+    });
+    Ok(responses)
 }
 
 /// Documents per staging batch.

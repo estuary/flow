@@ -311,13 +311,7 @@ does. Scenarios therefore choose their binding set, and a subject without a stan
 binding is still held to per-document cardinality, running-sum-against-oracle and
 monotonicity — the sharpest checks here.
 
-### Two known runtime limitations
-
-Two independent gaps each block one scenario. They are unrelated, and closing either leaves
-the other's scenario failing — so neither marker should be removed on the strength of the
-other being fixed.
-
-#### Gap 1 — a prepared transaction must outlive a membership change
+### A known runtime limitation: a prepared transaction must outlive a membership change
 
 The runtime does not yet provide a capability that
 [discussion 2581](https://github.com/estuary/flow/discussions/2581) names as a requirement
@@ -336,32 +330,33 @@ and cannot be taken back; the children open fresh channels at offset zero and ap
 replayed input a second time. Scaling down is the mirror image — a survivor reads one
 departing channel's counter, skips too few, and duplicates.
 
-`counter-split-during-commit` is marked `blocked_on_runtime` for this.
+`counter-split-during-commit` is marked `blocked_on_runtime` for this, and is the suite's
+one expected failure.
 
-#### Gap 2 — `Acknowledge` is not ordered across shards against the next transaction's loads
+### Why a coordinating connector must not read at `Load`
 
-A coordinating connector has only one shard apply staged work — the arrangement
-`materialize-databricks` uses, so that two shards never contend for a binding's table. That
-makes the shard which *loads* a key and the shard which *applies* it different processes,
-and nothing orders them.
+Post-commit-apply has one shard apply staged work on behalf of its peers, which means the
+shard that *loads* a key and the shard that *applies* it are different processes. Nothing
+in the protocol orders them directly: the leader emits `Action::Load` on its *extend* path,
+and `tail_done` gates only `may_close`, so a transaction's load phase can begin while the
+previous transaction is still being acknowledged.
 
-The only ordering primitive a connector has is `LoadIterator::WaitForAcknowledged`, and it
-waits on that shard's own acknowledgement, knowing nothing of its peers'. The window is
-structural rather than incidental: the leader emits `Action::Load` on its *extend* path, and
-`tail_done` gates only `may_close`, never `may_extend`. The leader's own test says as much —
-*"Head opens txn 2 via a fresh ready Frontier — pipelined with Tail."*
+`Flush` is what closes that window. It is sent only once the Tail reaches `Done`, which
+requires every shard's `Acknowledged` — so a connector that stages load keys as `Load`
+requests arrive and reads the destination only when `Flush` comes has, by construction,
+waited for the applying shard to finish.
 
-So a non-primary shard can load a key before the primary has applied the previous
-transaction's staged value for it, reduce onto that stale base, and write a merged value
-which loses the earlier contribution. The failure is confined to merged bindings:
-append-only bindings are handed each document once and never read one back.
+This is not a workaround; it is what every connector of every class in the fleet already
+does. `materialize-databricks`, `-snowflake` and `-bigquery` write keys to a staging file
+inside the `it.Next()` loop and join afterwards; `materialize-postgres` queues them into a
+temp table and joins afterwards. The boilerplate makes the guarantee explicit at that exact
+point, calling `WaitForAcknowledged` when no loads remain — *"Block for clients which stage
+loads during the loop and query on our return"* — and panics if a `Loaded` response is
+written before it.
 
-Closing it needs the runtime to tell a shard that *all* shards have acknowledged, so
-`WaitForAcknowledged` can mean what it already claims — that a connector may then issue
-loads without violating read-committed semantics. This has been raised with the data-plane
-team.
-
-`split-during-commit` is marked `blocked_on_runtime` for this.
+Reading the destination per `Load` request instead is the one arrangement that breaks, and
+it breaks only for merged bindings: a base missing the applying shard's work is reduced
+onto, and the difference is lost. `split-during-commit` is the scenario that catches it.
 
 **One property worth carrying elsewhere.** Keying a channel by the shard's whole range
 rather than by `key_begin` alone converts the scaling-up failure from silent data loss into
@@ -450,7 +445,7 @@ flight when one lands.
 
 The unmarked splitting scenarios are left unmarked rather than declared expected failures,
 because they pass whenever the race falls the other way, which is most of the time. Two
-signatures are worth recognising, because each is a runtime gap rather than a connector
-defect. Duplicates with no losses, in a counted-channel scenario, is Gap 1. A merged binding
-whose value disagrees with its own delivered rows — in both directions, with the total not
-conserved, while the append-only bindings are exact — is Gap 2.
+signatures are worth recognising. Duplicates with no losses in a counted-channel scenario is
+the runtime limitation above. A merged binding whose value disagrees with its own delivered
+rows — in both directions, with the total not conserved, while the append-only bindings are
+exact — is a connector reading its destination before `Flush`.
