@@ -2,13 +2,18 @@
 
 serial-db-tests = { max-threads = 1 }
 
-# Consistency scenarios that reconfigure a task's shards. Two of these at once
-# contend badly on one stack: `flowctl raw split-shards` fails outright, or a
-# crashed task cannot get a primary back inside its deadline while another
-# scenario is republishing and rescheduling shards of its own. The scenarios pass
-# reliably alone and flake in pairs, so they are serialised against each other —
-# every other scenario still runs alongside them.
-serial-shard-reconfiguration = { max-threads = 1 }
+# Scenarios that reconfigure a task's shards, capped rather than serialised.
+#
+# These were once run strictly one at a time, because two at once contended badly:
+# `flowctl raw split-shards` would fail outright, or a crashed task could not get a
+# primary back inside its deadline while another scenario republished and rescheduled
+# shards of its own. Both causes are gone — splits go through the local scripts now, and
+# the ops-journal leak that saturated the broker allocator is fixed — and strict
+# serialisation had become the suite's critical path, 892s of a 1128s run.
+#
+# Capped rather than uncapped: these are the scenarios that stress shard membership, and
+# a bound leaves the allocator headroom that an unbounded fan-out would not.
+serial-shard-reconfiguration = { max-threads = 3 }
 
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
@@ -37,6 +42,13 @@ slow-timeout = { period = "120s", terminate-after = 8 }
 # isolated speed, and because the shard-reconfiguring scenarios are serialised against each
 # other, that chain is the suite's critical path: starving it inflates the whole run.
 # Measured at the default, `split-during-store` took 744s in-suite against 248s alone.
+#
+# Four and not six. Six was tried once the shard-reconfiguring group stopped being
+# serialised, on the theory that the limit had become packing rather than contention: it
+# measured 855s and 787s against four's 792s, which is noise rather than a gain. Four is
+# kept as the lower-contention choice of two indistinguishable settings, and because the
+# remaining headroom is per-test duration — total test work is 1282s over 17 tests, so
+# ideal packing at four threads would be ~320s against an actual 792s.
 test-threads = 4
 
 # Named individually rather than by a substring: a scenario that splits or joins
