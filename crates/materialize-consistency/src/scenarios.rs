@@ -52,6 +52,13 @@ pub struct Scenario {
     pub defect: Option<Defect>,
     /// Split every shard of the task in two, after the warmup.
     pub split_shards: bool,
+    /// Split only once the fault has fired, rather than while the task is healthy.
+    ///
+    /// Turns a race into a sequence: the fault crashes the connector, the task is scaled
+    /// out while it is down, and it comes back with more shards than staged the work. A
+    /// scenario that splits a *running* task is asking a different question, so this is
+    /// opt-in rather than the default.
+    pub split_after_fault: bool,
     /// Join the task's shards pairwise, after the split has settled.
     ///
     /// Only meaningful together with `split_shards`: a task starts with one shard,
@@ -86,6 +93,7 @@ impl Scenario {
             faults: Vec::new(),
             defect: None,
             split_shards: false,
+            split_after_fault: false,
             join_shards: false,
             warmup_commits: 3,
             settle_commits: 3,
@@ -270,13 +278,26 @@ fn split_during_store() -> Scenario {
     scenario
 }
 
-/// The same, with the split landing while a transaction is being committed rather
-/// than accumulated — the rule the scale-out design depends on.
+/// A transaction dies mid-commit, the task is scaled out while it is down, and the
+/// staged work is finished by a *different* set of shards than staged it.
+///
+/// The connector crashes inside `StartCommit`, so a transaction is staged with its fate
+/// undecided. Only then is the task split, and only then does it restart — with more
+/// shards than existed when the work was staged. So this scenario is not a race: it is
+/// the deterministic question of whether an `Acknowledge` is idempotent enough to be
+/// finished by shards that did not begin it.
+///
+/// Post-commit-apply needs no fence for this. Its authority is the recovery log, and the
+/// crashed session is gone rather than competing — what it needs is for applying staged
+/// work to be repeatable, in any order, by whoever inherits it.
+///
+/// It is nonetheless an expected failure, on a runtime ordering gap rather than anything
+/// the connector can arrange for itself. See [`Scenario::known_limitation`] below.
 fn split_during_commit() -> Scenario {
     let mut scenario = Scenario::new(
         "split-during-commit",
-        "a transaction prepared under one shard split is replayed under that same \
-         split before a membership change takes effect",
+        "staged work committed by one shard is applied exactly once by the larger set \
+         of shards that replaces it",
         Class::PostCommitApply,
     )
     .fault(FaultRule {
@@ -284,7 +305,7 @@ fn split_during_commit() -> Scenario {
         nth: 4,
         arm_after: 0,
         shard: ShardTarget::Any,
-        action: Action::Stall { millis: 4_000 },
+        action: Action::Crash,
     })
     .catches(Defect::IgnoreKeyRange)
     .declaring(
@@ -296,8 +317,31 @@ fn split_during_commit() -> Scenario {
          one row per document. The set-based checks — no-loss, no-duplicates, \
          conservation and oracle agreement — carry the exactly-once claim here and \
          are NOT exempt.",
+    )
+    .blocked_on_runtime(
+        "The runtime does not order one transaction's `Acknowledge` across shards against \
+         the next transaction's loads, and a coordinating connector needs it to. Only the \
+         primary shard applies staged work — the arrangement `materialize-databricks` uses \
+         so that two shards never contend for a binding's table — so the shard that *loads* \
+         a key and the shard that *applies* it are different processes. The only ordering \
+         primitive a connector has is `LoadIterator::WaitForAcknowledged`, which waits on \
+         that shard's own acknowledgement and knows nothing of its peers'. \
+         \
+         The window is structural: the leader emits `Action::Load` on its *extend* path, \
+         and `tail_done` gates only `may_close`, never `may_extend` (see `close_policy.rs` \
+         and the leader's own test remarking that the Head opens the next transaction \
+         pipelined with the Tail). So a non-primary shard can load a key before the primary \
+         has applied the previous transaction's staged value for it, reduce onto that stale \
+         base, and write a merged value which loses the earlier contribution. Append-only \
+         bindings are unaffected: they are handed each document once and never read. \
+         \
+         Closing it needs the runtime to tell a shard that *all* shards have acknowledged, \
+         so that `WaitForAcknowledged` can mean what it already claims — that a connector \
+         may issue loads without violating read-committed semantics. That has been raised \
+         with the data-plane team. Remove this marker once it lands.",
     );
     scenario.split_shards = true;
+    scenario.split_after_fault = true;
     scenario.settle_commits = 5;
     scenario
 }
@@ -309,9 +353,11 @@ fn split_during_commit() -> Scenario {
 /// back. When the split lands inside that window the children open fresh channels at offset
 /// zero, replay the same input, and append it a second time.
 ///
-/// Post-commit-apply is not exposed to this, which is why its own `split-during-commit`
-/// scenario is held to a clean result: it applies only at `Acknowledge`, after the log has
-/// committed, so an uncommitted transaction was never applied and the replay is clean.
+/// This is a *different* gap from the one blocking post-commit-apply's own
+/// `split-during-commit`. Here rows of an uncommitted transaction are already in the
+/// destination and cannot be taken back. There, everything is applied after the log has
+/// committed, and what fails is the cross-shard *ordering* of those applies against the
+/// next transaction's loads.
 fn counter_split_during_commit() -> Scenario {
     let mut scenario = Scenario::new(
         "counter-split-during-commit",

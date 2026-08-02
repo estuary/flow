@@ -86,6 +86,13 @@ pub struct Outcome {
     /// fired proved nothing, so the runner refuses to pass one.
     pub faults_fired: usize,
     pub documents: usize,
+    /// Append rows the destination recognised as already applied.
+    ///
+    /// Reported on success as well as failure, because it is the difference between a
+    /// scenario that survived re-delivery and one that never saw any. A split scenario
+    /// passing with zero of these has demonstrated nothing about idempotency, however
+    /// green it looks — the same vacuity the paired-defect rule exists to prevent.
+    pub suppressed_rows: i64,
     /// Where the shim's trace and the destination were left. Retained on failure
     /// and removed on success — a caller that *expected* the failure (the defective
     /// half of every scenario) removes it itself.
@@ -102,16 +109,19 @@ impl Outcome {
     pub fn summary(&self) -> String {
         if self.violations.is_empty() {
             return format!(
-                "{}: upheld every invariant over {} documents ({} faults injected)",
-                self.scenario, self.documents, self.faults_fired
+                "{}: upheld every invariant over {} documents \
+                 ({} faults injected, {} re-delivered rows absorbed)",
+                self.scenario, self.documents, self.faults_fired, self.suppressed_rows,
             );
         }
         let mut lines = vec![format!(
-            "{}: {} violation(s) over {} documents ({} faults injected)",
+            "{}: {} violation(s) over {} documents \
+             ({} faults injected, {} re-delivered rows absorbed)",
             self.scenario,
             self.violations.len(),
             self.documents,
-            self.faults_fired
+            self.faults_fired,
+            self.suppressed_rows,
         )];
         // Bounded: a lost account produces a violation per account, and the first
         // few say everything the rest would.
@@ -180,7 +190,11 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
 
     tracing::info!(scenario = scenario.name, %run_id, verifies = scenario.verifies, "publishing");
 
-    let result = execute(&stack, scenario, &names, &run_dir, &plan).await;
+    let destination = run_dir.join("destination.sqlite");
+    let result = tokio::select! {
+        result = execute(&stack, scenario, &names, &run_dir, &plan) => result,
+        err = watch_destination_size(&destination) => Err(err),
+    };
 
     // Clean up whether or not the scenario passed, so repeated runs do not
     // accumulate debris. The run directory is left behind on failure: its trace is
@@ -204,6 +218,41 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
     }
 
     Ok(outcome)
+}
+
+/// Fail a run whose destination is growing without bound, before it fills the disk.
+///
+/// A subject carrying an append-side defect writes a row per replayed `Acknowledge`, and
+/// the runtime will replay for as long as the connector keeps refusing to make progress.
+/// Left alone that is unbounded: one such run reached 40 GiB and wedged every later run
+/// on the machine, because a scenario killed by the test runner's timeout never reaches
+/// any cleanup this crate could write. So the bound is enforced while the file grows
+/// rather than after the run ends.
+///
+/// Never resolves while the destination is a sane size, so it composes as the losing arm
+/// of a `select!`.
+async fn watch_destination_size(destination: &std::path::Path) -> anyhow::Error {
+    /// Roughly ten times the largest destination a passing scenario has produced, which
+    /// is enough headroom that tripping this means "runaway", not "a big run".
+    const LIMIT: u64 = 4 << 30;
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let Ok(meta) = std::fs::metadata(destination) else {
+            continue; // Not yet created, or already cleaned up.
+        };
+        if meta.len() > LIMIT {
+            // Keep the traces, which say what the shim did, and drop only the bulk.
+            let _ = std::fs::remove_file(destination);
+            return anyhow::anyhow!(
+                "the destination grew past {} GiB, so the run was abandoned before it \
+                 could fill the disk; the subject is appending without ever making \
+                 progress, which is the defect this run was checking for",
+                LIMIT >> 30,
+            );
+        }
+    }
 }
 
 async fn execute(
@@ -240,6 +289,14 @@ async fn execute(
     // being applied, and the scenario would be testing startup rather than what it
     // claims to.
     await_commits(&trace, scenario.warmup_commits, deadline).await?;
+
+    // A scenario that scales out *because of* the fault has to see it land first,
+    // or the two race and the run is no longer testing the sequence it describes.
+    // The crash leaves the task down, so the split lands while nothing is writing
+    // and the work is finished by the larger set of shards that replaces it.
+    if scenario.split_after_fault {
+        await_faults(&trace, scenario.faults.len(), deadline).await?;
+    }
 
     if scenario.split_shards {
         tracing::info!(task = %names.sink, "splitting shards");
@@ -357,10 +414,17 @@ async fn execute(
         }
     }
 
+    // Read before the run directory is cleaned up, and on every path: a passing run is
+    // exactly the one where this number decides whether anything was proved.
+    let suppressed_rows = suppressed_rows(run_dir)
+        .map(|rows| rows.iter().map(|(_, n)| n).sum())
+        .unwrap_or(0);
+
     Ok(Outcome {
         scenario: scenario.name,
         violations,
         exempted,
+        suppressed_rows,
         faults_fired,
         documents,
         run_dir: run_dir.to_path_buf(),
@@ -369,6 +433,24 @@ async fn execute(
 
 /// Write what a failing run compared, so the next reader does not have to guess
 /// which side was wrong.
+/// Append rows the destination recognised as already applied, per table.
+///
+/// Read straight from the destination rather than through the connector, because it is
+/// the connector's own bookkeeping rather than a binding's contents. A non-zero count
+/// says a document was handed to the connector twice — which the delivered rows cannot
+/// say, since suppressing the second copy is precisely what makes them look correct.
+fn suppressed_rows(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
+    let conn = rusqlite::Connection::open_with_flags(
+        run_dir.join("destination.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    let mut stmt = conn.prepare("SELECT tbl, rows FROM _flow_suppressed ORDER BY tbl")?;
+    let rows = stmt
+        .query_map((), |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow::Result<()> {
     let expectation = |e: &Expectation| -> Vec<serde_json::Value> {
         e.accounts
@@ -390,7 +472,13 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
         "expected": {
             "merged": expectation(&b.merged_expected),
             "log": expectation(&b.log_expected),
+            "duplicatedSourceDocuments": {
+                "merged": b.merged_expected.duplicated_documents,
+                "log": b.log_expected.duplicated_documents,
+            },
         },
+        "suppressedAppendRows": suppressed_rows(run_dir)
+            .unwrap_or_else(|err| vec![(format!("unreadable: {err:#}"), -1)]),
         "delivered": {
             "standard": &b.standard,
             "mergedDelta": &b.merged_delta,

@@ -9,8 +9,8 @@ it changed the plan. The suite's own README is the roadmap; this is the record.
 A materialization connector is expected to uphold exactly-once delivery, and
 before this suite there was no mechanical way to find out whether it does.
 
-- The `Apply`-drains-pending-work contract was tested by hand-calling RPCs
-  in-process, with the runtime simulated by the test.
+- The idempotent-apply contract — re-running a recovered checkpoint's staged work —
+  was tested by hand-calling RPCs in-process, with the runtime simulated by the test.
 - Fencing was tested by installing fence rows and checking that a stale nonce is
   rejected — the mechanism in isolation, never a real race.
 - The integration harness drove materializations through a real runtime, but shard
@@ -311,7 +311,13 @@ does. Scenarios therefore choose their binding set, and a subject without a stan
 binding is still held to per-document cardinality, running-sum-against-oracle and
 monotonicity — the sharpest checks here.
 
-### A known runtime limitation: a prepared transaction must outlive a membership change
+### Two known runtime limitations
+
+Two independent gaps each block one scenario. They are unrelated, and closing either leaves
+the other's scenario failing — so neither marker should be removed on the strength of the
+other being fixed.
+
+#### Gap 1 — a prepared transaction must outlive a membership change
 
 The runtime does not yet provide a capability that
 [discussion 2581](https://github.com/estuary/flow/discussions/2581) names as a requirement
@@ -324,18 +330,38 @@ for materialization scale-out:
 Put the other way: a change in the number of shards should only become active once any
 prepared transaction has been fully processed.
 
-**Which strategies this reaches, and which it does not.** It reaches the counted channel,
-because that class writes during `Store`. The rows of a prepared-but-uncommitted
-transaction are already in the destination when the split lands, and cannot be taken back;
-the children open fresh channels at offset zero and append the replayed input a second
-time. Scaling down is the mirror image — a survivor reads one departing channel's counter,
-skips too few, and duplicates. `counter-split-during-commit` is marked
-`blocked_on_runtime` for exactly this, and is the suite's one expected failure.
+This reaches the **counted channel**, because that class writes during `Store`. The rows of
+a prepared-but-uncommitted transaction are already in the destination when the split lands
+and cannot be taken back; the children open fresh channels at offset zero and append the
+replayed input a second time. Scaling down is the mirror image — a survivor reads one
+departing channel's counter, skips too few, and duplicates.
 
-It does **not** reach post-commit-apply, which applies only at `Acknowledge`, after the
-recovery log has committed. A transaction that never committed was never applied, so its
-staging is discarded and the replay is clean — for a merge binding and an append-only one
-alike. `split-during-commit` is therefore held to a clean result rather than excused.
+`counter-split-during-commit` is marked `blocked_on_runtime` for this.
+
+#### Gap 2 — `Acknowledge` is not ordered across shards against the next transaction's loads
+
+A coordinating connector has only one shard apply staged work — the arrangement
+`materialize-databricks` uses, so that two shards never contend for a binding's table. That
+makes the shard which *loads* a key and the shard which *applies* it different processes,
+and nothing orders them.
+
+The only ordering primitive a connector has is `LoadIterator::WaitForAcknowledged`, and it
+waits on that shard's own acknowledgement, knowing nothing of its peers'. The window is
+structural rather than incidental: the leader emits `Action::Load` on its *extend* path, and
+`tail_done` gates only `may_close`, never `may_extend`. The leader's own test says as much —
+*"Head opens txn 2 via a fresh ready Frontier — pipelined with Tail."*
+
+So a non-primary shard can load a key before the primary has applied the previous
+transaction's staged value for it, reduce onto that stale base, and write a merged value
+which loses the earlier contribution. The failure is confined to merged bindings:
+append-only bindings are handed each document once and never read one back.
+
+Closing it needs the runtime to tell a shard that *all* shards have acknowledged, so
+`WaitForAcknowledged` can mean what it already claims — that a connector may then issue
+loads without violating read-committed semantics. This has been raised with the data-plane
+team.
+
+`split-during-commit` is marked `blocked_on_runtime` for this.
 
 **One property worth carrying elsewhere.** Keying a channel by the shard's whole range
 rather than by `key_begin` alone converts the scaling-up failure from silent data loss into
@@ -343,17 +369,6 @@ duplication: a new child never inherits an offset that isn't its own, so it cann
 over-skip. Duplication is detectable at the destination; a lost prefix is not.
 
 ## Deferred
-
-**The `Apply`-drains-pending-work scenario.** The connector implements the drain,
-and `Apply` is idempotent, but no scenario exercises it — because the precondition
-cannot currently be arranged. Staged work is pending only between a transaction's
-recovery-log commit and its `Acknowledge`, and a crash there is repaired by the
-restart's own first `Acknowledge` long before the run's next publication drives an
-`Apply`. Setting it up needs the materialization *stopped* while holding committed
-staged work, then restarted with a changed spec — three publications and a shard
-disable, where the run currently does one publication of the captures alone. Worth
-doing; not worth a scenario that silently fails to establish what it claims to
-test.
 
 **A destination genuinely behind its checkpoint.** The document-counter class
 refuses this state rather than guessing at it, which is the right behaviour and is
@@ -428,13 +443,14 @@ a question about the runtime rather than about a connector. The suite measures i
 
 ### Any split scenario passes through that window
 
-`split-during-commit` is marked `blocked_on_runtime` because it *aims* at the window where
-a membership change lands on a prepared transaction. Every scenario that splits passes
-through the same window whether it aims at it or not: the harness cannot ask for a split at
-a transaction boundary, the workload commits every one to two seconds, and a split takes
-seconds to apply, so a prepared transaction is nearly always in flight when one lands.
+Every scenario that splits passes through the same windows whether it aims at them or not:
+the harness cannot ask for a split at a transaction boundary, the workload commits every one
+to two seconds, and a split takes seconds to apply, so a transaction is nearly always in
+flight when one lands.
 
-The counted-channel scenarios are left unmarked rather than declared expected failures,
-because they pass whenever the race falls the other way, which is most of the time. The
-signature to recognise is duplicates with no losses in a scenario that splits: that is this
-gap rather than a connector defect, and one runtime guarantee closes all of them.
+The unmarked splitting scenarios are left unmarked rather than declared expected failures,
+because they pass whenever the race falls the other way, which is most of the time. Two
+signatures are worth recognising, because each is a runtime gap rather than a connector
+defect. Duplicates with no losses, in a counted-channel scenario, is Gap 1. A merged binding
+whose value disagrees with its own delivered rows — in both directions, with the total not
+conserved, while the append-only bindings are exact — is Gap 2.
