@@ -297,6 +297,13 @@ async fn execute(
     await_first_message(&trace, deadline).await?;
     tracing::info!(elapsed = ?activating.elapsed(), "sink connector started");
 
+    // The gap between the connector being spoken to and its first *non-empty* transaction
+    // is the sink sitting idle while its captures activate and produce. Measured
+    // separately because it, not the commit cadence, is what varies between runs.
+    let feeding = std::time::Instant::now();
+    await_first_documents(&trace, deadline).await?;
+    tracing::info!(elapsed = ?feeding.elapsed(), "workload feeding the sink");
+
     let warmed = std::time::Instant::now();
     await_commits(&trace, scenario.warmup_commits, deadline).await?;
     tracing::info!(elapsed = ?warmed.elapsed(), commits = scenario.warmup_commits, "warmed up");
@@ -787,6 +794,28 @@ async fn await_first_message(run: &RunDir, timeout: std::time::Duration) -> anyh
         anyhow::ensure!(
             std::time::Instant::now() < deadline,
             "timed out waiting for the sink's connector to be started",
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
+/// Wait until a transaction has carried at least one document, which means the captures
+/// are producing and the sink is being fed.
+async fn await_first_documents(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        let fed = read_trace(run)?.iter().any(|e| match &e.event {
+            Event::Stored { per_binding } => per_binding.iter().any(|n| *n != 0),
+            _ => false,
+        });
+        if fed {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for the workload to feed the sink{}",
+            trace_failures(run),
         );
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
