@@ -17,18 +17,29 @@ collections:
             required: [id]
         key: [/id]
 
+    test_data_c:
+        schema:
+            type: object
+            properties:
+                id: { type: string }
+                value: { type: string }
+            required: [id]
+        key: [/id]
+
 captures:
     source_ingest:
         endpoint:
             connector:
                 image: ghcr.io/estuary/source-http-ingest:dev
                 config:
-                    paths: ["/data_a", "/data_b"]
+                    paths: ["/data_a", "/data_b", "/data_c"]
         bindings:
             - resource: { path: "/data_a", stream: "/data_a" }
               target: test_data_a
             - resource: { path: "/data_b", stream: "/data_b" }
               target: test_data_b
+            - resource: { path: "/data_c", stream: "/data_c" }
+              target: test_data_c
 
 materializations:
     dekaf_test:
@@ -47,6 +58,11 @@ materializations:
                 exclude: [flow_published_at]
             - source: test_data_b
               resource: { topic_name: topic_b }
+              fields:
+                recommended: true
+                exclude: [flow_published_at]
+            - source: test_data_c
+              resource: { topic_name: topic_c }
               fields:
                 recommended: true
                 exclude: [flow_published_at]
