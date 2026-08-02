@@ -29,6 +29,16 @@ default-filter = 'binary_id(/materialize-consistency::scenarios/)'
 # signal is the invariant report rather than a timeout.
 slow-timeout = { period = "120s", terminate-after = 8 }
 
+# Far below the default of one thread per core, and that makes the suite *faster*.
+#
+# Each scenario runs a materialization connector, the shim and two capture connectors,
+# against a stack already using the machine — so the default filled 10 cores with ~30
+# connector processes and a load average above 20. Everything then ran at a third of its
+# isolated speed, and because the shard-reconfiguring scenarios are serialised against each
+# other, that chain is the suite's critical path: starving it inflates the whole run.
+# Measured at the default, `split-during-store` took 744s in-suite against 248s alone.
+test-threads = 4
+
 # Named individually rather than by a substring: a scenario that splits or joins
 # shards has to be in this group, and a name-pattern match would silently drop a
 # future one that happened not to match.

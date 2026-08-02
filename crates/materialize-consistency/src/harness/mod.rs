@@ -845,6 +845,7 @@ async fn drain(
 ) -> anyhow::Result<Contents> {
     let deadline = std::time::Instant::now() + timeout;
     let mut unchanged_for = 0;
+    let mut stuck_for = 0;
     let mut previous = usize::MAX;
 
     /// Consecutive quiet polls before a destination counts as settled.
@@ -855,6 +856,16 @@ async fn drain(
     /// being starved on a loaded stack. `replayed-acknowledge` was failed by exactly
     /// that, reporting 229 undelivered documents as invariant violations.
     const QUIET_POLLS: usize = 10;
+
+    /// Consecutive polls of an *unhealthy* destination going nowhere before the wait ends.
+    ///
+    /// Twice `QUIET_POLLS`, because "unhealthy" covers both a shard restarting — which
+    /// resolves in a poll or two — and a task that can never run again, which is how
+    /// several defects surface. Without a bound of its own the second case can only end at
+    /// the deadline, and that dominated the suite: `split-during-store`'s defective half
+    /// spent 150 of its 180 seconds waiting for a task whose two shards were fencing each
+    /// other off and were never going to progress.
+    const STUCK_POLLS: usize = 20;
 
     loop {
         let standard = match standard_binding {
@@ -931,15 +942,23 @@ async fn drain(
         } else {
             0
         };
+        stuck_for = if total == previous && !healthy {
+            stuck_for + 1
+        } else {
+            0
+        };
         previous = total;
 
         let quiet = unchanged_for >= QUIET_POLLS;
+        let stuck = stuck_for >= STUCK_POLLS;
         let expired = std::time::Instant::now() >= deadline;
 
-        if quiet || expired {
-            // Which of the two ended the wait matters when reading a failure: "quiet"
-            // means the task stopped writing while still short, which is a finding;
-            // "deadline" means the runner ran out of patience, which is not.
+        if quiet || stuck || expired {
+            // Which of the three ended the wait matters when reading a failure. "quiet"
+            // means a healthy task stopped writing while still short, which is a finding.
+            // "stuck unhealthy" means it cannot run at all — the shape several defects
+            // take, and not a shortfall to reason about. "deadline" means the runner ran
+            // out of patience, which is neither.
             // Reported as the *delta* row count, the same figure the completion gate
             // uses. The seq-derived `merged_delivered` belongs in the plateau check and
             // nowhere else: it read "1020/997" — complete — for a destination whose
@@ -986,7 +1005,11 @@ async fn drain(
             anyhow::bail!(
                 "the destination stopped short of the collections ({short}); \
                  reason={}, task healthy={healthy}",
-                if quiet { "went quiet" } else { "deadline" },
+                match (quiet, stuck) {
+                    (true, _) => "went quiet",
+                    (_, true) => "stuck unhealthy",
+                    _ => "deadline",
+                },
             );
         }
 
