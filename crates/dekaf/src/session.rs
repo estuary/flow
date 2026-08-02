@@ -2,7 +2,8 @@ use super::{App, Collection, CollectionStatus, CollectionUnavailable, Read};
 use crate::{
     DekafError, KafkaApiClient, KafkaClientAuth, SessionAuthentication, TaskState,
     from_downstream_topic_name, from_upstream_topic_name, logging::propagate_task_forwarder,
-    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset,
+    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name, topology,
+    topology::PartitionOffset,
 };
 use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -896,6 +897,20 @@ impl Session {
                     }
                 }
 
+                // An empty topic has no journal to read; its sentinel partition is
+                // answered with an empty batch during the poll phase below.
+                if collection.empty_topic {
+                    metrics::counter!(
+                        "dekaf_fetch_requests",
+                        "topic_name" => key.0.to_string(),
+                        "partition_index" => key.1.to_string(),
+                        "task_name" => task_name.to_string(),
+                        "state" => "empty_topic"
+                    )
+                    .increment(1);
+                    continue;
+                }
+
                 let Some(partition) = collection
                     .partitions
                     .get(partition_request.partition as usize)
@@ -1061,6 +1076,29 @@ impl Session {
                                     );
                                     continue;
                                 }
+                            }
+                            // An empty topic's sentinel partition has no journal to
+                            // read: answer with an empty batch at offset 0 so the
+                            // consumer idles on it instead of erroring.
+                            if collection.empty_topic
+                                && partition_request.partition
+                                    == topology::SENTINEL_PARTITION_INDEX as i32
+                            {
+                                partition_responses.push(
+                                    PartitionData::default()
+                                        .with_partition_index(partition_request.partition)
+                                        .with_high_watermark(0)
+                                        .with_last_stable_offset(0)
+                                        .with_records(Some(Bytes::new()))
+                                        .with_current_leader(
+                                            messages::fetch_response::LeaderIdAndEpoch::default()
+                                                .with_leader_id(messages::BrokerId(1))
+                                                .with_leader_epoch(
+                                                    collection.binding_backfill_counter as i32,
+                                                ),
+                                        ),
+                                );
+                                continue;
                             }
                             // Fall through to UnknownTopicOrPartition
                         }
@@ -1795,7 +1833,7 @@ impl Session {
                             topic_name.clone(),
                             Some(collection.binding_backfill_counter),
                         )
-                        .map(|encrypted_name| (encrypted_name, collection.partitions.len())),
+                        .map(|encrypted_name| (encrypted_name, collection.partition_count())),
                     ),
                     CollectionStatus::Unavailable(_) => None,
                 })
@@ -1880,6 +1918,9 @@ impl Session {
                         decrypted_name
                     ))?
                 {
+                    // An empty topic has no journal to attribute the commit to; the
+                    // upstream commit above still happened, there's just nothing to log.
+                    (_, CollectionStatus::Ready(c)) if c.empty_topic => continue,
                     (_, CollectionStatus::Ready(c)) => &c.partitions,
                     (_, CollectionStatus::Unavailable(_)) => {
                         // For unavailable topics, skip partition processing since we have no journals
@@ -2616,14 +2657,21 @@ impl Session {
     ) -> anyhow::Result<MetadataResponseTopic> {
         let leader_epoch = collection.binding_backfill_counter as i32;
 
-        // Collections with empty partitions should be handled as NotReady before
-        // reaching this function, so we can safely iterate over partitions here
-        let partitions = collection
-            .partitions
-            .iter()
-            .enumerate()
-            .map(|(index, _)| Self::build_partition(index as i32, leader_epoch))
-            .collect();
+        // A collection with no journals is either handled as NotReady before reaching
+        // this function, or (with `allow_empty_topics`) presents one sentinel partition.
+        let partitions = if collection.empty_topic {
+            vec![Self::build_partition(
+                topology::SENTINEL_PARTITION_INDEX as i32,
+                leader_epoch,
+            )]
+        } else {
+            collection
+                .partitions
+                .iter()
+                .enumerate()
+                .map(|(index, _)| Self::build_partition(index as i32, leader_epoch))
+                .collect()
+        };
 
         Ok(MetadataResponseTopic::default()
             .with_name(Some(name))

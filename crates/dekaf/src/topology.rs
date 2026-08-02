@@ -60,6 +60,10 @@ pub struct Collection {
     pub value_schema: avro::Schema,
     pub extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>,
     pub binding_backfill_counter: u32,
+    /// The collection has no journals, and the task opted into serving it as an
+    /// empty topic (`allow_empty_topics`) rather than as `NotReady`. `partitions`
+    /// is empty; the topic presents one sentinel partition sitting at offset 0.
+    pub empty_topic: bool,
 }
 
 /// Represents why a collection is unavailable.
@@ -135,6 +139,11 @@ pub struct PartitionOffset {
 
 const OFFSET_REQUEST_EARLIEST: i64 = -2;
 const OFFSET_REQUEST_LATEST: i64 = -1;
+
+/// Index of the single partition presented for an empty topic (see
+/// [`Collection::empty_topic`]). Kafka clients require at least one partition
+/// per topic to complete a group assignment.
+pub const SENTINEL_PARTITION_INDEX: usize = 0;
 
 impl Collection {
     /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
@@ -296,7 +305,14 @@ impl Collection {
         // If there are no partitions/journals, the collection exists but isn't ready to serve.
         // This happens when a collection was reset and journals haven't been created yet,
         // or when a collection exists but no data has ever been written.
-        if partitions.is_empty() {
+        //
+        // `LeaderNotAvailable` (the `NotReady` mapping) is retryable, which suits a
+        // reset that's about to complete, but a never-written collection stays that
+        // way indefinitely and blocks consumer-group rebalance for every topic in the
+        // subscription. Tasks which prefer an idle-but-valid topic opt into
+        // `allow_empty_topics`.
+        let empty_topic = partitions.is_empty();
+        if empty_topic && !auth.allow_empty_topics() {
             tracing::debug!(
                 collection_name,
                 "Collection binding exists but has no journals available"
@@ -325,6 +341,7 @@ impl Collection {
             // TODO(jshearer): While this is a simple fix, it's not clear why exactly consumers behaves this way.
             // It would be good to understand this better and see if there's a more principled fix.
             binding_backfill_counter: binding.backfill + 1,
+            empty_topic,
         }))
     }
 
@@ -342,6 +359,16 @@ impl Collection {
         Ok((key_id, value_id))
     }
 
+    /// Number of partitions this collection presents to Kafka clients: its
+    /// journals, or the lone sentinel partition of an empty topic.
+    pub fn partition_count(&self) -> usize {
+        if self.empty_topic {
+            1
+        } else {
+            self.partitions.len()
+        }
+    }
+
     /// Map a partition and timestamp into the newest covering fragment offset.
     /// Request latest offset
     ///     - `suspend::Level::Full | suspend::Level::Partial`: `suspend.offset`
@@ -355,6 +382,15 @@ impl Collection {
         timestamp_millis: i64,
     ) -> anyhow::Result<Option<PartitionOffset>> {
         let Some(partition) = self.partitions.get(partition_index) else {
+            // The sentinel partition of an empty topic has no journal to query:
+            // it always sits at offset 0 with nothing to read.
+            if self.empty_topic && partition_index == SENTINEL_PARTITION_INDEX {
+                return Ok(Some(PartitionOffset {
+                    fragment_start: 0,
+                    offset: 0,
+                    mod_time: -1, // UNKNOWN_TIMESTAMP
+                }));
+            }
             return Ok(None);
         };
 
