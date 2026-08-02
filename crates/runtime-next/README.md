@@ -247,6 +247,17 @@ This is distinct from the inference slots below, which key on *journal* identity
 for a reason that section gives. The two coincide for captures, and `Task::new`
 `debug_assert`s that they do.
 
+Both groupings are gated by `shard/capture/acceptance.rs`, over one synthetic
+fan-in capture. It asserts the *counts* — for N bindings over M collections, M
+validators, M publisher targets and M inference slots, against N of each in
+inline form — because memory and startup CPU follow from those arithmetically,
+where asserting bytes would instead measure the JSON Schema parser. It then
+drives the same fixture through `Actor::serve` in both spec forms and asserts
+byte-identical published documents, stats, and inference events. Indirect form
+shares a validator and a target across a collection's bindings while inline form
+shares nothing, so the two agreeing is the direct test of the failure mode that
+matters: cross-binding contamination from either sharing.
+
 ## Schema inference (capture)
 
 Inference is keyed by *collection*, not by binding. `Task::new` groups bindings

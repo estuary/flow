@@ -3,6 +3,9 @@ mod connector;
 mod drain;
 mod handler;
 
+#[cfg(test)]
+mod acceptance;
+
 pub(crate) use handler::serve;
 
 #[derive(Clone)]

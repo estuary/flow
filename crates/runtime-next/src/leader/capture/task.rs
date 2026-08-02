@@ -540,11 +540,21 @@ fn assert_slot_groupings(bindings: &[Binding], identities: &[Option<u32>]) {
     }
 }
 
+/// Synthetic capture specs which fan several bindings into one collection,
+/// shared by this module's unit tests and the shard's acceptance tests.
 #[cfg(test)]
-mod tests {
+pub(crate) mod fixture {
     use super::*;
 
-    fn mk_collection(index: usize) -> flow::CollectionSpec {
+    /// Collection `index` of a synthetic capture: keyed on `/id`, with reduction
+    /// annotations so that documents of one key genuinely combine -- exercising
+    /// the validator a fan-in collection's bindings share, rather than only
+    /// counting it.
+    ///
+    /// Every collection *requires* a property naming itself, so a binding which
+    /// resolved to another collection's validator slot fails validation outright
+    /// rather than quietly accepting the document.
+    pub(crate) fn collection(index: usize) -> flow::CollectionSpec {
         flow::CollectionSpec {
             name: format!("acmeCo/collection-{index}"),
             key: vec!["/id".to_string()],
@@ -557,16 +567,31 @@ mod tests {
             ]))
             .unwrap(),
             uuid_ptr: "/_meta/uuid".to_string(),
-            write_schema_json: r#"{"type":"object"}"#.into(),
+            write_schema_json: format!(
+                r#"{{
+                    "type": "object",
+                    "properties": {{
+                        "id": {{"type": "string"}},
+                        "value": {{"type": "integer", "reduce": {{"strategy": "sum"}}}},
+                        "from_collection_{index}": {{"const": true}}
+                    }},
+                    "required": ["id", "from_collection_{index}"],
+                    "reduce": {{"strategy": "merge"}}
+                }}"#
+            )
+            .into(),
             ..Default::default()
         }
     }
 
-    /// An indirect-form capture Open / Opened whose `binding_collections[i]` is
-    /// the linked collection which binding `i` targets. Repeats fan several
-    /// bindings into one collection.
-    fn mk_open_over(collections: usize, binding_collections: &[usize]) -> (Request, Response) {
-        let spec = flow::CaptureSpec {
+    /// An indirect-form `CaptureSpec` over `collections` linked collections, where
+    /// `binding_collections[i]` is the collection which binding `i` writes.
+    /// Repeats fan several bindings into one collection.
+    pub(crate) fn capture_spec(
+        collections: usize,
+        binding_collections: &[usize],
+    ) -> flow::CaptureSpec {
+        flow::CaptureSpec {
             name: "acmeCo/capture".to_string(),
             bindings: binding_collections
                 .iter()
@@ -578,15 +603,30 @@ mod tests {
                     ..Default::default()
                 })
                 .collect(),
-            linked_collections: (0..collections).map(mk_collection).collect(),
+            linked_collections: (0..collections).map(collection).collect(),
             shard_template: Some(consumer::ShardSpec {
                 min_txn_duration: Some(std::time::Duration::ZERO.into()),
                 max_txn_duration: Some(std::time::Duration::from_secs(1).into()),
                 ..Default::default()
             }),
             ..Default::default()
-        };
+        }
+    }
 
+    /// Inline `spec`: each binding carries its own copy of its collection and the
+    /// linked table is dropped, so no binding has an identity and every
+    /// collection slot is its own.
+    pub(crate) fn into_inline(spec: &mut flow::CaptureSpec) {
+        let table = std::mem::take(&mut spec.linked_collections);
+
+        for binding in &mut spec.bindings {
+            binding.collection = Some(table[binding.collection_index as usize].clone());
+            binding.collection_index = 0;
+        }
+    }
+
+    /// The Open / Opened pair carrying `spec`, as `Task::new` consumes them.
+    pub(crate) fn open(spec: flow::CaptureSpec) -> (Request, Response) {
         let open = Request {
             open: Some(request::Open {
                 capture: Some(spec),
@@ -609,6 +649,15 @@ mod tests {
         };
         (open, opened)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_open_over(collections: usize, binding_collections: &[usize]) -> (Request, Response) {
+        fixture::open(fixture::capture_spec(collections, binding_collections))
+    }
 
     fn mk_task(collections: usize, binding_collections: &[usize]) -> Task {
         let (open, opened) = mk_open_over(collections, binding_collections);
@@ -618,15 +667,10 @@ mod tests {
     /// The same task in inline form: each binding carries its own copy of its
     /// collection and the linked table is dropped, so no binding has an identity.
     fn mk_inline_task(collections: usize, binding_collections: &[usize]) -> Task {
-        let (mut open, opened) = mk_open_over(collections, binding_collections);
+        let mut spec = fixture::capture_spec(collections, binding_collections);
+        fixture::into_inline(&mut spec);
 
-        let spec = open.open.as_mut().unwrap().capture.as_mut().unwrap();
-        let table = std::mem::take(&mut spec.linked_collections);
-
-        for binding in &mut spec.bindings {
-            binding.collection = Some(table[binding.collection_index as usize].clone());
-            binding.collection_index = 0;
-        }
+        let (open, opened) = fixture::open(spec);
         Task::new(&open, &opened, 0).unwrap()
     }
 
