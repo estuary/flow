@@ -90,6 +90,12 @@ pub struct Workload {
     /// byte-count limits are not yet threaded through from the spec, so
     /// transaction boundaries are approximate. Scenarios are keyed on protocol
     /// events rather than document identity precisely because of that.
+    ///
+    /// It also sets the pace of every gate in a run. A scenario waits out a warmup and a
+    /// settle measured in *commits*, so transaction duration is most of a run's wall
+    /// clock — measured at 18.8s of a 35s run. Shortening it costs nothing in coverage,
+    /// for the same reason the boundaries are approximate: nothing here is keyed on how
+    /// many documents a transaction carries.
     pub min_txn: std::time::Duration,
 }
 
@@ -98,7 +104,7 @@ impl Default for Workload {
         Self {
             rate: 40.0,
             id_range: 40,
-            min_txn: std::time::Duration::from_secs(1),
+            min_txn: std::time::Duration::from_millis(500),
         }
     }
 }

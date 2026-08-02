@@ -262,7 +262,9 @@ async fn execute(
     run_dir: &std::path::Path,
     plan: &catalog::Plan<'_>,
 ) -> anyhow::Result<Outcome> {
+    let published = std::time::Instant::now();
     stack.publish(&catalog::build(plan)?).await?;
+    tracing::info!(elapsed = ?published.elapsed(), "published");
 
     let deadline = std::time::Duration::from_secs(180);
 
@@ -288,7 +290,16 @@ async fn execute(
     // keyed on the third StartCommit could fire while the first binding is still
     // being applied, and the scenario would be testing startup rather than what it
     // claims to.
+    // Split activation from cadence: the first traced message means the sink's connector
+    // is up and being spoken to, so everything before it is the runtime scheduling a shard
+    // and starting a process, and everything after is transactions.
+    let activating = std::time::Instant::now();
+    await_first_message(&trace, deadline).await?;
+    tracing::info!(elapsed = ?activating.elapsed(), "sink connector started");
+
+    let warmed = std::time::Instant::now();
     await_commits(&trace, scenario.warmup_commits, deadline).await?;
+    tracing::info!(elapsed = ?warmed.elapsed(), commits = scenario.warmup_commits, "warmed up");
 
     // A scenario that scales out *because of* the fault has to see it land first,
     // or the two race and the run is no longer testing the sequence it describes.
@@ -348,15 +359,19 @@ async fn execute(
     // Unconditional, including for the split scenarios that inject no fault: a
     // split can fail a shard too, and unassigning a healthy one is a no-op, so
     // there is nothing to gain by predicting which perturbations need it.
+    let settled = std::time::Instant::now();
     let after = count_commits(&trace)? + scenario.settle_commits;
     recover(stack, plan, &names.sink, &trace, after, deadline).await?;
     await_commits(&trace, after, deadline).await?;
+    tracing::info!(elapsed = ?settled.elapsed(), commits = scenario.settle_commits, "settled");
 
     // Stop the workload and let the materialization drain. Only this run's own
     // captures are touched; scenarios never disable or restart anything
     // stack-wide, which is what makes a shared stack safe for concurrent runs.
     tracing::info!("disabling the workload to reach quiescence");
+    let quiesced = std::time::Instant::now();
     stack.publish(&catalog::quiesce(plan)?).await?;
+    tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
     let connector = std::path::PathBuf::from(
         plan.subject
@@ -369,17 +384,18 @@ async fn execute(
     // while after the publication that disables it, and an expectation read one
     // document early would report the materialization as having duplicated
     // something it merely delivered on time.
-    let merged_expected = Expectation::from_documents(
-        stack
-            .read_collection_when_final(&names.merged, FINALITY_TIMEOUT)
-            .await?,
-    );
-    let log_expected = Expectation::from_documents(
-        stack
-            .read_collection_when_final(&names.log, FINALITY_TIMEOUT)
-            .await?,
-    );
+    // Concurrently: the two collections are independent, and each read loops until its
+    // own contents stop growing, so serialising them doubled the wait for nothing.
+    let read = std::time::Instant::now();
+    let (merged_expected, log_expected) = tokio::try_join!(
+        stack.read_collection_when_final(&names.merged, FINALITY_TIMEOUT),
+        stack.read_collection_when_final(&names.log, FINALITY_TIMEOUT),
+    )?;
+    let merged_expected = Expectation::from_documents(merged_expected);
+    let log_expected = Expectation::from_documents(log_expected);
+    tracing::info!(elapsed = ?read.elapsed(), "read the collections");
 
+    let drained = std::time::Instant::now();
     let destination = drain(
         stack,
         &connector,
@@ -390,6 +406,8 @@ async fn execute(
         deadline,
     )
     .await?;
+
+    tracing::info!(elapsed = ?drained.elapsed(), "drained the destination");
 
     let bindings = invariants::Bindings {
         merged_expected,
@@ -754,6 +772,23 @@ async fn await_commits(
             trace_failures(run),
         );
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+}
+
+/// Wait until the shim has traced anything at all, which is the sink's connector being
+/// spoken to for the first time.
+async fn await_first_message(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        if !read_trace(run)?.is_empty() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for the sink's connector to be started",
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 }
 
