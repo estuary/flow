@@ -1,0 +1,37 @@
+---
+source: crates/avro/src/schema.rs
+expression: "schema_test(&fixture, &key)"
+---
+{
+  "key": {
+    "fields": [
+      {
+        "name": "_flow_key",
+        "type": {
+          "fields": [
+            {
+              "name": "p1",
+              "type": "string"
+            }
+          ],
+          "name": "Parts",
+          "namespace": "root.Key",
+          "type": "record"
+        }
+      }
+    ],
+    "name": "Key",
+    "namespace": "root",
+    "type": "record"
+  },
+  "value": {
+    "fields": [
+      {
+        "name": "id",
+        "type": "string"
+      }
+    ],
+    "name": "root",
+    "type": "record"
+  }
+}
