@@ -260,38 +260,21 @@ matters: cross-binding contamination from either sharing.
 
 ## Schema inference (capture)
 
-Inference is keyed by *collection*, not by binding. `Task::new` groups bindings
-into `InferenceSlot`s — one per distinct `partition_template_name` — and every
-binding of a collection widens that collection's single shape, which is logged
-once per transaction with no `binding` field. This is the merge the L1
-inferred-schemas rollup (keyed on `collection_name`) would otherwise perform, and
-it makes a task's inference state and log volume scale with its collections
-rather than its bindings.
+Inference is keyed by *collection*: `Task::new` groups bindings into
+`InferenceSlot`s — one per distinct `partition_template_name` — and every binding
+of a collection widens that collection's one shape, capped once at its
+complexity limit and logged once per transaction. The L1 inferred-schemas rollup
+keys on `collection_name` and merges by collection regardless, so a task's
+inference state and log volume scale with its collections, not its bindings.
+Any binding's `SourcedSchema` therefore ratchets its whole collection to
+`SOURCED_SCHEMA_COMPLEXITY_LIMIT`.
 
-The grouping key is journal identity, *not* the `collection_index` that
-value-identity-derived state groups on, because shapes outlive the build that
-produced an index: the interner sorts collections by name, so adding one shifts
-every index after it. Shapes are stowed between sessions under
-`partition_template_name`, which also embeds the generation — so a collection
-reset starts inference fresh for free. `Task::new` `debug_assert`s that the two
-groupings coincide (indirect form) and that bindings of a slot share a write
-schema (inline form).
-
-Two consequences, both intended:
-
-- **The complexity limit now binds.** Previously each binding's shape was capped
-  at `DEFAULT_SCHEMA_COMPLEXITY_LIMIT` and the rollup merged them *without* a
-  cap, so a fan-in capture's effective per-collection limit was the limit times
-  its binding count. The union is now capped once, which is the point of having
-  a limit at this scale.
-- **`SOURCED_SCHEMA_COMPLEXITY_LIMIT` is per-collection.** Any one binding
-  reporting a `SourcedSchema` ratchets its whole collection's limit. The sourced
-  schema describes the collection, so this is right; the ratchet's blast radius
-  is simply wider.
-
-Unlike the rest of the indirect-encoding work, this needs no flag
-(`partition_template_name` is present in both spec forms) and so applies to every
-capture.
+The key is journal identity, *not* the `collection_index` of collection slots,
+because shapes are stowed across the many connector sessions of a shard and
+outlive the build which produced an index. Generation rides in
+`partition_template_name`, so a collection reset starts inference fresh.
+Inference needs no flag — both spec forms carry the key — and so groups the
+bindings of every capture.
 
 ## Backfill truncation (capture)
 
@@ -301,10 +284,11 @@ target collection — the boundary that materializations above classify against.
 
 **Fan-in suppresses truncation.** When the binding's target journals are also
 written by another *active* binding of the task (`Binding::fan_in`, keyed on
-`partition_template_name` because the hazard is about journals), the runtime
-drops the Begin at the actor's `WriteStats` dispatch
-(`suppress_fan_in_backfill`): no boundary clock, no marker intents, no
-`truncated-at` label, and no `ActiveBackfillChange::Begin` — so nothing is
+`partition_template_name` because the hazard is about journals), the head FSM
+classifies the Begin as suppressed as it admits it (`fsm::suppress_fan_in`).
+The message still isolates its transaction, but the Tail lifts no backfill into
+`WriteStats`, so the actor builds no boundary clock, no marker intents, no
+`truncated-at` label, and no `ActiveBackfillChange::Begin` — nothing is
 persisted. A `TRUNCATE` of one source table doesn't mean the logical collection
 should be truncated, and one binding doesn't get to make a decision that is
 load-bearing for its peers. The backfill itself always proceeds: the connector

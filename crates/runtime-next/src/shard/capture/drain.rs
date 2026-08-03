@@ -17,7 +17,7 @@
 use crate::leader::capture::{Task, fsm};
 use anyhow::Context;
 use bytes::Bytes;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Schema-complexity limit for a collection the connector described with a
 /// SourcedSchema. Such a collection has a meaningful source-derived schema, so
@@ -61,8 +61,9 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
     publisher.update_clock();
 
     // Inference slots updated this transaction — by a sourced schema or by
-    // widening an inferred shape — are logged once the drain completes.
-    let mut updated_inferences = BTreeSet::<usize>::new();
+    // widening an inferred shape — are logged once the drain completes, each
+    // naming the last binding which updated it.
+    let mut updated_inferences = BTreeMap::<usize, u32>::new();
 
     apply_sourced_schemas(&mut shapes, &task, sourced_schemas, &mut updated_inferences)?;
 
@@ -107,7 +108,7 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
                 limit,
                 doc::shape::limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
             );
-            updated_inferences.insert(slot);
+            updated_inferences.insert(slot, binding as u32);
         }
 
         let bytes_written = publisher
@@ -130,16 +131,18 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
         connector_patches.push(b']');
     }
 
-    for slot in updated_inferences.iter() {
+    for (slot, binding) in updated_inferences.iter() {
         // `to_schema` emits the shape's annotations, including the
         // `x-complexity-limit` set by `apply_sourced_schemas` or the
         // per-session default seeded by `Task::shapes_by_slot`.
         let schema = doc::shape::schema::to_schema(shapes[*slot].clone());
         logger.event(crate::LogEvent::InferredSchema {
             collection_name: &task.inference_slots[*slot].collection_name,
-            // Inference is collection-scoped, as it already is for derivations.
-            // The ops rollup keys on `collection_name` and never read `binding`.
-            binding: None,
+            // The event is about the collection — the ops rollup keys on
+            // `collection_name` and never reads `binding` — but naming one of
+            // the bindings which updated it (the last to, arbitrarily) keeps
+            // the event traceable back to the output which caused it.
+            binding: Some(*binding as usize),
             schema: &schema,
         });
         metrics.inferred_schema_updates.increment(1);
@@ -169,7 +172,7 @@ fn apply_sourced_schemas(
     shapes: &mut [doc::Shape],
     task: &Task,
     sourced_schemas: BTreeMap<u32, doc::Shape>,
-    updated_inferences: &mut BTreeSet<usize>,
+    updated_inferences: &mut BTreeMap<usize, u32>,
 ) -> anyhow::Result<()> {
     for (binding, sourced_shape) in sourced_schemas {
         let slot = task
@@ -205,7 +208,7 @@ fn apply_sourced_schemas(
             doc::shape::X_COMPLEXITY_LIMIT.to_string(),
             serde_json::json!(SOURCED_SCHEMA_COMPLEXITY_LIMIT),
         );
-        updated_inferences.insert(slot);
+        updated_inferences.insert(slot, binding);
     }
     Ok(())
 }
@@ -253,9 +256,9 @@ mod tests {
     }
 
     /// Two bindings of one collection widen a single shared shape, and the
-    /// collection is logged exactly once -- without a `binding` field, since
-    /// inference is collection-scoped. A third binding on a second collection is
-    /// the control: it has its own slot and its own event.
+    /// collection is logged exactly once, naming the last binding to update it.
+    /// A third binding on a second collection is the control: it has its own
+    /// slot and its own event.
     #[tokio::test]
     async fn drain_infers_once_per_collection() {
         let mut bindings = vec![
@@ -321,7 +324,9 @@ mod tests {
             "both bindings of acmeCo/one widened its single shape",
         );
 
-        // One event per collection, each naming the collection and no binding.
+        // One event per collection, naming the last binding which updated it:
+        // binding 1 for `acmeCo/one` (bindings 0 and 1 share its slot), and
+        // binding 2 for `acmeCo/two`.
         let logs = logger.0.lock().unwrap();
         let field = |log: &ops::Log, field: &str| {
             log.fields_json_map
@@ -334,13 +339,14 @@ mod tests {
             "one inference event per collection: {logs:?}"
         );
 
-        for (log, collection) in logs.iter().zip(["acmeCo/one", "acmeCo/two"]) {
+        for (log, (collection, binding)) in logs.iter().zip([("acmeCo/one", 1), ("acmeCo/two", 2)])
+        {
             assert_eq!(log.message, "inferred schema updated");
             assert_eq!(
                 field(log, "collection_name"),
                 Some(format!("\"{collection}\"")),
             );
-            assert_eq!(field(log, "binding"), None);
+            assert_eq!(field(log, "binding"), Some(format!("{binding}")));
         }
     }
 }

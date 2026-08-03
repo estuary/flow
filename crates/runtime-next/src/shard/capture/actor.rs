@@ -523,7 +523,6 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
             fsm::Action::WriteStats { stats, backfill } => {
                 let mut publisher = self.publisher.take().context("missing capture publisher")?;
-                let backfill = suppress_fan_in_backfill(&self.task, backfill);
                 // A BackfillComplete truncates to its matching begin's clock,
                 // recovered from the shard's active-backfill state; snapshot it
                 // before the future moves `publisher`.
@@ -735,58 +734,6 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         };
         Ok(())
     }
-}
-
-/// Drop a `BackfillBegin` whose binding shares its target journals with other
-/// active bindings of the task, so that none of the Begin's truncation effects
-/// are ever built: no `truncated-at` boundary clock, no marker intents, and --
-/// because no [`proto::persist::ActiveBackfillChange::Begin`] is returned -- no
-/// entry in `active_backfills` and nothing persisted. Absence from the persisted
-/// map *is* the decision, so recovery replays nothing and the predicate is
-/// evaluated exactly once, here, at the point the signal is acted on.
-///
-/// The backfill itself proceeds: the connector re-captures, documents are
-/// written, and they merge on key into the existing collection. What's
-/// suppressed is only the truncation, which a single binding doesn't get to
-/// decide on behalf of its peers. The transaction likewise still converges --
-/// it commits as an ordinary, document-free transaction, and a later
-/// `BackfillComplete` for a never-begun binding is already a no-op.
-///
-/// `BackfillComplete` is deliberately never gated on the predicate: a backfill
-/// begun while its binding was sole must complete even if a later spec update
-/// made the binding fan-in.
-fn suppress_fan_in_backfill(
-    task: &Task,
-    backfill: Option<fsm::BackfillMessage>,
-) -> Option<fsm::BackfillMessage> {
-    let Some(fsm::BackfillMessage::BackfillBegin { binding }) = backfill else {
-        return backfill;
-    };
-    // Checked when the message was received (`on_connector_rx`).
-    let spec = &task.bindings[binding as usize];
-
-    if !spec.fan_in {
-        return backfill;
-    }
-    let bindings = task
-        .bindings
-        .iter()
-        .filter(|peer| peer.partition_template_name == spec.partition_template_name)
-        .count();
-
-    // Once per transition, not per session: a capture re-Opens every poll
-    // `interval`, so anything keyed on recovered state would re-log forever.
-    // INFO because this is a statement of fact, not a warning about a mistake.
-    service_kit::event!(
-        tracing::Level::INFO,
-        "connector",
-        binding,
-        collection = spec.collection_name.clone(),
-        bindings,
-        "backfilling a collection written by multiple bindings of this task; \
-         the backfill is additive and its truncation is suppressed",
-    );
-    None
 }
 
 /// Snapshot this transaction's ACK intents, plus its resolved

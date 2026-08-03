@@ -76,19 +76,7 @@ pub struct Binding {
 
 /// Long-lived schema inference of one target collection.
 ///
-/// Inference is about the collection, not the binding: several bindings of a
-/// fan-in capture describe one collection, and the ops rollup merges their
-/// inferences by collection name anyway. A slot is that merge, done once and up
-/// front, so a task with many bindings over few collections holds and logs
-/// per-collection state rather than per-binding state.
-///
-/// Slots key on `partition_template_name` -- collection name plus generation --
-/// and *not* on the `collection_index` that other derived state groups on,
-/// because shapes outlive the build which produced an index: the interner sorts
-/// collections by name, so adding or removing one shifts every index after it,
-/// and an index-keyed stow would reattach collection A's shape to collection B
-/// after an unrelated edit. Generation stays embedded in the key, so a
-/// collection reset starts inference fresh for free.
+/// Slots key on `partition_template_name` (collection name plus generation).
 #[derive(Debug, Clone)]
 pub struct InferenceSlot {
     // Target collection.
@@ -181,7 +169,7 @@ impl Task {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let collection_slots = assign_collection_slots(&mut bindings, &identities)?;
+        let collection_slots = assign_collection_slots(&mut bindings, &identities);
         let inference_slots = assign_inference_slots(&mut bindings)?;
 
         #[cfg(debug_assertions)]
@@ -281,23 +269,18 @@ impl Task {
         let state_schema = doc::validation::build_bundle(state_schema.as_bytes()).unwrap();
         let state_validator = doc::Validator::new(state_schema).unwrap();
 
-        let validators = self
-            .collection_slots
-            .iter()
-            .map(|&binding| {
-                let binding = &self.bindings[binding as usize];
+        let mut validators = Vec::with_capacity(self.collection_slots.len() + 1);
 
-                (
-                    format!("captured collection {}", binding.collection_name),
-                    // Safe to unwrap() because `assign_collection_slots` already
-                    // built a validator over this slot's write schema.
-                    build_write_validator(&binding.write_schema_json).unwrap(),
-                )
-            })
-            .chain(std::iter::once((
-                "connector state".to_string(),
-                state_validator,
-            )));
+        for &binding in self.collection_slots.iter() {
+            let binding = &self.bindings[binding as usize];
+
+            validators.push((
+                format!("captured collection {}", binding.collection_name),
+                build_write_validator(&binding.write_schema_json)
+                    .with_context(|| format!("collection {}", binding.collection_name))?,
+            ));
+        }
+        validators.push(("connector state".to_string(), state_validator));
 
         let state_slot = self.collection_slots.len() as u32;
         let bindings = self
@@ -394,14 +377,7 @@ impl InferenceSlot {
 ///
 /// A binding of an inline-form spec has no identity and is its own slot, so an
 /// unflagged task keeps one slot per binding. See [`Binding::collection_slot`].
-///
-/// Each slot's write schema is built here -- and dropped -- so that a bad schema
-/// is an error at Task::new rather than mid-session, and so [`Task::combine_spec`]
-/// can unwrap its rebuild.
-fn assign_collection_slots(
-    bindings: &mut [Binding],
-    identities: &[Option<u32>],
-) -> anyhow::Result<Vec<u32>> {
+fn assign_collection_slots(bindings: &mut [Binding], identities: &[Option<u32>]) -> Vec<u32> {
     let mut slots = Vec::new();
     let mut slots_by_identity = BTreeMap::<u32, u32>::new();
 
@@ -409,8 +385,6 @@ fn assign_collection_slots(
         binding.collection_slot = match identity.and_then(|i| slots_by_identity.get(&i)) {
             Some(slot) => *slot,
             None => {
-                _ = build_write_validator(&binding.write_schema_json).context(index)?;
-
                 slots.push(index as u32);
                 let slot = slots.len() as u32 - 1;
 
@@ -421,7 +395,7 @@ fn assign_collection_slots(
             }
         };
     }
-    Ok(slots)
+    slots
 }
 
 /// Group `bindings` into inference slots -- one per distinct
@@ -469,7 +443,7 @@ fn assign_inference_slots(bindings: &mut [Binding]) -> anyhow::Result<Vec<Infere
 pub(crate) fn assign_inline_slots(bindings: &mut [Binding]) -> (Vec<u32>, Vec<InferenceSlot>) {
     let identities = vec![None; bindings.len()];
 
-    let collection_slots = assign_collection_slots(bindings, &identities).unwrap();
+    let collection_slots = assign_collection_slots(bindings, &identities);
     let inference_slots = assign_inference_slots(bindings).unwrap();
 
     #[cfg(debug_assertions)]

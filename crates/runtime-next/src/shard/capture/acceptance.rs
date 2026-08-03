@@ -465,9 +465,9 @@ async fn indirect_and_inline_forms_publish_identically() {
     assert_eq!(published.len(), 6);
     assert_eq!(indirect.stats.len(), 1);
 
-    // One inference event per collection, none naming a binding -- including
-    // collection-2, whose shape merges binding 2's document with binding 5's
-    // sourced schema.
+    // One inference event per collection, each naming the last binding to
+    // update it -- including collection-2, whose shape merges binding 5's
+    // sourced schema with binding 2's document, applied in that order.
     assert_eq!(
         indirect
             .inferences
@@ -475,9 +475,9 @@ async fn indirect_and_inline_forms_publish_identically() {
             .map(|(collection, binding, _schema)| (collection.as_str(), *binding))
             .collect::<Vec<_>>(),
         [
-            ("acmeCo/collection-0", None),
-            ("acmeCo/collection-1", None),
-            ("acmeCo/collection-2", None),
+            ("acmeCo/collection-0", Some(9)),
+            ("acmeCo/collection-1", Some(1)),
+            ("acmeCo/collection-2", Some(2)),
         ],
     );
     assert!(

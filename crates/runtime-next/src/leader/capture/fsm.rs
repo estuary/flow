@@ -74,6 +74,11 @@ pub struct Extents {
     synthetic_checkpoint: bool,
     // A backfill message observed in this transaction.
     backfill: Option<BackfillMessage>,
+    // Is `backfill` a fan-in BackfillBegin, decided when Head admitted it?
+    // Such a Begin still isolates its transaction and runs its lifecycle, but
+    // is never lifted into `Action::WriteStats`, so none of its truncation
+    // effects are built. See `suppress_fan_in`.
+    suppress_backfill: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -522,6 +527,7 @@ impl HeadExtend {
                     );
                 }
                 extents.backfill = Some(ctrl);
+                extents.suppress_backfill = suppress_fan_in(task, ctrl);
                 // Await the terminating Checkpoint of this isolated sequence.
                 (Action::Idle, Head::Extend(self))
             }
@@ -599,7 +605,12 @@ impl TailDrain {
 
         // Lift any backfill message into the WriteStats action: the actor builds
         // the marker ACK broadcast there, alongside the ordinary commit intents.
-        let backfill = extents.backfill.take();
+        // A Begin which Head classified as fan-in lifts nothing at all, so no
+        // truncation effect is ever built for it.
+        let backfill = match extents.backfill.take() {
+            Some(_) if extents.suppress_backfill => None,
+            backfill => backfill,
+        };
 
         (
             Action::WriteStats { stats, backfill },
@@ -795,6 +806,66 @@ impl TailApplyLabels {
 
 #[derive(Debug, Default)]
 pub struct TailDone {}
+
+/// Does this backfill message's truncation get suppressed?
+///
+/// A `BackfillBegin` is suppressed when its binding's target journals are also
+/// written by other active bindings of the task ([`super::Binding::fan_in`]).
+/// The backfill itself proceeds -- the connector re-captures, documents are
+/// written, and they merge on key into the existing collection -- but a
+/// `TRUNCATE` of one source table doesn't mean the logical collection should be
+/// truncated, and one binding doesn't get to make a decision that's
+/// load-bearing for its peers.
+///
+/// A suppressed Begin is never lifted into `Action::WriteStats`, so no boundary
+/// clock, marker intent, `truncated-at` label, or `ActiveBackfillChange::Begin`
+/// is ever built for it: absence from the persisted `active_backfills` map *is*
+/// the decision, and recovery replays nothing. The predicate is therefore
+/// evaluated exactly once, here, and never again in either direction --
+/// re-evaluating on recovery would wedge a backfill which began legally while
+/// its binding was sole (its label could never land), or apply truncation late,
+/// which is the hazard itself. A crash before the marker transaction commits
+/// leaves the connector's checkpoint un-ACKed, so the connector re-emits its
+/// Begin and the predicate re-evaluates at a Begin, as designed.
+///
+/// `BackfillComplete` is never suppressed, for the same reason: a backfill
+/// begun while its binding was sole must complete even if a later spec update
+/// made the binding fan-in. A suppressed backfill's Complete takes the actor's
+/// existing orphaned-complete no-op path.
+fn suppress_fan_in(task: &Task, backfill: BackfillMessage) -> bool {
+    let BackfillMessage::BackfillBegin { binding } = backfill else {
+        return false;
+    };
+    // The actor rejects an out-of-range binding as it receives the message, so
+    // this resolves. As elsewhere in these FSMs, an unexpected input holds its
+    // ground rather than panicking.
+    let Some(spec) = task.bindings.get(binding as usize) else {
+        return false;
+    };
+
+    if !spec.fan_in {
+        return false;
+    }
+    let bindings = task
+        .bindings
+        .iter()
+        .filter(|peer| peer.partition_template_name == spec.partition_template_name)
+        .count();
+
+    // Once per transition, not per session: a capture re-Opens every poll
+    // `interval`, so anything keyed on recovered state would re-log forever.
+    // INFO because this is a statement of fact, not a warning about a mistake.
+    service_kit::event!(
+        tracing::Level::INFO,
+        "head",
+        binding,
+        collection = spec.collection_name.clone(),
+        bindings,
+        "backfilling a collection written by multiple bindings of this task; \
+         the backfill is additive and its truncation is suppressed",
+    );
+    true
+}
 
 /// Build an `ops::Stats` document snapshotting this transaction's extents.
 fn build_stats_doc(task: &Task, extents: &Extents) -> ops::proto::Stats {
@@ -1731,6 +1802,61 @@ mod tests {
         tail = t;
         assert!(matches!(action, Action::Idle));
         assert!(matches!(tail, Tail::Done(_)));
+    }
+
+    /// A BackfillBegin of a fan-in binding is admitted and isolated exactly as
+    /// any other, but the Tail lifts no backfill into WriteStats -- so the actor
+    /// builds no marker, no boundary clock, and no ActiveBackfillChange, and the
+    /// transaction commits as an ordinary document-free one.
+    #[test]
+    fn fan_in_backfill_lifts_no_marker() {
+        let mut task = mk_task(false);
+        // Both bindings now write the journals of one collection.
+        task.bindings = vec![
+            mk_binding("test/collectionA", "stateA"),
+            mk_binding("test/collectionA", "stateB"),
+        ];
+        let (collection_slots, inference_slots) =
+            crate::leader::capture::task::assign_inline_slots(&mut task.bindings);
+        (task.collection_slots, task.inference_slots) = (collection_slots, inference_slots);
+        assert!(task.bindings.iter().all(|binding| binding.fan_in));
+
+        let mut ctx = mk_ctx(task);
+        let tail = Tail::Done(TailDone::default());
+
+        ctx.ready = ConnectorRx::Backfill(BackfillMessage::BackfillBegin { binding: 1 });
+        let (_action, head) = ctx.step_head(Head::Idle(HeadIdle::default()), &tail);
+        let (_action, head) = ctx.step_head(head, &tail);
+
+        let Head::Extend(extend) = &head else {
+            panic!("expected Extend, got {}", head.kind());
+        };
+        assert!(
+            extend.inner.extents.backfill.is_some() && extend.inner.extents.suppress_backfill,
+            "the message still isolates its transaction, but is classified as suppressed",
+        );
+
+        // Seal the marker transaction and rotate it into the Tail.
+        ctx.ready = checkpoint();
+        let (_action, head) = ctx.step_head(head, &tail);
+        ctx.close_requested = true;
+        let extents = match ctx.step_head(head, &tail).0 {
+            Action::Rotate { extents } => extents,
+            other => panic!("expected Rotate, got {other:?}"),
+        };
+
+        let (_action, tail) = ctx.step_tail(Tail::Begin(TailBegin { extents }));
+        ctx.drain_finished = Some(DrainedCapture {
+            connector_patches: Bytes::new(),
+            bindings: BTreeMap::new(),
+        });
+        match ctx.step_tail(tail).0 {
+            Action::WriteStats { backfill, .. } => assert!(
+                backfill.is_none(),
+                "a suppressed Begin is never lifted, got {backfill:?}",
+            ),
+            other => panic!("expected WriteStats, got {other:?}"),
+        }
     }
 
     /// A backfill message opens its own transaction immediately, ungated by the
