@@ -109,11 +109,12 @@ Captures interface with source systems using [connectors](#connectors).
 
 A **materialization** is an Estuary task that pushes data from one or more collections
 to an external destination.
-Documents continuously moves from each Estuary collection to the destination.
+Documents continuously move from each Estuary collection to the destination.
 Materializations are the conceptual inverse of **captures.**
 
 As new documents become available within bound collections, the materialization
-keeps the destination up to date within milliseconds, or as fast as that system allows.
+keeps the destination up to date within milliseconds, as fast as the system allows,
+or on a set sync schedule.
 Materializations interface with destinations using [connectors](#connectors).
 
 [Learn more about materializations](/concepts/materialization)
@@ -151,6 +152,28 @@ a particular source or destination system.
 
 *In this section, you'll find important concepts that are optional for basic usage.
 Read this to unlock more powerful workflows.*
+
+### Control plane
+
+Estuary uses a decoupled control and data plane architecture. The **control plane** orchestrates tasks and controls account management.
+Only metadata passes between the control and data planes; the control plane never touches data flowing from capture to materialization.
+
+Unlike data planes, Estuary always manages the control plane, even with [BYOC deployments](/private-byoc/byoc-deployments).
+
+***
+
+### Data plane
+
+Estuary uses a decoupled control and data plane architecture. The **data plane** manages data movement.
+
+Data planes are located in a specific cloud and region and can be public or [private](/private-byoc).
+
+A tenant can use multiple data planes, and choose the desired data plane during connector creation and storage mapping configuration.
+This is useful when separating regional data for compliance purposes or when separating production data from test data.
+
+You can view your available data planes under [Admin Settings](/guides/dashboard/admin).
+
+***
 
 ### Derivations
 
