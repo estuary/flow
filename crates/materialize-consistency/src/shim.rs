@@ -130,11 +130,25 @@ struct Instance {
     stdout: Option<async_process::ChildStdio>,
 }
 
+/// The value `materialize-boilerplate` expects in `FLOW_RUNTIME_CODEC`.
+///
+/// The shim relays between runtime and connector without transcoding, so both sides must
+/// use one codec. A connector built on the boilerplate reads this variable and defaults to
+/// protobuf when it is unset — which is why every real connector failed here while the
+/// reference one, which hardcodes JSON, did not.
+fn codec_name(codec: connector_init::Codec) -> &'static str {
+    match codec {
+        connector_init::Codec::Proto => "proto",
+        connector_init::Codec::Json => "json",
+    }
+}
+
 impl Instance {
     /// Spawn `command`, inheriting stderr so the connector's own logs reach the
     /// runtime unaltered — the shim is transparent to logging.
-    fn spawn(command: &[String]) -> anyhow::Result<Self> {
+    fn spawn(command: &[String], codec: connector_init::Codec) -> anyhow::Result<Self> {
         let mut child: async_process::Child = connector_init::rpc::new_command(command)
+            .env("FLOW_RUNTIME_CODEC", codec_name(codec))
             .stdin(async_process::Stdio::piped())
             .stdout(async_process::Stdio::piped())
             .stderr(async_process::Stdio::inherit())
@@ -241,7 +255,7 @@ impl Shim {
     pub async fn run(self, command: Vec<String>) -> anyhow::Result<std::process::ExitStatus> {
         let shim = Arc::new(self);
 
-        let mut live = Instance::spawn(&command)?;
+        let mut live = Instance::spawn(&command, shim.codec)?;
         let live_pid = live.pid();
         let live_stdout = live.stdout.take().expect("stdout was piped");
         let live_stdin = live.stdin;
@@ -311,12 +325,16 @@ struct Zombie {
 }
 
 impl Zombie {
-    fn spawn(command: &[String], rule: FaultRule) -> anyhow::Result<Self> {
+    fn spawn(
+        command: &[String],
+        rule: FaultRule,
+        codec: connector_init::Codec,
+    ) -> anyhow::Result<Self> {
         let Action::Zombie { thaw_after_commits } = rule.action else {
             unreachable!("caller matched a Zombie action")
         };
 
-        let mut instance = Instance::spawn(command)?;
+        let mut instance = Instance::spawn(command, codec)?;
         let mut stdout = instance.stdout.take().expect("stdout was piped");
         let (opened_tx, opened_rx) = tokio::sync::oneshot::channel();
 
@@ -508,7 +526,7 @@ where
             // the one holding the older.
             if trigger == Trigger::Open {
                 if let Some(rule) = shim.zombie_action() {
-                    let mut z = Zombie::spawn(&command, rule)?;
+                    let mut z = Zombie::spawn(&command, rule, shim.codec)?;
                     shim.zombie_pid
                         .store(z.instance.pid(), std::sync::atomic::Ordering::Relaxed);
 

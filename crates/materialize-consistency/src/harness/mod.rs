@@ -2,6 +2,7 @@
 
 pub mod catalog;
 pub mod stack;
+pub mod subject;
 
 use crate::invariants::{self, Expectation, Invariant, Violation};
 use crate::protocol::{Event, RunDir, TraceEvent, Trigger};
@@ -151,11 +152,18 @@ fn run_id() -> String {
 }
 
 /// Run one scenario against one subject.
-pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outcome> {
+///
+/// `external` carries a real connector's discovered resource shape; `None` means the
+/// reference connector, whose shape the harness knows.
+pub async fn run(
+    scenario: &Scenario,
+    subject: &Subject,
+    external: Option<&subject::External>,
+) -> anyhow::Result<Outcome> {
     let stack = stack::Stack::from_env()?;
     let run_id = run_id();
 
-    let names = catalog::Names::new(&stack.tenant, scenario.name, &run_id);
+    let names = catalog::Names::new(&stack.tenant, scenario.name, &run_id, external.is_some());
     let run_dir = stack
         .stack_dir
         .join("consistency")
@@ -166,16 +174,23 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
     let shim = stack.binary("consistency-shim")?;
     let capture = capture_command()?;
 
-    // The destination lives in the run directory, so it is deleted with the rest
-    // of the run's debris and two concurrent runs cannot see each other's rows.
+    // The reference connector's destination lives in the run directory, so it is deleted
+    // with the rest of the run's debris and two concurrent runs cannot see each other's
+    // rows. A real connector's config is its own and must not be edited: `path` means
+    // nothing to it, and connectors parse their configs strictly.
     let mut config = subject.config.clone();
-    config["path"] = serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
+    if external.is_none() {
+        config["path"] = serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
+    }
 
     let subject_config = catalog::Subject {
         connector: subject.connector.clone(),
         config,
     };
-    let workload = catalog::Workload::default();
+    let workload = match external {
+        Some(_) => catalog::Workload::remote(),
+        None => catalog::Workload::default(),
+    };
 
     let plan = catalog::Plan {
         names: &names,
@@ -186,13 +201,14 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
         faults: &scenario.faults,
         workload: &workload,
         standard_binding: scenario.standard_binding,
+        resource_shape: external.map(|e| &e.shape),
     };
 
     tracing::info!(scenario = scenario.name, %run_id, verifies = scenario.verifies, "publishing");
 
     let destination = run_dir.join("destination.sqlite");
     let result = tokio::select! {
-        result = execute(&stack, scenario, &names, &run_dir, &plan) => result,
+        result = execute(&stack, scenario, &names, &run_dir, &plan, external) => result,
         err = watch_destination_size(&destination) => Err(err),
     };
 
@@ -261,16 +277,26 @@ async fn execute(
     names: &catalog::Names,
     run_dir: &std::path::Path,
     plan: &catalog::Plan<'_>,
+    external: Option<&subject::External>,
 ) -> anyhow::Result<Outcome> {
     let published = std::time::Instant::now();
     stack.publish(&catalog::build(plan)?).await?;
     tracing::info!(elapsed = ?published.elapsed(), "published");
 
-    let deadline = std::time::Duration::from_secs(180);
+    // Scaled to the subject, because every gate here counts *commits*: a remote
+    // destination takes tens of seconds per transaction, so a budget sized for a local
+    // one expires while the connector is working correctly.
+    let deadline = match external {
+        Some(_) => std::time::Duration::from_secs(900),
+        None => std::time::Duration::from_secs(180),
+    };
 
-    /// Longer than the general deadline, because settling a collection means *reading*
-    /// it repeatedly and a read of a large one can take a minute under contention.
-    const FINALITY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+    // Longer than the general deadline, because settling a collection means *reading*
+    // it repeatedly and a read of a large one can take a minute under contention.
+    let finality_timeout = match external {
+        Some(_) => std::time::Duration::from_secs(1200),
+        None => std::time::Duration::from_secs(600),
+    };
 
     let trace = RunDir::new(run_dir);
 
@@ -395,8 +421,8 @@ async fn execute(
     // own contents stop growing, so serialising them doubled the wait for nothing.
     let read = std::time::Instant::now();
     let (merged_expected, log_expected) = tokio::try_join!(
-        stack.read_collection_when_final(&names.merged, FINALITY_TIMEOUT),
-        stack.read_collection_when_final(&names.log, FINALITY_TIMEOUT),
+        stack.read_collection_when_final(&names.merged, finality_timeout),
+        stack.read_collection_when_final(&names.log, finality_timeout),
     )?;
     let merged_expected = Expectation::from_documents(merged_expected);
     let log_expected = Expectation::from_documents(log_expected);
@@ -407,9 +433,10 @@ async fn execute(
         stack,
         &connector,
         &plan.subject.config,
-        &names.sink,
+        names,
         (&merged_expected, &log_expected),
         plan.standard_binding,
+        external.map(|e| &e.shape),
         deadline,
     )
     .await?;
@@ -425,7 +452,34 @@ async fn execute(
     };
     let documents = bindings.log_expected.documents() + bindings.merged_expected.documents();
 
-    let (violations, exempted) = partition_exempt(invariants::check(&bindings), &scenario.exempt);
+    // Monotonicity is exempted for a subject read as a table, because the order rows come
+    // back in is not guaranteed to be the order they were stored in — not merely unobserved
+    // but unguaranteeable, since a distributed destination is free to return rows from any
+    // partition or file in any order. There is no ordering to recover: a commit timestamp
+    // ties every row of a transaction, and inventing a total order out of that would
+    // manufacture violations rather than find them.
+    //
+    // The reference connector is the exception the check was written against — its tables
+    // carry an autoincrementing `ord`, so a read replays the sequence of appends — which is
+    // why the assumption survived until a real connector was pointed at.
+    //
+    // The set-based checks — no-loss, no-duplicates, conservation and oracle agreement —
+    // carry the exactly-once claim, and none of them depends on arrival order.
+    let mut exempt = scenario.exempt.clone();
+    if external.is_some() {
+        exempt.push(Exemption {
+            invariant: Invariant::Monotonicity,
+            justification: "This subject's destination is read as a table, and the order rows are \
+                 returned in is not guaranteed to be the order they were stored in — a \
+                 distributed destination may return rows from any partition or file in any \
+                 order. Delivery order is therefore not recoverable, and the set-based \
+                 invariants carry the exactly-once claim."
+                .to_string(),
+            scope: Scope::Connector,
+        });
+    }
+
+    let (violations, exempted) = partition_exempt(invariants::check(&bindings), &exempt);
 
     // A failure writes down everything it judged, next to the trace.
     //
@@ -733,12 +787,43 @@ async fn recover(
     let escalate_after = timeout / 3;
     let mut restarted = false;
 
+    // How long without a commit before the task counts as stuck, and how often to look.
+    //
+    // Proportional to the subject's own transaction pace, not a constant. Unassigning is a
+    // *remedy* — it takes the shard from its reactor so a failed one is rescheduled — and
+    // applying it to a task that is merely mid-transaction interrupts work that was going
+    // to succeed. Three transaction-lengths is long enough that a connector committing on
+    // schedule is never touched, and short enough to rescue one that has genuinely died.
+    //
+    // A fixed threshold cannot do both: 20s is ample for a subject committing in
+    // milliseconds and less than one commit for a subject committing to a warehouse, which
+    // is why `materialize-databricks` was being yanked every 20s while working correctly.
+    let pace = plan.workload.max_txn;
+    let stalled_after = pace * 3;
+    let poll = std::cmp::max(std::time::Duration::from_secs(5), pace / 3);
+
+    let mut last_commits = count_commits(run)?;
+    let mut stalled_since = std::time::Instant::now();
+
     loop {
-        if count_commits(run)? >= target {
+        let commits = count_commits(run)?;
+        if commits >= target {
             return Ok(());
         }
-        if let Err(err) = stack.unassign_shards(task).await {
-            tracing::debug!(%err, %task, "unassign did not apply");
+
+        if commits != last_commits {
+            last_commits = commits;
+            stalled_since = std::time::Instant::now();
+        } else if stalled_since.elapsed() > stalled_after {
+            stalled_since = std::time::Instant::now();
+            tracing::info!(
+                %task,
+                stalled_secs = stalled_after.as_secs(),
+                "no commit within three transaction lengths; unassigning",
+            );
+            if let Err(err) = stack.unassign_shards(task).await {
+                tracing::debug!(%err, %task, "unassign did not apply");
+            }
         }
         if !restarted && started.elapsed() > escalate_after {
             restarted = true;
@@ -757,7 +842,7 @@ async fn recover(
             "{task} never resumed committing after its fault{}",
             trace_failures(run),
         );
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(poll).await;
     }
 }
 
@@ -902,11 +987,22 @@ async fn drain(
     stack: &stack::Stack,
     connector: &std::path::Path,
     config: &serde_json::Value,
-    task: &str,
+    names: &catalog::Names,
     (merged_expected, log_expected): (&Expectation, &Expectation),
     standard_binding: bool,
+    shape: Option<&subject::ResourceShape>,
     timeout: std::time::Duration,
 ) -> anyhow::Result<Contents> {
+    // Named exactly as the catalog named them when it built the bindings, so a read asks
+    // for the resource the connector was actually given.
+    let resource = |table: &str, delta: bool| {
+        let table = names.table(table);
+        match shape {
+            Some(shape) => shape.resource(&table, delta),
+            None => serde_json::json!({"table": table, "delta": delta}),
+        }
+    };
+
     let deadline = std::time::Instant::now() + timeout;
     let mut unchanged_for = 0;
     let mut stuck_for = 0;
@@ -935,7 +1031,12 @@ async fn drain(
         let standard = match standard_binding {
             true => Some(
                 stack
-                    .read_destination(connector, config, catalog::TABLE_STANDARD, false)
+                    .read_destination(
+                        connector,
+                        config,
+                        &resource(catalog::TABLE_STANDARD, false),
+                        false,
+                    )
                     .await?,
             ),
             false => None,
@@ -944,10 +1045,15 @@ async fn drain(
         let contents = Contents {
             standard,
             merged_delta: stack
-                .read_destination(connector, config, catalog::TABLE_MERGED_DELTA, true)
+                .read_destination(
+                    connector,
+                    config,
+                    &resource(catalog::TABLE_MERGED_DELTA, true),
+                    true,
+                )
                 .await?,
             log: stack
-                .read_destination(connector, config, catalog::TABLE_LOG, true)
+                .read_destination(connector, config, &resource(catalog::TABLE_LOG, true), true)
                 .await?,
         };
 
@@ -999,7 +1105,7 @@ async fn drain(
         // work, and every membership-change scenario becomes flaky in the direction
         // of falsely reporting loss.
         let total = contents.log.len() + merged_delivered;
-        let healthy = stack.all_primary(task).await.unwrap_or(false);
+        let healthy = stack.all_primary(&names.sink).await.unwrap_or(false);
 
         unchanged_for = if total == previous && healthy {
             unchanged_for + 1

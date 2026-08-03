@@ -14,9 +14,20 @@
 //! which is why there are no snapshots here despite the repository's convention —
 //! a snapshot would add a stale artifact without adding information.
 
+use anyhow::Context;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Rows reach these checks in the order the destination returned them, which for a table
+/// read with `SELECT *` is no order at all — only the reference connector's own tables
+/// replay the order rows were appended in.
+///
+/// So any check whose meaning depends on order must establish that order itself, from
+/// `seq`. Three checks here got this wrong at once and reported 600 violations against a
+/// connector that was exactly correct, which is the worst thing this suite can do.
+/// `check_merged_delta`'s monotonicity is the sole deliberate exception: it is *about*
+/// arrival order, and is exempted for subjects whose destination cannot preserve it.
+///
 /// One workload document, in the fields the invariants rest on. See
 /// `tests/soak/capture/events.schema.json` for the full wire contract.
 #[derive(Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
@@ -28,6 +39,76 @@ pub struct Event {
     #[serde(default, rename = "balanceDelta")]
     pub balance_delta: i64,
     pub oracle: Oracle,
+}
+
+impl Event {
+    /// Parse one row as a destination returned it.
+    ///
+    /// Two shapes arrive here and both are legitimate. A connector that stores documents
+    /// whole — the reference one — yields the collection document itself. A SQL
+    /// destination yields *columns*, and Flow names each column by the JSON pointer of
+    /// the field it projects, so the nested `oracle` object arrives flattened as
+    /// `oracle/seq` and `oracle/balance`. A materialized table is columns, and a standard
+    /// binding need not carry a root document at all (see the connectors'
+    /// `no_flow_document` option), so there is nothing to parse whole.
+    ///
+    /// Pointer-named columns are therefore folded back into the object they came from.
+    /// Unrelated columns — `flow_published_at`, the workload's `set/` and `transfer/`
+    /// fields — fold harmlessly and are then ignored, because nothing here is required to
+    /// understand every projection a connector chose to materialize.
+    pub fn from_row(row: &str) -> anyhow::Result<Self> {
+        let value: serde_json::Value = serde_json::from_str(row).context("row is not JSON")?;
+
+        let Some(columns) = value.as_object() else {
+            anyhow::bail!("row is not a JSON object");
+        };
+
+        let mut document = serde_json::Map::new();
+        for (name, value) in columns {
+            insert_pointer(&mut document, name, value.clone());
+        }
+
+        // A nested field may also arrive as one column holding JSON text, and both shapes
+        // occur in the *same run*: field selection is per binding, so this workload's delta
+        // binding materialized `oracle/seq` and `oracle/balance` as separate columns while
+        // its merge binding materialized `oracle` whole. A reader has to accept either.
+        if let Some(text) = document.get("oracle").and_then(|o| o.as_str()) {
+            let parsed: serde_json::Value = serde_json::from_str(text)
+                .context("the oracle column is neither an object nor JSON text")?;
+            document.insert("oracle".to_string(), parsed);
+        }
+
+        serde_json::from_value(serde_json::Value::Object(document))
+            .context("row does not describe an event")
+    }
+}
+
+/// Place `value` at the `/`-delimited `path` within `object`, creating objects as needed.
+///
+/// A conflict — a path descending through a value that is already a scalar — leaves the
+/// scalar alone rather than discarding it. That only happens when a destination has both a
+/// column `x` and a column `x/y`, which no projection produces, and silently dropping
+/// data would be the worse failure of the two.
+fn insert_pointer(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    path: &str,
+    value: serde_json::Value,
+) {
+    let mut segments = path.split('/');
+    let mut leaf = segments.next().unwrap_or(path).to_string();
+    let mut cursor = object;
+
+    for next in segments {
+        let entry = cursor
+            .entry(std::mem::replace(&mut leaf, next.to_string()))
+            .or_insert_with(|| serde_json::Value::Object(Default::default()));
+
+        match entry.as_object_mut() {
+            Some(nested) => cursor = nested,
+            None => return,
+        }
+    }
+    cursor.insert(leaf, value);
 }
 
 #[derive(Deserialize, serde::Serialize, Clone, Debug, Default, PartialEq)]
@@ -381,6 +462,19 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
     let mut reported: BTreeSet<i64> = BTreeSet::new();
     let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
 
+    // The running sum is arithmetic over a key's history, so it has to be accumulated in
+    // sequence order — not in whatever order the destination handed the rows back. A
+    // SQL destination has no reason to return them ordered: `SELECT *` on a delta table
+    // gave `[10, 12, 4, 9, 26, ...]`, which made the first row's own delta look like the
+    // whole history and reported a violation against a connector that was exactly right.
+    //
+    // Monotonicity below is the opposite: it is *about* arrival order, and reads
+    // `delivery` rather than this. A destination that cannot preserve delivery order
+    // cannot be held to it at all — see the exemption the harness adds for such subjects.
+    let delivery = rows;
+    let mut rows: Vec<&Event> = rows.iter().collect();
+    rows.sort_by_key(|row| (row.id, row.seq));
+
     for row in rows {
         // Two rows for one (account, seq) is a transaction applied twice: each row
         // is one transaction's reduction, and a later transaction with more events
@@ -403,7 +497,9 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
                 ),
             });
         }
+    }
 
+    for row in delivery {
         if let Some(previous) = last_seq.get(&row.id) {
             if row.seq < *previous {
                 out.push(Violation {
@@ -458,8 +554,16 @@ fn check_standard_delta_agreement(
     let mut latest: BTreeMap<i64, &Event> = BTreeMap::new();
     let mut totals: BTreeMap<i64, i64> = BTreeMap::new();
 
+    // Latest by *sequence*, not by position: rows arrive in whatever order the destination
+    // returned them, and `SELECT *` on a table has no order at all. Taking the last one
+    // seen picked an arbitrary row and reported every account as disagreeing.
     for row in merged_delta {
-        latest.insert(row.id, row);
+        match latest.get(&row.id) {
+            Some(existing) if existing.seq >= row.seq => {}
+            _ => {
+                latest.insert(row.id, row);
+            }
+        }
         *totals.entry(row.id).or_default() += row.balance_delta;
     }
 
@@ -620,5 +724,101 @@ mod test {
 
         let kinds = kinds(&bindings);
         assert!(kinds.contains(&Invariant::NoLoss), "{kinds:?}");
+    }
+}
+
+#[cfg(test)]
+mod row_test {
+    use super::*;
+
+    /// A destination that stores documents whole, which is the reference connector and
+    /// any binding materializing a root document.
+    #[test]
+    fn a_document_row_parses() {
+        let row = r#"{"id":7,"seq":3,"balanceDelta":-25,"oracle":{"seq":3,"balance":100}}"#;
+        let event = Event::from_row(row).unwrap();
+
+        assert_eq!(event.id, 7);
+        assert_eq!(event.balance_delta, -25);
+        assert_eq!(
+            event.oracle,
+            Oracle {
+                seq: 3,
+                balance: 100
+            }
+        );
+    }
+
+    /// A real row from `materialize-databricks`, copied from a run rather than imagined.
+    ///
+    /// The shape this test originally asserted — `oracle` as one column of JSON text — was
+    /// invented, and the run disproved it: Flow names each column by the JSON pointer of
+    /// the field it projects, so a nested object arrives flattened.
+    #[test]
+    fn a_real_column_row_folds_its_pointer_named_columns() {
+        let row = r#"{"balanceDelta":-28,"flow_published_at":"2026-08-03T01:44:00.319887Z",
+                      "id":0,"oracle/balance":-266,"oracle/seq":22,
+                      "oracle/set":"[\"a\",\"b\"]","seq":22,"set/add":"[\"a\"]",
+                      "set/intersect":null,"set/remove":null,"transfer/amount":28,
+                      "transfer/from":0,"transfer/to":25,"ts":"2026-08-03T01:44:00.116428Z"}"#;
+
+        let event = Event::from_row(row).unwrap();
+
+        assert_eq!(event.id, 0);
+        assert_eq!(event.seq, 22);
+        assert_eq!(event.balance_delta, -28);
+        assert_eq!(
+            event.oracle,
+            Oracle {
+                seq: 22,
+                balance: -266
+            },
+            "oracle/seq and oracle/balance must fold back into the oracle object",
+        );
+    }
+
+    /// The merge binding of the very same run, which materialized `oracle` whole rather
+    /// than flattened. Both shapes must parse, which is why replacing one with the other
+    /// was wrong.
+    #[test]
+    fn a_real_merge_binding_row_parses_its_json_text_column() {
+        let row = r#"{"balanceDelta":403,"flow_published_at":"2026-08-03T01:49:50.246911Z",
+                      "id":0,"oracle":"{\"balance\":403,\"seq\":42,\"set\":[\"d\",\"g\"]}",
+                      "seq":42,"set/remove":"[\"a\"]","transfer/amount":68,
+                      "ts":"2026-08-03T01:49:50.243781Z"}"#;
+
+        let event = Event::from_row(row).unwrap();
+        assert_eq!(event.id, 0);
+        assert_eq!(event.balance_delta, 403);
+        assert_eq!(
+            event.oracle,
+            Oracle {
+                seq: 42,
+                balance: 403
+            },
+        );
+    }
+
+    /// Extra columns are ordinary: a destination carries `flow_document`, `flow_published_at`
+    /// and whatever else the connector adds, and a read must not choke on them.
+    #[test]
+    fn unknown_columns_are_ignored() {
+        let row = r#"{"id":1,"seq":0,"oracle":{"seq":0,"balance":0},
+                      "flow_document":"{}","flow_published_at":"2026-01-01T00:00:00Z"}"#;
+        let event = Event::from_row(row).unwrap();
+
+        assert_eq!(event.id, 1);
+        // Absent on a document that moved no money.
+        assert_eq!(event.balance_delta, 0);
+    }
+
+    #[test]
+    fn a_row_that_is_not_an_event_is_refused() {
+        assert!(Event::from_row("not json").is_err());
+        assert!(Event::from_row(r#"{"id":1}"#).is_err());
+        assert!(
+            Event::from_row(r#"{"id":1,"seq":0,"oracle":"not json"}"#).is_err(),
+            "an oracle column holding neither an object nor JSON must be reported",
+        );
     }
 }

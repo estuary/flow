@@ -22,6 +22,7 @@ prost = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

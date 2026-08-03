@@ -21,14 +21,12 @@ enum Command {
     /// into them, mirroring `materialize-boilerplate`'s `read` subcommand so that
     /// one code path serves the reference connector and real ones alike.
     Read {
-        /// Endpoint configuration, as a JSON document or a path to one.
+        /// Path to the endpoint configuration, as JSON or YAML.
         #[arg(long)]
         config: String,
+        /// Path to the resource configuration, as JSON or YAML.
         #[arg(long)]
-        table: String,
-        /// Read the resource as an append-only log, preserving delivery order.
-        #[arg(long)]
-        delta: bool,
+        resource: String,
     },
 }
 
@@ -81,13 +79,10 @@ fn run() -> anyhow::Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Some(Command::Read {
-            config,
-            table,
-            delta,
-        }) => {
+        Some(Command::Read { config, resource }) => {
             let config = load_config(&config)?;
-            reference::read(&config, &table, delta)
+            let resource: reference::ResourceConfig = load_json(&resource)?;
+            reference::read(&config, &resource.table, resource.delta)
         }
         // No subcommand: serve the materialization protocol on stdio, which is
         // how the runtime invokes a `local:` connector.
@@ -96,10 +91,15 @@ fn run() -> anyhow::Result<()> {
 }
 
 fn load_config(arg: &str) -> anyhow::Result<reference::EndpointConfig> {
-    let json = if arg.trim_start().starts_with('{') {
-        arg.to_string()
-    } else {
-        std::fs::read_to_string(arg).with_context(|| format!("reading config {arg}"))?
-    };
-    serde_json::from_str(&json).context("parsing endpoint configuration")
+    load_json(arg)
+}
+
+/// Load a config file as JSON or YAML.
+///
+/// YAML because that is how the connectors repository writes the endpoint configs its
+/// integration tests use, and because it subsumes JSON — so the same reader serves a
+/// harness passing a temporary JSON file and a person passing `config.local.yaml`.
+fn load_json<T: serde::de::DeserializeOwned>(path: &str) -> anyhow::Result<T> {
+    let raw = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+    serde_yaml::from_str(&raw).with_context(|| format!("parsing {path}"))
 }

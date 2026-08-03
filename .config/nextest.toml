@@ -32,7 +32,10 @@ default-filter = 'binary_id(/materialize-consistency::scenarios/)'
 # A scenario publishes tasks, waits for shards, injects a fault, waits for
 # recovery, then drains the workload. Minutes, not seconds, and the useful
 # signal is the invariant report rather than a timeout.
-slow-timeout = { period = "120s", terminate-after = 8 }
+# The kill threshold has to clear the slowest *legitimate* run, and a subject committing
+# to a remote warehouse takes tens of seconds per transaction where a local one takes
+# milliseconds. At 8 periods a databricks scenario was killed at 960s while still working.
+slow-timeout = { period = "120s", terminate-after = 30 }
 
 # Far below the default of one thread per core, and that makes the suite *faster*.
 #

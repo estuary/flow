@@ -13,7 +13,7 @@
 //! nextest profile. Run them with `mise run ci:consistency`.
 
 use materialize_consistency::harness;
-use materialize_consistency::scenarios::{self, Scenario};
+use materialize_consistency::scenarios::{self, Scenario, Subject};
 
 fn init_tracing() {
     let _ = tracing_subscriber::fmt()
@@ -87,11 +87,34 @@ async fn both_ways(name: &str) {
 
     let scenario = scenario(name);
     let stack = harness::stack::Stack::from_env().expect("stack environment");
-    let connector = stack
-        .binary("materialize-reference")
-        .expect("the reference connector is built");
 
-    let clean = harness::run(&scenario, &scenario.subject(&connector, false))
+    // A real connector named in the environment is run *once*. The second pass exists to
+    // prove the harness can tell a good subject from a bad one, and it can only do that
+    // against the reference connector, whose defects are switchable. Running a real
+    // connector twice would double the cost of every scenario to learn nothing: there is
+    // no defective build of it to compare against.
+    let external = harness::subject::external()
+        .await
+        .expect("resolving the subject named in the environment");
+
+    let (connector, subject) = match &external {
+        Some(external) => (
+            external.connector.clone(),
+            Subject {
+                connector: vec![external.connector.to_string_lossy().to_string()],
+                config: external.config.clone(),
+            },
+        ),
+        None => {
+            let connector = stack
+                .binary("materialize-reference")
+                .expect("the reference connector is built");
+            let subject = scenario.subject(&connector, false);
+            (connector, subject)
+        }
+    };
+
+    let clean = harness::run(&scenario, &subject, external.as_ref())
         .await
         .expect("the clean run completes");
 
@@ -132,6 +155,9 @@ async fn both_ways(name: &str) {
     }
     eprintln!("clean: {}", clean.summary());
 
+    if external.is_some() {
+        return; // Single pass: see above.
+    }
     let Some(defect) = scenario.defect else {
         return; // The baseline has nothing to pair with.
     };
@@ -140,7 +166,7 @@ async fn both_ways(name: &str) {
     // task that cannot run at all. `ignore-key-range` is the second kind — two
     // shards fencing each other off means neither can commit — and insisting on a
     // clean verdict would turn a detected defect into a harness error.
-    match harness::run(&scenario, &scenario.subject(&connector, true)).await {
+    match harness::run(&scenario, &scenario.subject(&connector, true), None).await {
         Ok(defective) => {
             assert!(
                 !defective.passed(),

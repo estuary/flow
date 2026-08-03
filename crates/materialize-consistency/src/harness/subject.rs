@@ -1,0 +1,240 @@
+//! The connector under test, when it is not the reference one.
+//!
+//! The suite exists to be pointed at real connectors. The reference connector is only
+//! there to prove the harness itself works — which is why *it* is run twice, clean and
+//! defective, and a real connector is run once.
+//!
+//! Two things have to be discovered rather than assumed, because a real connector's
+//! configuration has nothing in common with the reference one's:
+//!
+//! - **The endpoint config** is supplied by the caller, as a file. Every connector in the
+//!   connectors repository already keeps one for its integration tests, typically
+//!   `materialize-$name/testdata/config.local.yaml`.
+//! - **The resource config shape** is asked of the connector, via `spec`. A resource
+//!   config is a connector-specific object, but the fields the harness must set are
+//!   annotated in its JSON schema: `x-collection-name` names the table, `x-schema-name`
+//!   the schema, and `x-delta-updates` the delta-updates flag. Reading those is the
+//!   difference between working for any connector and working for the ones whose field
+//!   names happen to be guessed right.
+
+use anyhow::Context;
+
+/// Where the fields the harness must set live in a connector's resource config.
+#[derive(Debug, Clone)]
+pub struct ResourceShape {
+    /// Property naming the table, from `x-collection-name`.
+    pub table: String,
+    /// Property flagging delta-updates, from `x-delta-updates`. Absent when the
+    /// connector has no such option, which means it cannot take a delta binding.
+    pub delta: Option<String>,
+}
+
+impl ResourceShape {
+    /// A resource config for one binding of this connector.
+    pub fn resource(&self, table: &str, delta: bool) -> serde_json::Value {
+        let mut resource = serde_json::Map::new();
+        resource.insert(self.table.clone(), serde_json::json!(table));
+
+        // Set the flag only when asked for, and only when the connector has one: writing
+        // `false` where a connector defines no such property would fail its strict
+        // config parse.
+        if delta {
+            if let Some(field) = &self.delta {
+                resource.insert(field.clone(), serde_json::json!(true));
+            }
+        }
+        serde_json::Value::Object(resource)
+    }
+}
+
+/// Ask a connector for its `spec`, and read the resource shape out of the reply.
+///
+/// Driven over the protocol's JSON codec rather than protobuf: the exchange is one
+/// request and one response, and `FLOW_RUNTIME_CODEC=json` makes it newline-delimited
+/// JSON that needs no generated types on this side.
+pub async fn resource_shape(connector: &std::path::Path) -> anyhow::Result<ResourceShape> {
+    let mut command = async_process::Command::new(connector);
+    command
+        .env("FLOW_RUNTIME_CODEC", "json")
+        .env("LOG_FORMAT", "json");
+
+    // One request, then EOF: a connector reads until its stdin closes, and would
+    // otherwise wait for a second request that is never coming.
+    let request = serde_json::json!({"spec": {"connectorType": "IMAGE"}}).to_string() + "\n";
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        async_process::input_output(&mut command, request.as_bytes()),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("{connector:?} did not answer Spec within 60s"))?
+    .with_context(|| format!("running {connector:?} to ask for its spec"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let spec = stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find_map(|value| value.get("spec").cloned())
+        .with_context(|| {
+            format!(
+                "{connector:?} sent no Spec response.\nstdout: {}\nstderr: {}",
+                stdout.trim(),
+                String::from_utf8_lossy(&output.stderr).trim(),
+            )
+        })?;
+
+    // `resourceConfigSchema`, and an object rather than an embedded JSON string: the
+    // protobuf field is `resource_config_schema_json`, but jsonpb renders it under its
+    // `json_name` and inlines the schema. Verified against `materialize-databricks`
+    // rather than inferred from the proto, which is how the first two guesses here were
+    // found to be wrong.
+    let schema = spec
+        .get("resourceConfigSchema")
+        .context("the Spec response carries no resourceConfigSchema")?;
+
+    shape_of(schema)
+}
+
+/// Find the annotated properties in a resource config schema.
+///
+/// Annotations rather than names: `table` is conventional but not contractual, and the
+/// delta flag is spelled `delta_updates` in some connectors and `delta` in others. The
+/// annotations are what the connectors actually agree on.
+fn shape_of(schema: &serde_json::Value) -> anyhow::Result<ResourceShape> {
+    let properties = schema
+        .get("properties")
+        .and_then(|p| p.as_object())
+        .context("the resource config schema has no properties")?;
+
+    let annotated = |annotation: &str| -> Option<String> {
+        properties
+            .iter()
+            .find(|(_, property)| property.get(annotation).and_then(|v| v.as_bool()) == Some(true))
+            .map(|(name, _)| name.clone())
+    };
+
+    let table = annotated("x-collection-name").context(
+        "no property of the resource config schema is annotated `x-collection-name`, so \
+         the harness cannot tell which field names the table",
+    )?;
+
+    Ok(ResourceShape {
+        table,
+        delta: annotated("x-delta-updates"),
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// Taken from `materialize-databricks`, which spells the flag `delta_updates` — the
+    /// case that a hardcoded field name would get wrong.
+    #[test]
+    fn a_resource_shape_comes_from_annotations_not_names() {
+        let schema = serde_json::json!({
+            "properties": {
+                "table": {"type": "string", "x-collection-name": true},
+                "schema": {"type": "string", "x-schema-name": true},
+                "delta_updates": {"type": "boolean", "x-delta-updates": true},
+                "additional_table_create_sql": {"type": "string"},
+            }
+        });
+
+        let shape = shape_of(&schema).unwrap();
+        assert_eq!(shape.table, "table");
+        assert_eq!(shape.delta.as_deref(), Some("delta_updates"));
+
+        assert_eq!(
+            shape.resource("events", true),
+            serde_json::json!({"table": "events", "delta_updates": true}),
+        );
+        // A merge binding must not carry the flag at all: a connector's strict parse
+        // rejects unknown fields, and `false` is not always the same as absent.
+        assert_eq!(
+            shape.resource("accounts", false),
+            serde_json::json!({"table": "accounts"}),
+        );
+    }
+
+    /// A connector with no delta-updates option cannot take a delta binding, and asking
+    /// for one must not silently produce a merge binding instead.
+    #[test]
+    fn a_connector_without_delta_updates_reports_none() {
+        let schema = serde_json::json!({
+            "properties": {"path": {"type": "string", "x-collection-name": true}}
+        });
+
+        let shape = shape_of(&schema).unwrap();
+        assert_eq!(shape.delta, None);
+        assert_eq!(
+            shape.resource("events", true),
+            serde_json::json!({"path": "events"}),
+        );
+    }
+
+    #[test]
+    fn an_unannotated_schema_is_refused() {
+        let schema = serde_json::json!({"properties": {"table": {"type": "string"}}});
+        assert!(shape_of(&schema).is_err());
+    }
+}
+
+/// How a run gets its subject.
+///
+/// The reference connector is the default because the suite's own tests use it, and it
+/// is the only subject whose *defects* the suite can switch on. A real connector arrives
+/// through the environment instead:
+///
+/// - `FLOW_CONSISTENCY_SUBJECT` — path to the connector binary.
+/// - `FLOW_CONSISTENCY_SUBJECT_CONFIG` — path to its endpoint config, JSON or YAML. Every
+///   connector in the connectors repository keeps one for its integration tests, usually
+///   `materialize-$name/testdata/config.local.yaml`.
+pub const ENV_SUBJECT: &str = "FLOW_CONSISTENCY_SUBJECT";
+pub const ENV_SUBJECT_CONFIG: &str = "FLOW_CONSISTENCY_SUBJECT_CONFIG";
+
+/// A real connector to run scenarios against, if one was named.
+#[derive(Debug, Clone)]
+pub struct External {
+    pub connector: std::path::PathBuf,
+    pub config: serde_json::Value,
+    pub shape: ResourceShape,
+}
+
+/// Resolve an external subject from the environment, or `None` for the reference one.
+///
+/// Both variables are required together: a connector with no config cannot be validated,
+/// and a config with no connector has nothing to configure. Failing on a half-set pair
+/// beats silently testing the reference connector when someone meant otherwise.
+pub async fn external() -> anyhow::Result<Option<External>> {
+    let (connector, config) = match (
+        std::env::var_os(ENV_SUBJECT),
+        std::env::var_os(ENV_SUBJECT_CONFIG),
+    ) {
+        (None, None) => return Ok(None),
+        (Some(connector), Some(config)) => (connector, config),
+        (Some(_), None) => anyhow::bail!("{ENV_SUBJECT} is set but {ENV_SUBJECT_CONFIG} is not"),
+        (None, Some(_)) => anyhow::bail!("{ENV_SUBJECT_CONFIG} is set but {ENV_SUBJECT} is not"),
+    };
+
+    let connector = std::path::PathBuf::from(connector);
+    anyhow::ensure!(
+        connector.exists(),
+        "{ENV_SUBJECT} names {connector:?}, which does not exist"
+    );
+
+    let raw = std::fs::read_to_string(&config)
+        .with_context(|| format!("reading {ENV_SUBJECT_CONFIG} at {config:?}"))?;
+
+    // Parsed as YAML, which subsumes JSON and is how these files are written.
+    let config: serde_json::Value = serde_yaml::from_str(&raw)
+        .with_context(|| format!("parsing {ENV_SUBJECT_CONFIG} at {config:?}"))?;
+
+    let shape = resource_shape(&connector).await?;
+
+    Ok(Some(External {
+        connector,
+        config,
+        shape,
+    }))
+}

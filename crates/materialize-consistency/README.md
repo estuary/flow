@@ -65,6 +65,55 @@ and the fault lands mid-split instead. A `Scenario` may also carry
 violation count, which is the measurement of a runtime gap, and the marker is removed
 when the gap closes.
 
+## Running it against a real connector
+
+The reference connector exists to prove the harness. Any connector can be the subject
+instead, named through the environment:
+
+```bash
+FLOW_CONSISTENCY_SUBJECT=/path/to/materialize-yourthing \
+FLOW_CONSISTENCY_SUBJECT_CONFIG=/path/to/config.json \
+  mise run ci:consistency --filter "baseline"
+```
+
+Both variables are required together; setting one alone is an error rather than a silent
+fall back to the reference connector.
+
+**The subject must be a built binary**, not a container image — the shim `exec`s it. Cross
+compiling is often blocked by cgo dependencies, so build it where the stack runs.
+
+**The config is the connector's own endpoint configuration**, JSON or YAML. Every connector
+in the connectors repository keeps one for its integration tests, usually
+`materialize-$name/testdata/config.local.yaml`. Those are sops-encrypted, and decrypting
+them is two steps, not one: `sops -d` recovers the values, and the `encrypted_suffix`
+declared in the file's own sops block has to be stripped from every key — the same thing
+Flow's `unseal` crate does (`crates/unseal/src/lib.rs`). A config still carrying
+`personal_access_token_sops` will be rejected by the connector's strict parse.
+
+**The resource configuration is discovered, not written.** The harness calls `spec` on the
+subject and reads which property names the table (`x-collection-name`) and which flags
+delta updates (`x-delta-updates`), so it works for a connector spelling them `table` and
+`delta_updates` as well as one spelling them anything else.
+
+**It runs once, not twice.** The clean/defective pairing exists to show the harness can tell
+a good subject from a bad one, which needs a subject whose defects are switchable. A real
+connector has no defective build to compare against, so the second pass is skipped.
+
+**The subject must be able to read its destination back.** Verification reads what actually
+landed rather than trusting the connector's account of it, via the `read` subcommand
+`materialize-boilerplate` exposes; a SQL connector gets it by implementing `sql.RowReader`
+in one line over `sql.StdReadRows`. A connector that does not implement it cannot be
+verified by this harness.
+
+**Timing scales with the subject.** A remote destination commits in tens of seconds where
+the reference connector commits in milliseconds, so a named subject gets longer
+transactions and proportionately longer gates (`Workload::remote`). Expect a few minutes
+per scenario rather than tens of seconds.
+
+**Monotonicity is exempted** for such a subject: the order rows come back from a table is
+not guaranteed to be the order they were stored in, so there is no delivery order to check.
+The set-based invariants carry the exactly-once claim.
+
 ## Reading a failure
 
 A failing scenario is not necessarily a failing connector. These are the gates a run

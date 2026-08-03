@@ -430,22 +430,34 @@ impl Stack {
     /// what lets one harness serve every connector: retrieving all rows of a
     /// resource is already a required method of the shared materializer interface,
     /// and `materialize-boilerplate` exposes it as this same subcommand.
+    /// Every document of one materialized resource, read through the connector.
+    ///
+    /// `--config` and `--resource` as *file paths*, which is the interface
+    /// `materialize-boilerplate` exposes to every connector built on it. Written to
+    /// temporary files rather than passed inline because a real connector's endpoint
+    /// config carries credentials, and an argument vector is visible to anyone who can
+    /// list processes.
     pub async fn read_destination(
         &self,
         connector: &std::path::Path,
         config: &serde_json::Value,
-        table: &str,
+        resource: &serde_json::Value,
         delta: bool,
     ) -> anyhow::Result<Vec<Event>> {
+        let dir = tempfile::tempdir().context("creating a directory for the read's configs")?;
+        let config_path = dir.path().join("config.json");
+        let resource_path = dir.path().join("resource.json");
+
+        std::fs::write(&config_path, config.to_string()).context("writing the read's config")?;
+        std::fs::write(&resource_path, resource.to_string())
+            .context("writing the read's resource")?;
+
         let mut cmd = async_process::Command::new(connector);
         cmd.arg("read")
             .arg("--config")
-            .arg(config.to_string())
-            .arg("--table")
-            .arg(table);
-        if delta {
-            cmd.arg("--delta");
-        }
+            .arg(&config_path)
+            .arg("--resource")
+            .arg(&resource_path);
 
         // Bounded for the same reason as a collection read, and separately, because
         // this spawns the connector rather than flowctl: a connector that hangs
@@ -455,26 +467,29 @@ impl Stack {
             .await
             .map_err(|_| {
                 anyhow::anyhow!(
-                    "the connector did not finish reading {table} within {}s",
+                    "the connector did not finish reading {resource} within {}s",
                     Self::READ_TIMEOUT.as_secs(),
                 )
             })?
-            .with_context(|| format!("reading destination resource {table}"))?;
+            .with_context(|| format!("running the connector to read {resource}"))?;
 
         anyhow::ensure!(
             output.status.success(),
-            "reading destination resource {table} failed:\n{}",
-            String::from_utf8_lossy(&output.stderr),
+            "reading {resource} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim(),
         );
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
         let mut events = Vec::new();
-        for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
             events.push(
-                serde_json::from_str(line)
-                    .with_context(|| format!("parsing a row of {table}: {line}"))?,
+                Event::from_row(line)
+                    .with_context(|| format!("parsing a row of {resource}: {line}"))?,
             );
         }
+        _ = delta; // Order is the destination's; a delta binding preserves it.
         Ok(events)
     }
 }

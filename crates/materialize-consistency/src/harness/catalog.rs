@@ -44,8 +44,7 @@ use anyhow::Context;
 /// resolve against that.
 const EVENTS_SCHEMA: &str = include_str!("../../../../tests/soak/capture/events.schema.json");
 
-/// Destination resource names. Fixed rather than suffixed: every run has its own
-/// destination, so there is nothing to collide with.
+/// Destination resource names, before any per-run suffix. See [`Names::tables`].
 pub const TABLE_STANDARD: &str = "accounts";
 pub const TABLE_MERGED_DELTA: &str = "accounts_delta";
 pub const TABLE_LOG: &str = "events";
@@ -61,10 +60,17 @@ pub struct Names {
     pub merged: String,
     pub log: String,
     pub sink: String,
+    /// Suffix distinguishing this run's tables, or empty.
+    ///
+    /// The reference connector needs none: its destination is a file of this run's own,
+    /// so nothing can collide. A real connector materializes into a *shared* catalog and
+    /// schema, where every concurrent scenario would otherwise write the same three
+    /// tables — so there the names carry the run id.
+    table_suffix: String,
 }
 
 impl Names {
-    pub fn new(tenant: &str, scenario: &str, run_id: &str) -> Self {
+    pub fn new(tenant: &str, scenario: &str, run_id: &str, shared_destination: bool) -> Self {
         let prefix = format!("{tenant}/consistency/{scenario}-{run_id}");
 
         Self {
@@ -73,8 +79,18 @@ impl Names {
             merged: format!("{prefix}/merged"),
             log: format!("{prefix}/log"),
             sink: format!("{prefix}/sink"),
+            // Underscored, not hyphenated: these become SQL identifiers.
+            table_suffix: match shared_destination {
+                true => format!("_{run_id}"),
+                false => String::new(),
+            },
             prefix,
         }
+    }
+
+    /// This run's name for one of the destination tables.
+    pub fn table(&self, base: &str) -> String {
+        format!("{base}{}", self.table_suffix)
     }
 }
 
@@ -97,14 +113,42 @@ pub struct Workload {
     /// for the same reason the boundaries are approximate: nothing here is keyed on how
     /// many documents a transaction carries.
     pub min_txn: std::time::Duration,
+    /// Upper bound on transaction duration, which has to leave room for a subject that
+    /// commits slowly: the runtime closes a transaction at this bound whether or not the
+    /// connector has kept up.
+    pub max_txn: std::time::Duration,
 }
 
 impl Default for Workload {
+    /// Shaped for a subject whose destination is local and commits in milliseconds.
     fn default() -> Self {
         Self {
             rate: 40.0,
             id_range: 40,
             min_txn: std::time::Duration::from_millis(500),
+            max_txn: std::time::Duration::from_secs(2),
+        }
+    }
+}
+
+impl Workload {
+    /// Shaped for a subject that commits to a remote system.
+    ///
+    /// A real materialization does not commit in milliseconds: it stages files to object
+    /// storage and runs a MERGE on a warehouse, which is seconds to tens of seconds per
+    /// transaction. Asking such a connector for a transaction every 500ms — the local
+    /// default — does not make it faster, it makes it fall behind until the gates that
+    /// count commits time out, which is exactly how `materialize-databricks` failed here.
+    ///
+    /// So transactions are long and the rate is lower: fewer, larger transactions cover
+    /// the same protocol ground, and every scenario is keyed on protocol events rather
+    /// than on document counts, so nothing is lost by carrying less data.
+    pub fn remote() -> Self {
+        Self {
+            rate: 10.0,
+            id_range: 40,
+            min_txn: std::time::Duration::from_secs(15),
+            max_txn: std::time::Duration::from_secs(30),
         }
     }
 }
@@ -129,6 +173,13 @@ pub struct Plan<'a> {
     /// Whether to materialize the merged collection with standard (merge) semantics
     /// in addition to the two delta bindings. See `Scenario::standard_binding`.
     pub standard_binding: bool,
+    /// Where the table name and delta flag live in the subject's resource config.
+    ///
+    /// The reference connector's own shape when absent. A real connector's is discovered
+    /// from its `spec`, because a resource config is connector-specific: the delta flag
+    /// is `delta_updates` in some and `delta` in others, and only the schema annotations
+    /// say which.
+    pub resource_shape: Option<&'a crate::harness::subject::ResourceShape>,
 }
 
 /// Build the whole catalog of a run.
@@ -329,14 +380,27 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
     // The shim is the catalog's connector; the real one is its argument. This is
     // the whole of the interposition: no change to Flow, and no change to the
     // connector under test.
+    // Protobuf against a real connector, JSON against the reference one.
+    //
+    // The shim relays requests without transcoding, so runtime, shim and connector must
+    // agree on one codec — and the two implementations do not agree on JSON. Flow's Rust
+    // encoding of a `bytes` field is not what Go's jsonpb reads, so `Load.key_packed`
+    // arrives empty and a connector built on `materialize-boilerplate` rejects it with
+    // "expected KeyPacked". Protobuf is also simply what the runtime uses by default; JSON
+    // is the reference connector's convenience, not the fleet's.
+    let protobuf = plan.resource_shape.is_some();
+
     let mut command = vec![plan.shim.to_string_lossy().to_string()];
+    if protobuf {
+        command.push("--protobuf".to_string());
+    }
     command.extend(plan.subject.connector.iter().cloned());
 
     let binding = |collection: &str, table: &str, delta: bool| models::MaterializationBinding {
-        resource: models::RawValue::from_value(&serde_json::json!({
-            "table": table,
-            "delta": delta,
-        })),
+        resource: models::RawValue::from_value(&match plan.resource_shape {
+            Some(shape) => shape.resource(&plan.names.table(table), delta),
+            None => serde_json::json!({"table": plan.names.table(table), "delta": delta}),
+        }),
         source: models::Source::Collection(models::Collection::new(collection)),
         disable: false,
         priority: 0,
@@ -353,7 +417,7 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
             command,
             config: models::RawValue::from_value(&plan.subject.config),
             env,
-            protobuf: false,
+            protobuf,
         }),
         bindings: plan
             .standard_binding
@@ -367,7 +431,7 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
         shards: models::ShardTemplate {
             log_level: Some("info".to_string()),
             min_txn_duration: Some(plan.workload.min_txn),
-            max_txn_duration: Some(std::time::Duration::from_secs(2)),
+            max_txn_duration: Some(plan.workload.max_txn),
             ..runtime_v2()
         },
         expect_pub_id: None,
