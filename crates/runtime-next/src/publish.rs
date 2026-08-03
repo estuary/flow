@@ -110,16 +110,11 @@ pub trait PublisherFactory: Clone + Send + Sync + 'static {
     /// Concrete per-session publisher this factory produces.
     type Publisher: Publisher;
 
-    /// Open a [`Publisher`] over the given journal targets. `collection_specs`
+    /// Open a [`Publisher`] for the given task targets. `collection_specs`
     /// are the distinct collections this task writes (empty for a leader's
-    /// stats-only publisher), and `binding_targets` maps each task binding onto
-    /// one of them. `stats_journal` is the fixed ops-stats target.
+    /// stats-only publisher), and `binding_targets` maps each task binding to
+    /// its collection. `stats_journal` is the fixed ops-stats target.
     /// `authz_subject` and `producer` identify the publisher.
-    ///
-    /// The remap is the caller's: several bindings of a fan-in capture write one
-    /// collection, and one target -- with one journal client and one partitions
-    /// watch -- serves them all. The factory never re-derives which bindings are
-    /// equivalent; it cannot know.
     fn open(
         &self,
         authz_subject: String,
@@ -163,7 +158,7 @@ impl PublisherFactory for JournalPublisherFactory {
             targets.push(publisher::Target::from_collection_spec(spec)?);
         }
 
-        // Fold target zero's offset into the remap, so the hot path is a lookup.
+        // Validate `binding_targets` and +1 to account for ops-stats target.
         let binding_targets = binding_targets
             .iter()
             .enumerate()
@@ -199,8 +194,6 @@ impl PublisherFactory for JournalPublisherFactory {
 /// [`Publisher`] trait.
 pub struct JournalPublisher {
     inner: publisher::Publisher,
-    /// Publisher target of each task binding, with target zero's fixed ops-stats
-    /// offset already folded in. Many bindings may name one target.
     binding_targets: Vec<usize>,
 }
 
