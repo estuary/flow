@@ -45,6 +45,20 @@ pub enum Directive {
     StorageMappings(storage_mappings::Directive),
 }
 
+/// Poll state persisted to `internal.tasks` between polls, and therefore
+/// shared with whichever agent instance dequeues the next poll. Carried ahead
+/// of the snapshot-authorization migration of the storage-mappings directive
+/// (as #3279 did for publications and discovers) so that a rollback from that
+/// feature still decodes in-flight state instead of erroring on every poll.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct DirectiveState {
+    /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
+    /// before this directive is retried. Ignored by this version of the
+    /// executor, which authorizes directives directly against Postgres.
+    #[serde(default)]
+    pub awaiting_snapshot_after: Option<tokens::DateTime>,
+}
+
 #[derive(Clone)]
 pub struct DirectiveHandler {
     accounts_user_email: String,
@@ -65,7 +79,10 @@ impl automations::Executor for DirectiveHandler {
 
     type Receive = serde_json::Value;
 
-    type State = ();
+    /// `None` — the common, never-deferred case — round-trips as the JSON
+    /// `null` that the previous `()` state has always persisted, keeping
+    /// in-flight tasks readable across a deploy in either direction.
+    type State = Option<DirectiveState>;
 
     type Outcome = automations::Action;
 
@@ -159,5 +176,32 @@ fn extract<'de, Directive: Validate, Claims: Deserialize<'de> + Validate + schem
         }) {
         Ok(claims) => Ok((directive, claims)),
         Err(err) => Err(JobStatus::invalid_claims(err)),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::DirectiveState;
+
+    /// Pins the persisted wire shapes this stub exists for: `None` must keep
+    /// round-tripping as the JSON `null` the previous `()` state persisted,
+    /// and a mid-defer map written by the future snapshot-authorization
+    /// executor must decode rather than error a rolled-back agent's polls.
+    #[test]
+    fn test_directive_state_serde_compatibility() {
+        let none: Option<DirectiveState> = None;
+        assert_eq!(serde_json::to_string(&none).unwrap(), "null");
+        assert!(
+            serde_json::from_str::<Option<DirectiveState>>("null")
+                .unwrap()
+                .is_none()
+        );
+
+        let deferred = serde_json::from_str::<Option<DirectiveState>>(
+            r#"{"awaiting_snapshot_after": "2026-08-03T00:00:00Z"}"#,
+        )
+        .unwrap()
+        .expect("map state decodes as a deferred directive");
+        assert!(deferred.awaiting_snapshot_after.is_some());
     }
 }
