@@ -94,7 +94,7 @@ impl Stack {
 
     /// Every flowctl invocation is bounded, because none of the scenario deadlines
     /// bound *this*: they guard the wait loops, and a subprocess that never returns
-    /// sits under all of them. `counter-resumes-from-destination` hit nextest's 960s
+    /// sits under all of them. `destination-ahead-of-checkpoint` hit nextest's 960s
     /// ceiling having logged only its publish line — a `catalog publish` had blocked,
     /// and with four publish retries a single hang multiplies.
     ///

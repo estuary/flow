@@ -34,24 +34,22 @@ fn init_tracing() {
 const COVERED: &[&str] = &[
     "baseline",
     "crash-between-commits",
-    "replayed-acknowledge",
     "crash-mid-store",
     "crash-at-flush",
     "split-during-store",
     "split-during-commit",
-    "counter-split-during-commit",
+    "split-lands-on-prepared-transaction",
     "join-after-split",
     "zombie-at-start-commit",
-    "counter-resumes-from-destination",
-    "counter-reconciles-with-destination",
-    "counter-crash-in-split-leader",
-    "counter-crash-in-split-non-leader",
-    "delta-replay-deduplicated",
+    "destination-ahead-of-checkpoint",
+    "recovery-reconciles-with-destination",
+    "crash-in-split-leader",
+    "crash-in-split-non-leader",
     "at-least-once-never-loses",
 ];
 
 /// A scenario nobody runs is worse than a missing scenario: the table says it is
-/// covered. This is how `counter-survives-a-split` was caught having no test.
+/// covered. This is how an earlier split scenario was caught having no test at all.
 #[test]
 fn every_scenario_is_reached_by_a_test() {
     for scenario in scenarios::all() {
@@ -65,6 +63,30 @@ fn every_scenario_is_reached_by_a_test() {
         assert!(
             scenarios::all().iter().any(|s| &s.name == name),
             "{name} is listed as covered but is not a scenario",
+        );
+    }
+    // A scenario narrowed to fewer classes than can pass it is coverage silently lost:
+    // against a real connector it reports as a passing test having run nothing. No scenario
+    // needs narrowing except one: a perturbation worth injecting is usually one every class
+    // must survive, and where a class provably cannot, `blocked_on_runtime` excuses that
+    // class from passing while still running the scenario against it. Narrowing is for the
+    // rarer case where the *harness* cannot stage the perturbation for another class at all.
+    // Adding a name here has to be a deliberate edit with the reasoning at the definition.
+    const SINGLE_CLASS: &[&str] = &["zombie-at-start-commit"];
+    for scenario in scenarios::all() {
+        assert!(
+            scenario.applies_to.contains(&scenario.class),
+            "{}: a scenario must apply to the class it is written against",
+            scenario.name,
+        );
+        assert_eq!(
+            scenario.applies_to.len() == 1,
+            SINGLE_CLASS.contains(&scenario.name),
+            "{}: applies to {:?}. A scenario runnable by one class only must be listed in \
+             SINGLE_CLASS with the reasoning at its definition; one listed there must not \
+             be widened without removing it.",
+            scenario.name,
+            scenario.applies_to,
         );
     }
 }
@@ -97,6 +119,28 @@ async fn both_ways(name: &str) {
         .await
         .expect("resolving the subject named in the environment");
 
+    // Scenarios run against every class expected to pass them, which is nearly all of
+    // them against nearly every class — see `Scenario::applies_to`. A scenario is skipped
+    // only where its own class is the only one that can succeed, because there the failure
+    // would measure the mismatch rather than the connector.
+    if let Some(external) = &external {
+        if !scenario.applies_to.contains(&external.class) {
+            eprintln!(
+                "not-applicable: {} can only be upheld by {:?}; the subject named in \
+                 {} implements {:?}. Nothing was run.",
+                scenario.name,
+                scenario.applies_to,
+                harness::subject::ENV_SUBJECT_CLASS,
+                external.class,
+            );
+            return;
+        }
+    }
+
+    // The class actually under test. For the reference connector that is the class the
+    // scenario configures it as; for a real connector it is what the environment declared.
+    let subject_class = external.as_ref().map_or(scenario.class, |e| e.class);
+
     let (connector, subject) = match &external {
         Some(external) => (
             external.connector.clone(),
@@ -121,23 +165,33 @@ async fn both_ways(name: &str) {
     for exempt in &scenario.exempt {
         eprintln!("exempt: [{}] {}", exempt.invariant, exempt.justification);
     }
-    // A scenario blocked on the runtime is an *expected failure*: it fails, loudly and
-    // with its violation count, and stays failing until the runtime closes the gap. It
-    // is not silenced, because a silenced scenario is one nobody looks at again — the
-    // violations it reports are the measurement of the gap, and they belong in the
-    // output rather than behind a marker.
+    // A scenario blocked on the runtime is an *expected failure* for the classes the gap
+    // exposes: it fails, loudly and with its violation count, and stays failing until the
+    // runtime closes the gap. It is not silenced, because a silenced scenario is one nobody
+    // looks at again — the violations it reports are the measurement of the gap, and they
+    // belong in the output rather than behind a marker.
     //
-    // The defect pairing is skipped: a subject that cannot uphold the invariant clean
-    // tells us nothing about whether its defect would have been caught.
-    if let Some(limitation) = scenario.known_limitation {
-        panic!(
-            "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
-             {}\n\n\
-             {limitation}\n\n\
-             Remove `blocked_on_runtime` from this scenario once the runtime upholds \
-             the guarantee above, and it becomes an ordinary passing scenario.",
-            clean.summary(),
-        );
+    // A class the gap does not expose falls through to the ordinary assertions below and
+    // must pass. That is the more useful half of such a scenario: it is the standing
+    // evidence that the perturbation is survivable at all, and therefore that the gap is
+    // the runtime's rather than the suite asking for something impossible.
+    //
+    // The defect pairing is skipped for an exposed class: a subject that cannot uphold the
+    // invariant clean tells us nothing about whether its defect would have been caught.
+    if let Some(gap) = &scenario.known_limitation {
+        if gap.classes.contains(&subject_class) {
+            panic!(
+                "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
+                 {}\n\n\
+                 Expected to fail for {:?}, of which the subject is {subject_class:?}.\n\n\
+                 {}\n\n\
+                 Remove `blocked_on_runtime` from this scenario once the runtime upholds \
+                 the guarantee above, and it becomes an ordinary passing scenario.",
+                clean.summary(),
+                gap.classes,
+                gap.detail,
+            );
+        }
     }
 
     assert!(
@@ -195,11 +249,6 @@ async fn crash_between_commits() {
 }
 
 #[tokio::test]
-async fn replayed_acknowledge() {
-    both_ways("replayed-acknowledge").await
-}
-
-#[tokio::test]
 async fn crash_mid_store() {
     both_ways("crash-mid-store").await
 }
@@ -220,8 +269,8 @@ async fn split_during_commit() {
 }
 
 #[tokio::test]
-async fn counter_split_during_commit() {
-    both_ways("counter-split-during-commit").await
+async fn split_lands_on_prepared_transaction() {
+    both_ways("split-lands-on-prepared-transaction").await
 }
 
 #[tokio::test]
@@ -235,28 +284,23 @@ async fn zombie_at_start_commit() {
 }
 
 #[tokio::test]
-async fn counter_resumes_from_destination() {
-    both_ways("counter-resumes-from-destination").await
+async fn destination_ahead_of_checkpoint() {
+    both_ways("destination-ahead-of-checkpoint").await
 }
 
 #[tokio::test]
-async fn counter_reconciles_with_destination() {
-    both_ways("counter-reconciles-with-destination").await
+async fn recovery_reconciles_with_destination() {
+    both_ways("recovery-reconciles-with-destination").await
 }
 
 #[tokio::test]
-async fn counter_crash_in_split_leader() {
-    both_ways("counter-crash-in-split-leader").await
+async fn crash_in_split_leader() {
+    both_ways("crash-in-split-leader").await
 }
 
 #[tokio::test]
-async fn counter_crash_in_split_non_leader() {
-    both_ways("counter-crash-in-split-non-leader").await
-}
-
-#[tokio::test]
-async fn delta_replay_deduplicated() {
-    both_ways("delta-replay-deduplicated").await
+async fn crash_in_split_non_leader() {
+    both_ways("crash-in-split-non-leader").await
 }
 
 #[tokio::test]

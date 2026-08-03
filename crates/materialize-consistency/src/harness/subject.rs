@@ -193,12 +193,27 @@ mod test {
 pub const ENV_SUBJECT: &str = "FLOW_CONSISTENCY_SUBJECT";
 pub const ENV_SUBJECT_CONFIG: &str = "FLOW_CONSISTENCY_SUBJECT_CONFIG";
 
+/// The class the subject implements, which decides which scenarios apply to it.
+///
+/// Required rather than inferred, because `spec` does not report it and nothing else can:
+/// how a connector divides durability with the runtime is a property of its
+/// implementation, not of its configuration schema.
+///
+/// A scenario verifies a claim only its own class makes — a counted channel's recovery
+/// from its destination's offset means nothing to a connector that stages and merges — so
+/// running the others wastes a real connector's time and reports failures that say nothing
+/// about it. Two counted-channel scenarios spent a thousand seconds each against a
+/// post-commit-apply connector before failing for that reason alone.
+pub const ENV_SUBJECT_CLASS: &str = "FLOW_CONSISTENCY_SUBJECT_CLASS";
+
 /// A real connector to run scenarios against, if one was named.
 #[derive(Debug, Clone)]
 pub struct External {
     pub connector: std::path::PathBuf,
     pub config: serde_json::Value,
     pub shape: ResourceShape,
+    /// The class it implements. A scenario of any other class does not apply.
+    pub class: crate::reference::Class,
 }
 
 /// Resolve an external subject from the environment, or `None` for the reference one.
@@ -216,6 +231,16 @@ pub async fn external() -> anyhow::Result<Option<External>> {
         (Some(_), None) => anyhow::bail!("{ENV_SUBJECT} is set but {ENV_SUBJECT_CONFIG} is not"),
         (None, Some(_)) => anyhow::bail!("{ENV_SUBJECT_CONFIG} is set but {ENV_SUBJECT} is not"),
     };
+
+    let class = std::env::var(ENV_SUBJECT_CLASS)
+        .with_context(|| format!("{ENV_SUBJECT_CLASS} must name the subject's class"))?;
+    let class: crate::reference::Class = serde_json::from_value(serde_json::json!(class))
+        .with_context(|| {
+            format!(
+                "{ENV_SUBJECT_CLASS}={class:?} is not a class: expected one of \
+                 remoteAuthoritative, postCommitApply, documentCounter, atLeastOnce",
+            )
+        })?;
 
     let connector = std::path::PathBuf::from(connector);
     anyhow::ensure!(
@@ -236,5 +261,6 @@ pub async fn external() -> anyhow::Result<Option<External>> {
         connector,
         config,
         shape,
+        class,
     }))
 }

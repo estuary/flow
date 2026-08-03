@@ -60,10 +60,10 @@ credentials and no cloud spend.
 `FaultRule` carries a `ShardTarget` — `Any`, `SplitLeader` or `SplitNonLeader` —
 because occurrence counts cannot express "after the membership change": a split child's
 count starts at zero, so any threshold it can reach the pre-split parent reaches first,
-and the fault lands mid-split instead. A `Scenario` may also carry
-`known_limitation`, which makes it an *expected failure*: it runs and fails with its
-violation count, which is the measurement of a runtime gap, and the marker is removed
-when the gap closes.
+and the fault lands mid-split instead. A `Scenario` may also carry a `RuntimeGap`, which
+makes it an *expected failure for the classes the gap exposes*: it runs and fails with its
+violation count, which is the measurement of the gap, while a class the gap does not reach
+must pass it normally. The marker is removed when the gap closes.
 
 ## Running it against a real connector
 
@@ -73,11 +73,33 @@ instead, named through the environment:
 ```bash
 FLOW_CONSISTENCY_SUBJECT=/path/to/materialize-yourthing \
 FLOW_CONSISTENCY_SUBJECT_CONFIG=/path/to/config.json \
-  mise run ci:consistency --filter "baseline"
+FLOW_CONSISTENCY_SUBJECT_CLASS=postCommitApply \
+  mise run ci:consistency
 ```
 
-Both variables are required together; setting one alone is an error rather than a silent
-fall back to the reference connector.
+All three variables are required together; setting some alone is an error rather than a
+silent fall back to the reference connector.
+
+**The class is declared rather than discovered**, because how a connector divides
+durability with the runtime is a property of its implementation that `spec` does not report.
+
+It decides which scenarios run, but it excludes far less than you might expect: a fault a
+connector must survive is rarely a property of its class, so nearly every scenario runs
+against nearly every class. See `Scenario::applies_to`. Only two things are excluded — an
+at-least-once subject skips the exactly-once scenarios, which it never claimed to uphold,
+and `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the harness orders
+the two racing instances by their `Open` fences and a class that does not fence gives it
+nothing to order them by.
+
+Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every
+exactly-once class even though the counted channel cannot pass it. A gap that stops one class
+is recorded as a `RuntimeGap` naming that class, so the scenario still runs for the others and
+its passing there is the evidence that the gap is the runtime's rather than an impossible ask.
+
+A skipped scenario prints `not-applicable` and still counts as a passing test, so read
+those lines to see what was and was not verified. Declaring the wrong class does not
+produce a false pass: the scenarios that run then measure guarantees the subject never
+made, and fail.
 
 **The subject must be a built binary**, not a container image — the shim `exec`s it. Cross
 compiling is often blocked by cgo dependencies, so build it where the stack runs.
@@ -230,8 +252,11 @@ from the aggregated state patches the runtime delivers with `Acknowledge`, so th
 shards never contend for one binding's table. `Apply` deliberately drains nothing: it is
 handed no connector state, so it has no basis for deciding what committed.
 
-That arrangement is also why `split-during-commit` is an expected failure — see the two
-runtime gaps in `docs/materialize/consistency-testing.md`.
+Deferring the load until `Flush` is the third, and it is what makes `split-during-commit`
+pass rather than the expected failure it once was: `Flush` is emitted only once every
+shard's `Acknowledged` has arrived, so a connector that stages load keys as they come in and
+reads the destination only at `Flush` has waited for the applying shard by construction. See
+`docs/materialize/consistency-testing.md`.
 
 ## Compliance model
 

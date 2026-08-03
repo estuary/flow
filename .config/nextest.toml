@@ -60,8 +60,8 @@ test-threads = 4
 [[profile.consistency.overrides]]
 filter = '''
     test(split_during_store) + test(split_during_commit) + test(join_after_split)
-    + test(counter_split_during_commit)
-    + test(counter_crash_in_split_leader) + test(counter_crash_in_split_non_leader)
+    + test(split_lands_on_prepared_transaction)
+    + test(crash_in_split_leader) + test(crash_in_split_non_leader)
 '''
 test-group = 'serial-shard-reconfiguration'
 

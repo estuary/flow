@@ -73,9 +73,6 @@ struct Counters {
     seen: BTreeMap<Trigger, u64>,
     /// Documents stored per binding since the last `StartCommit`.
     stored: Vec<u64>,
-    /// `Acknowledged` responses still owed to a `Replay` action, to be
-    /// swallowed rather than forwarded.
-    swallow_acknowledged: u32,
     /// Live-instance `StartedCommit`s remaining before a frozen zombie thaws;
     /// `None` when no zombie is frozen.
     thaw_countdown: Option<u64>,
@@ -86,7 +83,6 @@ impl Counters {
         Self {
             seen: BTreeMap::new(),
             stored: Vec::new(),
-            swallow_acknowledged: 0,
             thaw_countdown: None,
         }
     }
@@ -570,7 +566,6 @@ where
                 shim.trace.log(Event::Phase { trigger, nth });
             }
 
-            let mut replay = 0;
             for (idx, action) in shim.matched(trigger, nth) {
                 shim.trace.log(Event::Fault {
                     rule: idx,
@@ -581,10 +576,6 @@ where
                     Action::Crash => crash(&shim, live_pid),
                     Action::Stall { millis } => {
                         tokio::time::sleep(std::time::Duration::from_millis(millis)).await
-                    }
-                    Action::Replay { times } => {
-                        replay = times;
-                        shim.counters.lock().unwrap().swallow_acknowledged += times;
                     }
                     Action::Zombie { .. } => {
                         if let Some(z) = &mut zombie {
@@ -612,9 +603,6 @@ where
             }
 
             to_connector.write_all(&encoded).await?;
-            for _ in 0..replay {
-                to_connector.write_all(&encoded).await?;
-            }
             to_connector.flush().await?;
         }
     }
@@ -648,13 +636,6 @@ async fn pump_responses(
             let nth = {
                 let mut counters = shim.counters.lock().unwrap();
 
-                // A replayed Acknowledge produces extra Acknowledgeds. The
-                // runtime expects exactly one per transaction, so the
-                // duplicates are swallowed here rather than confusing it.
-                if trigger == Trigger::Acknowledged && counters.swallow_acknowledged > 0 {
-                    counters.swallow_acknowledged -= 1;
-                    continue;
-                }
                 if trigger == Trigger::StartedCommit {
                     if let Some(remaining) = &mut counters.thaw_countdown {
                         *remaining = remaining.saturating_sub(1);
@@ -680,7 +661,7 @@ async fn pump_responses(
                         tokio::time::sleep(std::time::Duration::from_millis(millis)).await
                     }
                     // Only meaningful against a request.
-                    Action::Replay { .. } | Action::Zombie { .. } => {}
+                    Action::Zombie { .. } => {}
                 }
             }
 

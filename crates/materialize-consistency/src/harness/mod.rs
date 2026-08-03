@@ -286,15 +286,21 @@ async fn execute(
     // Scaled to the subject, because every gate here counts *commits*: a remote
     // destination takes tens of seconds per transaction, so a budget sized for a local
     // one expires while the connector is working correctly.
+    // The external figure is measured rather than guessed: against a remote warehouse the
+    // scenarios that pass take 200-600s, and every scenario that failed at 900s failed by
+    // running out of budget mid-phase — one having committed 2 of 3 transactions, another
+    // never reaching a fault keyed on the second post-split commit. A perturbed scenario
+    // needs several times the budget of an unperturbed one, because a split doubles the
+    // shards committing to the same warehouse and recovery republishes the task.
     let deadline = match external {
-        Some(_) => std::time::Duration::from_secs(900),
+        Some(_) => std::time::Duration::from_secs(1800),
         None => std::time::Duration::from_secs(180),
     };
 
     // Longer than the general deadline, because settling a collection means *reading*
     // it repeatedly and a read of a large one can take a minute under contention.
     let finality_timeout = match external {
-        Some(_) => std::time::Duration::from_secs(1200),
+        Some(_) => std::time::Duration::from_secs(2400),
         None => std::time::Duration::from_secs(600),
     };
 
@@ -1013,8 +1019,8 @@ async fn drain(
     /// Ten, at three seconds each, because a plateau is weak evidence and a short one
     /// is worthless: transactions land every one to two seconds, so five polls was
     /// fifteen seconds — a gap a task takes just by restarting after a fault, or by
-    /// being starved on a loaded stack. `replayed-acknowledge` was failed by exactly
-    /// that, reporting 229 undelivered documents as invariant violations.
+    /// being starved on a loaded stack. A scenario was once failed by exactly that,
+    /// reporting 229 still-undelivered documents as invariant violations.
     const QUIET_POLLS: usize = 10;
 
     /// Consecutive polls of an *unhealthy* destination going nowhere before the wait ends.

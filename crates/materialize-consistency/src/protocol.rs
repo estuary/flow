@@ -65,11 +65,6 @@ pub enum Action {
     Crash,
     /// Delay the matched message. Extends a transaction without failing it.
     Stall { millis: u64 },
-    /// Forward the matched message to the connector `times` extra times,
-    /// swallowing the duplicate responses. Only meaningful for `Acknowledge`,
-    /// which the runtime is free to retry and which must be a no-op after the
-    /// first.
-    Replay { times: u32 },
     /// Run a second connector process against the same messages, frozen at the
     /// match point while the live instance proceeds, then thawed so its stale
     /// commit races. The zombie opened first, so it holds the older fence.

@@ -330,8 +330,16 @@ and cannot be taken back; the children open fresh channels at offset zero and ap
 replayed input a second time. Scaling down is the mirror image — a survivor reads one
 departing channel's counter, skips too few, and duplicates.
 
-`counter-split-during-commit` is marked `blocked_on_runtime` for this, and is the suite's
-one expected failure.
+It does **not** reach a class that only stages during `Store`. Nothing of a prepared
+transaction is in the destination when the split lands, so the children have nothing to
+append twice; they inherit the staged work and a merge that runs again is a no-op.
+
+`split-lands-on-prepared-transaction` carries this as a `blocked_on_runtime` gap scoped to
+`DocumentCounter`, and runs for every exactly-once class. For the counted channel it is the
+suite's one expected failure. For the others it is expected to pass, and that is the more
+useful half: a scenario that only ever failed would leave open whether the perturbation is
+survivable at all, whereas one that passes for a staging class and fails for a counted one
+locates the gap in the runtime rather than in the ask.
 
 ### Why a coordinating connector must not read at `Load`
 
@@ -403,9 +411,9 @@ Stated so they survive this document:
 ## Crashing a split shard
 
 Two scenarios crash a shard that a split produced, and they are deliberately separate
-because the two shards fail differently. `counter-crash-in-split-leader` crashes the child
+because the two shards fail differently. `crash-in-split-leader` crashes the child
 that is also shard zero — it owns half the keyspace and holds the recovery log.
-`counter-crash-in-split-non-leader` crashes a non-zero child, which in a V2 task is
+`crash-in-split-non-leader` crashes a non-zero child, which in a V2 task is
 stateless: no recovery log, its state arriving by leader broadcast, so it is rebuilt from
 nothing rather than replayed from a log.
 

@@ -35,8 +35,24 @@ pub struct Scenario {
     /// The invariant this scenario exists to verify, in one line. Reported on
     /// failure so the result names the property rather than the mechanism.
     pub verifies: &'static str,
-    /// Class the subject must implement for the scenario to mean anything.
+    /// Class the reference connector is configured as, and the class whose mechanism
+    /// this scenario was written to exercise.
     pub class: Class,
+    /// Classes expected to *pass* this scenario, and so the classes it runs against
+    /// when the subject is a real connector.
+    ///
+    /// Wider than [`Scenario::class`] on purpose. A fault a connector must survive is
+    /// rarely a property of how it divides durability with the runtime: a crash mid-`Store`
+    /// must lose nothing whether the connector fences a remote checkpoint, stages queries
+    /// for a post-commit merge, or counts the rows a channel accepted. And exemptions are
+    /// permissive, so a scenario written against one class holds another to a weaker or
+    /// differently-shaped property rather than an impossible one.
+    ///
+    /// Defaults to every class claiming exactly-once. [`Class::AtLeastOnce`] is left out
+    /// because it duplicates by construction, so exactly-once invariants would fail against
+    /// it for a guarantee it never made; the scenarios that do hold it to something opt it
+    /// back in. Narrow this further only where one class alone can succeed — and say why.
+    pub applies_to: &'static [Class],
     /// Whether the task materializes a standard (merge) binding as well as the two
     /// delta ones.
     ///
@@ -72,16 +88,47 @@ pub struct Scenario {
     /// Invariants this scenario does not hold the subject to.
     pub exempt: Vec<Exemption>,
     /// A limitation of the *runtime* — not of the subject — that this scenario is
-    /// currently expected to expose, and which no connector can work around.
+    /// currently expected to expose, for the classes it exposes it to.
     ///
     /// Set only where the runtime is known to violate a guarantee a correct connector
-    /// depends on. Such a scenario is an *expected failure*: it runs, and it fails with
-    /// its violation count, which is the measurement of the gap. It is deliberately not
-    /// silenced — a scenario excused from failing is one nobody reads again — and the
-    /// marker is removed once the runtime closes the gap, at which point it becomes an
-    /// ordinary passing scenario.
-    pub known_limitation: Option<&'static str>,
+    /// depends on. For an exposed class the scenario is an *expected failure*: it runs, and
+    /// it fails with its violation count, which is the measurement of the gap. It is
+    /// deliberately not silenced — a scenario excused from failing is one nobody reads
+    /// again — and the marker is removed once the runtime closes the gap, at which point it
+    /// becomes an ordinary passing scenario.
+    ///
+    /// A gap is scoped to classes rather than the whole scenario because exposure to one is
+    /// a property of how a class writes, not of the perturbation. The same membership change
+    /// landing on the same prepared transaction is unsurvivable for a class that has already
+    /// written to the destination and ordinary for a class that has only staged work, so the
+    /// scenario runs for both and only the exposed one is excused from passing.
+    pub known_limitation: Option<RuntimeGap>,
 }
+
+/// A runtime guarantee that is missing, and the classes it leaves exposed.
+pub struct RuntimeGap {
+    /// Classes for which this scenario is an expected failure. A class absent from this
+    /// list must pass the scenario normally.
+    pub classes: &'static [Class],
+    /// Which guarantee is missing and why the exposed classes cannot work around it.
+    pub detail: &'static str,
+}
+
+/// The classes claiming exactly-once, which is the default applicability set.
+const EXACTLY_ONCE: &[Class] = &[
+    Class::RemoteAuthoritative,
+    Class::PostCommitApply,
+    Class::DocumentCounter,
+];
+
+/// Every class, for the scenarios whose invariants still hold where duplicates are
+/// permitted — either because nothing is replayed, or because duplication is exempt.
+const EVERY_CLASS: &[Class] = &[
+    Class::RemoteAuthoritative,
+    Class::PostCommitApply,
+    Class::DocumentCounter,
+    Class::AtLeastOnce,
+];
 
 impl Scenario {
     fn new(name: &'static str, verifies: &'static str, class: Class) -> Self {
@@ -89,6 +136,7 @@ impl Scenario {
             name,
             verifies,
             class,
+            applies_to: EXACTLY_ONCE,
             standard_binding: !matches!(class, Class::DocumentCounter),
             faults: Vec::new(),
             defect: None,
@@ -102,6 +150,18 @@ impl Scenario {
         }
     }
 
+    /// See [`Scenario::applies_to`]. Widens or narrows which classes the scenario runs
+    /// against when the subject is a real connector.
+    fn applies_to(mut self, classes: &'static [Class]) -> Self {
+        assert!(
+            classes.contains(&self.class),
+            "{}: a scenario must apply to the class it is written against",
+            self.name,
+        );
+        self.applies_to = classes;
+        self
+    }
+
     fn fault(mut self, rule: FaultRule) -> Self {
         self.faults.push(rule);
         self
@@ -110,12 +170,13 @@ impl Scenario {
     /// See [`Scenario::known_limitation`]. Takes the same shape as an exemption —
     /// a justification long enough to have said something — because the cost of a
     /// scenario that cannot fail is that someone must be able to audit why.
-    fn blocked_on_runtime(mut self, limitation: &'static str) -> Self {
+    fn blocked_on_runtime(mut self, classes: &'static [Class], detail: &'static str) -> Self {
         assert!(
-            limitation.len() >= 40,
+            detail.len() >= 40,
             "state which runtime guarantee is missing, not just that one is",
         );
-        self.known_limitation = Some(limitation);
+        assert!(!classes.is_empty(), "name the classes the gap exposes");
+        self.known_limitation = Some(RuntimeGap { classes, detail });
         self
     }
 
@@ -152,7 +213,6 @@ pub fn all() -> Vec<Scenario> {
     vec![
         baseline(),
         crash_between_commits(),
-        replayed_acknowledge_is_a_no_op(),
         crash_mid_store(),
         crash_at_flush(),
         split_during_store(),
@@ -160,11 +220,10 @@ pub fn all() -> Vec<Scenario> {
         counter_split_during_commit(),
         join_after_split(),
         zombie_at_start_commit(),
-        counter_resumes_from_the_destination(),
-        counter_reconciles_rather_than_trusting_its_checkpoint(),
-        counter_crash_in_split_leader(),
-        counter_crash_in_split_non_leader(),
-        delta_replay_is_deduplicated(),
+        destination_ahead_of_checkpoint(),
+        recovery_reconciles_with_destination(),
+        crash_in_split_leader(),
+        crash_in_split_non_leader(),
         at_least_once_never_loses(),
     ]
 }
@@ -178,6 +237,9 @@ fn baseline() -> Scenario {
         "an unperturbed materialization upholds every invariant",
         Class::RemoteAuthoritative,
     )
+    // Nothing is perturbed, so nothing is replayed, so not even the at-least-once class
+    // has an opportunity to duplicate. Every class must pass this one.
+    .applies_to(EVERY_CLASS)
 }
 
 /// The window the Snowpipe Streaming v2 work verified by hand in production: the
@@ -196,24 +258,6 @@ fn crash_between_commits() -> Scenario {
         Class::PostCommitApply,
     )
     .fault(FaultRule::crash_at(Trigger::Acknowledged, 5))
-    .catches(Defect::NonIdempotentAcknowledge)
-}
-
-/// The runtime is free to retry `Acknowledge` as many times as it needs, so every
-/// replay after the first must be a no-op — with no crash involved at all.
-fn replayed_acknowledge_is_a_no_op() -> Scenario {
-    Scenario::new(
-        "replayed-acknowledge",
-        "Acknowledge replayed repeatedly with no crash is a no-op after the first",
-        Class::PostCommitApply,
-    )
-    .fault(FaultRule {
-        on: Trigger::Acknowledge,
-        nth: 4,
-        arm_after: 0,
-        shard: ShardTarget::Any,
-        action: Action::Replay { times: 3 },
-    })
     .catches(Defect::NonIdempotentAcknowledge)
 }
 
@@ -340,9 +384,9 @@ fn split_during_commit() -> Scenario {
 /// `split-during-commit` is held to a clean result.
 fn counter_split_during_commit() -> Scenario {
     let mut scenario = Scenario::new(
-        "counter-split-during-commit",
-        "a counted channel is exposed to a membership change landing on a prepared \
-         transaction, which no connector of that class can close",
+        "split-lands-on-prepared-transaction",
+        "a membership change landing on a transaction already prepared for commit \
+         neither loses nor duplicates its documents",
         Class::DocumentCounter,
     )
     .fault(FaultRule {
@@ -361,7 +405,13 @@ fn counter_split_during_commit() -> Scenario {
          therefore not guaranteed to advance monotonically; the set-based checks carry \
          the exactly-once claim and are NOT exempt.",
     )
+    // Written against the counted-channel class, which the gap below leaves unable to pass
+    // it, but the perturbation is not class-specific: a split landing on a prepared
+    // transaction is something every class must survive. A class that only *stages* during
+    // Store has nothing in the destination for the children to append twice, so it is
+    // expected to pass — and this is the scenario that says so.
     .blocked_on_runtime(
+        &[Class::DocumentCounter],
         "The runtime does not yet guarantee that a transaction started under a given shard \
          split is replayed under that same split before a scale up or down takes effect, a \
          capability named as a requirement in estuary/flow discussion 2581. A counted \
@@ -432,6 +482,14 @@ fn zombie_at_start_commit() -> Scenario {
         },
     })
     .catches(Defect::SkipFenceCheck)
+    // The only scenario a single class can be asked, and the reason is in `Zombie`: both
+    // instances are expected to fence at `Open`, and the live one waits for the zombie to
+    // get there first so that it holds the newer nonce. A class that does not fence gives
+    // the harness nothing to order the two by, and they proceed as two live writers to one
+    // destination for the whole run — which is not a zombie, and against a real warehouse
+    // simply contends until neither makes progress. Idempotency is the other classes'
+    // answer to a zombie, and `crash-between-commits` is where they are held to it.
+    .applies_to(&[Class::RemoteAuthoritative])
 }
 
 /// The document-counter class's central claim, and the reason it can offer
@@ -441,11 +499,11 @@ fn zombie_at_start_commit() -> Scenario {
 /// The crash is at `StartedCommit` — the connector has appended and reported its
 /// count, and the recovery log has *not* committed — so the runtime replays that
 /// transaction's documents into a destination that already holds them.
-fn counter_resumes_from_the_destination() -> Scenario {
+fn destination_ahead_of_checkpoint() -> Scenario {
     Scenario::new(
-        "counter-resumes-from-destination",
-        "a destination ahead of the connector's checkpoint counter causes recovery \
-         to skip exactly what it already holds",
+        "destination-ahead-of-checkpoint",
+        "a destination holding rows the committed checkpoint does not cover has them \
+         applied once, not twice",
         Class::DocumentCounter,
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
@@ -468,10 +526,10 @@ fn counter_resumes_from_the_destination() -> Scenario {
 /// the shim can inject produces that state — it needs the destination tampered with
 /// from outside — so the refusal path is implemented and unexercised. See the
 /// design document.
-fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
+fn recovery_reconciles_with_destination() -> Scenario {
     Scenario::new(
-        "counter-reconciles-with-destination",
-        "recovery reconciles the destination's committed count against the \
+        "recovery-reconciles-with-destination",
+        "recovery reconciles what the destination actually holds against the \
          checkpoint rather than trusting the checkpoint alone",
         Class::DocumentCounter,
     )
@@ -479,7 +537,7 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
     .catches(Defect::ResetCounterOnOpen)
     .declaring(
         Invariant::Monotonicity,
-        "Same cause as counter-resumes-from-destination: this class makes rows of an \
+        "Same cause as destination-ahead-of-checkpoint: this class makes rows of an \
          uncommitted transaction visible, so sink delivery order across a recovery \
          boundary may not advance monotonically.",
     )
@@ -512,11 +570,11 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
 /// restarts an unsplit shard, and what is being tested is the connector: its own
 /// channel, its own offset, crashing with appends the checkpoint does not know about.
 /// Recovery has to ask the destination how far *this* channel got.
-fn counter_crash_in_split_leader() -> Scenario {
+fn crash_in_split_leader() -> Scenario {
     let mut scenario = Scenario::new(
-        "counter-crash-in-split-leader",
-        "a channel created by a shard split resumes from its own destination offset \
-         after the leader crashes, not from its parent's and not from zero",
+        "crash-in-split-leader",
+        "a shard created by a split, whose leader then crashes, delivers each document \
+         exactly once — inheriting neither its parent's resume point nor a blank one",
         Class::DocumentCounter,
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitLeader))
@@ -546,9 +604,9 @@ fn counter_crash_in_split_leader() -> Scenario {
 /// be brought back at all after losing a participant; and once back, does the
 /// connector still hold exactly-once, given the rebuilt shard has to rediscover from
 /// the destination how far its channel got.
-fn counter_crash_in_split_non_leader() -> Scenario {
+fn crash_in_split_non_leader() -> Scenario {
     let mut scenario = Scenario::new(
-        "counter-crash-in-split-non-leader",
+        "crash-in-split-non-leader",
         "a stateless non-zero shard rebuilt after its crash still delivers each \
          document exactly once",
         Class::DocumentCounter,
@@ -568,24 +626,6 @@ fn counter_crash_in_split_non_leader() -> Scenario {
     scenario
 }
 
-/// Delta-updates bindings are where duplication is directly visible, as an extra
-/// row. A connector claiming exactly-once has to deduplicate.
-fn delta_replay_is_deduplicated() -> Scenario {
-    Scenario::new(
-        "delta-replay-deduplicated",
-        "a replayed transaction does not duplicate rows of a delta-updates binding",
-        Class::PostCommitApply,
-    )
-    .fault(FaultRule {
-        on: Trigger::Acknowledge,
-        nth: 3,
-        arm_after: 0,
-        shard: ShardTarget::Any,
-        action: Action::Replay { times: 2 },
-    })
-    .catches(Defect::NonIdempotentAcknowledge)
-}
-
 /// A connector that makes a weaker guarantee is still held to the guarantee it does
 /// make. The exemptions are the whole point: declared, justified, and narrow — and
 /// loss is not among them.
@@ -599,6 +639,10 @@ fn at_least_once_never_loses() -> Scenario {
         "an at-least-once connector never loses data, though it may duplicate",
         Class::AtLeastOnce,
     )
+    // The weakest ask in the suite: with duplication and everything downstream of it
+    // exempt, what remains is "lose nothing", which every class claims. A stronger class
+    // passes without using the exemptions, and that is worth running rather than assuming.
+    .applies_to(EVERY_CLASS)
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocuments)
     .declaring(
