@@ -160,6 +160,13 @@ impl super::UserGrant {
             (authz::CapabilitySet, models::Capability),
         > = Default::default();
         for node in Self::reachable_nodes(role_grants, user_grants, user_id) {
+            // A role edge can be visited yet confer no authority when its
+            // capabilities are fully removed by delegation attenuation. Such
+            // a destination is not reachable by the user in the authorization
+            // sense and must not appear in the returned prefix closure.
+            if node.capabilities.is_empty() {
+                continue;
+            }
             let entry = out
                 .entry(node.object_role)
                 .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
@@ -782,6 +789,23 @@ mod test {
                 ),
                 ("daveCo/sink/", CapabilityBundle::Viewer.capabilities()),
             ],
+        );
+    }
+
+    #[test]
+    fn test_reachable_prefixes_omits_fully_attenuated_destinations() {
+        let (role_grants, user_grants, user_id) = build_scenario(
+            vec![("sourceCo/", vec![CapabilityBundle::Editor])],
+            vec![("sourceCo/", "hiddenCo/", vec![CapabilityBundle::TeamAdmin])],
+        );
+
+        // Editor carries Delegate, so the role edge is considered. Editor and
+        // TeamAdmin share no capability bits, though, so nothing survives the
+        // path to hiddenCo/ and it is not reachable by the user.
+        let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, user_id);
+        assert_eq!(
+            reachable.keys().copied().collect::<Vec<_>>(),
+            vec!["sourceCo/"]
         );
     }
 
