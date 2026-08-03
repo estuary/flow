@@ -1,3 +1,9 @@
+/// Each prefix a user reaches, mapped to the union of capability bits granted
+/// there and the legacy `capability` column value: the output of
+/// `tables::UserGrant::reachable_prefixes`.
+pub(super) type ReachablePrefixMap<'a> =
+    std::collections::BTreeMap<&'a str, (models::authz::CapabilitySet, models::Capability)>;
+
 /// Returns catalog prefixes where the authenticated user holds all
 /// `required_capabilities`.
 ///
@@ -11,12 +17,29 @@ pub(super) fn authorized_prefixes(
     user_id: uuid::Uuid,
     required_capabilities: impl Into<models::authz::CapabilitySet>,
 ) -> Vec<String> {
+    authorized_from_reachable(
+        &tables::UserGrant::reachable_prefixes(role_grants, user_grants, user_id),
+        required_capabilities,
+    )
+}
+
+/// Reduces an already-walked `reachable` map to the prefixes holding all
+/// `required_capabilities`, pruned of children covered by a qualifying parent.
+///
+/// `authorized_prefixes` is this composed with the grant-graph walk. A caller
+/// that already holds the map — because it lists the prefixes themselves rather
+/// than SQL rows scoped by them — uses this instead, so the walk runs once per
+/// request rather than once per consumer.
+pub(super) fn authorized_from_reachable(
+    reachable: &ReachablePrefixMap<'_>,
+    required_capabilities: impl Into<models::authz::CapabilitySet>,
+) -> Vec<String> {
     let required_bits: models::authz::CapabilitySet = required_capabilities.into();
 
-    // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
-    // so the parent-prune step below can run directly on it.
-    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, user_id)
-        .into_iter()
+    // BTreeMap iteration is already prefix-sorted, so the parent-prune step
+    // below can run directly on it.
+    let prefixes = reachable
+        .iter()
         .filter(|(_, (bits, _))| bits.is_superset(required_bits))
         .map(|(prefix, _)| prefix.to_string());
 
