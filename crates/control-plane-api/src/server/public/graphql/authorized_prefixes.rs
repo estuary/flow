@@ -41,6 +41,66 @@ fn prune_covered(sorted: impl IntoIterator<Item = String>) -> Vec<String> {
     pruned
 }
 
+/// Returns the prefixes reachable through the role-grant graph from `seeds`
+/// with all `required_capabilities`. Capabilities arriving at the same prefix
+/// union across seeds and paths, matching the additive closure semantics of
+/// `reachable_prefixes`, and each seed is assumed to hold the requested
+/// capabilities on its own prefix. Results are sorted and pruned of covered
+/// children.
+///
+/// For the tenant filter, seeds are the caller's footholds within the named
+/// tenant — their authorized prefixes clamped into its subtree — so the walk
+/// witnesses only reach flowing from namespace the caller occupies. Edges
+/// granted to sibling branches of a seed contribute nothing, which keeps a
+/// branch-scoped caller from observing tenant-wide role-grant topology.
+pub(super) fn tenant_reachable_prefixes(
+    role_grants: &tables::RoleGrants,
+    seeds: &[String],
+    required_capabilities: models::authz::CapabilitySet,
+) -> Vec<String> {
+    let mut reached: std::collections::BTreeMap<&str, models::authz::CapabilitySet> =
+        Default::default();
+
+    for seed in seeds {
+        *reached.entry(seed.as_str()).or_default() |= required_capabilities;
+        for node in tables::RoleGrant::reachable_nodes(role_grants, seed) {
+            *reached.entry(node.object_role).or_default() |= node.capabilities;
+        }
+    }
+
+    prune_covered(
+        reached
+            .into_iter()
+            .filter(|(_, bits)| bits.is_superset(required_capabilities))
+            .map(|(prefix, _)| prefix.to_string()),
+    )
+}
+
+/// Intersects two prefix sets, returning the prefixes whose subtrees lie in
+/// both.
+///
+/// Two prefixes overlap only when one is a prefix of the other, and the
+/// intersection of their subtrees is the *deeper* of the two: `acmeCo/`
+/// intersected with `acmeCo/data/` is `acmeCo/data/`. Taking the shallower one
+/// would admit the whole `acmeCo/` subtree, so callers that hand the result
+/// straight to a `^@ ANY(...)` predicate — with no second predicate to
+/// re-narrow it — depend on this. Disjoint prefixes contribute nothing.
+pub(super) fn intersect_prefixes(left: &[String], right: &[String]) -> Vec<String> {
+    let mut out: std::collections::BTreeSet<&str> = Default::default();
+
+    for l in left {
+        for r in right {
+            if l.starts_with(r.as_str()) {
+                out.insert(l.as_str());
+            } else if r.starts_with(l.as_str()) {
+                out.insert(r.as_str());
+            }
+        }
+    }
+
+    prune_covered(out.into_iter().map(str::to_string))
+}
+
 /// Resolves the caller's prefixes for `required_capabilities`, narrowed by an
 /// optional `PrefixFilter`, and returns them with the filter's decomposed
 /// `startsWith`/`in` parts (which callers bind into their own SQL). `field`
@@ -286,6 +346,172 @@ mod tests {
         // min=Write: both qualify on their own bits; parent prunes child.
         let result = authorized_prefixes(&rg, &ug, ALICE, Write);
         assert_eq!(result, vec!["acmeCo/"]);
+    }
+
+    #[test]
+    fn tenant_reachable_requires_capability_and_walks_delegatable_grants() {
+        use models::authz::Capability::{CatalogRead, QueryServiceAccounts};
+
+        let query_service_accounts: models::authz::CapabilitySet = QueryServiceAccounts.into();
+        let catalog_read: models::authz::CapabilitySet = CatalogRead.into();
+        let query_and_read = QueryServiceAccounts | CatalogRead;
+
+        // Cases are (role_grants, seeds, required capabilities, expected). A
+        // seed always has the requested capabilities on itself. `admin` edges
+        // carry QueryServiceAccounts and Delegate, so the walk includes and
+        // continues through them. `read` carries CatalogRead but no Delegate,
+        // so its target may qualify while remaining terminal.
+        type Case<'a> = (
+            &'a [(&'a str, &'a str, models::Capability)],
+            &'a [&'a str],
+            models::authz::CapabilitySet,
+            &'a [&'a str],
+        );
+        let cases: &[Case<'_>] = &[
+            // No grants: a seed still reaches itself.
+            (&[], &["acmeCo/"], query_service_accounts, &["acmeCo/"]),
+            // A single hop into another namespace.
+            (
+                &[("acmeCo/", "sharedCo/", Admin)],
+                &["acmeCo/"],
+                query_service_accounts,
+                &["acmeCo/", "sharedCo/"],
+            ),
+            // Required capabilities are orthogonal and all must be present.
+            (
+                &[("acmeCo/", "sharedCo/", Admin)],
+                &["acmeCo/"],
+                query_and_read,
+                &["acmeCo/", "sharedCo/"],
+            ),
+            // Transitive through an admin edge.
+            (
+                &[
+                    ("acmeCo/", "sharedCo/", Admin),
+                    ("sharedCo/", "deepCo/", Admin),
+                ],
+                &["acmeCo/"],
+                query_service_accounts,
+                &["acmeCo/", "deepCo/", "sharedCo/"],
+            ),
+            // A `read` edge lacks QueryServiceAccounts, so neither it nor the
+            // node beyond it belongs to that capability closure.
+            (
+                &[
+                    ("acmeCo/", "sharedCo/", Read),
+                    ("sharedCo/", "deepCo/", Admin),
+                ],
+                &["acmeCo/"],
+                query_service_accounts,
+                &["acmeCo/"],
+            ),
+            // The same read edge does carry CatalogRead, but no Delegate, so
+            // its target qualifies while deepCo/ remains unreachable.
+            (
+                &[
+                    ("acmeCo/", "sharedCo/", Read),
+                    ("sharedCo/", "deepCo/", Admin),
+                ],
+                &["acmeCo/"],
+                catalog_read,
+                &["acmeCo/", "sharedCo/"],
+            ),
+            // A target inside the seed's own subtree is pruned as covered.
+            (
+                &[("acmeCo/", "acmeCo/team/", Admin)],
+                &["acmeCo/"],
+                query_service_accounts,
+                &["acmeCo/"],
+            ),
+            // Edges are directional: sharedCo/ does not reach acmeCo/.
+            (
+                &[("acmeCo/", "sharedCo/", Admin)],
+                &["sharedCo/"],
+                query_service_accounts,
+                &["sharedCo/"],
+            ),
+            // A root seed walks edges granted to roles under it: acmeCo/
+            // covers the subject acmeCo/team/, so its edge is usable.
+            (
+                &[("acmeCo/team/", "sharedCo/", Admin)],
+                &["acmeCo/"],
+                query_service_accounts,
+                &["acmeCo/", "sharedCo/"],
+            ),
+            // A branch seed walks edges granted to its ancestors: the subject
+            // acmeCo/ covers acmeCo/team/, so the seed inherits its edge.
+            (
+                &[("acmeCo/", "sharedCo/", Admin)],
+                &["acmeCo/team/"],
+                query_service_accounts,
+                &["acmeCo/team/", "sharedCo/"],
+            ),
+            // A branch seed does NOT walk a sibling branch's edges: what
+            // acmeCo/other/ reaches is not witnessed from acmeCo/team/.
+            (
+                &[("acmeCo/other/", "sharedCo/", Admin)],
+                &["acmeCo/team/"],
+                query_service_accounts,
+                &["acmeCo/team/"],
+            ),
+            // Multiple seeds union their reach.
+            (
+                &[
+                    ("acmeCo/a/", "sharedCo/", Admin),
+                    ("acmeCo/b/", "otherCo/", Admin),
+                ],
+                &["acmeCo/a/", "acmeCo/b/"],
+                query_service_accounts,
+                &["acmeCo/a/", "acmeCo/b/", "otherCo/", "sharedCo/"],
+            ),
+        ];
+
+        for &(role_grants, seeds, required_capabilities, expected) in cases {
+            let (_ug, rg) = make_grants(&[], role_grants);
+            let seeds: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
+            let got = super::tenant_reachable_prefixes(&rg, &seeds, required_capabilities);
+            assert_eq!(
+                got, expected,
+                "role_grants={role_grants:?} seeds={seeds:?} required_capabilities={required_capabilities:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn intersect_prefixes_keeps_the_deeper_of_each_overlapping_pair() {
+        // Cases are (left, right, expected). Overlap requires one prefix to
+        // contain the other, and the intersection of their subtrees is the
+        // deeper prefix — the shallower one would admit rows outside the
+        // other set.
+        let cases: &[(&[&str], &[&str], &[&str])] = &[
+            // Equal.
+            (&["acmeCo/"], &["acmeCo/"], &["acmeCo/"]),
+            // Right is deeper: the intersection is right's subtree.
+            (&["acmeCo/"], &["acmeCo/data/"], &["acmeCo/data/"]),
+            // Left is deeper: symmetric.
+            (&["acmeCo/data/"], &["acmeCo/"], &["acmeCo/data/"]),
+            // Disjoint.
+            (&["acmeCo/"], &["betaCo/"], &[]),
+            // Either side empty.
+            (&["acmeCo/"], &[], &[]),
+            (&[], &["acmeCo/"], &[]),
+            // One broad prefix fans out to several deeper ones.
+            (
+                &["acmeCo/"],
+                &["acmeCo/a/", "acmeCo/b/", "betaCo/"],
+                &["acmeCo/a/", "acmeCo/b/"],
+            ),
+            // A parent on the right absorbs its own children: acmeCo/ covers
+            // acmeCo/a/, so the pruned result is just acmeCo/.
+            (&["acmeCo/"], &["acmeCo/", "acmeCo/a/"], &["acmeCo/"]),
+        ];
+
+        for &(left, right, expected) in cases {
+            let left: Vec<String> = left.iter().map(|s| s.to_string()).collect();
+            let right: Vec<String> = right.iter().map(|s| s.to_string()).collect();
+            let got = super::intersect_prefixes(&left, &right);
+            assert_eq!(got, expected, "left={left:?} right={right:?}");
+        }
     }
 
     #[test]

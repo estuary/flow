@@ -68,6 +68,26 @@ pub type PaginatedServiceAccounts = connection::Connection<
     connection::DisableNodesField,
 >;
 
+/// Composable filter for the `serviceAccounts` query. Every field is optional
+/// and only narrows the result set; the caller's own access is enforced
+/// independently, so a filter can never widen what a caller may see.
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct ServiceAccountsFilter {
+    /// Keep only accounts whose `catalogName` lies under a prefix that this
+    /// tenant reaches with `QueryServiceAccounts` through the role-grant
+    /// graph — the tenant's own namespace, plus any namespace a qualifying
+    /// chain of role grants projects it into.
+    ///
+    /// The walk starts from the caller's own footholds within the tenant, and
+    /// the reachable set is intersected with the caller's authorized prefixes.
+    /// The filter therefore narrows a listing to one organization's accounts,
+    /// never surfaces an account the caller could not already see, and shows
+    /// only reach flowing from namespace the caller occupies. Naming a tenant
+    /// requires holding `QueryServiceAccounts` somewhere within (or covering)
+    /// its namespace.
+    pub tenant: Option<models::Prefix>,
+}
+
 #[derive(Debug, Default)]
 pub struct ServiceAccountsQuery;
 
@@ -76,27 +96,84 @@ const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl ServiceAccountsQuery {
+    /// List service accounts the caller may query.
+    ///
+    /// Returns accounts anchored under any prefix where the caller holds
+    /// `QueryServiceAccounts`, optionally narrowed to those where an
+    /// organization also reaches `QueryServiceAccounts` with `filter.tenant`.
     async fn service_accounts(
         &self,
         ctx: &Context<'_>,
+        filter: Option<ServiceAccountsFilter>,
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedServiceAccounts> {
         let env = ctx.data::<crate::Envelope>()?;
 
+        let tenant = match filter.and_then(|f| f.tenant) {
+            Some(tenant) => Some(super::tenant::validate_tenant_name(tenant.as_str())?),
+            None => None,
+        };
+
         let snapshot = env.snapshot();
         // Service accounts are visible to callers holding QueryServiceAccounts
         // on a prefix covering the account's catalog_name.
-        let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
+        let required_capabilities: models::authz::CapabilitySet =
+            models::authz::Capability::QueryServiceAccounts.into();
+        let mut user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
             &snapshot.role_grants,
             &snapshot.user_grants,
             env.claims()?.sub,
-            models::authz::Capability::QueryServiceAccounts,
+            required_capabilities,
         );
+
+        if let Some(tenant) = &tenant {
+            // The caller's footholds within the tenant: their authorized
+            // prefixes clamped into its subtree. Naming a tenant requires at
+            // least one — holding QueryServiceAccounts somewhere within (or
+            // covering) the tenant's namespace. A tenant's reachable set is
+            // derived from role_grants, which are not otherwise readable here:
+            // without this gate, filtering by a tenant the caller knows nothing
+            // about and observing whether rows come back in some *other*
+            // namespace would reveal that a role grant connects the two. The
+            // check is a function of the caller's own grants and the tenant
+            // string alone, so the denial itself reveals nothing about the
+            // tenant — including whether it exists.
+            let seeds = super::authorized_prefixes::intersect_prefixes(
+                &user_accessible_prefixes,
+                &[tenant.as_str().to_string()],
+            );
+            if seeds.is_empty() {
+                return Err(async_graphql::Error::new(format!(
+                    "not authorized to filter by tenant '{}'",
+                    tenant.as_str()
+                )));
+            }
+            // The walk starts from the footholds rather than the tenant root,
+            // so the caller witnesses only reach flowing from namespace they
+            // occupy: edges granted to sibling branches of their footholds
+            // contribute nothing to the filtered view.
+            let reachable = super::authorized_prefixes::tenant_reachable_prefixes(
+                &snapshot.role_grants,
+                &seeds,
+                required_capabilities,
+            );
+            user_accessible_prefixes = super::authorized_prefixes::intersect_prefixes(
+                &user_accessible_prefixes,
+                &reachable,
+            );
+        }
 
         if user_accessible_prefixes.is_empty() {
             return Ok(PaginatedServiceAccounts::new(false, false));
         }
+        // MAX_PREFIXES bounds the array bound into every page's `^@ ANY($1)`
+        // predicate — a cost guard, not a correctness one, as pagination
+        // limits rows returned but not predicate size. The tenant-filter
+        // intersection can exceed the caller's own closure size: one broad
+        // authorized prefix may fan out into many deeper reachable prefixes.
+        // Only internal support-style users come near the cap today; raise it
+        // if a legitimate caller ever trips it.
         if user_accessible_prefixes.len() > MAX_PREFIXES {
             return Err(async_graphql::Error::new("Too many accessible prefixes"));
         }
@@ -2122,6 +2199,278 @@ mod test {
         assert!(
             create_escalation["errors"].is_array(),
             "seeding a grant beyond the team admin's CreateGrant must fail: {create_escalation}"
+        );
+    }
+
+    /// `filter.tenant` narrows a listing to the accounts an organization
+    /// reaches through the role-grant graph, intersected with the caller's own
+    /// access.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_service_accounts_tenant_filter(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let alice_uid = uuid::Uuid::from_bytes([0x11; 16]);
+        let dave_uid = uuid::Uuid::from_bytes([0x44; 16]);
+
+        // Alice admins three namespaces outright.
+        for (prefix, capability) in [
+            ("sharedCo/", "admin"),
+            ("deepCo/", "admin"),
+            ("readLinkedCo/", "admin"),
+        ] {
+            sqlx::query(
+                "INSERT INTO public.user_grants (user_id, object_role, capability)
+                 VALUES ($1, $2, $3::text::grant_capability)",
+            )
+            .bind(alice_uid)
+            .bind(prefix)
+            .bind(capability)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        // On betaCo/ alice holds only the ManageServiceAccounts bundle. It
+        // carries QueryServiceAccounts — so she may name betaCo/ as a filter
+        // tenant and list its own accounts — but no Delegate, so her walk
+        // terminates at betaCo/ and never inherits what betaCo/ reaches.
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'betaCo/', 'none', ARRAY['manage_service_accounts']::capability_bundle[])",
+        )
+        .bind(alice_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Dave admins hiddenCo/, so he can confirm the hiddenCo/ account
+        // really is listable — making alice's miss on it a statement about
+        // her access, not the account's absence. His deepCo/team/ grant is a
+        // foothold on a branch of deepCo/ without any grant covering the
+        // tenant itself, which is what qualifies him to name deepCo/ as a
+        // filter tenant below.
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'dave@example.test')")
+            .bind(dave_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for prefix in ["hiddenCo/", "deepCo/team/"] {
+            sqlx::query(
+                "INSERT INTO public.user_grants (user_id, object_role, capability)
+                 VALUES ($1, $2, 'admin')",
+            )
+            .bind(dave_uid)
+            .bind(prefix)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // The role-grant edges under test. aliceCo/ projects into all of
+        // sharedCo/ but into only one branch of deepCo/, which is what
+        // distinguishes a true prefix intersection from a mere overlap test.
+        // betaCo/ -> hiddenCo/ is the edge alice must not be able to traverse.
+        for (subject, object, capability) in [
+            ("aliceCo/", "sharedCo/", "admin"),
+            ("aliceCo/", "deepCo/team/", "admin"),
+            // Alice can independently query accounts in readLinkedCo/, but
+            // aliceCo/ has only read there. The tenant filter must use the
+            // tenant's QueryServiceAccounts closure, not Alice's.
+            ("aliceCo/", "readLinkedCo/", "read"),
+            ("betaCo/", "hiddenCo/", "admin"),
+        ] {
+            sqlx::query(
+                "INSERT INTO public.role_grants (subject_role, object_role, capability)
+                 VALUES ($1, $2, $3::text::grant_capability)",
+            )
+            .bind(subject)
+            .bind(object)
+            .bind(capability)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        for (byte, catalog_name) in [
+            (0xa1u8, "aliceCo/bot"),
+            (0xa2, "sharedCo/bot"),
+            (0xa3, "betaCo/bot"),
+            (0xa4, "deepCo/team/bot"),
+            (0xa5, "deepCo/other/bot"),
+            (0xa6, "hiddenCo/bot"),
+            (0xa7, "readLinkedCo/bot"),
+        ] {
+            let sa_uid = uuid::Uuid::from_bytes([byte; 16]);
+            sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, $2)")
+                .bind(sa_uid)
+                .bind(format!("{catalog_name}@service_accounts.estuary.dev"))
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO internal.service_accounts (user_id, catalog_name, created_by)
+                 VALUES ($1, $2::text::catalog_name, $3)",
+            )
+            .bind(sa_uid)
+            .bind(catalog_name)
+            .bind(alice_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // Gate off: this is a query-only test, so the server must start with
+        // the real snapshot rather than the empty one a gated source serves
+        // first — otherwise every listing sees no grants and returns nothing.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let alice_token = server.make_access_token(alice_uid, Some("alice@example.com"));
+        let dave_token = server.make_access_token(dave_uid, Some("dave@example.test"));
+
+        async fn listed_names(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Result<Vec<String>, String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        query($filter: ServiceAccountsFilter) {
+                            serviceAccounts(filter: $filter, first: 50) {
+                                edges { node { catalogName } }
+                            }
+                        }"#,
+                        "variables": { "filter": filter }
+                    }),
+                    Some(token),
+                )
+                .await;
+
+            if let Some(errors) = response["errors"].as_array() {
+                return Err(errors[0]["message"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string());
+            }
+            let mut names: Vec<String> = response["data"]["serviceAccounts"]["edges"]
+                .as_array()
+                .unwrap_or_else(|| panic!("expected edges: {response}"))
+                .iter()
+                .map(|e| e["node"]["catalogName"].as_str().unwrap().to_string())
+                .collect();
+            names.sort();
+            Ok(names)
+        }
+
+        // Unfiltered: every account under a prefix where alice holds
+        // QueryServiceAccounts. hiddenCo/ is reachable only from betaCo/, and
+        // alice's betaCo/ bundle carries no Delegate, so hiddenCo/bot does not
+        // appear.
+        let all = listed_names(&server, &alice_token, serde_json::Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(
+            all,
+            vec![
+                "aliceCo/bot",
+                "betaCo/bot",
+                "deepCo/other/bot",
+                "deepCo/team/bot",
+                "readLinkedCo/bot",
+                "sharedCo/bot"
+            ],
+        );
+
+        // Filtering by aliceCo/ keeps its own account plus the accounts in the
+        // namespaces its role grants project into. deepCo/other/bot is the
+        // assertion that matters: alice administers all of deepCo/, but
+        // aliceCo/ reaches only deepCo/team/, so the intersection must be the
+        // deeper deepCo/team/ rather than the whole deepCo/ subtree.
+        // readLinkedCo/bot is also excluded: Alice can query it independently,
+        // but aliceCo/ reaches only CatalogRead there.
+        let by_alice_co = listed_names(
+            &server,
+            &alice_token,
+            serde_json::json!({ "tenant": "aliceCo/" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            by_alice_co,
+            vec!["aliceCo/bot", "deepCo/team/bot", "sharedCo/bot"],
+        );
+
+        // Filtering by betaCo/ is authorized (alice holds QueryServiceAccounts
+        // there) and betaCo/ does reach hiddenCo/ — but alice holds nothing
+        // there, so only betaCo/'s own account comes back. A filter narrows;
+        // it never widens.
+        let by_beta_co = listed_names(
+            &server,
+            &alice_token,
+            serde_json::json!({ "tenant": "betaCo/" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            by_beta_co,
+            vec!["betaCo/bot"],
+            "a tenant's reach must not surface accounts the caller can't access"
+        );
+
+        // The hiddenCo/ account is genuinely listable — for someone who
+        // administers it. Alice's miss on it above is about her access.
+        let daves = listed_names(&server, &dave_token, serde_json::Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(daves, vec!["deepCo/team/bot", "hiddenCo/bot"]);
+
+        // Dave holds nothing covering deepCo/ itself, but his deepCo/team/
+        // foothold qualifies him to name deepCo/ as a filter tenant and seeds
+        // the reachability walk, so the result is his branch-limited slice of
+        // the tenant's view.
+        let daves_deep_co = listed_names(
+            &server,
+            &dave_token,
+            serde_json::json!({ "tenant": "deepCo/" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(daves_deep_co, vec!["deepCo/team/bot"]);
+
+        // Naming a tenant requires QueryServiceAccounts somewhere within it,
+        // so a namespace alice holds nothing in is denied rather than
+        // answered.
+        let denied = listed_names(
+            &server,
+            &alice_token,
+            serde_json::json!({ "tenant": "ghostCo/" }),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            denied.contains("not authorized to filter by tenant"),
+            "filtering by a tenant the caller holds nothing in should be denied: {denied}"
+        );
+
+        // A malformed tenant is rejected as input rather than silently matching
+        // nothing.
+        let invalid = listed_names(
+            &server,
+            &alice_token,
+            serde_json::json!({ "tenant": "Not A Prefix" }),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            invalid.contains("invalid tenant name"),
+            "a malformed tenant should be rejected: {invalid}"
         );
     }
 }
