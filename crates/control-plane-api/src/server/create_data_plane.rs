@@ -1,7 +1,7 @@
-use crate::directives::storage_mappings::{fetch_storage_mappings, upsert_storage_mapping};
 use crate::publications::{
     DoNotRetry, DraftPublication, NoopInitialize, NoopWithCommit, PruneUnboundCollections,
 };
+use crate::storage_mappings::{fetch_storage_mappings, upsert_storage_mapping};
 use anyhow::Context;
 use validator::Validate;
 
@@ -64,19 +64,7 @@ pub async fn create_data_plane(
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
     let models::authorizations::ControlClaims { sub: user_id, .. } = env.claims()?;
-
-    if let None = sqlx::query!(
-        "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
-        user_id,
-    )
-    .fetch_optional(&env.pg_pool)
-    .await?
-    {
-        return Err(tonic::Status::permission_denied(
-            "authenticated user is not an admin of the 'ops/' tenant",
-        )
-        .into());
-    }
+    super::authorize_ops_admin(&env).await?;
 
     let (data_plane_fqdn, base_name, pulumi_stack) = match &private {
         None => (
@@ -232,7 +220,6 @@ pub async fn create_data_plane(
         .unwrap()
         .into();
 
-    let snapshot = app.snapshot_watch.token();
     let publication = DraftPublication {
         user_id: *user_id,
         logs_token: insert.logs_token,
@@ -241,9 +228,7 @@ pub async fn create_data_plane(
         detail: Some(format!("publication for data-plane {base_name}")),
         // A one-shot handler invocation, with no queued row to anchor on.
         started_at: None,
-        snapshot: snapshot
-            .result()
-            .expect("authorization snapshot is not ready"),
+        snapshot: env.snapshot(),
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,
@@ -330,5 +315,178 @@ impl Validate for Category {
         } else {
             Ok(())
         }
+    }
+}
+
+/// The `ops/`-admin pre-check, evaluated against the request's pinned
+/// Snapshot: a caller without `ops/` admin is rejected before any data-plane
+/// state is touched — terminally (403) when the Snapshot postdates the
+/// request, and with the platform-standard 307 retry when it doesn't.
+#[cfg(test)]
+mod test {
+    use crate::test_server;
+
+    // From `fixtures/alice.sql`: admin of `aliceCo/` and nothing else.
+    const ALICE: uuid::Uuid = uuid::uuid!("11111111-1111-1111-1111-111111111111");
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_data_plane_denied_for_non_ops_admin(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let token = server.make_access_token(ALICE, Some("alice@example.com"));
+
+        let response = server
+            .rest_client()
+            .post(
+                "/admin/create-data-plane",
+                &serde_json::json!({"name": "test-plane-c1", "category": "managed"}),
+                Some(&token),
+            )
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(reqwest::StatusCode::FORBIDDEN, response.status());
+    }
+
+    /// A denial evaluated against a Snapshot which predates the request is
+    /// provisional: the endpoint answers with the platform-standard 307
+    /// `AuthZRetry` (Retry-After + `started`/`retryAfter` params) rather than
+    /// a terminal 403, and a retry against the refreshed (authoritative)
+    /// Snapshot then resolves the denial terminally.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_data_plane_stale_snapshot_retries_then_denies(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        // gate=true serves an empty epoch-taken Snapshot first: every denial
+        // under it is provisional. The revoke cancelled by the first request
+        // refreshes the watch to the real (+1h) Snapshot.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+        let token = server.make_access_token(ALICE, Some("alice@example.com"));
+
+        let client = flow_client_next::rest::Client {
+            base_url: server.base_url(),
+            http_client: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap(),
+        };
+        let body = serde_json::json!({"name": "test-plane-c1", "category": "managed"});
+
+        let response = client
+            .post("/admin/create-data-plane", &body, Some(&token))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            reqwest::StatusCode::TEMPORARY_REDIRECT,
+            response.status(),
+            "a stale denial must be provisional"
+        );
+        assert!(
+            response
+                .headers()
+                .contains_key(reqwest::header::RETRY_AFTER)
+        );
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|l| l.to_str().ok())
+            .expect("redirect carries a Location");
+        assert!(
+            location.contains("started=") && location.contains("retryAfter="),
+            "Location must carry retry bookkeeping: {location}"
+        );
+
+        // The cancelled revoke triggers a refresh to the authoritative
+        // Snapshot; denials then become terminal. Bound the wait, since the
+        // refresh races this retry loop.
+        for attempt in 0..50 {
+            let response = client
+                .post("/admin/create-data-plane", &body, Some(&token))
+                .send()
+                .await
+                .unwrap();
+            match response.status() {
+                reqwest::StatusCode::FORBIDDEN => return,
+                reqwest::StatusCode::TEMPORARY_REDIRECT => {
+                    tokio::time::sleep(std::time::Duration::from_millis(20 * attempt)).await;
+                }
+                other => panic!("unexpected interim status {other}"),
+            }
+        }
+        panic!("denial never became terminal under the refreshed snapshot");
+    }
+
+    /// The seeded system user — these endpoints' routine caller — holds a
+    /// direct `('ops/', 'admin')` row in `user_grants` (seed.sql); this pins
+    /// that exactly that grant shape resolves through the Snapshot's grant
+    /// walk, and that it doesn't leak into unrelated tenants.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_ops_admin_authorizes_via_snapshot(pool: sqlx::PgPool) {
+        let ops_admin = uuid::uuid!("99999999-9999-9999-9999-999999999999");
+        sqlx::query("insert into auth.users (id, email) values ($1, 'ops-admin@example.com')")
+            .bind(ops_admin)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "insert into user_grants (user_id, object_role, capability) values ($1, 'ops/', 'admin')",
+        )
+        .bind(ops_admin)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut decrypted_hmac_keys = std::collections::HashMap::new();
+        let data = crate::snapshot::try_fetch(&pool, &mut decrypted_hmac_keys)
+            .await
+            .expect("failed to fetch snapshot");
+        let snapshot = crate::Snapshot::new(tokens::now(), data);
+
+        let claims = models::authorizations::ControlClaims {
+            iat: 0,
+            exp: u64::MAX,
+            sub: ops_admin,
+            role: "authenticated".to_string(),
+            aud: "authenticated".to_string(),
+            email: Some("ops-admin@example.com".to_string()),
+        };
+        assert!(
+            crate::evaluate_names_authorization(
+                &snapshot,
+                &claims,
+                models::Capability::Admin,
+                ["ops/"],
+            )
+            .is_ok(),
+            "an ops/ admin user_grant must satisfy the snapshot walk"
+        );
+        assert!(
+            crate::evaluate_names_authorization(
+                &snapshot,
+                &claims,
+                models::Capability::Admin,
+                ["aliceCo/"],
+            )
+            .is_err(),
+            "ops/ admin must not leak into unrelated tenants"
+        );
     }
 }

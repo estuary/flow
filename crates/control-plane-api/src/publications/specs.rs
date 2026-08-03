@@ -1218,6 +1218,7 @@ mod test {
 #[cfg(test)]
 mod resolve_tests {
     use super::*;
+    use crate::test_support::{assert_stale_for, authoritative, published_at, stale};
 
     // From `fixtures/authz_specs.sql`.
     const CAROL: uuid::Uuid = uuid::uuid!("33333333-3333-3333-3333-333333333333");
@@ -1268,56 +1269,12 @@ mod resolve_tests {
         }))
     }
 
-    /// Staleness compares the Snapshot's `taken` against the timestamp embedded
-    /// in a spec's `last_pub_id`, so read that back rather than recomputing it —
-    /// `flowid` is `macaddr8`, which silently widens short literals.
-    async fn published_at(pool: &sqlx::PgPool) -> tokens::DateTime {
-        sqlx::query_scalar!(
-            r#"select last_pub_id as "last_pub_id: models::Id"
-            from live_specs where catalog_name = $1"#,
-            COLLECTION,
-        )
-        .fetch_one(pool)
-        .await
-        .expect("fixture collection should exist")
-        .timestamp()
-    }
-
-    async fn snapshot_offset(pool: &sqlx::PgPool, offset: chrono::TimeDelta) -> crate::Snapshot {
-        let mut decrypted_hmac_keys = std::collections::HashMap::new();
-        let data = crate::snapshot::try_fetch(pool, &mut decrypted_hmac_keys)
-            .await
-            .expect("failed to fetch snapshot");
-        crate::Snapshot::new(published_at(pool).await + offset, data)
-    }
-
-    /// Taken clear of the publication plus `TEMPORAL_SKEW`: denials are definitive.
-    async fn authoritative(pool: &sqlx::PgPool) -> crate::Snapshot {
-        snapshot_offset(pool, crate::Snapshot::TEMPORAL_SKEW * 4).await
-    }
-
-    /// Taken before the publication it would judge: denials are retryable.
-    async fn stale(pool: &sqlx::PgPool) -> crate::Snapshot {
-        snapshot_offset(pool, -crate::Snapshot::TEMPORAL_SKEW * 4).await
-    }
-
     /// Renders `live.errors` as `(scope, message)` pairs for snapshot assertions.
     fn error_pairs(live: &tables::LiveCatalog) -> Vec<(String, String)> {
         live.errors
             .iter()
             .map(|e| (e.scope.to_string(), format!("{:#}", e.error)))
             .collect()
-    }
-
-    fn assert_stale_for(err: anyhow::Error, catalog_name: &str) {
-        assert!(
-            validation::is_authz_snapshot_stale(&err),
-            "expected a retryable stale-snapshot error, got: {err:#}"
-        );
-        assert!(
-            err.to_string().contains(catalog_name),
-            "stale error should name the offending spec, got: {err:#}"
-        );
     }
 
     /// Branch 1: a user drafting an existing spec must admin it. Dan does not,

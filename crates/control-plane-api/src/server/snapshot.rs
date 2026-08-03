@@ -258,6 +258,30 @@ impl Snapshot {
         )
     }
 
+    /// Evaluate whether `user_id` may fetch the live spec `catalog_name` with
+    /// `capability`: the single spec-fetch policy shared by every live-spec
+    /// fetcher (`live_specs::get_live_specs`, `get_connected_live_specs`,
+    /// `evolutions::resolve_specs`). Staleness anchors on `started` — the
+    /// fetching operation's durable queued instant — when the caller has one,
+    /// and otherwise on the spec's own last publication, which bounds the
+    /// window in which grants could have been committed alongside the spec.
+    ///
+    /// `Ok(false)` is an authoritative denial: callers drop or suppress the
+    /// spec, the pre-existing behavior. A provisional denial surfaces as the
+    /// retryable `AuthorizationSnapshotStale` error instead.
+    pub fn spec_fetch_authorization(
+        &self,
+        user_id: uuid::Uuid,
+        catalog_name: &str,
+        capability: models::Capability,
+        started: Option<tokens::DateTime>,
+        last_pub_id: models::Id,
+    ) -> Result<bool, validation::Error> {
+        let anchor = started.unwrap_or_else(|| last_pub_id.timestamp());
+        self.user_authorization(user_id, catalog_name, capability, Some(anchor))
+            .ok_or_stale(catalog_name)
+    }
+
     /// Evaluate whether `subject` (a catalog spec acting as a role) holds
     /// `capability` to `object` under this Snapshot's role grants, classified
     /// against `anchor` freshness (see `resolve_authorization`).

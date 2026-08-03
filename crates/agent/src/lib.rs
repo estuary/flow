@@ -1,3 +1,12 @@
+// Computing the layout of `PublicationsExecutor::poll`'s async body recurses
+// through every future of the nested publication pipeline — a ~130-deep query
+// descent, over rustc's default limit of 128. Earlier trees compiled only
+// because since-deleted code (the storage-mappings directive chain) happened
+// to pre-compute shared sub-layouts, splitting the descent below the limit.
+// Raise the limit per rustc's own guidance rather than depend on that
+// accident.
+#![recursion_limit = "256"]
+
 pub mod alerts;
 pub(crate) mod connector_tags;
 pub mod controllers;

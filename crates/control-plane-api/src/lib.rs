@@ -21,10 +21,13 @@ pub mod logs;
 pub mod proxy_connectors;
 pub mod publications;
 pub mod server;
+pub mod storage_mappings;
 mod text_json;
 
 #[cfg(test)]
 pub(crate) mod test_server;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 /// TextJson encodes JSON for Postgres while preserving property ordering.
 pub use text_json::TextJson;

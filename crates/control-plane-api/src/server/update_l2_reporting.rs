@@ -33,19 +33,7 @@ pub async fn update_l2_reporting(
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let crate::ControlClaims { sub: user_id, .. } = env.claims()?;
-
-    if let None = sqlx::query!(
-        "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
-        user_id,
-    )
-    .fetch_optional(&env.pg_pool)
-    .await?
-    {
-        return Err(tonic::Status::permission_denied(
-            "authenticated user is not an admin of the 'ops/' tenant",
-        )
-        .into());
-    }
+    super::authorize_ops_admin(&env).await?;
 
     let template = include_str!("../../../../ops-catalog/reporting-L2-template.bundle.json");
     let tables::DraftCatalog { collections, .. } =
@@ -295,7 +283,6 @@ export class Derivation extends Types.IDerivation {"#
     };
 
     let logs_token = uuid::Uuid::new_v4();
-    let snapshot = app.snapshot_watch.token();
     let publication = DraftPublication {
         user_id: *user_id,
         logs_token,
@@ -304,9 +291,7 @@ export class Derivation extends Types.IDerivation {"#
         detail: Some(format!("publication for updating L2 reporting")),
         // A one-shot handler invocation, with no queued row to anchor on.
         started_at: None,
-        snapshot: snapshot
-            .result()
-            .expect("authorization snapshot is not ready"),
+        snapshot: env.snapshot(),
         default_data_plane_name: if default_data_plane.trim().is_empty() {
             None
         } else {
@@ -350,6 +335,42 @@ export class Derivation extends Types.IDerivation {"#
     Ok(axum::Json(Response {
         diff: serde_json::json!(doc::diff(Some(&next), Some(&previous))),
     }))
+}
+
+/// See `create_data_plane::test` — same pre-check, same contract: a caller
+/// without `ops/` admin is rejected with 403 before any template work.
+#[cfg(test)]
+mod test {
+    use crate::test_server;
+
+    const ALICE: uuid::Uuid = uuid::uuid!("11111111-1111-1111-1111-111111111111");
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_update_l2_reporting_denied_for_non_ops_admin(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let token = server.make_access_token(ALICE, Some("alice@example.com"));
+
+        let response = server
+            .rest_client()
+            .post(
+                "/admin/update-l2-reporting",
+                &serde_json::json!({"defaultDataPlane": "", "dryRun": true}),
+                Some(&token),
+            )
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(reqwest::StatusCode::FORBIDDEN, response.status());
+    }
 }
 
 // Copied from crates/derive-typescript/src/codegen/mod.rs
