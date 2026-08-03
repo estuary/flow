@@ -92,7 +92,6 @@ impl ServiceAccountsQuery {
             &snapshot.user_grants,
             env.claims()?.sub,
             models::authz::Capability::QueryServiceAccounts,
-            None,
         );
 
         if user_accessible_prefixes.is_empty() {
