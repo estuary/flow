@@ -1,0 +1,87 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/prefixes.rs
+expression: response
+---
+{
+  "data": {
+    "prefixes": {
+      "edges": [
+        {
+          "cursor": "aliceCo/",
+          "node": {
+            "capabilities": [
+              "CatalogRead",
+              "JournalRead",
+              "JournalAppend",
+              "SpecEdit",
+              "CreateGrant",
+              "DeleteGrant",
+              "CreateInviteLink",
+              "ViewDataPlanePrivateNetworking",
+              "ModifyDataPlanePrivateNetworking",
+              "ViewBilling",
+              "EditBilling",
+              "QueryServiceAccounts",
+              "CreateServiceAccount",
+              "CreateApiKey",
+              "RevokeApiKey",
+              "Delegate"
+            ],
+            "prefix": "aliceCo/",
+            "userCapability": "admin"
+          }
+        },
+        {
+          "cursor": "aliceCo/data/",
+          "node": {
+            "capabilities": [
+              "CatalogRead",
+              "JournalRead",
+              "JournalAppend",
+              "ViewDataPlanePrivateNetworking"
+            ],
+            "prefix": "aliceCo/data/",
+            "userCapability": "write"
+          }
+        },
+        {
+          "cursor": "ops/dp/public/",
+          "node": {
+            "capabilities": [
+              "CatalogRead",
+              "JournalRead",
+              "ViewDataPlanePrivateNetworking"
+            ],
+            "prefix": "ops/dp/public/",
+            "userCapability": "read"
+          }
+        },
+        {
+          "cursor": "zebraCo/",
+          "node": {
+            "capabilities": [
+              "CatalogRead",
+              "JournalRead",
+              "JournalAppend",
+              "SpecEdit",
+              "CreateGrant",
+              "DeleteGrant",
+              "CreateInviteLink",
+              "ViewDataPlanePrivateNetworking",
+              "ModifyDataPlanePrivateNetworking",
+              "ViewBilling",
+              "EditBilling",
+              "QueryServiceAccounts",
+              "CreateServiceAccount",
+              "CreateApiKey",
+              "RevokeApiKey",
+              "Delegate"
+            ],
+            "prefix": "zebraCo/",
+            "userCapability": "admin"
+          }
+        }
+      ]
+    }
+  }
+}

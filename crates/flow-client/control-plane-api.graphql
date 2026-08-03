@@ -1608,6 +1608,55 @@ input PrefixesBy {
 }
 
 """
+Composable filter for the `prefixes` query. Every field is optional and only
+narrows the result set; the caller's reach is resolved independently, so a
+filter can never widen what they see.
+"""
+input PrefixesFilter {
+	"""
+	Keep only prefixes where the caller holds *every* listed capability.
+	Bits are conjunctive, so `[CatalogRead, SpecEdit]` answers "where may I
+	both read and publish", not "where may I do either". Omit the field to
+	list every reachable prefix whatever the caller holds there; an empty
+	list is rejected during input validation rather than silently matching
+	nothing.
+	
+	This replaces the deprecated `by.minCapability`, which selects a point on
+	the legacy read/write/admin ladder rather than naming bits. The two are
+	alternative spellings of one constraint and are mutually exclusive;
+	`by` does compose with this filter's other fields, which scope by
+	namespace rather than capability.
+	
+	These capabilities also arm `tenant`: when both are given, a prefix must
+	be one the caller holds them all at *and* one the tenant reaches with
+	them all.
+	"""
+	withCapabilities: [CapabilityBit!]
+	"""
+	Keep only prefixes that this tenant reaches through the role-grant
+	graph — the tenant's own namespace, plus any namespace a qualifying
+	chain of role grants projects it into. A chain qualifies when it carries
+	every required capability, so with no capability filter at all any
+	delegatable chain qualifies.
+	
+	The walk starts from the caller's own footholds within the tenant, and
+	the reachable set is intersected with the caller's authorized prefixes.
+	The filter therefore narrows a listing to one organization's namespace,
+	never surfaces a prefix the caller could not already see, and shows only
+	reach flowing from namespace the caller occupies. Naming a tenant
+	requires at least one foothold within (or covering) its namespace,
+	holding the required capabilities there.
+	"""
+	tenant: Prefix
+	"""
+	Narrow to a subtree or an exact set of prefixes. The match is against
+	the returned prefix itself, so `startsWith: "acmeCo/"` keeps `acmeCo/`
+	and its descendants, and `in` keeps only exact members of the set.
+	"""
+	prefix: PrefixFilter
+}
+
+"""
 A configured private link and its controller-observed provisioning status.
 """
 type PrivateLink {
@@ -1834,7 +1883,20 @@ type QueryRoot {
 	Returns all possible alert types with their user-facing metadata.
 	"""
 	alertTypes: [AlertTypeInfo!]!
-	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixRefConnection!
+	"""
+	Every prefix the caller reaches through the grant graph, with the
+	capability bits they hold at each.
+	
+	Unfiltered, this is the caller's whole access surface: a prefix is listed
+	whatever the caller holds there, and each entry's `capabilities` carry
+	the bits a client gates features on. `filter.withCapabilities` inverts
+	that read, answering "which prefixes may I do X at" instead.
+	
+	Ordered lexically, which walks the prefix tree depth-first: a parent
+	immediately precedes its own descendants. The cursor is the prefix
+	itself.
+	"""
+	prefixes(by: PrefixesBy @deprecated(reason: "Prefer `filter: { withCapabilities }`, which names capability bits directly instead of a point on the legacy read/write/admin ladder. `by` is retained only for existing clients and is mutually exclusive with it."), filter: PrefixesFilter, after: String, first: Int): PrefixRefConnection!
 	"""
 	Returns a complete list of alert subscriptions.
 	"""
