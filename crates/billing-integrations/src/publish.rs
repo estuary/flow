@@ -762,8 +762,8 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
-                from invoices_ext
-                left join tenants on tenants.tenant = billed_prefix
+                from internal.invoices_ext
+                join tenants on tenants.tenant = billed_prefix
                 left join lateral(
                 	select
                 		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
@@ -806,8 +806,8 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
-                from invoices_ext
-                left join tenants on tenants.tenant = billed_prefix
+                from internal.invoices_ext
+                join tenants on tenants.tenant = billed_prefix
                 left join lateral(
                 	select
                 		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
