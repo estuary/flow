@@ -295,6 +295,33 @@ These are assertion-shaped tests, a departure from this repository's snapshot
 convention. The oracle makes the correct answer computable rather than recorded, so
 a snapshot would add a stale artifact without adding information.
 
+### The four classes
+
+The reference connector implements each independently of any real connector, so the harness
+cannot bake in one vendor's assumptions, and so the document-counter class is executable
+before any production connector adopts it.
+
+| Class | Commits during | Authority | Fenced by |
+| --- | --- | --- | --- |
+| `remoteAuthoritative` | `StartCommit` | destination checkpoint | nonce table |
+| `postCommitApply` | `Acknowledge`, from durable staging | recovery log | — |
+| `documentCounter` | `Store`, appending to a counted channel | destination count | nonce table |
+| `atLeastOnce` | `Store` | recovery log | — |
+
+Three details of `postCommitApply` are load-bearing and follow `materialize-databricks`
+rather than being invented here. Its checkpoint carries the *statements* which apply a staged
+batch, keyed by binding — not a pointer to work the destination is asked to rediscover,
+because leftover staging cannot say whether its transaction committed or was abandoned. Only
+the **primary** shard runs them, learning of its peers' staged work from the aggregated state
+patches the runtime delivers with `Acknowledge`, so two shards never contend for one
+binding's table; `Apply` deliberately drains nothing, since it is handed no connector state
+and so has no basis for deciding what committed. And the load is deferred until `Flush`,
+which is what makes `split-during-commit` pass rather than the expected failure it once was —
+see "Why a coordinating connector must not read at `Load`" below.
+
+Where the reference diverges from `materialize-databricks` deliberately, `Session::primary`
+in `reference/mod.rs` says so at the site.
+
 ### The counted channel
 
 The document-counter class emulates the *production* Snowpipe Streaming v2 design — not

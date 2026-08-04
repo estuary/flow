@@ -182,111 +182,40 @@ nothing in their own logs to explain it — compact, and defrag to reclaim the d
 crash-looping systemd unit recompiles in `ExecStartPre`, so a restart loop is a compile loop
 and can drive load high enough to expire etcd leases.
 
-## The two rules
+**Where to look.** A failing run keeps its directory under `${FLOW_STACK_DIR}/consistency/`,
+holding the shim's protocol trace (`trace.jsonl`), the evidence it compared, and — for the
+reference connector — the destination itself. Passing runs delete it. Debris from a killed run
+shows up as `flowctl catalog list --prefix test/consistency/`, and `mise run ci:consistency`
+purges the gazette state such runs leave behind before it starts.
 
-**Scenarios are keyed on protocol events, never on document identity.** The
-runtime's close policy takes document- and byte-count ranges, but they are not
-threaded through from the spec — only transaction durations are. So transaction
-size is approximately `rate × min duration` and which documents land in which
-transaction varies between runs. A fault says "the 4th `Acknowledge`", never "the
-document for account 7".
+Three messages are worth recognising on sight. `timed out waiting for N committed
+transactions` means the task published but is not progressing — usually the environment.
+`timed out waiting for K fault(s) to fire; 0 did` means the scenario never reached the point
+it exists to perturb, so it proved nothing and is never a pass. `the destination stopped short
+of the collections` is the interesting one: the task went quiet with rows missing.
 
-**A scenario without a paired defect is not finished.** Each scenario names a
-defect of the reference connector, and `tests/scenarios.rs` runs it twice: clean,
-where it must pass, and defective, where it must fail. `scenarios.rs` has unit
-tests asserting that every scenario is paired and every defect is reached, so
-coverage cannot quietly erode as scenarios are added.
-
-Two more rules that nothing enforces mechanically, so they are review obligations:
-
-- **Assertions happen at quiescence, never mid-flight.** The document-counter
-  class appends during `Store`, so a mid-flight read would report a violation
-  where none exists.
-- **A scenario never touches stack-wide state.** No reactor restarts, no etcd
-  surgery. This is what makes one shared stack safe for several agents at once. A
-  run stops *its own* captures to reach quiescence, and deletes only its own
-  prefix.
-
-## How a violation is detected
-
-Every document of the workload carries an `oracle`: the producer's authoritative
-truth for that account after that event. So the right answer is *computable*, and
-there are no snapshots here despite the repository's convention — a snapshot would
-add a stale artifact without adding information.
-
-The sharpest check needs no external bookkeeping at all. The `merged` collection
-reduces `balanceDelta` with `sum`, so a materialized row's delta *is* the
-account's balance, while its `oracle.balance` independently states what that
-balance should be. Deliver a document twice and the sum runs ahead of the oracle;
-lose one and it falls behind.
-
-That alone cannot see a *tail-truncated* materialization, which is internally
-consistent — so the expectation is read from the collection itself with `flowctl
-collections read`, which the connector under test had no hand in.
-
-## Reproducibility
-
-Nothing is seeded, and nothing needs to be. The capture and the materialization
-are separate tasks joined only by the collection's journals: once a document is
-written it is durable and immutable, and interrupting the materialization neither
-touches the capture nor rewrites the collection. Every crash-and-replay scenario
-replays byte-identical input by construction.
-
-## Isolation and cleanup
-
-Each run suffixes every catalog name and puts its destination in its own run
-directory under `${FLOW_STACK_DIR}/consistency/`, so concurrent runs never
-interact. A run deletes its tasks whether it passed or failed; the run directory
-survives a failure, holding the shim's trace and the destination for inspection.
-
-Leftovers from a crashed run are visible as `flowctl catalog list --prefix
-test/consistency/` and as directories under `${FLOW_STACK_DIR}/consistency/`.
-
-## Connector classes
-
-The reference connector implements each independently of any real connector, so
-the harness cannot bake in one vendor's assumptions, and so the document-counter
-class is executable before any production connector adopts it.
-
-| Class | Commits during | Authority | Fenced by |
-| --- | --- | --- | --- |
-| `remoteAuthoritative` | `StartCommit` | destination checkpoint | nonce table |
-| `postCommitApply` | `Acknowledge`, from durable staging | recovery log | — |
-| `documentCounter` | `Store`, appending to a counted channel | destination count | nonce table |
-| `atLeastOnce` | `Store` | recovery log | — |
-
-Two details of `postCommitApply` are load-bearing and follow `materialize-databricks`
-rather than being invented here. Its checkpoint carries the *statements* which apply a
-staged batch, keyed by binding — not a pointer to work the destination is asked to
-rediscover, because leftover staging cannot say whether its transaction committed or was
-abandoned. And only the **primary** shard runs them, learning of its peers' staged work
-from the aggregated state patches the runtime delivers with `Acknowledge`, so that two
-shards never contend for one binding's table. `Apply` deliberately drains nothing: it is
-handed no connector state, so it has no basis for deciding what committed.
-
-Deferring the load until `Flush` is the third, and it is what makes `split-during-commit`
-pass rather than the expected failure it once was: `Flush` is emitted only once every
-shard's `Acknowledged` has arrived, so a connector that stages load keys as they come in and
-reads the destination only at `Flush` has waited for the applying shard by construction. See
-`docs/materialize/consistency-testing.md`.
-
-## Compliance model
-
-Default-strict. Every connector is held to every invariant, and anything weaker is
-an `Exemption` carrying a written justification. The rejected alternative — each
-connector declares its class, and only that class's invariants run — fails because
-the cheapest way to make a failing test pass becomes downgrading the claim.
-`at-least-once-never-loses` is the model case: it declares exemptions for
-duplication and everything downstream of it, and is still held to never losing
-data.
+For the failure *signatures* — which symptom means the runtime gap, which means a connector
+reading its destination before `Flush` — see `docs/materialize/consistency-testing.md`.
 
 ## What is not here
 
-- **Captures.** Their invariants are a different set and belong in a sibling
-  suite, not forced into these abstractions.
-- **CI gating.** Connectors CI has no flow checkout and no control plane. Runs on
+- **Captures.** Their invariants are a different set and belong in a sibling suite.
+- **CI gating.** Connectors CI has no flow checkout and no control plane, so this runs on
   demand on a dev VM until per-connector runtime is known.
-- **Real connectors.** The subject is an input — a binary, a config, and a class —
-  so onboarding one is adding a `Subject`, not changing the harness. Their
-  catalogs live in the connectors repository. Exemptions are declared in Rust beside the
-  scenario that needs them, not loaded from a file.
+- **Connector catalogs.** The subject is an input — a binary, a config, a class — so
+  onboarding one is configuration, not a change to the harness.
+
+## Where the reasoning lives
+
+This file is a roadmap. `docs/materialize/consistency-testing.md` is the design record, and
+the place to look before changing anything here:
+
+- why verification runs against a real runtime rather than a model, and what the shim may and
+  may not do
+- the workload's shape, and why an exactly-once violation is only detectable when destination
+  state depends on how many times a document was applied
+- the four connector classes, the counted channel, and where the reference diverges from the
+  connectors it models
+- the four rules every scenario obeys, two of which nothing can enforce mechanically
+- the compliance model: default-strict, with exemptions that must carry a justification
+- the runtime gap the suite currently measures, and the failure signatures that identify it
