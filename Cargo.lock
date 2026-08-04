@@ -1956,7 +1956,6 @@ dependencies = [
 name = "config-encryption"
 version = "0.1.0"
 dependencies = [
- "aide",
  "anyhow",
  "async-process",
  "axum",

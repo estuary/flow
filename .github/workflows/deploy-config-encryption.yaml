@@ -1,0 +1,71 @@
+name: Deploy config-encryption
+
+on:
+  workflow_run:
+    workflows: ["Platform Build"]
+    types:
+      - completed
+    branches: [master]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0  # Required for git describe to find tags
+
+      - name: Get image tag
+        id: image-tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="dev-next"
+          else
+            TAG=$(git describe --tags --always)
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/config-encryption:${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Authenticate with GCP Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          service_account: cd-github-actions@estuary-control.iam.gserviceaccount.com
+          workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
+
+      - name: Deploy Cloud Run service `config-encryption`
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: config-encryption
+          project_id: estuary-control
+          region: us-central1
+          image: ${{ steps.image-tag.outputs.image }}
+          # The service reads its listen port from API_PORT (default 8765) and ignores
+          # Cloud Run's injected PORT, so the container port is stated explicitly.
+          port: 8765
+
+          # The service predates this workflow and was last deployed by hand in 2023 with
+          # a since-removed CLI (`--log.format`, `--gcp-kms`). Clearing command/args hands
+          # configuration back to the image ENTRYPOINT plus the env vars below; leaving the
+          # stale args in place would make the container exit on unrecognized arguments.
+          # The `config-encryption` runtime service account already holds
+          # roles/cloudkms.cryptoKeyEncrypter on the KMS key's project.
+          flags: >-
+            --command=""
+            --args=""
+            --service-account=config-encryption@estuary-control.iam.gserviceaccount.com
+
+          env_vars: |-
+            KMS_TYPE=gcp
+            KMS_KEY=projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor
+            NO_COLOR=1
+            RUST_LOG=info
+
+          env_vars_update_strategy: overwrite
