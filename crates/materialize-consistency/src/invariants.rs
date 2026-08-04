@@ -21,10 +21,10 @@
 //! replay the order rows were appended in.
 //!
 //! So any check whose meaning depends on order must establish that order itself, from
-//! `seq`. Three checks here got this wrong at once and reported 600 violations against a
-//! connector that was exactly correct, which is the worst thing this suite can do.
-//! `check_merged_delta`'s monotonicity is the sole deliberate exception: it is *about*
-//! arrival order, and is exempted for subjects whose destination cannot preserve it.
+//! `seq`. Getting this wrong reports violations against a correct connector, which is the
+//! worst thing this suite can do. `check_merged_delta`'s monotonicity is the sole deliberate
+//! exception: it is *about* arrival order, and is exempted for subjects whose destination
+//! cannot preserve it.
 
 use anyhow::Context;
 use serde::Deserialize;
@@ -753,9 +753,9 @@ mod row_test {
 
     /// A real row from `materialize-databricks`, copied from a run rather than imagined.
     ///
-    /// The shape this test originally asserted — `oracle` as one column of JSON text — was
-    /// invented, and the run disproved it: Flow names each column by the JSON pointer of
-    /// the field it projects, so a nested object arrives flattened.
+    /// Flow names each column by the JSON pointer of the field it projects, so a nested
+    /// object arrives flattened — `oracle/balance` rather than an `oracle` object. Anything
+    /// asserted here has to come from a run, because that shape is not guessable.
     #[test]
     fn a_real_column_row_folds_its_pointer_named_columns() {
         let row = r#"{"balanceDelta":-28,"flow_published_at":"2026-08-03T01:44:00.319887Z",

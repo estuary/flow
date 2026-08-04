@@ -391,7 +391,7 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
     // The shim relays requests without transcoding, so runtime, shim and connector must
     // agree on one codec — and a Go materialization connector cannot use JSON. Under the
     // JSON codec the runtime populates `Load.key_json` and leaves `key_packed` empty, which
-    // is by design (see `Load` in `go/protocols/flow/materialize.proto`: "the runtime
+    // is by design (see `Load` in `go/protocols/materialize/materialize.proto`: "the runtime
     // populates exactly one of `key_json` or `key_packed` per the negotiated codec"). But
     // `Request_Load.Validate` in `go/protocols/materialize/extensions.go` requires
     // `KeyPacked` and carries the note "KeyJson is not checked yet", and the boilerplate

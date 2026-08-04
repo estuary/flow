@@ -237,7 +237,7 @@ pub fn all() -> Vec<Scenario> {
         crash_at_flush(),
         split_during_store(),
         split_during_commit(),
-        counter_split_during_commit(),
+        split_lands_on_prepared_transaction(),
         join_after_split(),
         zombie_at_start_commit(),
         destination_ahead_of_checkpoint(),
@@ -384,7 +384,7 @@ fn split_during_commit() -> Scenario {
 /// Post-commit-apply is not exposed to this: it applies only at `Acknowledge`, after the
 /// log has committed, so an uncommitted transaction was never applied. Its own
 /// `split-during-commit` is held to a clean result.
-fn counter_split_during_commit() -> Scenario {
+fn split_lands_on_prepared_transaction() -> Scenario {
     let mut scenario = Scenario::new(
         "split-lands-on-prepared-transaction",
         "a membership change landing on a transaction already prepared for commit \
@@ -716,9 +716,11 @@ mod test {
     /// has been perturbed yet — so a crash landing inside that window leaves the shard
     /// FAILED with nobody to unassign it, and the run waits out its deadline instead of
     /// testing anything. Only a crash does this: a stall, replay or zombie leaves the
-    /// shard running and the warmup still completes. `crash-mid-store` did exactly this: armed after 2 commits with a
-    /// warmup of 3, it fired in the third transaction whenever that transaction reached
-    /// 25 stores, which made it fail perhaps one run in three.
+    /// shard running and the warmup still completes.
+    ///
+    /// The failure is intermittent, which is why this is a test and not a review note: a
+    /// crash armed one commit short of the warmup fires only when the last warmup
+    /// transaction happens to reach the occurrence count first.
     #[test]
     fn no_fault_can_fire_before_the_warmup_completes() {
         for scenario in all() {
@@ -819,15 +821,9 @@ mod test {
     fn every_defect_is_paired_with_a_scenario() {
         let paired: Vec<Defect> = all().iter().filter_map(|s| s.defect).collect();
 
-        for defect in [
-            Defect::NonIdempotentAcknowledge,
-            Defect::CommitDuringStore,
-            Defect::IgnoreKeyRange,
-            Defect::SkipFenceCheck,
-            Defect::DropDocumentCounter,
-            Defect::ResetCounterOnOpen,
-            Defect::DropDocuments,
-        ] {
+        // Iterated rather than re-listed: `Defect::ALL` exists because a copy at each use
+        // site drifts, and a copy here would silently stop covering a defect added later.
+        for defect in Defect::ALL {
             assert!(paired.contains(&defect), "no scenario catches {defect:?}",);
         }
     }

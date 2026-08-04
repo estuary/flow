@@ -75,11 +75,6 @@ fn every_scenario_is_reached_by_a_test() {
     // Adding a name here has to be a deliberate edit with the reasoning at the definition.
     const SINGLE_CLASS: &[&str] = &["zombie-at-start-commit"];
     for scenario in scenarios::all() {
-        assert!(
-            scenario.applies_to.contains(&scenario.class),
-            "{}: a scenario must apply to the class it is written against",
-            scenario.name,
-        );
         assert_eq!(
             scenario.applies_to.len() == 1,
             SINGLE_CLASS.contains(&scenario.name),

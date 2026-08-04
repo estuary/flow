@@ -25,9 +25,14 @@ use anyhow::Context;
 pub struct ResourceShape {
     /// Property naming the table, from `x-collection-name`.
     pub table: String,
-    /// Property flagging delta-updates, from `x-delta-updates`. Absent when the
-    /// connector has no such option, which means it cannot take a delta binding.
-    pub delta: Option<String>,
+    /// Property flagging delta-updates, from `x-delta-updates`.
+    ///
+    /// Required, not optional. A connector without one cannot take a delta binding, and a
+    /// delta binding is where this suite can see a duplicate at all: on a merge binding an
+    /// extra application is an idempotent upsert and therefore invisible. Silently handing
+    /// such a connector a merge binding in place of each delta one would leave the run
+    /// passing with its sharpest check disabled and nothing saying so.
+    pub delta: String,
 }
 
 impl ResourceShape {
@@ -36,13 +41,10 @@ impl ResourceShape {
         let mut resource = serde_json::Map::new();
         resource.insert(self.table.clone(), serde_json::json!(table));
 
-        // Set the flag only when asked for, and only when the connector has one: writing
-        // `false` where a connector defines no such property would fail its strict
-        // config parse.
+        // Set only when asked for: writing `false` where a connector treats absent and
+        // false differently, or rejects unknown fields, would fail its strict config parse.
         if delta {
-            if let Some(field) = &self.delta {
-                resource.insert(field.clone(), serde_json::json!(true));
-            }
+            resource.insert(self.delta.clone(), serde_json::json!(true));
         }
         serde_json::Value::Object(resource)
     }
@@ -86,9 +88,7 @@ pub async fn resource_shape(connector: &std::path::Path) -> anyhow::Result<Resou
 
     // `resourceConfigSchema`, and an object rather than an embedded JSON string: the
     // protobuf field is `resource_config_schema_json`, but jsonpb renders it under its
-    // `json_name` and inlines the schema. Verified against `materialize-databricks`
-    // rather than inferred from the proto, which is how the first two guesses here were
-    // found to be wrong.
+    // `json_name` and inlines the schema. Read off a real connector's reply, not the proto.
     let schema = spec
         .get("resourceConfigSchema")
         .context("the Spec response carries no resourceConfigSchema")?;
@@ -119,10 +119,14 @@ fn shape_of(schema: &serde_json::Value) -> anyhow::Result<ResourceShape> {
          the harness cannot tell which field names the table",
     )?;
 
-    Ok(ResourceShape {
-        table,
-        delta: annotated("x-delta-updates"),
-    })
+    let delta = annotated("x-delta-updates").context(
+        "no property of the resource config schema is annotated `x-delta-updates`, so this \
+         connector cannot take a delta-updates binding. It cannot be verified by this suite: \
+         a duplicate applied to a merge binding is an idempotent upsert and invisible, so \
+         every scenario would pass while checking far less than it claims.",
+    )?;
+
+    Ok(ResourceShape { table, delta })
 }
 
 #[cfg(test)]
@@ -144,7 +148,7 @@ mod test {
 
         let shape = shape_of(&schema).unwrap();
         assert_eq!(shape.table, "table");
-        assert_eq!(shape.delta.as_deref(), Some("delta_updates"));
+        assert_eq!(shape.delta, "delta_updates");
 
         assert_eq!(
             shape.resource("events", true),
@@ -158,20 +162,17 @@ mod test {
         );
     }
 
-    /// A connector with no delta-updates option cannot take a delta binding, and asking
-    /// for one must not silently produce a merge binding instead.
+    /// A connector with no delta-updates option is refused outright. Accepting it would
+    /// turn every delta binding into a merge one, which the invariants cannot see a
+    /// duplicate through — a pass that means much less than it appears to.
     #[test]
-    fn a_connector_without_delta_updates_reports_none() {
+    fn a_connector_without_delta_updates_is_refused() {
         let schema = serde_json::json!({
             "properties": {"path": {"type": "string", "x-collection-name": true}}
         });
 
-        let shape = shape_of(&schema).unwrap();
-        assert_eq!(shape.delta, None);
-        assert_eq!(
-            shape.resource("events", true),
-            serde_json::json!({"path": "events"}),
-        );
+        let err = shape_of(&schema).unwrap_err().to_string();
+        assert!(err.contains("x-delta-updates"), "{err}");
     }
 
     #[test]

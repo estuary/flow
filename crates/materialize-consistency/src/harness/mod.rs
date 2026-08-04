@@ -47,7 +47,12 @@ pub struct Outcome {
     /// scenario that survived re-delivery and one that never saw any. A split scenario
     /// passing with zero of these has demonstrated nothing about idempotency, however
     /// green it looks — the same vacuity the paired-defect rule exists to prevent.
-    pub suppressed_rows: i64,
+    /// `None` for a real subject: this is the reference connector's own bookkeeping, read
+    /// from its SQLite destination, and a real connector exposes no equivalent. Reporting a
+    /// hard `0` there would say "this scenario absorbed no re-delivery" — which by this
+    /// suite's own rule means it demonstrated nothing — when the truth is that it was not
+    /// measured.
+    pub suppressed_rows: Option<i64>,
     /// Where the shim's trace and the destination were left. Retained on failure
     /// and removed on success — a caller that *expected* the failure (the defective
     /// half of every scenario) removes it itself.
@@ -66,7 +71,13 @@ impl Outcome {
             return format!(
                 "{}: upheld every invariant over {} documents \
                  ({} faults injected, {} re-delivered rows absorbed)",
-                self.scenario, self.documents, self.faults_fired, self.suppressed_rows,
+                self.scenario,
+                self.documents,
+                self.faults_fired,
+                match self.suppressed_rows {
+                    Some(rows) => rows.to_string(),
+                    None => "an unmeasurable number of".to_string(),
+                },
             );
         }
         let mut lines = vec![format!(
@@ -76,7 +87,10 @@ impl Outcome {
             self.violations.len(),
             self.documents,
             self.faults_fired,
-            self.suppressed_rows,
+            match self.suppressed_rows {
+                Some(rows) => rows.to_string(),
+                None => "an unmeasurable number of".to_string(),
+            },
         )];
         // Bounded: a lost account produces a violation per account, and the first
         // few say everything the rest would.
@@ -154,16 +168,30 @@ pub async fn run(
         run_dir: &run_dir,
         faults: &scenario.faults,
         workload: &workload,
-        standard_binding: scenario.standard_binding,
+        // A scenario's own class decides this for the reference connector. For a real
+        // subject the *subject's* class decides it: a counted channel is delta-only by
+        // definition, so handing one a merge binding would test a shape it never claimed
+        // to support, and the guard that enforces this for the reference path
+        // (`the_counter_class_never_takes_a_standard_binding`) does not reach here.
+        standard_binding: scenario.standard_binding
+            && external.map_or(true, |e| {
+                e.class != crate::reference::Class::DocumentCounter
+            }),
         resource_shape: external.map(|e| &e.shape),
     };
 
     tracing::info!(scenario = scenario.name, %run_id, verifies = scenario.verifies, "publishing");
 
+    // The size guard watches the reference connector's destination, which is a file in the
+    // run directory. A real subject's destination is remote and unbounded by anything the
+    // harness can see, so there the watcher would poll a path that never exists.
     let destination = run_dir.join("destination.sqlite");
-    let result = tokio::select! {
-        result = execute(&stack, scenario, &names, &run_dir, &plan, external) => result,
-        err = watch_destination_size(&destination) => Err(err),
+    let result = match external {
+        None => tokio::select! {
+            result = execute(&stack, scenario, &names, &run_dir, &plan, external) => result,
+            err = watch_destination_size(&destination) => Err(err),
+        },
+        Some(_) => execute(&stack, scenario, &names, &run_dir, &plan, external).await,
     };
 
     // Clean up whether or not the scenario passed, so repeated runs do not
@@ -191,7 +219,7 @@ pub async fn run(
             (catalog::TABLE_MERGED_DELTA, true),
             (catalog::TABLE_LOG, true),
         ] {
-            if table == catalog::TABLE_STANDARD && !scenario.standard_binding {
+            if table == catalog::TABLE_STANDARD && !plan.standard_binding {
                 continue; // Never materialized, so never created.
             }
             let resource = catalog::resource_config(Some(&external.shape), &names, table, delta);
@@ -485,9 +513,15 @@ async fn execute(
 
     // Read before the run directory is cleaned up, and on every path: a passing run is
     // exactly the one where this number decides whether anything was proved.
-    let suppressed_rows = suppressed_rows(run_dir)
-        .map(|rows| rows.iter().map(|(_, n)| n).sum())
-        .unwrap_or(0);
+    let suppressed_rows = match external {
+        // The reference connector's own ledger, in its own destination. See the field.
+        None => Some(
+            suppressed_rows_of(run_dir)
+                .map(|rows| rows.iter().map(|(_, n)| n).sum())
+                .unwrap_or(0),
+        ),
+        Some(_) => None,
+    };
 
     Ok(Outcome {
         scenario: scenario.name,
@@ -506,7 +540,7 @@ async fn execute(
 /// the connector's own bookkeeping rather than a binding's contents. A non-zero count
 /// says a document was handed to the connector twice — which the delivered rows cannot
 /// say, since suppressing the second copy is precisely what makes them look correct.
-fn suppressed_rows(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
+fn suppressed_rows_of(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
     let conn = rusqlite::Connection::open_with_flags(
         run_dir.join("destination.sqlite"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -544,7 +578,7 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
                 "log": b.log_expected.duplicated_documents,
             },
         },
-        "suppressedAppendRows": suppressed_rows(run_dir)
+        "suppressedAppendRows": suppressed_rows_of(run_dir)
             .unwrap_or_else(|err| vec![(format!("unreadable: {err:#}"), -1)]),
         "delivered": {
             "standard": &b.standard,

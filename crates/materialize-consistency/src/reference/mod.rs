@@ -363,9 +363,8 @@ fn spec() -> materialize::Response {
             "defects": {
                 "type": "array",
                 "title": "Defects to enable",
-                // Generated from the enum rather than written out: the hand-kept list
-                // had drifted, offering a defect that no longer existed and omitting one
-                // that did.
+                // Generated from the enum rather than written out, which a hand-kept copy
+                // cannot stay in step with.
                 "items": {"type": "string", "enum": Defect::ALL
                     .iter()
                     .map(|d| serde_json::json!(d))

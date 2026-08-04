@@ -239,11 +239,21 @@ impl Shim {
         out
     }
 
+    /// The zombie rule, if one is declared and has not already fired.
+    ///
+    /// The fired marker is consulted for the same reason a crash consults it: this runs on
+    /// every `Open`, and a session can open again for reasons of its own. Without the check,
+    /// a live instance dying *after* the zombie had already raced would bring up a second
+    /// zombie fed by the runtime for the rest of the run. Fencing makes that survivable for
+    /// the one class this scenario applies to, which is exactly why it would go unnoticed.
     fn zombie_action(&self) -> Option<FaultRule> {
         self.faults
             .iter()
-            .find(|r| matches!(r.action, Action::Zombie { .. }))
-            .cloned()
+            .enumerate()
+            .find(|(idx, r)| {
+                matches!(r.action, Action::Zombie { .. }) && !self.run.fired(*idx).exists()
+            })
+            .map(|(_, r)| r.clone())
     }
 
     /// Proxy one session (or one unary RPC) between our stdio and the connector,

@@ -80,7 +80,7 @@ fn run() -> anyhow::Result<()> {
 
     match args.command {
         Some(Command::Read { config, resource }) => {
-            let config = load_config(&config)?;
+            let config = load_json::<reference::EndpointConfig>(&config)?;
             let resource: reference::ResourceConfig = load_json(&resource)?;
             reference::read(&config, &resource.table, resource.delta)
         }
@@ -88,10 +88,6 @@ fn run() -> anyhow::Result<()> {
         // how the runtime invokes a `local:` connector.
         None => reference::serve(connector_init::Codec::Json),
     }
-}
-
-fn load_config(arg: &str) -> anyhow::Result<reference::EndpointConfig> {
-    load_json(arg)
 }
 
 /// Load a config file as JSON or YAML.

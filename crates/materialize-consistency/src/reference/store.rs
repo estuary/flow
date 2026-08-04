@@ -263,8 +263,10 @@ impl Store {
     /// previous transaction has been fully acknowledged, and only then may loads be issued,
     /// at which point the destination already holds everything committed. This connector
     /// processes requests in order and applies at `Acknowledge`, so it has that property
-    /// without an explicit wait — and `Open` applies anything left pending by a previous
-    /// session before serving a request.
+    /// without an explicit wait. Work left pending by a previous session is applied at this
+    /// session's first `Acknowledge` — deliberately not at `Open`, which reclaims and
+    /// inspects nothing — and a load cannot precede that `Acknowledge`, so it still sees
+    /// applied state.
     pub fn load(&self, table: &Table, key: &str) -> anyhow::Result<Option<String>> {
         let doc = self
             .conn

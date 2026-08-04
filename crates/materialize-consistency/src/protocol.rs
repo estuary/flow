@@ -47,12 +47,15 @@ pub enum Trigger {
     /// A `Response.StartedCommit` — the connector has committed, and the
     /// runtime is about to commit its recovery log.
     StartedCommit,
-    /// A `Request.Acknowledge` — the runtime's recovery log has committed.
-    /// Faulting here is the crash-between-commits case: the connector's
-    /// destination work for the transaction is durable-but-unapplied, and only
-    /// an idempotent replay on restart can repair it.
+    /// A `Request.Acknowledge` — the runtime's recovery log has committed, and the
+    /// connector may now apply the transaction's staged work.
     Acknowledge,
-    /// A `Response.Acknowledged`.
+    /// A `Response.Acknowledged` — the connector has finished applying.
+    ///
+    /// This, not `Acknowledge`, is where `crash-between-commits` faults: it is the only
+    /// point at which the connector has applied a transaction and the shim can still kill
+    /// it before the runtime records that fact. The restart replays the same `Acknowledge`,
+    /// and only an idempotent one leaves the destination unchanged.
     Acknowledged,
 }
 
@@ -153,7 +156,11 @@ impl ShardTarget {
 }
 
 impl FaultRule {
-    /// Crash on the `nth` occurrence of `on` in the first transaction.
+    /// Crash on the `nth` occurrence of `on`, with no arming delay.
+    ///
+    /// `nth` counts occurrences within the session, not within a transaction — an
+    /// `Acknowledged` with `nth` of 5 fires in the fifth transaction. Callers that need the
+    /// fault to land after some committed work add `arm_after`.
     pub fn crash_at(on: Trigger, nth: u64) -> Self {
         Self {
             on,
