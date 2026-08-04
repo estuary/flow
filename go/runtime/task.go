@@ -46,7 +46,15 @@ type taskService interface {
 	Drop()
 }
 
-type taskBase[TaskSpec pf.Task] struct {
+// taskBase hosts the state shared by all task applications. Its TaskSpec
+// parameter is the decoded *pf.CaptureSpec / *pf.CollectionSpec /
+// *pf.MaterializationSpec for V1 applications, which consume the spec
+// throughout their transaction loops. V2 applications instead use the raw
+// []byte encoding of the built spec: their only consumer is the Rust runtime,
+// which receives the encoding verbatim, and holding the decoded form would
+// retain a large object graph (per-binding CollectionSpecs, projections,
+// inference) that the Go side never reads.
+type taskBase[TaskSpec any] struct {
 	container    atomic.Pointer[pr.Container]            // Current Container of this shard, or nil.
 	extractFn    func(*sql.DB, string) (TaskSpec, error) // Extracts a TaskSpec from a build DB.
 	host         *FlowConsumer                           // Host Consumer application of the shard.
@@ -58,7 +66,7 @@ type taskBase[TaskSpec pf.Task] struct {
 	termCount    int                                     // Number of initialized task terms.
 }
 
-type taskTerm[TaskSpec pf.Task] struct {
+type taskTerm[TaskSpec any] struct {
 	cancel    context.CancelFunc // Cancel the task term.
 	ctx       context.Context    // Context for the task term.
 	labels    ops.ShardLabeling  // Shard labels of this task term.
@@ -66,7 +74,7 @@ type taskTerm[TaskSpec pf.Task] struct {
 	// Raw etcd value of shardSpec, which defines this term: it ends when these
 	// bytes change or the key is deleted, but not on a byte-identical re-PUT.
 	specBytes []byte
-	taskSpec  TaskSpec // Term TaskSpec of the task.
+	taskSpec  TaskSpec // Term TaskSpec of the task (see taskBase).
 }
 
 type taskReader[TaskSpec pf.Task] struct {
@@ -125,12 +133,13 @@ func newTaskBase[TaskSpec pf.Task](
 // newTaskBaseV2 mirrors newTaskBase but instantiates the runtime-next
 // (V2) TaskService. The legacy and V2 services are independently linked
 // CGO services with distinct gRPC surfaces; only the constructor differs.
-func newTaskBaseV2[TaskSpec pf.Task](
+// V2 terms carry the raw built-spec encoding rather than a decoded spec.
+func newTaskBaseV2(
 	host *FlowConsumer,
 	shard consumer.Shard,
 	recorder *recoverylog.Recorder,
-	extractFn func(*sql.DB, string) (TaskSpec, error),
-) (*taskBase[TaskSpec], error) {
+	extractFn func(*sql.DB, string) ([]byte, error),
+) (*taskBase[[]byte], error) {
 
 	var opsCtx, opsCancel = context.WithCancel(host.opsContext)
 	opsCtx = pprof.WithLabels(opsCtx, pprof.Labels(
@@ -139,7 +148,7 @@ func newTaskBaseV2[TaskSpec pf.Task](
 	var opsPublisher = NewOpsPublisher(message.NewPublisher(
 		client.NewAppendService(opsCtx, host.service.Journals), nil))
 
-	term, err := newTaskTerm[TaskSpec](nil, extractFn, host, opsPublisher, shard)
+	term, err := newTaskTerm[[]byte](nil, extractFn, host, opsPublisher, shard)
 	if err != nil {
 		opsCancel()
 		return nil, err
@@ -158,7 +167,7 @@ func newTaskBaseV2[TaskSpec pf.Task](
 		return nil, fmt.Errorf("creating V2 task service: %w", err)
 	}
 
-	var base = &taskBase[TaskSpec]{
+	var base = &taskBase[[]byte]{
 		container:    atomic.Pointer[pr.Container]{},
 		extractFn:    extractFn,
 		host:         host,
@@ -208,7 +217,7 @@ func (t *taskBase[TaskSpec]) drop() {
 	t.svc.Drop()
 }
 
-func newTaskTerm[TaskSpec pf.Task](
+func newTaskTerm[TaskSpec any](
 	prev *taskTerm[TaskSpec],
 	extractFn func(*sql.DB, string) (TaskSpec, error),
 	host *FlowConsumer,
@@ -361,7 +370,7 @@ func (t *taskBase[TaskSpec]) heartbeatLoop(shard consumer.Shard) {
 		jitter = intervalJitter(period, shard.FQN())
 		// Op notified when the shard fails.
 		op       = shard.PrimaryLoop()
-		taskName = t.term.taskSpec.TaskName()
+		taskName = t.term.labels.TaskName
 	)
 	for {
 		select {

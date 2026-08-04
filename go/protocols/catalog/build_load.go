@@ -115,6 +115,28 @@ func LoadMaterialization(db *sql.DB, name string) (*pf.MaterializationSpec, erro
 	return out, loadOneSpec(db, `SELECT spec FROM built_materializations WHERE materialization = ?;`, out, name)
 }
 
+// LoadCollectionBytes, LoadCaptureBytes, and LoadMaterializationBytes return
+// the raw protobuf encoding of a named built spec, without decoding it.
+// The V2 runtime forwards the built encoding verbatim to the Rust runtime,
+// which is its sole consumer: loading bytes avoids materializing (and then
+// retaining) the decoded spec, which is large for tasks with many bindings
+// or wide collection schemas.
+
+// LoadCollectionBytes returns the raw encoding of the named CollectionSpec.
+func LoadCollectionBytes(db *sql.DB, name string) ([]byte, error) {
+	return loadOneSpecBytes(db, `SELECT spec FROM built_collections WHERE collection = ?;`, name)
+}
+
+// LoadCaptureBytes returns the raw encoding of the named CaptureSpec.
+func LoadCaptureBytes(db *sql.DB, name string) ([]byte, error) {
+	return loadOneSpecBytes(db, `SELECT spec FROM built_captures WHERE capture = ?;`, name)
+}
+
+// LoadMaterializationBytes returns the raw encoding of the named MaterializationSpec.
+func LoadMaterializationBytes(db *sql.DB, name string) ([]byte, error) {
+	return loadOneSpecBytes(db, `SELECT spec FROM built_materializations WHERE materialization = ?;`, name)
+}
+
 // LoadAllTests loads all tests.
 func LoadAllTests(db *sql.DB) ([]*pf.TestSpec, error) {
 	var out []*pf.TestSpec
@@ -182,6 +204,21 @@ func loadOneSpec(
 		return fmt.Errorf("validating spec %s: %w", spec.String(), err)
 	}
 	return nil
+}
+
+func loadOneSpecBytes(
+	db *sql.DB,
+	query string,
+	args ...interface{},
+) ([]byte, error) {
+	var b []byte
+	if err := db.QueryRow(query, args...).Scan(&b); err != nil {
+		if err != sql.ErrNoRows {
+			err = fmt.Errorf("query(%q): %w", query, err)
+		}
+		return nil, err
+	}
+	return b, nil
 }
 
 func loadRows(

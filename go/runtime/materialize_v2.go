@@ -9,6 +9,7 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
@@ -30,7 +31,7 @@ import (
 // only manages session startup (Join → Joined → Task → Opened) and
 // teardown (Stop → Stopped) per term.
 type materializeAppV2 struct {
-	*taskBase[*pf.MaterializationSpec]
+	*taskBase[[]byte]
 
 	client pr.Shard_MaterializeClient
 	// shuffleDir hosts per-shard shuffle files for this assignment.
@@ -59,8 +60,8 @@ func newMaterializeAppV2(host *FlowConsumer, shard consumer.Shard, recorder *rec
 		return nil, fmt.Errorf("creating runtime-v2 shuffle tempdir: %w", err)
 	}
 
-	var base *taskBase[*pf.MaterializationSpec]
-	base, err = newTaskBaseV2[*pf.MaterializationSpec](host, shard, recorder, extractMaterializationSpec)
+	var base *taskBase[[]byte]
+	base, err = newTaskBaseV2(host, shard, recorder, catalog.LoadMaterializationBytes)
 	if err != nil {
 		_ = os.RemoveAll(shuffleDir)
 		return nil, err
@@ -179,11 +180,6 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		close(ch)
 	}()
 
-	var specBytes []byte
-	if specBytes, err = m.term.taskSpec.Marshal(); err != nil {
-		return fmt.Errorf("marshaling MaterializationSpec: %w", err)
-	}
-
 	// Run the Join/Joined protocol loop until consensus is met.
 	var waitForRevision int64
 	for {
@@ -231,7 +227,7 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 	// Send Task.
 	_ = m.client.Send(&pr.Materialize{
 		Task: &pr.Task{
-			Spec:            specBytes,
+			Spec:            m.term.taskSpec,
 			MaxTransactions: 0,
 		},
 	})

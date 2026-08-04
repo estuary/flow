@@ -6,6 +6,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
@@ -22,7 +23,7 @@ import (
 // Rust owns connector polling, document publishing, stats, and local RocksDB
 // recovery-log persistence for the shard.
 type captureAppV2 struct {
-	*taskBase[*pf.CaptureSpec]
+	*taskBase[[]byte]
 
 	client pr.Shard_CaptureClient
 	respCh <-chan captureRecvResult
@@ -38,7 +39,7 @@ type captureRecvResult struct {
 var _ application = (*captureAppV2)(nil)
 
 func newCaptureAppV2(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*captureAppV2, error) {
-	var base, err = newTaskBaseV2[*pf.CaptureSpec](host, shard, recorder, extractCaptureSpec)
+	var base, err = newTaskBaseV2(host, shard, recorder, catalog.LoadCaptureBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -122,11 +123,6 @@ func (c *captureAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.En
 		close(ch)
 	}()
 
-	var specBytes []byte
-	if specBytes, err = c.term.taskSpec.Marshal(); err != nil {
-		return fmt.Errorf("marshaling CaptureSpec: %w", err)
-	}
-
 	// Build Join from this current shard topology, and send.
 	var join *pr.Join
 	if join, err = c.buildJoin(); err != nil {
@@ -147,7 +143,7 @@ func (c *captureAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.En
 	// Send task.
 	_ = c.client.Send(&pr.Capture{
 		Task: &pr.Task{
-			Spec:            specBytes,
+			Spec:            c.term.taskSpec,
 			MaxTransactions: 0,
 		},
 	})

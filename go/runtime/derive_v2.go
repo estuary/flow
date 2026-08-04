@@ -7,6 +7,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
@@ -33,7 +34,7 @@ import (
 // is ephemeral. The leader recovers the authoritative checkpoint from the
 // connector at Open, so the empty RocksDB scan is harmless.
 type deriveAppV2 struct {
-	*taskBase[*pf.CollectionSpec]
+	*taskBase[[]byte]
 
 	client pr.Shard_DeriveClient
 	// shuffleDir hosts per-shard shuffle files for this assignment.
@@ -65,20 +66,29 @@ func newDeriveAppV2(host *FlowConsumer, shard consumer.Shard, recorder *recovery
 		return nil, fmt.Errorf("creating runtime-v2 shuffle tempdir: %w", err)
 	}
 
-	var base *taskBase[*pf.CollectionSpec]
-	base, err = newTaskBaseV2[*pf.CollectionSpec](host, shard, recorder, extractCollectionSpec)
+	var base *taskBase[[]byte]
+	base, err = newTaskBaseV2(host, shard, recorder, catalog.LoadCollectionBytes)
 	if err != nil {
 		_ = os.RemoveAll(shuffleDir)
 		return nil, err
 	}
 	go base.heartbeatLoop(shard)
 
+	// The term holds the raw spec encoding; decode a transient copy for the
+	// one property Go reads.
+	var collection pf.CollectionSpec
+	if err = collection.Unmarshal(base.term.taskSpec); err != nil {
+		base.drop()
+		_ = os.RemoveAll(shuffleDir)
+		return nil, fmt.Errorf("unmarshaling CollectionSpec: %w", err)
+	}
+
 	// derive-sqlite tasks thread a recorded SQLite VFS to the connector. Only
 	// shard zero (which hosts the recovery log) builds it; non-zero shards have
 	// a nil recorder. Register the VFS, create the `gazette_checkpoints` table,
 	// then close the Go-side DB so Rust can reopen it through the registered VFS.
-	var isSqlite = base.term.taskSpec.Derivation != nil &&
-		base.term.taskSpec.Derivation.ConnectorType == pf.CollectionSpec_Derivation_SQLITE
+	var isSqlite = collection.Derivation != nil &&
+		collection.Derivation.ConnectorType == pf.CollectionSpec_Derivation_SQLITE
 
 	var sqlite *store_sqlite.Store
 	if isSqlite && recorder != nil {
@@ -211,11 +221,6 @@ func (m *deriveAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.Env
 		close(ch)
 	}()
 
-	var specBytes []byte
-	if specBytes, err = m.term.taskSpec.Marshal(); err != nil {
-		return fmt.Errorf("marshaling CollectionSpec: %w", err)
-	}
-
 	// Run the Join/Joined protocol loop until consensus is met.
 	var waitForRevision int64
 	for {
@@ -269,7 +274,7 @@ func (m *deriveAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.Env
 	}
 	_ = m.client.Send(&pr.Derive{
 		Task: &pr.Task{
-			Spec:            specBytes,
+			Spec:            m.term.taskSpec,
 			MaxTransactions: 0,
 			SqliteVfsUri:    sqliteVfsUri,
 		},
