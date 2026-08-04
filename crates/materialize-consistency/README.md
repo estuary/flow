@@ -106,13 +106,20 @@ created; sweeping enumerates what is actually there.
 **The class is declared rather than discovered**, because how a connector divides
 durability with the runtime is a property of its implementation that `spec` does not report.
 
-It decides which scenarios run, but it excludes far less than you might expect: a fault a
-connector must survive is rarely a property of its class, so nearly every scenario runs
-against nearly every class. See `Scenario::applies_to`. Only two things are excluded — an
-at-least-once subject skips the exactly-once scenarios, which it never claimed to uphold,
-and `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the harness orders
-the two racing instances by their `Open` fences and a class that does not fence gives it
-nothing to order them by.
+It decides which scenarios run. Most scenarios run for most classes — a fault a connector
+must survive is rarely a property of its class — but three exclusions are worth knowing, and
+`Scenario::applies_to` is the authority:
+
+- an at-least-once subject skips every exactly-once scenario, which it never claimed to uphold;
+- `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the shim orders the
+  two racing instances by their `Open` fences and a class that does not fence gives it nothing
+  to order them by;
+- `split-during-commit`, `split-during-store` and `join-after-split` skip `documentCounter`,
+  because each lands a membership change on a live transaction and whether that reaches the
+  counted channel's exposure is a race — see `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+
+So a `documentCounter` subject skips **five** scenarios, not one. Read the run's
+`not-applicable` lines rather than counting on this list to stay current.
 
 Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every
 exactly-once class even though the counted channel cannot pass it. A gap that stops one class

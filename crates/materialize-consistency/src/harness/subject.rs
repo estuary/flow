@@ -201,11 +201,11 @@ pub const ENV_SUBJECT_CONFIG: &str = "FLOW_CONSISTENCY_SUBJECT_CONFIG";
 /// how a connector divides durability with the runtime is a property of its
 /// implementation, not of its configuration schema.
 ///
-/// It excludes much less than it might: nearly every scenario applies to nearly every
-/// class, because a fault a connector must survive is rarely a property of how it divides
-/// durability with the runtime. See [`crate::scenarios::Scenario::applies_to`] for what
-/// this actually gates, which is one scenario the harness cannot stage for another class
-/// plus the exactly-once scenarios against an at-least-once subject.
+/// Most scenarios apply to most classes, because a fault a connector must survive is rarely a
+/// property of how it divides durability with the runtime. What it does exclude is listed in
+/// the crate README and enforced by [`crate::scenarios::Scenario::applies_to`], which is the
+/// authority — a `documentCounter` subject currently skips five scenarios. Read a run's
+/// `not-applicable` lines rather than any prose, including this.
 pub const ENV_SUBJECT_CLASS: &str = "FLOW_CONSISTENCY_SUBJECT_CLASS";
 
 /// Path to a built `tests/materialize/testctl` from the connectors repository.

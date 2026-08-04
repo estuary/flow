@@ -505,10 +505,10 @@ where
 
             let Some(trigger) = request_trigger(&req) else {
                 // Spec / Validate / Apply pass through untouched, and get no zombie: a
-                // second process re-running someone's DDL buys the suite nothing. Note they
-                // are not all separate sessions — under runtime-next only `Validate` is,
-                // while `Spec` is the first request of the session that later gets `Open`
-                // and `Apply` runs over shard zero's same stream.
+                // second process re-running someone's DDL buys the suite nothing. That is the
+                // whole reason — earlier versions of this comment also asserted how the
+                // runtime groups these into sessions, twice, and were wrong both times. The
+                // pass-through does not depend on it, so it is not claimed here.
                 to_connector.write_all(&encoded).await?;
                 to_connector.flush().await?;
                 continue;

@@ -421,10 +421,14 @@ fn split_lands_on_prepared_transaction() -> Scenario {
         action: Action::Stall { millis: 4_000 },
     })
     .catches(Defect::DropDocumentCounter)
-    // This exemption cannot change the verdict: an exposed class hits the `RuntimeGap` panic
-    // below before any violation-based assertion, and a class the gap does not expose is
-    // skipped by `applies_to`. It shapes the *report* — keeping monotonicity noise out of the
-    // violation list the panic prints, so what remains measures the gap itself.
+    // This exemption shapes the *report* rather than any verdict, and the reasoning is worth
+    // stating exactly because it is easy to get wrong. This scenario does **not** narrow
+    // `applies_to`: every exactly-once class runs it, and the ones the gap does not expose
+    // must pass. For the exposed class the `RuntimeGap` panic below fires before any
+    // violation-based assertion, so the exemption decides nothing there either. What it does
+    // is keep monotonicity noise out of the violation list that panic prints, so what remains
+    // measures the gap. For a real subject of another class the blanket external monotonicity
+    // exemption would cover the same violations anyway.
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
     // Written against the counted-channel class, which the gap below leaves unable to pass
     // it, but the perturbation is not class-specific: a split landing on a prepared
@@ -843,6 +847,28 @@ mod test {
 
         // Iterated rather than re-listed: `Defect::ALL` exists because a copy at each use
         // site drifts, and a copy here would silently stop covering a defect added later.
+        // A scenario blocked on a runtime gap for its *own* class never reaches its defect
+        // pairing: `both_ways` panics with EXPECTED FAILURE before running the defective half.
+        // So its `catches` is a claim nothing tests, and counting it here would let a defect
+        // look covered by a pairing that cannot execute. Named rather than filtered silently,
+        // so the inventory of what is genuinely unpaired stays visible.
+        let unexercised: Vec<Defect> = all()
+            .iter()
+            .filter(|s| {
+                s.known_limitation
+                    .as_ref()
+                    .is_some_and(|gap| gap.classes.contains(&s.class))
+            })
+            .filter_map(|s| s.defect)
+            .collect();
+        assert_eq!(
+            unexercised,
+            vec![Defect::DropDocumentCounter],
+            "the set of defects whose only pairing cannot run has changed; if a defect is now \
+             paired only with a scenario that is an expected failure for its own class, that \
+             defect is effectively unpaired",
+        );
+
         for defect in Defect::ALL {
             assert!(paired.contains(&defect), "no scenario catches {defect:?}",);
         }

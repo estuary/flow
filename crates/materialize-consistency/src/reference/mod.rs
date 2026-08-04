@@ -492,8 +492,10 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
         store.ensure_table(&binding.table)?;
     }
 
-    // A binding that has gone away takes its table with it. Reaching here having
-    // drained means its staged work has already landed.
+    // A binding that has gone away takes its table with it. Note `Apply` drains nothing —
+    // it is handed no connector state and so has no basis for deciding what committed — so
+    // this drops the table without any claim that staged work for it has landed. Dropping is
+    // what the runtime asked for; reconciling staged work is `Acknowledge`'s job.
     for table in last {
         if !tables.iter().any(|b| b.table.name == table.name) {
             store.drop_table(&table.name)?;
@@ -1296,10 +1298,9 @@ fn shard_patch(key_begin: u32, key_end: u32, state: ShardState) -> flow::Connect
 
 /// Emit every row of a materialized resource as newline-delimited JSON.
 ///
-/// The harness reads destinations through the connector binary rather than
-/// reaching into them, so that the same code path serves the reference connector
-/// and real ones (where it is `materialize-boilerplate`'s `read` subcommand over
-/// an interface every SQL destination already implements).
+/// Backs this connector's own `read` subcommand. A real subject is read through
+/// `tests/materialize/testctl`, which calls `Materializer.SnapshotTestResource` — two
+/// deliberately separate paths, since this one is Rust and `testctl` cannot drive it.
 pub fn read(config: &EndpointConfig, table: &str, delta: bool) -> anyhow::Result<()> {
     use std::io::Write;
 

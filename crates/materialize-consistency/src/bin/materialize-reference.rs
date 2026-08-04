@@ -17,9 +17,12 @@ struct Args {
 enum Command {
     /// Read every row of a materialized resource as newline-delimited JSON.
     ///
-    /// The harness reads destinations through the connector rather than reaching
-    /// into them, mirroring `materialize-boilerplate`'s `read` subcommand so that
-    /// one code path serves the reference connector and real ones alike.
+    /// The harness reads destinations through connector code rather than reaching into them,
+    /// because it has no client for an arbitrary endpoint and should not grow one. This
+    /// subcommand serves *this* connector only: a real subject is read through
+    /// `tests/materialize/testctl` in the connectors repository, so there are deliberately two
+    /// paths — see `harness::stack::ReadVia`. A subcommand is fine here because this binary
+    /// lives in the flow repository and nothing but this suite runs it.
     Read {
         /// Path to the endpoint configuration, as JSON or YAML.
         #[arg(long)]
