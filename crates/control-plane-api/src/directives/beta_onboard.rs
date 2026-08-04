@@ -78,19 +78,15 @@ pub const DEFAULT_PUBLIC_DATA_PLANE: &str = "ops/dp/public/aws-us-east-1-c1";
 /// Prefix identifying a data-plane's catalog name as public.
 pub const PUBLIC_DATA_PLANE_PREFIX: &str = "ops/dp/public/";
 
-/// Deprecated planes excluded from new-tenant storage mappings.
-/// gcp-us-central1-c1 (combustible-cronut) and its successor c2 are being
-/// deprecated and replaced.
-pub const EXCLUDED_PUBLIC_DATA_PLANES: &[&str] = &[
-    "ops/dp/public/gcp-us-central1-c1",
-    "ops/dp/public/gcp-us-central1-c2",
-];
-
-/// True if `name` names a non-deprecated public data-plane by convention
-/// (prefix and exclusion list only — does not check that a `data_planes` row
-/// with this name actually exists).
-pub fn is_selectable_public_plane(name: &str) -> bool {
-    name.starts_with(PUBLIC_DATA_PLANE_PREFIX) && !EXCLUDED_PUBLIC_DATA_PLANES.contains(&name)
+/// Why provisioning a tenant failed.
+#[derive(Debug, thiserror::Error)]
+pub enum ProvisionError {
+    /// The signup claim named a plane that isn't selectable: it doesn't exist,
+    /// isn't public, or has been closed to new selection.
+    #[error("{0} is not a selectable public data-plane")]
+    PlaneNotSelectable(String),
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
 }
 
 /// Stable-sorts `planes` (already ordered id desc) so `default_plane` is
@@ -142,7 +138,7 @@ pub async fn provision_tenant(
     requested_data_plane: Option<&str>,
     colocate_trial_bucket: bool,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
+) -> Result<(), ProvisionError> {
     let prefix = format!("{tenant}/");
     let default_alert_types: Vec<models::status::AlertType> = models::status::AlertType::all()
         .iter()
@@ -150,24 +146,31 @@ pub async fn provision_tenant(
         .filter(models::status::AlertType::is_default)
         .collect();
 
-    let excluded: Vec<String> = EXCLUDED_PUBLIC_DATA_PLANES
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    // The set of planes a new tenant may be placed on. `closed` is the single
+    // source of truth for "retired from new selection" — the same flag
+    // `publicDataPlanes` honors, so the signup picker and provisioning cannot
+    // disagree, and retiring a plane is a data change rather than a deploy.
     let public_planes: Vec<String> = sqlx::query_scalar!(
         r#"select data_plane_name as "data_plane_name!"
         from data_planes
-        where starts_with(data_plane_name, $2::text)
-          and data_plane_name <> all($1::text[])
+        where starts_with(data_plane_name, $1::text)
+          and not closed
         order by id desc"#,
-        &excluded,
         PUBLIC_DATA_PLANE_PREFIX,
     )
     .fetch_all(&mut **txn)
     .await?;
 
-    // The requested plane was validated by the caller; the first entry of
-    // the ordered list is the tenant's default data-plane.
+    // The requested plane is untrusted client input, and this is the only
+    // place that knows the authoritative candidate set — so validate here
+    // rather than leaving it to callers.
+    if let Some(requested) = requested_data_plane
+        && !public_planes.iter().any(|plane| plane == requested)
+    {
+        return Err(ProvisionError::PlaneNotSelectable(requested.to_string()));
+    }
+
+    // The first entry of the ordered list is the tenant's default data-plane.
     let default_plane = requested_data_plane.unwrap_or(DEFAULT_PUBLIC_DATA_PLANE);
     let public_planes = order_public_planes(public_planes, default_plane);
     let (tenant_spec, recovery_spec) = storage_specs(&public_planes, colocate_trial_bucket);

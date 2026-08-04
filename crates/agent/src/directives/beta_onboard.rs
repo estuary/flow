@@ -1,5 +1,5 @@
 use super::{JobStatus, Row, extract};
-use anyhow::Context;
+use control_plane_api::directives::beta_onboard::ProvisionError;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
@@ -80,28 +80,10 @@ pub async fn apply(
         )));
     }
 
-    // The submitted plane is untrusted client input: it must name an
-    // existing, non-deprecated public data-plane before it can become the
-    // tenant's default.
-    if let Some(requested) = requested_data_plane.as_deref() {
-        let is_selectable =
-            control_plane_api::directives::beta_onboard::is_selectable_public_plane(requested);
-        let exists = is_selectable
-            && sqlx::query_scalar!(
-                r#"select true as "exists!" from data_planes where data_plane_name = $1"#,
-                requested,
-            )
-            .fetch_optional(&mut **txn)
-            .await?
-            .unwrap_or(false);
-        if !exists {
-            return Ok(JobStatus::invalid_claims(anyhow::anyhow!(
-                "{requested} is not a selectable public data-plane",
-            )));
-        }
-    }
-
-    control_plane_api::directives::beta_onboard::provision_tenant(
+    // The submitted plane is untrusted client input. `provision_tenant` owns
+    // the authoritative set of selectable public planes and rejects anything
+    // outside it, so there's nothing to pre-check here.
+    match control_plane_api::directives::beta_onboard::provision_tenant(
         accounts_user_email,
         Some("applied via directive".to_string()),
         &requested_tenant,
@@ -111,7 +93,15 @@ pub async fn apply(
         txn,
     )
     .await
-    .context("provision_tenant")?;
+    {
+        Ok(()) => {}
+        Err(err @ ProvisionError::PlaneNotSelectable(_)) => {
+            return Ok(JobStatus::invalid_claims(anyhow::anyhow!("{err}")));
+        }
+        Err(ProvisionError::Sqlx(err)) => {
+            return Err(anyhow::Error::from(err).context("provision_tenant"));
+        }
+    }
 
     info!(%row.user_id, requested_tenant=%requested_tenant.as_str(), requested_data_plane=?requested_data_plane, "beta onboard");
     Ok(JobStatus::Success)
@@ -153,6 +143,23 @@ mod test {
             ('11111111-1111-1111-1111-111111111111', 'takenTenant/', 'admin'), -- Prevents new tenant.
             ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'takenTenant/', 'read')   -- New tenant allowed.
         ),
+        p6a as (
+          -- A public plane that exists but has been closed to new selection,
+          -- cloned from the harness's default plane.
+          insert into data_planes (
+            data_plane_name, data_plane_fqdn, ops_logs_name, ops_stats_name,
+            ops_l1_inferred_name, ops_l1_stats_name, ops_l1_events_name,
+            ops_l2_inferred_transform, ops_l2_stats_transform, ops_l2_events_transform,
+            broker_address, reactor_address, hmac_keys, enable_l2, closed
+          )
+          select
+            'ops/dp/public/closed', 'closed.dp.estuary-data.com', ops_logs_name, ops_stats_name,
+            ops_l1_inferred_name, ops_l1_stats_name, ops_l1_events_name,
+            ops_l2_inferred_transform, ops_l2_stats_transform, ops_l2_events_transform,
+            broker_address, reactor_address, hmac_keys, enable_l2, true
+          from data_planes where data_plane_name = 'ops/dp/public/test'
+          on conflict do nothing
+        ),
         p6 as (
           insert into applied_directives (directive_id, user_id, user_claims) values
           -- Fails: directive prefix is incorrect.
@@ -171,6 +178,9 @@ mod test {
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"PlaneTenantA","requestedDataPlane":"ops/dp/private/acmeCo/aws-us-east-1-c1"}'),
           -- Fails: requestedDataPlane does not exist.
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"PlaneTenantB","requestedDataPlane":"ops/dp/public/aws-nope-1-c1"}'),
+          -- Fails: requestedDataPlane exists and is public, but is closed to
+          -- new selection.
+          ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"PlaneTenantD","requestedDataPlane":"ops/dp/public/closed"}'),
           -- Success: creates PlaneTenantC with a valid requestedDataPlane, using a
           -- fresh user since aaaaaaaa is about to become admin of AcmeTenant below.
           ('cc00000000000000', 'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"requestedTenant":"PlaneTenantC","requestedDataPlane":"ops/dp/public/test"}'),
@@ -283,6 +293,17 @@ mod test {
             "did": "cc:00:00:00:00:00:00:00",
             "status": {
               "error": "ops/dp/public/aws-nope-1-c1 is not a selectable public data-plane",
+              "type": "invalidClaims"
+            }
+          },
+          {
+            "claims": {
+              "requestedDataPlane": "ops/dp/public/closed",
+              "requestedTenant": "PlaneTenantD"
+            },
+            "did": "cc:00:00:00:00:00:00:00",
+            "status": {
+              "error": "ops/dp/public/closed is not a selectable public data-plane",
               "type": "invalidClaims"
             }
           },
