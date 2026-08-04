@@ -44,7 +44,24 @@ use anyhow::Context;
 /// resolve against that.
 const EVENTS_SCHEMA: &str = include_str!("../../../../tests/soak/capture/events.schema.json");
 
-/// Destination resource names, before any per-run suffix. See [`Names::tables`].
+/// The subject's resource config naming one of this run's destination tables.
+///
+/// Shared with the verification read, which addresses the same tables through the same
+/// connector and would otherwise construct this a second way.
+pub fn resource_config(
+    shape: Option<&crate::harness::subject::ResourceShape>,
+    names: &Names,
+    table: &str,
+    delta: bool,
+) -> serde_json::Value {
+    let table = names.table(table);
+    match shape {
+        Some(shape) => shape.resource(&table, delta),
+        None => serde_json::json!({"table": table, "delta": delta}),
+    }
+}
+
+/// Destination resource names, before any per-run suffix. See [`Names::table`].
 pub const TABLE_STANDARD: &str = "accounts";
 pub const TABLE_MERGED_DELTA: &str = "accounts_delta";
 pub const TABLE_LOG: &str = "events";
@@ -153,18 +170,9 @@ impl Workload {
     }
 }
 
-/// Where and how the connector under test is invoked.
-pub struct Subject {
-    /// The connector binary and its arguments. Run under the shim, so this is
-    /// what the shim `exec`s rather than what the catalog names.
-    pub connector: Vec<String>,
-    /// Endpoint configuration of the connector.
-    pub config: serde_json::Value,
-}
-
 pub struct Plan<'a> {
     pub names: &'a Names,
-    pub subject: &'a Subject,
+    pub subject: &'a crate::scenarios::Subject,
     pub shim: &'a std::path::Path,
     pub capture: &'a std::path::Path,
     pub run_dir: &'a std::path::Path,
@@ -176,9 +184,7 @@ pub struct Plan<'a> {
     /// Where the table name and delta flag live in the subject's resource config.
     ///
     /// The reference connector's own shape when absent. A real connector's is discovered
-    /// from its `spec`, because a resource config is connector-specific: the delta flag
-    /// is `delta_updates` in some and `delta` in others, and only the schema annotations
-    /// say which.
+    /// from its `spec`.
     pub resource_shape: Option<&'a crate::harness::subject::ResourceShape>,
 }
 
@@ -287,7 +293,7 @@ fn collection(schema: serde_json::Value, key: &[&str]) -> anyhow::Result<models:
 /// here would bump its version and so drive an Apply and a fresh session over the
 /// very task under test — perturbing it at the exact moment the run has stopped
 /// perturbing it on purpose.
-pub fn quiesce(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
+pub fn disable_captures(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
     let mut catalog = models::Catalog::default();
 
     for (task, target) in [
@@ -383,11 +389,17 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
     // Protobuf against a real connector, JSON against the reference one.
     //
     // The shim relays requests without transcoding, so runtime, shim and connector must
-    // agree on one codec — and the two implementations do not agree on JSON. Flow's Rust
-    // encoding of a `bytes` field is not what Go's jsonpb reads, so `Load.key_packed`
-    // arrives empty and a connector built on `materialize-boilerplate` rejects it with
-    // "expected KeyPacked". Protobuf is also simply what the runtime uses by default; JSON
-    // is the reference connector's convenience, not the fleet's.
+    // agree on one codec — and a Go materialization connector cannot use JSON. Under the
+    // JSON codec the runtime populates `Load.key_json` and leaves `key_packed` empty, which
+    // is by design (see `Load` in `go/protocols/flow/materialize.proto`: "the runtime
+    // populates exactly one of `key_json` or `key_packed` per the negotiated codec"). But
+    // `Request_Load.Validate` in `go/protocols/materialize/extensions.go` requires
+    // `KeyPacked` and carries the note "KeyJson is not checked yet", and the boilerplate
+    // reads only `KeyPacked` — so every `Load` and `Store` is rejected outright.
+    //
+    // So this is not a preference. JSON is available only to the reference connector, which
+    // is Rust and reads whichever field is set. The shim's `trace.jsonl` is human-readable
+    // either way, so nothing is lost by the fleet speaking protobuf.
     let protobuf = plan.resource_shape.is_some();
 
     let mut command = vec![plan.shim.to_string_lossy().to_string()];
@@ -397,10 +409,12 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
     command.extend(plan.subject.connector.iter().cloned());
 
     let binding = |collection: &str, table: &str, delta: bool| models::MaterializationBinding {
-        resource: models::RawValue::from_value(&match plan.resource_shape {
-            Some(shape) => shape.resource(&plan.names.table(table), delta),
-            None => serde_json::json!({"table": plan.names.table(table), "delta": delta}),
-        }),
+        resource: models::RawValue::from_value(&resource_config(
+            plan.resource_shape,
+            plan.names,
+            table,
+            delta,
+        )),
         source: models::Source::Collection(models::Collection::new(collection)),
         disable: false,
         priority: 0,

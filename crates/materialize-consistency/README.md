@@ -12,7 +12,7 @@ implementation forced.
 mise run ci:consistency                      # the whole suite
 mise run ci:consistency --filter zombie      # one scenario (a nextest filter,
                                              #   so `/a|b/` for a regex)
-mise run ci:consistency --debug              # with the trace on stderr
+mise run ci:consistency --debug              # debug logging, output uncaptured
 ```
 
 Needs a running local stack (`mise run local:stack`) and nothing else: the
@@ -127,6 +127,18 @@ landed rather than trusting the connector's account of it, via the `read` subcom
 in one line over `sql.StdReadRows`. A connector that does not implement it cannot be
 verified by this harness.
 
+That subcommand is **not yet merged** — it is estuary/connectors#4981 — and only
+`materialize-databricks` and `materialize-sqlite` implement `sql.RowReader` today. So "runs
+against any connector" is the design, and "runs against any connector implementing
+`sql.RowReader`" is the present tense.
+
+**A scenario that splits or joins shards needs the subject configured for multi-shard
+operation.** Where that is behind a feature flag the harness cannot know its name, and a
+connector run multi-shard without it will fail in ways that look like defects but are not:
+`materialize-databricks` gates its coordinator behaviour on `advanced.feature_flags:
+scale_out`, off by default, and without it two shards contend over one table. Set whatever
+the connector requires in the config you pass.
+
 **Timing scales with the subject.** A remote destination commits in tens of seconds where
 the reference connector commits in milliseconds, so a named subject gets longer
 transactions and proportionately longer gates (`Workload::remote`). Expect a few minutes
@@ -141,8 +153,8 @@ The set-based invariants carry the exactly-once claim.
 A failing scenario is not necessarily a failing connector. These are the gates a run
 passes through, and what each one's failure means.
 
-**Recovery.** `harness::recover` is the gate after a perturbation: it unassigns FAILED
-shards until the task commits again, and after a third of its budget escalates to
+**Recovery.** `harness::recover` is the gate after a perturbation: it unassigns the
+task's shards — every one of them, not only those marked FAILED — until it commits again, and after a third of its budget escalates to
 republishing the task disabled-then-enabled. Nothing in a run waits on shard *status* —
 progress over the shim's trace is the measure instead, because a crashed shard is what most
 scenarios inject and a shard reported primary may still be doing nothing.
@@ -276,4 +288,5 @@ data.
   demand on a dev VM until per-connector runtime is known.
 - **Real connectors.** The subject is an input — a binary, a config, and a class —
   so onboarding one is adding a `Subject`, not changing the harness. Their
-  catalogs and exemption files live in the connectors repository.
+  catalogs live in the connectors repository. Exemptions are declared in Rust beside the
+  scenario that needs them, not loaded from a file.

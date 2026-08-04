@@ -24,6 +24,23 @@ pub struct Stack {
     ca_cert: String,
 }
 
+/// Marker in the error chain of a publication that would not land.
+///
+/// Present so that a caller can distinguish a stack that refused to publish from a task
+/// that published fine and then failed. The defective half of a scenario treats a failed
+/// *run* as the defect being caught; a failed *publish* is the environment, and counting
+/// it as a catch would let a flaky control plane silently vacate a defect pairing.
+#[derive(Debug)]
+pub struct PublishFailed;
+
+impl std::fmt::Display for PublishFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the stack would not publish the catalog")
+    }
+}
+
+impl std::error::Error for PublishFailed {}
+
 impl Stack {
     /// Resolve the stack from the environment `mise` provides.
     ///
@@ -192,6 +209,7 @@ impl Stack {
         }
 
         Err(last.expect("at least one attempt was made"))
+            .context(PublishFailed)
             .context("publishing the scenario's catalog")
     }
 
@@ -342,14 +360,13 @@ impl Stack {
     /// does the unassigning directly, so recovery is immediate and does not perturb
     /// the specification of the task under test.
     ///
-    /// Unconditionally, not `--only-failed`: gazette declines to unassign a shard
-    /// whose *primary* has failed under that filter, which is exactly the case here —
-    /// it reports zero shards unassigned and the task stays down. Unassigning a
-    /// healthy shard costs a brief reassignment, and the harness only calls this
-    /// while it is already waiting for a task that is not making progress.
+    /// Every shard, not only the failed ones. Gazette does remove a FAILED assignment
+    /// under `--failed`; what that filter skips is a shard whose primary is merely
+    /// *wedged* and has not been marked FAILED — which is precisely the state the stall
+    /// detection in `recover` fires on, so filtering would report zero shards unassigned
+    /// and leave the task down. Unassigning a healthy shard costs a brief reassignment,
+    /// and this is only called while already waiting on a task making no progress.
     pub async fn unassign_shards(&self, task: &str) -> anyhow::Result<()> {
-        // Every shard, not only the failed ones. A crash leaves its shard FAILED, but a
-        // *primary* that is merely wedged is not, and `--failed` skipped exactly those.
         self.shard_tool(&["unassign", task])
             .await
             .with_context(|| format!("unassigning shards of {task}"))?;
@@ -424,13 +441,11 @@ impl Stack {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    /// Read a materialized resource back through the connector binary.
-    ///
-    /// Reading through the connector rather than reaching into the destination is
-    /// what lets one harness serve every connector: retrieving all rows of a
-    /// resource is already a required method of the shared materializer interface,
-    /// and `materialize-boilerplate` exposes it as this same subcommand.
     /// Every document of one materialized resource, read through the connector.
+    ///
+    /// Reading through the connector rather than reaching into the destination is what
+    /// lets one harness serve more than one connector — though only those implementing
+    /// `sql.RowReader` today; see the module docs.
     ///
     /// `--config` and `--resource` as *file paths*, which is the interface
     /// `materialize-boilerplate` exposes to every connector built on it. Written to
@@ -442,7 +457,6 @@ impl Stack {
         connector: &std::path::Path,
         config: &serde_json::Value,
         resource: &serde_json::Value,
-        delta: bool,
     ) -> anyhow::Result<Vec<Event>> {
         let dir = tempfile::tempdir().context("creating a directory for the read's configs")?;
         let config_path = dir.path().join("config.json");
@@ -489,7 +503,6 @@ impl Stack {
                     .with_context(|| format!("parsing a row of {resource}: {line}"))?,
             );
         }
-        _ = delta; // Order is the destination's; a delta binding preserves it.
         Ok(events)
     }
 }

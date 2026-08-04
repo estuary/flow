@@ -21,12 +21,13 @@ use crate::invariants::Invariant;
 use crate::protocol::{Action, FaultRule, ShardTarget, Trigger};
 use crate::reference::{Class, Defect};
 
-/// The connector under test.
+/// The connector under test: what the shim `exec`s, and the endpoint config it is
+/// given.
+///
+/// The harness overwrites `path` for the reference connector, whose destination belongs
+/// to the run; a real connector's config is passed through untouched.
 pub struct Subject {
-    /// The connector binary and its arguments, as the shim will `exec` it.
     pub connector: Vec<String>,
-    /// Endpoint configuration. The harness overwrites `path` with the run's own
-    /// destination.
     pub config: serde_json::Value,
 }
 
@@ -113,6 +114,25 @@ pub struct RuntimeGap {
     /// Which guarantee is missing and why the exposed classes cannot work around it.
     pub detail: &'static str,
 }
+
+/// Why a membership change is not held to delivery order.
+///
+/// Stated once and shared: three scenarios reconfigure shards and every one of them owes
+/// the same explanation, so a copy per scenario would only give the wording room to drift.
+const MEMBERSHIP_CHANGE_REORDERS: &str = "A membership change does not preserve delivery *order* at the sink, only \
+         exactly-once delivery of the set. A split child resumes from its inherited \
+         checkpoint and may deliver a sequence the departing parent had already \
+         raced past, so an id's rows can land out of order while remaining exactly \
+         one row per document. The set-based checks — no-loss, no-duplicates, \
+         conservation and oracle agreement — carry the exactly-once claim here and \
+         are NOT exempt.";
+
+/// Why a class that appends during `Store` is not held to delivery order.
+const APPENDS_DURING_STORE_REORDERS: &str = "This class appends during Store, so rows of a transaction that never commits \
+         stay visible until recovery skips past them, and a membership change re-opens \
+         channels at offsets the sink has already passed. Delivery order at the sink is \
+         therefore not guaranteed to advance monotonically; the set-based checks carry \
+         the exactly-once claim and are NOT exempt.";
 
 /// The classes claiming exactly-once, which is the default applicability set.
 const EXACTLY_ONCE: &[Class] = &[
@@ -307,16 +327,7 @@ fn split_during_store() -> Scenario {
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
-    .declaring(
-        Invariant::Monotonicity,
-        "A membership change does not preserve delivery *order* at the sink, only \
-         exactly-once delivery of the set. A split child resumes from its inherited \
-         checkpoint and may deliver a sequence the departing parent had already \
-         raced past, so an id's rows can land out of order while remaining exactly \
-         one row per document. The set-based checks — no-loss, no-duplicates, \
-         conservation and oracle agreement — carry the exactly-once claim here and \
-         are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -356,16 +367,7 @@ fn split_during_commit() -> Scenario {
         action: Action::Crash,
     })
     .catches(Defect::IgnoreKeyRange)
-    .declaring(
-        Invariant::Monotonicity,
-        "A membership change does not preserve delivery *order* at the sink, only \
-         exactly-once delivery of the set. A split child resumes from its inherited \
-         checkpoint and may deliver a sequence the departing parent had already \
-         raced past, so an id's rows can land out of order while remaining exactly \
-         one row per document. The set-based checks — no-loss, no-duplicates, \
-         conservation and oracle agreement — carry the exactly-once claim here and \
-         are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS);
     scenario.split_shards = true;
     scenario.split_after_fault = true;
     scenario.settle_commits = 5;
@@ -397,14 +399,7 @@ fn counter_split_during_commit() -> Scenario {
         action: Action::Stall { millis: 4_000 },
     })
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never commits \
-         stay visible until recovery skips past them, and a membership change re-opens \
-         channels at offsets the sink has already passed. Delivery order at the sink is \
-         therefore not guaranteed to advance monotonically; the set-based checks carry \
-         the exactly-once claim and are NOT exempt.",
-    )
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
     // Written against the counted-channel class, which the gap below leaves unable to pass
     // it, but the perturbation is not class-specific: a split landing on a prepared
     // transaction is something every class must survive. A class that only *stages* during
@@ -443,16 +438,7 @@ fn join_after_split() -> Scenario {
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
-    .declaring(
-        Invariant::Monotonicity,
-        "A membership change does not preserve delivery *order* at the sink, only \
-         exactly-once delivery of the set. A split child resumes from its inherited \
-         checkpoint and may deliver a sequence the departing parent had already \
-         raced past, so an id's rows can land out of order while remaining exactly \
-         one row per document. The set-based checks — no-loss, no-duplicates, \
-         conservation and oracle agreement — carry the exactly-once claim here and \
-         are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS);
 
     scenario.split_shards = true;
     scenario.join_shards = true;
@@ -579,14 +565,7 @@ fn crash_in_split_leader() -> Scenario {
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitLeader))
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never commits \
-         stay visible until recovery skips past them, and a membership change re-opens \
-         channels at offsets the sink has already passed. Delivery order at the sink is \
-         therefore not guaranteed to advance monotonically; the set-based checks carry \
-         the exactly-once claim and are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -613,14 +592,7 @@ fn crash_in_split_non_leader() -> Scenario {
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitNonLeader))
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never commits \
-         stay visible until recovery skips past them, and a membership change re-opens \
-         channels at offsets the sink has already passed. Delivery order at the sink is \
-         therefore not guaranteed to advance monotonically; the set-based checks carry \
-         the exactly-once claim and are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -684,7 +656,6 @@ impl Scenario {
         self.exempt.push(Exemption {
             invariant,
             justification: justification.to_string(),
-            scope: crate::harness::Scope::Connector,
         });
         self
     }
@@ -787,16 +758,15 @@ mod test {
         }
     }
 
-    /// Every scenario that reconfigures shards must be in the nextest group that
-    /// serialises them against each other.
+    /// Every scenario that reconfigures shards must be in the nextest group that caps
+    /// how many of them run at once.
     ///
-    /// Two concurrent reconfigurations contend badly on one stack — `split-shards`
-    /// fails outright, or a crashed task cannot get a primary back inside its deadline
-    /// while another scenario is republishing shards of its own — and the symptom is a
-    /// flake in an unrelated-looking scenario. Checked here rather than left to review,
-    /// because the cost of forgetting lands on whoever is debugging something else.
+    /// These are the scenarios that stress shard membership, and the bound leaves the
+    /// broker allocator headroom an unbounded fan-out would not. Checked here rather than
+    /// left to review, because the cost of forgetting lands on whoever is debugging the
+    /// unrelated-looking scenario that flakes.
     #[test]
-    fn every_shard_reconfiguring_scenario_is_serialised() {
+    fn every_shard_reconfiguring_scenario_is_capped() {
         let config = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.config/nextest.toml"),
         )
@@ -811,8 +781,8 @@ mod test {
             assert!(
                 config.contains(&format!("test({test_fn})")),
                 "scenario {} reconfigures shards but is not in the \
-                 `serial-shard-reconfiguration` group in .config/nextest.toml, so it will \
-                 run concurrently with another that does and flake",
+                 `capped-shard-reconfiguration` group in .config/nextest.toml, so an \
+                 unbounded number of them can reconfigure at once and starve the allocator",
                 scenario.name,
             );
         }

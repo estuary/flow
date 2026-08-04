@@ -13,21 +13,23 @@
 //! event. So the expectation is derived from the collection's own contents,
 //! which is why there are no snapshots here despite the repository's convention —
 //! a snapshot would add a stale artifact without adding information.
+//!
+//! ## Row order is not given
+//!
+//! Rows reach these checks in the order the destination returned them, which for a table
+//! read with `SELECT *` is no order at all — only the reference connector's own tables
+//! replay the order rows were appended in.
+//!
+//! So any check whose meaning depends on order must establish that order itself, from
+//! `seq`. Three checks here got this wrong at once and reported 600 violations against a
+//! connector that was exactly correct, which is the worst thing this suite can do.
+//! `check_merged_delta`'s monotonicity is the sole deliberate exception: it is *about*
+//! arrival order, and is exempted for subjects whose destination cannot preserve it.
 
 use anyhow::Context;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Rows reach these checks in the order the destination returned them, which for a table
-/// read with `SELECT *` is no order at all — only the reference connector's own tables
-/// replay the order rows were appended in.
-///
-/// So any check whose meaning depends on order must establish that order itself, from
-/// `seq`. Three checks here got this wrong at once and reported 600 violations against a
-/// connector that was exactly correct, which is the worst thing this suite can do.
-/// `check_merged_delta`'s monotonicity is the sole deliberate exception: it is *about*
-/// arrival order, and is exempted for subjects whose destination cannot preserve it.
-///
 /// One workload document, in the fields the invariants rest on. See
 /// `tests/soak/capture/events.schema.json` for the full wire contract.
 #[derive(Deserialize, serde::Serialize, Clone, Debug, PartialEq)]

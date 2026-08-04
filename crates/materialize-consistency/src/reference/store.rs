@@ -120,11 +120,7 @@ impl Store {
                  appended  INTEGER NOT NULL,
                  PRIMARY KEY (shard, shard_end, tbl)
              );
-
-             CREATE TABLE IF NOT EXISTS _flow_spec (
-                 version TEXT PRIMARY KEY,
-                 applied TEXT NOT NULL
-             );",
+",
         )
         .context("initializing destination bookkeeping")?;
 
@@ -148,7 +144,8 @@ impl Store {
         rusqlite::Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)
     }
 
-    /// Claim `[key_begin, key_end)`, returning the nonce this session holds and
+    /// Claim `[key_begin, key_end]` — inclusive, as Flow's ranges are — returning the
+    /// nonce this session holds and
     /// the runtime checkpoint it should resume from.
     ///
     /// Fencing is the whole point: a later `Open` raises the nonce of every range
@@ -325,9 +322,8 @@ impl Store {
         Ok(())
     }
 
-    /// Durably stage `rows` against `txn_id` without making them visible in the
-    /// destination tables. The post-commit-apply class's `Store` path.
-    /// Durably record `rows` under `batch` without making them visible.
+    /// Durably record `rows` under `batch` without making them visible. The
+    /// post-commit-apply class's `Store` path.
     ///
     /// The analogue of a real connector uploading a staged file: the data lands
     /// somewhere durable and inert, named by something the connector can put in its
@@ -448,15 +444,6 @@ impl Store {
         Ok(names)
     }
 
-    /// Delete staged batches no checkpoint entry names.
-    ///
-    /// Staging whose batch appears in no entry belongs to a transaction that never
-    /// committed: the runtime replays that input, so the rows must never be applied.
-    /// Garbage-collecting by what state *does* reference is the only safe test —
-    /// leftover rows themselves cannot say whether they were abandoned.
-    /// Shards holding staged rows. `Apply` has no range of its own, so this is
-    /// how it finds the pending work it must drain.
-    /// Every transaction with staged rows for this shard, oldest first.
     /// Append `rows` to their (delta) tables and advance the destination's
     /// committed append count, in one transaction. The document-counter class's
     /// `Store` path: rows become visible immediately, and the count is the
@@ -508,14 +495,6 @@ impl Store {
         Ok(())
     }
 
-    pub fn record_applied_spec(&self, version: &str, description: &str) -> anyhow::Result<()> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO _flow_spec (version, applied) VALUES (?1, ?2)",
-            (version, description),
-        )?;
-        Ok(())
-    }
-
     /// Every row of a materialized resource, in delivery order for a delta
     /// binding and key order for a standard one. This is what the `read`
     /// subcommand emits and the invariant checkers consume.
@@ -536,24 +515,6 @@ impl Store {
     }
 }
 
-/// Upsert or append `rows`, per each row's table shape.
-/// Apply `rows`, skipping any append the destination has already accepted.
-///
-/// This is what makes a post-commit-apply `Acknowledge` idempotent, and it is not a
-/// convenience of this reference: the destinations this class targets deduplicate loads
-/// themselves. Re-running the same `COPY INTO` of the same staged file in Snowflake or
-/// Databricks does not append the rows twice, and a merge query is idempotent by
-/// construction. A connector of this class may therefore re-apply freely.
-///
-/// The identity has to survive a membership change, which is why it is the row rather than
-/// the staging batch. A batch is identified by the shard and transaction that staged it,
-/// and after a split the same documents are re-delivered to a *different* shard, which
-/// stages them under a new identity: a batch-keyed ledger sees two distinct loads and
-/// appends both. Keying on the row itself recognises the second as work already accepted.
-///
-/// `deduplicate` is false only for the `non-idempotent-acknowledge` defect, which must
-/// still be able to double-apply — otherwise the destination would repair the very fault
-/// the scenario injects.
 /// A SQL string literal. The values quoted here are batch ids and table names the
 /// connector generated itself, but the statements are persisted in state and later run
 /// verbatim, so they are escaped rather than trusted.
@@ -585,25 +546,6 @@ fn write_rows(txn: &rusqlite::Transaction<'_>, rows: &[(Table, Row)]) -> anyhow:
         }
     }
     Ok(())
-}
-
-impl Store {
-    /// Transactions with staged rows for a range, oldest first. **Tests only.**
-    ///
-    /// Deliberately not available to the connector: what is staged and committed is
-    /// recorded in connector state, and re-deriving it from leftover rows here cannot
-    /// distinguish a transaction awaiting application from one that was abandoned.
-    #[cfg(test)]
-    pub fn staged_txns(&self, key_begin: u32, key_end: u32) -> anyhow::Result<Vec<i64>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT txn FROM _flow_staged
-             WHERE shard = ?1 AND shard_end = ?2 ORDER BY txn",
-        )?;
-        let txns = stmt
-            .query_map((key_begin, key_end), |r| r.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(txns)
-    }
 }
 
 #[cfg(test)]

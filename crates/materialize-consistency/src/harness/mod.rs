@@ -20,59 +20,13 @@ use std::io::BufRead;
 /// is to downgrade the claim, and a connector that silently regresses to a weaker
 /// class gets reclassified and passes. This way the pressure runs the other way,
 /// and the set of exemptions reads as a map of where the fleet is actually weak.
-#[derive(serde::Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Exemption {
     pub invariant: Invariant,
     /// Why this is a reviewed property of the destination rather than a defect.
     /// Required, and not defaulted: an exemption without a rationale is a defect
     /// with better paperwork.
     pub justification: String,
-    /// What the exemption covers. A connector's class is not always a per-connector
-    /// constant — a delta-updates binding is push-only even inside a
-    /// post-commit-apply connector, and enabling scale-out changes the contract — so
-    /// an exemption that could not be narrowed would overstate the weakness.
-    #[serde(default)]
-    pub scope: Scope,
-}
-
-#[derive(serde::Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum Scope {
-    /// Every binding, under every configuration.
-    #[default]
-    Connector,
-    /// Only bindings materializing combined delta updates.
-    DeltaBindings,
-    /// Only when these feature flags are set.
-    FeatureFlags(Vec<String>),
-}
-
-impl Exemption {
-    /// Load a connector's exemptions.
-    ///
-    /// They live beside the connector rather than in the harness, so that a
-    /// weakened guarantee shows up in review of the connector that weakened it. The
-    /// file is JSON rather than YAML only because the harness has no YAML
-    /// dependency; it holds a bare array of exemptions.
-    pub fn load(path: &std::path::Path) -> anyhow::Result<Vec<Self>> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading exemptions {path:?}"))?;
-
-        let exemptions: Vec<Self> =
-            serde_json::from_str(&raw).with_context(|| format!("parsing exemptions {path:?}"))?;
-
-        for exemption in &exemptions {
-            anyhow::ensure!(
-                exemption.justification.trim().len() >= 40,
-                "the exemption for {} in {path:?} has no real justification. An exemption \
-                 records a reviewed property of the destination, so say which property and \
-                 why it is inherent rather than a defect.",
-                exemption.invariant,
-            );
-        }
-        Ok(exemptions)
-    }
 }
 
 /// What a run produced.
@@ -183,7 +137,7 @@ pub async fn run(
         config["path"] = serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
     }
 
-    let subject_config = catalog::Subject {
+    let subject_config = Subject {
         connector: subject.connector.clone(),
         config,
     };
@@ -248,9 +202,9 @@ pub async fn run(
 /// Never resolves while the destination is a sane size, so it composes as the losing arm
 /// of a `select!`.
 async fn watch_destination_size(destination: &std::path::Path) -> anyhow::Error {
-    /// Roughly ten times the largest destination a passing scenario has produced, which
-    /// is enough headroom that tripping this means "runaway", not "a big run".
-    const LIMIT: u64 = 4 << 30;
+    /// 4 GiB — roughly ten times the largest destination a passing scenario has produced,
+    /// which is enough headroom that tripping this means "runaway", not "a big run".
+    const LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -409,7 +363,7 @@ async fn execute(
     // stack-wide, which is what makes a shared stack safe for concurrent runs.
     tracing::info!("disabling the workload to reach quiescence");
     let quiesced = std::time::Instant::now();
-    stack.publish(&catalog::quiesce(plan)?).await?;
+    stack.publish(&catalog::disable_captures(plan)?).await?;
     tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
     let connector = std::path::PathBuf::from(
@@ -481,7 +435,6 @@ async fn execute(
                  order. Delivery order is therefore not recoverable, and the set-based \
                  invariants carry the exactly-once claim."
                 .to_string(),
-            scope: Scope::Connector,
         });
     }
 
@@ -516,8 +469,6 @@ async fn execute(
     })
 }
 
-/// Write what a failing run compared, so the next reader does not have to guess
-/// which side was wrong.
 /// Append rows the destination recognised as already applied, per table.
 ///
 /// Read straight from the destination rather than through the connector, because it is
@@ -734,11 +685,6 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
         .count() as u64)
 }
 
-/// Nudge a failed shard back into service until it is committing again.
-///
-/// Polled rather than done once: the unassign has to land *after* the shard has
-/// reached FAILED, and a fault fires a moment before that. Retrying is simpler and
-/// more robust than trying to observe that transition.
 /// Take the task down and bring it back, for a fault that failed the whole task
 /// rather than one shard.
 ///
@@ -749,6 +695,7 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
 /// materialization tears its shards down; republishing the enabled catalog builds them
 /// again from the recovery log. A restart rather than a reschedule, and what an operator
 /// would do.
+///
 /// Deliberately does *not* wait for a primary. The caller's recovery loop is the resilient
 /// step — it unassigns until the task is committing again — so waiting here would only add
 /// a way to fail before that loop gets its turn, on the surviving shard's `expected leader
@@ -960,18 +907,6 @@ struct Contents {
     log: Vec<invariants::Event>,
 }
 
-/// Poll the destination until it holds everything the collections do, or stops
-/// changing.
-///
-/// Quiescence is required, not merely convenient: the document-counter class
-/// appends during `Store`, so a mid-flight read would report a violation where none
-/// exists.
-///
-/// Progress is measured per binding. For the append-only binding that is its row
-/// count. For the merged binding it is the sum of `seq + 1` over its rows: sequences
-/// are contiguous from zero, so that counts the documents reduced into it — and it
-/// counts *progress* rather than correctness, since `seq` is last-write-wins and a
-/// duplicate does not inflate it.
 /// The highest sequence delivered for an account, from the standard binding when the
 /// task has one and the merged delta binding otherwise.
 ///
@@ -1001,13 +936,7 @@ async fn drain(
 ) -> anyhow::Result<Contents> {
     // Named exactly as the catalog named them when it built the bindings, so a read asks
     // for the resource the connector was actually given.
-    let resource = |table: &str, delta: bool| {
-        let table = names.table(table);
-        match shape {
-            Some(shape) => shape.resource(&table, delta),
-            None => serde_json::json!({"table": table, "delta": delta}),
-        }
-    };
+    let resource = |table: &str, delta: bool| catalog::resource_config(shape, names, table, delta);
 
     let deadline = std::time::Instant::now() + timeout;
     let mut unchanged_for = 0;
@@ -1037,12 +966,7 @@ async fn drain(
         let standard = match standard_binding {
             true => Some(
                 stack
-                    .read_destination(
-                        connector,
-                        config,
-                        &resource(catalog::TABLE_STANDARD, false),
-                        false,
-                    )
+                    .read_destination(connector, config, &resource(catalog::TABLE_STANDARD, false))
                     .await?,
             ),
             false => None,
@@ -1055,11 +979,10 @@ async fn drain(
                     connector,
                     config,
                     &resource(catalog::TABLE_MERGED_DELTA, true),
-                    true,
                 )
                 .await?,
             log: stack
-                .read_destination(connector, config, &resource(catalog::TABLE_LOG, true), true)
+                .read_destination(connector, config, &resource(catalog::TABLE_LOG, true))
                 .await?,
         };
 
@@ -1197,49 +1120,6 @@ async fn drain(
 mod test {
     use super::*;
 
-    fn write(contents: &str) -> tempfile::NamedTempFile {
-        let file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        std::fs::write(file.path(), contents).unwrap();
-        file
-    }
-
-    #[test]
-    fn an_exemption_file_round_trips() {
-        let file = write(
-            r#"[
-              {
-                "invariant": "monotonicity",
-                "scope": "deltaBindings",
-                "justification": "Rows become visible before the Flow transaction commits, because this connector appends to the destination's channel during Store. Recovery skips them rather than re-sending."
-              }
-            ]"#,
-        );
-
-        let exemptions = Exemption::load(file.path()).unwrap();
-        assert_eq!(exemptions.len(), 1);
-        assert_eq!(exemptions[0].invariant, Invariant::Monotonicity);
-        assert_eq!(exemptions[0].scope, Scope::DeltaBindings);
-    }
-
-    /// The point of the compliance model is that a weaker guarantee costs an
-    /// explanation. A one-word justification would make the exemption list useless
-    /// as the map of the fleet's weaknesses it is supposed to be.
-    #[test]
-    fn an_exemption_without_a_real_justification_is_refused() {
-        let file = write(r#"[{"invariant": "no-duplicates", "justification": "wontfix"}]"#);
-
-        let err = Exemption::load(file.path()).unwrap_err().to_string();
-        assert!(err.contains("no real justification"), "{err}");
-    }
-
-    #[test]
-    fn an_unknown_invariant_is_refused_rather_than_ignored() {
-        let file = write(
-            r#"[{"invariant": "eventual-consistency", "justification": "a long enough string to pass the length check on justifications"}]"#,
-        );
-        assert!(Exemption::load(file.path()).is_err());
-    }
-
     /// Exemptions filter by invariant, and only by invariant: a connector exempt
     /// from duplicate-freedom is still held to everything else.
     #[test]
@@ -1257,7 +1137,6 @@ mod test {
         let exemptions = vec![Exemption {
             invariant: Invariant::NoDuplicates,
             justification: "at-least-once by construction".to_string(),
-            scope: Scope::Connector,
         }];
 
         let (held, exempt) = partition_exempt(violations, &exemptions);

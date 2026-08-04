@@ -303,11 +303,11 @@ struct Zombie {
     /// Resolves once the zombie has written its first response.
     ///
     /// The live instance's `Open` waits on this, and that wait is what makes the
-    /// scenario deterministic rather than a coin flip: both instances fence on
-    /// `Open`, so whichever reaches the destination first holds the *newer* nonce.
-    /// If the live instance won that race it would be the stale one, its commits
-    /// would be refused, and the scenario would be testing the opposite of what it
-    /// claims.
+    /// scenario deterministic rather than a coin flip: both instances fence on `Open`,
+    /// so whichever reaches the destination *second* holds the newer nonce. The zombie
+    /// is handed `Open` first precisely so that it ends up holding the older one. If the
+    /// live instance opened first it would be the stale one, its commits would be
+    /// refused, and the scenario would be testing the opposite of what it claims.
     opened: Option<tokio::sync::oneshot::Receiver<()>>,
     /// Requests to replay on thaw. Buffered rather than written straight
     /// through: a SIGSTOPped process stops draining its stdin, and a blocking

@@ -12,8 +12,9 @@
 //!   `materialize-$name/testdata/config.local.yaml`.
 //! - **The resource config shape** is asked of the connector, via `spec`. A resource
 //!   config is a connector-specific object, but the fields the harness must set are
-//!   annotated in its JSON schema: `x-collection-name` names the table, `x-schema-name`
-//!   the schema, and `x-delta-updates` the delta-updates flag. Reading those is the
+//!   annotated in its JSON schema: `x-collection-name` names the table and
+//!   `x-delta-updates` the delta-updates flag. (`x-schema-name` exists too, but the
+//!   harness leaves the schema to the endpoint config and does not read it.) Reading those is the
 //!   difference between working for any connector and working for the ones whose field
 //!   names happen to be guessed right.
 
@@ -199,11 +200,11 @@ pub const ENV_SUBJECT_CONFIG: &str = "FLOW_CONSISTENCY_SUBJECT_CONFIG";
 /// how a connector divides durability with the runtime is a property of its
 /// implementation, not of its configuration schema.
 ///
-/// A scenario verifies a claim only its own class makes — a counted channel's recovery
-/// from its destination's offset means nothing to a connector that stages and merges — so
-/// running the others wastes a real connector's time and reports failures that say nothing
-/// about it. Two counted-channel scenarios spent a thousand seconds each against a
-/// post-commit-apply connector before failing for that reason alone.
+/// It excludes much less than it might: nearly every scenario applies to nearly every
+/// class, because a fault a connector must survive is rarely a property of how it divides
+/// durability with the runtime. See [`crate::scenarios::Scenario::applies_to`] for what
+/// this actually gates, which is one scenario the harness cannot stage for another class
+/// plus the exactly-once scenarios against an at-least-once subject.
 pub const ENV_SUBJECT_CLASS: &str = "FLOW_CONSISTENCY_SUBJECT_CLASS";
 
 /// A real connector to run scenarios against, if one was named.
@@ -212,7 +213,8 @@ pub struct External {
     pub connector: std::path::PathBuf,
     pub config: serde_json::Value,
     pub shape: ResourceShape,
-    /// The class it implements. A scenario of any other class does not apply.
+    /// The class it implements. Scenarios not in whose `applies_to` set it falls are
+    /// skipped.
     pub class: crate::reference::Class,
 }
 

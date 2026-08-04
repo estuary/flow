@@ -5,9 +5,10 @@
 //! beneath this seam is covered transitively: shim framing, trace parsing, the
 //! invariant checkers, split driving, task publication, destination reads.
 //!
-//! There are deliberately no unit seams below the runner. Fragmenting coverage
-//! there is precisely how a suite ends up with green units and a blind end-to-end
-//! result, which is the failure mode the whole suite exists to prevent.
+//! Unit seams below this one exist only where something can be wrong in a way that makes a
+//! scenario *pass* — the invariant checkers above all. What is deliberately absent is a seam
+//! that would let a scenario be replaced by unit coverage, which is how a suite ends up with
+//! green units and a blind end-to-end result.
 //!
 //! These tests need a running local stack and are excluded from the default
 //! nextest profile. Run them with `mise run ci:consistency`.
@@ -162,8 +163,19 @@ async fn both_ways(name: &str) {
         .await
         .expect("the clean run completes");
 
+    // Printed with the count each one suppressed, because an exemption that never fires is
+    // paperwork rather than a weakened guarantee — and until this was reported there was no
+    // way to tell the two apart.
     for exempt in &scenario.exempt {
-        eprintln!("exempt: [{}] {}", exempt.invariant, exempt.justification);
+        let suppressed = clean
+            .exempted
+            .iter()
+            .filter(|v| v.invariant == exempt.invariant)
+            .count();
+        eprintln!(
+            "exempt: [{}] suppressed {suppressed} violation(s): {}",
+            exempt.invariant, exempt.justification,
+        );
     }
     // A scenario blocked on the runtime is an *expected failure* for the classes the gap
     // exposes: it fails, loudly and with its violation count, and stays failing until the
@@ -234,7 +246,18 @@ async fn both_ways(name: &str) {
             // anything. Only unexpected failures leave a run directory behind.
             let _ = std::fs::remove_dir_all(&defective.run_dir);
         }
-        Err(err) => eprintln!("defective ({defect:?}): the task could not run: {err:#}"),
+        Err(err) => {
+            // A task that published and then failed is the defect being caught. A task that
+            // never published is the stack, and treating that as a catch would let control-
+            // plane flakiness quietly vacate the pairing this scenario depends on.
+            if err.chain().any(|e| e.is::<harness::stack::PublishFailed>()) {
+                panic!(
+                    "{name} could not publish its defective half, so the pairing for \
+                     {defect:?} was not exercised. This is the stack, not the subject:\n{err:#}",
+                );
+            }
+            eprintln!("defective ({defect:?}): the task could not run: {err:#}");
+        }
     }
 }
 

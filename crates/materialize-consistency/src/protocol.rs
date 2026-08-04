@@ -194,7 +194,8 @@ pub struct TraceEvent {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Event {
-    /// A session opened over `[key_begin, key_end)`. Shard identity as the
+    /// A session opened over `[key_begin, key_end]`, inclusive at both ends as Flow's
+    /// ranges are (`flow.proto`: "[begin, end] inclusive"). Shard identity as the
     /// connector sees it, which is how the harness correlates a trace with a
     /// shard split.
     Opened {

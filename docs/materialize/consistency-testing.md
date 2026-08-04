@@ -215,9 +215,12 @@ layers above the actual fault, which was a connector exiting during `Open`.
 
 A crash fault is only half of crash-and-replay. A Gazette shard whose processing loop
 fails is marked FAILED and stays that way, so recovery means unassigning it, which the
-suite does with a script rather than by republishing the task — a republish would bump the
-materialization's version and open a new session, perturbing the task under test at the
-moment the run has stopped perturbing it on purpose.
+suite does with a script. Unassigning is *preferred* over republishing, because a republish
+bumps the materialization's version and opens a new session, perturbing the task under test
+at the moment the run has stopped perturbing it on purpose. But it is preferred, not
+absolute: unassigning restores a split task only about two runs in three, so after a third
+of its budget `recover` escalates to exactly that republish rather than fail the run. See
+"Recovery escalates" below.
 
 One consequence is worth knowing:
 
@@ -232,8 +235,6 @@ Every document carries an oracle, so a destination row can be checked against it
 That catches duplicates and gaps. It cannot catch a materialization that simply *stops
 early*, because everything it did deliver is correct — the rows that arrived agree with
 their oracles, and the sums still balance.
-
-So the harness reads the collection and compares against that instead.
 
 So the harness reads the collection itself with `flowctl collections read` and
 compares. That expectation is authoritative and the connector under test had no
@@ -281,12 +282,14 @@ reference connector. Everything beneath — shim framing, trace parsing, invaria
 checkers, split driving, task publication, destination reads — is covered
 transitively.
 
-There are deliberately no unit seams below the runner, with one exception: the
-invariant checkers are pure functions over documents and are unit-tested in
-`invariants.rs`, because their failure mode is *silent blindness* rather than a
-loud error, and a checker that has gone blind is exactly what the negative runs
-exist to catch. Fragmenting coverage further is precisely how a suite ends up with
-green units and a blind end-to-end result.
+Unit seams below the runner are the exception rather than the rule, and each one earns
+its place by having a failure mode the end-to-end runs cannot show. The invariant checkers
+are pure functions whose failure mode is *silent blindness* rather than a loud error. The
+shim's framing, the store's SQL, the subject's schema parsing and the harness's own
+tabulation are all likewise unit-tested, because each can be wrong in a way that makes a
+scenario pass. What is deliberately absent is a unit seam that would let a scenario be
+*replaced* by unit coverage — that is how a suite ends up with green units and a blind
+end-to-end result.
 
 These are assertion-shaped tests, a departure from this repository's snapshot
 convention. The oracle makes the correct answer computable rather than recorded, so
@@ -294,7 +297,10 @@ a snapshot would add a stale artifact without adding information.
 
 ### The counted channel
 
-The document-counter class emulates Snowpipe Streaming v2.
+The document-counter class emulates the *production* Snowpipe Streaming v2 design — not
+the snowflake streaming path in the connectors repository, which stages blobs during
+`Store` and registers them at `Acknowledge`, so its rows are not visible before the
+transaction commits and its recovery is blob-sequenced rather than counted.
 
 **The offset belongs to the destination.** One channel is opened per (binding, shard);
 several channels of one binding append to the same destination table, each with its own
@@ -380,11 +386,11 @@ the destination tampered with from outside the connector's protocol stream, whic
 is the one thing the shim deliberately cannot do. A scenario would need a harness
 hook that mutates the destination between sessions.
 
-**Multi-shard coordination scenarios.** Coordinator-crashes-with-peers-alive and
-its converse need a task that is multi-shard from the start plus a fault targeted
-at one shard's process. The shim currently applies its rules per process, so both
-shards would match the same rule; targeting needs the rule to be scoped by key
-range, which the trace already records.
+**A task that is multi-shard from the start.** Every multi-shard scenario reaches that
+state by splitting a single-shard task, never by starting with two. Targeting a fault at one
+shard is no longer the obstacle — `ShardTarget` scopes a rule by key range, and
+`crash-in-split-leader` and `crash-in-split-non-leader` use it — but a task born multi-shard
+would exercise a different startup path, with no inherited state for either shard.
 
 **Reactor-level zombies.** Running two reactors and partitioning the owner from
 etcd would exercise the runtime's fencing and the connector's together at maximum
@@ -452,7 +458,12 @@ to two seconds, and a split takes seconds to apply, so a transaction is nearly a
 flight when one lands.
 
 The unmarked splitting scenarios are left unmarked rather than declared expected failures,
-because they pass whenever the race falls the other way, which is most of the time. Two
+because they pass whenever the race falls the other way, which is most of the time. That is
+a deliberate asymmetry with `RuntimeGap`, and an uncomfortable one: a `RuntimeGap` scenario
+is *required* to fail, so nobody can quietly stop looking at it, whereas these are permitted
+to fail without anything recording that they did. If they turn out to fail often enough to
+be noise rather than signal, the fix is a `RuntimeGap` for the same underlying capability
+rather than a retry. Two
 signatures are worth recognising. Duplicates with no losses in a counted-channel scenario is
 the runtime limitation above. A merged binding whose value disagrees with its own delivered
 rows — in both directions, with the total not conserved, while the append-only bindings are

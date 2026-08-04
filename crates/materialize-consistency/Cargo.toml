@@ -28,8 +28,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-# tempfile is also a regular dependency; named here for the doc-visible reason
-# that tests write exemption fixtures.
 tracing-subscriber = { workspace = true }
 
 [[bin]]
