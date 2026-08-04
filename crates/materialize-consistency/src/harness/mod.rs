@@ -173,6 +173,37 @@ pub async fn run(
         tracing::error!(%err, prefix = %names.prefix, "failed to delete the run's tasks");
     }
 
+    // A real subject's tables outlive its specifications too, and unlike the ops journals
+    // the harness *can* reach these — through the connector's own `drop-resource`, since it
+    // has no client for an arbitrary endpoint and should not grow one.
+    //
+    // Best-effort and deliberately not fatal: a warehouse refusing a `DROP` says nothing
+    // about the connector's consistency, and letting it fail a scenario that passed would
+    // trade a real signal for a housekeeping one. It is also unconditional on the outcome,
+    // unlike the run directory kept below for inspection — a failing scenario's evidence is
+    // already in its violation report, so the table itself is not needed afterwards.
+    //
+    // Table names carry the run id, so every run would otherwise leave three per scenario in
+    // someone's warehouse, holding data nobody reads again.
+    if let Some(external) = external {
+        for (table, delta) in [
+            (catalog::TABLE_STANDARD, false),
+            (catalog::TABLE_MERGED_DELTA, true),
+            (catalog::TABLE_LOG, true),
+        ] {
+            if table == catalog::TABLE_STANDARD && !scenario.standard_binding {
+                continue; // Never materialized, so never created.
+            }
+            let resource = catalog::resource_config(Some(&external.shape), &names, table, delta);
+            if let Err(err) = stack
+                .drop_resource(&external.connector, &external.config, &resource)
+                .await
+            {
+                tracing::warn!(%err, table = %names.table(table), "could not drop the run's table");
+            }
+        }
+    }
+
     // The run's ops log and stats partitions outlive its specifications, and nothing
     // here can remove them: they live under `ops/`, and a task-scoped authorization does
     // not reach that far. `mise run ci:consistency` purges them against etcd before each

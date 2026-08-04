@@ -441,6 +441,53 @@ impl Stack {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
+    /// Remove one materialized resource, through the connector.
+    ///
+    /// The counterpart of [`Stack::read_destination`], and needed for the same reason the
+    /// harness reads through the connector rather than reaching into the destination: it has
+    /// no client for an arbitrary endpoint and should not grow one.
+    ///
+    /// Only useful for a real subject. The reference connector's destination is a file inside
+    /// the run directory, deleted with it.
+    pub async fn drop_resource(
+        &self,
+        connector: &std::path::Path,
+        config: &serde_json::Value,
+        resource: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let dir = tempfile::tempdir().context("creating a directory for the drop's configs")?;
+        let config_path = dir.path().join("config.json");
+        let resource_path = dir.path().join("resource.json");
+
+        std::fs::write(&config_path, config.to_string()).context("writing the drop's config")?;
+        std::fs::write(&resource_path, resource.to_string())
+            .context("writing the drop's resource")?;
+
+        let mut cmd = async_process::Command::new(connector);
+        cmd.arg("drop-resource")
+            .arg("--config")
+            .arg(&config_path)
+            .arg("--resource")
+            .arg(&resource_path);
+
+        let output = tokio::time::timeout(Self::READ_TIMEOUT, async_process::output(&mut cmd))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "the connector did not drop {resource} within {}s",
+                    Self::READ_TIMEOUT.as_secs(),
+                )
+            })?
+            .context("running the connector's drop-resource")?;
+
+        anyhow::ensure!(
+            output.status.success(),
+            "dropping {resource} failed:\n{}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        Ok(())
+    }
+
     /// Every document of one materialized resource, read through the connector.
     ///
     /// Reading through the connector rather than reaching into the destination is what
