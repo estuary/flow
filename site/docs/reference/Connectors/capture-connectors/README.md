@@ -83,7 +83,7 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - Package - ghcr.io/estuary/source-braintree-native:v1
 - Brevo
   - [Configuration](./brevo.md)
-  - Package - ghcr.io/estuary/source-brevo:v1
+  - Package - ghcr.io/estuary/source-brevo:v2
 - Calendly
   - [Configuration](./calendly.md)
   - Package - ghcr.io/estuary/source-calendly:v1
