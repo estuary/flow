@@ -86,17 +86,11 @@ All five are required together; setting some alone is an error rather than a sil
 to the reference connector.
 
 **Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
-drives. `testctl` is separate, and is how verification reads the destination back and how a
-run drops the tables it created. Neither capability is in the materialization protocol —
-there is no request that reads a destination, and removing a binding deliberately leaves its
-table in place — so `testctl` reaches them the way the connectors' own integration tests do,
-through `Materializer.SnapshotTestResource` and `DeleteResource`. No connector grows a
-subcommand for this suite's benefit.
-
-`FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the connector by, which is not
-derivable from the binary's file name. `testctl` drives a connector whose package is
-importable — `package connector` with `func main` under `cmd/connector` — so a connector that
-is still `package main` cannot be a subject until it is converted.
+drives; `testctl` is separate, and is how verification reads the destination back and how a run
+drops the tables it created. `FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the
+connector by, which is not derivable from the binary's file name — and it only drives a
+connector whose package is importable, so one still in `package main` cannot be a subject yet.
+Why it is a separate program rather than a connector subcommand is in the design document.
 
 **Tables are named to be sweepable.** Each carries the run id *and*
 `_flow_test_<unix>`, the connectors repository's convention, so `testctl -mode sweep` can

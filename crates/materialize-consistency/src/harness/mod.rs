@@ -369,7 +369,7 @@ async fn execute(
             plan,
             &names.sink,
             &trace,
-            count_commits(&trace)? + 1,
+            count_commits(&read_trace(&trace)?) + 1,
             deadline,
         )
         .await?;
@@ -390,7 +390,7 @@ async fn execute(
             plan,
             &names.sink,
             &trace,
-            count_commits(&trace)? + 1,
+            count_commits(&read_trace(&trace)?) + 1,
             deadline,
         )
         .await?;
@@ -410,7 +410,7 @@ async fn execute(
     // split can fail a shard too, and unassigning a healthy one is a no-op, so
     // there is nothing to gain by predicting which perturbations need it.
     let settled = std::time::Instant::now();
-    let after = count_commits(&trace)? + scenario.settle_commits;
+    let after = count_commits(&read_trace(&trace)?) + scenario.settle_commits;
     recover(stack, plan, &names.sink, &trace, after, deadline).await?;
     await_commits(&trace, after, deadline).await?;
     tracing::info!(elapsed = ?settled.elapsed(), commits = scenario.settle_commits, "settled");
@@ -741,9 +741,8 @@ async fn await_commits_each_shard(
     }
 }
 
-fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
-    let events = read_trace(run)?;
-    Ok(events
+fn count_commits(events: &[TraceEvent]) -> u64 {
+    events
         .iter()
         .filter(|e| {
             matches!(
@@ -754,7 +753,7 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
                 }
             )
         })
-        .count() as u64)
+        .count() as u64
 }
 
 /// Take the task down and bring it back, for a fault that failed the whole task
@@ -827,11 +826,11 @@ async fn recover(
     let stalled_after = pace * 3;
     let poll = std::cmp::max(std::time::Duration::from_secs(5), pace / 3);
 
-    let mut last_commits = count_commits(run)?;
+    let mut last_commits = count_commits(&read_trace(run)?);
     let mut stalled_since = std::time::Instant::now();
 
     loop {
-        let commits = count_commits(run)?;
+        let commits = count_commits(&read_trace(run)?);
         if commits >= target {
             return Ok(());
         }
@@ -871,64 +870,86 @@ async fn recover(
     }
 }
 
+/// Poll the shim's trace until it satisfies `decide`, or the deadline passes.
+///
+/// Every gate below is this shape — read the trace, decide from it, sleep — and the only
+/// thing that genuinely differs is what a timeout *means*, which is why the message is the
+/// caller's. Any failure the shim recorded is appended to it: a gate that timed out because
+/// the connector died should say so rather than report only the count it wanted.
+async fn poll_trace<T>(
+    run: &RunDir,
+    timeout: std::time::Duration,
+    interval: std::time::Duration,
+    mut decide: impl FnMut(&[TraceEvent]) -> Result<T, String>,
+) -> anyhow::Result<T> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        let trace = read_trace(run)?;
+        let unmet = match decide(&trace) {
+            Ok(value) => return Ok(value),
+            Err(unmet) => unmet,
+        };
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "{unmet}{}",
+            trace_failures(run),
+        );
+        tokio::time::sleep(interval).await;
+    }
+}
+
 async fn await_commits(
     run: &RunDir,
     target: u64,
     timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        let commits = count_commits(run)?;
-        if commits >= target {
-            return Ok(());
+    poll_trace(run, timeout, std::time::Duration::from_secs(2), |trace| {
+        let commits = count_commits(trace);
+        match commits >= target {
+            true => Ok(()),
+            false => Err(format!(
+                "timed out waiting for {target} committed transactions; saw {commits}"
+            )),
         }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {target} committed transactions; saw {commits}{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
+    })
+    .await
 }
 
 /// Wait until the shim has traced anything at all, which is the sink's connector being
 /// spoken to for the first time.
 async fn await_first_message(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        if !read_trace(run)?.is_empty() {
-            return Ok(());
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for the sink's connector to be started",
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
+    poll_trace(
+        run,
+        timeout,
+        std::time::Duration::from_millis(250),
+        |trace| match trace.is_empty() {
+            false => Ok(()),
+            true => Err("timed out waiting for the sink's connector to be started".to_string()),
+        },
+    )
+    .await
 }
 
 /// Wait until a transaction has carried at least one document, which means the captures
 /// are producing and the sink is being fed.
 async fn await_first_documents(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        let fed = read_trace(run)?.iter().any(|e| match &e.event {
-            Event::Stored { per_binding } => per_binding.iter().any(|n| *n != 0),
-            _ => false,
-        });
-        if fed {
-            return Ok(());
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for the workload to feed the sink{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
+    poll_trace(
+        run,
+        timeout,
+        std::time::Duration::from_millis(250),
+        |trace| {
+            let fed = trace.iter().any(|e| match &e.event {
+                Event::Stored { per_binding } => per_binding.iter().any(|n| *n != 0),
+                _ => false,
+            });
+            match fed {
+                true => Ok(()),
+                false => Err("timed out waiting for the workload to feed the sink".to_string()),
+            }
+        },
+    )
+    .await
 }
 
 async fn await_faults(
@@ -939,24 +960,19 @@ async fn await_faults(
     if expected == 0 {
         return Ok(0); // The baseline scenario injects nothing.
     }
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        let fired = read_trace(run)?
+    poll_trace(run, timeout, std::time::Duration::from_secs(2), |trace| {
+        let fired = trace
             .iter()
             .filter(|e| matches!(e.event, Event::Fault { .. }))
             .count();
-
-        if fired >= expected {
-            return Ok(fired);
+        match fired >= expected {
+            true => Ok(fired),
+            false => Err(format!(
+                "timed out waiting for {expected} fault(s) to fire; {fired} did"
+            )),
         }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {expected} fault(s) to fire; {fired} did{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
+    })
+    .await
 }
 
 /// Whatever the shim said went wrong, appended to a timeout message so the

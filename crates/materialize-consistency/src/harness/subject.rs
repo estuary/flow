@@ -210,12 +210,10 @@ pub const ENV_SUBJECT_CLASS: &str = "FLOW_CONSISTENCY_SUBJECT_CLASS";
 
 /// Path to a built `tests/materialize/testctl` from the connectors repository.
 ///
-/// Reading a destination back and dropping a resource are not in the materialization
-/// protocol, and deliberately not: there is no request that reads a destination, and removing
-/// a binding leaves its table in place because destroying a user's data as a side effect of a
-/// catalog edit would be indefensible. `testctl` reaches both the way the connectors' own
-/// integration tests do — `Materializer.SnapshotTestResource` and `DeleteResource` — from
-/// outside the connector, so no connector grows a subcommand for this suite's benefit.
+/// Reads a destination back and drops a resource, neither of which the materialization
+/// protocol offers. See "Destination reads go through connector code" in
+/// `docs/materialize/consistency-testing.md` for why it is a separate program rather than a
+/// connector subcommand.
 pub const ENV_SUBJECT_TOOL: &str = "FLOW_CONSISTENCY_SUBJECT_TOOL";
 
 /// The name `testctl` knows the connector by, e.g. `materialize-databricks`.

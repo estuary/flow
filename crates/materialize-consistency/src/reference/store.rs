@@ -17,7 +17,6 @@ use rusqlite::OptionalExtension;
 /// A document to be written to a materialized resource.
 #[derive(Clone)]
 pub struct Row {
-    pub binding: usize,
     /// The key tuple as its JSON array text, used verbatim as the primary key of
     /// a standard binding's table.
     pub key: String,
@@ -582,7 +581,6 @@ mod test {
         assert_eq!((nonce, checkpoint), (1, None));
 
         let row = |key: &str, doc: &str| Row {
-            binding: 0,
             key: key.to_string(),
             doc: doc.to_string(),
             delete: false,
@@ -733,7 +731,6 @@ mod test {
         store.ensure_table(&appended).unwrap();
 
         let row = |key: &str, doc: &str| Row {
-            binding: 0,
             key: key.to_string(),
             doc: doc.to_string(),
             delete: false,
@@ -789,7 +786,6 @@ mod test {
         store.ensure_table(&table).unwrap();
 
         let row = Row {
-            binding: 0,
             key: "[1,7]".to_string(),
             doc: r#"{"id":1,"seq":7}"#.to_string(),
             delete: false,
@@ -847,7 +843,6 @@ mod test {
         store.ensure_table(&table).unwrap();
 
         let row = |doc: &str| Row {
-            binding: 0,
             key: "[1]".to_string(),
             doc: doc.to_string(),
             delete: false,

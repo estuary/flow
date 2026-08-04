@@ -12,12 +12,8 @@
 //!
 //! The classes follow the four patterns from the scale-out strategies discussion:
 //!
-//! | Class | Commits during | Authority | Fenced by |
-//! | --- | --- | --- | --- |
-//! | `remoteAuthoritative` | `StartCommit` | destination checkpoint | nonce table |
-//! | `postCommitApply` | `Acknowledge`, from durable staging | recovery log | — |
-//! | `documentCounter` | `Store`, appending to a counted channel | destination count | — |
-//! | `atLeastOnce` | `Store` | recovery log | — |
+//! The four classes are tabulated in `docs/materialize/consistency-testing.md`; the
+//! per-variant docs on [`Class`] below are the authority for what each one does here.
 
 pub mod store;
 
@@ -871,7 +867,6 @@ fn store_document(session: &mut Session, store: materialize::request::Store) -> 
 
     let table = binding.table.clone();
     let row = Row {
-        binding: binding_index,
         key: std::str::from_utf8(&store.key_json)
             .context("Store key is not UTF-8")?
             .to_string(),

@@ -8,8 +8,8 @@
 # `flowctl raw gazctl-env` provides.
 #
 # Usage:
-#   shard-tools.sh unassign <task> [--failed]
-#   shard-tools.sh join     <task> [--dry-run]
+#   shard-tools.sh unassign <task>
+#   shard-tools.sh join     <task>
 set -euo pipefail
 
 usage() {
@@ -54,9 +54,11 @@ authorize() {
 case "${COMMAND}" in
 unassign)
     authorize
-    # `--failed` limits it to shards the allocator has given up on, which is the usual
-    # case after an injected crash. Without it, every shard is rescheduled.
-    "${GAZCTL}" shards unassign --selector "${SELECTOR}" "$@"
+    # Every shard, deliberately not `--failed`. Gazette does remove a FAILED assignment
+    # under that filter; what it skips is a shard whose primary is merely *wedged* and has
+    # not been marked FAILED, which is precisely the state the harness's stall detection
+    # fires on. Filtering would report zero shards unassigned and leave the task down.
+    "${GAZCTL}" shards unassign --selector "${SELECTOR}"
     ;;
 
 join)
@@ -66,18 +68,10 @@ join)
 
     "${GAZCTL}" shards list --selector "${SELECTOR}" -o yaml >"${SPECS}.orig"
 
-    DRY_RUN=false
-    for arg in "$@"; do
-        [ "${arg}" = "--dry-run" ] && DRY_RUN=true
-    done
-
+    # No dry-run flag: nothing calls it, and a human wanting to see the plan can run
+    # `join-shards.py <listing> /dev/stdout` directly.
     python3 "$(dirname "$0")/join-shards.py" "${SPECS}.orig" "${SPECS}"
     rm -f "${SPECS}.orig"
-
-    if [ "${DRY_RUN}" = true ]; then
-        cat "${SPECS}"
-        exit 0
-    fi
     "${GAZCTL}" shards apply --specs "${SPECS}"
     ;;
 

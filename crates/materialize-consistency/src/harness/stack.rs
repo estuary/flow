@@ -41,6 +41,29 @@ impl std::fmt::Display for PublishFailed {
 
 impl std::error::Error for PublishFailed {}
 
+/// Run a command to completion under a deadline, returning its stdout.
+///
+/// `what` names the invocation for every failure this can produce — the deadline, the spawn,
+/// and a non-zero exit — because each of the three call sites had written that message out
+/// itself and they had already drifted into three shapes.
+async fn bounded_output(
+    cmd: &mut async_process::Command,
+    timeout: std::time::Duration,
+    what: &str,
+) -> anyhow::Result<String> {
+    let output = tokio::time::timeout(timeout, async_process::output(cmd))
+        .await
+        .map_err(|_| anyhow::anyhow!("{what} did not return within {}s", timeout.as_secs()))?
+        .with_context(|| format!("running {what}"))?;
+
+    anyhow::ensure!(
+        output.status.success(),
+        "{what} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr).trim(),
+    );
+    String::from_utf8(output.stdout).with_context(|| format!("{what} produced invalid UTF-8"))
+}
+
 /// Which reader a destination is read through.
 ///
 /// `Copy`, because a drain reads three resources per poll and passing it by value each time
@@ -165,24 +188,12 @@ impl Stack {
         args: &[&str],
         timeout: std::time::Duration,
     ) -> anyhow::Result<String> {
-        let output =
-            tokio::time::timeout(timeout, async_process::output(self.command().args(args)))
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "flowctl {args:?} did not return within {}s",
-                        timeout.as_secs(),
-                    )
-                })?
-                .with_context(|| format!("running flowctl {args:?}"))?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "flowctl {args:?} failed:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        bounded_output(
+            self.command().args(args),
+            timeout,
+            &format!("flowctl {args:?}"),
+        )
+        .await
     }
 
     /// Publish a catalog, retrying a build that fails for reasons outside the
@@ -440,23 +451,12 @@ impl Stack {
         cmd.env("SSL_CERT_FILE", &self.ca_cert);
         cmd.env("FLOWCTL_PROFILE", &self.name);
 
-        let output =
-            tokio::time::timeout(Self::INVOCATION_TIMEOUT, async_process::output(&mut cmd))
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "{script:?} {args:?} did not return within {}s",
-                        Self::INVOCATION_TIMEOUT.as_secs(),
-                    )
-                })?
-                .with_context(|| format!("running {script:?} {args:?}"))?;
-
-        anyhow::ensure!(
-            output.status.success(),
-            "{script:?} {args:?} failed:\n{}",
-            String::from_utf8_lossy(&output.stderr),
-        );
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        bounded_output(
+            &mut cmd,
+            Self::INVOCATION_TIMEOUT,
+            &format!("{script:?} {args:?}"),
+        )
+        .await
     }
 
     /// Every row of one materialized resource, as newline-delimited JSON objects keyed by
@@ -550,21 +550,6 @@ impl Stack {
 
         // Bounded because this spawns a process that talks to the endpoint: one that hangs
         // would otherwise sit under every deadline the scenario has.
-        let output = tokio::time::timeout(Self::READ_TIMEOUT, async_process::output(&mut cmd))
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "reading {resource} did not finish within {}s",
-                    Self::READ_TIMEOUT.as_secs(),
-                )
-            })?
-            .with_context(|| format!("reading {resource}"))?;
-
-        anyhow::ensure!(
-            output.status.success(),
-            "reading {resource} failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim(),
-        );
-        String::from_utf8(output.stdout).context("the reader produced invalid UTF-8")
+        bounded_output(&mut cmd, Self::READ_TIMEOUT, &format!("reading {resource}")).await
     }
 }
