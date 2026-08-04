@@ -353,6 +353,7 @@ impl HeadIdle {
             stopping,
             tail_done,
             unresolved_hints: false, // N/A.
+            open_duration: task.close_policy.open_duration.clone(),
         });
 
         // Should we extend with a ready next connector checkpoint sequence?

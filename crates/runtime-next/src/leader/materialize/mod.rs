@@ -2,6 +2,7 @@ mod actor;
 mod fsm;
 mod handler;
 mod startup;
+mod sync_schedule;
 mod task;
 mod triggers;
 
@@ -67,4 +68,12 @@ struct Task {
     shard_ref: ops::ShardRef,
     // Compiled triggers, or None if the task has no triggers configured.
     triggers: Option<std::sync::Arc<triggers::CompiledTriggers>>,
+    // Compiled sync schedule pacing transaction commits, or None if unconfigured.
+    sync_schedule: Option<sync_schedule::CompiledSchedule>,
+    // Deterministic jitter seed for the sync schedule, derived from the
+    // task's tenant: a tenant's materializations typically share destination
+    // resources (e.g. one warehouse), so scheduling them to commit at
+    // coinciding instants wakes that resource once, while unrelated tenants
+    // spread apart.
+    sync_seed: u64,
 }

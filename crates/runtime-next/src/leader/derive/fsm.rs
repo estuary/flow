@@ -275,6 +275,7 @@ impl HeadIdle {
             stopping,
             tail_done,
             unresolved_hints: self.extents.frontier.unresolved_hints != 0,
+            open_duration: task.close_policy.open_duration.clone(),
         });
 
         // Remote-authoritative connectors cannot receive C:Read of the next
