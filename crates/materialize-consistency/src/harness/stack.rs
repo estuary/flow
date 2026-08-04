@@ -41,6 +41,24 @@ impl std::fmt::Display for PublishFailed {
 
 impl std::error::Error for PublishFailed {}
 
+/// Which reader a destination is read through.
+///
+/// `Copy`, because a drain reads three resources per poll and passing it by value each time
+/// reads better than borrowing a borrow.
+#[derive(Clone, Copy)]
+pub enum ReadVia<'a> {
+    /// The reference connector's own `read` subcommand. It lives in this repository and is run
+    /// by nothing but this suite, so a subcommand there costs nothing.
+    Reference {
+        connector: &'a std::path::Path,
+        config: &'a serde_json::Value,
+    },
+    /// `tests/materialize/testctl` from the connectors repository, which calls the same
+    /// `Materializer.SnapshotTestResource` and `DeleteResource` the connectors' own integration
+    /// tests call. A production connector therefore grows no subcommand for this suite.
+    Testctl(&'a super::subject::External),
+}
+
 impl Stack {
     /// Resolve the stack from the environment `mise` provides.
     ///
@@ -441,107 +459,23 @@ impl Stack {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    /// Remove one materialized resource, through the connector.
+    /// Every row of one materialized resource, as newline-delimited JSON objects keyed by
+    /// column name.
     ///
-    /// The counterpart of [`Stack::read_destination`], and needed for the same reason the
-    /// harness reads through the connector rather than reaching into the destination: it has
-    /// no client for an arbitrary endpoint and should not grow one.
-    ///
-    /// Only useful for a real subject. The reference connector's destination is a file inside
-    /// the run directory, deleted with it.
-    pub async fn drop_resource(
-        &self,
-        connector: &std::path::Path,
-        config: &serde_json::Value,
-        resource: &serde_json::Value,
-    ) -> anyhow::Result<()> {
-        let dir = tempfile::tempdir().context("creating a directory for the drop's configs")?;
-        let config_path = dir.path().join("config.json");
-        let resource_path = dir.path().join("resource.json");
-
-        std::fs::write(&config_path, config.to_string()).context("writing the drop's config")?;
-        std::fs::write(&resource_path, resource.to_string())
-            .context("writing the drop's resource")?;
-
-        let mut cmd = async_process::Command::new(connector);
-        cmd.arg("drop-resource")
-            .arg("--config")
-            .arg(&config_path)
-            .arg("--resource")
-            .arg(&resource_path);
-
-        let output = tokio::time::timeout(Self::READ_TIMEOUT, async_process::output(&mut cmd))
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "the connector did not drop {resource} within {}s",
-                    Self::READ_TIMEOUT.as_secs(),
-                )
-            })?
-            .context("running the connector's drop-resource")?;
-
-        anyhow::ensure!(
-            output.status.success(),
-            "dropping {resource} failed:\n{}",
-            String::from_utf8_lossy(&output.stderr),
-        );
-        Ok(())
-    }
-
-    /// Every document of one materialized resource, read through the connector.
-    ///
-    /// Reading through the connector rather than reaching into the destination is what
-    /// lets one harness serve more than one connector — though only those implementing
-    /// `sql.RowReader` today; see the module docs.
-    ///
-    /// `--config` and `--resource` as *file paths*, which is the interface
-    /// `materialize-boilerplate` exposes to every connector built on it. Written to
-    /// temporary files rather than passed inline because a real connector's endpoint
-    /// config carries credentials, and an argument vector is visible to anyone who can
-    /// list processes.
+    /// Read through connector code rather than by reaching into the destination: the harness
+    /// has no client for an arbitrary endpoint and should not grow one.
     pub async fn read_destination(
         &self,
-        connector: &std::path::Path,
-        config: &serde_json::Value,
+        via: ReadVia<'_>,
         resource: &serde_json::Value,
     ) -> anyhow::Result<Vec<Event>> {
-        let dir = tempfile::tempdir().context("creating a directory for the read's configs")?;
-        let config_path = dir.path().join("config.json");
-        let resource_path = dir.path().join("resource.json");
+        let stdout = self.read_rows(via, resource, "snapshot").await?;
 
-        std::fs::write(&config_path, config.to_string()).context("writing the read's config")?;
-        std::fs::write(&resource_path, resource.to_string())
-            .context("writing the read's resource")?;
-
-        let mut cmd = async_process::Command::new(connector);
-        cmd.arg("read")
-            .arg("--config")
-            .arg(&config_path)
-            .arg("--resource")
-            .arg(&resource_path);
-
-        // Bounded for the same reason as a collection read, and separately, because
-        // this spawns the connector rather than flowctl: a connector that hangs
-        // reading its own destination would otherwise sit under every deadline the
-        // scenario has.
-        let output = tokio::time::timeout(Self::READ_TIMEOUT, async_process::output(&mut cmd))
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "the connector did not finish reading {resource} within {}s",
-                    Self::READ_TIMEOUT.as_secs(),
-                )
-            })?
-            .with_context(|| format!("running the connector to read {resource}"))?;
-
-        anyhow::ensure!(
-            output.status.success(),
-            "reading {resource} failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim(),
-        );
-
+        // Rows of columns rather than the documents that produced them, which is what a
+        // materialized resource actually holds — a standard binding need not carry a root
+        // document at all.
         let mut events = Vec::new();
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
+        for line in stdout.lines() {
             if line.trim().is_empty() {
                 continue;
             }
@@ -551,5 +485,86 @@ impl Stack {
             );
         }
         Ok(events)
+    }
+
+    /// Remove one materialized resource, through `testctl`.
+    ///
+    /// Only for a real subject: the reference connector's destination is a file inside the run
+    /// directory, deleted with it.
+    pub async fn drop_resource(
+        &self,
+        external: &super::subject::External,
+        resource: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        self.read_rows(ReadVia::Testctl(external), resource, "drop")
+            .await
+            .map(|_| ())
+    }
+
+    /// Run whichever reader the subject needs, returning its stdout.
+    ///
+    /// Configurations go in temporary files rather than on the command line, because an
+    /// endpoint config carries credentials and an argument vector is readable by anyone who can
+    /// list processes — which is also why `testctl` takes paths.
+    async fn read_rows(
+        &self,
+        via: ReadVia<'_>,
+        resource: &serde_json::Value,
+        mode: &str,
+    ) -> anyhow::Result<String> {
+        let dir = tempfile::tempdir().context("creating a directory for the read's configs")?;
+        let config_path = dir.path().join("config.json");
+        let resource_path = dir.path().join("resource.json");
+
+        let config = match via {
+            ReadVia::Reference { config, .. } => config,
+            ReadVia::Testctl(external) => &external.config,
+        };
+        std::fs::write(&config_path, config.to_string()).context("writing the read's config")?;
+        std::fs::write(&resource_path, resource.to_string())
+            .context("writing the read's resource")?;
+
+        let mut cmd = match via {
+            ReadVia::Reference { connector, .. } => {
+                let mut cmd = async_process::Command::new(connector);
+                cmd.arg("read")
+                    .arg("--config")
+                    .arg(&config_path)
+                    .arg("--resource")
+                    .arg(&resource_path);
+                cmd
+            }
+            ReadVia::Testctl(external) => {
+                let mut cmd = async_process::Command::new(&external.tool);
+                cmd.arg("-connector")
+                    .arg(&external.name)
+                    .arg("-config")
+                    .arg(&config_path)
+                    .arg("-resource")
+                    .arg(&resource_path)
+                    .arg("-mode")
+                    .arg(mode);
+                cmd
+            }
+        };
+
+        // Bounded because this spawns a process that talks to the endpoint: one that hangs
+        // would otherwise sit under every deadline the scenario has.
+        let output = tokio::time::timeout(Self::READ_TIMEOUT, async_process::output(&mut cmd))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "reading {resource} did not finish within {}s",
+                    Self::READ_TIMEOUT.as_secs(),
+                )
+            })?
+            .with_context(|| format!("reading {resource}"))?;
+
+        anyhow::ensure!(
+            output.status.success(),
+            "reading {resource} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim(),
+        );
+        String::from_utf8(output.stdout).context("the reader produced invalid UTF-8")
     }
 }

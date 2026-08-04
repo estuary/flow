@@ -98,7 +98,19 @@ impl Names {
             sink: format!("{prefix}/sink"),
             // Underscored, not hyphenated: these become SQL identifiers.
             table_suffix: match shared_destination {
-                true => format!("_{run_id}"),
+                // `_flow_test_<unix>` is the connectors repository's convention for a test
+                // resource, and `testctl -mode sweep` will only remove names carrying it —
+                // the timestamp is how a sweep leaves a concurrent run's tables alone. So a
+                // run that is killed before its own cleanup is still recoverable, which
+                // by-name dropping cannot achieve: it can only remove what the caller knows
+                // it created.
+                true => format!(
+                    "_{run_id}_flow_test_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or_default(),
+                ),
                 false => String::new(),
             },
             prefix,

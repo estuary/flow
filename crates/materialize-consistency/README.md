@@ -71,14 +71,37 @@ The reference connector exists to prove the harness. Any connector can be the su
 instead, named through the environment:
 
 ```bash
+# In the connectors repository, once:
+go build -o /tmp/testctl ./tests/materialize/testctl
+
 FLOW_CONSISTENCY_SUBJECT=/path/to/materialize-yourthing \
 FLOW_CONSISTENCY_SUBJECT_CONFIG=/path/to/config.json \
 FLOW_CONSISTENCY_SUBJECT_CLASS=postCommitApply \
+FLOW_CONSISTENCY_SUBJECT_TOOL=/tmp/testctl \
+FLOW_CONSISTENCY_SUBJECT_NAME=materialize-databricks \
   mise run ci:consistency
 ```
 
-All three variables are required together; setting some alone is an error rather than a
-silent fall back to the reference connector.
+All five are required together; setting some alone is an error rather than a silent fall back
+to the reference connector.
+
+**Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
+drives. `testctl` is separate, and is how verification reads the destination back and how a
+run drops the tables it created. Neither capability is in the materialization protocol —
+there is no request that reads a destination, and removing a binding deliberately leaves its
+table in place — so `testctl` reaches them the way the connectors' own integration tests do,
+through `Materializer.SnapshotTestResource` and `DeleteResource`. No connector grows a
+subcommand for this suite's benefit.
+
+`FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the connector by, which is not
+derivable from the binary's file name. `testctl` drives a connector whose package is
+importable — `package connector` with `func main` under `cmd/connector` — so a connector that
+is still `package main` cannot be a subject until it is converted.
+
+**Tables are named to be sweepable.** Each carries the run id *and*
+`_flow_test_<unix>`, the connectors repository's convention, so `testctl -mode sweep` can
+clear what a killed run left behind. Dropping by name only removes what the caller knows it
+created; sweeping enumerates what is actually there.
 
 **The class is declared rather than discovered**, because how a connector divides
 durability with the runtime is a property of its implementation that `spec` does not report.
@@ -121,16 +144,16 @@ delta updates (`x-delta-updates`), so it works for a connector spelling them `ta
 a good subject from a bad one, which needs a subject whose defects are switchable. A real
 connector has no defective build to compare against, so the second pass is skipped.
 
-**The subject must be able to read its destination back.** Verification reads what actually
-landed rather than trusting the connector's account of it, via the `read` subcommand
-`materialize-boilerplate` exposes; a SQL connector gets it by implementing `sql.RowReader`
-in one line over `sql.StdReadRows`. A connector that does not implement it cannot be
-verified by this harness.
+**The subject must declare a delta-updates option.** A connector whose resource schema has no
+`x-delta-updates` property is refused, rather than quietly given merge bindings in place of
+its delta ones: a duplicate applied to a merge binding is an idempotent upsert and therefore
+invisible, so accepting one would leave every scenario passing with the suite's sharpest check
+disabled and nothing saying so.
 
-That subcommand is **not yet merged** — it is estuary/connectors#4981 — and only
-`materialize-databricks` and `materialize-sqlite` implement `sql.RowReader` today. So "runs
-against any connector" is the design, and "runs against any connector implementing
-`sql.RowReader`" is the present tense.
+`testctl` and the importable-package change it needs are estuary/connectors#4981, **not yet
+merged**. So "runs against any connector" is the design, and "runs against any connector
+`testctl` can drive" is the present tense — see that PR's `tests/materialize/testctl/README.md`
+for the current list.
 
 **A scenario that splits or joins shards needs the subject configured for multi-shard
 operation.** Where that is behind a feature flag the harness cannot know its name, and a

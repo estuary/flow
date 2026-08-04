@@ -202,7 +202,8 @@ pub async fn run(
     }
 
     // A real subject's tables outlive its specifications too, and unlike the ops journals
-    // the harness *can* reach these — through the connector's own `drop-resource`, since it
+    // the harness *can* reach these — through `testctl`, which calls the same
+    // `Materializer.DeleteResource` the connectors' own integration tests call. The harness
     // has no client for an arbitrary endpoint and should not grow one.
     //
     // Best-effort and deliberately not fatal: a warehouse refusing a `DROP` says nothing
@@ -223,10 +224,7 @@ pub async fn run(
                 continue; // Never materialized, so never created.
             }
             let resource = catalog::resource_config(Some(&external.shape), &names, table, delta);
-            if let Err(err) = stack
-                .drop_resource(&external.connector, &external.config, &resource)
-                .await
-            {
+            if let Err(err) = stack.drop_resource(external, &resource).await {
                 tracing::warn!(%err, table = %names.table(table), "could not drop the run's table");
             }
         }
@@ -448,10 +446,19 @@ async fn execute(
     tracing::info!(elapsed = ?read.elapsed(), "read the collections");
 
     let drained = std::time::Instant::now();
+    // The reference connector reads its own destination; a real one is read through
+    // `testctl`, which calls the same functions the connectors' integration tests do.
+    let via = match external {
+        Some(external) => stack::ReadVia::Testctl(external),
+        None => stack::ReadVia::Reference {
+            connector: &connector,
+            config: &plan.subject.config,
+        },
+    };
+
     let destination = drain(
         stack,
-        &connector,
-        &plan.subject.config,
+        via,
         names,
         (&merged_expected, &log_expected),
         plan.standard_binding,
@@ -991,8 +998,7 @@ fn delivered_max_seq(contents: &Contents, id: i64) -> Option<i64> {
 
 async fn drain(
     stack: &stack::Stack,
-    connector: &std::path::Path,
-    config: &serde_json::Value,
+    via: stack::ReadVia<'_>,
     names: &catalog::Names,
     (merged_expected, log_expected): (&Expectation, &Expectation),
     standard_binding: bool,
@@ -1031,7 +1037,7 @@ async fn drain(
         let standard = match standard_binding {
             true => Some(
                 stack
-                    .read_destination(connector, config, &resource(catalog::TABLE_STANDARD, false))
+                    .read_destination(via, &resource(catalog::TABLE_STANDARD, false))
                     .await?,
             ),
             false => None,
@@ -1040,14 +1046,10 @@ async fn drain(
         let contents = Contents {
             standard,
             merged_delta: stack
-                .read_destination(
-                    connector,
-                    config,
-                    &resource(catalog::TABLE_MERGED_DELTA, true),
-                )
+                .read_destination(via, &resource(catalog::TABLE_MERGED_DELTA, true))
                 .await?,
             log: stack
-                .read_destination(connector, config, &resource(catalog::TABLE_LOG, true))
+                .read_destination(via, &resource(catalog::TABLE_LOG, true))
                 .await?,
         };
 

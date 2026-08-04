@@ -208,12 +208,30 @@ pub const ENV_SUBJECT_CONFIG: &str = "FLOW_CONSISTENCY_SUBJECT_CONFIG";
 /// plus the exactly-once scenarios against an at-least-once subject.
 pub const ENV_SUBJECT_CLASS: &str = "FLOW_CONSISTENCY_SUBJECT_CLASS";
 
+/// Path to a built `tests/materialize/testctl` from the connectors repository.
+///
+/// Reading a destination back and dropping a resource are not in the materialization
+/// protocol, and deliberately not: there is no request that reads a destination, and removing
+/// a binding leaves its table in place because destroying a user's data as a side effect of a
+/// catalog edit would be indefensible. `testctl` reaches both the way the connectors' own
+/// integration tests do — `Materializer.SnapshotTestResource` and `DeleteResource` — from
+/// outside the connector, so no connector grows a subcommand for this suite's benefit.
+pub const ENV_SUBJECT_TOOL: &str = "FLOW_CONSISTENCY_SUBJECT_TOOL";
+
+/// The name `testctl` knows the connector by, e.g. `materialize-databricks`.
+///
+/// Not derived from the subject's file name, which is whatever the person building it chose.
+pub const ENV_SUBJECT_NAME: &str = "FLOW_CONSISTENCY_SUBJECT_NAME";
+
 /// A real connector to run scenarios against, if one was named.
 #[derive(Debug, Clone)]
 pub struct External {
     pub connector: std::path::PathBuf,
     pub config: serde_json::Value,
     pub shape: ResourceShape,
+    /// A built `testctl`, and the name it knows this connector by. See [`ENV_SUBJECT_TOOL`].
+    pub tool: std::path::PathBuf,
+    pub name: String,
     /// The class it implements. Scenarios not in whose `applies_to` set it falls are
     /// skipped.
     pub class: crate::reference::Class,
@@ -258,6 +276,19 @@ pub async fn external() -> anyhow::Result<Option<External>> {
     let config: serde_json::Value = serde_yaml::from_str(&raw)
         .with_context(|| format!("parsing {ENV_SUBJECT_CONFIG} at {config:?}"))?;
 
+    let tool = std::path::PathBuf::from(
+        std::env::var_os(ENV_SUBJECT_TOOL)
+            .with_context(|| format!("{ENV_SUBJECT_TOOL} must name a built `testctl`"))?,
+    );
+    anyhow::ensure!(
+        tool.exists(),
+        "{ENV_SUBJECT_TOOL} names {tool:?}, which does not exist. Build it with \
+         `go build -o {tool:?} ./tests/materialize/testctl` in the connectors repository."
+    );
+    let name = std::env::var(ENV_SUBJECT_NAME).with_context(|| {
+        format!("{ENV_SUBJECT_NAME} must name the connector as `testctl` knows it")
+    })?;
+
     let shape = resource_shape(&connector).await?;
 
     Ok(Some(External {
@@ -265,5 +296,7 @@ pub async fn external() -> anyhow::Result<Option<External>> {
         config,
         shape,
         class,
+        tool,
+        name,
     }))
 }
