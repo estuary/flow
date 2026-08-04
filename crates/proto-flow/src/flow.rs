@@ -686,6 +686,11 @@ pub struct MaterializationSpec {
     /// connector should assume a current date.
     #[prost(string, tag = "11")]
     pub created_at: ::prost::alloc::string::String,
+    /// JSON-encoded sync schedule for this materialization, if configured.
+    /// Decoded as a models::SyncSchedule and enforced by runtime-next to pace
+    /// transaction commits. Empty when no schedule is set.
+    #[prost(bytes = "bytes", tag = "12")]
+    pub sync_schedule_json: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

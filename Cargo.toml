@@ -71,6 +71,7 @@ byteorder = "1"
 caseless = "0"
 chardetng = "0"
 chrono = { version = "0", features = ["serde"] }
+chrono-tz = { version = "0.10" }
 clap = { package = "clap", version = "4", features = ["derive", "env"] }
 colored_json = "5"
 comfy-table = "7"
@@ -161,7 +162,7 @@ rsasl = { version = "2", default-features = false, features = [
 ] }
 rusqlite = { version = "0", features = ["bundled-full"] }
 rustyline = "17"
-schemars = "1"
+schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0"

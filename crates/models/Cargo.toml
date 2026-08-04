@@ -22,6 +22,7 @@ indexmap = { workspace = true, optional = true }
 itertools = { workspace = true }
 caseless = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 humantime-serde = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }

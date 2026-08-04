@@ -84,6 +84,7 @@ src/
 │       ├── actor.rs         # event loop driving open / commit / acknowledge / trigger
 │       ├── frontier_mapping.rs  # consumer.Checkpoint <-> shuffle::Frontier
 │       ├── triggers.rs      # webhook trigger delivery
+│       ├── sync_schedule.rs # compiled sync-schedule evaluator (commit pacing)
 │       └── task.rs          # per-task state held by the leader actor
 │
 └── shard/             # per-shard controller-facing service
@@ -252,6 +253,28 @@ Consequences and requirements:
   accumulator is recycled. The per-binding boundary clocks live in the shard
   session, and on recovery the shard reconstructs them from the leader's
   cumulative `Begin` (committed ∪ hinted) delivered on the first `L:Load`.
+
+## Sync schedules (materialize)
+
+A materialization model may carry a `syncSchedule` (type and validation in
+`models::sync_schedule`) pacing how often transactions commit: a required
+`baseInterval`, plus any number of non-overlapping local-time `windows`, each
+with its own interval. The leader compiles the schedule once at task startup
+(`leader/materialize/sync_schedule.rs`) — compilation re-runs validation, so
+evaluation cannot fail — and computes the next permitted commit instant on an
+epoch-relative grid per regime, with deterministic jitter seeded from the
+task's tenant: a tenant's materializations — which typically share destination
+resources like a warehouse — commit at coinciding instants, waking the
+destination once, while unrelated tenants spread apart. A fire crossing regime
+transitions clamps to the first one where a faster regime takes over.
+
+Enforcement rides the close policy's min/max transaction durations:
+`fsm::compute_open_duration` modulates the open-duration band per evaluation
+(the band collapses onto the commit instant while holding), so
+`close_policy::evaluate` has no schedule awareness. The combiner usage
+ceilings still force early commits — a backfill drains under memory pressure
+with no caught-up detection — and `CloseNow` bypasses a hold, so spec updates
+restart promptly. The first transaction of a leader session is never held.
 
 ## Status
 

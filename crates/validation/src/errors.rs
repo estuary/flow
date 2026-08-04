@@ -389,6 +389,13 @@ pub enum Error {
     #[error("trigger {index}: rendered payload template is not valid JSON: {detail}")]
     TriggerTemplateInvalidJson { index: usize, detail: String },
 
+    #[error("invalid sync schedule: {detail}")]
+    SyncScheduleInvalid { detail: String },
+    #[error(
+        "materialization {materialization} configures a sync schedule both in its connector config (syncSchedule) and as a materialization sync schedule; remove one"
+    )]
+    SyncScheduleConflict { materialization: String },
+
     #[error("raising an error because {this_entity} specifies `onIncompatibleSchemaChange: abort`")]
     AbortOnIncompatibleSchemaChange {
         this_entity: String,

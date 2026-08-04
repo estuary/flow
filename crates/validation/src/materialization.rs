@@ -120,6 +120,7 @@ async fn walk_materialization<C: Connectors>(
         mut shards,
         expect_pub_id: _,
         triggers,
+        sync_schedule,
         delete: _,
         reset,
     } = model;
@@ -639,6 +640,28 @@ async fn walk_materialization<C: Connectors>(
             bytes::Bytes::from(serde_json::to_vec(t).expect("triggers must serialize"))
         }
     };
+    let sync_schedule_json: bytes::Bytes = match &sync_schedule {
+        None => bytes::Bytes::new(),
+        Some(sync_schedule) => {
+            let scope = scope.push_prop("syncSchedule");
+            if let Err(detail) = sync_schedule.validate() {
+                Error::SyncScheduleInvalid { detail }.push(scope, errors);
+            }
+            // A connector-side sync schedule and a model-level one would fight
+            // over commit cadence; reject configuring both.
+            if let models::MaterializationEndpoint::Connector(config) = &endpoint
+                && connector_config_has_sync_schedule(&config.config)
+            {
+                Error::SyncScheduleConflict {
+                    materialization: materialization.to_string(),
+                }
+                .push(scope, errors);
+            }
+            bytes::Bytes::from(
+                serde_json::to_vec(sync_schedule).expect("sync schedule must serialize"),
+            )
+        }
+    };
 
     let spec = flow::MaterializationSpec {
         name: materialization.to_string(),
@@ -651,6 +674,7 @@ async fn walk_materialization<C: Connectors>(
         inactive_bindings,
         triggers_json,
         created_at: crate::created_at_date(control_id),
+        sync_schedule_json,
     };
     let model = models::MaterializationDef {
         source: sources,
@@ -661,6 +685,7 @@ async fn walk_materialization<C: Connectors>(
         shards,
         expect_pub_id: None,
         triggers,
+        sync_schedule,
         delete: false,
         reset: false,
     };
@@ -1056,6 +1081,28 @@ fn temporary_group_by_migration(
         .iter()
         .map(|field| models::Field::new(field))
         .collect()
+}
+
+/// Whether a connector endpoint config carries a configured top-level
+/// `syncSchedule`, i.e. the legacy connector-side sync schedule. Detected
+/// without decryption: SOPS preserves object keys, and sync-schedule fields
+/// are not secrets so their values remain plaintext.
+///
+/// An empty `syncSchedule` object, or one whose values are all null or empty
+/// strings, is NOT configured: the connector treats those identically to an
+/// absent key, and a UI removing the schedule may leave such a remnant behind.
+fn connector_config_has_sync_schedule(config: &models::RawValue) -> bool {
+    let Ok(serde_json::Value::Object(map)) = serde_json::from_str(config.get()) else {
+        return false;
+    };
+    match map.get("syncSchedule") {
+        None | Some(serde_json::Value::Null) => false,
+        Some(serde_json::Value::Object(sched)) => sched
+            .values()
+            .any(|value| !value.is_null() && value.as_str() != Some("")),
+        // Any other shape is malformed, but conservatively "configured".
+        Some(_) => true,
+    }
 }
 
 fn validate_triggers(

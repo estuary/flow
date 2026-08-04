@@ -502,6 +502,13 @@ message MaterializationSpec {
   // before its creation is committed: the task is brand new, and a
   // connector should assume a current date.
   string created_at = 11;
+  // JSON-encoded sync schedule for this materialization, if configured.
+  // Decoded as a models::SyncSchedule and enforced by runtime-next to pace
+  // transaction commits. Empty when no schedule is set.
+  bytes sync_schedule_json = 12 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "syncSchedule"
+  ];
 }
 
 // OAuth2 describes an OAuth2 provider

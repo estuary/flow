@@ -56,6 +56,7 @@ expression: "(selections, errors)"
                     },
                     expect_pub_id: None,
                     triggers: None,
+                    sync_schedule: None,
                     delete: false,
                     reset: false,
                 },
