@@ -3984,6 +3984,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.created_at.is_empty() {
             len += 1;
         }
+        if !self.sync_schedule_json.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -4021,6 +4024,11 @@ impl serde::Serialize for MaterializationSpec {
         if !self.created_at.is_empty() {
             struct_ser.serialize_field("createdAt", &self.created_at)?;
         }
+        if !self.sync_schedule_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("syncSchedule", &crate::as_raw_json(&self.sync_schedule_json)?)?;
+        }
         struct_ser.end()
     }
 }
@@ -4049,6 +4057,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "triggers",
             "created_at",
             "createdAt",
+            "sync_schedule_json",
+            "syncSchedule",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4063,6 +4073,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             InactiveBindings,
             TriggersJson,
             CreatedAt,
+            SyncScheduleJson,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4095,6 +4106,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             "inactiveBindings" | "inactive_bindings" => Ok(GeneratedField::InactiveBindings),
                             "triggers" | "triggers_json" => Ok(GeneratedField::TriggersJson),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
+                            "syncSchedule" | "sync_schedule_json" => Ok(GeneratedField::SyncScheduleJson),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4124,6 +4136,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut inactive_bindings__ = None;
                 let mut triggers_json__ = None;
                 let mut created_at__ = None;
+                let mut sync_schedule_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -4190,6 +4203,14 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             created_at__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::SyncScheduleJson => {
+                            if sync_schedule_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("syncSchedule"));
+                            }
+                            sync_schedule_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4206,6 +4227,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     inactive_bindings: inactive_bindings__.unwrap_or_default(),
                     triggers_json: triggers_json__.unwrap_or_default(),
                     created_at: created_at__.unwrap_or_default(),
+                    sync_schedule_json: sync_schedule_json__.unwrap_or_default(),
                 })
             }
         }

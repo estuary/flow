@@ -317,6 +317,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         inactive_bindings: Vec::new(),
         triggers_json: json!([{"url": "https://example.com/webhook", "method": "POST", "payloadTemplate": "{}"}]).to_string().into(),
         created_at: "2025-07-09".to_string(),
+        sync_schedule_json: json!({"baseInterval": "4h", "timezone": "America/New_York", "windows": [{"interval": "30m", "start": "09:00", "end": "17:00"}]}).to_string().into(),
     }
 }
 

@@ -120,6 +120,9 @@ pub struct MaterializationDef {
     /// # Triggers to fire upon transaction completion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triggers: Option<crate::triggers::Triggers>,
+    /// # Schedule controlling how often transactions commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_schedule: Option<crate::sync_schedule::SyncSchedule>,
     /// # Delete this materialization.
     /// When true, a publication will delete this materialization.
     #[serde(default, skip_serializing_if = "super::is_false")]
@@ -256,6 +259,7 @@ impl MaterializationDef {
             shards: ShardTemplate::default(),
             expect_pub_id: None,
             triggers: None,
+            sync_schedule: None,
             delete: false,
             reset: false,
             on_incompatible_schema_change: OnIncompatibleSchemaChange::default(),

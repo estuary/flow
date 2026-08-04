@@ -18,6 +18,7 @@ pub fn build_bindings(
         inactive_bindings: _,
         triggers_json: _,
         created_at: _,
+        sync_schedule_json: _,
     } = spec;
 
     let ops::proto::ShardLabeling {
