@@ -96,6 +96,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Datadog
   - [Configuration](./datadog.md)
   - Package - ghcr.io/estuary/source-datadog:v1
+- Datadog ingest (webhook)
+  - [Configuration](./http-ingest/datadog-ingest.md)
+  - Package - ghcr.io/estuary/source-datadog-ingest:v1
 - Dropbox
   - [Configuration](./dropbox.md)
   - Package - ghcr.io/estuary/source-dropbox:v1
@@ -160,7 +163,7 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - [Configuration](./http-file.md)
   - Package - ghcr.io/estuary/source-http-file:v1
 - HTTP ingest (webhook)
-  - [Configuration](./http-ingest.md)
+  - [Configuration](./http-ingest/http-ingest.md)
   - Package - ghcr.io/estuary/source-http-ingest:v1
 - Hubspot (Real-Time)
   - [Configuration](./HubSpot-real-time.md)
@@ -174,6 +177,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Intercom
   - [Configuration](./intercom-native.md)
   - Package - ghcr.io/estuary/source-intercom-native:v1
+- Intercom ingest (webhook)
+  - [Configuration](./http-ingest/intercom-ingest.md)
+  - Package - ghcr.io/estuary/source-intercom-ingest:v1
 - Iterable
   - [Configuration](./iterable-native.md)
   - Package - ghcr.io/estuary/source-iterable-native:v1
@@ -189,6 +195,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Jira
   - [Configuration](./jira-native.md)
   - Package - ghcr.io/estuary/source-jira-native:v3
+- Jira ingest (webhook)
+  - [Configuration](./http-ingest/jira-ingest.md)
+  - Package - ghcr.io/estuary/source-jira-ingest:v1
 - Klaviyo
   - [Configuration](./klaviyo-native.md)
   - Package - ghcr.io/estuary/source-klaviyo-native:v1
@@ -303,6 +312,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Twilio
   - [Configuration](./twilio.md)
   - Package - ghcr.io/estuary/source-twilio:v2
+- Twilio ingest (webhook)
+  - [Configuration](./http-ingest/twilio-ingest.md)
+  - Package - ghcr.io/estuary/source-twilio-ingest:v1
 - Zendesk Chat
   - [Configuration](./zendesk-chat.md)
   - Package - ghcr.io/estuary/source-zendesk-chat:v1
