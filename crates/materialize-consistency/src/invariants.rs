@@ -22,9 +22,11 @@
 //!
 //! So any check whose meaning depends on order must establish that order itself, from
 //! `seq`. Getting this wrong reports violations against a correct connector, which is the
-//! worst thing this suite can do. `check_merged_delta`'s monotonicity is the sole deliberate
-//! exception: it is *about* arrival order, and is exempted for subjects whose destination
-//! cannot preserve it.
+//! worst thing this suite can do.
+//!
+//! The monotonicity checks are the deliberate exceptions — `check_merged_delta`'s and
+//! `check_log`'s — because they are *about* arrival order rather than merely computed in it.
+//! Both are exempted for subjects whose destination cannot preserve it.
 
 use anyhow::Context;
 use serde::Deserialize;

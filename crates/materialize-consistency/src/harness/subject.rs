@@ -240,21 +240,41 @@ pub struct External {
 /// Resolve an external subject from the environment, or `None` for the reference one.
 ///
 /// Both variables are required together: a connector with no config cannot be validated,
-/// and a config with no connector has nothing to configure. Failing on a half-set pair
-/// beats silently testing the reference connector when someone meant otherwise.
+/// and a config with no connector has nothing to configure.
+///
+/// All five or none: a partly-set group is a mistake worth failing on, because the
+/// alternative is silently running the reference connector when someone meant to name a real
+/// one — and a green reference run looks exactly like a green real one in the summary.
 pub async fn external() -> anyhow::Result<Option<External>> {
-    let (connector, config) = match (
-        std::env::var_os(ENV_SUBJECT),
-        std::env::var_os(ENV_SUBJECT_CONFIG),
-    ) {
-        (None, None) => return Ok(None),
-        (Some(connector), Some(config)) => (connector, config),
-        (Some(_), None) => anyhow::bail!("{ENV_SUBJECT} is set but {ENV_SUBJECT_CONFIG} is not"),
-        (None, Some(_)) => anyhow::bail!("{ENV_SUBJECT_CONFIG} is set but {ENV_SUBJECT} is not"),
-    };
+    let named = [
+        (ENV_SUBJECT, std::env::var_os(ENV_SUBJECT)),
+        (ENV_SUBJECT_CONFIG, std::env::var_os(ENV_SUBJECT_CONFIG)),
+        (ENV_SUBJECT_CLASS, std::env::var_os(ENV_SUBJECT_CLASS)),
+        (ENV_SUBJECT_TOOL, std::env::var_os(ENV_SUBJECT_TOOL)),
+        (ENV_SUBJECT_NAME, std::env::var_os(ENV_SUBJECT_NAME)),
+    ];
+    let missing: Vec<&str> = named
+        .iter()
+        .filter(|(_, value)| value.is_none())
+        .map(|(name, _)| *name)
+        .collect();
 
-    let class = std::env::var(ENV_SUBJECT_CLASS)
-        .with_context(|| format!("{ENV_SUBJECT_CLASS} must name the subject's class"))?;
+    if missing.len() == named.len() {
+        return Ok(None); // Nothing named: the reference connector.
+    }
+    anyhow::ensure!(
+        missing.is_empty(),
+        "naming a real subject needs all of {}, and these are unset: {}",
+        named.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", "),
+        missing.join(", "),
+    );
+
+    let [connector, config, class, tool, name] = named
+        .map(|(_, value)| value.expect("every variable is set: the partly-set case bailed above"));
+
+    let class = class
+        .into_string()
+        .map_err(|raw| anyhow::anyhow!("{ENV_SUBJECT_CLASS}={raw:?} is not valid unicode"))?;
     let class: crate::reference::Class = serde_json::from_value(serde_json::json!(class))
         .with_context(|| {
             format!(
@@ -276,18 +296,15 @@ pub async fn external() -> anyhow::Result<Option<External>> {
     let config: serde_json::Value = serde_yaml::from_str(&raw)
         .with_context(|| format!("parsing {ENV_SUBJECT_CONFIG} at {config:?}"))?;
 
-    let tool = std::path::PathBuf::from(
-        std::env::var_os(ENV_SUBJECT_TOOL)
-            .with_context(|| format!("{ENV_SUBJECT_TOOL} must name a built `testctl`"))?,
-    );
+    let tool = std::path::PathBuf::from(tool);
     anyhow::ensure!(
         tool.exists(),
         "{ENV_SUBJECT_TOOL} names {tool:?}, which does not exist. Build it with \
          `go build -o {tool:?} ./tests/materialize/testctl` in the connectors repository."
     );
-    let name = std::env::var(ENV_SUBJECT_NAME).with_context(|| {
-        format!("{ENV_SUBJECT_NAME} must name the connector as `testctl` knows it")
-    })?;
+    let name = name
+        .into_string()
+        .map_err(|raw| anyhow::anyhow!("{ENV_SUBJECT_NAME}={raw:?} is not valid unicode"))?;
 
     let shape = resource_shape(&connector).await?;
 

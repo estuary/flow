@@ -504,9 +504,11 @@ where
             shim.codec.encode(&req, &mut encoded);
 
             let Some(trigger) = request_trigger(&req) else {
-                // Spec / Validate / Apply pass through untouched, and get no
-                // zombie: they are separate invocations of the shim, and a second
-                // process re-running someone's DDL buys the suite nothing.
+                // Spec / Validate / Apply pass through untouched, and get no zombie: a
+                // second process re-running someone's DDL buys the suite nothing. Note they
+                // are not all separate sessions — under runtime-next only `Validate` is,
+                // while `Spec` is the first request of the session that later gets `Open`
+                // and `Apply` runs over shard zero's same stream.
                 to_connector.write_all(&encoded).await?;
                 to_connector.flush().await?;
                 continue;

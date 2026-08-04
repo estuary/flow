@@ -17,8 +17,11 @@ pub const ENV_RUN_DIR: &str = "FLOW_CONSISTENCY_RUN_DIR";
 /// is what the baseline scenario relies on.
 pub const ENV_FAULTS: &str = "FLOW_CONSISTENCY_FAULTS";
 
-/// Set to anything to have the reference connector trace every `Load` and `Store`
-/// of a merged key, and every recovery decision, into `reduce.jsonl`.
+/// Set to anything to have the reference connector trace every `Load` and `Store` of a merged
+/// key, and each staged batch it applies, into `reduce.jsonl`.
+///
+/// Not *every* recovery decision: the counted channel's skip, decided in `open_counters`, is
+/// not traced.
 ///
 /// Off by default and forwarded from the suite's own environment, because it is the
 /// only record of what a reduction *read* before writing — the delivered rows show

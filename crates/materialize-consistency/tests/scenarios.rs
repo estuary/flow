@@ -161,6 +161,10 @@ async fn both_ways(name: &str) {
     // Printed with the count each one suppressed, because an exemption that never fires is
     // paperwork rather than a weakened guarantee — and until this was reported there was no
     // way to tell the two apart.
+    //
+    // Trust these counts on a *reference* run only. A real subject also gets the blanket
+    // monotonicity exemption, which matches the same violations, so a scenario-level
+    // monotonicity exemption is credited for work the blanket one would have done anyway.
     for exempt in &scenario.exempt {
         let suppressed = clean
             .exempted

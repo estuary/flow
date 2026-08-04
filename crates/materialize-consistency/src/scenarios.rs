@@ -134,6 +134,25 @@ const APPENDS_DURING_STORE_REORDERS: &str = "This class appends during Store, so
          therefore not guaranteed to advance monotonically; the set-based checks carry \
          the exactly-once claim and are NOT exempt.";
 
+/// The exactly-once classes a membership change can be *fairly* asked of.
+///
+/// Excludes the counted channel, which writes during `Store`: when a membership change lands
+/// on a transaction whose rows are already in the destination, the children open channels at
+/// offset zero and append the replay a second time. That is the runtime gap discussion 2581
+/// names, and `split-lands-on-prepared-transaction` measures it — deterministically, by
+/// stalling a live prepared transaction.
+///
+/// These three scenarios reach the same state, but only by race: a split lands mid-transaction
+/// nearly always rather than always, and only once a batch has been appended. Asking a counted
+/// channel a question whose answer is a coin flip would report the runtime's gap as the
+/// connector's defect on some runs and pass it on others, which is worse than not asking.
+///
+/// Note this is *not* true of `crash-in-split-leader` and `crash-in-split-non-leader`: they
+/// crash after the split has settled, so the replay happens under stable membership, and a
+/// counted channel handles it — which is why those two hold it to a clean pass.
+const MEMBERSHIP_CHANGE_FAIRLY_ASKED: &[Class] =
+    &[Class::RemoteAuthoritative, Class::PostCommitApply];
+
 /// The classes claiming exactly-once, which is the default applicability set.
 const EXACTLY_ONCE: &[Class] = &[
     Class::RemoteAuthoritative,
@@ -284,8 +303,9 @@ fn crash_between_commits() -> Scenario {
 /// A transaction that never reached `StartCommit` never happened. Anything it left
 /// in the destination must not be applied a second time by the replay.
 ///
-/// Armed after two commits so the crash lands in a transaction of a task that has
-/// established a rhythm, rather than in its first.
+/// Armed after three commits so the crash lands in a transaction of a task that has
+/// established a rhythm, rather than in its first — and, since the warmup is three, never
+/// inside the warmup gate, which has no recovery step.
 fn crash_mid_store() -> Scenario {
     Scenario::new(
         "crash-mid-store",
@@ -327,7 +347,8 @@ fn split_during_store() -> Scenario {
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
-    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS);
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -367,7 +388,8 @@ fn split_during_commit() -> Scenario {
         action: Action::Crash,
     })
     .catches(Defect::IgnoreKeyRange)
-    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS);
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
     scenario.split_shards = true;
     scenario.split_after_fault = true;
     scenario.settle_commits = 5;
@@ -399,6 +421,10 @@ fn split_lands_on_prepared_transaction() -> Scenario {
         action: Action::Stall { millis: 4_000 },
     })
     .catches(Defect::DropDocumentCounter)
+    // This exemption cannot change the verdict: an exposed class hits the `RuntimeGap` panic
+    // below before any violation-based assertion, and a class the gap does not expose is
+    // skipped by `applies_to`. It shapes the *report* — keeping monotonicity noise out of the
+    // violation list the panic prints, so what remains measures the gap itself.
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
     // Written against the counted-channel class, which the gap below leaves unable to pass
     // it, but the perturbation is not class-specific: a split landing on a prepared
@@ -438,7 +464,8 @@ fn join_after_split() -> Scenario {
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
-    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS);
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
 
     scenario.split_shards = true;
     scenario.join_shards = true;
@@ -532,12 +559,13 @@ fn recovery_reconciles_with_destination() -> Scenario {
 ///
 /// The two scenarios below crash a split shard, and they are kept apart because the
 /// two shards fail in different ways and conflating them makes a result unreadable.
-/// The split alone perturbs nothing worth checking: it lands at a transaction
-/// boundary, so nothing is replayed, so no channel has anything to skip — and
-/// skipping is the whole of this class's behaviour. Both `drop-document-counter` and
-/// `ignore-key-range` are invisible to a split-only scenario, which passes in both halves
-/// and establishes nothing. The fault has to create a replay for either defect to have
-/// anything to get wrong.
+/// The split alone is a weak perturbation, though not for the reason first written here: a
+/// split does *not* reliably land at a transaction boundary — the harness cannot ask for one
+/// there, and a transaction is nearly always in flight when a split takes effect (see "Any
+/// split scenario passes through that window" in the design document). What is true is that
+/// a split-only scenario cannot be *relied on* to create the replay these defects need, so it
+/// passes in both halves often enough to establish nothing. Adding a crash makes the replay
+/// certain rather than incidental.
 ///
 /// Neither is the prepared-transaction window: the split has fully landed before the
 /// crash in both, so a correct connector recovers and the limitation recorded in the
@@ -628,12 +656,6 @@ fn at_least_once_never_loses() -> Scenario {
          oracle. Same cause as the duplication exemption above.",
     )
     .declaring(
-        Invariant::StandardDeltaAgreement,
-        "A duplicate applied to one binding and not the other leaves the two views \
-         of the collection disagreeing. Same cause as the duplication exemption \
-         above.",
-    )
-    .declaring(
         Invariant::Monotonicity,
         "Re-applying an interrupted transaction re-delivers sequences the sink has \
          already seen. Same cause as the duplication exemption above.",
@@ -707,7 +729,7 @@ mod test {
     /// `await_commits` for the warmup has no recovery step — deliberately, since nothing
     /// has been perturbed yet — so a crash landing inside that window leaves the shard
     /// FAILED with nobody to unassign it, and the run waits out its deadline instead of
-    /// testing anything. Only a crash does this: a stall, replay or zombie leaves the
+    /// testing anything. Only a crash does this: a stall or a zombie leaves the
     /// shard running and the warmup still completes.
     ///
     /// The failure is intermittent, which is why this is a test and not a review note: a
@@ -717,7 +739,7 @@ mod test {
     fn no_fault_can_fire_before_the_warmup_completes() {
         for scenario in all() {
             for rule in &scenario.faults {
-                // Only a crash matters. A stall, a replay or a zombie leaves the shard
+                // Only a crash matters. A stall or a zombie leaves the shard
                 // running, so the warmup gate keeps making progress through them —
                 // `zombie-at-start-commit` fires in the second transaction and is fine.
                 if rule.action != Action::Crash {

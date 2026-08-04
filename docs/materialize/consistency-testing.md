@@ -219,8 +219,8 @@ suite does with a script. Unassigning is *preferred* over republishing, because 
 bumps the materialization's version and opens a new session, perturbing the task under test
 at the moment the run has stopped perturbing it on purpose. But it is preferred, not
 absolute: unassigning restores a split task only about two runs in three, so after a third
-of its budget `recover` escalates to exactly that republish rather than fail the run. See
-"Recovery escalates" below.
+of its budget `recover` escalates to exactly that republish rather than fail the run. See "Crashing a split
+shard" below.
 
 One consequence is worth knowing:
 
@@ -241,14 +241,38 @@ compares. That expectation is authoritative and the connector under test had no
 hand in it, which is what makes "never loses data" a real check rather than a
 hopeful one.
 
-### Destination reads go through the connector binary
+### Destination reads go through connector code, not through a client of our own
 
-Retrieving all rows of a materialized resource is already a required method of the
-shared materializer interface, implemented once for every SQL destination. A
-harness in the flow repository cannot call Go code across the repository boundary,
-so `materialize-boilerplate` exposes what it already has as a `read` subcommand
-emitting newline-delimited JSON, and the reference connector implements the same
-subcommand. One code path serves both.
+Verification must read what actually landed, and the protocol offers no way to: `Load`
+answers only the keys the runtime asks about, and only for bindings that are not
+delta-updates. Reaching into the destination directly would mean the harness carrying a
+client for every endpoint it might be pointed at, which is the thing it exists not to do.
+
+Retrieving all rows of a resource is already a required method of the shared materializer
+interface — `Materializer.SnapshotTestResource` — as is removing one, `DeleteResource`. The
+harness is Rust and the connectors are Go, so reaching them needs a process boundary.
+
+**Two designs were built here, and the second is better.** The first added `read` and
+`drop-resource` subcommands to `materialize-boilerplate`, which every connector then carried.
+That was wrong twice over: a production CLI should not grow surface for a test harness, and
+the subcommands were a *second implementation* of methods that already existed, so the
+integration tests and the harness had two accounts of what a resource holds.
+
+The second, and what is here now, is `tests/materialize/testctl` in the connectors
+repository: a program outside the connector that calls those same two methods. It needs the
+connector's package to be importable — `package connector` with `func main` under
+`cmd/connector`, which `materialize-iceberg` already did and `materialize-databricks` was
+converted to — and it means no connector grows a subcommand for this suite.
+
+So there are deliberately **two** read paths, and `stack::ReadVia` makes the choice explicit
+rather than implicit in which arguments happen to be set:
+
+- the reference connector's own `read` subcommand, which is fine because it lives in this
+  repository, nothing else runs it, and it is Rust that `testctl` cannot drive;
+- `testctl` for a real subject.
+
+Removing a resource is `testctl` only. The reference connector's destination is a file inside
+the run directory, deleted with it.
 
 ### Compliance model: default-strict with justified exemptions
 
@@ -305,7 +329,7 @@ before any production connector adopts it.
 | --- | --- | --- | --- |
 | `remoteAuthoritative` | `StartCommit` | destination checkpoint | nonce table |
 | `postCommitApply` | `Acknowledge`, from durable staging | recovery log | — |
-| `documentCounter` | `Store`, appending to a counted channel | destination count | nonce table |
+| `documentCounter` | `Store`, appending to a counted channel | destination count | — |
 | `atLeastOnce` | `Store` | recovery log | — |
 
 Three details of `postCommitApply` are load-bearing and follow `materialize-databricks`

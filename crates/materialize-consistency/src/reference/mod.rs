@@ -16,7 +16,7 @@
 //! | --- | --- | --- | --- |
 //! | `remoteAuthoritative` | `StartCommit` | destination checkpoint | nonce table |
 //! | `postCommitApply` | `Acknowledge`, from durable staging | recovery log | — |
-//! | `documentCounter` | `Store`, appending to a fenced channel | destination count | nonce table |
+//! | `documentCounter` | `Store`, appending to a counted channel | destination count | — |
 //! | `atLeastOnce` | `Store` | recovery log | — |
 
 pub mod store;
@@ -218,6 +218,13 @@ pub struct Session {
     /// `StartedCommit(N+1)` — so "everything currently staged" is the wrong thing to
     /// apply: it would commit N+1's work before the recovery log holds it, and a replay
     /// of N+1 would then reduce its documents onto a destination that already counts them.
+    ///
+    /// The *protocol* permits a connector to acknowledge early, which is what this defends
+    /// against. The runtime as it stands cannot produce the interleaving: `Flush(N+1)` waits
+    /// on `Tail::Done`, which requires every shard's `Acknowledged(N)`, so `Acknowledge(N)`
+    /// always precedes `StartCommit(N+1)` and this deque never holds more than one entry.
+    /// Kept because the guarantee it relies on is the runtime's scheduling, not the protocol's
+    /// contract.
     published: std::collections::VecDeque<BTreeMap<String, PendingApply>>,
     /// Pending work of *other* ranges — peers of this transaction, and ranges left by
     /// previous shard topologies. Tracked and executed only by the primary.
@@ -788,8 +795,8 @@ fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i
 /// `Flush` has arrived, do they join against the target table.
 ///
 /// It is not the only legal shape. `materialize-clickhouse`, `-elasticsearch`, `-bigtable`
-/// and `-google-sheets` instead call `it.WaitForAcknowledged()` inside the loop and read per
-/// key, which is equally correct because the wait still precedes any read. What matters is
+/// and `-google-sheets` instead call `it.WaitForAcknowledged()` once before the loop and then
+/// read per key, which is equally correct because the wait still precedes any read. What matters is
 /// the ordering, not the batching.
 ///
 /// That is not merely a batching convenience: `Flush` is the runtime's signal that the
