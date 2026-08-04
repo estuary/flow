@@ -646,9 +646,15 @@ fn at_least_once_never_loses() -> Scenario {
     )
     .declaring(
         Invariant::Conservation,
-        "Conservation is arithmetic over delivered documents, so a duplicate breaks \
-         it as surely as a loss would. Exempt for the same cause as duplication \
-         itself.",
+        "Conservation is arithmetic over delivered documents, so a duplicate can break it \
+         as surely as a loss would — but only sometimes, and the difference is worth \
+         knowing before anyone deletes this. The workload is double-entry: every transfer \
+         is a matched pair of legs, and replaying a whole transaction re-applies both, so \
+         the sum still balances and nothing fires. It fires when a pair straddles the \
+         replayed transaction's boundary, because then one leg is duplicated without its \
+         partner. Transaction boundaries are time-based, so that is uncommon rather than \
+         impossible, and this exemption measures zero on most runs. Zero here means rare, \
+         not unnecessary: removing it would make this scenario fail intermittently.",
     )
     .declaring(
         Invariant::OracleAgreement,

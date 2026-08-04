@@ -165,6 +165,12 @@ async fn both_ways(name: &str) {
     // Trust these counts on a *reference* run only. A real subject also gets the blanket
     // monotonicity exemption, which matches the same violations, so a scenario-level
     // monotonicity exemption is credited for work the blanket one would have done anyway.
+    //
+    // And a zero is not on its own grounds to delete an exemption: it may mean the violation
+    // is *rare* rather than impossible. Deleting needs an argument that the violation cannot
+    // occur, with the count as corroboration — `at-least-once-never-loses`'s conservation
+    // exemption measures zero on most runs and is still load-bearing, while the two removed
+    // in 5525ae9c19f were unreachable by construction as well as unmeasured.
     for exempt in &scenario.exempt {
         let suppressed = clean
             .exempted
