@@ -269,6 +269,15 @@ func (f *FlowConsumer) tickTimepoint(wallTime time.Time) {
 
 // InitApplication starts shared services of the flow-consumer.
 func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
+	// Gazette's InitDiagnosticsAndRecover enables grpc.EnableTracing, under
+	// which every gRPC stream pins its sent and received messages in
+	// golang.org/x/net/trace event logs until the stream completes. Runtime
+	// session streams live for the length of a shard session, and their Task
+	// message embeds the complete marshalled task spec: on busy reactors,
+	// tracing pinned hundreds of MB of otherwise-dead spec bytes. We prefer
+	// the memory over the /debug/requests diagnostic.
+	grpc.EnableTracing = false
+
 	bindings.RegisterPrometheusCollector()
 	var config = *args.Config.(*FlowConsumerConfig)
 
