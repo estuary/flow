@@ -89,6 +89,16 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             n_shards = self.task.n_shards,
             "materialize Actor::serve started",
         );
+        // Surface that this task paces its commits to a sync schedule, once
+        // per leader session.
+        if let Some(sync_schedule) = &self.task.sync_schedule {
+            service_kit::event!(
+                tracing::Level::INFO,
+                "leader",
+                sync_schedule = service_kit::event::json(sync_schedule.model.clone()),
+                "sync schedule active; pacing transaction commits",
+            );
+        }
         assert_eq!(self.task.n_shards, shard_rx.len());
         assert_eq!(self.task.n_shards, self.shard_tx.len());
 
@@ -713,6 +723,8 @@ mod tests {
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
             shard_ref: ops::ShardRef::default(),
             triggers: None,
+            sync_schedule: None,
+            sync_seed: 0,
         };
         let actor = Actor::new(
             BTreeMap::new(),

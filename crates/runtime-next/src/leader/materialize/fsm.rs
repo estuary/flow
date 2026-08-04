@@ -266,6 +266,11 @@ pub struct HeadIdle {
     /// Close Clock of the last transaction, which may be recovered from a
     /// prior session, or zero.
     pub last_close: uuid::Clock,
+    /// Is this the first transaction of this leader session?
+    /// A sync schedule never holds it: delaying a restarted task's recovery
+    /// commit for up to a full schedule interval would turn routine restarts
+    /// into stalls.
+    pub session_start: bool,
 }
 
 impl HeadIdle {
@@ -324,6 +329,14 @@ impl HeadIdle {
                 // `extents.frontier`, so without this the txn could neither extend
                 // (replay suppresses policy extend) nor close — spinning Idle forever.
                 || (self.idempotent_replay && !is_open),
+            open_duration: compute_open_duration(
+                task,
+                is_open,
+                self.session_start,
+                self.extents.open,
+                now,
+                open_age,
+            ),
         });
 
         // Should we extend with a ready next Frontier?
@@ -1154,6 +1167,70 @@ pub struct TailDone {
     pub shard_patches: bytes::Bytes,
 }
 
+/// Effective min/max open-transaction duration band for one close-policy
+/// evaluation. Without a sync schedule this is the policy's configured band.
+///
+/// A schedule modulates the band per evaluation — the configured min/max stop
+/// being the levers and the schedule dynamically takes their place: the band
+/// collapses onto the next scheduled commit instant, which acts as floor
+/// (extend-only below it, even though a schedule interval may far exceed
+/// max_txn_duration) and as ceiling (close at it, even with more data ready).
+/// Usage ceilings, close requests, and graceful stops remain the only
+/// early-close drivers.
+///
+/// The commit instant is the next grid instant after the transaction OPENED —
+/// "the next instant after now" as of when the hold is established, not the
+/// instant after the prior commit. A prior-commit anchor finds an
+/// already-elapsed target whenever more than one interval passed since the
+/// last commit (an idle source, or commits running longer than the interval),
+/// which would read as "no hold" and land commits off-grid — breaking
+/// shared-destination coalescing. The open is also stable across evaluations,
+/// where a literal `now` anchor would hop the target one interval forward
+/// whenever a wake lands a hair past the instant, re-holding forever.
+///
+/// The floor stays un-raised while no transaction is open and for the first
+/// transaction of a session: never delay the recovery commit.
+///
+/// A configured schedule always paces (we don't second-guess it with backfill
+/// detection): during a backfill the combiner usage ceiling forces commits well
+/// before the instant, so bulk data still drains under its own weight.
+fn compute_open_duration(
+    task: &Task,
+    is_open: bool,
+    session_start: bool,
+    open: uuid::Clock,
+    now: uuid::Clock,
+    open_age: Duration,
+) -> std::ops::Range<Duration> {
+    let Some(sched) = &task.sync_schedule else {
+        return task.close_policy.open_duration.clone();
+    };
+    // When no hold applies, only the schedule's floor is waived
+    let unheld = Duration::ZERO..task.close_policy.open_duration.end;
+
+    if !is_open || session_start {
+        return unheld;
+    }
+
+    // Anchor the schedule grid on the transaction's open and hold until the
+    // next instant strictly after it.
+    let anchor = tokens::DateTime::from(open.to_time());
+    let now = tokens::DateTime::from(now.to_time());
+    let Some(target) = sched.next_fire_after(anchor, task.sync_seed) else {
+        return unheld;
+    };
+
+    // Floor and ceiling both sit `remaining` past the current open age (zero
+    // once the instant elapses): a busy source never idles, so waiting for a
+    // lull would land commits off-grid and unboundedly late.
+    let remaining = target
+        .signed_duration_since(now)
+        .to_std()
+        .unwrap_or(Duration::ZERO);
+    let hold = open_age.saturating_add(remaining);
+    hold..hold
+}
+
 /// Leader-lifetime debounce state for materialization triggers. Accumulates
 /// per-transaction windows and gates firing to at most once per the task's
 /// configured trigger `interval`.
@@ -1401,7 +1478,250 @@ mod tests {
                 })
                 .unwrap(),
             )),
+            sync_schedule: None,
+            sync_seed: 0,
         }
+    }
+
+    #[test]
+    fn no_hold_evaluations_keep_the_configured_txn_ceiling() {
+        // When a schedule imposes no hold -- a zero-interval regime, a
+        // not-yet-open transaction, or a session's first transaction -- the
+        // band falls back to the task's configured max_txn_duration rather
+        // than MAX: otherwise a busy source would extend until the combiner
+        // byte ceiling, committing far less often than the configured
+        // maximum.
+        let mut task = mk_task(1);
+        task.close_policy = close_policy::Policy::new(Duration::ZERO, Duration::from_secs(300));
+        task.sync_schedule = Some(
+            super::super::sync_schedule::CompiledSchedule::new(models::SyncSchedule {
+                base_interval: Duration::ZERO,
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        let t0 = uuid::Clock::from_unix(1_700_000_000, 0);
+        let now = uuid::Clock::from_unix(1_700_000_010, 0);
+        let want = Duration::ZERO..Duration::from_secs(300);
+
+        // A zero-interval regime imposes no hold.
+        assert_eq!(
+            compute_open_duration(&task, true, false, t0, now, Duration::from_secs(10)),
+            want,
+        );
+        // Neither does an un-opened transaction, nor a session's first.
+        assert_eq!(
+            compute_open_duration(&task, false, false, t0, now, Duration::ZERO),
+            want,
+        );
+        assert_eq!(
+            compute_open_duration(&task, true, true, t0, now, Duration::from_secs(10)),
+            want,
+        );
+    }
+
+    // Build the harness for a materialization with a fixed 300s sync schedule,
+    // anchored on a prior commit at t0, with one transaction opened and loaded,
+    // and `now` at t0 + 10s -- well before the t0 + 100s commit instant. (The
+    // 300s epoch-relative grid places the next instant after t0 at t0 + 100s,
+    // since t0 = 1_700_000_000 sits 200s into its slot.) A configured schedule
+    // makes the task ignore min/max_txn_duration, so nothing but the schedule
+    // and the usage ceiling drives the close.
+    fn scheduled_ctx() -> (Ctx, Head, Tail) {
+        let mut task = mk_task(1);
+        task.sync_schedule = Some(
+            super::super::sync_schedule::CompiledSchedule::new(models::SyncSchedule {
+                base_interval: Duration::from_secs(300),
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        task.sync_seed = 0; // No jitter.
+
+        let t0 = uuid::Clock::from_unix(1_700_000_000, 0);
+        let mut ctx = Ctx {
+            binding_bytes_behind: vec![0; 1],
+            close_requested: false,
+            debounce: TriggerDebounce::default(),
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: uuid::Clock::from_unix(1_700_000_010, 0),
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: None,
+            shard_rx: None,
+            stats_idle: false,
+            stopping: false,
+            task,
+            trigger_running: false,
+        };
+
+        let mut tail = Tail::Done(TailDone::default());
+        let mut head = Head::Idle(HeadIdle {
+            last_close: t0,
+            ..Default::default()
+        });
+
+        // Open a transaction and load it, so it's open with data.
+        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        (_, head) = ctx.step_head(head, &mut tail);
+        ctx.shard_rx = Some(mk_loaded(0));
+        (_, head) = ctx.step_head(head, &mut tail);
+        assert!(matches!(head, Head::Idle(_)), "transaction open after load");
+
+        (ctx, head, tail)
+    }
+
+    #[test]
+    fn sync_schedule_holds_until_the_commit_instant() {
+        let (mut ctx, head, mut tail) = scheduled_ctx();
+
+        // Before the instant: the schedule holds the transaction open, sleeping
+        // until the instant rather than closing.
+        let (action, head) = ctx.step_head(head, &mut tail);
+        let Action::Sleep { wake_after } = action else {
+            panic!("expected Sleep (held), got {action:?}");
+        };
+        assert!(
+            wake_after > Duration::from_secs(85) && wake_after <= Duration::from_secs(90),
+            "expected ~90s until the commit instant, got {wake_after:?}",
+        );
+        assert!(matches!(head, Head::Idle(_)), "still holding open");
+
+        // At the instant: the hold releases and the transaction closes.
+        ctx.now = uuid::Clock::from_unix(1_700_000_101, 0);
+        let (action, _head) = ctx.step_head(head, &mut tail);
+        assert!(
+            matches!(action, Action::Flush { .. }),
+            "expected Flush at the commit instant, got {action:?}",
+        );
+    }
+
+    // The schedule is a deadline, not just a floor. A held transaction keeps
+    // combining ready frontiers, but AT the commit instant it must close even
+    // though more source data is ready: a busy source otherwise defers the
+    // commit to its next lull (or the combiner usage ceiling), landing it
+    // off-grid and unboundedly late. Docs arriving at the instant simply wait
+    // for the next transaction.
+    #[test]
+    fn sync_schedule_closes_at_the_instant_despite_a_ready_frontier() {
+        let (mut ctx, mut head, mut tail) = scheduled_ctx();
+
+        // Before the instant, a ready frontier extends the held transaction.
+        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(
+            matches!(action, Action::Load { .. }),
+            "expected the held transaction to extend before the instant, got {action:?}",
+        );
+        ctx.shard_rx = Some(mk_loaded(0));
+        (_, head) = ctx.step_head(head, &mut tail);
+
+        // Past the t0 + 100s commit instant, with yet another frontier ready:
+        // the transaction closes rather than extending again.
+        ctx.now = uuid::Clock::from_unix(1_700_000_101, 0);
+        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        let (action, _head) = ctx.step_head(head, &mut tail);
+        assert!(
+            matches!(action, Action::Flush { .. }),
+            "expected Flush at the commit instant, got {action:?}",
+        );
+        assert!(
+            ctx.ready_frontier.is_some(),
+            "the ready frontier is left for the next transaction",
+        );
+    }
+
+    // A graceful stop (Stop from a shard, e.g. on a spec update) arrives while
+    // the sync schedule holds an open transaction, well before the commit
+    // instant. The hold must release so the task drains and restarts promptly,
+    // rather than sleeping until the instant — up to a full schedule interval.
+    #[test]
+    fn sync_schedule_releases_hold_on_graceful_stop() {
+        let (mut ctx, head, mut tail) = scheduled_ctx();
+        ctx.stopping = true;
+
+        let (action, _head) = ctx.step_head(head, &mut tail);
+        assert!(
+            matches!(action, Action::Flush { .. }),
+            "expected prompt Flush on graceful stop, got {action:?}",
+        );
+    }
+
+    #[test]
+    fn sync_schedule_does_not_hold_the_first_transaction_of_a_session() {
+        // At session start the handler seeds `last_close` from the RECOVERED
+        // checkpoint -- a real, non-zero clock -- but the recovery commit must
+        // never be held: a routine restart would otherwise stall for up to a
+        // full schedule interval. `session_start`, not a zero `last_close`,
+        // gates the skip.
+        let (mut ctx, _, mut tail) = scheduled_ctx();
+
+        // Rebuild the head exactly as the handler does at session start, and
+        // open + load a transaction as scheduled_ctx did.
+        let mut head = Head::Idle(HeadIdle {
+            last_close: uuid::Clock::from_unix(1_700_000_000, 0),
+            session_start: true,
+            ..Default::default()
+        });
+        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        (_, head) = ctx.step_head(head, &mut tail);
+        ctx.shard_rx = Some(mk_loaded(0));
+        (_, head) = ctx.step_head(head, &mut tail);
+
+        // Still well before the t0 + 100s commit instant, the transaction
+        // closes promptly instead of holding.
+        let (action, _head) = ctx.step_head(head, &mut tail);
+        assert!(
+            matches!(action, Action::Flush { .. }),
+            "expected prompt Flush for the session's first transaction, got {action:?}",
+        );
+    }
+
+    // A transaction that opens after an idle gap -- more than one schedule
+    // interval since `last_close` -- must hold to the next grid instant after
+    // it opened. Anchoring the grid on the stale `last_close` instead finds an
+    // already-elapsed target, which reads as "no hold": the commit lands
+    // off-grid, breaking shared-destination coalescing (tasks sharing a
+    // tenant are meant to wake the warehouse at the same instants).
+    // The same stale-anchor path collapses the schedule entirely whenever commits
+    // run longer than the interval.
+    #[test]
+    fn sync_schedule_holds_a_transaction_opened_after_an_idle_gap() {
+        let (mut ctx, _, mut tail) = scheduled_ctx();
+
+        // Rebuild the head as it stands after a commit at t0, and let two grid
+        // instants (t0 + 100s, t0 + 400s) elapse with no data before a
+        // transaction opens and loads at t0 + 610s.
+        let mut head = Head::Idle(HeadIdle {
+            last_close: uuid::Clock::from_unix(1_700_000_000, 0),
+            ..Default::default()
+        });
+        ctx.now = uuid::Clock::from_unix(1_700_000_610, 0);
+        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        (_, head) = ctx.step_head(head, &mut tail);
+        ctx.shard_rx = Some(mk_loaded(0));
+        (_, head) = ctx.step_head(head, &mut tail);
+
+        // The next grid instant after the open is t0 + 700s: the transaction
+        // holds (~90s) rather than closing immediately off-grid.
+        let (action, head) = ctx.step_head(head, &mut tail);
+        let Action::Sleep { wake_after } = action else {
+            panic!("expected Sleep (held to the t0 + 700s instant), got {action:?}");
+        };
+        assert!(
+            wake_after > Duration::from_secs(85) && wake_after <= Duration::from_secs(90),
+            "expected ~90s until the next grid instant, got {wake_after:?}",
+        );
+        assert!(matches!(head, Head::Idle(_)), "still holding open");
+
+        // At that instant the hold releases.
+        ctx.now = uuid::Clock::from_unix(1_700_000_701, 0);
+        let (action, _head) = ctx.step_head(head, &mut tail);
+        assert!(
+            matches!(action, Action::Flush { .. }),
+            "expected Flush at the commit instant, got {action:?}",
+        );
     }
 
     fn mk_loaded(shard: usize) -> (usize, proto::Materialize) {
