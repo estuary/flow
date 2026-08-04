@@ -7,7 +7,7 @@ use async_graphql::{
 };
 use std::collections::HashMap;
 
-pub(crate) use crate::data_plane::{DataPlaneCloudProvider, parse_data_plane_name};
+use crate::data_plane::{DataPlaneCloudProvider, parse_data_plane_name};
 
 /// Filter for the `dataPlanes` query. Each field is optional and only
 /// narrows results. A filter cannot show data planes the caller cannot read.

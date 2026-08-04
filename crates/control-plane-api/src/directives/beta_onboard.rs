@@ -1,13 +1,25 @@
 use sqlx::types::Uuid;
 
-/// Derives the colocated trial bucket for a public AWS data-plane.
+/// Derives the colocated trial bucket for a public AWS data-plane, returning
+/// `None` for any plane that has no colocated bucket (non-AWS, non-public, or
+/// an unparseable name).
+///
 /// The name is a pure function of plane identity and is deliberately not
 /// stored anywhere; est-dry-dock creates the bucket from the same formula
-/// (est_dry_dock/models/__init__.py::trial_bucket_name).
-pub fn trial_bucket_name(data_plane_name: &str, region: &str) -> String {
+/// (est_dry_dock/models/__init__.py::trial_bucket_name). Region is parsed from
+/// the plane name rather than accepted separately, so a bucket can never be
+/// derived from a region that disagrees with the plane it belongs to.
+pub fn trial_bucket_name(data_plane_name: &str) -> Option<(String, String)> {
+    use crate::data_plane::{DataPlaneCloudProvider, parse_data_plane_name};
     use sha2::Digest;
+
+    let (DataPlaneCloudProvider::Aws, region, _tag, true) = parse_data_plane_name(data_plane_name)?
+    else {
+        return None;
+    };
+
     let digest = hex::encode(sha2::Sha256::digest(data_plane_name.as_bytes()));
-    format!("estuary-trial-{region}-{}", &digest[..8])
+    Some((format!("estuary-trial-{region}-{}", &digest[..8]), region))
 }
 
 pub async fn is_user_provisioned(
@@ -94,43 +106,32 @@ fn order_public_planes(mut planes: Vec<String>, default_plane: &str) -> Vec<Stri
 /// specs point at the plane's colocated S3 trial bucket (created by
 /// est-dry-dock from the same derivation). GCP/Azure planes, unparseable
 /// plane names, and `colocate` being unset all keep the legacy GCS bucket.
-fn storage_specs(
-    default_plane: Option<&str>,
-    all_planes: &[String],
-    colocate: bool,
-) -> (serde_json::Value, serde_json::Value) {
-    use crate::data_plane::{DataPlaneCloudProvider, parse_data_plane_name};
+fn storage_specs(all_planes: &[String], colocate: bool) -> (serde_json::Value, serde_json::Value) {
+    // The first entry of the ordered list is the tenant's default plane, and
+    // the only one a colocated bucket could belong to.
+    let s3 = all_planes
+        .first()
+        .filter(|_| colocate)
+        .and_then(|name| trial_bucket_name(name));
 
-    let s3 = match default_plane {
-        Some(name) if colocate => match parse_data_plane_name(name) {
-            Some((DataPlaneCloudProvider::Aws, region, _tag, true)) => {
-                Some((trial_bucket_name(name, &region), region))
-            }
-            _ => None,
-        },
-        _ => None,
+    // The recovery spec is the collection spec's store without the prefix and
+    // without data_planes; build one store and derive both from it, so the S3
+    // and GCS shapes cannot drift apart.
+    let mut store = match &s3 {
+        Some((bucket, region)) => {
+            serde_json::json!({"provider": "S3", "bucket": bucket, "region": region})
+        }
+        None => serde_json::json!({"provider": "GCS", "bucket": "estuary-trial"}),
     };
+    let recovery_spec = serde_json::json!({"stores": [store.clone()]});
 
-    match s3 {
-        Some((bucket, region)) => (
-            serde_json::json!({
-                "stores": [{"provider": "S3", "bucket": bucket, "prefix": "collection-data/", "region": region}],
-                "data_planes": all_planes,
-            }),
-            serde_json::json!({
-                "stores": [{"provider": "S3", "bucket": bucket, "region": region}],
-            }),
-        ),
-        None => (
-            serde_json::json!({
-                "stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}],
-                "data_planes": all_planes,
-            }),
-            serde_json::json!({
-                "stores": [{"provider": "GCS", "bucket": "estuary-trial"}],
-            }),
-        ),
-    }
+    store["prefix"] = serde_json::json!("collection-data/");
+    let tenant_spec = serde_json::json!({
+        "stores": [store],
+        "data_planes": all_planes,
+    });
+
+    (tenant_spec, recovery_spec)
 }
 
 pub async fn provision_tenant(
@@ -169,11 +170,7 @@ pub async fn provision_tenant(
     // the ordered list is the tenant's default data-plane.
     let default_plane = requested_data_plane.unwrap_or(DEFAULT_PUBLIC_DATA_PLANE);
     let public_planes = order_public_planes(public_planes, default_plane);
-    let (tenant_spec, recovery_spec) = storage_specs(
-        public_planes.first().map(String::as_str),
-        &public_planes,
-        colocate_trial_bucket,
-    );
+    let (tenant_spec, recovery_spec) = storage_specs(&public_planes, colocate_trial_bucket);
 
     sqlx::query!(
         r#"with
@@ -272,9 +269,25 @@ mod test {
     #[test]
     fn trial_bucket_name_golden_vector() {
         assert_eq!(
-            super::trial_bucket_name("ops/dp/public/aws-us-east-1-c1", "us-east-1"),
-            "estuary-trial-us-east-1-ccc98e22",
+            super::trial_bucket_name("ops/dp/public/aws-us-east-1-c1"),
+            Some((
+                "estuary-trial-us-east-1-ccc98e22".to_string(),
+                "us-east-1".to_string(),
+            )),
         );
+    }
+
+    // Only public AWS planes have a colocated bucket.
+    #[test]
+    fn trial_bucket_name_rejects_planes_without_a_colocated_bucket() {
+        for name in [
+            "ops/dp/public/gcp-europe-west1-c1",
+            "ops/dp/public/azure-eastus2-c1",
+            "ops/dp/public/test", // unparseable name (local dev env)
+            "ops/dp/private/sean-estuary/aws-eu-west-1-c1",
+        ] {
+            assert_eq!(super::trial_bucket_name(name), None, "case: {name}");
+        }
     }
 
     #[test]
@@ -302,7 +315,7 @@ mod test {
     #[test]
     fn storage_specs_default_to_gcs_trial() {
         let planes = vec!["ops/dp/public/aws-us-east-1-c1".to_string()];
-        let (tenant, recovery) = super::storage_specs(Some(&planes[0]), &planes, false);
+        let (tenant, recovery) = super::storage_specs(&planes, false);
         assert_eq!(
             tenant,
             serde_json::json!({
@@ -324,8 +337,7 @@ mod test {
             "ops/dp/public/aws-us-east-1-c1".to_string(),
             "ops/dp/public/gcp-europe-west1-c1".to_string(),
         ];
-        let (tenant, recovery) =
-            super::storage_specs(Some("ops/dp/public/aws-us-east-1-c1"), &planes, true);
+        let (tenant, recovery) = super::storage_specs(&planes, true);
         assert_eq!(
             tenant,
             serde_json::json!({
@@ -350,22 +362,22 @@ mod test {
         );
     }
 
-    // Non-AWS default planes, unparseable names, and colocate=false all fall
-    // back to the GCS trial bucket.
+    // Non-AWS default planes, unparseable names, an empty plane list, and
+    // colocate=false all fall back to the GCS trial bucket.
     #[test]
     fn storage_specs_fall_back_to_gcs() {
-        for (default_plane, colocate) in [
-            (Some("ops/dp/public/gcp-europe-west1-c1"), true),
-            (Some("ops/dp/public/test"), true), // unparseable name (local dev env)
-            (None, true),
-            (Some("ops/dp/public/aws-us-east-1-c1"), false),
+        for (planes, colocate) in [
+            (vec!["ops/dp/public/gcp-europe-west1-c1".to_string()], true),
+            // Unparseable name (local dev env).
+            (vec!["ops/dp/public/test".to_string()], true),
+            (vec![], true),
+            (vec!["ops/dp/public/aws-us-east-1-c1".to_string()], false),
         ] {
-            let planes = vec![default_plane.unwrap_or("ops/dp/public/x").to_string()];
-            let (tenant, _) = super::storage_specs(default_plane, &planes, colocate);
+            let (tenant, _) = super::storage_specs(&planes, colocate);
             assert_eq!(
                 tenant["stores"][0],
                 serde_json::json!({"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}),
-                "case: {default_plane:?} colocate={colocate}",
+                "case: {planes:?} colocate={colocate}",
             );
         }
     }
