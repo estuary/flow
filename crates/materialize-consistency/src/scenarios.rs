@@ -494,14 +494,11 @@ fn destination_ahead_of_checkpoint() -> Scenario {
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never \
-         commits are visible until recovery skips past them. Delivery order at the \
-         sink across that boundary is therefore not guaranteed to advance \
-         monotonically, though the contents of a committed transaction are still \
-         exactly-once.",
-    )
+    // No monotonicity exemption, unlike the membership-change scenarios. Nothing here
+    // reorders delivery: there is no membership change, the replayed input is byte-identical
+    // journal order, and the recovery skip is a per-binding prefix count. Measured over three
+    // runs, an exemption here suppressed nothing — and one that suppresses nothing makes the
+    // exemption list a worse map of where the fleet is actually weak.
 }
 
 /// The same interruption, against a connector that trusts its own checkpoint
@@ -521,12 +518,7 @@ fn recovery_reconciles_with_destination() -> Scenario {
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 5))
     .catches(Defect::ResetCounterOnOpen)
-    .declaring(
-        Invariant::Monotonicity,
-        "Same cause as destination-ahead-of-checkpoint: this class makes rows of an \
-         uncommitted transaction visible, so sink delivery order across a recovery \
-         boundary may not advance monotonically.",
-    )
+    // No monotonicity exemption, for the same reason as `destination-ahead-of-checkpoint`.
 }
 
 /// The one membership-change scenario whose class can actually survive it.
