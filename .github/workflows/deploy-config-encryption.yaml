@@ -47,9 +47,6 @@ jobs:
           project_id: estuary-control
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
-          # The service reads its listen port from API_PORT (default 8765) and ignores
-          # Cloud Run's injected PORT, so the container port is stated explicitly.
-          port: 8765
 
           # The service predates this workflow and was last deployed by hand in 2023 with
           # a since-removed CLI (`--log.format`, `--gcp-kms`). Clearing command/args hands
@@ -57,12 +54,19 @@ jobs:
           # stale args in place would make the container exit on unrecognized arguments.
           # The `config-encryption` runtime service account already holds
           # roles/cloudkms.cryptoKeyEncrypter on the KMS key's project.
+          #
+          # `--port` must go here rather than in a `port:` input: deploy-cloudrun@v2 has no
+          # such input and silently ignores one, which leaves the container port at Cloud
+          # Run's 8080 default while the service listens on API_PORT, failing the startup
+          # probe. API_PORT below is set to the same value so neither side is implicit.
           flags: >-
             --command=""
             --args=""
+            --port=8765
             --service-account=config-encryption@estuary-control.iam.gserviceaccount.com
 
           env_vars: |-
+            API_PORT=8765
             KMS_TYPE=gcp
             KMS_KEY=projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor
             NO_COLOR=1
