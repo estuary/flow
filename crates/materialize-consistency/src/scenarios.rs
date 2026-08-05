@@ -285,10 +285,11 @@ fn baseline() -> Scenario {
 /// connector's work is durable and the recovery log has committed, but the process
 /// dies before the two are reconciled.
 ///
-/// The crash is keyed on the `Acknowledged` *response*, which is the only point
-/// where the connector has finished applying a transaction and the shim can still
-/// kill it. Restarting there replays the same `Acknowledge`, and only an idempotent
-/// one leaves the destination unchanged.
+/// The crash is keyed on the `Acknowledged` *response*, the earliest point at which the
+/// connector has finished applying a transaction and the shim can still kill it — not the only
+/// one, since a crash anywhere up to the next recovery-log commit replays the same
+/// `Acknowledge`, but the earliest, so the least is happening around it. Restarting there
+/// replays that `Acknowledge`, and only an idempotent one leaves the destination unchanged.
 fn crash_between_commits() -> Scenario {
     Scenario::new(
         "crash-between-commits",

@@ -54,7 +54,7 @@ credentials and no cloud spend.
 | `invariants.rs` | The checkers, as pure functions over documents. Unit-tested here. |
 | `harness/mod.rs` | The runner: publish, perturb, quiesce, verify, clean up. |
 | `harness/catalog.rs` | The catalog a run publishes, and why the workload is shaped as it is. |
-| `harness/stack.rs` | Everything needed from the stack, all through `flowctl`. |
+| `harness/stack.rs` | Everything needed from the stack: `flowctl`, plus `gazctl` via `scripts/` for shard surgery. |
 | `tests/scenarios.rs` | The suite's one seam: every scenario, run clean and then defective. |
 
 `FaultRule` carries a `ShardTarget` — `Any`, `SplitLeader` or `SplitNonLeader` —
@@ -111,7 +111,7 @@ must survive is rarely a property of its class — but three exclusions are wort
   because each lands a membership change on a live transaction and whether that reaches the
   counted channel's exposure is a race — see `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
 
-So a `documentCounter` subject skips **five** scenarios, not one. Read the run's
+So a `documentCounter` subject skips **four** scenarios, not one. Read the run's
 `not-applicable` lines rather than counting on this list to stay current.
 
 Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every

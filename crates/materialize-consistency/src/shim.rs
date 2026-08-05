@@ -22,8 +22,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Append-only protocol trace, shared by every connector process of a run.
 ///
-/// Concurrent processes — a live instance and its zombie, or a crashed instance and
-/// its replacement — must interleave whole lines rather than corrupting each other.
+/// Concurrent writers — the shims of a split task's shards, or a crashed instance's shim and
+/// its replacement — must interleave whole lines rather than corrupting each other. (Not the
+/// zombie: its responses are drained and discarded, and it writes no trace of its own.)
 /// The mutex is not what buys that: it is per-process, and these are separate
 /// processes. What buys it is `O_APPEND` plus **one** `write` syscall per line, which
 /// the kernel serialises against the file's end.
@@ -454,9 +455,13 @@ fn response_trigger(resp: &materialize::Response) -> Option<Trigger> {
 fn crash(shim: &Shim, live_pid: libc::pid_t) -> ! {
     unsafe { libc::kill(live_pid, libc::SIGKILL) };
 
-    // A stopped process does not act on SIGKILL until it is continued, and this
-    // exit runs no destructors — so a frozen zombie left here would outlive the run
-    // holding a lock on the destination, and wedge every later scenario.
+    // A zombie is killed too, because this exit runs no destructors: nothing else will reap it,
+    // and one left holding the destination would wedge every later scenario.
+    //
+    // The SIGCONT is not needed for that — SIGKILL is the documented exception in signal(7) and
+    // kills a stopped process outright — but it is kept so that the process is running when the
+    // kill lands, which is what makes its exit status observable rather than reported as
+    // "stopped".
     let zombie = shim.zombie_pid.load(std::sync::atomic::Ordering::Relaxed);
     if zombie != 0 {
         unsafe { libc::kill(zombie, libc::SIGCONT) };

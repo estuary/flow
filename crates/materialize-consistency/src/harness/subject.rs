@@ -204,7 +204,7 @@ pub const ENV_SUBJECT_CONFIG: &str = "FLOW_CONSISTENCY_SUBJECT_CONFIG";
 /// Most scenarios apply to most classes, because a fault a connector must survive is rarely a
 /// property of how it divides durability with the runtime. What it does exclude is listed in
 /// the crate README and enforced by [`crate::scenarios::Scenario::applies_to`], which is the
-/// authority — a `documentCounter` subject currently skips five scenarios. Read a run's
+/// authority — a `documentCounter` subject currently skips four scenarios. Read a run's
 /// `not-applicable` lines rather than any prose, including this.
 pub const ENV_SUBJECT_CLASS: &str = "FLOW_CONSISTENCY_SUBJECT_CLASS";
 

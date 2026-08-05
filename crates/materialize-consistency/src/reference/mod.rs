@@ -10,9 +10,8 @@
 //! document-counter class is executable before any production connector adopts
 //! it.
 //!
-//! The classes follow the four patterns from the scale-out strategies discussion:
-//!
-//! The four classes are tabulated in `docs/materialize/consistency-testing.md`; the
+//! The classes follow the four patterns from the scale-out strategies discussion, and are
+//! tabulated in `docs/materialize/consistency-testing.md`; the
 //! per-variant docs on [`Class`] below are the authority for what each one does here.
 
 pub mod store;
@@ -167,8 +166,9 @@ struct ShardState {
 struct PendingApply {
     /// Statements which apply the staged batch, run in order as one transaction.
     queries: Vec<String>,
-    /// Staged batches these statements consume, for reporting and for garbage
-    /// collection of staging that no entry claims.
+    /// Staged batches these statements consume. Reporting only — the trace uses it to say
+    /// which batches an apply retired. It collects no garbage: each batch is retired by the
+    /// trailing `DELETE` of its own statements.
     to_delete: Vec<String>,
 }
 
@@ -451,7 +451,12 @@ fn validate_bindings(
 
 /// `Apply` performs the destination's DDL, and nothing else.
 ///
-/// It is handed no connector state, so it cannot know which staged work committed —
+/// This connector drains nothing here, and the reason is a choice rather than an impossibility:
+/// `Apply.state_json` exists (`materialize.proto`) and runtime-next populates it, though the
+/// classic runtime sends `{}`. Draining at `Apply` would mean a second path to reconcile staged
+/// work, exercised only by whichever runtime fills the field — where `Acknowledge` is the path
+/// every transaction already takes. `materialize-databricks` does the same. So: it could know
+/// which staged work committed, and deliberately does not ask —
 /// and the destination cannot tell it: a transaction that died mid-commit leaves the
 /// same trace as one that committed and was not yet applied. Draining on that basis
 /// applied abandoned work, and because splitting a task republishes its spec, that
@@ -482,9 +487,9 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
     }
 
     // A binding that has gone away takes its table with it. Note `Apply` drains nothing —
-    // it is handed no connector state and so has no basis for deciding what committed — so
-    // this drops the table without any claim that staged work for it has landed. Dropping is
-    // what the runtime asked for; reconciling staged work is `Acknowledge`'s job.
+    // by choice, not because it cannot: see `apply_spec`. So this drops the table without any
+    // claim that staged work for it has landed. Dropping is what the runtime asked for;
+    // reconciling staged work is `Acknowledge`'s job.
     for table in last {
         if !tables.iter().any(|b| b.table.name == table.name) {
             store.drop_table(&table.name)?;
