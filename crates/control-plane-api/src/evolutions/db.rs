@@ -58,8 +58,9 @@ pub struct SpecRow {
     pub catalog_name: String,
     /// The id of the draft spec, or None if it is not already in the draft
     pub draft_spec_id: Option<Id>,
-    /// The id of the live spec, or None if the spec was never published (which
-    /// will be surfaced as an error)
+    /// The id of the live spec. None if the spec was never published (which
+    /// will be surfaced as an error), or if `evolutions::resolve_specs`
+    /// suppressed the live side because the user isn't authorized to it.
     pub live_spec_id: Option<Id>,
     /// The current value of `expect_pub_id` from the draft spec, if drafted
     pub expect_pub_id: Option<Id>,
@@ -78,8 +79,10 @@ pub struct SpecRow {
 /// up affecting them, but we cannot know for certain until we check all of their
 /// bindings. Technically, we could implement that filtering as part of the sql
 /// query, but the extra complexity doesn't seem warranted at this time.
-pub async fn resolve_specs(
-    user_id: Uuid,
+///
+/// This is a plain fetch: user authorization is applied in-process by
+/// `evolutions::resolve_specs` against a Snapshot, not in SQL.
+pub async fn fetch_evolution_specs(
     draft_id: Id,
     collection_names: Vec<String>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -99,12 +102,10 @@ pub async fn resolve_specs(
             from draft_specs ds
             left join live_specs ls
                 on ds.catalog_name = ls.catalog_name
-                -- filter out live_specs rows that the user does not have admin access to
-                and exists (select 1 from internal.user_roles($2, 'admin') r where ls.catalog_name ^@ r.role_prefix)
             where ds.draft_id = $1
         ),
         not_drafted as (
-            select catalog_name from unnest($3::text[]) as names(catalog_name)
+            select catalog_name from unnest($2::text[]) as names(catalog_name)
             except
             select catalog_name from drafted
         ),
@@ -117,9 +118,6 @@ pub async fn resolve_specs(
                 ls.id
             from not_drafted
             join live_specs ls on not_drafted.catalog_name = ls.catalog_name
-            where
-                -- filter out live_specs rows that the user does not have admin access to
-                exists (select 1 from internal.user_roles($2, 'admin') r where ls.catalog_name ^@ r.role_prefix)
         )
         select
             catalog_name as "catalog_name!: String",
@@ -142,9 +140,9 @@ pub async fn resolve_specs(
         from live
         "#,
         draft_id as Id,
-        user_id as Uuid,
         collection_names as Vec<String>,
-    ).fetch_all(&mut **txn)
+    )
+    .fetch_all(&mut **txn)
     .await
 }
 

@@ -1,7 +1,7 @@
 mod db;
 
 use crate::Snapshot;
-pub use db::{Row, fetch_evolution, fetch_resource_spec_schema, resolve, resolve_specs};
+pub use db::{Row, SpecRow, fetch_evolution, fetch_resource_spec_schema, resolve};
 use itertools::Itertools;
 pub use models::{Capability, evolutions::EvolvedCollection};
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,12 @@ pub struct Evolution {
     /// and `false` for evolutions that are undertaken by our background
     /// automations.
     pub require_user_can_admin: bool,
+    /// The instant the evolution was queued (the `evolutions` row's
+    /// `updated_at`), which anchors authorization staleness: a Snapshot denial
+    /// is authoritative only once the Snapshot postdates it. `None` — for
+    /// callers without a durable queued instant — falls back to anchoring each
+    /// denied spec on its own last publication time.
+    pub started_at: Option<tokens::DateTime>,
 }
 
 #[derive(Debug)]
@@ -122,6 +128,53 @@ impl EvolveRequest {
     }
 }
 
+/// Fetches the specs needed by an evolutions job and applies user
+/// authorization in-process against `snapshot`, replacing the recursive
+/// `internal.user_roles()` filtering the fetch formerly did in SQL.
+///
+/// The user must hold `admin` to affect a live spec. A drafted spec whose
+/// live counterpart is denied keeps its drafted side but loses the live join
+/// (surfacing downstream as "was never published", the pre-existing
+/// behavior); a denied not-drafted live spec is dropped entirely. As with
+/// `live_specs::get_live_specs`, a denial is trusted only once the Snapshot
+/// is authoritative for `started_at` — or, absent one, for the denied spec's
+/// own last publication — and otherwise surfaces as a retryable
+/// `AuthorizationSnapshotStale` error; cancelling the Snapshot's `revoke` to
+/// request an early refresh is the caller's responsibility, as in `evolve`.
+pub async fn resolve_specs(
+    user_id: uuid::Uuid,
+    draft_id: models::Id,
+    collection_names: Vec<String>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    snapshot: &Snapshot,
+    started_at: Option<tokens::DateTime>,
+) -> anyhow::Result<Vec<SpecRow>> {
+    let rows = db::fetch_evolution_specs(draft_id, collection_names, txn).await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        if let Some(last_pub_id) = row.last_pub_id {
+            let authorized = snapshot.spec_fetch_authorization(
+                user_id,
+                &row.catalog_name,
+                Capability::Admin,
+                started_at,
+                last_pub_id,
+            )?;
+
+            if !authorized {
+                if row.draft_spec_id.is_none() {
+                    continue;
+                }
+                row.live_spec_id = None;
+                row.last_pub_id = None;
+            }
+        }
+        out.push(row);
+    }
+    Ok(out)
+}
+
 #[tracing::instrument(skip_all, fields(user_id = %evolution.user_id))]
 pub async fn evolve(
     evolution: Evolution,
@@ -133,6 +186,7 @@ pub async fn evolve(
         requests,
         user_id,
         require_user_can_admin,
+        started_at,
     } = evolution;
     for req in requests.iter() {
         if let Err(error) = req.validate() {
@@ -174,7 +228,7 @@ pub async fn evolve(
         capability_filter,
         db,
         snapshot,
-        None,
+        started_at,
     )
     .await
     {
@@ -203,9 +257,7 @@ pub async fn evolve(
         capability_filter,
         db,
         snapshot,
-        // `evolve` is not handed the queued `evolutions` row, so it has no
-        // durable instant to anchor staleness on and falls back to per-spec.
-        None,
+        started_at,
     )
     .await
     {
@@ -448,6 +500,366 @@ fn with_mat_binding<'a, 'b>(
 
 lazy_static::lazy_static! {
     static ref NAME_VERSION_RE: regex::Regex = regex::Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
+}
+
+/// These tests pin the privilege boundary of `resolve_specs` across its
+/// migration from in-SQL `internal.user_roles()` filtering to Snapshot-based
+/// authorization: nobody gains or loses authority relative to the legacy SQL,
+/// except deltas inherent to the Rust grant walk
+/// (`tables::UserGrant::is_authorized`), which is authoritative over the
+/// legacy semantics. The test marked ACCEPTED DELTA pins such an intentional
+/// difference; the rest are parity cases that held under both models.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{assert_stale_for, authoritative, published_at, stale};
+
+    // From `fixtures/authz_specs.sql`. Carol is admin of `carolCo/`; Dan
+    // administers only `danCo/` and so models an unauthorized caller.
+    const CAROL: uuid::Uuid = uuid::uuid!("33333333-3333-3333-3333-333333333333");
+    const DAN: uuid::Uuid = uuid::uuid!("44444444-4444-4444-4444-444444444444");
+    const COLLECTION: &str = "carolCo/data/foo";
+    const CAPTURE: &str = "carolCo/in/capture-foo";
+
+    const DRAFT_ID: &str = "11:11:11:11:11:11:11:11";
+
+    /// Inserts a draft owned by `user_id` which drafts each of `names`, and
+    /// returns its id. Ids are fixed: tests run in isolated databases.
+    async fn insert_draft(pool: &sqlx::PgPool, user_id: uuid::Uuid, names: &[&str]) -> models::Id {
+        let draft_id: models::Id = sqlx::query_scalar(
+            "insert into drafts (id, user_id) values ($1::flowid, $2) returning id",
+        )
+        .bind(DRAFT_ID)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+        .expect("inserting draft");
+
+        for (index, name) in names.iter().enumerate() {
+            sqlx::query(
+                r#"insert into draft_specs (id, draft_id, catalog_name, spec, spec_type)
+                values ($1::flowid, $2::flowid, $3, '{}', 'collection')"#,
+            )
+            .bind(format!("22:22:22:22:22:22:22:{:02x}", index))
+            .bind(DRAFT_ID)
+            .bind(name)
+            .execute(pool)
+            .await
+            .expect("inserting draft spec");
+        }
+        draft_id
+    }
+
+    /// Adds a user holding the given grants, mirroring shapes from
+    /// `fixtures/attenuated_grants.sql`. `user_grant` is
+    /// (object_role, capability, bundles-literal like `'{editor}'` or `'{}'`).
+    async fn insert_user(
+        pool: &sqlx::PgPool,
+        user_id: uuid::Uuid,
+        email: &str,
+        user_grant: (&str, &str, &str),
+        role_grants: &[(&str, &str, &str)],
+    ) {
+        sqlx::query("insert into auth.users (id, email) values ($1, $2)")
+            .bind(user_id)
+            .bind(email)
+            .execute(pool)
+            .await
+            .expect("inserting user");
+
+        let (object_role, capability, bundles) = user_grant;
+        sqlx::query(
+            r#"insert into user_grants (user_id, object_role, capability, bundles)
+            values ($1, $2, $3::grant_capability, $4::capability_bundle[])"#,
+        )
+        .bind(user_id)
+        .bind(object_role)
+        .bind(capability)
+        .bind(bundles)
+        .execute(pool)
+        .await
+        .expect("inserting user grant");
+
+        for (subject_role, object_role, capability) in role_grants {
+            sqlx::query(
+                r#"insert into role_grants (subject_role, object_role, capability)
+                values ($1, $2, $3::grant_capability)"#,
+            )
+            .bind(subject_role)
+            .bind(object_role)
+            .bind(capability)
+            .execute(pool)
+            .await
+            .expect("inserting role grant");
+        }
+    }
+
+    /// Runs `resolve_specs` and returns rows sorted by catalog name.
+    async fn resolve_sorted(
+        pool: &sqlx::PgPool,
+        user_id: uuid::Uuid,
+        draft_id: models::Id,
+        collection_names: &[&str],
+        snapshot: &crate::Snapshot,
+        started_at: Option<tokens::DateTime>,
+    ) -> anyhow::Result<Vec<db::SpecRow>> {
+        let mut txn = pool.begin().await.expect("begin");
+        let mut rows = resolve_specs(
+            user_id,
+            draft_id,
+            collection_names.iter().map(|n| n.to_string()).collect(),
+            &mut txn,
+            snapshot,
+            started_at,
+        )
+        .await?;
+        rows.sort_by(|l, r| l.catalog_name.cmp(&r.catalog_name));
+        Ok(rows)
+    }
+
+    /// A user holding admin directly on `carolCo/` resolves both the drafted
+    /// spec's live join and referenced not-drafted live specs.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_admin_direct_grant(pool: sqlx::PgPool) {
+        let draft_id = insert_draft(&pool, CAROL, &[COLLECTION]).await;
+        // An authorized caller resolves identically under stale and
+        // authoritative Snapshots: staleness only converts denials.
+        for snapshot in [stale(&pool).await, authoritative(&pool).await] {
+            let rows = resolve_sorted(&pool, CAROL, draft_id, &[CAPTURE], &snapshot, None)
+                .await
+                .expect("carol is admin of carolCo/");
+
+            assert_eq!(2, rows.len(), "{rows:?}");
+            assert_eq!(COLLECTION, rows[0].catalog_name);
+            assert!(rows[0].draft_spec_id.is_some());
+            assert!(rows[0].live_spec_id.is_some(), "live join populated");
+            assert!(rows[0].last_pub_id.is_some());
+            assert_eq!(CAPTURE, rows[1].catalog_name);
+            assert!(rows[1].draft_spec_id.is_none());
+            assert!(rows[1].live_spec_id.is_some());
+        }
+    }
+
+    /// Admin reached through a transitive role grant (eve → eveCo/ → carolCo/)
+    /// is equivalent to a direct grant, before and after the migration.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_admin_via_transitive_role_grant(pool: sqlx::PgPool) {
+        let eve = uuid::uuid!("77777777-7777-7777-7777-777777777777");
+        insert_user(
+            &pool,
+            eve,
+            "eve@example.com",
+            ("eveCo/", "admin", "{}"),
+            &[("eveCo/", "carolCo/", "admin")],
+        )
+        .await;
+
+        let draft_id = insert_draft(&pool, eve, &[COLLECTION]).await;
+        let rows = resolve_sorted(
+            &pool,
+            eve,
+            draft_id,
+            &[CAPTURE],
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("eve is admin of carolCo/ transitively");
+
+        assert_eq!(2, rows.len(), "{rows:?}");
+        assert!(rows[0].live_spec_id.is_some(), "live join populated");
+        assert_eq!(CAPTURE, rows[1].catalog_name);
+        assert!(rows[1].live_spec_id.is_some());
+    }
+
+    /// An unauthorized user's drafted spec loses its live join (surfacing
+    /// later as "was never published"), and referenced not-drafted live specs
+    /// are dropped entirely.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_unauthorized_live_suppressed(pool: sqlx::PgPool) {
+        let draft_id = insert_draft(&pool, DAN, &[COLLECTION]).await;
+        let rows = resolve_sorted(
+            &pool,
+            DAN,
+            draft_id,
+            &[CAPTURE],
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is a silent suppression, not an error");
+
+        assert_eq!(1, rows.len(), "capture must be dropped: {rows:?}");
+        assert_eq!(COLLECTION, rows[0].catalog_name);
+        assert!(rows[0].draft_spec_id.is_some());
+        assert!(rows[0].live_spec_id.is_none(), "live join suppressed");
+        assert!(rows[0].last_pub_id.is_none());
+    }
+
+    /// Drafted specs are always returned regardless of authorization; only
+    /// their live joins are subject to it.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_drafted_returned_regardless(pool: sqlx::PgPool) {
+        let draft_id = insert_draft(&pool, DAN, &[COLLECTION, "danCo/new"]).await;
+        let rows = resolve_sorted(&pool, DAN, draft_id, &[], &authoritative(&pool).await, None)
+            .await
+            .expect("drafted specs resolve regardless of authorization");
+
+        assert_eq!(2, rows.len(), "{rows:?}");
+        assert_eq!(COLLECTION, rows[0].catalog_name);
+        assert!(rows[0].live_spec_id.is_none());
+        assert_eq!("danCo/new", rows[1].catalog_name);
+        assert!(rows[1].live_spec_id.is_none());
+    }
+
+    /// ACCEPTED DELTA — `internal.user_roles()` walked role_grants in a single
+    /// direction (subject starts-with the held role), so admin held on
+    /// `teamCo/nested/` could not use the `teamCo/ → carolCo/` grant and this
+    /// shape was denied. The Rust walk (`tables::UserGrant::is_authorized`)
+    /// also traverses grants whose subject is a *prefix* of the held role and
+    /// authorizes it — an intentional widening; the Rust implementation is
+    /// authoritative over the legacy SQL semantics (#control-plane,
+    /// 2026-04-13).
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_parent_subject_role_grant(pool: sqlx::PgPool) {
+        let gwen = uuid::uuid!("88888888-8888-8888-8888-888888888888");
+        insert_user(
+            &pool,
+            gwen,
+            "gwen@example.com",
+            ("teamCo/nested/", "admin", "{}"),
+            &[("teamCo/", "carolCo/", "admin")],
+        )
+        .await;
+
+        let draft_id = insert_draft(&pool, gwen, &[COLLECTION]).await;
+        let rows = resolve_sorted(
+            &pool,
+            gwen,
+            draft_id,
+            &[CAPTURE],
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("gwen reaches carolCo/ through the parent-subject grant");
+
+        assert_eq!(2, rows.len(), "{rows:?}");
+        assert!(rows[0].live_spec_id.is_some(), "the Rust walk authorizes");
+        assert_eq!(CAPTURE, rows[1].catalog_name);
+        assert!(rows[1].live_spec_id.is_some());
+    }
+
+    /// PARITY — an attenuated path (raw `none` capability delegating only the
+    /// `editor` bundle, then a raw-`admin` role grant) is denied under both
+    /// models: `user_roles('admin')` rejects the first hop's capability, and
+    /// the Rust walk attenuates the second hop's bits down to `editor`, which
+    /// does not satisfy `Admin`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_attenuated_admin_denied(pool: sqlx::PgPool) {
+        let erin = uuid::uuid!("55555555-5555-5555-5555-555555555555");
+        insert_user(
+            &pool,
+            erin,
+            "erin@example.com",
+            ("sharedCo/", "none", "{editor}"),
+            &[("sharedCo/", "carolCo/", "admin")],
+        )
+        .await;
+
+        let draft_id = insert_draft(&pool, erin, &[COLLECTION]).await;
+        let rows = resolve_sorted(
+            &pool,
+            erin,
+            draft_id,
+            &[CAPTURE],
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is a silent suppression, not an error");
+
+        assert_eq!(1, rows.len(), "capture must be dropped: {rows:?}");
+        assert!(rows[0].live_spec_id.is_none(), "live join suppressed");
+    }
+
+    /// A denial from a Snapshot which predates the denied spec's publication
+    /// is provisional: it surfaces as a retryable `AuthorizationSnapshotStale`
+    /// naming the spec, never as a silent suppression. Requesting an early
+    /// refresh (`snapshot.revoke`) is the calling executor's job, as in
+    /// `evolve`'s stale arms.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_stale_denial_is_retryable(pool: sqlx::PgPool) {
+        let draft_id = insert_draft(&pool, DAN, &[COLLECTION]).await;
+        let err = resolve_sorted(&pool, DAN, draft_id, &[CAPTURE], &stale(&pool).await, None)
+            .await
+            .expect_err("a stale denial must be surfaced, not suppressed");
+        assert_stale_for(err, COLLECTION);
+    }
+
+    /// `started_at` displaces the per-spec staleness anchor in both
+    /// directions: a Snapshot which postdates the spec can still be stale for
+    /// a later-queued evolution, and a Snapshot which predates the spec is
+    /// authoritative for an earlier-queued one.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_resolve_specs_request_relative_staleness(pool: sqlx::PgPool) {
+        let draft_id = insert_draft(&pool, DAN, &[COLLECTION]).await;
+        let published = published_at(&pool).await;
+        let skew = crate::Snapshot::TEMPORAL_SKEW;
+
+        // Snapshot postdates the spec (authoritative per-spec) but predates
+        // the queued evolution: the denial is provisional.
+        let err = resolve_sorted(
+            &pool,
+            DAN,
+            draft_id,
+            &[CAPTURE],
+            &authoritative(&pool).await,
+            Some(published + skew * 8),
+        )
+        .await
+        .expect_err("denial under a Snapshot older than the request is provisional");
+        assert_stale_for(err, COLLECTION);
+
+        // Snapshot predates the spec (stale per-spec) but postdates the queued
+        // evolution: the denial is authoritative and silently suppresses.
+        let rows = resolve_sorted(
+            &pool,
+            DAN,
+            draft_id,
+            &[CAPTURE],
+            &stale(&pool).await,
+            Some(published - skew * 8),
+        )
+        .await
+        .expect("denial under a Snapshot newer than the request is authoritative");
+        assert_eq!(1, rows.len(), "capture must be dropped: {rows:?}");
+        assert!(rows[0].live_spec_id.is_none(), "live join suppressed");
+    }
 }
 
 /// Takes an existing name and returns a new name with an incremeted version suffix.

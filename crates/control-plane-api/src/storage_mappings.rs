@@ -1,21 +1,12 @@
+//! Storage-mapping persistence helpers and the `collection-data/` prefix
+//! conventions: the shared write path for `storage_mappings` rows, used by
+//! the GraphQL storage-mapping resolvers and `create_data_plane`. Formerly
+//! under `directives/`, until the GraphQL mutations superseded the
+//! `storageMappings` applied-directive (2026-03-16) and the directive was
+//! removed.
+
 use crate::TextJson;
 use serde_json::value::RawValue;
-use sqlx::types::Uuid;
-
-pub async fn user_has_admin_capability(
-    user_id: Uuid,
-    catalog_prefix: &str,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<bool> {
-    let row = sqlx::query!(
-        r#"select true as whatever_column from internal.user_roles($1, 'admin') where starts_with(role_prefix, $2)"#,
-        user_id,
-        catalog_prefix,
-    )
-    .fetch_optional(&mut **txn)
-    .await?;
-    Ok(row.is_some())
-}
 
 pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
     detail: Option<&str>,

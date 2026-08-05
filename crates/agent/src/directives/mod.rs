@@ -1,7 +1,4 @@
-use control_plane_api::{
-    directives::{Row, fetch_directive, resolve},
-    logs,
-};
+use control_plane_api::directives::{Row, fetch_directive, resolve};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -11,7 +8,6 @@ use validator::Validate;
 pub mod accept_demo_tenant;
 pub mod beta_onboard;
 pub mod click_to_accept;
-pub mod storage_mappings;
 
 /// JobStatus is the possible outcomes of a handled directive operation.
 #[derive(Debug, Deserialize, Serialize)]
@@ -36,26 +32,27 @@ impl JobStatus {
     }
 }
 
+// The `storageMappings` directive type was removed after the GraphQL
+// storage-mapping mutations superseded it (2026-03-16). A queued row of that
+// type now resolves as `invalidDirective` (unknown variant) instead of being
+// applied.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum Directive {
     BetaOnboard(beta_onboard::Directive),
     ClickToAccept(click_to_accept::Directive),
     AcceptDemoTenant(accept_demo_tenant::Directive),
-    StorageMappings(storage_mappings::Directive),
 }
 
 #[derive(Clone)]
 pub struct DirectiveHandler {
     accounts_user_email: String,
-    logs_tx: logs::Tx,
 }
 
 impl DirectiveHandler {
-    pub fn new(accounts_user_email: String, logs_tx: &logs::Tx) -> Self {
+    pub fn new(accounts_user_email: String) -> Self {
         Self {
             accounts_user_email,
-            logs_tx: logs_tx.clone(),
         }
     }
 }
@@ -132,9 +129,6 @@ impl DirectiveHandler {
             }
             Ok(Directive::ClickToAccept(d)) => click_to_accept::apply(d, row, txn).await?,
             Ok(Directive::AcceptDemoTenant(d)) => accept_demo_tenant::apply(d, row, txn).await?,
-            Ok(Directive::StorageMappings(d)) => {
-                storage_mappings::apply(d, row, &self.logs_tx, txn).await?
-            }
         };
         Ok(status)
     }
