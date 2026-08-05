@@ -302,6 +302,31 @@ impl Stack {
                 .all(|s| s.status.iter().any(|s| s.code() == Code::Primary)))
     }
 
+    /// Whether `task` has stopped writing: every shard disabled in the data plane, and none
+    /// of them still primary.
+    ///
+    /// This is how the suite knows a disabled task has actually stopped, rather than been
+    /// *asked* to. Publishing with `shards.disable` returns once the spec is stored, and
+    /// activation carries it to the data plane afterwards, so between the two the task is
+    /// still running and its collection still growing.
+    ///
+    /// Both halves are needed. The spec is what makes it authoritative — it says the runtime
+    /// has been told — and it is checked rather than the shard's *absence*, because a
+    /// disabled shard is not deleted: its spec stays listed with `disable: true`, so waiting
+    /// for an empty listing waits forever. And the disabled spec alone is not enough, because
+    /// the allocator drops the assignment afterwards and the primary finishes the transaction
+    /// it is in; only when no shard reports primary is the last append behind us.
+    pub async fn is_stopped(&self, task: &str) -> anyhow::Result<bool> {
+        use proto_gazette::consumer::replica_status::Code;
+
+        let shards = self.shards(task).await?;
+
+        Ok(shards.iter().all(|shard| {
+            shard.spec.as_ref().is_some_and(|spec| spec.disable)
+                && !shard.status.iter().any(|s| s.code() == Code::Primary)
+        }))
+    }
+
     /// Read every committed document of a collection.
     ///
     /// This is the harness's independent expectation. The connector under test had
@@ -358,6 +383,11 @@ impl Stack {
         collection: &str,
         timeout: std::time::Duration,
     ) -> anyhow::Result<Vec<Event>> {
+        // A plateau confirms rather than decides: the caller waits for the capture's shards to
+        // be gone first, after which nothing can append to this collection. What is left for
+        // this loop is the read itself being consistent — a `collections read` that returns
+        // mid-append, or against a broker still catching up.
+        //
         // Bounded by attempts as well as by the clock, because the two limits fail for
         // different reasons and only one of them means the capture is still writing.
         //

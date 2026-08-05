@@ -399,6 +399,21 @@ It does **not** reach a class that only stages during `Store`. Nothing of a prep
 transaction is in the destination when the split lands, so the children have nothing to
 append twice; they inherit the staged work and a merge that runs again is a no-op.
 
+**The failure is intermittent, and the reason is worth knowing before reading a result.** The
+hazard needs the runtime to hand the range over *mid*-transaction, and it usually does not — it
+finishes the transaction it is in and hands over at a quiet point, which is a committed
+transaction and no hazard. So the run either lands in the window or does not, and when it lands
+it lands narrowly: a caught run delivered 2072 log rows against 2070 documents — two rows twice,
+both of them documents the expectation holds.
+
+Forcing the overlap does not work, and two attempts to do so are recorded in the scenario because
+both made it *pass*: issuing the split only once the stall had begun, and lengthening the stall.
+Given a shard that will hold still, the runtime takes the quiet point. Asking it to hand over at a
+moment of the harness's choosing is asking for the guarantee under test, so the overlap is left
+unsynchronized on purpose. Read a passing run as evidence about that run and nothing more —
+`split-during-commit` reaches the same destination state deterministically by crashing instead, so
+coverage does not rest on this race.
+
 `split-lands-on-prepared-transaction` carries this as a `blocked_on_runtime` gap scoped to
 `DocumentCounter`, and runs for every exactly-once class. For the counted channel it is the
 suite's one expected failure. For the others it is expected to pass, and that is the more

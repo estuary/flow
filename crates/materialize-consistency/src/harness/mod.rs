@@ -367,9 +367,8 @@ async fn execute(
 
     // A scenario that scales out *because of* the fault has to see it land first,
     // or the two race and the run is no longer testing the sequence it describes.
-    // A crash leaves the task down, so the split lands while nothing is writing and the work is
-    // finished by the larger set of shards that replaces it; a stall leaves it up with a
-    // transaction open, so the split is requested while that transaction is prepared.
+    // The crash leaves the task down, so the split lands while nothing is writing
+    // and the work is finished by the larger set of shards that replaces it.
     if scenario.split_after_fault {
         await_faults(&trace, scenario.faults.len(), deadline)
             .await
@@ -444,6 +443,22 @@ async fn execute(
     tracing::info!("disabling the workload to reach quiescence");
     let quiesced = std::time::Instant::now();
     stack.publish(&catalog::disable_captures(plan)?).await?;
+
+    // Then wait for the captures to have actually *stopped*, not merely been asked to.
+    //
+    // The publication returns once the spec is stored, and activation carries it to the data
+    // plane afterwards, so the capture is still writing at that moment.
+    // `read_collection_when_final` guarded this with a plateau — two equal reads three seconds
+    // apart — and a capture that paused across that window read as finished. The destination then
+    // held 74 documents the expectation did not, which looks exactly like a connector delivering
+    // them twice: 131 violations against a materialization that was right. Once the capture is
+    // stopped nothing can append, so the plateau below is confirming rather than deciding.
+    await_stopped(
+        stack,
+        &[&names.source_merged, &names.source_log],
+        finality_timeout,
+    )
+    .await?;
     tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
     // Panic, not an error: a `Subject` with no argv cannot be constructed by anything here, so
@@ -1016,6 +1031,33 @@ async fn await_commits(
         }
     })
     .await
+}
+
+/// Wait until every named task has stopped writing; see [`stack::Stack::is_stopped`].
+async fn await_stopped(
+    stack: &stack::Stack,
+    tasks: &[&str],
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        let mut running = Vec::new();
+        for task in tasks {
+            if !stack.is_stopped(task).await? {
+                running.push(*task);
+            }
+        }
+        if running.is_empty() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "these tasks were still running {timeout:?} after being disabled: {}",
+            running.join(", "),
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
 }
 
 /// Wait until the shim has traced anything at all, which is the sink's connector being

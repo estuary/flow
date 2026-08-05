@@ -237,14 +237,13 @@ impl Scenario {
         self
     }
 
-    /// As [`Scenario::splitting`], but the split is issued only once the fault has fired, so the
-    /// two are ordered rather than racing.
+    /// As [`Scenario::splitting`], but the split is issued only once the fault has fired — so the
+    /// task is scaled out while it is *down*, and comes back with more shards than staged its work.
     ///
-    /// What that buys depends on the fault. After a crash the task is *down*, so the split lands
-    /// while nothing is writing and the work is finished by the larger set of shards that replaces
-    /// the one which staged it. After a stall the task is up and holding a transaction open, so
-    /// the split is requested while that transaction is demonstrably prepared — which is as close
-    /// to the window as a fault the connector can see will get.
+    /// For a crash, which is the only fault this is used with. It is not a general way to order a
+    /// split against a fault: pairing it with a stall closed the window it was meant to open,
+    /// because a runtime handed a shard that will hold still finishes the transaction and hands
+    /// over at a quiet point. See `split-lands-on-prepared-transaction`.
     fn splitting_after_fault(mut self, settle_commits: u64) -> Self {
         self.split_after_fault = true;
         self.splitting(settle_commits)
@@ -504,25 +503,30 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          neither loses nor duplicates its documents",
         Class::DocumentCounter,
     )
-    // Long enough for the split to be requested inside it, because the split is now issued when
-    // the stall *begins* rather than on the harness's own schedule — see `splitting_after_fault`
-    // below. It was four seconds against a split issued before the fault, which left the overlap
-    // to chance: a publication and shard reassignment take longer than four seconds, so the stall
-    // was routinely over before the split was even asked for, and the scenario was a plain
-    // split-while-running wearing this one's name.
+    // The overlap between this stall and the split is *not* synchronized, and cannot usefully be.
+    // That was reviewed as a flaw and measured instead, and the measurements say the race is the
+    // scenario rather than a defect in it.
     //
-    // What the harness still cannot impose is the other half: the runtime is free to finish the
-    // stalled transaction before it hands the parent's range to the children, and if it does, the
-    // split lands on a *committed* transaction after all. That is not a gap in the scripting —
-    // it is the missing guarantee this scenario declares below, and the reason it is declared
-    // rather than worked around. `split-during-commit` reaches the same destination state
-    // deterministically by crashing instead of stalling, so nothing here rests on winning a race.
+    // Two attempts to force the overlap both *closed* the window. Waiting for the stall to begin
+    // before issuing the split, and lengthening the stall to twenty seconds, each made the run
+    // pass — because a runtime handed a shard that will hold still finishes the stalled
+    // transaction and hands over at a quiet point, which is a committed transaction and no hazard
+    // at all. Asking the runtime to hand over at a moment of the harness's choosing is asking for
+    // the very guarantee under test, so this is back to four seconds and an unordered split, the
+    // configuration with observed hits.
+    //
+    // And when it does hit, it hits *narrowly*: a caught run delivered 2072 log rows against 2070
+    // documents — two rows delivered twice, both of them documents the expectation holds, with
+    // nothing ahead of it. So the gap below is intermittent, not per-run, and a passing run is
+    // evidence about that run only. `split-during-commit` reaches the same destination state
+    // deterministically by crashing rather than stalling, so coverage of the
+    // prepared-but-uncommitted state does not rest on winning this race.
     .fault(FaultRule {
         on: Trigger::StartCommit,
         nth: 4,
         arm_after: 3,
         shard: ShardTarget::Any,
-        action: Action::Stall { millis: 20_000 },
+        action: Action::Stall { millis: 4_000 },
     })
     .catches(Defect::DropDocumentCounter)
     // This exemption shapes the *report* rather than any verdict, and the reasoning is worth
@@ -541,7 +545,10 @@ fn split_lands_on_prepared_transaction() -> Scenario {
     // expected to pass — and this is the scenario that says so.
     .blocked_on_runtime(
         &[Class::DocumentCounter],
-        "The runtime does not yet guarantee that a transaction started under a given shard \
+        "Intermittently — the runtime usually completes the transaction it is in before handing \
+         the range over, so this fails on some runs and not others, and a caught run duplicated \
+         two rows of 2070. Read a pass as evidence about that run and nothing more. \
+         The runtime does not yet guarantee that a transaction started under a given shard \
          split is replayed under that same split before a scale up or down takes effect, a \
          capability named as a requirement in estuary/flow discussion 2581. A counted \
          channel cannot work around it: it writes during Store, so the rows of a prepared \
@@ -550,7 +557,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          mirror image — a survivor reads one departing channel's counter, skips too few, \
          and duplicates.",
     )
-    .splitting_after_fault(5)
+    .splitting(5)
 }
 
 /// Scaling back down. A join is not a split run backwards: one shard absorbs
