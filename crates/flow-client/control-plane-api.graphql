@@ -1913,7 +1913,14 @@ type QueryRoot {
 	List refresh tokens owned by the authenticated user.
 	"""
 	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
-	serviceAccounts(after: String, first: Int): ServiceAccountConnection!
+	"""
+	List service accounts the caller may query.
+	
+	Returns accounts anchored under any prefix where the caller holds
+	`QueryServiceAccounts`, optionally narrowed to those where an
+	organization also reaches `QueryServiceAccounts` with `filter.tenant`.
+	"""
+	serviceAccounts(filter: ServiceAccountsFilter, after: String, first: Int): ServiceAccountConnection!
 }
 
 """
@@ -2051,6 +2058,29 @@ type ServiceAccountEdge {
 	A cursor for use in pagination
 	"""
 	cursor: String!
+}
+
+"""
+Composable filter for the `serviceAccounts` query. Every field is optional
+and only narrows the result set; the caller's own access is enforced
+independently, so a filter can never widen what a caller may see.
+"""
+input ServiceAccountsFilter {
+	"""
+	Keep only accounts whose `catalogName` lies under a prefix that this
+	tenant reaches with `QueryServiceAccounts` through the role-grant
+	graph — the tenant's own namespace, plus any namespace a qualifying
+	chain of role grants projects it into.
+	
+	The walk starts from the caller's own footholds within the tenant, and
+	the reachable set is intersected with the caller's authorized prefixes.
+	The filter therefore narrows a listing to one organization's accounts,
+	never surfaces an account the caller could not already see, and shows
+	only reach flowing from namespace the caller occupies. Naming a tenant
+	requires holding `QueryServiceAccounts` somewhere within (or covering)
+	its namespace.
+	"""
+	tenant: Prefix
 }
 
 type SetBillingContactPayload {
