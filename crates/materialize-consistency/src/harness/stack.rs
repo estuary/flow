@@ -243,11 +243,15 @@ impl Stack {
     }
 
     pub async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<()> {
+        // With a trailing `/`, because flowctl matches this as a plain string prefix: without
+        // one, a run whose id happens to extend another's would delete that run's tasks too.
+        // Vanishingly unlikely with hex run ids, and a one-character guarantee.
+        let prefix = format!("{}/", prefix.trim_end_matches('/'));
         self.run(&[
             "catalog",
             "delete",
             "--prefix",
-            prefix,
+            &prefix,
             "--dangerous-auto-approve",
         ])
         .await

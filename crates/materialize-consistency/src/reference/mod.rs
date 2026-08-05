@@ -172,19 +172,13 @@ struct PendingApply {
     to_delete: Vec<String>,
 }
 
-/// A binding of the open session. The connector treats a document's key as
-/// opaque text, so the table shape is all it needs to remember.
-struct Binding {
-    table: Table,
-}
-
 /// The open session: everything a transaction needs, and nothing that outlives
 /// the process.
 pub struct Session {
     store: Store,
     class: Class,
     defects: Vec<Defect>,
-    bindings: Vec<Binding>,
+    bindings: Vec<Table>,
     /// Range this session owns, as the fence and staging key. Distinct from the
     /// range the runtime sent when the `ignore-key-range` defect is on.
     key_begin: u32,
@@ -478,12 +472,12 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
 
     let tables = bindings_of(materialization)?;
     let last: Vec<Table> = match &apply.last_materialization {
-        Some(last) => bindings_of(last)?.into_iter().map(|b| b.table).collect(),
+        Some(last) => bindings_of(last)?,
         None => Vec::new(),
     };
 
     for binding in &tables {
-        store.ensure_table(&binding.table)?;
+        store.ensure_table(binding)?;
     }
 
     // A binding that has gone away takes its table with it. Note `Apply` drains nothing —
@@ -491,7 +485,7 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
     // claim that staged work for it has landed. Dropping is what the runtime asked for;
     // reconciling staged work is `Acknowledge`'s job.
     for table in last {
-        if !tables.iter().any(|b| b.table.name == table.name) {
+        if !tables.iter().any(|b| b.name == table.name) {
             store.drop_table(&table.name)?;
             actions.push(format!("dropped {}", table.name));
         }
@@ -506,17 +500,15 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
     })
 }
 
-fn bindings_of(spec: &flow::MaterializationSpec) -> anyhow::Result<Vec<Binding>> {
+fn bindings_of(spec: &flow::MaterializationSpec) -> anyhow::Result<Vec<Table>> {
     spec.bindings
         .iter()
         .map(|binding| {
             let resource: ResourceConfig = serde_json::from_slice(&binding.resource_config_json)
                 .context("parsing resource configuration")?;
-            Ok(Binding {
-                table: Table {
-                    name: resource.table,
-                    delta: binding.delta_updates,
-                },
+            Ok(Table {
+                name: resource.table,
+                delta: binding.delta_updates,
             })
         })
         .collect()
@@ -665,10 +657,10 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
         let destination =
             session
                 .store
-                .appended(session.key_begin, session.key_end, &binding.table.name)?;
+                .appended(session.key_begin, session.key_end, &binding.name)?;
         let checkpointed = shard_state
             .appended
-            .get(&binding.table.name)
+            .get(&binding.name)
             .copied()
             .unwrap_or(0);
 
@@ -687,7 +679,7 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
                 "destination holds {destination} appends of {} but the committed checkpoint \
                  claims {checkpointed}: the destination cannot be behind the checkpoint, so \
                  refusing to guess",
-                binding.table.name,
+                binding.name,
             );
         };
 
@@ -716,22 +708,18 @@ fn decode_checkpoint(
 ///
 /// The owner range matters and the session's own range does not: the question a failing
 /// merged value raises is *whose* staged absolute was written, and when.
-fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
+/// Append one line to `reduce.jsonl`, if the trace is enabled.
+///
+/// Both tracers gate on the same variable, resolve the same directory and open the same file in
+/// the same mode; only the object differs. Best-effort throughout: this is a post-mortem aid,
+/// and a scenario must not fail because a diagnostic could not be written.
+fn trace_line(value: serde_json::Value) {
     if std::env::var_os(crate::protocol::ENV_TRACE_REDUCE).is_none() {
         return;
     }
     let Ok(dir) = std::env::var(crate::protocol::ENV_RUN_DIR) else {
         return;
     };
-    let line = serde_json::json!({
-        "event": "apply-pending",
-        "owner": owner,
-        "binding": binding,
-        "batches": batches,
-        "pid": std::process::id(),
-    })
-    .to_string()
-        + "\n";
 
     use std::io::Write;
     if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -739,47 +727,45 @@ fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
         .append(true)
         .open(std::path::Path::new(&dir).join("reduce.jsonl"))
     {
-        let _ = file.write_all(line.as_bytes());
+        let _ = file.write_all(format!("{value}\n").as_bytes());
     }
+}
+
+fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
+    trace_line(serde_json::json!({
+        "event": "apply-pending",
+        "owner": owner,
+        "binding": binding,
+        "batches": batches,
+        "pid": std::process::id(),
+    }));
 }
 
 fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i64) {
     if table.delta {
         return;
     }
-    // Opt-in: this writes two lines per merge-binding document, and a measured run should
-    // not pay for it. Set `FLOW_CONSISTENCY_TRACE_REDUCE=1` when running the suite
-    // environment to investigate a wrong stored sum.
-    if std::env::var_os(crate::protocol::ENV_TRACE_REDUCE).is_none() {
-        return;
-    }
-    let Ok(dir) = std::env::var(crate::protocol::ENV_RUN_DIR) else {
-        return;
+    // Opt-in, because this writes two lines per merge-binding document and a measured run
+    // should not pay for it. Set `FLOW_CONSISTENCY_TRACE_REDUCE=1` to investigate a wrong
+    // stored sum. Parsed once: the two fields came from two separate parses of the same
+    // document.
+    let parsed = doc.and_then(|doc| serde_json::from_str::<serde_json::Value>(doc).ok());
+    let field = |name: &str| {
+        parsed
+            .as_ref()
+            .and_then(|v| v.get(name))
+            .and_then(|v| v.as_i64())
     };
-    let delta = doc.and_then(|doc| {
-        serde_json::from_str::<serde_json::Value>(doc)
-            .ok()
-            .and_then(|v| v.get("balanceDelta").and_then(|d| d.as_i64()))
-    });
-    let seq = doc.and_then(|doc| {
-        serde_json::from_str::<serde_json::Value>(doc)
-            .ok()
-            .and_then(|v| v.get("seq").and_then(|d| d.as_i64()))
-    });
 
-    let line = serde_json::json!({
-        "event": event, "table": table.name, "key": key,
-        "balanceDelta": delta, "seq": seq, "txn": txn, "pid": std::process::id(),
-    });
-
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(std::path::Path::new(&dir).join("reduce.jsonl"))
-    {
-        use std::io::Write;
-        let _ = file.write_all(format!("{line}\n").as_bytes());
-    }
+    trace_line(serde_json::json!({
+        "event": event,
+        "table": table.name,
+        "key": key,
+        "balanceDelta": field("balanceDelta"),
+        "seq": field("seq"),
+        "txn": txn,
+        "pid": std::process::id(),
+    }));
 }
 
 /// Stage a load key. The destination is *not* read here.
@@ -817,7 +803,7 @@ fn flush_loads(session: &mut Session) -> anyhow::Result<Vec<materialize::Respons
     let mut responses = Vec::new();
 
     for (binding, key) in std::mem::take(&mut session.pending_loads) {
-        let table = session.bindings[binding as usize].table.clone();
+        let table = session.bindings[binding as usize].clone();
         let loaded = session.store.load(&table, &key)?;
 
         trace_reduce(
@@ -862,7 +848,7 @@ fn store_document(session: &mut Session, store: materialize::request::Store) -> 
         .get(binding_index)
         .context("Store names an unknown binding")?;
 
-    let table = binding.table.clone();
+    let table = binding.clone();
     let row = Row {
         key: std::str::from_utf8(&store.key_json)
             .context("Store key is not UTF-8")?
@@ -1034,11 +1020,11 @@ fn start_commit_txn(
                 let mut offsets = BTreeMap::new();
                 for binding in &session.bindings {
                     offsets.insert(
-                        binding.table.name.clone(),
+                        binding.name.clone(),
                         session.store.appended(
                             session.key_begin,
                             session.key_end,
-                            &binding.table.name,
+                            &binding.name,
                         )?,
                     );
                 }
@@ -1203,7 +1189,7 @@ fn apply_pending(
     let mut executed = Vec::new();
 
     for (state_key, item) in pending {
-        if !session.bindings.iter().any(|b| &b.table.name == state_key) {
+        if !session.bindings.iter().any(|b| &b.name == state_key) {
             continue;
         }
         session
@@ -1242,7 +1228,7 @@ fn staged_tables(batch: &str, session: &Session) -> anyhow::Result<Vec<Table>> {
     Ok(session
         .bindings
         .iter()
-        .map(|b| b.table.clone())
+        .map(|b| b.clone())
         .filter(|t| names.contains(&t.name))
         .collect())
 }

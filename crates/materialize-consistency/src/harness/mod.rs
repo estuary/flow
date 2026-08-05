@@ -1073,7 +1073,17 @@ async fn drain(
         // work, and every membership-change scenario becomes flaky in the direction
         // of falsely reporting loss.
         let total = contents.log.len() + merged_delivered;
-        let healthy = stack.all_primary(&names.sink).await.unwrap_or(false);
+        // A listing that *errors* is not evidence the task is unhealthy, but it has to be
+        // treated as such to make progress — so it is logged. Folded silently into `false`, a
+        // persistently failing listing reported as "stuck unhealthy", which is a real state
+        // with a different cause and sends the reader looking in the wrong place.
+        let healthy = match stack.all_primary(&names.sink).await {
+            Ok(healthy) => healthy,
+            Err(err) => {
+                tracing::warn!(%err, task = %names.sink, "could not list shards; assuming unhealthy");
+                false
+            }
+        };
 
         unchanged_for = if total == previous && healthy {
             unchanged_for + 1

@@ -141,6 +141,18 @@ pub enum Invariant {
     StandardDeltaAgreement,
 }
 
+impl Invariant {
+    /// Every invariant, so anything enumerating them cannot fall behind the enum.
+    pub const ALL: [Invariant; 6] = [
+        Invariant::Conservation,
+        Invariant::OracleAgreement,
+        Invariant::NoLoss,
+        Invariant::NoDuplicates,
+        Invariant::Monotonicity,
+        Invariant::StandardDeltaAgreement,
+    ];
+}
+
 impl std::fmt::Display for Invariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
@@ -740,6 +752,24 @@ mod test {
 
         let kinds = kinds(&bindings);
         assert!(kinds.contains(&Invariant::NoLoss), "{kinds:?}");
+    }
+
+    /// The name an invariant prints and the name it deserializes from must be the same string.
+    ///
+    /// There are two mappings — serde's `kebab-case` rename and the `Display` impl — and an
+    /// exemption is written with one and reported with the other, so a drift between them
+    /// would silently stop an exemption from matching the violations it names.
+    #[test]
+    fn every_invariant_name_round_trips() {
+        for invariant in Invariant::ALL {
+            let printed = invariant.to_string();
+            let parsed: Invariant = serde_json::from_value(serde_json::json!(printed))
+                .unwrap_or_else(|err| panic!("{printed:?} does not deserialize: {err}"));
+            assert_eq!(
+                parsed, invariant,
+                "{printed:?} round-trips to a different variant"
+            );
+        }
     }
 
     /// The two monotonicity checkers must count a regression the same way, because a run's

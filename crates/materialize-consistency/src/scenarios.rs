@@ -222,6 +222,30 @@ impl Scenario {
         self
     }
 
+    /// Split every shard after the warmup, settling for `settle_commits` afterwards.
+    ///
+    /// Paired because they always travel together: a membership change costs the task a
+    /// recovery, so a scenario that splits needs more committed transactions afterwards to show
+    /// it recovered rather than merely stopped.
+    fn splitting(mut self, settle_commits: u64) -> Self {
+        self.split_shards = true;
+        self.settle_commits = settle_commits;
+        self
+    }
+
+    /// As [`Scenario::splitting`], but the split waits for the fault to fire — so the task is
+    /// scaled out while it is down, and comes back with more shards than staged its work.
+    fn splitting_after_fault(mut self, settle_commits: u64) -> Self {
+        self.split_after_fault = true;
+        self.splitting(settle_commits)
+    }
+
+    /// As [`Scenario::splitting`], then joins the children back together.
+    fn splitting_then_joining(mut self, settle_commits: u64) -> Self {
+        self.join_shards = true;
+        self.splitting(settle_commits)
+    }
+
     fn fault(mut self, rule: FaultRule) -> Self {
         self.faults.push(rule);
         self
@@ -363,17 +387,15 @@ fn crash_at_flush() -> Scenario {
 /// children's recovery and then unassigns it, so this exercises the runtime's
 /// fencing alongside the connector's.
 fn split_during_store() -> Scenario {
-    let mut scenario = Scenario::new(
+    Scenario::new(
         "split-during-store",
         "splitting a task's shards mid-transaction preserves exactly-once semantics",
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
-    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
-    scenario.split_shards = true;
-    scenario.settle_commits = 5;
-    scenario
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .splitting(5)
 }
 
 /// A transaction dies mid-commit, the task is scaled out while it is down, and the
@@ -396,7 +418,7 @@ fn split_during_store() -> Scenario {
 /// way, because one shard applies staged work on behalf of its peers, so a peer reading
 /// earlier would reduce onto a base that shard has not finished writing.
 fn split_during_commit() -> Scenario {
-    let mut scenario = Scenario::new(
+    Scenario::new(
         "split-during-commit",
         "staged work committed by one shard is applied exactly once by the larger set \
          of shards that replaces it",
@@ -411,11 +433,8 @@ fn split_during_commit() -> Scenario {
     })
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
-    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
-    scenario.split_shards = true;
-    scenario.split_after_fault = true;
-    scenario.settle_commits = 5;
-    scenario
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .splitting_after_fault(5)
 }
 
 /// The same window, against a counted channel — and this one cannot survive it.
@@ -429,7 +448,7 @@ fn split_during_commit() -> Scenario {
 /// log has committed, so an uncommitted transaction was never applied. Its own
 /// `split-during-commit` is held to a clean result.
 fn split_lands_on_prepared_transaction() -> Scenario {
-    let mut scenario = Scenario::new(
+    Scenario::new(
         "split-lands-on-prepared-transaction",
         "a membership change landing on a transaction already prepared for commit \
          neither loses nor duplicates its documents",
@@ -467,10 +486,8 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          open fresh channels at offset zero and append them again. Scaling down has the \
          mirror image — a survivor reads one departing channel's counter, skips too few, \
          and duplicates.",
-    );
-    scenario.split_shards = true;
-    scenario.settle_commits = 5;
-    scenario
+    )
+    .splitting(5)
 }
 
 /// Scaling back down. A join is not a split run backwards: one shard absorbs
@@ -484,21 +501,17 @@ fn split_lands_on_prepared_transaction() -> Scenario {
 /// why this asserts only on the destination and never on which checkpoint the
 /// connector chose.
 fn join_after_split() -> Scenario {
-    let mut scenario = Scenario::new(
+    Scenario::new(
         "join-after-split",
         "joining a task's shards back together preserves exactly-once semantics",
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
-    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
-
-    scenario.split_shards = true;
-    scenario.join_shards = true;
-    // Longer than the split scenarios: this one waits out a split, then a join, and
-    // each membership change costs the task a recovery.
-    scenario.settle_commits = 8;
-    scenario
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    // Settles longer than a split alone: this waits out a split, then a join, and each
+    // membership change costs the task a recovery.
+    .splitting_then_joining(8)
 }
 
 /// Fencing under real concurrency rather than in isolation: two real connector
@@ -603,7 +616,7 @@ fn recovery_reconciles_with_destination() -> Scenario {
 /// channel, its own offset, crashing with appends the checkpoint does not know about.
 /// Recovery has to ask the destination how far *this* channel got.
 fn crash_in_split_leader() -> Scenario {
-    let mut scenario = Scenario::new(
+    Scenario::new(
         "crash-in-split-leader",
         "a shard created by a split, whose leader then crashes, delivers each document \
          exactly once — inheriting neither its parent's resume point nor a blank one",
@@ -611,10 +624,8 @@ fn crash_in_split_leader() -> Scenario {
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitLeader))
     .catches(Defect::DropDocumentCounter)
-    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS);
-    scenario.split_shards = true;
-    scenario.settle_commits = 5;
-    scenario
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .splitting(5)
 }
 
 /// Crashing a *non-zero* shard a split produced, then bringing the task back up.
@@ -630,7 +641,7 @@ fn crash_in_split_leader() -> Scenario {
 /// connector still hold exactly-once, given the rebuilt shard has to rediscover from
 /// the destination how far its channel got.
 fn crash_in_split_non_leader() -> Scenario {
-    let mut scenario = Scenario::new(
+    Scenario::new(
         "crash-in-split-non-leader",
         "a stateless non-zero shard rebuilt after its crash still delivers each \
          document exactly once",
@@ -638,10 +649,8 @@ fn crash_in_split_non_leader() -> Scenario {
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitNonLeader))
     .catches(Defect::DropDocumentCounter)
-    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS);
-    scenario.split_shards = true;
-    scenario.settle_commits = 5;
-    scenario
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .splitting(5)
 }
 
 /// A connector that makes a weaker guarantee is still held to the guarantee it does
