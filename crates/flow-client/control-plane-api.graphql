@@ -1351,6 +1351,12 @@ type MutationRoot {
 	"""
 	Create a refresh token for the authenticated user.
 	
+	Pass `scopePrefix` to confine the token to a catalog prefix. A scoped
+	token's authority is intersected with what that prefix reaches through
+	role grants, so it can only ever do less than the caller could. This is
+	how a credential is handed to something that should see one tenant's data
+	and nothing else.
+	
 	Service-account callers are rejected: their API keys are administered
 	via createApiKey and revokeApiKey.
 	"""
@@ -1358,7 +1364,11 @@ type MutationRoot {
 		"""
 		ISO 8601 duration for token validity (e.g. P90D); must be greater than zero and at most one year
 		"""
-		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null
+		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null,
+		"""
+		Catalog prefix to confine the token to. The caller must be able to read it. Omit for a token carrying the caller's full authority.
+		"""
+		scopePrefix: String
 	): RefreshTokenResult!
 	"""
 	Revoke a refresh token owned by the authenticated user.
@@ -1832,6 +1842,10 @@ type QueryRoot {
 	effectiveAlertConfig(catalogPrefixOrName: String!): EffectiveAlertConfig!
 	"""
 	Returns all possible alert types with their user-facing metadata.
+	
+	A static enumeration with no catalog prefix, so a token's scope has
+	nothing to narrow here. See `connectors` for the other global
+	reference-data surface a scope deliberately does not reach.
 	"""
 	alertTypes: [AlertTypeInfo!]!
 	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixRefConnection!
@@ -1942,6 +1956,14 @@ type RefreshTokenInfo {
 	(now is past `updated_at + valid_for`).
 	"""
 	expired: Boolean!
+	"""
+	Catalog prefix this token is confined to, or null if it carries the
+	owner's full authority.
+	
+	A scoped token's authority is intersected with what this prefix reaches
+	through role grants, so it can only ever do less than its owner could.
+	"""
+	scopePrefix: Prefix
 }
 
 type RefreshTokenInfoConnection {
