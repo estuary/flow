@@ -843,7 +843,19 @@ mod test {
     /// does not have.
     #[test]
     fn every_defect_is_paired_with_a_scenario() {
-        let paired: Vec<Defect> = all().iter().filter_map(|s| s.defect).collect();
+        // Only pairings that can actually run. A scenario blocked on a runtime gap for its
+        // own class panics before its defective half, so counting its `catches` here would let
+        // a defect look covered by a pairing that never executes — which is exactly what this
+        // guard claimed to prevent while collecting from every scenario.
+        let paired: Vec<Defect> = all()
+            .iter()
+            .filter(|s| {
+                !s.known_limitation
+                    .as_ref()
+                    .is_some_and(|gap| gap.classes.contains(&s.class))
+            })
+            .filter_map(|s| s.defect)
+            .collect();
 
         // Iterated rather than re-listed: `Defect::ALL` exists because a copy at each use
         // site drifts, and a copy here would silently stop covering a defect added later.

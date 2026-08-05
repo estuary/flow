@@ -41,12 +41,6 @@ pub struct Outcome {
     /// fired proved nothing, so the runner refuses to pass one.
     pub faults_fired: usize,
     pub documents: usize,
-    /// Append rows the destination recognised as already applied.
-    ///
-    /// Reported on success as well as failure, because it is the difference between a
-    /// scenario that survived re-delivery and one that never saw any. A split scenario
-    /// passing with zero of these has demonstrated nothing about idempotency, however
-    /// green it looks — the same vacuity the paired-defect rule exists to prevent.
     /// Where the shim's trace and the destination were left. Retained on failure
     /// and removed on success — a caller that *expected* the failure (the defective
     /// half of every scenario) removes it itself.
@@ -510,13 +504,8 @@ async fn execute(
     })
 }
 
-/// Append rows the destination recognised as already applied, per table.
-///
-/// Read straight from the destination rather than through the connector, because it is
-/// the connector's own bookkeeping rather than a binding's contents. A non-zero count
-/// says a document was handed to the connector twice — which the delivered rows cannot
-/// say, since suppressing the second copy is precisely what makes them look correct.
-
+/// Write what a failing run compared, so the next reader does not have to guess which side
+/// was wrong — the destination, or the expectation read from the collection.
 fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow::Result<()> {
     let expectation = |e: &Expectation| -> Vec<serde_json::Value> {
         e.accounts

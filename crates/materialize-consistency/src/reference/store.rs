@@ -176,9 +176,21 @@ impl Store {
         // A strictly narrower overlapping row is what identifies a join: those are the
         // split's children, whose work is more recent than anything filed under this
         // shard's own range.
-        let joined = overlapping.iter().any(|(kb, ke, _, _)| {
-            *kb >= key_begin && *ke <= key_end && (*kb > key_begin || *ke < key_end)
-        });
+        //
+        // Their rows are then *deleted*, and that is load-bearing rather than tidiness. The
+        // signal is presence, so leaving them would make `joined` true for every later open
+        // of this range — a plain crash-restart a day after the join would still refuse its
+        // own checkpoint and fall back to the recovery log. For a class whose whole claim is
+        // that the destination holds the authoritative checkpoint, that silently reopens the
+        // crash-after-destination-commit window the class exists to close.
+        let children: Vec<_> = overlapping
+            .iter()
+            .filter(|(kb, ke, _, _)| {
+                *kb >= key_begin && *ke <= key_end && (*kb > key_begin || *ke < key_end)
+            })
+            .map(|(kb, ke, _, _)| (*kb, *ke))
+            .collect();
+        let joined = !children.is_empty();
 
         // A split's child, by contrast, inherits from the narrowest range that
         // strictly contains it: that ancestor's checkpoint *is* its resume point.
@@ -196,6 +208,16 @@ impl Store {
             txn.execute(
                 "UPDATE _flow_fence SET nonce = ?3 WHERE key_begin = ?1 AND key_end = ?2",
                 (kb, ke, nonce),
+            )?;
+        }
+
+        // Absorbed ranges no longer exist, so their rows are retired now that this session
+        // has adopted nothing from them. Done after the nonce bump above, so a zombie of a
+        // departed child is still fenced off by it.
+        for (kb, ke) in &children {
+            txn.execute(
+                "DELETE FROM _flow_fence WHERE key_begin = ?1 AND key_end = ?2",
+                (kb, ke),
             )?;
         }
 
@@ -902,5 +924,40 @@ mod test {
             "the survivor must not adopt the pre-split parent's stale checkpoint",
         );
         assert!(survivor > high_nonce, "the survivor fences both children");
+    }
+
+    /// ...and only that first open. A later session over the same range adopts its own
+    /// checkpoint again.
+    ///
+    /// The join signal is the presence of narrower rows, so leaving them behind made every
+    /// subsequent open refuse its checkpoint — a crash-restart long after the join would fall
+    /// back to the recovery log, reopening the crash-after-destination-commit window that
+    /// `remoteAuthoritative` exists to close. Nothing in the suite crashes after a join, which
+    /// is why this was green.
+    #[test]
+    fn a_later_session_after_a_join_adopts_its_own_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        // A split's two children each fence their own half.
+        store.fence(0, u32::MAX / 2).unwrap();
+        store.fence(u32::MAX / 2 + 1, u32::MAX).unwrap();
+
+        // The survivor of the join adopts nothing, as the test above asserts.
+        let (nonce, checkpoint) = store.fence(0, u32::MAX).unwrap();
+        assert!(checkpoint.is_none(), "the join survivor adopts nothing");
+
+        // It then commits, writing a checkpoint into its own row.
+        store
+            .commit(0, u32::MAX, nonce, Some(b"post-join"), &[], true)
+            .unwrap();
+
+        // A later session over the same range — a plain crash-restart — must resume from it.
+        let (_, checkpoint) = store.fence(0, u32::MAX).unwrap();
+        assert_eq!(
+            checkpoint.as_deref(),
+            Some(b"post-join".as_slice()),
+            "a join must not permanently disable checkpoint recovery for the range",
+        );
     }
 }

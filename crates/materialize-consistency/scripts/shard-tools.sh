@@ -22,15 +22,17 @@ COMMAND=$1
 TASK=$2
 shift 2
 
-# Resolved rather than assumed: the suite spawns this with a minimal environment, so
-# neither tool is necessarily on PATH. `go install` puts gazctl under GOPATH/bin, which
-# is where a checkout that has run `mise run local:stack` will have it.
+# Resolved rather than assumed: the suite spawns this with a minimal environment, so neither
+# tool is necessarily on PATH. Both are built into this stack's own GOBIN by
+# `mise run local:stack`, which is checked first; the GOPATH and ~/go/bin fallbacks are for a
+# manual invocation outside a stack.
 resolve() {
     local var=$1 name=$2
     if [ -n "${!var:-}" ]; then echo "${!var}"; return; fi
     if command -v "${name}" >/dev/null 2>&1; then command -v "${name}"; return; fi
     local candidate
-    for candidate in "$(go env GOPATH 2>/dev/null)/bin/${name}" "${HOME}/go/bin/${name}"; do
+    for candidate in "${GOBIN:-}/${name}" "$(go env GOPATH 2>/dev/null)/bin/${name}" \
+        "${HOME}/go/bin/${name}"; do
         [ -x "${candidate}" ] && { echo "${candidate}"; return; }
     done
     echo "error: ${name} not found; set ${var} to its path" >&2
