@@ -727,6 +727,7 @@ expression: outcome.built_materializations
             inactive_bindings: [],
             triggers_json: b"",
             created_at: "2025-05-07",
+            sync_schedule_json: b"",
         },
         previous_spec: MaterializationSpec {
             name: "testing/materialize",
@@ -848,6 +849,7 @@ expression: outcome.built_materializations
             inactive_bindings: [],
             triggers_json: b"",
             created_at: "",
+            sync_schedule_json: b"",
         },
         is_touch: 0,
         dependency_hash: eea0c2493934ba84,

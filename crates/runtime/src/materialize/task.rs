@@ -24,6 +24,7 @@ impl Task {
             inactive_bindings: _,
             triggers_json: _,
             created_at: _,
+            sync_schedule_json: _,
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 

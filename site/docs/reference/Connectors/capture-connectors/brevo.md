@@ -1,26 +1,39 @@
 ---
-description: Capture Brevo contacts data with Estuary's connector, including attributes and lists, using API key authentication and a configurable start date.
+description: Capture Brevo contact data with Estuary's connector, including attributes, lists, folders, segments, senders, and webhooks, using API key authentication.
 ---
 
 # Brevo
 
-This connector captures data from [Brevo's REST API](https://developers.brevo.com/reference).
+This connector captures data from [Brevo's REST API](https://developers.brevo.com/reference) into Estuary collections.
 
 ## Supported data resources
 
-The following data resources are supported through the Brevo APIs:
-
-* [Contacts](https://developers.brevo.com/reference/getcontacts-1)
-* [Contacts Attributes](https://developers.brevo.com/reference/getattributes-1)
-* [Contacts Lists](https://developers.brevo.com/reference/getlists-1)
+| Resource | Replication | API reference |
+|---|---|---|
+| `contacts` | Incremental | [Get all the contacts](https://developers.brevo.com/reference/get-contacts) |
+| `contacts_attributes` | Snapshot | [List all attributes](https://developers.brevo.com/reference/getattributes-1) |
+| `contacts_lists` | Snapshot | [Get all the lists](https://developers.brevo.com/reference/getlists-1) |
+| `contacts_folders` | Snapshot | [Get all folders](https://developers.brevo.com/reference/getfolders-1) |
+| `contacts_segments` | Snapshot | [Get all the segments](https://developers.brevo.com/reference/getsegments) |
+| `senders` | Snapshot | [Get email senders](https://developers.brevo.com/reference/getsenders-1) |
+| `webhooks` | Snapshot | [Get all webhooks](https://developers.brevo.com/reference/getwebhooks-1) |
 
 By default, each resource is mapped to an Estuary collection through a separate binding.
 
-If your use case requires additional Brevo APIs, such as Campaigns, Events, or Accounts, [contact us](mailto:info@estuary.dev) to discuss the possibility of expanding this connector.
+If your use case requires additional Brevo APIs, such as campaigns, transactional
+email activity, or CRM objects, [contact us](mailto:info@estuary.dev) to discuss
+expanding this connector.
 
 ## Prerequisites
 
 You will need a Brevo API key. See [Brevo's documentation](https://developers.brevo.com/docs/getting-started#using-your-api-key-to-authenticate) for instructions on creating one.
+
+Note that Brevo applies [per-endpoint rate limits](https://developers.brevo.com/docs/api-limits). The
+`/contacts` family allows 36,000 requests per hour, but most other endpoints —
+including those behind the `senders` and `webhooks` bindings — fall into a
+100-requests-per-hour bucket on standard accounts. At their default intervals
+those two bindings together use about four requests an hour, so headroom is
+ample. Raise their intervals if you run other integrations against the same key.
 
 ## Configuration
 
@@ -33,32 +46,36 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/api-key` | API Key | The Brevo API key used for authentication. | string | Required |
-| `/start_date` | Start Date | Earliest date to read data from. Uses date-time format, ex. `YYYY-MM-DDT00:00:00.000Z`. | string |  |
+| **`/credentials/credentials_title`** | Credentials Title | Name of the authentication method. Must be `API Key`. | string | Required |
+| **`/credentials/access_token`** | API Key | The Brevo API key used for authentication. | string | Required |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Brevo resource from which collections are captured. | string | Required |
-| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| **`/name`** | Name | Brevo resource from which collections are captured. | string | Required |
+| `/interval` | Interval | Interval between updates for this resource. | string | Varies by resource |
 
 ### Sample
 
 ```yaml
-
 captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-brevo:v1
+        image: ghcr.io/estuary/source-brevo:v2
         config:
-          api-key: {secret}
-          start_date: 2025-01-01T00:00:00.000Z
+          credentials:
+            credentials_title: API Key
+            access_token: {secret}
     bindings:
       - resource:
-          stream: contacts
-          syncMode: full_refresh
+          name: contacts
+          interval: PT5M
         target: ${PREFIX}/contacts
+      - resource:
+          name: contacts_lists
+          interval: PT1H
+        target: ${PREFIX}/contacts_lists
       {...}
 ```

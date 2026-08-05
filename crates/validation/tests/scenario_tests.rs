@@ -44,6 +44,72 @@ fn connector_validation_is_skipped_when_shards_are_disabled() {
 }
 
 #[test]
+fn sync_schedule_configured_in_both_places_is_rejected() {
+    // A model-level sync schedule alongside a connector-config `syncSchedule`
+    // is an error: the two would fight over commit cadence.
+    let fixture = r##"
+test://example/catalog.yaml:
+  materializations:
+    testing/materialization:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: { syncFrequency: 30m }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true }
+      bindings: []
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+"##;
+    let outcome = common::run(fixture, "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn sync_schedule_conflict_ignores_a_cleared_connector_schedule() {
+    // A UI that removes a connector-side sync schedule may leave behind an
+    // empty `syncSchedule: {}`, or one whose values are cleared to empty or
+    // null. The connector treats those identically to an absent key, so they
+    // must not conflict with a model-level schedule.
+    let fixture = r##"
+test://example/catalog.yaml:
+  materializations:
+    testing/empty-object:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: {}
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true }
+      bindings: []
+    testing/cleared-values:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: { syncFrequency: "", timezone: null }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true }
+      bindings: []
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+"##;
+    let outcome = common::run(fixture, "{}");
+    assert!(
+        outcome.errors.is_empty() && outcome.errors_draft.is_empty(),
+        "expected no errors, got: {:?} {:?}",
+        outcome.errors,
+        outcome.errors_draft,
+    );
+}
+
+#[test]
 fn test_collection_schema_contains_flow_document() {
     let fixture = r##"
 test://example/catalog.yaml:

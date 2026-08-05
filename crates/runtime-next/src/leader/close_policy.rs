@@ -6,7 +6,9 @@ pub struct Policy {
     pub combiner_usage_bytes: std::ops::Range<u64>,
     // Min/max desired age of the last transaction (elapsed since last txn close).
     pub last_close_age: std::ops::Range<std::time::Duration>,
-    // Min/max desired duration of an open transaction (elapsed since first ready checkpoint).
+    // Min/max desired duration of an open transaction (elapsed since first
+    // ready checkpoint). The configured band: callers pass it to evaluate()
+    // as an input, possibly modulated per evaluation (see `evaluate`).
     pub open_duration: std::ops::Range<std::time::Duration>,
     // Min/max desired bytes read in a transaction.
     pub read_bytes: std::ops::Range<u64>,
@@ -22,6 +24,9 @@ pub struct Inputs {
     pub last_age: Duration,
     pub combiner_bytes: u64,
     pub open_age: Duration,
+    /// Effective min/max open-transaction duration for THIS evaluation:
+    /// normally the policy's configured `open_duration` (see `evaluate`).
+    pub open_duration: std::ops::Range<Duration>,
     pub read_bytes: u64,
     pub read_docs: u64,
     pub stopping: bool,
@@ -75,10 +80,18 @@ impl Policy {
     /// Lifecycle flags override the size heuristic:
     /// - `unresolved_hints` pins us open: we may close only on a coherent boundary.
     /// - `idempotent_replay` is one-shot: never extend, and close once hints clear.
-    /// - `close_requested` forces a close, and with `stopping` also stops extending
-    ///   once we can actually close, so the shard stops promptly — though we keep
-    ///   extending while Tail drains, to leave the pipeline full.
+    /// - `close_requested` and `stopping` force a close — bypassing minimum
+    ///   floors, which would only delay a doomed transaction — and stop
+    ///   extending once we can actually close, so the shard stops promptly.
+    ///   Though we keep extending while Tail drains, to leave the pipeline full.
     /// - `tail_done` gates close: hold open until Tail finishes the prior txn.
+    ///
+    /// The open-duration band is itself an input rather than policy state: the
+    /// caller ordinarily passes the configured `open_duration`, but may modulate
+    /// it per evaluation — a materialization sync schedule collapses the band
+    /// onto the next scheduled commit instant, so the transaction extends up to
+    /// the instant and closes at it, with usage ceilings, close requests, and
+    /// graceful stops the only early-close drivers.
     ///
     /// `wake_after` reports when the nearest time threshold would next change this
     /// decision, so an idle caller knows when to re-evaluate.
@@ -91,6 +104,7 @@ impl Policy {
             read_docs,
             close_requested,
             idempotent_replay,
+            open_duration,
             unresolved_hints,
             stopping,
             tail_done,
@@ -98,10 +112,9 @@ impl Policy {
 
         // Are all time-based measures above their minimum?
         let time_above_min =
-            open_age >= self.open_duration.start && last_age >= self.last_close_age.start;
+            open_age >= open_duration.start && last_age >= self.last_close_age.start;
         // Are any time-based measures above their maximum?
-        let time_above_max =
-            open_age >= self.open_duration.end || last_age >= self.last_close_age.end;
+        let time_above_max = open_age >= open_duration.end || last_age >= self.last_close_age.end;
 
         // Are all usage-based measures above their minimum?
         let usage_above_min = combiner_bytes >= self.combiner_usage_bytes.start
@@ -122,7 +135,7 @@ impl Policy {
 
         // Overrides: also close if we've completed an idempotent replay.
         policy_close |= idempotent_replay && !unresolved_hints;
-        policy_close |= close_requested; // Or if requested.
+        policy_close |= finishing; // Or on a requested close or graceful stop.
 
         // Structurally, we cannot close if there are unresolved hints (we must
         // only close at a coherent transaction boundary), or if the Tail FSM
@@ -136,8 +149,8 @@ impl Policy {
             (policy_extend && !idempotent_replay && (!finishing || !may_close)) || unresolved_hints;
 
         let wake_after = [
-            self.open_duration.start.checked_sub(open_age),
-            self.open_duration.end.checked_sub(open_age),
+            open_duration.start.checked_sub(open_age),
+            open_duration.end.checked_sub(open_age),
             self.last_close_age.start.checked_sub(last_age),
             self.last_close_age.end.checked_sub(last_age),
         ]
@@ -182,6 +195,7 @@ mod tests {
             read_docs: 3,
             close_requested: false,
             idempotent_replay: false,
+            open_duration: policy.open_duration.clone(),
             unresolved_hints: false,
             stopping: false,
             tail_done: true,
@@ -324,6 +338,20 @@ mod tests {
                 want: (false, true),
             },
             Case {
+                // A graceful stop (spec update / shard reassignment) must not
+                // wait out the min-duration floor: holding a doomed transaction
+                // open only delays the restart, for up to min_txn_duration —
+                // or a full schedule interval when a sync schedule raises the
+                // floor (covered below).
+                name: "stopping below min duration: bypass floor, close",
+                inputs: Inputs {
+                    open_age: Duration::ZERO,
+                    stopping: true,
+                    ..mid.clone()
+                },
+                want: (false, true),
+            },
+            Case {
                 name: "stopping but Tail busy: keep pipeline full",
                 inputs: Inputs {
                     stopping: true,
@@ -359,6 +387,63 @@ mod tests {
                 },
                 want: (true, false),
             },
+            Case {
+                // A sync schedule modulates the band per evaluation: it
+                // collapses onto the next commit instant (2s past the current
+                // open age), so the transaction keeps extending well past the
+                // configured max duration.
+                name: "schedule-collapsed band past max duration: extend, don't close",
+                inputs: Inputs {
+                    open_age: Duration::from_secs(9),
+                    open_duration: Duration::from_secs(11)..Duration::from_secs(11),
+                    ..mid.clone()
+                },
+                want: (true, false),
+            },
+            Case {
+                // At the commit instant the collapsed band is at/below the
+                // open age: the ceiling forces a close even though every usage
+                // measure sits below its own ceiling (i.e., more data could
+                // still batch — a busy source must not defer the commit).
+                name: "schedule-collapsed band at the instant: close only",
+                inputs: Inputs {
+                    open_duration: Duration::from_secs(3)..Duration::from_secs(3),
+                    ..mid.clone()
+                },
+                want: (false, true),
+            },
+            Case {
+                // ...but a usage ceiling still forces an early close (safety valve).
+                name: "schedule-collapsed band but usage ceiling: close",
+                inputs: Inputs {
+                    combiner_bytes: 9,
+                    open_duration: Duration::from_secs(5)..Duration::from_secs(5),
+                    ..mid.clone()
+                },
+                want: (false, true),
+            },
+            Case {
+                // A graceful stop likewise overrides the collapsed band —
+                // else a spec update would wait for the next commit instant,
+                // up to a full schedule interval away.
+                name: "schedule-collapsed band but stopping: close",
+                inputs: Inputs {
+                    stopping: true,
+                    open_duration: Duration::from_secs(5)..Duration::from_secs(5),
+                    ..mid.clone()
+                },
+                want: (false, true),
+            },
+            Case {
+                // A close request overrides the collapsed band.
+                name: "schedule-collapsed band but close_requested: close",
+                inputs: Inputs {
+                    close_requested: true,
+                    open_duration: Duration::from_secs(5)..Duration::from_secs(5),
+                    ..mid.clone()
+                },
+                want: (false, true),
+            },
         ];
 
         for case in cases {
@@ -381,6 +466,18 @@ mod tests {
         };
         assert_eq!(
             policy.evaluate(fresh).wake_after,
+            Some(Duration::from_secs(1))
+        );
+
+        // A schedule-collapsed band contributes its own wake_after: the commit
+        // instant sits 1s past the current open age, nearer than the in-band
+        // time ceilings (2s out from `mid`).
+        let held = Inputs {
+            open_duration: Duration::from_secs(4)..Duration::from_secs(4),
+            ..mid.clone()
+        };
+        assert_eq!(
+            policy.evaluate(held).wake_after,
             Some(Duration::from_secs(1))
         );
     }

@@ -823,6 +823,7 @@ Outcome {
                 inactive_bindings: [],
                 triggers_json: b"",
                 created_at: "2025-05-07",
+                sync_schedule_json: b"",
             },
             previous_spec: MaterializationSpec {
                 name: "testing/db-views",
@@ -903,6 +904,7 @@ Outcome {
                 inactive_bindings: [],
                 triggers_json: b"",
                 created_at: "",
+                sync_schedule_json: b"",
             },
             is_touch: 0,
             dependency_hash: f70cb9d1e746ef16,

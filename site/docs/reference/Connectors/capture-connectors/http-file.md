@@ -6,7 +6,7 @@ description: Capture data from an HTTP endpoint with the HTTP File connector, in
 
 This connector captures data from an HTTP endpoint into an Estuary collection.
 
-To capture data from an _incoming_ HTTP request, see the [HTTP Ingest](./http-ingest.md) connector.
+To capture data from an _incoming_ HTTP request, see the [HTTP Ingest](./http-ingest/http-ingest.md) connector.
 
 ## Supported data types
 

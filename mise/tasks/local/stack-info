@@ -32,14 +32,18 @@ printf '  %-22s %s\n' "plane 0 base" "${PB} (brokers ${PB}+, reactors ${PB}+99 d
 echo ""
 
 echo "Units for this stack:"
-UNITS="$(systemctl --user list-units --all --no-legend --no-pager \
+# `--plain` suppresses the `●` marker systemctl prefixes onto failed/not-found
+# units. Without it those rows gain a leading column, so $1 is the marker and the
+# unit NAME is dropped from the output entirely. The LOAD column ($2) carries
+# what the marker was signalling, so surface it when it isn't the boring `loaded`.
+UNITS="$(systemctl --user list-units --all --no-legend --no-pager --plain \
     "flow-*@${FLOW_STACK_NAME}.service" \
     "flow-*@${FLOW_STACK_NAME}.target" \
     "flow-*@${FLOW_CLUSTER}.service" \
     "flow-*@${FLOW_CLUSTER}.target" \
     "flow-*@${FLOW_CLUSTER}-*.service" \
     "flow-*@${FLOW_CLUSTER}-*.target" 2>/dev/null \
-    | awk '{printf "  %-52s %s %s\n", $1, $3, $4}')"
+    | awk '{load = ($2 == "loaded" ? "" : " [" $2 "]"); printf "  %-52s %s %s%s\n", $1, $3, $4, load}')"
 if [ -n "${UNITS}" ]; then
     printf '%s\n' "${UNITS}"
 else
@@ -48,9 +52,16 @@ fi
 echo ""
 
 REACTOR_PORT=$((PB + 99))
+# Print psql's URL literally rather than as $FLOW_PG_URL: that variable comes
+# from stack-env and exists only under mise, so a pasted `psql "$FLOW_PG_URL"`
+# expands to empty in the user's shell and fails against the default libpq socket.
+# (Note `mise exec -- psql "$FLOW_PG_URL"` is no fix: the OUTER shell expands the
+# argument before mise sets anything.) flowctl needs only FLOWCTL_PROFILE from
+# the environment, so for it `mise exec --` is sufficient.
 echo "Ready-to-paste commands:"
-echo "  psql \"\$FLOW_PG_URL\"                       # Supabase Postgres  localhost:${FLOW_PORT_SUPABASE_DB}"
-echo "  flowctl catalog list                       # FLOWCTL_PROFILE=${FLOW_STACK_NAME} is ambient here"
+echo "  psql ${FLOW_PG_URL}"
+echo "  mise exec -- flowctl catalog list          # FLOWCTL_PROFILE=${FLOW_STACK_NAME} is ambient under mise"
+echo "  mise run local:stack-wait                  # block until all services accept connections"
 echo "  export SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt   # per-command; needed for broker/reactor TLS calls"
 echo "  journalctl --user -u flow-reactor@${FLOW_CLUSTER}-${REACTOR_PORT} -f"
 echo "  mise run local:test-tenant && source ${FLOW_STACK_DIR}/test-tenant-test.env"

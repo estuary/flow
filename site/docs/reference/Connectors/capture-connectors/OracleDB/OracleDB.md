@@ -160,6 +160,7 @@ To allow secure connections via SSH tunneling:
 | `/advanced/discover_schemas`       | Discover Schemas       | If this is specified only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas.                                                                                                                                                                                              | string  |                                |
 | `/advanced/node_id`                | Node ID                | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn't matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                          | integer |                                |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
+| `/advanced/rediscovery_interval` | Rediscovery Interval | How often the connector re-runs discovery while a capture is running, in order to notice schema changes and newly added tables. Accepts duration strings like `15m` or `1h`, from `1m` up to `8760h`. | string | `"15m"` |
 
 
 #### Bindings

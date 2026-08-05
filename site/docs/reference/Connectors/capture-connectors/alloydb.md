@@ -84,6 +84,7 @@ See the table below and the [sample config](#sample).
 | `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
 | `/advanced/slotName` | Slot Name | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
 | `/advanced/watermarksTable` | Watermarks Table | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"public.flow_watermarks"` |
+| `/advanced/rediscovery_interval` | Rediscovery Interval | How often the connector re-runs discovery while a capture is running, in order to notice schema changes and newly added tables. Accepts duration strings like `15m` or `1h`, from `1m` up to `8760h`. | string | `"15m"` |
 | `networkTunnel` | Network Tunnel | Connect to your system through an SSH server that acts as a bastion host for your network. | Object | |
 | `networkTunnel/sshForwarding` | SSH Forwarding | | Object | |
 | `networkTunnel/sshForwarding/sshEndpoint` | SSH Endpoint | Endpoint of the remote SSH server (in this case, your Google Cloud VM) that supports tunneling (in the form of ssh://user@address). | String | |

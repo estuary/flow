@@ -82,5 +82,11 @@ commit;
 EOF
 
 echo ""
+# Don't claim the stack is up until it actually serves. The units build in
+# ExecStartPre and are `Type=simple`, so systemd reports them active long
+# before they listen; on a cold checkout that gap is minutes of compiling.
+mise run local:stack-wait
+
+echo ""
 echo "Stack '${FLOW_STACK_NAME}' is up."
 print_stack_card

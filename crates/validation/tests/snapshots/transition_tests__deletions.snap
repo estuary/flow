@@ -340,6 +340,7 @@ Outcome {
                 inactive_bindings: [],
                 triggers_json: b"",
                 created_at: "",
+                sync_schedule_json: b"",
             },
             is_touch: 0,
             dependency_hash: NULL,

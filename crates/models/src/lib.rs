@@ -29,6 +29,7 @@ mod source;
 mod source_capture;
 pub(crate) mod sqlx_json;
 pub mod status;
+pub mod sync_schedule;
 mod tests;
 pub mod triggers;
 
@@ -70,6 +71,7 @@ pub use schemas::Schema;
 pub use shards::{ENABLE_RUNTIME_V2, ShardTemplate};
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
+pub use sync_schedule::SyncSchedule;
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 pub use triggers::{
     HttpMethod, TriggerConfig, TriggerVariables, Triggers, build_template_context,

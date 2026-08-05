@@ -22,7 +22,7 @@ pub struct Request {
     /// have a suffix added to its name (e.g. "api_key" -> "api_key_sops").
     pub schema: serde_json::Value,
     /// The plain text configuration to encrypt. This must validate against the provided JSON
-    /// schema. If provided in YAML format, then all comments will be stripped.
+    /// schema.
     pub config: serde_json::Value,
     /// Keychain to use for this encryption request.
     #[serde(default)]

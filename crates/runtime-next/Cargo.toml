@@ -53,6 +53,7 @@ aws-sdk-sts = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 futures = { workspace = true }
 handlebars = { workspace = true }
 json-patch = { workspace = true }

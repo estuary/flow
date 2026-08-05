@@ -308,7 +308,8 @@ expression: json_test(msg)
         }
       ],
       "triggers": [{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}],
-      "createdAt": "2025-07-09"
+      "createdAt": "2025-07-09",
+      "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]}
     },
     "version": "11:22:33:44",
     "lastVersion": "00:11:22:33",
@@ -508,7 +509,8 @@ expression: json_test(msg)
         }
       ],
       "triggers": [{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}],
-      "createdAt": "2025-07-09"
+      "createdAt": "2025-07-09",
+      "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]}
     },
     "version": "11:22:33:44",
     "range": {

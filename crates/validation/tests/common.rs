@@ -300,6 +300,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             source: None,
             target_naming: None,
             triggers: None,
+            sync_schedule: None,
             delete: false,
             reset: false,
             on_incompatible_schema_change: Default::default(),
@@ -350,6 +351,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             inactive_bindings: Vec::new(),
             triggers_json: bytes::Bytes::new(),
             created_at: String::new(),
+            sync_schedule_json: bytes::Bytes::new(),
         };
         live.materializations.insert_row(
             materialization,

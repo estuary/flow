@@ -466,6 +466,7 @@ mod test {
             delete: false,
             reset: false,
             triggers: None,
+            sync_schedule: None,
         })
     }
 
