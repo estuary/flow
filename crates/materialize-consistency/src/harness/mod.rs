@@ -47,12 +47,6 @@ pub struct Outcome {
     /// scenario that survived re-delivery and one that never saw any. A split scenario
     /// passing with zero of these has demonstrated nothing about idempotency, however
     /// green it looks — the same vacuity the paired-defect rule exists to prevent.
-    /// `None` for a real subject: this is the reference connector's own bookkeeping, read
-    /// from its SQLite destination, and a real connector exposes no equivalent. Reporting a
-    /// hard `0` there would say "this scenario absorbed no re-delivery" — which by this
-    /// suite's own rule means it demonstrated nothing — when the truth is that it was not
-    /// measured.
-    pub suppressed_rows: Option<i64>,
     /// Where the shim's trace and the destination were left. Retained on failure
     /// and removed on success — a caller that *expected* the failure (the defective
     /// half of every scenario) removes it itself.
@@ -69,28 +63,16 @@ impl Outcome {
     pub fn summary(&self) -> String {
         if self.violations.is_empty() {
             return format!(
-                "{}: upheld every invariant over {} documents \
-                 ({} faults injected, {} re-delivered rows absorbed)",
-                self.scenario,
-                self.documents,
-                self.faults_fired,
-                match self.suppressed_rows {
-                    Some(rows) => rows.to_string(),
-                    None => "an unmeasurable number of".to_string(),
-                },
+                "{}: upheld every invariant over {} documents ({} faults injected)",
+                self.scenario, self.documents, self.faults_fired,
             );
         }
         let mut lines = vec![format!(
-            "{}: {} violation(s) over {} documents \
-             ({} faults injected, {} re-delivered rows absorbed)",
+            "{}: {} violation(s) over {} documents ({} faults injected)",
             self.scenario,
             self.violations.len(),
             self.documents,
             self.faults_fired,
-            match self.suppressed_rows {
-                Some(rows) => rows.to_string(),
-                None => "an unmeasurable number of".to_string(),
-            },
         )];
         // Bounded: a lost account produces a violation per account, and the first
         // few say everything the rest would.
@@ -518,23 +500,10 @@ async fn execute(
         }
     }
 
-    // Read before the run directory is cleaned up, and on every path: a passing run is
-    // exactly the one where this number decides whether anything was proved.
-    let suppressed_rows = match external {
-        // The reference connector's own ledger, in its own destination. See the field.
-        None => Some(
-            suppressed_rows_of(run_dir)
-                .map(|rows| rows.iter().map(|(_, n)| n).sum())
-                .unwrap_or(0),
-        ),
-        Some(_) => None,
-    };
-
     Ok(Outcome {
         scenario: scenario.name,
         violations,
         exempted,
-        suppressed_rows,
         faults_fired,
         documents,
         run_dir: run_dir.to_path_buf(),
@@ -547,17 +516,6 @@ async fn execute(
 /// the connector's own bookkeeping rather than a binding's contents. A non-zero count
 /// says a document was handed to the connector twice — which the delivered rows cannot
 /// say, since suppressing the second copy is precisely what makes them look correct.
-fn suppressed_rows_of(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
-    let conn = rusqlite::Connection::open_with_flags(
-        run_dir.join("destination.sqlite"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?;
-    let mut stmt = conn.prepare("SELECT tbl, rows FROM _flow_suppressed ORDER BY tbl")?;
-    let rows = stmt
-        .query_map((), |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
-}
 
 fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow::Result<()> {
     let expectation = |e: &Expectation| -> Vec<serde_json::Value> {
@@ -585,8 +543,6 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
                 "log": b.log_expected.duplicated_documents,
             },
         },
-        "suppressedAppendRows": suppressed_rows_of(run_dir)
-            .unwrap_or_else(|err| vec![(format!("unreadable: {err:#}"), -1)]),
         "delivered": {
             "standard": &b.standard,
             "mergedDelta": &b.merged_delta,

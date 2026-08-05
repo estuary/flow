@@ -99,19 +99,6 @@ impl Store {
              );
              CREATE INDEX IF NOT EXISTS _flow_staged_batch ON _flow_staged (batch, tbl);
 
-             CREATE TABLE IF NOT EXISTS _flow_applied_row (
-                 tbl   TEXT NOT NULL,
-                 key   TEXT NOT NULL,
-                 doc   TEXT NOT NULL,
-                 batch TEXT NOT NULL,
-                 PRIMARY KEY (tbl, key, doc)
-             );
-
-             CREATE TABLE IF NOT EXISTS _flow_suppressed (
-                 tbl  TEXT PRIMARY KEY,
-                 rows INTEGER NOT NULL
-             );
-
              CREATE TABLE IF NOT EXISTS _flow_counter (
                  shard     INTEGER NOT NULL,
                  shard_end INTEGER NOT NULL,
@@ -377,36 +364,23 @@ impl Store {
         let mut queries = Vec::new();
 
         if table.delta {
-            // A real destination recognises a staged file it has already loaded, so a
-            // re-delivered row is absorbed rather than appended twice. SQLite offers no
-            // such guarantee, so the ledger stands in for it — claimed atomically, and
-            // stamped with the batch that won, so "rows this batch may append" is
-            // expressible as a join rather than inferred afterwards.
-            queries.push(format!(
-                "INSERT OR IGNORE INTO _flow_applied_row (tbl, key, doc, batch)
-                 SELECT tbl, key, doc, {b} FROM _flow_staged
-                 WHERE batch = {b} AND tbl = {t};"
-            ));
-            // Count what the ledger refused before the batch is retired: absorbing a
-            // re-delivery is correct, but a run that absorbed nothing has demonstrated
-            // nothing, and the destination's contents cannot tell the two apart.
-            queries.push(format!(
-                "INSERT INTO _flow_suppressed (tbl, rows)
-                 SELECT s.tbl, COUNT(*) FROM _flow_staged s
-                 WHERE s.batch = {b} AND s.tbl = {t} AND NOT EXISTS (
-                     SELECT 1 FROM _flow_applied_row r
-                     WHERE r.tbl = s.tbl AND r.key = s.key AND r.doc = s.doc
-                       AND r.batch = {b})
-                 GROUP BY s.tbl
-                 ON CONFLICT (tbl) DO UPDATE SET rows = rows + excluded.rows;"
-            ));
+            // Appended unconditionally, and deliberately with no cross-batch ledger.
+            //
+            // There used to be one, keyed on (table, key, doc) across every batch, standing
+            // in for "a real destination recognises a staged file it has already loaded". It
+            // did not model that: `materialize-databricks` dedupes at *file* granularity with
+            // fresh-UUID names, so the same row re-staged in a new file loads again. The
+            // ledger made this connector more forgiving than the one it models, which is the
+            // failure mode this crate exists to avoid — and it absorbed nothing in any
+            // scenario, in any run, so it was untested machinery besides.
+            //
+            // Same-batch idempotency does not need it: retiring the batch below is what makes
+            // re-running an entry a no-op, which is also why the `non-idempotent-acknowledge`
+            // defect works by *not* retiring.
             queries.push(format!(
                 "INSERT INTO \"{ident}\" (key, doc)
                  SELECT s.key, s.doc FROM _flow_staged s
-                 WHERE s.batch = {b} AND s.tbl = {t} AND EXISTS (
-                     SELECT 1 FROM _flow_applied_row r
-                     WHERE r.tbl = s.tbl AND r.key = s.key AND r.doc = s.doc
-                       AND r.batch = {b})
+                 WHERE s.batch = {b} AND s.tbl = {t}
                  ORDER BY s.ord;"
             ));
         } else {
@@ -767,15 +741,21 @@ mod test {
         );
     }
 
-    /// The same document, re-delivered and staged again under a different batch, must not
-    /// append twice — and the suppression must be counted.
+    /// A row re-staged under a *new* batch is appended again, which is what a real
+    /// destination does.
     ///
-    /// Real destinations recognise a staged file they have already loaded, so an
-    /// `Acknowledge` is idempotent for append-only bindings too. SQLite offers no such
-    /// guarantee, so the row ledger stands in for it, claimed atomically inside the same
-    /// transaction as the append.
+    /// This connector used to absorb it, via a ledger keyed on the row across every batch.
+    /// That modelled nothing real: `materialize-databricks` dedupes at file granularity with
+    /// fresh-UUID names, so the same row in a new staged file loads a second time. Absorbing
+    /// it made this connector more forgiving than the one it models, and hid exactly the
+    /// re-delivery the split scenarios exist to detect — a duplicate the `NoDuplicates`
+    /// checker would otherwise see.
+    ///
+    /// Same-batch idempotency is unaffected, and is what `Acknowledge` actually needs: the
+    /// batch is retired by its own last statement, so re-running an entry finds nothing
+    /// staged.
     #[test]
-    fn applying_the_same_rows_from_another_shard_does_not_append_twice() {
+    fn applying_the_same_rows_under_a_new_batch_appends_again() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
 
@@ -807,21 +787,44 @@ mod test {
 
         assert_eq!(
             store.read_all(&table).unwrap().len(),
-            1,
-            "the destination recognised a row it had already accepted",
+            2,
+            "a new staged batch appends, as a real destination's would",
         );
+    }
 
-        // Suppressing it is what makes the count correct, so it must be visible: a run
-        // that absorbed nothing has demonstrated nothing.
-        let suppressed: Vec<(String, i64)> = store
-            .conn
-            .prepare("SELECT tbl, rows FROM _flow_suppressed")
-            .unwrap()
-            .query_map((), |r| Ok((r.get(0).unwrap(), r.get(1).unwrap())))
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
+    /// Re-running one entry is a no-op, because its own last statement retired the batch.
+    /// This is what makes `Acknowledge` idempotent, and what the
+    /// `non-idempotent-acknowledge` defect breaks by not retiring.
+    #[test]
+    fn applying_the_same_batch_twice_appends_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        let table = Table {
+            name: "events".to_string(),
+            delta: true,
+        };
+        store.ensure_table(&table).unwrap();
+
+        store
+            .stage(
+                "batch-1",
+                &[(
+                    table.clone(),
+                    Row {
+                        key: "[1,7]".to_string(),
+                        doc: r#"{"id":1,"seq":7}"#.to_string(),
+                        delete: false,
+                    },
+                )],
+            )
             .unwrap();
-        assert_eq!(suppressed, vec![("events".to_string(), 1)]);
+
+        let statements = Store::apply_statements("batch-1", &table, true);
+        store.execute(&statements).unwrap();
+        store.execute(&statements).unwrap();
+
+        assert_eq!(store.read_all(&table).unwrap().len(), 1);
     }
 
     /// A `Load` reads applied state, and nothing else.
