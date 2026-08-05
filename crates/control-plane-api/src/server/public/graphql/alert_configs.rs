@@ -5,14 +5,13 @@
 //! Updating a row requires admin access to its governing prefix. For exact
 //! catalog names, the governing prefix is the parent prefix.
 
-use super::filters;
+use super::{authorized_prefixes::MAX_PREFIXES, filters};
 use async_graphql::{
     Context,
     types::connection::{self, Connection},
 };
 
 const DEFAULT_PAGE_SIZE: usize = 50;
-const MAX_PREFIXES: usize = 20;
 
 /// Optional filter for the `alertConfigs` query. When omitted, all accessible
 /// rows are returned. A filter only narrows those results; the caller's
@@ -138,9 +137,9 @@ impl AlertConfigsQuery {
             return Ok(PaginatedAlertConfigs::new(false, false));
         }
         if read_prefixes.len() > MAX_PREFIXES {
-            return Err(async_graphql::Error::new(
-                "Too many accessible prefixes; narrow results with a filter",
-            ));
+            return Err(async_graphql::Error::new(format!(
+                "Too many accessible prefixes to list; this query supports at most {MAX_PREFIXES}"
+            )));
         }
 
         connection::query_with::<String, _, _, _, async_graphql::Error>(
@@ -790,20 +789,19 @@ mod test {
         );
     }
 
-    // Regression coverage for the reason `narrow_to_exact_set` runs before the
-    // `MAX_PREFIXES` guard: a caller who can read more than `MAX_PREFIXES`
-    // prefixes is refused an unfiltered listing, but an `in` filter narrows the
-    // authorized set back under the cap so the same caller succeeds.
+    // `MAX_PREFIXES` caps the caller's authorized set, which is derived from
+    // grants alone. A filter scopes rows in SQL and leaves that set untouched,
+    // so a caller over the cap is refused whether or not they filter.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes"))
     )]
-    async fn test_alert_configs_in_narrows_past_max_prefixes(pool: sqlx::PgPool) {
+    async fn test_alert_configs_max_prefixes_guard(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
-        // Grant Bob read on `MAX_PREFIXES + 5` non-overlapping prefixes, each
-        // with a config row. None is a prefix of another, so parent-pruning
-        // leaves the full set and the count exceeds the guard.
+        // Grant Bob read on `MAX_PREFIXES + 5` non-overlapping prefixes. None
+        // is a prefix of another, so parent-pruning leaves the full set and the
+        // count exceeds the guard.
         let bob_uid = uuid::Uuid::from_bytes([0x22; 16]);
         sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'bob@example.test')")
             .bind(bob_uid)
@@ -811,20 +809,14 @@ mod test {
             .await
             .unwrap();
         for n in 0..(MAX_PREFIXES + 5) {
-            let prefix = format!("tenant{n:02}/");
             sqlx::query(
                 "INSERT INTO public.user_grants (user_id, object_role, capability) VALUES ($1, $2, 'read')",
             )
             .bind(bob_uid)
-            .bind(&prefix)
+            .bind(format!("tenant{n:03}/"))
             .execute(&pool)
             .await
             .unwrap();
-            sqlx::query("INSERT INTO alert_configs (catalog_prefix_or_name, config) VALUES ($1, '{}'::jsonb)")
-                .bind(&prefix)
-                .execute(&pool)
-                .await
-                .unwrap();
         }
 
         let server = test_server::TestServer::start(
@@ -854,14 +846,14 @@ mod test {
             "unfiltered query over MAX_PREFIXES should be rejected: {unfiltered}"
         );
 
-        // `in` narrows the authorized set below the cap, so the same caller now
-        // gets a successful, exact-set result.
-        let narrowed: serde_json::Value = server
+        // Filtered: the cap is on the authorized set, which the filter does not
+        // reduce, so the same caller is refused here too.
+        let filtered: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        alertConfigs(filter: { catalogPrefixOrName: { in: ["tenant00/", "tenant01/", "tenant02/"] } }) {
+                        alertConfigs(filter: { catalogPrefixOrName: { in: ["tenant000/", "tenant001/"] } }) {
                             edges { node { catalogPrefixOrName } }
                         }
                     }"#
@@ -870,21 +862,11 @@ mod test {
             )
             .await;
         assert!(
-            narrowed.get("errors").is_none(),
-            "narrowed query should succeed: {narrowed}"
+            filtered["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "filtered query over MAX_PREFIXES should also be rejected: {filtered}"
         );
-        let names: Vec<String> = narrowed["data"]["alertConfigs"]["edges"]
-            .as_array()
-            .expect("edges array")
-            .iter()
-            .map(|edge| {
-                edge["node"]["catalogPrefixOrName"]
-                    .as_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect();
-        assert_eq!(names, vec!["tenant00/", "tenant01/", "tenant02/"]);
     }
 
     #[sqlx::test(

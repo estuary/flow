@@ -20,8 +20,7 @@ pub struct PrefixFilter {
     /// between 1 and 100 entries: an empty `in` is rejected during input
     /// validation rather than silently matching nothing (or everything), and
     /// the upper bound keeps this caller-controlled set from driving unbounded
-    /// work — every entry is narrowed against the caller's authorized prefixes
-    /// in memory and bound into a SQL `= ANY(...)` on each request.
+    /// work — every entry is bound into a SQL `= ANY(...)` on each request.
     /// `startsWith` and `in` are mutually exclusive: a resolver rejects a
     /// filter that sets both, so a prefix scope is always either a subtree
     /// (`startsWith`) or an exact set (`in`), never a mix.
@@ -44,34 +43,6 @@ impl PrefixFilter {
             )));
         }
         Ok((self.starts_with, self.r#in))
-    }
-
-    /// Narrows a caller's `authorized` prefixes to those that overlap the
-    /// `startsWith` filter, so a `MAX_PREFIXES` guard stays meaningful for
-    /// callers who can access many prefixes. The overlap is bidirectional (the
-    /// filter may be an ancestor or a descendant of an authorized prefix) and
-    /// deliberately approximate: it can only remove entries, never add them,
-    /// so it cannot widen visibility. Exact subtree scoping is still enforced
-    /// by the resolver's SQL (`^@ $startsWith`) against these authorized
-    /// prefixes.
-    pub fn narrow_to_overlap(authorized: &mut Vec<String>, starts_with: &str) {
-        authorized.retain(|a| a.starts_with(starts_with) || starts_with.starts_with(a.as_str()));
-    }
-
-    /// Narrows a caller's `authorized` prefixes to those that overlap the exact
-    /// `in` set, so a `MAX_PREFIXES` guard stays meaningful for callers who can
-    /// access many prefixes. The overlap is bidirectional (an `in` entry may be
-    /// an ancestor or a descendant of an authorized prefix) and deliberately
-    /// approximate: it can only remove entries, never add them, so it cannot
-    /// widen visibility. Exact membership is still enforced by the resolver's
-    /// SQL (`= ANY($in)`) against these authorized prefixes.
-    pub fn narrow_to_exact_set<S: AsRef<str>>(authorized: &mut Vec<String>, exact: &[S]) {
-        authorized.retain(|a| {
-            exact.iter().any(|e| {
-                let e = e.as_ref();
-                e.starts_with(a.as_str()) || a.as_str().starts_with(e)
-            })
-        });
     }
 }
 
@@ -121,70 +92,5 @@ mod test {
             err.message,
             "`filter.catalogPrefix.startsWith` and `.in` are mutually exclusive; provide only one"
         );
-    }
-
-    #[test]
-    fn narrow_to_overlap_retains_only_overlapping_prefixes() {
-        // Overlap is bidirectional: the filter keeps an authorized prefix that
-        // it equals, descends from, or is an ancestor of. Retained entries
-        // keep their original order.
-        let cases: &[(&[&str], &str, &[&str])] = &[
-            // Equal.
-            (&["acmeCo/"], "acmeCo/", &["acmeCo/"]),
-            // Filter descends from the authorized prefix: the grant covers the
-            // filter, so the prefix stays (SQL narrows rows to the subtree).
-            (&["acmeCo/"], "acmeCo/data/", &["acmeCo/"]),
-            // Filter is an ancestor of the authorized prefix.
-            (&["acmeCo/data/"], "acmeCo/", &["acmeCo/data/"]),
-            // Disjoint.
-            (&["acmeCo/"], "betaCo/", &[]),
-            // Mixed: only overlapping authorized prefixes survive.
-            (
-                &["acmeCo/", "acmeCo/team/", "betaCo/"],
-                "acmeCo/",
-                &["acmeCo/", "acmeCo/team/"],
-            ),
-        ];
-        for &(authorized, starts_with, expected) in cases {
-            let mut got: Vec<String> = authorized.iter().map(|s| s.to_string()).collect();
-            PrefixFilter::narrow_to_overlap(&mut got, starts_with);
-            let want: Vec<String> = expected.iter().map(|s| s.to_string()).collect();
-            assert_eq!(
-                got, want,
-                "authorized={authorized:?} starts_with={starts_with}"
-            );
-        }
-    }
-
-    #[test]
-    fn narrow_to_exact_set_retains_only_overlapping_prefixes() {
-        // Overlap is bidirectional: an exact entry keeps an authorized prefix
-        // when it equals, descends from, or is an ancestor of it. Disjoint
-        // entries drop it, and an empty exact set drops everything. Retained
-        // entries keep their original order.
-        let cases: &[(&[&str], &[&str], &[&str])] = &[
-            // Equal.
-            (&["acmeCo/"], &["acmeCo/"], &["acmeCo/"]),
-            // Exact entry descends from the authorized prefix.
-            (&["acmeCo/"], &["acmeCo/team/"], &["acmeCo/"]),
-            // Exact entry is an ancestor of the authorized prefix.
-            (&["acmeCo/team/"], &["acmeCo/"], &["acmeCo/team/"]),
-            // Disjoint.
-            (&["acmeCo/"], &["betaCo/"], &[]),
-            // Mixed: only overlapping authorized prefixes survive.
-            (
-                &["acmeCo/", "acmeCo/team/", "betaCo/"],
-                &["acmeCo/", "ghostCo/"],
-                &["acmeCo/", "acmeCo/team/"],
-            ),
-            // Empty exact set overlaps nothing.
-            (&["acmeCo/"], &[], &[]),
-        ];
-        for &(authorized, exact, expected) in cases {
-            let mut got: Vec<String> = authorized.iter().map(|s| s.to_string()).collect();
-            PrefixFilter::narrow_to_exact_set(&mut got, exact);
-            let want: Vec<String> = expected.iter().map(|s| s.to_string()).collect();
-            assert_eq!(got, want, "authorized={authorized:?} exact={exact:?}");
-        }
     }
 }

@@ -1,4 +1,4 @@
-use super::{TimestampCursor, filters};
+use super::{TimestampCursor, authorized_prefixes::MAX_PREFIXES, filters};
 use async_graphql::{Context, types::connection};
 
 /// An invite link that grants access to a catalog prefix.
@@ -54,7 +54,6 @@ pub struct InviteLinksFilter {
 pub struct InviteLinksQuery;
 
 const DEFAULT_PAGE_SIZE: usize = 25;
-const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl InviteLinksQuery {
@@ -91,9 +90,9 @@ impl InviteLinksQuery {
             return Ok(PaginatedInviteLinks::new(false, false));
         }
         if admin_prefixes.len() > MAX_PREFIXES {
-            return Err(async_graphql::Error::new(
-                "Too many admin prefixes; narrow results with a prefix filter",
-            ));
+            return Err(async_graphql::Error::new(format!(
+                "Too many admin prefixes to list; this query supports at most {MAX_PREFIXES}"
+            )));
         }
 
         connection::query_with::<TimestampCursor, _, _, _, async_graphql::Error>(

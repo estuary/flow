@@ -1,10 +1,22 @@
+/// Largest authorized-prefix set a prefix-scoped list query will serve.
+///
+/// The caller's prefixes are resolved in memory from the request's
+/// authorization Snapshot and bound into SQL as a `text[]` for a
+/// `^@ ANY($1)` scope check, so the array has to be bounded somewhere. A
+/// caller over this many prefixes is refused rather than served a query with
+/// an unbounded scope array.
+///
+/// Shared by every prefix-scoped list query so the ceiling is uniform across
+/// the API.
+pub(super) const MAX_PREFIXES: usize = 100;
+
 /// Returns catalog prefixes where the authenticated user holds all
 /// `required_capabilities`.
 ///
 /// Intended for use by GraphQL queries that list resources scoped to the
-/// caller's authorized prefixes. User-supplied filters are applied as
-/// narrowing post-passes over this set (see `filtered_authorized_prefixes`),
-/// never here: this function answers only the authorization question.
+/// caller's authorized prefixes. This function answers only the authorization
+/// question: user-supplied filters are never applied here, and instead go to
+/// the resolver's SQL alongside this set (see `filtered_authorized_prefixes`).
 pub(super) fn authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
@@ -41,16 +53,16 @@ fn prune_covered(sorted: impl IntoIterator<Item = String>) -> Vec<String> {
     pruned
 }
 
-/// Resolves the caller's prefixes for `required_capabilities`, narrowed by an
-/// optional `PrefixFilter`, and returns them with the filter's decomposed
-/// `startsWith`/`in` parts (which callers bind into their own SQL). `field`
-/// names the GraphQL input field for the mutual-exclusion error.
+/// Resolves the caller's prefixes for `required_capabilities` and returns them
+/// with the optional `PrefixFilter` decomposed into its `startsWith`/`in`
+/// parts, which callers bind into their own SQL. `field` names the GraphQL
+/// input field for the mutual-exclusion error.
 ///
-/// This chains the steps every prefix-scoped list query repeats —
-/// `PrefixFilter::into_parts`, `authorized_prefixes`, and the filter's
-/// narrowing post-passes (`narrow_to_overlap` / `narrow_to_exact_set`) — so
-/// the narrow-only invariant (a filter can only remove authorized prefixes,
-/// never add them) has a single owner.
+/// The two outputs stay separate all the way into SQL, where the resolver ANDs
+/// an unconditional `^@ ANY($authorized)` scope check against the filter's own
+/// clause. Authorization is therefore built from grants alone and never from
+/// caller input, so a bug in filter handling can only return too few rows,
+/// never widen visibility.
 pub(super) fn filtered_authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
@@ -63,14 +75,7 @@ pub(super) fn filtered_authorized_prefixes(
         Some(cp) => cp.into_parts(field)?,
         None => (None, None),
     };
-    let mut prefixes =
-        authorized_prefixes(role_grants, user_grants, user_id, required_capabilities);
-    if let Some(sw) = starts_with.as_deref() {
-        super::filters::PrefixFilter::narrow_to_overlap(&mut prefixes, sw);
-    }
-    if let Some(exact) = r#in.as_deref() {
-        super::filters::PrefixFilter::narrow_to_exact_set(&mut prefixes, exact);
-    }
+    let prefixes = authorized_prefixes(role_grants, user_grants, user_id, required_capabilities);
     Ok((prefixes, starts_with, r#in))
 }
 
@@ -301,48 +306,41 @@ mod tests {
     }
 
     #[test]
-    fn filtered_starts_with_narrows_by_subtree_and_returns_part() {
+    fn filtered_passes_the_filter_through_without_touching_the_authorized_set() {
+        // A filter narrows rows in SQL, not the authorized set: both grants
+        // come back either way, and the filter is returned verbatim for the
+        // resolver to bind alongside them.
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
-        let filter = PrefixFilter {
-            starts_with: Some("acmeCo/".to_string()),
-            r#in: None,
-        };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
             &rg,
             &ug,
             ALICE,
             Admin,
-            Some(filter),
+            Some(PrefixFilter {
+                starts_with: Some("acmeCo/".to_string()),
+                r#in: None,
+            }),
             "filter.catalogPrefix",
         )
         .unwrap();
-        assert_eq!(prefixes, vec!["acmeCo/"]);
+        assert_eq!(prefixes, vec!["acmeCo/", "beta/"]);
         assert_eq!(starts_with.as_deref(), Some("acmeCo/"));
         assert_eq!(r#in, None);
-    }
 
-    #[test]
-    fn filtered_in_narrows_to_exact_set_and_returns_part() {
-        // `authorized_prefixes` runs with no subtree filter (startsWith is None
-        // when `in` is set), so both grants come back; `narrow_to_exact_set`
-        // then drops everything not overlapping the `in` set.
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
-
-        let filter = PrefixFilter {
-            starts_with: None,
-            r#in: Some(vec!["acmeCo/".to_string()]),
-        };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
             &rg,
             &ug,
             ALICE,
             Admin,
-            Some(filter),
+            Some(PrefixFilter {
+                starts_with: None,
+                r#in: Some(vec!["acmeCo/".to_string()]),
+            }),
             "filter.catalogPrefix",
         )
         .unwrap();
-        assert_eq!(prefixes, vec!["acmeCo/"]);
+        assert_eq!(prefixes, vec!["acmeCo/", "beta/"]);
         assert_eq!(starts_with, None);
         assert_eq!(r#in, Some(vec!["acmeCo/".to_string()]));
     }
