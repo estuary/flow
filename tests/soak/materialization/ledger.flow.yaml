@@ -36,6 +36,7 @@ materializations:
       logLevel: info
       flags:
         enable-runtime-v2: "true"
+        indirect-specs: "true"
     bindings:
       - source: test/soak/accounts
         resource:

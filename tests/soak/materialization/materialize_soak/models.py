@@ -77,13 +77,15 @@ class MaterializationSpec(BaseModel):
 class ValidateBinding(BaseModel):
     model_config = ConfigDict(extra="ignore")
     resourceConfig: ResourceConfig
-    collection: CollectionSpec
+    collection: CollectionSpec | None = None  # Inline form.
+    collectionIndex: int = 0  # Indirect form.
 
 
 class ValidateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     name: str = ""
     bindings: list[ValidateBinding] = []
+    linkedCollections: list[CollectionSpec] = []
 
 
 class OpenRequest(BaseModel):
