@@ -237,8 +237,14 @@ impl Scenario {
         self
     }
 
-    /// As [`Scenario::splitting`], but the split waits for the fault to fire — so the task is
-    /// scaled out while it is down, and comes back with more shards than staged its work.
+    /// As [`Scenario::splitting`], but the split is issued only once the fault has fired, so the
+    /// two are ordered rather than racing.
+    ///
+    /// What that buys depends on the fault. After a crash the task is *down*, so the split lands
+    /// while nothing is writing and the work is finished by the larger set of shards that replaces
+    /// the one which staged it. After a stall the task is up and holding a transaction open, so
+    /// the split is requested while that transaction is demonstrably prepared — which is as close
+    /// to the window as a fault the connector can see will get.
     fn splitting_after_fault(mut self, settle_commits: u64) -> Self {
         self.split_after_fault = true;
         self.splitting(settle_commits)
@@ -498,12 +504,25 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          neither loses nor duplicates its documents",
         Class::DocumentCounter,
     )
+    // Long enough for the split to be requested inside it, because the split is now issued when
+    // the stall *begins* rather than on the harness's own schedule — see `splitting_after_fault`
+    // below. It was four seconds against a split issued before the fault, which left the overlap
+    // to chance: a publication and shard reassignment take longer than four seconds, so the stall
+    // was routinely over before the split was even asked for, and the scenario was a plain
+    // split-while-running wearing this one's name.
+    //
+    // What the harness still cannot impose is the other half: the runtime is free to finish the
+    // stalled transaction before it hands the parent's range to the children, and if it does, the
+    // split lands on a *committed* transaction after all. That is not a gap in the scripting —
+    // it is the missing guarantee this scenario declares below, and the reason it is declared
+    // rather than worked around. `split-during-commit` reaches the same destination state
+    // deterministically by crashing instead of stalling, so nothing here rests on winning a race.
     .fault(FaultRule {
         on: Trigger::StartCommit,
         nth: 4,
         arm_after: 3,
         shard: ShardTarget::Any,
-        action: Action::Stall { millis: 4_000 },
+        action: Action::Stall { millis: 20_000 },
     })
     .catches(Defect::DropDocumentCounter)
     // This exemption shapes the *report* rather than any verdict, and the reasoning is worth
@@ -531,7 +550,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          mirror image — a survivor reads one departing channel's counter, skips too few, \
          and duplicates.",
     )
-    .splitting(5)
+    .splitting_after_fault(5)
 }
 
 /// Scaling back down. A join is not a split run backwards: one shard absorbs
@@ -558,9 +577,9 @@ fn join_after_split() -> Scenario {
     .splitting_then_joining(8)
 }
 
-/// Fencing under real concurrency rather than in isolation: two real connector
-/// processes, both handling real runtime messages, the older one thawed after the
-/// newer has committed.
+/// Fencing under real concurrency rather than in isolation: two real connector processes over one
+/// destination, both fed the runtime's own messages, the older thawed to commit a transaction the
+/// newer has already superseded.
 fn zombie_at_start_commit() -> Scenario {
     Scenario::new(
         "zombie-at-start-commit",
@@ -568,10 +587,20 @@ fn zombie_at_start_commit() -> Scenario {
          destination",
         Class::RemoteAuthoritative,
     )
+    // Frozen at `Open` because that is the only point a fenced instance is certainly still
+    // alive; see `Action::Zombie`. It was keyed at `Store` #10 of the second transaction, which
+    // read as "let the zombie work for a while first" and was in fact "freeze whatever is left of
+    // it": the zombie had been refused at the first transaction's commit and exited, so the freeze
+    // suspended nothing and the thaw resumed nothing. The scenario passed by racing no one.
+    //
+    // Frozen at `Open` it has taken its fence and nothing more, and everything the runtime sends
+    // afterwards is queued up to the first `StartCommit`. On thaw it replays that transaction
+    // whole — loads and stores against a destination that has moved on two commits — and only
+    // then attempts the commit its fence must refuse.
     .fault(FaultRule {
-        on: Trigger::Store,
-        nth: 10,
-        arm_after: 1,
+        on: Trigger::Open,
+        nth: 1,
+        arm_after: 0,
         shard: ShardTarget::Any,
         action: Action::Zombie {
             thaw_after_commits: 2,
@@ -716,8 +745,21 @@ fn at_least_once_never_loses() -> Scenario {
     .applies_to(EVERY_CLASS)
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocuments)
-    .declaring(
+    // The three ceilings below are all the same number for the same reason, so it is stated once.
+    //
+    // Each of these exemptions is licensed by *one* replayed transaction, and one transaction is
+    // tens of documents: a reference run measures 59 duplicates, 76 oracle disagreements and 40
+    // order inversions over ~5,200 documents. A connector that duplicated systematically — every
+    // transaction re-applied rather than the interrupted one — would produce thousands, and
+    // without a ceiling this scenario would call that at-least-once and pass it.
+    //
+    // 500 is an order-of-magnitude guard rather than a tight bound. It is roughly seven times the
+    // largest measured count, which leaves room for a run whose fault lands in an unusually large
+    // transaction, and roughly a tenth of the workload, which is far below any systematic
+    // duplication. A ceiling near the measurements would only teach whoever hits it to raise it.
+    .declaring_at_most(
         Invariant::NoDuplicates,
+        500,
         "At-least-once by construction: this class commits during Store with no \
          record of what it applied, so an interrupted transaction is re-applied on \
          replay. Declared rather than fixed, because the weaker guarantee is the one \
@@ -735,13 +777,15 @@ fn at_least_once_never_loses() -> Scenario {
          impossible, and this exemption measures zero on most runs. Zero here means rare, \
          not unnecessary: removing it would make this scenario fail intermittently.",
     )
-    .declaring(
+    .declaring_at_most(
         Invariant::OracleAgreement,
+        500,
         "A duplicated document leaves the reduced balance disagreeing with its own \
          oracle. Same cause as the duplication exemption above.",
     )
-    .declaring(
+    .declaring_at_most(
         Invariant::Monotonicity,
+        500,
         "Re-applying an interrupted transaction re-delivers sequences the sink has \
          already seen. Same cause as the duplication exemption above.",
     )
@@ -755,6 +799,25 @@ impl Scenario {
         self.exempt.push(Exemption {
             invariant,
             justification: justification.to_string(),
+            max_suppressed: None,
+        });
+        self
+    }
+
+    /// As [`Scenario::declaring`], but failing anyway past `max_suppressed` violations.
+    ///
+    /// Use this wherever the justification implies a volume — see [`Exemption::max_suppressed`]
+    /// for when it does not.
+    fn declaring_at_most(
+        mut self,
+        invariant: Invariant,
+        max_suppressed: usize,
+        justification: &str,
+    ) -> Self {
+        self.exempt.push(Exemption {
+            invariant,
+            justification: justification.to_string(),
+            max_suppressed: Some(max_suppressed),
         });
         self
     }

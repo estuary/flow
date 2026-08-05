@@ -98,6 +98,18 @@ pub enum Action {
     /// Run a second connector process against the same messages, frozen at the
     /// match point while the live instance proceeds, then thawed so its stale
     /// commit races. The zombie opened first, so it holds the older fence.
+    ///
+    /// **Key this at `Open`.** The zombie is spawned when a session opens and is handed every
+    /// request from then on, so a freeze keyed any later leaves it running — and a fenced
+    /// instance does not survive being run: its first `StartCommit` is refused by the
+    /// destination and the process exits. The freeze would then suspend a corpse, the thaw
+    /// would resume nothing, and the scenario would report a pass for a race that never
+    /// happened. Keyed at `Open`, the zombie has taken its fence and done nothing else, which
+    /// is the one point where it is guaranteed alive.
+    ///
+    /// This is also why the race carries the session's *first* transaction rather than a
+    /// later one: the runtime opens a materialization session once per shard assignment, so
+    /// the only `Open` a run offers is the one at startup.
     Zombie {
         /// Live-instance `StartedCommit` responses to await before thawing.
         thaw_after_commits: u64,

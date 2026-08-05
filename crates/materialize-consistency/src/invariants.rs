@@ -137,18 +137,27 @@ pub enum Invariant {
     NoDuplicates,
     /// A key's sequence only ever advances at the sink.
     Monotonicity,
+    /// A document that arrived is byte-for-byte the document the collection holds.
+    ///
+    /// Separate from [`Invariant::OracleAgreement`] because it is a different claim, and because
+    /// filing it there made it exemptable: `at-least-once-never-loses` declares an oracle
+    /// exemption for duplication, and content corruption was silenced by it. No connector has a
+    /// reason to alter a document in transit, whatever else it gets wrong, so nothing should
+    /// exempt this.
+    DocumentIntegrity,
     /// The latest delta row per key reconstructs the standard row.
     StandardDeltaAgreement,
 }
 
 impl Invariant {
     /// Every invariant, so anything enumerating them cannot fall behind the enum.
-    pub const ALL: [Invariant; 6] = [
+    pub const ALL: [Invariant; 7] = [
         Invariant::Conservation,
         Invariant::OracleAgreement,
         Invariant::NoLoss,
         Invariant::NoDuplicates,
         Invariant::Monotonicity,
+        Invariant::DocumentIntegrity,
         Invariant::StandardDeltaAgreement,
     ];
 }
@@ -161,6 +170,7 @@ impl std::fmt::Display for Invariant {
             Self::NoLoss => "no-loss",
             Self::NoDuplicates => "no-duplicates",
             Self::Monotonicity => "monotonicity",
+            Self::DocumentIntegrity => "document-integrity",
             Self::StandardDeltaAgreement => "standard-delta-agreement",
         };
         f.write_str(name)
@@ -198,11 +208,15 @@ pub struct Expectation {
     pub accounts: BTreeMap<i64, Account>,
     /// Documents whose `(id, seq)` the read surfaced more than once.
     ///
-    /// Recorded because the expectation folds them to one while a materialization
+    /// Counted because the expectation folds them to one while a materialization
     /// does not: an append binding writes a row per document it is given, and a
     /// merge binding reduces each into the target key. So a non-zero count here
     /// means the two sides are measuring different things, and a comparison
-    /// against a reducing binding is not sound until it is explained.
+    /// against a reducing binding is not sound.
+    ///
+    /// A non-zero count therefore *fails the run* — with an "unsound workload" error rather than a
+    /// violation, since the fault is in what the harness was given to compare and not in the
+    /// subject. See the caller in `harness`.
     pub duplicated_documents: usize,
 }
 
@@ -350,6 +364,12 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
         // and a duplicated credit above it. The counting checks over the
         // append-only bindings settle duplicate-versus-loss unambiguously; this one
         // reports that the arithmetic does not hold.
+        //
+        // And being arithmetic, it has one blind spot: two lost documents of one account whose
+        // deltas cancel leave the sum right. The log binding holds a row per document and settles
+        // that exactly — which is why every run has one — so what escapes here is a connector
+        // losing on the merged path alone, with a cancelling coincidence. See the design doc's
+        // Deferred section for the two fixes weighed and why neither was taken.
         if row.balance_delta != account.total_delta {
             out.push(Violation {
                 invariant: Invariant::OracleAgreement,
@@ -368,11 +388,24 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
                 ),
             });
         }
-        if row.seq != account.max_seq {
+        // Behind the collection is *loss*, and is filed as such. It used to be reported as an
+        // oracle disagreement, which put it behind an exemption `at-least-once-never-loses`
+        // declares — so a connector losing merged-path documents passed a scenario named "never
+        // loses", as long as no account vanished entirely. An invariant should be chosen by what
+        // the violation means, not by which checker happened to notice it.
+        if row.seq < account.max_seq {
+            out.push(Violation {
+                invariant: Invariant::NoLoss,
+                detail: format!(
+                    "account {id}: reduced seq {} is behind the collection's latest {}",
+                    row.seq, account.max_seq
+                ),
+            });
+        } else if row.seq > account.max_seq {
             out.push(Violation {
                 invariant: Invariant::OracleAgreement,
                 detail: format!(
-                    "account {id}: reduced seq {} but the collection's latest is {}",
+                    "account {id}: reduced seq {} is ahead of the collection's latest {}",
                     row.seq, account.max_seq
                 ),
             });
@@ -450,7 +483,7 @@ fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
         {
             if document.oracle != row.oracle || document.balance_delta != row.balance_delta {
                 out.push(Violation {
-                    invariant: Invariant::OracleAgreement,
+                    invariant: Invariant::DocumentIntegrity,
                     detail: format!(
                         "account {} seq {}: the log binding holds {:?} but the collection holds {:?}",
                         row.id, row.seq, row, document

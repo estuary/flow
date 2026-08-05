@@ -27,6 +27,18 @@ pub struct Exemption {
     /// Required, and not defaulted: an exemption without a rationale is a defect
     /// with better paperwork.
     pub justification: String,
+    /// Most violations this exemption may absorb before the run fails anyway.
+    ///
+    /// An exemption is a statement about a *cause* — "one replayed transaction re-delivers what
+    /// it already stored" — and every such cause implies a volume. Without a ceiling the
+    /// exemption also absorbs a subject that re-delivered the entire workload, which is a
+    /// different failure wearing the same justification.
+    ///
+    /// `None` where the cause has no principled bound to write down. That is not laziness: the
+    /// reordering seen around membership changes is observed but unexplained, so any number here
+    /// would be invented, and an invented ceiling produces intermittent failures that teach the
+    /// reader to raise it. Better to leave it off and say so.
+    pub max_suppressed: Option<usize>,
 }
 
 /// Marker in the error chain of a run that failed *before* its fault fired.
@@ -355,8 +367,9 @@ async fn execute(
 
     // A scenario that scales out *because of* the fault has to see it land first,
     // or the two race and the run is no longer testing the sequence it describes.
-    // The crash leaves the task down, so the split lands while nothing is writing
-    // and the work is finished by the larger set of shards that replaces it.
+    // A crash leaves the task down, so the split lands while nothing is writing and the work is
+    // finished by the larger set of shards that replaces it; a stall leaves it up with a
+    // transaction open, so the split is requested while that transaction is prepared.
     if scenario.split_after_fault {
         await_faults(&trace, scenario.faults.len(), deadline)
             .await
@@ -513,7 +526,28 @@ async fn execute(
                  order. Delivery order is therefore not recoverable, and the set-based \
                  invariants carry the exactly-once claim."
                 .to_string(),
+            // Uncapped: order is not recoverable at all through this read, so there is no
+            // volume of disorder that would mean anything.
+            max_suppressed: None,
         });
+    }
+
+    // A duplicate in the *collection* is not a connector defect and must not be reported as one:
+    // it means the harness's own comparison has stopped being sound, because the expectation folds
+    // a repeated `(id, seq)` to one document while a reducing binding would sum it twice. Every
+    // count that follows would then be wrong in a direction that looks exactly like a connector
+    // over-delivering. This is refused rather than recorded, so a run can never quietly conclude
+    // "exactly-once" from numbers it could not have compared.
+    let duplicated =
+        bindings.merged_expected.duplicated_documents + bindings.log_expected.duplicated_documents;
+    if duplicated != 0 {
+        let _ = dump_evidence(run_dir, &bindings);
+        anyhow::bail!(
+            "the workload is unsound for this run: the collection read surfaced {duplicated} \
+             repeated (id, seq) document(s), which the expectation folds to one but a reducing \
+             binding would count twice. No invariant can be judged against it; see \
+             evidence.json in {run_dir:?}",
+        );
     }
 
     let (violations, exempted) = partition_exempt(invariants::check(&bindings), &exempt);
@@ -592,9 +626,87 @@ fn partition_exempt(
     violations: Vec<Violation>,
     exemptions: &[Exemption],
 ) -> (Vec<Violation>, Vec<Violation>) {
-    violations
-        .into_iter()
-        .partition(|v| !exemptions.iter().any(|e| e.invariant == v.invariant))
+    // `DocumentIntegrity` is not exemptable, and this is where that is enforced rather than left
+    // to review. A connector may deliver a document twice or in a surprising order and still be
+    // doing its declared job; none has a reason to *alter* one in transit. The check used to be
+    // filed under `OracleAgreement`, where `at-least-once-never-loses`'s duplication exemption
+    // silenced it — which is how a corruption check came to be switched off by a scenario about
+    // duplication.
+    assert!(
+        !exemptions
+            .iter()
+            .any(|e| e.invariant == Invariant::DocumentIntegrity),
+        "a scenario declares an exemption for {}, which nothing may exempt",
+        Invariant::DocumentIntegrity,
+    );
+
+    // An exemption that has absorbed more than it claimed stops absorbing anything: the whole
+    // invariant reverts to being held, so the run fails with every one of those violations in its
+    // report rather than with a count. Dropping only the excess would be arbitrary — the
+    // violations are a set and nothing distinguishes the ones "within budget" — and would hide the
+    // shape of what happened behind whichever ones survived the cut.
+    // Ceilings are per *invariant*, not per exemption, because a run can carry more than one
+    // exemption for the same invariant — a scenario's own, plus the blanket monotonicity exemption
+    // a remotely-read destination gets — and the broadest claim has to govern. So an unbounded
+    // exemption removes the ceiling: it says order is not recoverable through this read at all,
+    // after which no volume of disorder means anything, and failing the run on the narrower
+    // exemption's ceiling would hold a subject to a claim nobody made about it.
+    let mut ceilings: BTreeMap<Invariant, Option<usize>> = BTreeMap::new();
+    for exemption in exemptions {
+        ceilings
+            .entry(exemption.invariant)
+            .and_modify(|ceiling| {
+                *ceiling = match (*ceiling, exemption.max_suppressed) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                }
+            })
+            .or_insert(exemption.max_suppressed);
+    }
+
+    // An exemption that has absorbed more than it claimed stops absorbing anything: the whole
+    // invariant reverts to being held, so the run fails with every one of those violations in its
+    // report rather than with a count. Dropping only the excess would be arbitrary — the
+    // violations are a set and nothing distinguishes the ones "within budget" — and would hide the
+    // shape of what happened behind whichever ones survived the cut.
+    let overrun: Vec<(Invariant, usize, usize)> = ceilings
+        .iter()
+        .filter_map(|(invariant, ceiling)| {
+            let max = (*ceiling)?;
+            let count = violations
+                .iter()
+                .filter(|v| v.invariant == *invariant)
+                .count();
+            (count > max).then_some((*invariant, count, max))
+        })
+        .collect();
+
+    let (mut held, exempted) = violations.into_iter().partition::<Vec<_>, _>(|v| {
+        !ceilings.contains_key(&v.invariant)
+            || overrun
+                .iter()
+                .any(|(invariant, _, _)| *invariant == v.invariant)
+    });
+
+    // Named as its own violation so the report says *why* an exempted invariant is being held,
+    // which the reverted violations alone would not explain.
+    for (invariant, count, max) in overrun {
+        held.push(Violation {
+            invariant,
+            detail: format!(
+                "this scenario exempts {invariant} for at most {max} violation(s) and the run \
+                 produced {count}, which is more than its justification accounts for: {}",
+                exemptions
+                    .iter()
+                    .filter(|e| e.invariant == invariant)
+                    .map(|e| e.justification.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" / "),
+            ),
+        });
+    }
+
+    (held, exempted)
 }
 
 /// The soak capture, reused unmodified as this suite's workload generator.
@@ -1093,7 +1205,19 @@ async fn drain(
             delivered_max_seq(&contents, *id).is_some_and(|seq| seq >= account.max_seq)
         });
 
-        if contents.log.len() >= log_expected.documents() && merged_complete {
+        let total = contents.log.len() + merged_delivered;
+
+        // Complete, and then confirmed unchanged by one further poll before the contents are
+        // handed to the checkers.
+        //
+        // The gate is "at least as many as the collection holds", so it is met the moment the
+        // last expected document lands — and returning there hands over a destination that a
+        // duplicate still in flight has yet to reach. Every duplication check would then be
+        // racing the very thing it looks for, and would win the race exactly when the connector
+        // is slow. One quiet poll is not proof that nothing more is coming, but it is the
+        // difference between "we looked after it settled" and "we looked at the first moment it
+        // could have passed".
+        if total == previous && contents.log.len() >= log_expected.documents() && merged_complete {
             return Ok(contents);
         }
 
@@ -1106,7 +1230,6 @@ async fn drain(
         // shard that is mid-restart looks identical to one that has finished its
         // work, and every membership-change scenario becomes flaky in the direction
         // of falsely reporting loss.
-        let total = contents.log.len() + merged_delivered;
         // A listing that *errors* is not evidence the task is unhealthy, but it has to be
         // treated as such to make progress — so it is logged. Folded silently into `false`, a
         // persistently failing listing reported as "stuck unhealthy", which is a real state
@@ -1134,6 +1257,18 @@ async fn drain(
         let quiet = unchanged_for >= QUIET_POLLS;
         let stuck = stuck_for >= STUCK_POLLS;
         let expired = std::time::Instant::now() >= deadline;
+
+        // A complete destination that will not hold still is not a shortfall, and must not be
+        // reported as one. It is what a connector writing without end looks like, and the
+        // duplication checks are the right place to say so — reaching them needs the contents,
+        // so the deadline hands them over rather than erroring.
+        if expired && contents.log.len() >= log_expected.documents() && merged_complete {
+            tracing::warn!(
+                log = contents.log.len(),
+                "the destination was complete but never settled; verifying it anyway"
+            );
+            return Ok(contents);
+        }
 
         if quiet || stuck || expired {
             // Which of the three ended the wait matters when reading a failure. "quiet"
@@ -1220,11 +1355,60 @@ mod test {
         let exemptions = vec![Exemption {
             invariant: Invariant::NoDuplicates,
             justification: "at-least-once by construction".to_string(),
+            max_suppressed: None,
         }];
 
         let (held, exempt) = partition_exempt(violations, &exemptions);
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].invariant, Invariant::NoLoss);
         assert_eq!(exempt.len(), 1);
+    }
+
+    #[test]
+    fn an_exemption_over_its_ceiling_holds_the_invariant_after_all() {
+        let violations = (0..3)
+            .map(|i| Violation {
+                invariant: Invariant::NoDuplicates,
+                detail: format!("duplicated {i}"),
+            })
+            .collect();
+        let exemptions = vec![Exemption {
+            invariant: Invariant::NoDuplicates,
+            justification: "one replayed transaction".to_string(),
+            max_suppressed: Some(2),
+        }];
+
+        // All three revert, plus the violation naming the overrun.
+        let (held, exempt) = partition_exempt(violations, &exemptions);
+        assert_eq!(held.len(), 4);
+        assert!(exempt.is_empty());
+    }
+
+    /// The case a real subject hits: its blanket exemption is unbounded, and a scenario's
+    /// narrower ceiling for the same invariant must not fail it.
+    #[test]
+    fn an_unbounded_exemption_lifts_a_narrower_ceiling() {
+        let violations = (0..3)
+            .map(|i| Violation {
+                invariant: Invariant::Monotonicity,
+                detail: format!("out of order {i}"),
+            })
+            .collect();
+        let exemptions = vec![
+            Exemption {
+                invariant: Invariant::Monotonicity,
+                justification: "one replayed transaction".to_string(),
+                max_suppressed: Some(2),
+            },
+            Exemption {
+                invariant: Invariant::Monotonicity,
+                justification: "this destination is read as an unordered table".to_string(),
+                max_suppressed: None,
+            },
+        ];
+
+        let (held, exempt) = partition_exempt(violations, &exemptions);
+        assert!(held.is_empty());
+        assert_eq!(exempt.len(), 3);
     }
 }

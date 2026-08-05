@@ -167,8 +167,13 @@ async fn both_ways(name: &str) {
             .filter(|v| v.invariant == exempt.invariant)
             .count();
         eprintln!(
-            "exempt: [{}] suppressed {suppressed} violation(s): {}",
-            exempt.invariant, exempt.justification,
+            "exempt: [{}] suppressed {suppressed}{} violation(s): {}",
+            exempt.invariant,
+            match exempt.max_suppressed {
+                Some(max) => format!(" of at most {max}"),
+                None => String::new(),
+            },
+            exempt.justification,
         );
     }
     // A scenario blocked on the runtime is an *expected failure* for the classes the gap
@@ -184,8 +189,26 @@ async fn both_ways(name: &str) {
     //
     // The defect pairing is skipped for an exposed class: a subject that cannot uphold the
     // invariant clean tells us nothing about whether its defect would have been caught.
+    //
+    // Which half of this is reported depends on what the run actually did, because a declared gap
+    // is a claim about the runtime and the runtime changes. Asserting the failure unconditionally
+    // would report "EXPECTED FAILURE" over a run that passed — so the day the gap closes, the
+    // suite would keep printing the old diagnosis of a run that no longer matches it, and the
+    // declaration would never be removed. So a pass here fails too, with the opposite message.
     if let Some(gap) = &scenario.known_limitation {
         if gap.classes.contains(&subject_class) {
+            assert!(
+                !clean.passed(),
+                "UNEXPECTED PASS — this scenario declares a runtime gap it no longer hits.\n\
+                 {}\n\n\
+                 Declared to fail for {:?}, of which the subject is {subject_class:?}:\n\n\
+                 {}\n\n\
+                 Confirm over a few runs that this is not the gap being intermittent, then \
+                 remove `blocked_on_runtime` and let it be an ordinary passing scenario.",
+                clean.summary(),
+                gap.classes,
+                gap.detail,
+            );
             panic!(
                 "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
                  {}\n\n\

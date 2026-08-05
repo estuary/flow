@@ -464,6 +464,32 @@ pubsub, kafka, pinecone, sheets, and the csv/parquet file materializations — h
 no destination-reading method and are out of scope until they migrate. Most are
 at-least-once by design and would be exempt regardless.
 
+**Protocol surfaces no scenario perturbs.** Each is reachable in principle and none is
+covered, so they are listed rather than left to be rediscovered:
+
+- **A crash during `Apply`.** Every scenario's fault lands in the transaction loop, so a
+  connector interrupted midway through creating or altering its tables is never tested — and
+  `Apply` is where a connector is least likely to be idempotent, since it is written as though it
+  runs once.
+- **A backfill counter bump, and a binding disabled and re-enabled.** Both change what a
+  binding means between sessions while its resource stays put, and both are ordinary user
+  actions. Neither appears in any scenario's catalog.
+- **A second crash during a replay.** Every crash scenario fires once, so recovery itself is
+  never interrupted. The fired-marker that makes a fault one-shot is what stands in the way; a
+  rule would need to distinguish "the nth occurrence in this process" from "in this run".
+
+**Loss that cancels itself in the reduced views.** The merged bindings detect loss
+arithmetically — a reduced balance against the oracle that names it, and a delta history that
+must accumulate to the same figure — so losing two documents of one account whose deltas cancel
+is invisible there. The log binding holds a row per document and settles it exactly, which is why
+every scenario has one and why a subject without delta-updates support is refused outright. What
+remains uncovered is a connector that loses on the *merged* path only, with a cancelling
+coincidence. Two fixes were considered and both cost more than the hole: a summed `docs: 1` on
+every event makes the count exact but changes the soak fixture this suite deliberately reuses
+unmodified, and reducing `set` with the `set` strategy to check it against `oracle.set` compares
+an order-dependent value, which around a membership change would need a reordering exemption as
+broad as the one monotonicity already carries — trading an exact check for a suppressed one.
+
 ## Rules for future scenario authors
 
 Stated so they survive this document:
