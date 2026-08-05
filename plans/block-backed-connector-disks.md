@@ -14,15 +14,21 @@ recovery does not have to replay an unbounded history.
 
 > An important detail this design shook out: The connector sandboxing strategy
   is impactful on shaping the joint between the reactor and connector. A
-  hypothetical `libkrun` based sandbox has (on paper, at least) a nice
-  implementation path for a non-root reactor, and that's what I'm assuming we'll
-  be working with for the rest of this document. But, if some connectors are to
-  run without this sandboxing vs. some that do, a different design will be
-  needed. That is the subject of further investigation.
+  `libkrun` based sandbox has a nice implementation path for a non-root reactor,
+  and that's what I'm assuming we'll be working with for the rest of this
+  document. But, if some connectors are to run without this sandboxing vs. some
+  that do, a different design will be needed. That is the subject of further
+  investigation.
 
-The initial implementation uses Linux `ublk` between libkrun and the runtime.
-This is an adapter for libkrun's path-based disk API, not part of the durable
-format.
+The runtime serves the disk to libkrun as a `vhost-user-blk` device: libkrun
+proxies virtqueues and virtio config space to the runtime over a Unix socket,
+and the runtime is the block device. There is no kernel block device in the
+path.
+
+The alternative — Linux `ublk` as an adapter for libkrun's path-based disk API —
+was prototyped first and rejected. See
+[Block transport](#block-transport) for why, and
+[Prototype validation](#prototype-validation) for what has been demonstrated.
 
 The derivation connector protocol fits naturally with coordinating the necessary
 disk quiescense periods for snapshots to be recorded. Runtime authoritative
@@ -43,10 +49,13 @@ catalog or connector setting because the compaction, spill, and local-capacity
 assumptions below depend on a small known maximum. It is a number largely picked
 out of the air as "not too big, but big enough to be useful".
 
-**Initial platform.** The first implementation requires Linux 6.0 or later,
-KVM, libkrun sandboxing, and unprivileged `ublk`. The reactor runs as a non-root
-container. A trusted process inside the guest formats and mounts the
-filesystem; the host never mounts connector-controlled filesystem bytes.
+**Initial platform.** The first implementation requires KVM, a libkrun built
+with vhost-user support, and a host filesystem that supports hole punching.
+There is no minimum kernel version beyond what KVM and `memfd_create` need, and
+no kernel block device driver is involved. The reactor runs as a non-root
+container and needs no device access of its own; only the VMM opens `/dev/kvm`.
+A trusted process inside the guest formats and mounts the filesystem; the host
+never mounts connector-controlled filesystem bytes.
 
 **Guarantee.** Recovery reproduces the filesystem contents seen at the
 committed boundary. It does not promise a byte-identical image because mounting
@@ -150,13 +159,19 @@ It supplies the owed-set for a full and gives placement an exact measure of
 physical use. A write sets allocated bits. A successful aligned discard clears
 them.
 
+The allocated bitmap never has to be reconstructed from the disk journal,
+because it is recoverable from the image file itself: walking the sparse file's
+data extents with `SEEK_DATA` and `SEEK_HOLE` reproduces it exactly. This is why
+the stream format below carries no separate allocation map, and it is what lets
+a recovered disk produce a correct next delta.
+
 The two bitmaps are independent: a block can be allocated without having
 changed since the last boundary. Fresh-disk initialization relies on this
 distinction, as described later.
 
 ### Block transport
 
-The initial block path is:
+The block path is:
 
 ```text
 connector process (guest, unprivileged)
@@ -165,36 +180,40 @@ connector process (guest, unprivileged)
        ext4 filesystem (guest)
                 │
                 ▼
-       virtio-blk (libkrun)
+       virtio-blk (guest driver)
                 │
                 ▼
-          /dev/ublkbN
-                │ ublk_drv
+   libkrun vhost-user frontend
+                │ Unix socket + shared guest memfd
                 ▼
-        ublk server (reactor) ──► sparse image
+   vhost-user-blk backend (reactor) ──► sparse image
 ```
 
-libkrun opens `/dev/ublkbN` as a raw disk with direct I/O and
-`KRUN_SYNC_FULL`. The guest sees a virtio block device. A trusted guest
-bootstrap formats it when fresh, mounts it at the connector's stable disk path,
-and then starts the connector as an unprivileged guest process. The host treats
-the filesystem as opaque bytes.
+The runtime is the block device. libkrun's vhost-user frontend forwards
+virtqueue notifications and virtio config-space reads to the backend, and shares
+guest memory with it so the backend can move bytes directly. A trusted guest
+bootstrap formats the device when fresh, mounts it at the connector's stable
+disk path, and then starts the connector as an unprivileged guest process. The
+host treats the filesystem as opaque bytes.
 
-`/dev/ublkbN` is created for each sandbox; it is not a persistent identifier:
+libkrun needs no code changes for this, only a build flag (`VHOST_USER=1`; the
+feature is off by default). Its frontend is already generic:
 
-1. Loading `ublk_drv` exposes the host-wide `/dev/ublk-control`.
-2. The reactor sends `UBLK_CMD_ADD_DEV` with the unprivileged-device flag. The
-   reactor asks the kernel to choose `N`; host devtmpfs and udev then create
-   `/dev/ublkcN`, the character device used by its ublk server.
-3. The reactor sets the device size and queue limits and starts its I/O queues.
-   `UBLK_CMD_START_DEV` then exposes `/dev/ublkbN`, the block device opened by
-   libkrun.
-4. Teardown stops the block device and deletes the character device. The kernel
-   may reuse `N` immediately.
+- `krun_add_vhost_user_device` does not validate the device type. It stores the
+  raw virtio device ID and feeds it to the register the guest reads, so passing
+  `2` yields a virtio-blk device even though libkrun defines named constants
+  only for the device types it ships backends for.
+- Config space is proxied to the backend, which is load-bearing: it is how the
+  backend advertises capacity, 4 KiB block size, and discard limits. The backend
+  must therefore negotiate the vhost-user `CONFIG` protocol feature, or the
+  guest sees a zero-capacity disk.
+- Guest RAM is already backed by a `memfd`, and the frontend forwards exactly
+  those file-backed regions in its memory table. This is the hard prerequisite
+  for any vhost-user device and it is already satisfied.
 
-Container `/dev` namespaces do not automatically receive dynamically created
-nodes. Host setup must therefore make the two exact nodes visible to their
-owner, as described under [Privilege and isolation](#privilege-and-isolation).
+The backend must advertise `VIRTIO_BLK_F_FLUSH`. Without it the guest kernel
+assumes a write-through device and never sends `FLUSH`, so the runtime could not
+honor ext4's ordering and the power-loss argument below would not hold.
 
 Everything below remains independent of this transport:
 
@@ -205,7 +224,7 @@ Everything below remains independent of this transport:
 - compaction; and
 - recovery.
 
-To allow a direct libkrun block backend later, the design follows three rules:
+The design keeps that independence by following three rules:
 
 - the durable format never contains a mount path, device identity, or mount
   option;
@@ -213,6 +232,48 @@ To allow a direct libkrun block backend later, the design follows three rules:
 - point-in-time capture never depends on a filesystem freeze.
 
 The host filesystem that stores images must support hole punching.
+
+#### Why not ublk
+
+An earlier version of this design put Linux `ublk` between libkrun and the
+runtime, as an adapter for libkrun's path-based disk API. It works, but it
+cannot carry guest discard, and it costs significantly more operationally.
+
+libkrun's raw-disk backend implements write-zeroes and discard with `fallocate`.
+That is a filesystem operation; on a block device it fails with `EINVAL`, so
+every guest discard fails with `EIO` and `mkfs` dies. The fault is specific to a
+file-oriented disk backend meeting a block device: `blkdiscard` issued directly
+against the ublk device works and reclaims space, so `ublk` itself is fine.
+
+Precisely, in libkrun 2.0.0 the backend is the `imago` crate, and
+`imago-0.2.3/src/file.rs` uses `fallocate(FALLOC_FL_ZERO_RANGE)` for
+write-zeroes at line 290 and
+`fallocate(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE)` for discard at line 871.
+Block devices need `BLKZEROOUT` and `BLKDISCARD` ioctls instead. If that is
+fixed upstream the `ublk` path becomes viable again, but the operational costs
+below would still apply.
+
+Since the plan mounts with `discard` and the whole `PUNCH` extent path depends
+on the guest releasing blocks, a transport that cannot deliver discard forces
+the disk to grow to its allocated high-water mark. That would also make the
+compaction ratio in [When to compact](#when-to-compact) measure something other
+than live data.
+
+Choosing vhost-user additionally removes:
+
+- `ublk` device enumeration and teardown, and the fact that `N` in `/dev/ublkbN`
+  is kernel-chosen, ephemeral, and immediately reusable;
+- the privileged host helper or udev rule needed to project `/dev/ublkcN` and
+  `/dev/ublkbN` into the reactor container's private `/dev`;
+- the `unprivileged ublk` kernel requirement, access to `/dev/ublk-control`, and
+  the Linux 6.0 floor; and
+- the need for libkrun to open the disk with direct I/O and a full-sync mode,
+  since there is no longer a libkrun disk layer that could absorb a flush.
+
+It also improves isolation. The VMM receives a socket rather than a block
+device, the image descriptor stays in the backend, and the shutdown-ordering
+hazard of a ublk server whose own device is open by a client it must outlive
+disappears.
 
 ### Disk journal
 
@@ -247,7 +308,7 @@ Extent
 
 At a delta boundary, a dirty block that remains allocated becomes `DATA`. A
 dirty block that is no longer allocated becomes `PUNCH`. A full emits `DATA`
-for every allocated block.
+for every allocated block. A full therefore never contains a `PUNCH`.
 
 An `End` states the stream's extent count and byte total. This catches
 truncation even when all record frames before the truncation were valid.
@@ -287,13 +348,13 @@ obligations together:
                         transaction boundary
                                  │
                                  ▼
-connector ──► guest ext4 ──► virtio + ublk ──► image
-                                                  │ dirty bitmap
-                                                  ▼
-                                            disk journal
-                                                  │ replay
-                                                  ▼
-connector ◄── guest ext4 ◄── rebuilt image ◄──────┘
+connector ──► guest ext4 ──► virtio-blk ──► image
+                                              │ dirty bitmap
+                                              ▼
+                                        disk journal
+                                              │ replay
+                                              ▼
+connector ◄── guest ext4 ◄── rebuilt image ◄──┘
 
                         recovery log
                  ┌────────────────────────┐
@@ -380,8 +441,8 @@ DR present:
 When no `DR:` exists, startup:
 
 1. creates a fresh sparse image;
-2. creates an unprivileged ublk device over it;
-3. starts the libkrun sandbox with that device;
+2. starts the vhost-user-blk backend over it and waits for its socket;
+3. starts the libkrun sandbox pointed at that socket;
 4. has the trusted guest bootstrap format and mount it;
 5. establishes the clean baseline;
 6. chooses `E` and takes the read-only author snapshot `R`; and
@@ -405,6 +466,12 @@ The initial filesystem is ext4 with:
 - e2fsprogs 1.47.0 or later with
   `assume_storage_prezeroed=1`; and
 - whole-device discard disabled with `nodiscard`.
+
+The device advertises a 4 KiB logical block size, which matters beyond matching
+`mkfs`: it makes every request the guest issues already block-aligned, so
+tracking never needs a read-modify-write to attribute a partial write to a
+block. 1.47.0 is the first e2fsprogs release with `assume_storage_prezeroed`, so
+this is a floor rather than a comfortable minimum.
 
 `nodiscard` applies only while formatting. The mounted filesystem uses
 continuous discard as described below.
@@ -481,7 +548,7 @@ They use the same copy machinery and differ only in the initial owed-set:
 
 The connector flushes and stops its own writes before a boundary, but ext4 may
 still issue journal or writeback requests. The runtime therefore establishes
-the boundary at the block device with one gate shared by every `ublk` queue.
+the boundary at the block device with one gate shared by every virtqueue.
 Writes, discards, write-zeroes requests, and flushes enter the gate before
 being handled and leave only after their backing operation completes.
 
@@ -499,10 +566,11 @@ while the gate is closed; those requests simply wait. The gate is held only
 while the cut is established, not while the image is copied. It gives priority
 to a waiting boundary so continuous writeback cannot starve it.
 
-`KRUN_SYNC_FULL` passes guest flushes through to ublk. The ublk target must
-honor every flush and force-unit-access (`FUA`) write it advertises. This
-preserves ext4's ordering across queues. An ext4 journal operation may span the
-cut as several block requests, but the resulting image is a valid power-loss
+The backend must honor every flush and force-unit-access (`FUA`) write it
+advertises. Because the runtime is the block device, a guest flush arrives as a
+virtio-blk request and there is no intervening disk layer that could absorb it.
+This preserves ext4's ordering across queues. An ext4 journal operation may span
+the cut as several block requests, but the resulting image is a valid power-loss
 point: recovery either replays a committed journal operation or discards an
 incomplete one.
 
@@ -550,6 +618,27 @@ Discards follow the same rule as writes. If a full or delta still owes the
 block, it first captures the old `DATA`. The discard then clears the live
 allocated bit and dirties the block. If it remains unallocated at the next
 boundary, that delta records `PUNCH`.
+
+Two details of discard handling are load-bearing and were both wrong in the
+first prototype:
+
+> A discard only dirties blocks that were actually allocated.
+
+ext4 issues write-zeroes across ranges that are already holes. Dirtying those
+puts `PUNCH` extents in the next delta that restore a hole to being a hole,
+which is pure waste — it inflated one measured delta from 16 MiB to 21 MiB.
+Dirtying only blocks that really lost data keeps deltas proportional to what
+changed.
+
+> A partially covered block never has its allocated bit cleared.
+
+Rounding a discard range outward would record `PUNCH` for a block that still
+holds live bytes, and replay would lose them. The runtime punches only the
+whole-block interior of a discard. `WRITE_ZEROES` additionally zero-fills the
+ragged head and tail, because it must read back as zeroes where a plain discard
+is advisory and may legally do nothing. With a 4 KiB logical block size the
+ragged case does not arise in practice, but the rule is what makes that a
+performance assumption rather than a correctness one.
 
 ### Committing a delta
 
@@ -827,9 +916,15 @@ When `DR:` exists, startup:
 2. chooses `E`, reads `R`, and claims the journal;
 3. appends every recovered `AI:` value exactly and waits for its barrier;
 4. fixes a replay range and rebuilds a fresh image;
-5. creates the ublk device and starts the libkrun sandbox;
+5. starts the vhost-user-blk backend over the rebuilt image and the libkrun
+   sandbox against it;
 6. has the trusted guest bootstrap mount the rebuilt filesystem; and
 7. starts the connector.
+
+Rebuilding must set the image's length to the full device size. Replay writes
+only the extents it is given, which leaves the file short of the device whenever
+its tail is a hole. That is harmless once served, but it makes the image
+misleading to anything that inspects it directly.
 
 ### Fixing the replay range
 
@@ -908,40 +1003,37 @@ Mount counts, timestamps, and similar filesystem bookkeeping may differ.
 
 The reactor pod runs as a non-root host UID. It needs:
 
-- Linux 6.0 or later with `ublk_drv` loaded;
-- access to `/dev/ublk-control` and permission to create unprivileged ublk
-  devices;
 - access to `/dev/kvm`;
-- seccomp rules that permit the required KVM and `io_uring` operations; and
+- seccomp rules that permit the required KVM operations; and
 - owned storage directories on a filesystem that supports hole punching.
 
-`UBLK_CMD_ADD_DEV` assigns an unpredictable device number. The host kernel
-creates `ublkcN` and `ublkbN` in its own device namespace, not automatically in
-the reactor container's private `/dev`. A host udev rule or narrow helper must
-therefore:
+That is the whole list. Choosing vhost-user over `ublk` removed the requirement
+for a privileged host helper entirely: there is no dynamically created device
+node to project into the reactor container's private `/dev`, no host-wide
+control device to grant access to, and no ephemeral kernel-assigned device
+number. The reactor receives no `CAP_SYS_ADMIN`, `CAP_MKNOD`, host mount
+propagation, broad device access, privileged container mode, or rootful Podman
+socket.
 
-1. identify the exact nodes created for the reactor;
-2. make `ublkcN` visible to the reactor and `ublkbN` visible to its VMM;
-3. grant them only to the reactor's host UID; and
-4. remove them during teardown.
+The disk backend and the libkrun VMM run as separate processes in separate mount
+namespaces, communicating over a Unix socket. This follows libkrun's security
+model. The VMM gets only that socket, its connector root filesystem, and the
+other resources required by that invocation. It does not get the image
+descriptor, the spill directory, or journal credentials — and, unlike the `ublk`
+arrangement, it never gets a block device it could address directly.
 
-This helper is privileged host provisioning, but the reactor is not. The
-reactor receives no `CAP_SYS_ADMIN`, `CAP_MKNOD`, host mount propagation, broad
-device access, privileged container mode, or rootful Podman socket. Device
-numbers are ephemeral and never used as durable identity.
-
-The ublk server and libkrun VMM run as separate processes in separate mount
-namespaces. This follows libkrun's security model and prevents ublk shutdown
-from waiting on a client of its own device. The VMM gets only the exact
-`ublkbN`, its connector root filesystem, and the other resources required by
-that invocation. It does not get the image descriptor, ublk control device,
-spill directory, or journal credentials.
+The backend must treat the descriptors and lengths in a virtqueue as hostile
+input. The guest supplies them, and while the virtio-queue layer bounds-checks
+descriptor addresses against the shared guest memory regions, request framing
+and segment lengths are the backend's responsibility. This is a new obligation
+that `ublk` did not impose, since there the kernel pre-digested requests into a
+fixed descriptor; it is the main cost of owning the transport.
 
 A trusted bootstrap runs as root inside the guest. It formats a fresh disk,
 mounts it with `nodev`, `nosuid`, `noexec`, and `noatime`, and starts the
 connector under an unprivileged guest UID. Guest root is not host root. The
 host kernel never parses the connector-controlled ext4 filesystem; it handles
-only KVM, virtio, ublk requests, and opaque image bytes.
+only KVM, virtio, and opaque image bytes.
 
 ### Local lifecycle and cleanup
 
@@ -950,3 +1042,74 @@ TBD
 ## Shard splits
 
 TBD
+
+## Prototype validation
+
+A spike has exercised the transport and the capture/replay halves of this design
+on a nested-virtualization VM (`c4-highcpu-8`, kernel 6.17). Both transports
+were built: the `vhost-user-blk` backend described above, and the rejected
+`ublk` adapter, sharing one transport-independent core. Sharing that core
+between two transports is what turned "everything below remains independent of
+this transport" from an assertion into a checked property.
+
+The spike runs four phases: format a fresh disk in the guest and run a workload,
+then capture a full; reopen the disk and run a second workload, then capture a
+delta; replay full and delta into a brand new image; mount the rebuilt image in
+a guest and compare file manifests.
+
+### What has been demonstrated
+
+**The correctness guarantee.** A rebuilt disk presented the same filesystem
+contents the connector saw at the committed boundary, over both transports.
+
+**Sparseness.** A 10 GiB device occupied 53 MiB after the first workload and
+102 MiB after the second.
+
+**Replay reproduces physical layout, not just contents.** Source and rebuilt
+images agreed on physical bytes exactly, because `PUNCH` extents and
+hole-preserving writes keep a rebuild as sparse as its source.
+
+**The dirty/allocated split.** `dirty` reset at each boundary while `allocated`
+accumulated. Under vhost-user the first boundary showed `dirty` exceeding
+`allocated`, which is only possible when blocks are written and then discarded.
+
+**`PUNCH` extents, and only where warranted.** A workload that wrote and deleted
+a 16 MiB file produced a delta with exactly one 16777216-byte `PUNCH` extent.
+
+**The discard argument for preferring vhost-user.** With discard working, the
+image finished 16.8 MB smaller than the same workload over `ublk`, where discard
+cannot be delivered at all.
+
+**An unprivileged reactor.** The vhost-user driver runs with no `sudo` anywhere.
+The `ublk` driver requires root, because `/dev/ublk-control` is `root:root 0600`
+and the udev plumbing described in the rejected alternative was never built.
+
+**libkrunfw's stock guest kernel is sufficient.** It already builds in
+`EXT4_FS`, `JBD2`, `VIRTIO_BLK`, and `VIRTIO_MMIO`. Transport is MMIO rather
+than PCI, so the disk appears as `/dev/vda`.
+
+### What the spike does not cover
+
+The gaps are known and listed roughly in priority order:
+
+- **Copy before overwrite.** The spike's snapshots are coherent only because
+  the device gate closes for the cut *and* the guest is quiesced across it. The
+  `OWED → CAPTURING → CAPTURED` machine is absent, so capturing while a
+  connector keeps writing would tear. This is the most important untested part
+  of the design and the one most likely to hide problems.
+- **The disk journal.** Fulls and deltas are plain local files. No Gazette
+  framing, no producer-based stream grouping, no writer-epoch `author` register.
+- **Recovery-log authority.** No `DR:` or `AI:`. Replay is told which streams
+  to apply rather than deriving them from committed state.
+- **Compaction, task protocol integration, and shard splits.**
+- **Zero-copy.** The backend copies through a local buffer rather than working
+  in guest memory in place. Correct, and it keeps the copy-before-overwrite
+  reasoning identical across both transports, but it leaves performance
+  unmeasured.
+- **Descriptor hardening**, per the obligation noted under [Privilege and
+  isolation](#privilege-and-isolation).
+- **Multi-queue.** One queue, handled synchronously. The gate is a single
+  reader-writer lock, which is the right shape for many queues but untested
+  under them.
+- **VMM crash and reconnect semantics.** One backend serves one VM; a shard
+  session owns one disk and one sandbox, so reconnect is not currently required.
