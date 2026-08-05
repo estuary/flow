@@ -56,10 +56,14 @@ pub struct Exemption {
 /// failure is setup; after it, a failure may be the defect, since `ignore-key-range` leaves
 /// children fencing each other off and that is what stops a task committing.
 ///
-/// Hence the asymmetry in what is annotated: the calls that *issue* a split or a join carry the
-/// marker, because a perturbation that never happened is setup failing, while the gates waiting on
-/// its consequences do not. A failure before the perturbation is the environment's until shown
-/// otherwise; a failure after it is the subject's until shown otherwise.
+/// Hence the asymmetry in what is annotated: the call that *issues* the split carries the marker,
+/// because a perturbation that never happened is setup failing, while the gates waiting on its
+/// consequences do not. The join does not carry it either, for the same reason those gates do not —
+/// it comes after the split, which is already `join-after-split`'s perturbation, so a join that
+/// cannot be issued may be the defect's doing rather than the environment's.
+///
+/// A failure before the perturbation is the environment's until shown otherwise; a failure after it
+/// is the subject's until shown otherwise.
 #[derive(Debug)]
 pub struct BeforeFault;
 
