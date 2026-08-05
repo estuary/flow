@@ -84,13 +84,10 @@ impl ServiceAccountsQuery {
     ) -> async_graphql::Result<PaginatedServiceAccounts> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let snapshot = env.snapshot();
         // Service accounts are visible to callers holding QueryServiceAccounts
         // on a prefix covering the account's catalog_name.
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            env.claims()?.sub,
+            &env.authority()?,
             models::authz::Capability::QueryServiceAccounts,
             None,
         );

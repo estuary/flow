@@ -121,14 +121,10 @@ impl AlertConfigsQuery {
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlertConfigs> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
 
-        let snapshot = env.snapshot();
         let (read_prefixes, prefix_starts_with, prefix_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                claims.sub,
+                &env.authority()?,
                 models::Capability::Read,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",
@@ -215,7 +211,6 @@ impl AlertConfigsQuery {
         catalog_prefix_or_name: String,
     ) -> async_graphql::Result<EffectiveAlertConfig> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
 
         validate_prefix_or_name(&catalog_prefix_or_name)?;
 
@@ -223,9 +218,7 @@ impl AlertConfigsQuery {
         // that scope. Ancestor layers merged into the result are visible to
         // anyone who can read the scope, matching the `effective` field on
         // AlertConfigEntry and `effectiveAlertConfig` on liveSpec.
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            claims,
+        let policy_result = env.authority()?.evaluate(
             models::authz::Capability::CatalogRead,
             [catalog_prefix_or_name.as_str()],
         );
@@ -267,12 +260,9 @@ impl AlertConfigsMutation {
         validate_prefix_or_name(&catalog_prefix_or_name)?;
 
         let gov = governing_prefix(&catalog_prefix_or_name)?;
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            claims,
-            models::Capability::Admin,
-            [gov.as_str()],
-        );
+        let policy_result = env
+            .authority()?
+            .evaluate(models::Capability::Admin, [gov.as_str()]);
         env.authorization_outcome(policy_result).await?;
 
         if !catalog_prefix_or_name.ends_with('/') {
