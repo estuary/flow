@@ -1,0 +1,27 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/prefixes.rs
+expression: response
+---
+{
+  "data": {
+    "prefixes": {
+      "edges": [
+        {
+          "node": {
+            "prefix": "aliceCo/"
+          }
+        },
+        {
+          "node": {
+            "prefix": "aliceCo/data/"
+          }
+        },
+        {
+          "node": {
+            "prefix": "ops/dp/public/"
+          }
+        }
+      ]
+    }
+  }
+}

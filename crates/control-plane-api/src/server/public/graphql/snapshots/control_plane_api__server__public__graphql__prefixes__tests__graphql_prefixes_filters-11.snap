@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/prefixes.rs
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 17,
+          "line": 3
+        }
+      ],
+      "message": "`filter.prefix.startsWith` and `.in` are mutually exclusive; provide only one",
+      "path": [
+        "prefixes"
+      ]
+    }
+  ]
+}

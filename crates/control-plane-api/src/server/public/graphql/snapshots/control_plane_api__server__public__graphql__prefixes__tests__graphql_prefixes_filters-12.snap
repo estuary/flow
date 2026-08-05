@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/prefixes.rs
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 34,
+          "line": 3
+        }
+      ],
+      "message": "Failed to parse \"[CapabilityBit!]\": the value length is 0, must be greater than or equal to 1 (occurred while parsing \"PrefixesFilter\")",
+      "path": [
+        "prefixes"
+      ]
+    }
+  ]
+}
