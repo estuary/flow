@@ -424,13 +424,7 @@ fn split_during_commit() -> Scenario {
          of shards that replaces it",
         Class::PostCommitApply,
     )
-    .fault(FaultRule {
-        on: Trigger::StartCommit,
-        nth: 4,
-        arm_after: 0,
-        shard: ShardTarget::Any,
-        action: Action::Crash,
-    })
+    .fault(FaultRule::crash_at(Trigger::StartCommit, 4))
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)

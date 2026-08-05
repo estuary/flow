@@ -160,12 +160,21 @@ impl Store {
     /// real and is why the join scenarios assert only on the destination, never
     /// on which checkpoint the connector chose.
     ///
-    /// Run for *every* class, deliberately, though only `remoteAuthoritative` and
-    /// `documentCounter` consult the nonce it returns. Two classes not reading a fence is a
-    /// property of those classes, not a reason for the destination to behave differently under
-    /// them: keeping one `Open` path means a scenario cannot pass because its class happened to
-    /// skip the bookkeeping, and the checkpoint inheritance above is wanted by all four. Do not
-    /// "optimise" this into a per-class branch.
+    /// Run for *every* class, deliberately, though only one class truly fences. Precisely:
+    /// `remoteAuthoritative` passes the nonce and has it checked; `atLeastOnce` passes one with
+    /// checking hardwired off, which is part of what makes it at-least-once; `documentCounter`
+    /// passes none at all, since its `append_counted` path takes no nonce; and
+    /// `postCommitApply` never commits through this path. Only `remoteAuthoritative` reads or
+    /// writes the fence checkpoint.
+    ///
+    /// An earlier version of this comment said `documentCounter` consulted the nonce. It does
+    /// not, and someone auditing fence coverage for that class would have been misled.
+    ///
+    /// It still runs for all four, because a class not reading a fence is a property of that
+    /// class, not a reason for the destination to behave differently under it: one `Open` path
+    /// means a scenario cannot pass merely because its class skipped the bookkeeping, and the
+    /// checkpoint inheritance above is wanted by every class that resumes. Do not "optimise"
+    /// this into a per-class branch.
     pub fn fence(&self, key_begin: u32, key_end: u32) -> anyhow::Result<(i64, Option<Vec<u8>>)> {
         let txn = self.write_txn()?;
 

@@ -29,6 +29,28 @@ pub struct Exemption {
     pub justification: String,
 }
 
+/// Marker in the error chain of a run that failed *before* its fault fired.
+///
+/// The defective half of a scenario treats a failed run as the defect being caught, which is
+/// right for a defect that wedges the task — `ignore-key-range` leaves two shards fencing each
+/// other and neither can commit — and wrong for everything that happens on the way there. A gate
+/// that timed out during warmup, a split that never landed, a fault that never fired: none is
+/// evidence about the subject, and counting one silently vacates the pairing the scenario exists
+/// to provide.
+///
+/// So the line is drawn at the fault. A failure before it is setup failing, which is the
+/// environment's until shown otherwise.
+#[derive(Debug)]
+pub struct BeforeFault;
+
+impl std::fmt::Display for BeforeFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the run failed before its fault fired")
+    }
+}
+
+impl std::error::Error for BeforeFault {}
+
 /// What a run produced.
 pub struct Outcome {
     pub scenario: &'static str,
@@ -313,18 +335,24 @@ async fn execute(
     // is up and being spoken to, so everything before it is the runtime scheduling a shard
     // and starting a process, and everything after is transactions.
     let activating = std::time::Instant::now();
-    await_first_message(&trace, deadline).await?;
+    await_first_message(&trace, deadline)
+        .await
+        .context(BeforeFault)?;
     tracing::info!(elapsed = ?activating.elapsed(), "sink connector started");
 
     // The gap between the connector being spoken to and its first *non-empty* transaction
     // is the sink sitting idle while its captures activate and produce. Measured
     // separately because it, not the commit cadence, is what varies between runs.
     let feeding = std::time::Instant::now();
-    await_first_documents(&trace, deadline).await?;
+    await_first_documents(&trace, deadline)
+        .await
+        .context(BeforeFault)?;
     tracing::info!(elapsed = ?feeding.elapsed(), "workload feeding the sink");
 
     let warmed = std::time::Instant::now();
-    await_commits(&trace, scenario.warmup_commits, deadline).await?;
+    await_commits(&trace, scenario.warmup_commits, deadline)
+        .await
+        .context(BeforeFault)?;
     tracing::info!(elapsed = ?warmed.elapsed(), commits = scenario.warmup_commits, "warmed up");
 
     // A scenario that scales out *because of* the fault has to see it land first,
@@ -332,12 +360,14 @@ async fn execute(
     // The crash leaves the task down, so the split lands while nothing is writing
     // and the work is finished by the larger set of shards that replaces it.
     if scenario.split_after_fault {
-        await_faults(&trace, scenario.faults.len(), deadline).await?;
+        await_faults(&trace, scenario.faults.len(), deadline)
+            .await
+            .context(BeforeFault)?;
     }
 
     if scenario.split_shards {
         tracing::info!(task = %names.sink, "splitting shards");
-        stack.split_shards(&names.sink).await?;
+        stack.split_shards(&names.sink).await.context(BeforeFault)?;
         // Both children must come up before the run can continue; a split that
         // wedges is itself a finding.
         recover(
@@ -357,7 +387,9 @@ async fn execute(
         // has not yet written a checkpoint of its own, that log still holds the
         // parent's — whose clock predates the log's close, which recovery refuses. That
         // is what wedged this scenario in a 33-restart loop.
-        await_commits_each_shard(&trace, 2, 2, deadline).await?;
+        await_commits_each_shard(&trace, 2, 2, deadline)
+            .await
+            .context(BeforeFault)?;
 
         tracing::info!(task = %names.sink, "joining shards");
         stack.join_shards(&names.sink).await?;
@@ -373,7 +405,9 @@ async fn execute(
     }
 
     // The fault must actually have fired, or the scenario is vacuous.
-    let faults_fired = await_faults(&trace, scenario.faults.len(), deadline).await?;
+    let faults_fired = await_faults(&trace, scenario.faults.len(), deadline)
+        .await
+        .context(BeforeFault)?;
 
     // Recover the shard, then require it to keep committing.
     //
@@ -387,8 +421,10 @@ async fn execute(
     // there is nothing to gain by predicting which perturbations need it.
     let settled = std::time::Instant::now();
     let after = count_commits(&read_trace(&trace)?) + scenario.settle_commits;
+    // `recover` returns only once the task has reached `after`, so it is the gate — an
+    // `await_commits(after)` here was a guaranteed no-op, and reading like a second check made
+    // the first look weaker than it is.
     recover(stack, plan, &names.sink, &trace, after, deadline).await?;
-    await_commits(&trace, after, deadline).await?;
     tracing::info!(elapsed = ?settled.elapsed(), commits = scenario.settle_commits, "settled");
 
     // Stop the workload and let the materialization drain. Only this run's own

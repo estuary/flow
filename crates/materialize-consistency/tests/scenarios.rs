@@ -26,31 +26,12 @@ fn init_tracing() {
         .try_init();
 }
 
-/// Every scenario reached by a test in this file.
+/// A scenario nobody runs is worse than a missing scenario: the table says it is covered. This
+/// is how an earlier split scenario was caught having no test at all.
 ///
-/// Duplicating the list is the price of one test function per scenario, which is what
-/// gives each its own pass/fail line and lets one be run alone. The test below makes
-/// the duplication safe: a scenario added to the table without a test here does not
-/// silently never run.
-const COVERED: &[&str] = &[
-    "baseline",
-    "crash-between-commits",
-    "crash-mid-store",
-    "crash-at-flush",
-    "split-during-store",
-    "split-during-commit",
-    "split-lands-on-prepared-transaction",
-    "join-after-split",
-    "zombie-at-start-commit",
-    "destination-ahead-of-checkpoint",
-    "recovery-reconciles-with-destination",
-    "crash-in-split-leader",
-    "crash-in-split-non-leader",
-    "at-least-once-never-loses",
-];
-
-/// A scenario nobody runs is worse than a missing scenario: the table says it is
-/// covered. This is how an earlier split scenario was caught having no test at all.
+/// `COVERED` comes from `scenario_tests!` at the foot of this file, so it names exactly the
+/// scenarios that have a test. What remains for this guard is the other direction: a scenario
+/// added to `scenarios::all()` and never given a test.
 #[test]
 fn every_scenario_is_reached_by_a_test() {
     for scenario in scenarios::all() {
@@ -259,87 +240,76 @@ async fn both_ways(name: &str) {
             // anything. Only unexpected failures leave a run directory behind.
             let _ = std::fs::remove_dir_all(&defective.run_dir);
         }
+        // A run that *failed* can still be the defect being caught — `ignore-key-range` leaves
+        // two shards fencing each other so neither commits, and insisting on a violation list
+        // would turn a detected defect into a harness error. But that only holds once the fault
+        // has fired. Before it, a failure is the environment: a publish the stack refused, a
+        // warmup gate that timed out, a split that never landed, a fault that never fired.
+        //
+        // Both are typed, so this asks for evidence rather than accepting the absence of a
+        // clean result as evidence. That default was the wrong way round: a stack degrading
+        // between the clean and defective halves silently vacated the pairing, which is the
+        // exact regression the pairing exists to detect.
         Err(err) => {
-            // A task that published and then failed is the defect being caught. A task that
-            // never published is the stack, and treating that as a catch would let control-
-            // plane flakiness quietly vacate the pairing this scenario depends on.
-            if err.chain().any(|e| e.is::<harness::stack::PublishFailed>()) {
+            let unexercised = err.chain().find_map(|e| {
+                if e.is::<harness::stack::PublishFailed>() {
+                    Some("the stack would not publish it")
+                } else if e.is::<harness::BeforeFault>() {
+                    Some("it failed before its fault fired")
+                } else {
+                    None
+                }
+            });
+
+            if let Some(why) = unexercised {
                 panic!(
-                    "{name} could not publish its defective half, so the pairing for \
-                     {defect:?} was not exercised. This is the stack, not the subject:\n{err:#}",
+                    "{name}'s defective half did not exercise {defect:?}, because {why}. That is \
+                     the environment, not the subject — and passing here would leave this \
+                     scenario's checkers unverified while reporting green:\n{err:#}",
                 );
             }
-            eprintln!("defective ({defect:?}): the task could not run: {err:#}");
+            eprintln!("defective ({defect:?}): the task could not run after its fault: {err:#}");
         }
     }
 }
 
-#[tokio::test]
-async fn baseline() {
-    both_ways("baseline").await
+/// One test per scenario, and the covered-names list, from a single declaration.
+///
+/// Each scenario needs its own test function so that it gets its own pass/fail line and can be
+/// run alone by name — but written out by hand, that was fourteen identical bodies beside a
+/// separately-maintained list of the same names. The list could then claim a scenario was
+/// covered while no test existed to run it, which `every_scenario_is_reached_by_a_test` could
+/// not detect: it compared the list against the scenario table, and the test functions were
+/// nowhere in the comparison.
+///
+/// Emitting both from one place makes that unrepresentable. A name cannot appear in `COVERED`
+/// without the test that runs it, because the same macro invocation produces both.
+macro_rules! scenario_tests {
+    ($($name:literal => $test:ident,)*) => {
+        const COVERED: &[&str] = &[$($name),*];
+
+        $(
+            #[tokio::test]
+            async fn $test() {
+                both_ways($name).await
+            }
+        )*
+    };
 }
 
-#[tokio::test]
-async fn crash_between_commits() {
-    both_ways("crash-between-commits").await
-}
-
-#[tokio::test]
-async fn crash_mid_store() {
-    both_ways("crash-mid-store").await
-}
-
-#[tokio::test]
-async fn crash_at_flush() {
-    both_ways("crash-at-flush").await
-}
-
-#[tokio::test]
-async fn split_during_store() {
-    both_ways("split-during-store").await
-}
-
-#[tokio::test]
-async fn split_during_commit() {
-    both_ways("split-during-commit").await
-}
-
-#[tokio::test]
-async fn split_lands_on_prepared_transaction() {
-    both_ways("split-lands-on-prepared-transaction").await
-}
-
-#[tokio::test]
-async fn join_after_split() {
-    both_ways("join-after-split").await
-}
-
-#[tokio::test]
-async fn zombie_at_start_commit() {
-    both_ways("zombie-at-start-commit").await
-}
-
-#[tokio::test]
-async fn destination_ahead_of_checkpoint() {
-    both_ways("destination-ahead-of-checkpoint").await
-}
-
-#[tokio::test]
-async fn recovery_reconciles_with_destination() {
-    both_ways("recovery-reconciles-with-destination").await
-}
-
-#[tokio::test]
-async fn crash_in_split_leader() {
-    both_ways("crash-in-split-leader").await
-}
-
-#[tokio::test]
-async fn crash_in_split_non_leader() {
-    both_ways("crash-in-split-non-leader").await
-}
-
-#[tokio::test]
-async fn at_least_once_never_loses() {
-    both_ways("at-least-once-never-loses").await
+scenario_tests! {
+    "baseline" => baseline,
+    "crash-between-commits" => crash_between_commits,
+    "crash-mid-store" => crash_mid_store,
+    "crash-at-flush" => crash_at_flush,
+    "split-during-store" => split_during_store,
+    "split-during-commit" => split_during_commit,
+    "split-lands-on-prepared-transaction" => split_lands_on_prepared_transaction,
+    "join-after-split" => join_after_split,
+    "zombie-at-start-commit" => zombie_at_start_commit,
+    "destination-ahead-of-checkpoint" => destination_ahead_of_checkpoint,
+    "recovery-reconciles-with-destination" => recovery_reconciles_with_destination,
+    "crash-in-split-leader" => crash_in_split_leader,
+    "crash-in-split-non-leader" => crash_in_split_non_leader,
+    "at-least-once-never-loses" => at_least_once_never_loses,
 }

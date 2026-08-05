@@ -399,40 +399,48 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
     }
 }
 
-/// The append-only collection materialized as deltas: the sharpest detector in
-/// the suite, because every document has a distinct key and so a duplicate
-/// delivery is an extra row rather than an invisible re-reduction.
-fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
-    let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
+/// A key's delivered sequence must not go backwards, per account, in arrival order.
+///
+/// Shared by both delta checkers, because they must score a regression identically: a run's
+/// suppression counts are read as evidence about which exemptions carry weight, and two scoring
+/// rules make that evidence incomparable. They had drifted apart twice before this existed.
+///
+/// `<` rather than `<=`, because a *repeated* seq is not a regression of order — it is a
+/// duplicate, and `NoDuplicates` owns that. Scoring it here as well reported one fault twice,
+/// under two invariants, one of which is frequently exempt.
+///
+/// And the baseline advances to what was just delivered rather than holding a high-water mark,
+/// so a replay is one violation rather than one per row it replays: after 1..10 then 8, 9, 10,
+/// the 8 is the regression and the 9 and 10 following it are in order.
+fn check_monotonic(rows: &[Event], binding: &str, out: &mut Vec<Violation>) {
     let mut last_seq: BTreeMap<i64, i64> = BTreeMap::new();
 
     for row in rows {
-        *seen.entry((row.id, row.seq)).or_default() += 1;
-
-        // Strictly less-than, and the baseline always advances to what was just delivered.
-        // Both match `check_merged_delta`, and the two must agree because a run's suppression
-        // counts are read as evidence about which exemptions are load-bearing — two checkers
-        // counting the same event differently makes that evidence incomparable.
-        //
-        // `<` rather than `<=` because a *repeated* seq is not a regression of order; it is a
-        // duplicate, which `NoDuplicates` below owns. Counting it here too reported one fault
-        // as two, under two different invariants, one of which is often exempt.
-        //
-        // And tracking the last delivered seq rather than a high-water mark means a replay is
-        // one violation rather than one per row it replays: after 1..10 then 8, 9, 10, the 8 is
-        // the regression and the 9 and 10 that follow it are in order.
         if let Some(previous) = last_seq.get(&row.id) {
             if row.seq < *previous {
                 out.push(Violation {
                     invariant: Invariant::Monotonicity,
                     detail: format!(
-                        "account {}: the log binding delivered seq {} after {previous}",
+                        "account {}: {binding} delivered seq {} after {previous}",
                         row.id, row.seq
                     ),
                 });
             }
         }
         last_seq.insert(row.id, row.seq);
+    }
+}
+
+/// The append-only collection materialized as deltas: the sharpest detector in
+/// the suite, because every document has a distinct key and so a duplicate
+/// delivery is an extra row rather than an invisible re-reduction.
+fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
+    let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
+
+    check_monotonic(rows, "the log binding", out);
+
+    for row in rows {
+        *seen.entry((row.id, row.seq)).or_default() += 1;
 
         // A faithfully transported document is still itself.
         if let Some(document) = expected
@@ -486,7 +494,6 @@ fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
 /// twice leaves the running sum ahead of the oracle from that row onward.
 fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
     let mut running: BTreeMap<i64, i64> = BTreeMap::new();
-    let mut last_seq: BTreeMap<i64, i64> = BTreeMap::new();
     let mut reported: BTreeSet<i64> = BTreeSet::new();
     let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
 
@@ -527,20 +534,7 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
         }
     }
 
-    for row in delivery {
-        if let Some(previous) = last_seq.get(&row.id) {
-            if row.seq < *previous {
-                out.push(Violation {
-                    invariant: Invariant::Monotonicity,
-                    detail: format!(
-                        "account {}: the delta binding delivered seq {} after {previous}",
-                        row.id, row.seq
-                    ),
-                });
-            }
-        }
-        last_seq.insert(row.id, row.seq);
-    }
+    check_monotonic(delivery, "the delta binding", out);
 
     for ((id, seq), n) in &seen {
         if *n > 1 {
@@ -772,15 +766,14 @@ mod test {
         }
     }
 
-    /// The two monotonicity checkers must count a regression the same way, because a run's
-    /// suppression counts are read as evidence about which exemptions carry weight — and two
-    /// checkers scoring the same event differently makes that evidence incomparable.
+    /// A replay is one regression, not one per replayed row.
     ///
-    /// They disagreed twice: `check_log` treated a repeated seq as a regression (it is a
-    /// duplicate, which `NoDuplicates` owns) and held a high-water mark, so one replay of
-    /// `8, 9, 10` after `10` scored three violations where the delta checker scored one.
+    /// Both checkers now share `check_monotonic`, so their *agreement* is structural and needs no
+    /// test. What still needs one is the scoring rule itself, which two earlier versions got
+    /// wrong in opposite directions: counting a repeated seq (a duplicate, which `NoDuplicates`
+    /// owns) and holding a high-water mark, so `8, 9, 10` after `10` scored three.
     #[test]
-    fn both_monotonicity_checkers_score_a_regression_the_same() {
+    fn a_replay_is_one_monotonicity_violation() {
         // 0, 1, 2, then a replay of 1, 2 — one regression, at the replayed 1.
         let replayed = vec![
             event(1, 0, -1, -1),
