@@ -719,10 +719,6 @@ fn decode_checkpoint(
     Ok(Some(checkpoint))
 }
 
-/// Record an application: whose entry, which binding, and the batches it consumes.
-///
-/// The owner range matters and the session's own range does not: the question a failing
-/// merged value raises is *whose* staged absolute was written, and when.
 /// Append one line to `reduce.jsonl`, if the trace is enabled.
 ///
 /// Both tracers gate on the same variable, resolve the same directory and open the same file in
@@ -746,6 +742,10 @@ fn trace_line(value: serde_json::Value) {
     }
 }
 
+/// Record an application: whose entry, which binding, and the batches it consumes.
+///
+/// The *owner* range is what matters, not the session's own: the question a wrong merged value
+/// raises is whose staged work was applied, and when.
 fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
     trace_line(serde_json::json!({
         "event": "apply-pending",

@@ -166,12 +166,10 @@ pub async fn run(
         run_dir: &run_dir,
         faults: &scenario.faults,
         workload: &workload,
-        // A scenario's own class decides this for the reference connector. For a real
-        // subject the *subject's* class decides it: a counted channel is delta-only by
-        // definition, so handing one a merge binding would test a shape it never claimed
-        // to support, and the guard that enforces this for the reference path
-        // (`the_counter_class_never_takes_a_standard_binding`) does not reach here.
-        standard_binding: scenario.standard_binding
+        // A scenario's own class decides this for the reference connector. For a real subject the
+        // *subject's* class decides it: a counted channel is delta-only by definition, so handing
+        // one a merge binding would test a shape it never claimed to support.
+        standard_binding: scenario.standard_binding()
             && external.map_or(true, |e| {
                 e.class != crate::reference::Class::DocumentCounter
             }),

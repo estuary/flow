@@ -1,13 +1,17 @@
-//! Everything the harness needs from the local stack, all of it through
-//! `flowctl`.
+//! Everything the harness needs from the local stack, through other people's binaries rather
+//! than linked clients.
 //!
-//! Driving the stack through the CLI rather than linking the control-plane and
-//! data-plane clients is deliberate: publishing, deleting, listing shards,
-//! reading a collection and splitting a task are all already single `flowctl`
-//! subcommands whose output is JSON, and the auth plumbing behind them — user
-//! tokens exchanged for data-plane authorizations — lives inside `flowctl` and is
-//! not exported. Re-deriving it here would be a second copy of something with no
-//! test of its own.
+//! `flowctl` for most of it: publishing, deleting, listing shards, reading a collection and
+//! splitting a task are all already single subcommands whose output is JSON, and the auth
+//! plumbing behind them — user tokens exchanged for data-plane authorizations — lives inside
+//! `flowctl` and is not exported. Re-deriving it here would be a second copy of something with
+//! no test of its own.
+//!
+//! Two things are not `flowctl`, and the module used to claim otherwise. Unassigning a shard and
+//! joining a task's shards go through `gazctl`, via the scripts under `scripts/`, because neither
+//! is a `flowctl` subcommand. And reading a destination back goes through the connector's own
+//! code — its `read` subcommand for the reference connector, `testctl` for a real subject — see
+//! [`ReadVia`].
 
 use crate::invariants::Event;
 use anyhow::Context;

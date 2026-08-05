@@ -54,14 +54,6 @@ pub struct Scenario {
     /// it for a guarantee it never made; the scenarios that do hold it to something opt it
     /// back in. Narrow this further only where one class alone can succeed — and say why.
     pub applies_to: &'static [Class],
-    /// Whether the task materializes a standard (merge) binding as well as the two
-    /// delta ones.
-    ///
-    /// The document-counter class cannot take one: a counted channel's offset is a
-    /// count of rows the destination *accepted*, which says nothing about an upsert.
-    /// Snowpipe Streaming v2 handles delta-updates bindings only, and folding a merge
-    /// binding into that model would emulate something no such connector does.
-    pub standard_binding: bool,
     pub faults: Vec<FaultRule>,
     /// The defect this scenario must catch. `None` only for the baseline, whose
     /// job is to fail when the harness itself is miswired — it has no defect to
@@ -197,7 +189,6 @@ impl Scenario {
             verifies,
             class,
             applies_to: EXACTLY_ONCE,
-            standard_binding: !matches!(class, Class::DocumentCounter),
             faults: Vec::new(),
             defect: None,
             split_shards: false,
@@ -208,6 +199,19 @@ impl Scenario {
             exempt: Vec::new(),
             known_limitation: None,
         }
+    }
+
+    /// Whether the task materializes a standard (merge) binding as well as the two delta ones.
+    ///
+    /// Derived from the class rather than stored, because it was only ever assigned from the
+    /// class — and a stored copy invited a guard asserting the two agreed, which could not fail.
+    ///
+    /// The document-counter class cannot take one: a counted channel's offset is a count of rows
+    /// the destination *accepted*, which says nothing about an upsert. Snowpipe Streaming v2
+    /// handles delta-updates bindings only, and folding a merge binding into that model would
+    /// emulate something no such connector does.
+    pub fn standard_binding(&self) -> bool {
+        !matches!(self.class, Class::DocumentCounter)
     }
 
     /// See [`Scenario::applies_to`]. Widens or narrows which classes the scenario runs
@@ -581,7 +585,7 @@ fn recovery_reconciles_with_destination() -> Scenario {
     // No monotonicity exemption, for the same reason as `destination-ahead-of-checkpoint`.
 }
 
-/// The one membership-change scenario whose class can actually survive it.
+/// The two membership-change scenarios a counted channel can actually survive.
 ///
 /// A counted channel resumes by asking the *destination* how far it got, so a shard
 /// that has just been created — with a fresh channel and therefore a zero offset —
@@ -745,19 +749,9 @@ mod test {
         }
     }
 
-    /// A join needs more than one shard, and a task starts with one.
-    #[test]
-    fn a_join_scenario_splits_first() {
-        for scenario in all() {
-            if scenario.join_shards {
-                assert!(
-                    scenario.split_shards,
-                    "scenario {} joins without splitting, so it has nothing to join",
-                    scenario.name,
-                );
-            }
-        }
-    }
+    // No test that a joining scenario splits first, though a join does need more than one shard
+    // and a task starts with one. `splitting_then_joining` is the only way to set `join_shards`
+    // and it sets `split_shards` too, so the property holds by construction.
 
     /// No fault may be able to fire before the warmup gate is satisfied.
     ///
@@ -839,20 +833,10 @@ mod test {
         }
     }
 
-    /// The document-counter class models a connector that handles delta-updates
-    /// bindings only, so no scenario may hand it a merge binding.
-    #[test]
-    fn the_counter_class_never_takes_a_standard_binding() {
-        for scenario in all() {
-            if scenario.class == Class::DocumentCounter {
-                assert!(
-                    !scenario.standard_binding,
-                    "scenario {} gives the counted-channel class a merge binding",
-                    scenario.name,
-                );
-            }
-        }
-    }
+    // No test that the counted-channel class never takes a merge binding:
+    // `Scenario::standard_binding` derives it from the class, so the property holds by
+    // construction and a test of it could not fail. It used to be a stored field, and the test
+    // read as a real guard while asserting that one line of `new` did what it says.
 
     #[test]
     fn scenario_names_are_unique() {

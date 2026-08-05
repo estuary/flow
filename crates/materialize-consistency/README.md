@@ -194,9 +194,11 @@ the connector lost those documents or the runner stopped waiting cannot be told 
 checkers. `log 610/610, merged accounts behind 3 of 40` is a shortfall; a violation list is
 a verdict.
 
-**Faults arm after the warmup.** The warmup gate has no recovery step, so a crash landing
-inside it would wedge the run. A unit test enforces this for every `Crash` rule; other
-actions leave the shard running and are exempt.
+**Faults arm after the warmup.** The warmup gate has no recovery step, so a crash landing inside
+it would wedge the run. A unit test enforces this, with two exemptions rather than one: a stall or
+a zombie leaves the shard running, so the warmup still completes; and a rule aimed at a *split*
+shard cannot fire before the warmup anyway, because the shard it names does not exist until the
+split, which happens afterwards.
 
 **The environment.** Two symptoms present as connector faults and are not. `etcdserver:
 mvcc: database space exceeded` in the reactor's log means etcd has hit its quota and can no

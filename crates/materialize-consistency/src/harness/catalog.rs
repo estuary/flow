@@ -387,10 +387,13 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
 
     // Forwarded rather than set, so it is off unless a person asks for it.
     //
-    // The reduction trace records every `Load` and `Store` of a merged key, plus each
-    // recovery decision, which is the only way to see *why* a reduced value came out
-    // wrong: the delivered rows say what the connector was told, never what it read
-    // before reducing onto it. Too voluminous to leave on, too useful to reinvent.
+    // The reduction trace records every `Load` and `Store` of a merged key, plus each staged
+    // batch an `Acknowledge` applies — which is the only way to see *why* a reduced value came
+    // out wrong: the delivered rows say what the connector was told, never what it read before
+    // reducing onto it. Too voluminous to leave on, too useful to reinvent.
+    //
+    // Not recovery decisions, despite an earlier version of this comment: the counted channel's
+    // skip, decided in `open_counters`, is traced nowhere.
     if std::env::var_os(ENV_TRACE_REDUCE).is_some() {
         env.insert(ENV_TRACE_REDUCE.to_string(), "1".to_string());
     }

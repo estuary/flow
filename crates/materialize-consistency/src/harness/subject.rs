@@ -237,12 +237,10 @@ pub struct External {
 
 /// Resolve an external subject from the environment, or `None` for the reference one.
 ///
-/// Both variables are required together: a connector with no config cannot be validated,
-/// and a config with no connector has nothing to configure.
-///
-/// All five or none: a partly-set group is a mistake worth failing on, because the
-/// alternative is silently running the reference connector when someone meant to name a real
-/// one — and a green reference run looks exactly like a green real one in the summary.
+/// All five or none: a connector with no config cannot be validated, a config with no connector
+/// has nothing to configure, and a partly-set group is a mistake worth failing on — because the
+/// alternative is silently running the reference connector when someone meant to name a real one,
+/// and a green reference run looks exactly like a green real one in the summary.
 pub async fn external() -> anyhow::Result<Option<External>> {
     let named = [
         (ENV_SUBJECT, std::env::var_os(ENV_SUBJECT)),
