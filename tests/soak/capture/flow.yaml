@@ -24,6 +24,7 @@ captures:
       logLevel: info
       flags:
         enable-runtime-v2: "true"
+        indirect-specs: "true"
     bindings:
       - resource:
           name: alpha
