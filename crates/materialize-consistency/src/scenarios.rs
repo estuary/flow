@@ -119,20 +119,41 @@ pub struct RuntimeGap {
 ///
 /// Stated once and shared: three scenarios reconfigure shards and every one of them owes
 /// the same explanation, so a copy per scenario would only give the wording room to drift.
+///
+/// The wording is deliberately about what is *observed*. An earlier version asserted the
+/// interleaving — a split child delivering a sequence the departing parent had raced past —
+/// and review could not construct it: on these classes' delta paths a parent write past a
+/// child's resume point is either fence-refused or a duplicate, and `NoDuplicates` is not
+/// exempt, so the run would fail regardless. Yet these exemptions suppress 9-33 violations
+/// per run, measured after the two monotonicity checkers were made to agree, so the
+/// reordering is real. Rather than keep a mechanism nobody has demonstrated, the
+/// justification records the observation and says the cause is unknown.
 const MEMBERSHIP_CHANGE_REORDERS: &str = "A membership change does not preserve delivery *order* at the sink, only \
-         exactly-once delivery of the set. A split child resumes from its inherited \
-         checkpoint and may deliver a sequence the departing parent had already \
-         raced past, so an id's rows can land out of order while remaining exactly \
-         one row per document. The set-based checks — no-loss, no-duplicates, \
-         conservation and oracle agreement — carry the exactly-once claim here and \
-         are NOT exempt.";
+         exactly-once delivery of the set: rows of an id are observed landing out of \
+         order across a split while remaining exactly one row per document. The \
+         mechanism is NOT understood — the obvious candidate, a parent delivering past \
+         a child's resume point, is either fenced off or a duplicate, and duplicates are \
+         not exempt. What is established is the observation: 9-33 such violations per \
+         run, with the set-based checks passing. Those checks — no-loss, no-duplicates, \
+         conservation and oracle agreement — carry the exactly-once claim here and are \
+         NOT exempt, which is why an unexplained ordering deviation can be tolerated \
+         without weakening what the scenario proves.";
 
 /// Why a class that appends during `Store` is not held to delivery order.
+///
+/// Same treatment as [`MEMBERSHIP_CHANGE_REORDERS`], and for the same reason: the stated
+/// mechanism was more confident than the evidence. Rows of an uncommitted transaction being
+/// visible until recovery skips past them explains why *uncommitted* rows appear, not why
+/// committed ones arrive out of order — and a re-opened channel appending the same `(id, seq)`
+/// again is a duplicate, which is not exempt. The 40-54 violations these suppress per run are
+/// the part that is established.
 const APPENDS_DURING_STORE_REORDERS: &str = "This class appends during Store, so rows of a transaction that never commits \
-         stay visible until recovery skips past them, and a membership change re-opens \
-         channels at offsets the sink has already passed. Delivery order at the sink is \
-         therefore not guaranteed to advance monotonically; the set-based checks carry \
-         the exactly-once claim and are NOT exempt.";
+         stay visible until recovery skips past them — and separately, delivery order at \
+         the sink is observed not advancing monotonically across a recovery or membership \
+         change, at 40-54 violations per run. The mechanism for the latter is NOT \
+         understood: a re-opened channel re-appending the same row would be a duplicate, \
+         and duplicates are not exempt. The set-based checks carry the exactly-once claim \
+         and are NOT exempt, so what the scenario proves does not rest on this.";
 
 /// The exactly-once classes a membership change can be *fairly* asked of.
 ///

@@ -154,22 +154,28 @@ checkpoint the connector chose.
 **A membership change preserves exactly-once delivery of the *set*, but not delivery
 *order* at the sink.**
 
-A split child resumes from its inherited checkpoint and may deliver a sequence that
-the departing parent had already raced past, so an id's rows can land out of order
-while remaining exactly one row per document. The suite observes exactly that shape: no
-loss, no duplicates, conservation intact and oracle agreement intact, alongside a crop of
-monotonicity complaints.
+The suite observes exactly that shape, repeatably: no loss, no duplicates, conservation
+intact and oracle agreement intact, alongside a crop of monotonicity complaints — 9 to 33 per
+run on the reconfiguration scenarios, and 40 to 54 on the counted channel's, measured after the
+two monotonicity checkers were made to score a regression the same way.
 
-So the reconfiguration scenarios declare a monotonicity exemption, with the
-set-based checks explicitly *not* exempt. Those four carry the exactly-once claim,
-and they are the ones a split has to keep.
+**The mechanism is not understood, and this document used to claim it was.** The natural
+explanation — a split child delivering a sequence the departing parent had already raced past —
+does not survive reading the code: on the delta paths these classes use, a parent write past a
+child's resume point is either refused by the fence or lands as a duplicate, and duplicates are
+*not* exempt, so such a run would fail on `NoDuplicates` regardless. Something else reorders
+delivery, and naming it is open work.
 
-This is the compliance model earning its keep in the direction it was designed for:
-the weaker property is declared and justified in one place, and the connector is
-still held to everything else. The document-counter class needed the same exemption
-for a different reason — rows of an uncommitted transaction stay visible until
-recovery skips past them — which is a hint that sink ordering is simply not a
-property the runtime offers whenever sessions can overlap.
+So the reconfiguration scenarios declare a monotonicity exemption, with the set-based checks
+explicitly *not* exempt. Those four carry the exactly-once claim, and they are the ones a split
+has to keep — which is what makes an unexplained ordering deviation tolerable: whatever causes
+it, it demonstrably does not cost or duplicate a document.
+
+This is the compliance model earning its keep, and also showing its limit. The weaker property
+is declared in one place and everything else is still held — but a justification is only as good
+as its reasoning, and this one is now honest about having none. Two exemptions were deleted
+during review for describing mechanisms that could not fire *and* suppressing nothing; these
+suppress a great deal, so they stay, with the observation recorded instead of a story.
 
 ### Only shard zero may propose a runtime checkpoint
 
