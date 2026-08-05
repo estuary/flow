@@ -474,6 +474,38 @@ fn crash(shim: &Shim, live_pid: libc::pid_t) -> ! {
     std::process::exit(1);
 }
 
+/// Fire whatever faults match `trigger`/`nth`, returning a matched `Zombie` for the caller.
+///
+/// Crash and stall are the same whichever side of the stream they land on, so they live here.
+/// The zombie is meaningful only against a *request* — the request pump owns the instance and
+/// its stdin — so it is handed back rather than acted on.
+async fn fire_faults(
+    shim: &Arc<Shim>,
+    trigger: Trigger,
+    nth: u64,
+    live_pid: libc::pid_t,
+) -> Option<Action> {
+    let mut zombie = None;
+
+    for (idx, action) in shim.matched(trigger, nth) {
+        shim.trace.log(Event::Fault {
+            rule: idx,
+            action: action.clone(),
+        });
+
+        match action {
+            // On `StartedCommit` this models the window between the connector's commit and
+            // the runtime's: the connector is done, the recovery log is not.
+            Action::Crash => crash(shim, live_pid),
+            Action::Stall { millis } => {
+                tokio::time::sleep(std::time::Duration::from_millis(millis)).await
+            }
+            action @ Action::Zombie { .. } => zombie = Some(action),
+        }
+    }
+    zombie
+}
+
 async fn pump_requests<R>(
     shim: Arc<Shim>,
     mut from_runtime: R,
@@ -583,24 +615,10 @@ where
                 shim.trace.log(Event::Phase { trigger, nth });
             }
 
-            for (idx, action) in shim.matched(trigger, nth) {
-                shim.trace.log(Event::Fault {
-                    rule: idx,
-                    action: action.clone(),
-                });
-
-                match action {
-                    Action::Crash => crash(&shim, live_pid),
-                    Action::Stall { millis } => {
-                        tokio::time::sleep(std::time::Duration::from_millis(millis)).await
-                    }
-                    Action::Zombie { .. } => {
-                        if let Some(z) = &mut zombie {
-                            z.freeze();
-                            shim.counters.lock().unwrap().thaw_countdown =
-                                Some(z.thaw_after_commits);
-                        }
-                    }
+            if fire_faults(&shim, trigger, nth, live_pid).await.is_some() {
+                if let Some(z) = &mut zombie {
+                    z.freeze();
+                    shim.counters.lock().unwrap().thaw_countdown = Some(z.thaw_after_commits);
                 }
             }
 
@@ -663,24 +681,8 @@ async fn pump_responses(
 
             shim.trace.log(Event::Phase { trigger, nth });
 
-            for (idx, action) in shim.matched(trigger, nth) {
-                shim.trace.log(Event::Fault {
-                    rule: idx,
-                    action: action.clone(),
-                });
-
-                match action {
-                    // Crashing on `StartedCommit` models the window between the
-                    // connector's commit and the runtime's: the connector is
-                    // done, the recovery log is not.
-                    Action::Crash => crash(&shim, live_pid),
-                    Action::Stall { millis } => {
-                        tokio::time::sleep(std::time::Duration::from_millis(millis)).await
-                    }
-                    // Only meaningful against a request.
-                    Action::Zombie { .. } => {}
-                }
-            }
+            // A zombie matched here is ignored: it is meaningful only against a request.
+            let _ = fire_faults(&shim, trigger, nth, live_pid).await;
 
             encoded.clear();
             shim.codec.encode(&resp, &mut encoded);
