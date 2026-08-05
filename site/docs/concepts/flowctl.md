@@ -243,31 +243,24 @@ You can also implement `sops` manually if you are writing a Data Flow specificat
 
 This can be useful if you need to maintain strict control over how credentials
 are encrypted. In this case, you own the KMS key and grant Estuary access for
-decryption. `flowctl` will not modify endpoint configurations that have already
-been encrypted.
+**decryption**. Estuary decrypts your configuration only at connector run time
+and never encrypts with your key, so Estuary never needs encrypt access.
 
-Estuary supports customers encrypting secrets with keys from AWS Key Management Service, Google Cloud Platform KMS, and Azure Key Vault.
+Estuary supports customers encrypting secrets with keys from AWS Key Management Service,
+Google Cloud Platform KMS, and Azure Key Vault. Each data plane has a separate identity for
+GCP, AWS, and Azure, so you can use a KMS provider that differs from the cloud your data
+plane runs in (for example, a GCP KMS key with an AWS data plane). Contact Estuary support
+to obtain the correct data plane identity for your use case.
 
-:::important
-When deploying catalogs onto the managed Estuary runtime, you must grant **decrypt-only**
-access on your KMS key to the appropriate identity for your data plane. Estuary
-decrypts your configuration only at connector run time and never encrypts with your
-key, so the identity never needs encrypt access. How you grant access depends on the
-provider:
+How you grant decryption access then depends on the provider:
 
 - **GCP KMS**: grant the `roles/cloudkms.cryptoKeyDecrypter` role on the key to the data plane's GCP service account.
 - **AWS KMS**: add a key-policy statement allowing `kms:Decrypt` and `kms:DescribeKey` to the data plane's AWS IAM user.
 - **Azure Key Vault**: grant a decrypt key permission to the data plane's Azure application.
 
-Each data plane has a separate identity for GCP, AWS, and Azure, so you can use a KMS
-provider that differs from the cloud your data plane runs in (for example, a GCP KMS
-key with an AWS data plane). The dashboard surfaces your data plane's native-cloud
-identity under [Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings);
-the identity for a different provider may not be shown there, so contact Estuary
-support to obtain the one you need.
-:::
-
-The examples below provide a useful reference.
+Once you've granted permissions for the data plane identity, reference the examples below
+to encrypt secrets with `sops`. `flowctl` will not modify endpoint configurations that
+have already been encrypted this way.
 
 #### Example: Protect a configuration
 
