@@ -8,3 +8,9 @@ GOBIN="${GOBIN:?GOBIN is unset — run via 'mise run'; direct execution is unsup
 mkdir -p "${GOBIN}"
 
 go build -o "${GOBIN}/gazette" go.gazette.dev/core/cmd/gazette
+
+# `gazctl` too, because the materialize-consistency suite recovers a crashed shard by
+# unassigning it and joins a task's shards through `gazctl`, and nothing else provisioned it —
+# so on a fresh checkout every crash scenario died at its first recovery. Same module, so this
+# costs one more link rather than another dependency.
+go build -o "${GOBIN}/gazctl" go.gazette.dev/core/cmd/gazctl

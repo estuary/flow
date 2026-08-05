@@ -2,11 +2,19 @@
 
 serial-db-tests = { max-threads = 1 }
 
+# Scenarios that reconfigure a task's shards, capped rather than serialised.
+#
+# Capped rather than uncapped: these are the scenarios that stress shard membership, and
+# a bound leaves the allocator headroom that an unbounded fan-out would not.
+capped-shard-reconfiguration = { max-threads = 3 }
+
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 # Exclude e2e tests from Dekaf by default because they require special setup.
-# See mise/tasks/ci/dekaf-e2e for details.
-default-filter = 'not binary_id(/dekaf::e2e/)'
+# See mise/tasks/ci/dekaf-e2e for details. The materialization consistency
+# scenarios are excluded for the same reason: each one publishes tasks to a
+# running local stack. See mise/tasks/ci/consistency.
+default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/)'
 
 [profile.dekaf-e2e]
 # Migration tests excluded due to 8-minute timeout.
@@ -16,6 +24,35 @@ default-filter = 'binary_id(/dekaf::e2e/) and not test(/migration/)'
 # have been observed at ~80s, which is close enough to the inherited 120s
 # terminate-after to become its own source of flakiness.
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+[profile.consistency]
+default-filter = 'binary_id(/materialize-consistency::scenarios/)'
+# A scenario publishes tasks, waits for shards, injects a fault, waits for
+# recovery, then drains the workload. Minutes, not seconds, and the useful
+# signal is the invariant report rather than a timeout.
+# The kill threshold has to clear the slowest *legitimate* run, and a subject committing
+# to a remote warehouse takes tens of seconds per transaction where a local one takes
+# milliseconds. At 8 periods a databricks scenario was killed at 960s while still working.
+slow-timeout = { period = "120s", terminate-after = 30 }
+
+# Far below the default of one thread per core, and that makes the suite *faster*.
+#
+# Each scenario runs four connector processes against a stack already using the machine, so
+# the default of one thread per core oversubscribed badly: `split-during-store` took 744s
+# in-suite against 248s alone.
+test-threads = 4
+
+# Named individually rather than by a substring: a scenario that splits or joins
+# shards has to be in this group, and a name-pattern match would silently drop a
+# future one that happened not to match.
+[[profile.consistency.overrides]]
+filter = '''
+    test(split_during_store) + test(split_during_commit) + test(join_after_split)
+    + test(split_after_commit_before_apply)
+    + test(split_lands_on_prepared_transaction)
+    + test(crash_in_split_leader) + test(crash_in_split_non_leader)
+'''
+test-group = 'capped-shard-reconfiguration'
 
 [[profile.default.overrides]]
 filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'
