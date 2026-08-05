@@ -88,9 +88,8 @@ to the reference connector.
 **Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
 drives; `testctl` is separate, and is how verification reads the destination back and how a run
 drops the tables it created. `FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the
-connector by, which is not derivable from the binary's file name — and it only drives a
-connector whose package is importable, so one still in `package main` cannot be a subject yet.
-Why it is a separate program rather than a connector subcommand is in the design document.
+connector by, which is not derivable from the binary's file name. Why it is a separate program
+rather than a connector subcommand is in the design document.
 
 **Tables are named to be sweepable.** Each carries the run id *and*
 `_flow_test_<unix>`, the connectors repository's convention, so `testctl -mode sweep` can
@@ -151,10 +150,10 @@ its delta ones: a duplicate applied to a merge binding is an idempotent upsert a
 invisible, so accepting one would leave every scenario passing with the suite's sharpest check
 disabled and nothing saying so.
 
-`testctl` and the importable-package change it needs are estuary/connectors#4981, **not yet
-merged**. So "runs against any connector" is the design, and "runs against any connector
-`testctl` can drive" is the present tense — see that PR's `tests/materialize/testctl/README.md`
-for the current list.
+**Which connectors can be a subject** is whatever `testctl` can drive, which is a connector
+whose package is importable — `package connector` with `func main` under `cmd/connector`. See
+`tests/materialize/testctl/README.md` in the connectors repository for the current list and for
+how to add one; a connector still in `package main` needs converting first.
 
 **A scenario that splits or joins shards needs the subject configured for multi-shard
 operation.** Where that is behind a feature flag the harness cannot know its name, and a
