@@ -172,7 +172,7 @@ echo "Running consistency scenarios..."
 TEST_EXIT_CODE=0
 if [ -n "${FILTER}" ]; then
     cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
-        --ignore-default-filter ${CONCURRENCY:+-j "${CONCURRENCY}"} \
+        --ignore-default-filter --no-fail-fast ${CONCURRENCY:+-j "${CONCURRENCY}"} \
         -E "binary_id(/materialize-consistency::scenarios/) and test(${FILTER})" || TEST_EXIT_CODE=$?
 else
     cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \

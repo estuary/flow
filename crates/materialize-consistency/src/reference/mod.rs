@@ -197,7 +197,6 @@ pub struct Session {
     /// [`stage_load`] for why the read cannot happen sooner.
     pending_loads: Vec<(u32, String)>,
     /// Work staged by the transaction in progress, not yet published in a checkpoint.
-    pending: BTreeMap<String, PendingApply>,
     /// Work whose transaction the log has confirmed, awaiting release.
     ///
     /// Applied on *every* `Acknowledge` until released, because the runtime may retry an
@@ -207,21 +206,15 @@ pub struct Session {
     /// retirement would duplicate on the retry, which is the `non-idempotent-acknowledge`
     /// defect and is what makes it observable.
     confirmed: BTreeMap<String, PendingApply>,
-    /// Published-but-unacknowledged work, oldest transaction first.
+    /// Published-but-unacknowledged work: the transaction whose `StartCommit` has been
+    /// answered but whose `Acknowledge` has not arrived.
     ///
-    /// One entry per `StartCommit`, released by the matching `Acknowledge`. The protocol
-    /// pipelines — an `Acknowledge` confirming transaction N can arrive after
-    /// `StartedCommit(N+1)` — so "everything currently staged" is the wrong thing to
-    /// apply: it would commit N+1's work before the recovery log holds it, and a replay
-    /// of N+1 would then reduce its documents onto a destination that already counts them.
-    ///
-    /// The *protocol* permits a connector to acknowledge early, which is what this defends
-    /// against. The runtime as it stands cannot produce the interleaving: `Flush(N+1)` waits
-    /// on `Tail::Done`, which requires every shard's `Acknowledged(N)`, so `Acknowledge(N)`
-    /// always precedes `StartCommit(N+1)` and this deque never holds more than one entry.
-    /// Kept because the guarantee it relies on is the runtime's scheduling, not the protocol's
-    /// contract.
-    published: std::collections::VecDeque<BTreeMap<String, PendingApply>>,
+    /// At most one, so an `Option` rather than the queue this used to be. The *protocol*
+    /// permits a connector to acknowledge early, and this defends against applying N+1's work
+    /// before the log holds it — but the runtime cannot produce that interleaving:
+    /// `Flush(N+1)` waits on `Tail::Done`, which requires every shard's `Acknowledged(N)`, so
+    /// `Acknowledge(N)` always precedes `StartCommit(N+1)`.
+    published: Option<BTreeMap<String, PendingApply>>,
     /// Pending work of *other* ranges — peers of this transaction, and ranges left by
     /// previous shard topologies. Tracked and executed only by the primary.
     peers: BTreeMap<String, BTreeMap<String, PendingApply>>,
@@ -589,11 +582,10 @@ fn open_session(
         nonce,
         buffered: Vec::new(),
         pending_loads: Vec::new(),
-        pending: BTreeMap::new(),
         // Recovered work is known committed, so it is releasable from the first
         // `Acknowledge` — which the protocol delivers before this session's first `Load`.
         confirmed: pending,
-        published: std::collections::VecDeque::new(),
+        published: None,
         peers,
         primary,
         range_key,
@@ -983,11 +975,12 @@ fn start_commit_txn(
             // `Acknowledge` — this session's or a successor's — needs nothing but these.
             let deduplicate = !session.has(Defect::NonIdempotentAcknowledge);
 
+            let mut publishing: BTreeMap<String, PendingApply> = BTreeMap::new();
             for table in match staged_anything {
                 true => staged_tables(&batch, session)?,
                 false => Vec::new(),
             } {
-                let entry = session.pending.entry(table.name.clone()).or_default();
+                let entry = publishing.entry(table.name.clone()).or_default();
                 entry
                     .queries
                     .extend(Store::apply_statements(&batch, &table, deduplicate));
@@ -997,9 +990,15 @@ fn start_commit_txn(
             // Whatever was confirmed has been applied and its clearing patch emitted.
             session.confirmed.clear();
 
-            let publishing = std::mem::take(&mut session.pending);
             let patch = pending_patch(&session.range_key, &publishing);
-            session.published.push_back(publishing);
+            // Asserted rather than assumed: a second entry would mean the runtime had
+            // pipelined an `Acknowledge` past a `StartCommit`, which the field's doc explains
+            // it cannot. Losing one silently would be a duplicate nobody could explain.
+            debug_assert!(
+                session.published.is_none(),
+                "a transaction was published while another was still unacknowledged",
+            );
+            session.published = Some(publishing);
             Some(patch)
         }
 
@@ -1123,7 +1122,7 @@ fn acknowledge(
     // bookkeeping — mirroring the clearing the primary emits for them.
     if !session.primary {
         session.confirmed.clear();
-        session.published.pop_front();
+        session.published = None;
         return Ok(materialize::Response {
             acknowledged: Some(materialize::response::Acknowledged { state: None }),
             ..Default::default()
@@ -1148,7 +1147,7 @@ fn acknowledge(
     // promote a transaction the log has not confirmed. The connector cannot tell that case
     // apart: `Acknowledge` carries no transaction identity, only the aggregated patches of
     // whichever transaction it confirms. Closing it needs the protocol to say which.
-    if let Some(promoted) = session.published.pop_front() {
+    if let Some(promoted) = session.published.take() {
         session.confirmed.extend(promoted);
     }
 

@@ -256,7 +256,7 @@ impl Stack {
     }
 
     /// Every shard of a task, as the data plane reports it.
-    pub async fn shards(
+    async fn shards(
         &self,
         task: &str,
     ) -> anyhow::Result<Vec<proto_gazette::consumer::list_response::Shard>> {

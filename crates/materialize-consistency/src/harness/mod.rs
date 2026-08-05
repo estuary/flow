@@ -399,11 +399,13 @@ async fn execute(
     stack.publish(&catalog::disable_captures(plan)?).await?;
     tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
+    // Panic, not an error: a `Subject` with no argv cannot be constructed by anything here, so
+    // this is an impossible state rather than a condition to report up the stack.
     let connector = std::path::PathBuf::from(
         plan.subject
             .connector
             .first()
-            .context("the subject names no connector binary")?,
+            .expect("a Subject always names its connector binary"),
     );
 
     // Read each collection until it stops growing. A capture keeps producing for a
@@ -598,16 +600,30 @@ fn read_trace(run: &RunDir) -> anyhow::Result<Vec<TraceEvent>> {
         Err(err) => return Err(err).context("opening the trace"),
     };
 
+    // Only the *final* line may be partial, and only because a concurrent append can leave it
+    // that way — it will be complete on the next poll. An unparseable line anywhere else is a
+    // torn write from two shims appending at once, and swallowing it silently is how a lost
+    // event turns into a gate that times out for no visible reason. So it is a warning naming
+    // the line, and the read continues: a partial trace still answers most gates.
     let mut events = Vec::new();
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.context("reading the trace")?;
+    let lines: Vec<String> = std::io::BufReader::new(file)
+        .lines()
+        .collect::<std::io::Result<_>>()
+        .context("reading the trace")?;
+    let last = lines.len().saturating_sub(1);
+
+    for (n, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
-        // A concurrent append can leave a partial final line; it will be complete
-        // on the next poll.
-        if let Ok(event) = serde_json::from_str(&line) {
-            events.push(event);
+        match serde_json::from_str(line) {
+            Ok(event) => events.push(event),
+            Err(_) if n == last => break, // Being appended to right now.
+            Err(err) => tracing::warn!(
+                line = %n + 1,
+                %err,
+                "a trace line could not be parsed; a gate may now time out without cause"
+            ),
         }
     }
     Ok(events)
@@ -624,11 +640,9 @@ fn read_trace(run: &RunDir) -> anyhow::Result<Vec<TraceEvent>> {
 ///
 /// Restarts are folded together: a shard that crashed and came back is one shard, and
 /// the commits of both its processes count towards its total.
-fn commits_per_split_shard(run: &RunDir) -> anyhow::Result<BTreeMap<(u32, u32), u64>> {
-    let events = read_trace(run)?;
-
+fn commits_per_split_shard(events: &[TraceEvent]) -> BTreeMap<(u32, u32), u64> {
     let mut range_of: BTreeMap<u32, (u32, u32)> = BTreeMap::new();
-    for event in &events {
+    for event in events {
         if let Event::Opened {
             key_begin, key_end, ..
         } = event.event
@@ -638,7 +652,7 @@ fn commits_per_split_shard(run: &RunDir) -> anyhow::Result<BTreeMap<(u32, u32), 
     }
 
     let mut commits: BTreeMap<(u32, u32), u64> = BTreeMap::new();
-    for event in &events {
+    for event in events {
         let Event::Phase {
             trigger: Trigger::StartedCommit,
             ..
@@ -655,7 +669,7 @@ fn commits_per_split_shard(run: &RunDir) -> anyhow::Result<BTreeMap<(u32, u32), 
         }
         *commits.entry(range).or_default() += 1;
     }
-    Ok(commits)
+    commits
 }
 
 /// Wait until every shard a split produced has committed `each` transactions of its
@@ -666,24 +680,21 @@ async fn await_commits_each_shard(
     each: u64,
     timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
+    poll_trace(run, timeout, std::time::Duration::from_secs(2), |trace| {
+        let commits = commits_per_split_shard(trace);
 
-    loop {
-        let commits = commits_per_split_shard(run)?;
-        let ready = commits.len() >= shards && commits.values().all(|&n| n >= each);
-
-        if ready {
-            tracing::info!(?commits, "every split shard has committed for itself");
-            return Ok(());
+        match commits.len() >= shards && commits.values().all(|&n| n >= each) {
+            true => {
+                tracing::info!(?commits, "every split shard has committed for itself");
+                Ok(())
+            }
+            false => Err(format!(
+                "timed out waiting for {shards} shards to commit {each} transactions each; \
+                 saw {commits:?}"
+            )),
         }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {shards} shards to commit {each} transactions each; \
-             saw {commits:?}{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
+    })
+    .await
 }
 
 fn count_commits(events: &[TraceEvent]) -> u64 {
