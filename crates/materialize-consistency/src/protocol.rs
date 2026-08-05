@@ -34,6 +34,21 @@ pub const ENV_TRACE_REDUCE: &str = "FLOW_CONSISTENCY_TRACE_REDUCE";
 /// land in which transaction varies between runs (transaction boundaries are
 /// shaped by the runtime's duration policy and a rate-paced capture, not by
 /// document count), so a rule keyed on document identity would be a flake.
+///
+/// **A crash means different things on the two sides of the stream, and a scenario has to be read
+/// with that in mind.** The shim fires a fault before forwarding the message that triggered it, so:
+///
+/// - on a *request* trigger (`Open`, `Load`, `Flush`, `Store`, `StartCommit`, `Acknowledge`) the
+///   connector is killed **before it receives** that request. "Crash at `StartCommit`" therefore
+///   means *instead of* the commit, not during it — the connector never renders its statements and
+///   never publishes its state patch.
+/// - on a *response* trigger (`StartedCommit`, `Acknowledged`) the connector has already done the
+///   work and produced the response, and the crash stops the *runtime* from recording it. That is
+///   the window `destination-ahead-of-checkpoint` and `crash-between-commits` depend on.
+///
+/// The asymmetry is right — the two windows are genuinely different and both are wanted — but it
+/// once left a scenario named for a state it did not reach. If a fault is keyed on a request and
+/// the scenario's claim is about work the connector *did*, the claim is wrong.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum Trigger {

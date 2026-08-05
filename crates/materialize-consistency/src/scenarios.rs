@@ -305,6 +305,7 @@ pub fn all() -> Vec<Scenario> {
         crash_at_flush(),
         split_during_store(),
         split_during_commit(),
+        split_after_commit_before_apply(),
         split_lands_on_prepared_transaction(),
         join_after_split(),
         zombie_at_start_commit(),
@@ -402,33 +403,78 @@ fn split_during_store() -> Scenario {
     .splitting(5)
 }
 
-/// A transaction dies mid-commit, the task is scaled out while it is down, and the
-/// staged work is finished by a *different* set of shards than staged it.
+/// A transaction dies *before* committing, the task is scaled out while it is down, and the
+/// replay is finished by a larger set of shards than staged it.
 ///
-/// The connector crashes inside `StartCommit`, so a transaction is staged with its fate
-/// undecided. Only then is the task split, and only then does it restart — with more
-/// shards than existed when the work was staged. So this scenario is not a race: it is
-/// the deterministic question of whether an `Acknowledge` is idempotent enough to be
-/// finished by shards that did not begin it.
+/// Read the fault carefully, because the name misleads. The shim fires a fault *before*
+/// forwarding the request that triggered it, so a `Crash` on a request trigger kills the
+/// connector before it receives that request — see [`Trigger`]. So "crash at `StartCommit` #4"
+/// means the connector never sees `StartCommit` #4: rows of transaction 4 are staged (in whole
+/// batches of 64; the remainder was in memory and died with the process), no statements were
+/// rendered, and no state patch was published. Nothing in any checkpoint names those rows.
 ///
-/// Post-commit-apply needs no fence for this. Its authority is the recovery log, and the
-/// crashed session is gone rather than competing — what it needs is for applying staged
-/// work to be repeatable, in any order, by whoever inherits it.
+/// What that verifies is still worth having, and it is not what the old wording claimed. It is
+/// the abandoned-staging hazard: staging whose transaction never committed must never be applied,
+/// and the destination cannot distinguish it from staging awaiting application. An earlier version
+/// of this connector decided by inspecting the destination and applied abandoned work — landing on
+/// exactly this recovery. The replayed transaction must then be delivered exactly once by shards
+/// that did not stage it.
 ///
-/// What makes it pass is the rule every real connector of this class follows: stage load
-/// keys as `Load` requests arrive, and read the destination only once `Flush` has come.
-/// `Flush` is the runtime's signal that the previous transaction was acknowledged by
-/// *every* shard — the guarantee a coordinating connector needs and cannot obtain any other
-/// way, because one shard applies staged work on behalf of its peers, so a peer reading
-/// earlier would reduce onto a base that shard has not finished writing.
+/// For committed-but-unapplied work crossing a membership change, see
+/// [`split_after_commit_before_apply`]. That is a different state and needs its own scenario;
+/// this one cannot reach it, because the transaction it interrupts never commits.
+///
+/// Post-commit-apply needs no fence for either. Its authority is the recovery log, and the
+/// crashed session is gone rather than competing — what it needs is for applying staged work to
+/// be repeatable, in any order, by whoever inherits it.
+///
+/// What makes it pass is the rule every real connector of this class follows: stage load keys as
+/// `Load` requests arrive, and read the destination only once `Flush` has come. `Flush` is the
+/// runtime's signal that the previous transaction was acknowledged by *every* shard — the
+/// guarantee a coordinating connector needs and cannot obtain any other way, because one shard
+/// applies staged work on behalf of its peers, so a peer reading earlier would reduce onto a base
+/// that shard has not finished writing.
 fn split_during_commit() -> Scenario {
     Scenario::new(
         "split-during-commit",
-        "staged work committed by one shard is applied exactly once by the larger set \
-         of shards that replaces it",
+        "staging whose transaction never committed is never applied, and the replay is \
+         delivered exactly once by the larger set of shards that replaces it",
         Class::PostCommitApply,
     )
     .fault(FaultRule::crash_at(Trigger::StartCommit, 4))
+    .catches(Defect::IgnoreKeyRange)
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .splitting_after_fault(5)
+}
+
+/// Work the log has committed but nobody has applied, crossing a membership change.
+///
+/// The state `split-during-commit` cannot reach, and until this existed no scenario did — which
+/// left the predecessor-inheritance machinery untested: `peers` recovery at `Open`,
+/// `merge_peer_patches`, and `apply_pending` over a range that no longer exists.
+///
+/// The fault is keyed on the `Acknowledge` *request*, and the timing is worth spelling out. The
+/// runtime's cycle is `Acknowledge → Flush → Store → StartCommit → Persist`, so an `Acknowledge`
+/// opens each transaction and confirms the one before it. Since the shim fires before forwarding,
+/// crashing at `Acknowledge` #4 leaves transaction *3* in exactly the state wanted: its statements
+/// were rendered at `StartCommit`, its state patch went into the recovery log at `Persist`, and
+/// the apply that `Acknowledge` #4 would have performed never happened. The connector's in-memory
+/// record of it died with the process, so recovery has only the checkpoint — which is the point.
+///
+/// Then the split. The pending entry is filed under the *departed parent's* range key, so each
+/// child sees it as a peer's rather than its own, and only the primary may run it. Exactly once is
+/// the claim, and `ignore-key-range` breaks it in the way that matters here: with every shard
+/// claiming the whole keyspace, both children compute themselves primary, both find the entry
+/// under their own range key, and both apply it.
+fn split_after_commit_before_apply() -> Scenario {
+    Scenario::new(
+        "split-after-commit-before-apply",
+        "staged work the log has committed is applied exactly once by the larger set of \
+         shards that replaces the one which staged it",
+        Class::PostCommitApply,
+    )
+    .fault(FaultRule::crash_at(Trigger::Acknowledge, 4))
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)

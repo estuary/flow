@@ -304,6 +304,7 @@ scenario_tests! {
     "crash-at-flush" => crash_at_flush,
     "split-during-store" => split_during_store,
     "split-during-commit" => split_during_commit,
+    "split-after-commit-before-apply" => split_after_commit_before_apply,
     "split-lands-on-prepared-transaction" => split_lands_on_prepared_transaction,
     "join-after-split" => join_after_split,
     "zombie-at-start-commit" => zombie_at_start_commit,
