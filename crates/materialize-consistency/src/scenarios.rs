@@ -954,6 +954,33 @@ mod test {
     // construction and a test of it could not fail. It used to be a stored field, and the test
     // read as a real guard while asserting that one line of `new` did what it says.
 
+    /// A zombie rule must fire at `Open`, and this is where that is enforced.
+    ///
+    /// `Action::Zombie` documents it, and documentation is not enough: the freeze was keyed at a
+    /// `Store` for a long time, which reads as letting the zombie work first and is in fact
+    /// freezing whatever is left of it. A fenced instance does not survive being run — its first
+    /// commit is refused and the process exits — so the freeze suspended a corpse, the thaw
+    /// resumed nothing, and the clean half of the scenario raced no one while still passing.
+    ///
+    /// The shim logs that case to its trace, which is read only when a gate times out, so on a
+    /// vacuous pass nobody sees it. This fails at compile-and-test time instead.
+    #[test]
+    fn a_zombie_is_frozen_at_open() {
+        for scenario in all() {
+            for rule in &scenario.faults {
+                if matches!(rule.action, Action::Zombie { .. }) {
+                    assert_eq!(
+                        (rule.on, rule.nth),
+                        (Trigger::Open, 1),
+                        "{}: a zombie must be frozen at the session's Open, where it has taken \
+                         its fence and cannot yet have been refused a commit",
+                        scenario.name,
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn scenario_names_are_unique() {
         let mut names: Vec<_> = all().iter().map(|s| s.name).collect();

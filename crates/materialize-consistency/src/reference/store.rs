@@ -195,8 +195,8 @@ impl Store {
         // range key was last used by the *pre-split parent*, whose row is still here
         // with a checkpoint from before the split. Adopting it hands the runtime a
         // close-clock from a superseded history, which recovery rejects outright —
-        // `connector_checkpoint has clock ... which doesn't match Recover's
-        // committed_close or hinted_close` — and the shard then crash-loops rather
+        // `connector_checkpoint has clock ... which doesn't match committed_close (...) or
+        // hinted_close (...)` — and the shard then crash-loops rather
         // than resuming. Falling back to the recovery log is the correct resume point,
         // because two ranges collapsing into one leaves no single range that contained
         // the result.
@@ -922,8 +922,8 @@ mod test {
     /// A join's survivor must adopt no checkpoint, even though a row for its exact range
     /// exists — that row belongs to the pre-split parent and its close-clock comes from a
     /// history the split superseded. The runtime rejects such a checkpoint outright
-    /// (`connector_checkpoint has clock ... which doesn't match Recover's committed_close
-    /// or hinted_close`) and the shard then crash-loops rather than resuming.
+    /// (`connector_checkpoint has clock ... which doesn't match committed_close (...) or
+    /// hinted_close (...)`) and the shard then crash-loops rather than resuming.
     #[test]
     fn a_join_survivor_adopts_no_checkpoint() {
         let dir = tempfile::tempdir().unwrap();

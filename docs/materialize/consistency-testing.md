@@ -493,10 +493,24 @@ covered, so they are listed rather than left to be rediscovered:
   never interrupted. The fired-marker that makes a fault one-shot is what stands in the way; a
   rule would need to distinguish "the nth occurrence in this process" from "in this run".
 
-**Loss that cancels itself in the reduced views.** The merged bindings detect loss
-arithmetically — a reduced balance against the oracle that names it, and a delta history that
-must accumulate to the same figure — so losing two documents of one account whose deltas cancel
-is invisible there. The log binding holds a row per document and settles it exactly, which is why
+**Mid-history loss on the merged path, which the arithmetic cannot name as loss.** The merged
+bindings detect divergence arithmetically — a reduced balance against the oracle that names it, and
+a delta history that must accumulate to the same figure — and arithmetic over a signed quantity
+cannot say which way it went. It is tempting to read a total below the collection's as loss and one
+above it as duplication, which would take merged-path loss out from behind the exemptions that
+license duplication, and it does not hold: `balanceDelta` is mixed-sign within an account, so
+omitting a subset moves the total by whichever sign that subset carries. One measured account
+showed both directions at once — rows missing, total *below* the collection's at the account level
+and *above* the oracle at an intermediate sequence.
+
+Two consequences. A shortfall confined to a merged binding is reported, but as an oracle
+disagreement, so a scenario exempting that invariant for duplication also absorbs it. And losing
+two documents of one account whose deltas cancel
+is invisible there at all.
+
+What *is* sound on these bindings is sequence coverage, because a sequence only advances: both
+merged checkers hold an account's delivered rows to reaching the collection's latest sequence, and
+file a shortfall as loss. That catches a missing tail and not a missing middle. The log binding holds a row per document and settles it exactly, which is why
 every scenario has one and why a subject without delta-updates support is refused outright. What
 remains uncovered is a connector that loses on the *merged* path only, with a cancelling
 coincidence. Two fixes were considered and both cost more than the hole: a summed `docs: 1` on

@@ -50,8 +50,16 @@ pub struct Exemption {
 /// evidence about the subject, and counting one silently vacates the pairing the scenario exists
 /// to provide.
 ///
-/// So the line is drawn at the fault. A failure before it is setup failing, which is the
-/// environment's until shown otherwise.
+/// So the line is drawn at the perturbation, and for four scenarios that is *not* the fault: a
+/// membership change is a perturbation in its own right, and `split-during-store` and
+/// `join-after-split` inject no fault at all. Their marker sits at the split — before it, a
+/// failure is setup; after it, a failure may be the defect, since `ignore-key-range` leaves
+/// children fencing each other off and that is what stops a task committing.
+///
+/// Hence the asymmetry in what is annotated: the calls that *issue* a split or a join carry the
+/// marker, because a perturbation that never happened is setup failing, while the gates waiting on
+/// its consequences do not. A failure before the perturbation is the environment's until shown
+/// otherwise; a failure after it is the subject's until shown otherwise.
 #[derive(Debug)]
 pub struct BeforeFault;
 
@@ -377,9 +385,11 @@ async fn execute(
 
     if scenario.split_shards {
         tracing::info!(task = %names.sink, "splitting shards");
+        // Marked, unlike the gates below it: this is the split being *issued*, and a failure here
+        // means the perturbation never happened at all.
         stack.split_shards(&names.sink).await.context(BeforeFault)?;
         // Both children must come up before the run can continue; a split that
-        // wedges is itself a finding.
+        // wedges is itself a finding — which is why this carries no marker. See [`BeforeFault`].
         recover(
             stack,
             plan,
@@ -397,9 +407,14 @@ async fn execute(
         // has not yet written a checkpoint of its own, that log still holds the
         // parent's — whose clock predates the log's close, which recovery refuses. That
         // is what wedged this scenario in a 33-restart loop.
-        await_commits_each_shard(&trace, 2, 2, deadline)
-            .await
-            .context(BeforeFault)?;
+        //
+        // Unmarked, and that is the correction rather than an oversight: this gate runs *after*
+        // the split, and the only scenario that joins injects no fault, so the split is its
+        // perturbation. It pairs `ignore-key-range`, whose signature is children fencing each
+        // other off — exactly the state that stops them committing for themselves. Marked, the
+        // defective half would report a caught defect as "the run failed before its fault fired",
+        // i.e. as the environment's doing. See [`BeforeFault`].
+        await_commits_each_shard(&trace, 2, 2, deadline).await?;
 
         tracing::info!(task = %names.sink, "joining shards");
         stack.join_shards(&names.sink).await?;
@@ -655,11 +670,6 @@ fn partition_exempt(
         Invariant::DocumentIntegrity,
     );
 
-    // An exemption that has absorbed more than it claimed stops absorbing anything: the whole
-    // invariant reverts to being held, so the run fails with every one of those violations in its
-    // report rather than with a count. Dropping only the excess would be arbitrary — the
-    // violations are a set and nothing distinguishes the ones "within budget" — and would hide the
-    // shape of what happened behind whichever ones survived the cut.
     // Ceilings are per *invariant*, not per exemption, because a run can carry more than one
     // exemption for the same invariant — a scenario's own, plus the blanket monotonicity exemption
     // a remotely-read destination gets — and the broadest claim has to govern. So an unbounded

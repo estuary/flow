@@ -581,12 +581,66 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
         }
     }
 
+    // The highest sequence each account's rows reached, which is a *sound* loss signal where the
+    // sums below are not: a sequence only advances, so a delta binding whose rows stop short of
+    // the collection is missing the tail, whoever else agrees.
+    //
+    // Not redundant with the drain gate, which waits for every account to reach its highest
+    // expected sequence: the gate reads the standard binding when the subject has one, so a delta
+    // binding can be short behind a complete standard one and the run proceeds. It is redundant
+    // for a subject with no standard binding, where the gate reads this binding — a check being
+    // unreachable for some subjects is not a reason to leave it out for the others.
+    //
+    // It leans on one property of the reduction, worth knowing before reading a failure here.
+    // `seq` is last-write-wins, so a row carries the sequence of the *last* document reduced into
+    // it rather than the highest — and this suite has observed delivery order not advancing
+    // monotonically across a membership change without explaining why. If the very last document
+    // of an account were reduced other than last, no row would carry its sequence and this would
+    // report loss that had not happened. Taking the maximum across all of an account's rows rather
+    // than its final row's makes that need the last *transaction* to be the reordered one, which
+    // is why it is measured rather than assumed: the three scenarios that suppress the most
+    // monotonicity violations were run against this check and none of them fired it.
+    let mut highest: BTreeMap<i64, i64> = BTreeMap::new();
+    for row in delivery {
+        let seen = highest.entry(row.id).or_insert(row.seq);
+        *seen = (*seen).max(row.seq);
+    }
+
     for (id, account) in &expected.accounts {
+        if let Some(seq) = highest.get(id) {
+            if *seq < account.max_seq {
+                out.push(Violation {
+                    invariant: Invariant::NoLoss,
+                    detail: format!(
+                        "account {id}: the delta binding's rows stop at seq {seq}, behind the \
+                         collection's latest {}",
+                        account.max_seq
+                    ),
+                });
+            }
+        }
+
         match running.get(id) {
             None => out.push(Violation {
                 invariant: Invariant::NoLoss,
                 detail: format!("account {id} is absent from the delta binding"),
             }),
+            // Filed as an oracle disagreement in *either* direction, and deliberately not
+            // sign-split the way the sequence checks are.
+            //
+            // The temptation is to read a total below the collection's as loss and one above it as
+            // duplication, which would take loss out from behind the exemptions that license
+            // duplication. It does not hold: `balanceDelta` is signed and mixed-sign within an
+            // account — every document is one leg of a transfer, negative on the sender and
+            // positive on the receiver, and an account is both across its history — so omitting a
+            // subset moves the total by whichever sign that subset happens to carry. One measured
+            // account makes the point twice over: a run missing rows summed to -703 against a
+            // collection's -671, *below* it, while the running-sum check on the same account
+            // reported -319 against an oracle's -358, *above* it. Same shortfall, both directions.
+            //
+            // So mid-history loss on this binding is genuinely ambiguous here and is exemptable
+            // along with duplication. What settles it is the log binding, which holds a row per
+            // document; see the design doc's Deferred section.
             Some(total) if *total != account.total_delta => out.push(Violation {
                 invariant: Invariant::OracleAgreement,
                 detail: format!(
