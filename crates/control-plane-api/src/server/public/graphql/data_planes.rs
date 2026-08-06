@@ -1626,5 +1626,4 @@ mod tests {
             (vec!["a", "b", "c", "d"], false, false)
         );
     }
-
 }
