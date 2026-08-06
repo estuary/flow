@@ -271,14 +271,14 @@ pub struct CheckpointPipeline {
     /// `unresolved.unresolved_hints` is the count of producers awaiting resolution.
     unresolved: crate::Frontier,
     /// Mark-and-sweep counter for detecting stalled causal hint resolution.
-    /// Incremented on each tick where `unresolved.unresolved_hints > 0` and no
-    /// progress has been made in `unresolved` since the prior tick. Reset to
-    /// zero on any progress in `unresolved` (any producer's `last_commit`
-    /// advancing) — the same underlying signal that drives
-    /// `unresolved_peek_progress`. When the accumulated stall
-    /// (`unresolved_stalled_ticks * ACTOR_TICKER_INTERVAL`) reaches
-    /// [`crate::CAUSAL_HINT_RESOLUTION_TIMEOUT`], hint resolution has stalled and
-    /// we return an error to tear down the session.
+    /// Incremented on each tick where a checkpoint is requested,
+    /// `unresolved.unresolved_hints > 0`, and no progress has been made in
+    /// `unresolved` since the prior tick. Reset to zero on any progress in
+    /// `unresolved` (any producer's `last_commit` advancing) — the same
+    /// underlying signal that drives `unresolved_peek_progress`. When the
+    /// accumulated stall (`unresolved_stalled_ticks * ACTOR_TICKER_INTERVAL`)
+    /// reaches [`crate::CAUSAL_HINT_RESOLUTION_TIMEOUT`], hint resolution has
+    /// stalled and we return an error to tear down the session.
     unresolved_stalled_ticks: u32,
     /// Set true whenever `unresolved` advances via `resolve_hints`,
     /// or `progressed` is promoted into `unresolved`. `take_ready()` clears.
@@ -605,15 +605,16 @@ impl CheckpointPipeline {
 
     /// Called on each actor tick to detect stalled causal hint resolution.
     ///
-    /// Uses mark-and-sweep: each tick with unresolved hints increments a stall
-    /// counter. Any progress in `unresolved` between ticks (handled in
+    /// Uses mark-and-sweep: each tick with a requested checkpoint and
+    /// unresolved hints increments a stall counter. Any progress in
+    /// `unresolved` between ticks (handled in
     /// `on_progressed_chunk`/`try_promote`) resets it. Once the accumulated
     /// stall (counter × `ACTOR_TICKER_INTERVAL`) reaches
     /// [`crate::CAUSAL_HINT_RESOLUTION_TIMEOUT`] — i.e. no progress at all across
     /// that span — return an error with details about which producers and
     /// journals are stuck.
     pub fn on_tick(&mut self) -> anyhow::Result<()> {
-        if self.unresolved.unresolved_hints == 0 {
+        if !self.requested || self.unresolved.unresolved_hints == 0 {
             self.unresolved_stalled_ticks = 0;
             return Ok(());
         }
@@ -1296,6 +1297,9 @@ mod test {
         assert_eq!(pipeline.unresolved.unresolved_hints, 2);
         assert_eq!(pipeline.unresolved_stalled_ticks, 0);
 
+        // A client blocks on the next checkpoint: only now do ticks count.
+        pipeline.request().unwrap();
+
         // Ticks accumulate the stall counter without erroring until the horizon.
         for expect in 1..ticks_to_timeout {
             pipeline.on_tick().unwrap();
@@ -1314,6 +1318,7 @@ mod test {
             vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
             vec![],
         );
+        pipeline.request().unwrap();
         pipeline.on_tick().unwrap();
         assert_eq!(pipeline.unresolved_stalled_ticks, 1);
 
@@ -1343,7 +1348,9 @@ mod test {
             vec![jf("journal/A", 0, vec![pf(0x01, 10, 50, -100)])],
             vec![],
         );
+        pipeline.request().unwrap();
         pipeline.on_tick().unwrap();
+        assert_eq!(pipeline.unresolved_stalled_ticks, 1);
         ingest_progressed(
             &mut pipeline,
             vec![jf("journal/A", 0, vec![pf(0x01, 60, 0, -500)])],
@@ -1353,6 +1360,26 @@ mod test {
         assert_eq!(pipeline.unresolved_stalled_ticks, 0);
         pipeline.on_tick().unwrap();
         assert_eq!(pipeline.unresolved_stalled_ticks, 0);
+    }
+
+    #[test]
+    fn test_on_tick_not_counted_without_an_outstanding_request() {
+        let mut pipeline = test_pipeline();
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+
+        // Well past the horizon, with no request outstanding, nothing accrues.
+        let ticks_to_timeout = (crate::CAUSAL_HINT_RESOLUTION_TIMEOUT.as_secs()
+            / crate::ACTOR_TICKER_INTERVAL.as_secs()) as u32;
+
+        for _ in 0..ticks_to_timeout + 5 {
+            pipeline.on_tick().unwrap();
+            assert_eq!(pipeline.unresolved_stalled_ticks, 0);
+        }
     }
 
     #[test]
