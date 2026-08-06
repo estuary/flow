@@ -46,7 +46,9 @@ fn connector_validation_is_skipped_when_shards_are_disabled() {
 #[test]
 fn sync_schedule_configured_in_both_places_is_rejected() {
     // A model-level sync schedule alongside a connector-config `syncSchedule`
-    // is an error: the two would fight over commit cadence.
+    // is an error: the two would fight over commit cadence. A zero
+    // `syncFrequency` with fast-sync fields set is still a configured
+    // connector schedule.
     let fixture = r##"
 test://example/catalog.yaml:
   materializations:
@@ -56,6 +58,44 @@ test://example/catalog.yaml:
           image: an/image
           config:
             syncSchedule: { syncFrequency: 30m }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true, flags: { enable-runtime-v2: "true" } }
+      bindings: []
+    testing/zero-with-fast-sync:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule:
+              syncFrequency: 0s
+              timezone: America/New_York
+              fastSyncStartTime: "09:00"
+              fastSyncStopTime: "17:00"
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true, flags: { enable-runtime-v2: "true" } }
+      bindings: []
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+"##;
+    let outcome = common::run(fixture, "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn sync_schedule_requires_the_v2_runtime() {
+    // A model-level sync schedule is enforced only by the V2 runtime.
+    // Reject it on a task which doesn't enable the `enable-runtime-v2` flag,
+    // where it would be silently inert.
+    let fixture = r##"
+test://example/catalog.yaml:
+  materializations:
+    testing/materialization:
+      endpoint:
+        connector:
+          image: an/image
+          config: {}
       syncSchedule: { baseInterval: 15m }
       shards: { disable: true }
       bindings: []
@@ -69,11 +109,13 @@ driver:
 }
 
 #[test]
-fn sync_schedule_conflict_ignores_a_cleared_connector_schedule() {
+fn sync_schedule_conflict_ignores_an_unconfigured_connector_schedule() {
     // A UI that removes a connector-side sync schedule may leave behind an
     // empty `syncSchedule: {}`, or one whose values are cleared to empty or
     // null. The connector treats those identically to an absent key, so they
-    // must not conflict with a model-level schedule.
+    // must not conflict with a model-level schedule. Nor does an explicit
+    // zero `syncFrequency`, which turns off the connector's ack delay
+    // entirely.
     let fixture = r##"
 test://example/catalog.yaml:
   materializations:
@@ -84,7 +126,7 @@ test://example/catalog.yaml:
           config:
             syncSchedule: {}
       syncSchedule: { baseInterval: 15m }
-      shards: { disable: true }
+      shards: { disable: true, flags: { enable-runtime-v2: "true" } }
       bindings: []
     testing/cleared-values:
       endpoint:
@@ -93,7 +135,34 @@ test://example/catalog.yaml:
           config:
             syncSchedule: { syncFrequency: "", timezone: null }
       syncSchedule: { baseInterval: 15m }
-      shards: { disable: true }
+      shards: { disable: true, flags: { enable-runtime-v2: "true" } }
+      bindings: []
+    testing/explicit-zero:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: { syncFrequency: 0s }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true, flags: { enable-runtime-v2: "true" } }
+      bindings: []
+    testing/multi-unit-zero:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: { syncFrequency: 0h0m0s }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true, flags: { enable-runtime-v2: "true" } }
+      bindings: []
+    testing/bare-zero:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: { syncFrequency: "0" }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true, flags: { enable-runtime-v2: "true" } }
       bindings: []
 
 driver:

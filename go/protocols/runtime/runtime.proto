@@ -1219,3 +1219,106 @@ message Derive {
   // each leg.
   Stopped stopped = 61;
 }
+
+// SyncNowRequest is the request of a TaskControl.SyncNow RPC.
+message SyncNowRequest {
+  // Name of the task to synchronize.
+  string task_name = 1;
+}
+
+// SyncNowResponse is the streamed response of a TaskControl.SyncNow RPC.
+message SyncNowResponse {
+  // Outcome conveys what SyncNow did upon arrival at the task's leader,
+  // and implies what the remainder of the stream awaits.
+  enum Outcome {
+    INVALID = 0;
+    // A sync-schedule hold was in effect and has been collapsed;
+    // awaiting the open transaction's full acknowledgement.
+    HELD_COLLAPSED = 1;
+    // No hold was in effect, but an open transaction was told to close;
+    // awaiting its full acknowledgement.
+    CLOSE_REQUESTED = 2;
+    // The transaction was already closing, or had committed and was
+    // draining connector acknowledgement; awaiting its completion.
+    ALREADY_CLOSING = 3;
+    // There is no open transaction and the prior transaction is fully
+    // acknowledged: the task is current and there is nothing to await.
+    // Done follows immediately.
+    IDLE = 4;
+    // The task is not a materialization. Derivations and captures don't
+    // hold open transactions and there is nothing to await.
+    // Done follows immediately.
+    NOT_APPLICABLE = 5;
+  }
+
+  // Status is a point-in-time snapshot of the awaited transaction.
+  // For IDLE and NOT_APPLICABLE outcomes all fields are zero-valued.
+  // Statistics are also zero-valued when the awaited transaction was
+  // recovered from a prior leader session, as happens when a leader
+  // restarts with a committed but un-acknowledged transaction: the
+  // transaction's extents predate this session and are unknown to it.
+  message Status {
+    // Number of source documents processed by the transaction so far.
+    uint64 sourced_docs_total = 1;
+    // Number of source document bytes processed by the transaction so far.
+    uint64 sourced_bytes_total = 2;
+    // Milliseconds elapsed since the transaction opened.
+    uint64 open_age_millis = 3;
+    // Coarse phases of the leader's transaction pipeline, as FSM phase
+    // names: `head_phase` is the open-transaction lifecycle (for example
+    // "Extend" or "StartCommit") and `tail_phase` is the post-commit
+    // acknowledgement lifecycle (for example "Acknowledge" or "Done").
+    string head_phase = 4;
+    string tail_phase = 5;
+  }
+
+  // Ack is sent exactly once, as the first message of the stream.
+  message Ack {
+    Outcome outcome = 1;
+    Status status = 2;
+  }
+
+  // Done is sent exactly once, as the final message of the stream,
+  // and carries committed statistics of the awaited transaction.
+  // For IDLE and NOT_APPLICABLE outcomes all fields are zero-valued,
+  // as they are for a transaction recovered from a prior leader
+  // session (see Status).
+  message Done {
+    // Number of source documents committed by the transaction.
+    uint64 committed_docs_total = 1;
+    // Number of source document bytes committed by the transaction.
+    uint64 committed_bytes_total = 2;
+    // Final age of the transaction: total milliseconds from its open
+    // through full acknowledgement. This is NOT the duration of the
+    // sync-now await, which is typically far shorter.
+    uint64 open_age_millis = 3;
+  }
+
+  oneof response {
+    Ack ack = 1;
+    // Progress heartbeats are sent every ~15 seconds while the caller
+    // awaits acknowledgement of the transaction.
+    Status progress = 2;
+    Done done = 3;
+  }
+}
+
+// TaskControl is a user-facing control surface for running tasks.
+// It's distinct from the Leader service because it has a different
+// authorization model: callers present ordinary gazette READ claims
+// scoped to the task's shards, not the LEAD capability held by shards.
+service TaskControl {
+  // SyncNow asks a materialization to immediately commit its open
+  // transaction, and resolves once that transaction is fully acknowledged:
+  // committed and queryable in the endpoint. It's served by the
+  // runtime-next sidecar hosting the task's leader session, and relayed
+  // by the reactor front door (see go/runtime).
+  //
+  // The stream is exactly one Ack, then zero or more Progress heartbeats
+  // while the caller waits, then exactly one Done, after which the stream
+  // closes. SyncNow is idempotent: concurrent calls await the same commit,
+  // and a caller which hangs up early has still forced the commit.
+  // There is no error for "nothing to do" — an idle task Acks IDLE and
+  // Done follows immediately.
+  rpc SyncNow(SyncNowRequest) returns (stream SyncNowResponse);
+}

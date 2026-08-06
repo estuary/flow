@@ -1407,6 +1407,138 @@ pub mod derive {
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct StartedCommit {}
 }
+/// SyncNowRequest is the request of a TaskControl.SyncNow RPC.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncNowRequest {
+    /// Name of the task to synchronize.
+    #[prost(string, tag = "1")]
+    pub task_name: ::prost::alloc::string::String,
+}
+/// SyncNowResponse is the streamed response of a TaskControl.SyncNow RPC.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncNowResponse {
+    #[prost(oneof = "sync_now_response::Response", tags = "1, 2, 3")]
+    pub response: ::core::option::Option<sync_now_response::Response>,
+}
+/// Nested message and enum types in `SyncNowResponse`.
+pub mod sync_now_response {
+    /// Status is a point-in-time snapshot of the awaited transaction.
+    /// For IDLE and NOT_APPLICABLE outcomes all fields are zero-valued.
+    /// Statistics are also zero-valued when the awaited transaction was
+    /// recovered from a prior leader session, as happens when a leader
+    /// restarts with a committed but un-acknowledged transaction: the
+    /// transaction's extents predate this session and are unknown to it.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Status {
+        /// Number of source documents processed by the transaction so far.
+        #[prost(uint64, tag = "1")]
+        pub sourced_docs_total: u64,
+        /// Number of source document bytes processed by the transaction so far.
+        #[prost(uint64, tag = "2")]
+        pub sourced_bytes_total: u64,
+        /// Milliseconds elapsed since the transaction opened.
+        #[prost(uint64, tag = "3")]
+        pub open_age_millis: u64,
+        /// Coarse phases of the leader's transaction pipeline, as FSM phase
+        /// names: `head_phase` is the open-transaction lifecycle (for example
+        /// "Extend" or "StartCommit") and `tail_phase` is the post-commit
+        /// acknowledgement lifecycle (for example "Acknowledge" or "Done").
+        #[prost(string, tag = "4")]
+        pub head_phase: ::prost::alloc::string::String,
+        #[prost(string, tag = "5")]
+        pub tail_phase: ::prost::alloc::string::String,
+    }
+    /// Ack is sent exactly once, as the first message of the stream.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Ack {
+        #[prost(enumeration = "Outcome", tag = "1")]
+        pub outcome: i32,
+        #[prost(message, optional, tag = "2")]
+        pub status: ::core::option::Option<Status>,
+    }
+    /// Done is sent exactly once, as the final message of the stream,
+    /// and carries committed statistics of the awaited transaction.
+    /// For IDLE and NOT_APPLICABLE outcomes all fields are zero-valued,
+    /// as they are for a transaction recovered from a prior leader
+    /// session (see Status).
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Done {
+        /// Number of source documents committed by the transaction.
+        #[prost(uint64, tag = "1")]
+        pub committed_docs_total: u64,
+        /// Number of source document bytes committed by the transaction.
+        #[prost(uint64, tag = "2")]
+        pub committed_bytes_total: u64,
+        /// Final age of the transaction: total milliseconds from its open
+        /// through full acknowledgement. This is NOT the duration of the
+        /// sync-now await, which is typically far shorter.
+        #[prost(uint64, tag = "3")]
+        pub open_age_millis: u64,
+    }
+    /// Outcome conveys what SyncNow did upon arrival at the task's leader,
+    /// and implies what the remainder of the stream awaits.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Outcome {
+        Invalid = 0,
+        /// A sync-schedule hold was in effect and has been collapsed;
+        /// awaiting the open transaction's full acknowledgement.
+        HeldCollapsed = 1,
+        /// No hold was in effect, but an open transaction was told to close;
+        /// awaiting its full acknowledgement.
+        CloseRequested = 2,
+        /// The transaction was already closing, or had committed and was
+        /// draining connector acknowledgement; awaiting its completion.
+        AlreadyClosing = 3,
+        /// There is no open transaction and the prior transaction is fully
+        /// acknowledged: the task is current and there is nothing to await.
+        /// Done follows immediately.
+        Idle = 4,
+        /// The task is not a materialization. Derivations and captures don't
+        /// hold open transactions and there is nothing to await.
+        /// Done follows immediately.
+        NotApplicable = 5,
+    }
+    impl Outcome {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Invalid => "INVALID",
+                Self::HeldCollapsed => "HELD_COLLAPSED",
+                Self::CloseRequested => "CLOSE_REQUESTED",
+                Self::AlreadyClosing => "ALREADY_CLOSING",
+                Self::Idle => "IDLE",
+                Self::NotApplicable => "NOT_APPLICABLE",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "INVALID" => Some(Self::Invalid),
+                "HELD_COLLAPSED" => Some(Self::HeldCollapsed),
+                "CLOSE_REQUESTED" => Some(Self::CloseRequested),
+                "ALREADY_CLOSING" => Some(Self::AlreadyClosing),
+                "IDLE" => Some(Self::Idle),
+                "NOT_APPLICABLE" => Some(Self::NotApplicable),
+                _ => None,
+            }
+        }
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Ack(Ack),
+        /// Progress heartbeats are sent every ~15 seconds while the caller
+        /// awaits acknowledgement of the transaction.
+        #[prost(message, tag = "2")]
+        Progress(Status),
+        #[prost(message, tag = "3")]
+        Done(Done),
+    }
+}
 /// Plane describes the type of data plane in which the runtime is operating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

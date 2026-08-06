@@ -399,6 +399,10 @@ pub enum Error {
         "materialization {materialization} configures a sync schedule both in its connector config (syncSchedule) and as a materialization sync schedule; remove one"
     )]
     SyncScheduleConflict { materialization: String },
+    #[error(
+        "materialization {materialization} specifies a sync schedule, which is enforced only by the V2 runtime; add `enable-runtime-v2: \"true\"` to the task's `shards.flags`, or remove syncSchedule"
+    )]
+    SyncScheduleRequiresRuntimeV2 { materialization: String },
 
     #[error("raising an error because {this_entity} specifies `onIncompatibleSchemaChange: abort`")]
     AbortOnIncompatibleSchemaChange {
