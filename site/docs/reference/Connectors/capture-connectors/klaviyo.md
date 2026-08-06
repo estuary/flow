@@ -5,7 +5,7 @@ This connector captures data from Klaviyo into Estuary collections.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
-:::warning
+:::deprecated
 This connector is deprecated. For the best experience, we recommend using our native [Klaviyo connector](./klaviyo-native.md) instead.
 :::
 

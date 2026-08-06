@@ -3,7 +3,7 @@
 
 This connector previously captured data from a view in Google Universal Analytics.
 
-:::danger
+:::deprecated
 
 This connector and Universal Analytics are now **deprecated** along with the Google Analytics Universal Analytics API - ([see Google announcement](https://support.google.com/analytics/answer/11583528?hl=en)).
 
