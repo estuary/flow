@@ -3,7 +3,7 @@
 
 This connector captures data from Airtable into Estuary collections.
 
-:::warning
+:::danger
 This connector is deprecated. For the best experience, we recommend using our native [Airtable connector](./airtable-native.md) instead.
 :::
 

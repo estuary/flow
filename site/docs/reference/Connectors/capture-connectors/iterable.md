@@ -3,7 +3,7 @@
 
 This connector captures data from Iterable into Estuary collections.
 
-:::warning
+:::danger
 This connector is deprecated. For the best experience, we recommend using our native [Iterable connector](./iterable-native.md) instead.
 :::
 
