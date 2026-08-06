@@ -350,7 +350,7 @@ impl Publisher {
         let mut draft = raw_draft.clone_specs();
         let snapshot = *snapshot;
         initialize
-            .initialize(&self.db, *user_id, &mut draft, snapshot, *started_at)
+            .initialize(&self.db, *user_id, &mut draft, snapshot)
             .await
             .context("initializing draft")?;
         // It's important that we generate the pub id inside the retry loop so that we can

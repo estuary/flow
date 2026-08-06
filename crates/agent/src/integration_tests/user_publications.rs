@@ -728,7 +728,6 @@ impl publications::Initialize for RevokeMidPublication<'_> {
         _user_id: uuid::Uuid,
         _draft: &mut tables::DraftCatalog,
         _snapshot: &control_plane_api::Snapshot,
-        _started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<()> {
         sqlx::query(
             "delete from role_grants where subject_role = 'dogs/' and object_role = 'cats/'",

@@ -196,26 +196,18 @@ pub async fn evolve(
         .map(|r| r.current_name.as_str())
         .collect::<Vec<_>>();
     let exclude_names = draft.all_spec_names().collect::<Vec<_>>();
-    let expanded_live = match crate::live_specs::get_connected_live_specs(
+    // Unlike the named fetch above, connected-spec expansion filters with a
+    // `None` freshness anchor: a denial is a final omission, never a
+    // retryable stale error.
+    let expanded_live = crate::live_specs::get_connected_live_specs(
         user_id,
         &collection_names,
         &exclude_names,
         capability_filter,
         db,
         snapshot,
-        // `evolve` is not handed the queued `evolutions` row, so it has no
-        // durable instant to anchor staleness on and falls back to per-spec.
-        None,
     )
-    .await
-    {
-        Ok(live) => live,
-        Err(err) if validation::is_authz_snapshot_stale(&err) => {
-            snapshot.revoke.cancel();
-            return Err(err);
-        }
-        Err(err) => return Err(err),
-    };
+    .await?;
     draft.add_live(expanded_live);
 
     let mut actions = Vec::new();
