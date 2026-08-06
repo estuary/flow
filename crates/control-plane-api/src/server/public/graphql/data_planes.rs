@@ -1996,5 +1996,4 @@ mod tests {
         // empty `before` cursor should exclude all results
         assert_eq!(page(None, Some(""), None, Some(2)), (vec![], false, true));
     }
-
 }
