@@ -37,6 +37,16 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
     // Future for an in-flight stats flush, if any, yielding ACK intents.
     stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
+    // Clock of the last sync-now Progress heartbeat broadcast.
+    sync_now_heartbeat_at: uuid::Clock,
+    // Parked sync-now waiters, resolved as `tail_done_count` reaches their targets.
+    sync_now_waiters: Vec<SyncNowWaiter>,
+    // Monotonic count of Tail arrivals at Done within this session:
+    // the anchor against which sync-now waiter targets are expressed.
+    tail_done_count: u64,
+    // Stats snapshot of the transaction Tail is currently draining,
+    // captured from its commit Rotate.
+    tail_txn: fsm::TxnStats,
     // Task being executed by this actor.
     task: Task,
     // Leader-lifetime trigger debounce accumulator and last-fire times.
@@ -44,6 +54,17 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     // Future for an in-flight trigger dispatch, if any.
     trigger_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
 }
+
+/// A parked `TaskControl.SyncNow` caller, resolved when the actor's count of
+/// Tail::Done transitions reaches its target.
+struct SyncNowWaiter {
+    target: u64,
+    reply_tx: mpsc::UnboundedSender<tonic::Result<proto::SyncNowResponse>>,
+}
+
+/// Cadence of Progress heartbeats to parked sync-now waiters. Coarse: beats
+/// keep hour-long streams alive through LB idle timeouts and feed UI progress.
+const SYNC_NOW_HEARTBEAT: Duration = Duration::from_secs(15);
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
@@ -69,6 +90,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             pending_ack_intents: BTreeMap::new(),
             shard_tx,
             stats_write_fut: None,
+            sync_now_heartbeat_at: uuid::Clock::zero(),
+            sync_now_waiters: Vec::new(),
+            tail_done_count: 0,
+            tail_txn: fsm::TxnStats::default(),
             task,
             trigger_debounce: fsm::TriggerDebounce::default(),
             trigger_fut: None,
@@ -78,10 +103,46 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
     pub async fn serve<S: crate::leader::ShuffleSession>(
         &mut self,
+        head: fsm::Head,
+        tail: fsm::Tail,
+        session: S,
+        shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
+        mut sync_now_rx: mpsc::UnboundedReceiver<super::SyncNow>,
+    ) -> anyhow::Result<()> {
+        let result = self
+            .serve_inner(head, tail, session, shard_rx, &mut sync_now_rx)
+            .await;
+
+        // Parked waiters (and undelivered requests) cannot resolve once this
+        // session ends: the Tail::Done they await happens — if ever — in a
+        // future session. Error them out; sync-now is idempotent and callers
+        // re-invoke to await the next session.
+        //
+        // Close first, so that a request racing this drain fails to send and
+        // is answered Unavailable by the service, rather than landing in a
+        // channel nobody will read again.
+        sync_now_rx.close();
+
+        let status = tonic::Status::unavailable(
+            "leader session ended before the awaited transaction was fully acknowledged; retry",
+        );
+        while let Ok(request) = sync_now_rx.try_recv() {
+            let _ = request.reply_tx.send(Err(status.clone()));
+        }
+        for waiter in self.sync_now_waiters.drain(..) {
+            let _ = waiter.reply_tx.send(Err(status.clone()));
+        }
+
+        result
+    }
+
+    async fn serve_inner<S: crate::leader::ShuffleSession>(
+        &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
         mut session: S,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
+        sync_now_rx: &mut mpsc::UnboundedReceiver<super::SyncNow>,
     ) -> anyhow::Result<()> {
         service_kit::event!(
             tracing::Level::INFO,
@@ -152,6 +213,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
             let mut action: fsm::Action;
             let prev_kind = tail.kind();
+            let prev_resolves = !matches!(tail, fsm::Tail::Done(_) | fsm::Tail::Begin(_));
             (action, tail) = tail.step(
                 &self.trigger_debounce,
                 self.intents_write_fut.is_none(),
@@ -170,6 +232,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     next = tail.kind(),
                     "transition",
                 );
+            }
+            // Tail arriving at Done is the "committed and queryable" instant
+            // that sync-now waiters await. The Begin→Done stopping shortcut is
+            // excluded: it defers connector acknowledgement to a future
+            // session rather than completing it, so its waiters must not
+            // resolve (they instead error when this session exits).
+            if prev_resolves && matches!(tail, fsm::Tail::Done(_)) {
+                self.tail_done_count += 1;
+                self.resolve_sync_now_waiters(now);
             }
             self.merge_backfill_clocks(&mut action);
             let tail_wake_after = self.dispatch(action)?;
@@ -202,8 +273,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 );
             }
             let head_wake_after = match action {
-                fsm::Action::Rotate { pending } => {
+                fsm::Action::Rotate { pending, stats } => {
                     assert!(matches!(tail, fsm::Tail::Done(_)));
+                    self.tail_txn = stats;
                     self.metrics.transactions.increment(1);
                     transactions_completed += 1;
 
@@ -229,6 +301,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
             };
             let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
+            let wake_after = self.sync_now_heartbeat(&head, &tail, now, wake_after);
 
             // If `head` and `tail` are awaiting IO and `ready_shard_rx` was not
             // consumed by either, then it was unexpected and is a protocol error.
@@ -302,6 +375,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         ready_shard_rx = Some((shard_index, msg));
                     }
                     shard_rx.push(next_shard_rx((shard_index, rx)));
+                }
+                // Receive a sync-now request for this task.
+                Some(request) = sync_now_rx.recv() => {
+                    // Resync before snapshotting: `now` predates the park,
+                    // which for a held transaction can be hours long.
+                    now.update(now_clock());
+                    self.on_sync_now(request, &head, &tail, &mut close_requested, now);
                 }
                 // Receive a requested NextCheckpoint frontier.
                 result = session.recv_checkpoint(), if checkpoint_requested => {
@@ -665,6 +745,133 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         Ok(Some(msg))
     }
 
+    /// Receive a sync-now request: acknowledge its outcome, arm
+    /// `close_requested` when the decision calls for it, and either resolve
+    /// immediately (IDLE) or park a waiter on its target count of Tail::Done
+    /// transitions. Concurrent requests over the same state share a target
+    /// and resolve together.
+    fn on_sync_now(
+        &mut self,
+        request: super::SyncNow,
+        head: &fsm::Head,
+        tail: &fsm::Tail,
+        close_requested: &mut bool,
+        now: uuid::Clock,
+    ) {
+        let decision = super::sync_now::evaluate(fsm::sync_now_inputs(head, tail, &self.task, now));
+
+        service_kit::event!(
+            tracing::Level::INFO,
+            "leader",
+            outcome = decision.outcome.as_str_name(),
+            set_close_requested = decision.set_close_requested,
+            await_dones = decision.await_dones,
+            "received sync-now request",
+        );
+
+        if decision.set_close_requested {
+            *close_requested = true;
+        }
+
+        // IDLE resolves immediately, with zero-valued Status and Done:
+        // there is no awaited transaction to snapshot.
+        if decision.await_dones == 0 {
+            let _ = request.reply_tx.send(Ok(super::sync_now::ack_response(
+                decision.outcome,
+                Default::default(),
+            )));
+            let _ = request
+                .reply_tx
+                .send(Ok(super::sync_now::done_response(Default::default())));
+            return;
+        }
+
+        let _ = request.reply_tx.send(Ok(super::sync_now::ack_response(
+            decision.outcome,
+            self.sync_now_status(head, tail, now),
+        )));
+
+        if self.sync_now_waiters.is_empty() {
+            self.sync_now_heartbeat_at = now;
+        }
+        self.sync_now_waiters.push(SyncNowWaiter {
+            target: self.tail_done_count + decision.await_dones,
+            reply_tx: request.reply_tx,
+        });
+    }
+
+    /// Point-in-time Status snapshot for sync-now streams: the in-flight Head
+    /// transaction when one is open, else the transaction Tail still drains.
+    fn sync_now_status(
+        &self,
+        head: &fsm::Head,
+        tail: &fsm::Tail,
+        now: uuid::Clock,
+    ) -> proto::sync_now_response::Status {
+        let txn = head
+            .open_txn()
+            .or_else(|| (!matches!(tail, fsm::Tail::Done(_))).then_some(self.tail_txn))
+            .unwrap_or_default();
+
+        proto::sync_now_response::Status {
+            sourced_docs_total: txn.sourced_docs,
+            sourced_bytes_total: txn.sourced_bytes,
+            open_age_millis: age_millis(txn.open, now),
+            head_phase: head.kind().to_string(),
+            tail_phase: tail.kind().to_string(),
+        }
+    }
+
+    /// Resolve waiters whose target Tail::Done count has been reached,
+    /// sending each the drained transaction's committed statistics.
+    fn resolve_sync_now_waiters(&mut self, now: uuid::Clock) {
+        let done = proto::sync_now_response::Done {
+            committed_docs_total: self.tail_txn.sourced_docs,
+            committed_bytes_total: self.tail_txn.sourced_bytes,
+            open_age_millis: age_millis(self.tail_txn.open, now),
+        };
+        let count = self.tail_done_count;
+        self.sync_now_waiters.retain(|waiter| {
+            if waiter.target > count {
+                return true;
+            }
+            let _ = waiter
+                .reply_tx
+                .send(Ok(super::sync_now::done_response(done)));
+            false
+        });
+    }
+
+    /// While sync-now waiters are parked, emit a periodic Progress heartbeat
+    /// to each and bound the actor's sleep so the next beat isn't overslept.
+    /// A waiter that hung up is dropped silently: its request already landed.
+    fn sync_now_heartbeat(
+        &mut self,
+        head: &fsm::Head,
+        tail: &fsm::Tail,
+        now: uuid::Clock,
+        wake_after: Duration,
+    ) -> Duration {
+        if self.sync_now_waiters.is_empty() {
+            return wake_after;
+        }
+        let elapsed = uuid::Clock::delta(now, self.sync_now_heartbeat_at);
+        if elapsed < SYNC_NOW_HEARTBEAT {
+            return wake_after.min(SYNC_NOW_HEARTBEAT - elapsed);
+        }
+
+        let status = self.sync_now_status(head, tail, now);
+        self.sync_now_waiters.retain(|waiter| {
+            waiter
+                .reply_tx
+                .send(Ok(super::sync_now::progress_response(status.clone())))
+                .is_ok()
+        });
+        self.sync_now_heartbeat_at = now;
+
+        wake_after.min(SYNC_NOW_HEARTBEAT)
+    }
+
     /// Synchronously fan out a single leader message to every shard.
     fn broadcast(&self, msg: proto::Materialize) {
         let (head, tail) = self.shard_tx.split_first().unwrap();
@@ -679,6 +886,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 fn now_clock() -> uuid::Clock {
     let now = tokens::now();
     uuid::Clock::from_unix(now.timestamp() as u64, now.timestamp_subsec_nanos())
+}
+
+/// Milliseconds elapsed since `open`, or zero when `open` is unknown
+/// (a recovered transaction whose open predates this session).
+fn age_millis(open: uuid::Clock, now: uuid::Clock) -> u64 {
+    if open == uuid::Clock::zero() {
+        return 0;
+    }
+    uuid::Clock::delta(now, open).as_millis() as u64
 }
 
 async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> Option<T> {

@@ -130,6 +130,15 @@ where
     handler.set_phase("starting");
     let metrics = super::Metrics::new(&slots[0].join.shards[0].id);
 
+    // Accept TaskControl.SyncNow requests for the life of this session;
+    // the guard un-registers on any exit from this scope.
+    let (sync_now_tx, sync_now_rx) = mpsc::unbounded_channel();
+    let _sync_now_guard = service.register_sync_now_handle(
+        &task_name,
+        slots[0].join.shards[0].id.clone(),
+        sync_now_tx,
+    );
+
     service_kit::event!(
         tracing::Level::INFO,
         "leader",
@@ -252,7 +261,9 @@ where
             task,
         );
         handler.set_phase("running");
-        actor.serve(head, tail, session, shard_rx).await
+        actor
+            .serve(head, tail, session, shard_rx, sync_now_rx)
+            .await
     }
     .await;
 

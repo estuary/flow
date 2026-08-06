@@ -186,8 +186,14 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
     }
     builder
         .add_service(tonic::service::interceptor::InterceptedService::new(
-            runtime_svc.into_tonic_service(),
+            runtime_svc.clone().into_tonic_service(),
             authn.clone().interceptor(proto_flow::capability::LEAD),
+        ))
+        // TaskControl callers hold ordinary gazette READ claims over the
+        // task's shards (the /authorize/user/task token), not LEAD.
+        .add_service(tonic::service::interceptor::InterceptedService::new(
+            runtime_svc.into_task_control_service(),
+            authn.clone().interceptor(proto_gazette::capability::READ),
         ))
         .add_service(tonic::service::interceptor::InterceptedService::new(
             shuffle_svc.into_tonic_service(),

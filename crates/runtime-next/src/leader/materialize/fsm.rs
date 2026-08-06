@@ -42,6 +42,39 @@ pub struct Extents {
     bindings: HashMap<u32, BindingExtents>,
 }
 
+impl Extents {
+    /// Snapshot this transaction's aggregate sourced measures for
+    /// sync-now reporting.
+    fn stats(&self) -> TxnStats {
+        let (sourced_docs, sourced_bytes) = self
+            .bindings
+            .values()
+            .map(|e| (e.sourced.docs_total, e.sourced.bytes_total))
+            .fold((0, 0), |(a1, a2), (b1, b2)| (a1 + b1, a2 + b2));
+
+        TxnStats {
+            sourced_docs,
+            sourced_bytes,
+            open: self.open,
+        }
+    }
+}
+
+/// TxnStats is a POD snapshot of one transaction's extents, taken for
+/// sync-now reporting: it survives past `Extents` (which is consumed at
+/// commit) so the Actor can report committed statistics when the
+/// transaction's Tail work later completes.
+#[derive(Debug, Copy, Clone, Default)]
+pub struct TxnStats {
+    /// Documents read from source journals.
+    pub sourced_docs: u64,
+    /// Bytes read from source journals.
+    pub sourced_bytes: u64,
+    /// Clock at which the transaction opened, or zero if unknown
+    /// (a recovered transaction whose extents predate this session).
+    pub open: uuid::Clock,
+}
+
 #[derive(Debug, Default)]
 pub struct BindingExtents {
     max_key_delta: bytes::Bytes,
@@ -146,7 +179,12 @@ pub enum Action {
         trigger_params: bytes::Bytes,
     },
     /// Rotate Tail from Done to Begin with the committed transaction's deltas.
-    Rotate { pending: PendingDeltas },
+    Rotate {
+        pending: PendingDeltas,
+        // Stats snapshot of the committed transaction, held by the Actor to
+        // report when its Tail::Done later resolves sync-now waiters.
+        stats: TxnStats,
+    },
     /// Fail the actor with a terminal error.
     Error { error: anyhow::Error },
 }
@@ -220,6 +258,26 @@ impl Head {
             Self::WriteStats(_) => "WriteStats",
             Self::StartCommit(_) => "StartCommit",
             Self::Stop => "Stop",
+        }
+    }
+
+    /// Stats snapshot of the in-flight transaction, or None when no
+    /// transaction is open. A committed transaction still awaiting its commit
+    /// Persist counts as in-flight: its post-commit Tail work hasn't begun,
+    /// and its snapshot rides the deferred `Action::Rotate`.
+    pub fn open_txn(&self) -> Option<TxnStats> {
+        match self {
+            Self::Idle(s) => (s.extents.open != uuid::Clock::zero()).then(|| s.extents.stats()),
+            Self::Extend(s) => Some(s.inner.extents.stats()),
+            Self::Flush(s) => Some(s.extents.stats()),
+            Self::Store(s) => Some(s.extents.stats()),
+            Self::WriteStats(s) => Some(s.extents.stats()),
+            Self::StartCommit(s) => Some(s.extents.stats()),
+            Self::Persist(s) => match &s.next_action {
+                Action::Rotate { stats, .. } => Some(*stats),
+                _ => s.next_state.open_txn(),
+            },
+            Self::Stop => None,
         }
     }
 }
@@ -870,6 +928,7 @@ impl HeadStartCommit {
         }
         let (trigger_params_json, delete_trigger_params) = debounce.to_persist();
 
+        let stats = extents.stats();
         let Extents {
             close, frontier, ..
         } = extents;
@@ -919,7 +978,7 @@ impl HeadStartCommit {
             // is one-shot — only the first transaction of a session may replay
             // recovered hints, so post-Rotate HeadIdle is always non-replay.
             (
-                Action::Rotate { pending },
+                Action::Rotate { pending, stats },
                 Head::Idle(HeadIdle {
                     last_close: close,
                     ..Default::default()
@@ -1246,6 +1305,54 @@ fn compute_open_duration(
         .unwrap_or(Duration::ZERO);
     let hold = open_age.saturating_add(remaining);
     hold..hold
+}
+
+/// Gather the POD inputs of a sync-now decision from live FSM state.
+/// Lives here (rather than with `sync_now::evaluate`) because it reads
+/// private `Extents` and `HeadIdle` fields.
+pub(crate) fn sync_now_inputs(
+    head: &Head,
+    tail: &Tail,
+    task: &Task,
+    now: uuid::Clock,
+) -> super::sync_now::Inputs {
+    let (head_open, head_deciding, held) = match head {
+        Head::Idle(s) => {
+            let is_open = s.extents.open != uuid::Clock::zero();
+            (
+                is_open,
+                is_open,
+                is_open && schedule_held(task, s.session_start, s.extents.open, now),
+            )
+        }
+        Head::Extend(s) => (
+            true,
+            true,
+            schedule_held(task, s.inner.session_start, s.inner.extents.open, now),
+        ),
+        Head::Stop => (false, false, false),
+        // Flush / Persist / Store / WriteStats / StartCommit: the close
+        // decision is behind us and the transaction is already closing.
+        _ => (true, false, false),
+    };
+
+    super::sync_now::Inputs {
+        head_open,
+        head_deciding,
+        tail_done: matches!(tail, Tail::Done(_)),
+        held,
+    }
+}
+
+/// Whether a sync-schedule hold currently collapses the open-duration band
+/// onto a future commit instant, evaluated exactly as `HeadIdle`'s close
+/// policy evaluation does.
+fn schedule_held(task: &Task, session_start: bool, open: uuid::Clock, now: uuid::Clock) -> bool {
+    if task.sync_schedule.is_none() {
+        return false;
+    }
+    let open_age = uuid::Clock::delta(now, open);
+    compute_open_duration(task, true, session_start, open, now, open_age).start > open_age
 }
 
 /// Leader-lifetime debounce state for materialization triggers. Accumulates
@@ -2068,7 +2175,7 @@ mod tests {
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         let pending = match action {
-            Action::Rotate { pending } => pending,
+            Action::Rotate { pending, .. } => pending,
             other => panic!("expected Action::Rotate, got {other:?}"),
         };
         assert!(matches!(head, Head::Idle(_)));
@@ -2778,7 +2885,7 @@ mod tests {
                         // Tail::Begin so fuzz traces actually exercise Tail's
                         // Acknowledge / WriteIntents / Trigger paths after a
                         // Head commit, instead of leaving Tail wedged in Done.
-                        if let Action::Rotate { pending } = action {
+                        if let Action::Rotate { pending, .. } = action {
                             tail = Tail::Begin(TailBegin { pending });
                         }
                     }
