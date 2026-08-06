@@ -10,4 +10,18 @@ A current list and configuration details for Estuary's connectors can be found o
 * [Materialization connectors](./materialization-connectors/)
 * [Dekaf integrations](./dekaf)
 
-You can learn more about how connectors work and how to use them in their [conceptual documentation](../../concepts/connectors.md).
+Connector pages in these sections offer a quick reference for each connector to help you with setup.
+Keep the reference handy while you're creating your capture and materialization tasks.
+Reference guides often include details like:
+
+* Prerequisites for the connector, such as required resources and permissions
+* Connector properties: set these in the dashboard or add to a `flow.yaml` specification file
+* A sample YAML specification for the connector
+* Notable supported features
+* (SaaS captures) A list of supported data streams or API objects
+
+You can also find more general information on working with connectors in the platform docs:
+
+* [Learn how connectors work and how to use them](/concepts/connectors)
+* [Find general information about captures and their specs](/concepts/captures)
+* [Learn more about materializations and their specs](/concepts/materialization)
