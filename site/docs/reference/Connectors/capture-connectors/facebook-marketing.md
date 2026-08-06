@@ -3,7 +3,7 @@
 
 This connector captures data from the Facebook Marketing API into Estuary collections.
 
-:::danger
+:::deprecated
 This connector is deprecated. For the best experience, we recommend using our native [Facebook Ads connector](./facebook-marketing-native.md) instead.
 :::
 
