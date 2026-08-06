@@ -476,7 +476,9 @@ producer's `last_commit` advancing — since the last emission.
 
 The same "did `unresolved` make progress?" signal disarms the `on_tick`
 stall timeout: it fires only when no progress at all occurs between
-two consecutive ticks.
+two consecutive ticks, and only while a coordinator request is
+outstanding — with nobody waiting on a checkpoint, zero progress is
+routine.
 
 A peek also carries `latest_backfill_begin` eagerly (cloned from
 `unresolved`, which retains it for the eventual resolved `ready`), as
