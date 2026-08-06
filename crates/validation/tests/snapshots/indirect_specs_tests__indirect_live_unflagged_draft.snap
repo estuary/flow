@@ -1,0 +1,12 @@
+---
+source: crates/validation/tests/indirect_specs_tests.rs
+assertion_line: 135
+expression: summarize_all(&outcome)
+---
+capture acmeCo/capture:
+  ["one", "a"] => [-] acmeCo/one
+  ["one", "b"] => [-] acmeCo/one
+  ["two", "a"] => [-] acmeCo/two
+materialization acmeCo/materialization:
+  ["m", "one"] => [-] acmeCo/one
+  ["m", "two"] => [-] acmeCo/two

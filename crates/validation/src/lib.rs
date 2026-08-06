@@ -9,6 +9,7 @@ mod derivation;
 mod errors;
 pub mod field_selection;
 mod indexed;
+mod linked;
 mod materialization;
 mod noop;
 mod reference;
@@ -19,9 +20,28 @@ mod test_step;
 pub use errors::{Error, is_authz_snapshot_stale};
 pub use noop::NoOpConnectors;
 
+/// Combiner slots reserved for runtime-internal bindings (today: the capture
+/// connector-state pseudo-binding). Internal additions must not move the
+/// user-visible binding ceilings.
+pub const RESERVED_BINDINGS: usize = 100;
 /// Maximum number of bindings allowed in a capture, derivation, or materialization.
 /// We have a hard upper limit of 65,535 because doc::combine uses u16 indices.
 pub const MAX_BINDINGS: usize = 10_000;
+/// Maximum number of bindings allowed in a task which sets the `indirect-specs`
+/// shard flag: the doc::combine u16 format limit of 65,536 slots, less the
+/// internal reserve. Indirect form interns each collection of a spec once, so its
+/// size grows with the number of bindings and not with their product with the
+/// size of an inlined collection, which is what holds MAX_BINDINGS down.
+pub const MAX_BINDINGS_INDIRECT_SPECS: usize = 65_536 - RESERVED_BINDINGS;
+
+/// Binding ceiling of a task, which its `indirect-specs` shard flag raises.
+pub fn max_bindings(indirect_specs: bool) -> usize {
+    if indirect_specs {
+        MAX_BINDINGS_INDIRECT_SPECS
+    } else {
+        MAX_BINDINGS
+    }
+}
 
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always
@@ -712,6 +732,45 @@ fn validate_resource_paths<'a>(
     }
 }
 
+/// Look up an unprefixed shard feature flag by name, returning its value.
+/// `flags` is a task's `shards.flags`; the `estuary.dev/flag/` label prefix is
+/// applied only when shard labels are emitted, not in the model.
+fn flag_value<'a>(
+    flags: &'a std::collections::BTreeMap<models::Token, models::Token>,
+    name: &str,
+) -> Option<&'a str> {
+    flags
+        .iter()
+        .find_map(|(k, v)| (k.as_str() == name).then(|| v.as_str()))
+}
+
+/// Read the `indirect-specs` flag of a task, which asks that its built spec and
+/// Validate request indirect their collections. This crate is the sole
+/// reader of the flag, and the sole writer of indirect form.
+///
+/// The flag is an end-to-end assertion reaching all the way to the connector,
+/// so a value other than `"true"` -- most likely a typo, since disabling is
+/// spelled by omitting the flag -- is an error rather than a silent no-op.
+fn indirect_specs_flag(
+    scope: Scope,
+    flags: &std::collections::BTreeMap<models::Token, models::Token>,
+    errors: &mut tables::Errors,
+) -> bool {
+    match flag_value(flags, models::INDIRECT_SPECS) {
+        None => false,
+        Some("true") => true,
+        Some(value) => {
+            Error::InvalidShardFlagValue {
+                flag: models::INDIRECT_SPECS,
+                value: value.to_string(),
+                expect: "true",
+            }
+            .push(scope.push_prop("shards").push_prop("flags"), errors);
+            false
+        }
+    }
+}
+
 /// Determine if a collection was reset by inspecting for an equal collection
 /// name, but a non-equal journal partition template name. We attach a
 /// generation ID to the end of the journal partition template name, so these
@@ -719,9 +778,9 @@ fn validate_resource_paths<'a>(
 /// re-created (either literally, or through a reset).
 fn collection_was_reset(
     built_spec: &proto_flow::flow::CollectionSpec,
-    live_spec: &Option<proto_flow::flow::CollectionSpec>,
+    live_collection: Option<&proto_flow::flow::CollectionSpec>,
 ) -> bool {
-    if let Some(live_collection) = live_spec {
+    if let Some(live_collection) = live_collection {
         if let Some(live_partition_template) = &live_collection.partition_template {
             let built_spec_partition_template_name = built_spec
                 .partition_template

@@ -212,27 +212,29 @@ fn parse_open(
 
     let flow::CollectionSpec { derivation, .. } = collection.unwrap();
 
+    let derivation = derivation.as_ref().unwrap();
+
     let flow::collection_spec::Derivation {
         config_json,
-        transforms,
+        transforms: _,
         ..
-    } = derivation.as_ref().unwrap();
+    } = derivation;
 
     let config: Config = serde_json::from_slice(config_json)
         .with_context(|| format!("failed to parse SQLite configuration: {config_json:?}"))?;
 
-    let transforms: Vec<Transform> = transforms
-        .into_iter()
-        .map(|transform| {
+    let transforms: Vec<Transform> = derivation
+        .resolved_transforms()
+        .map(|(transform, resolved)| {
             let flow::collection_spec::derivation::Transform {
                 name,
-                collection: source,
+                collection: _,
                 lambda_config_json,
                 shuffle_lambda_config_json: _,
                 ..
             } = transform;
 
-            let source = source.as_ref().unwrap();
+            let (source, _identity) = resolved.context("transform missing source collection")?;
             let params = source
                 .projections
                 .iter()

@@ -1,4 +1,7 @@
-use super::{Connectors, Error, NoOpConnectors, Scope, collection, indexed, reference, schema};
+use super::{
+    Connectors, Error, NoOpConnectors, Scope, collection, flag_value, indexed, linked, reference,
+    schema,
+};
 use futures::SinkExt;
 use proto_flow::{
     derive, flow,
@@ -9,6 +12,18 @@ use std::collections::BTreeMap;
 use superslice::Ext;
 use tables::EitherOrBoth as EOB;
 use xxhash_rust::xxh3::Xxh3;
+
+/// Live transforms of a derivation, indexed on name and paired with their
+/// resolved source collections. The live derivation may be in either encoding,
+/// so its transforms are meaningless apart from the derivation which resolves
+/// them.
+type LiveTransforms<'a> = BTreeMap<
+    &'a str,
+    (
+        &'a flow::collection_spec::derivation::Transform,
+        Option<&'a flow::CollectionSpec>,
+    ),
+>;
 
 pub async fn walk_all_derivations<C: Connectors>(
     pub_id: models::Id,
@@ -108,18 +123,6 @@ fn builtin_derive_connector<C: serde::Serialize>(
         image: format!("{repository}:{tag}"),
         config: models::RawValue::from_string(serde_json::to_string(config).unwrap()).unwrap(),
     }
-}
-
-/// Look up an unprefixed shard feature flag by name, returning its value.
-/// `flags` is a derivation's `shards.flags`; the `estuary.dev/flag/` label
-/// prefix is applied only when shard labels are emitted, not in the model.
-fn flag_value<'a>(
-    flags: &'a BTreeMap<models::Token, models::Token>,
-    name: &str,
-) -> Option<&'a str> {
-    flags
-        .iter()
-        .find_map(|(k, v)| (k.as_str() == name).then(|| v.as_str()))
 }
 
 async fn walk_derivation<C: Connectors>(
@@ -251,11 +254,16 @@ async fn walk_derivation<C: Connectors>(
         shards,
     } = model;
 
-    if transforms_model.len() > crate::MAX_BINDINGS {
+    let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+
+    let max_bindings = crate::max_bindings(indirect_specs);
+
+    if transforms_model.len() > max_bindings {
         Error::TooManyBindings {
             entity: "derivation",
             name: collection.to_string(),
             count: transforms_model.len(),
+            limit: max_bindings,
         }
         .push(scope, errors);
         return None;
@@ -362,18 +370,25 @@ async fn walk_derivation<C: Connectors>(
         .map(|model| (&model.name, model))
         .collect();
 
-    // Index live transform specs, both active and inactive, on their name.
-    let mut live_transforms_spec: BTreeMap<&str, &flow::collection_spec::derivation::Transform> =
-        live_spec
-            .and_then(|collection| collection.derivation.as_ref())
-            .iter()
-            .flat_map(|spec| {
-                spec.inactive_transforms
-                    .iter()
-                    .chain(spec.transforms.iter())
-            })
-            .map(|transform| (transform.name.as_str(), transform))
-            .collect();
+    // Index live transform specs, both active and inactive, on their name,
+    // each paired with its resolved source collection.
+    let mut live_transforms_spec: LiveTransforms = live_spec
+        .and_then(|collection| collection.derivation.as_ref())
+        .iter()
+        .flat_map(|spec| {
+            spec.resolved_inactive_transforms()
+                .chain(spec.resolved_transforms())
+        })
+        .map(|(transform, resolved)| {
+            (
+                transform.name.as_str(),
+                (
+                    transform,
+                    resolved.map(|(collection, _identity)| collection),
+                ),
+            )
+        })
+        .collect();
 
     // Map enumerated transform models into paired validation requests.
     let transforms_model_len = transforms_model.len();
@@ -492,20 +507,25 @@ async fn walk_derivation<C: Connectors>(
         return None;
     }
 
-    // Filter to validation requests of active transforms.
+    // Filter to validation requests of active transforms, interning the source
+    // collection of each into the request's shared table.
+    let mut interner = linked::Interner::default();
     let transforms_validate: Vec<_> = transforms
         .iter()
-        .filter_map(|(_model, validate)| {
-            if let Some(validate) = validate {
-                Some(validate.validate.clone())
-            } else {
-                None
-            }
+        .filter_map(|(_model, validate)| validate.as_ref())
+        .map(|validate| {
+            let mut transform = validate.validate.clone();
+            let source = transform
+                .collection
+                .take()
+                .expect("active transform resolved its source collection");
+            transform.collection_index = interner.intern(source);
+            transform
         })
         .collect();
     let transforms_validate_len = transforms_validate.len();
 
-    let validate_request = derive::request::Validate {
+    let mut validate_request = derive::request::Validate {
         connector_type,
         config_json: config_json.clone(),
         collection: built_collection.spec.clone(),
@@ -519,7 +539,9 @@ async fn walk_derivation<C: Connectors>(
         } else {
             expect_build_id.to_string()
         },
+        linked_collections: Vec::new(),
     };
+    linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
     // Send Request.Validate and receive Response.Validated.
     _ = request_tx
@@ -591,6 +613,9 @@ async fn walk_derivation<C: Connectors>(
     let mut disable_wait_for_ack = false;
     let mut transforms_model = Vec::with_capacity(transforms_model_len);
     let mut transforms_spec = Vec::with_capacity(transforms_validate_len);
+    // Source collections of the built derivation, interned into its own table:
+    // the table of the Validate request covers active transforms only.
+    let mut interner = linked::Interner::default();
 
     // Map Validate / Validated pairs into DerivationSpec::Transforms.
     for (model, validate_validated) in transforms {
@@ -607,6 +632,7 @@ async fn walk_derivation<C: Connectors>(
                     shuffle_lambda_config_json,
                     lambda_config_json,
                     backfill,
+                    collection_index: _,
                 },
             inferred_shuffle_types: _,
             reads_from_self,
@@ -659,7 +685,7 @@ async fn walk_derivation<C: Connectors>(
 
         let spec = flow::collection_spec::derivation::Transform {
             name: transform_name,
-            collection: source_collection,
+            collection: None,
             partition_selector,
             priority: *priority,
             read_delay_seconds,
@@ -679,6 +705,9 @@ async fn walk_derivation<C: Connectors>(
             // and backfill (`runtime-next` `shard::derive::Task`), matching the value
             // computed here for `journal_read_suffix`.
             state_key: String::new(),
+            collection_index: interner.intern(
+                source_collection.expect("active transform resolved its source collection"),
+            ),
         };
 
         transforms_model.push(model);
@@ -709,9 +738,20 @@ async fn walk_derivation<C: Connectors>(
     for transform in &transforms_spec {
         live_transforms_spec.remove(transform.name.as_str());
     }
+    // Carry over inactive transforms, re-interning each resolved collection: an
+    // index into the *live* derivation's table is meaningless in the derivation
+    // we're building, so it's never copied across generations. A transform
+    // whose collection doesn't resolve is dropped, as the live derivation which
+    // gave it meaning is malformed.
     let inactive_transforms = live_transforms_spec
         .values()
-        .map(|v| (*v).clone())
+        .filter_map(|(transform, collection)| {
+            Some(flow::collection_spec::derivation::Transform {
+                collection: None,
+                collection_index: interner.intern_ref((*collection)?),
+                ..(*transform).clone()
+            })
+        })
         .collect();
 
     // Use manual salt if provided, otherwise the live salt, otherwise generate a new one.
@@ -743,7 +783,7 @@ async fn walk_derivation<C: Connectors>(
         disable_wait_for_ack,
         &network_ports,
     );
-    let spec = flow::collection_spec::Derivation {
+    let mut spec = flow::collection_spec::Derivation {
         connector_type,
         config_json,
         transforms: transforms_spec,
@@ -753,7 +793,10 @@ async fn walk_derivation<C: Connectors>(
         network_ports,
         inactive_transforms,
         redact_salt,
+        linked_collections: Vec::new(),
     };
+    linked::install_derivation(&mut spec, interner, indirect_specs);
+
     let model = models::Derivation {
         using,
         transforms: transforms_model,
@@ -791,7 +834,7 @@ fn walk_derive_transform<'a>(
     data_plane_id: models::Id,
     disable: bool,
     live_transforms_model: &BTreeMap<&models::Transform, &models::TransformDef>,
-    live_transforms_spec: &BTreeMap<&str, &flow::collection_spec::derivation::Transform>,
+    live_transforms_spec: &LiveTransforms,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (models::TransformDef, Option<ValidateContext>) {
@@ -851,10 +894,13 @@ fn walk_derive_transform<'a>(
     }
 
     // Was this transform's source collection reset under its current backfill count?
-    let live_spec = live_transforms_spec.get(model.name.as_str());
+    let live_entry = live_transforms_spec.get(model.name.as_str());
+    let live_spec = live_entry.map(|(transform, _collection)| *transform);
+    let live_collection = live_entry.and_then(|(_transform, collection)| *collection);
+
     let was_reset = live_spec.is_some_and(|live_spec| {
         live_spec.backfill == model.backfill
-            && super::collection_was_reset(&source_spec, &live_spec.collection)
+            && super::collection_was_reset(&source_spec, live_collection)
     });
 
     if was_reset {
@@ -922,6 +968,8 @@ fn walk_derive_transform<'a>(
     super::temporary_cross_data_plane_read_check(scope, source_built, data_plane_id, errors);
     let reads_from_self = source_name == catalog_name;
 
+    // The transform inlines its source while it's detached from a request:
+    // interning happens in `walk_derivation`, which holds the shared table.
     let validate = ValidateContext {
         validate: derive::request::validate::Transform {
             name: model.name.to_string(),
@@ -929,6 +977,7 @@ fn walk_derive_transform<'a>(
             lambda_config_json: model.lambda.to_string().into(),
             shuffle_lambda_config_json: shuffle_lambda_config_json.into(),
             backfill: model.backfill,
+            collection_index: 0,
         },
         inferred_shuffle_types: shuffle_types,
         reads_from_self,

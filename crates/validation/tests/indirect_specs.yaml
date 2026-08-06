@@ -1,0 +1,140 @@
+test://example/catalog.yaml:
+  collections:
+    acmeCo/one:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+          val: { type: integer }
+        required: [id, val]
+
+    acmeCo/two:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+
+    # Three transforms over two distinct source collections.
+    acmeCo/derived:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      derive:
+        using: { sqlite: {} }
+        shards:
+          flags: { indirect-specs: "true" }
+        transforms:
+          - name: fromOneA
+            source: acmeCo/one
+            shuffle: { key: [/id] }
+            lambda: select 1;
+          - name: fromOneB
+            source: acmeCo/one
+            shuffle: { key: [/id] }
+            lambda: select 2;
+          - name: fromTwo
+            source: acmeCo/two
+            shuffle: { key: [/id] }
+            lambda: select 3;
+
+  captures:
+    # Four bindings over two distinct target collections.
+    acmeCo/capture:
+      shards:
+        flags: { indirect-specs: "true" }
+      endpoint:
+        connector:
+          image: an/image
+          config: { a: config }
+      bindings:
+        - target: acmeCo/one
+          resource:
+            _meta: { path: [one, a] }
+            source: one-a
+        - target: acmeCo/two
+          resource:
+            _meta: { path: [two, a] }
+            source: two-a
+        - target: acmeCo/one
+          resource:
+            _meta: { path: [one, b] }
+            source: one-b
+        - target: acmeCo/one
+          resource:
+            _meta: { path: [one, c] }
+            source: one-c
+
+  materializations:
+    # Two bindings of `acmeCo/one` which differ only in `groupBy`, and so
+    # intern as distinct same-name entries of the table.
+    acmeCo/materialization:
+      shards:
+        flags: { indirect-specs: "true" }
+      endpoint:
+        connector:
+          image: other/image
+          config: { a: config }
+      bindings:
+        - source: acmeCo/one
+          resource:
+            _meta: { path: [m, one, by-id] }
+            target: one-by-id
+          fields: { recommended: true }
+        - source: acmeCo/one
+          resource:
+            _meta: { path: [m, one, by-val] }
+            target: one-by-val
+          fields:
+            recommended: true
+            groupBy: [val]
+        - source: acmeCo/one
+          resource:
+            _meta: { path: [m, one, also-by-id] }
+            target: one-also-by-id
+          fields: { recommended: true }
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+
+  captures:
+    acmeCo/capture:
+      connectorType: IMAGE
+      config:
+        image: an/image
+        config: { a: config }
+      bindings:
+        - resourcePath: [one, a]
+        - resourcePath: [two, a]
+        - resourcePath: [one, b]
+        - resourcePath: [one, c]
+
+  derivations:
+    acmeCo/derived:
+      connectorType: SQLITE
+      config: {}
+      shuffleKeyTypes: [STRING]
+      transforms: [{ readOnly: false }, { readOnly: false }, { readOnly: false }]
+
+  materializations:
+    acmeCo/materialization:
+      connectorType: IMAGE
+      config:
+        image: other/image
+        config: { a: config }
+      bindings:
+        - constraints: &constraints
+            id: { type: 2, reason: "location required" }
+            val: { type: 3, reason: "recommended" }
+            flow_document: { type: 2, reason: "location required" }
+          resourcePath: [m, one, by-id]
+        - constraints: *constraints
+          resourcePath: [m, one, by-val]
+        - constraints: *constraints
+          resourcePath: [m, one, also-by-id]

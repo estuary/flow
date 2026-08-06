@@ -86,22 +86,47 @@ pub mod request {
         /// Version of the last validated CaptureSpec.
         #[prost(string, tag = "6")]
         pub last_version: ::prost::alloc::string::String,
+        /// Table of collections referenced by `collection_index` of this request's
+        /// bindings, in place of an inlined `collection` (the "indirect" form).
+        ///
+        /// The form is a property of the request as a whole: if
+        /// `linked_collections` is non-empty then every binding leaves `collection`
+        /// unset and resolves through `collection_index`. If it's empty then every
+        /// binding inlines its `collection` and `collection_index` is unset.
+        /// Mixed forms are invalid. `last_capture` is self-contained and carries
+        /// whichever form it was built with, independent of this request.
+        ///
+        /// Entries have `derivation` cleared, as inlined collections always do.
+        /// Builders emit entries which are unique by value and ordered on name,
+        /// but that's a convention only and not an invariant of the message:
+        /// readers resolve `collection_index` and must not assume that entries
+        /// are unique on name.
+        #[prost(message, repeated, tag = "7")]
+        pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
         /// Bindings of endpoint resources and collections to which they would be
-        /// captured. Bindings are ordered and unique on the bound collection name.
+        /// captured. Bindings are ordered and unique on their resource path.
+        /// Multiple bindings may capture into a single collection.
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Binding {
             /// JSON-encoded object which specifies the endpoint resource to be captured.
             #[prost(bytes = "bytes", tag = "1")]
             pub resource_config_json: ::prost::bytes::Bytes,
             /// Collection to be captured.
+            /// Unset if the request uses `linked_collections`, in which case
+            /// `collection_index` identifies the bound collection instead.
             #[prost(message, optional, tag = "2")]
             pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
             /// Backfill counter for this binding.
             #[prost(uint32, tag = "3")]
             pub backfill: u32,
+            /// Index of this binding's collection within the request's
+            /// `linked_collections`. Used instead of `collection` when the request is
+            /// in indirect form, and unset otherwise.
+            #[prost(uint32, tag = "4")]
+            pub collection_index: u32,
         }
     }
     /// Apply an updated capture specification to its endpoint,

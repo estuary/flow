@@ -18,8 +18,10 @@ impl Task {
             explicit_acknowledgements,
         } = opened.clone().opened.context("expected Opened")?;
 
+        let spec = spec.as_ref().context("missing capture")?;
+
         let flow::CaptureSpec {
-            bindings,
+            bindings: _,
             config_json: _,
             connector_type: _,
             interval_seconds,
@@ -30,19 +32,38 @@ impl Task {
             inactive_bindings: _,
             redact_salt,
             created_at: _,
-        } = spec.as_ref().context("missing capture")?;
+            linked_collections: _,
+        } = spec;
         let range = range.context("missing range")?;
 
         if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
             anyhow::bail!("captures cannot split on r-clock: {range:?}");
         }
 
+        // `doc::combine` packs its binding index into a u16, and the
+        // connector-state pseudo-binding sits at index `bindings.len()`, so the
+        // length itself must also fit. This guards the *format* limit and
+        // deliberately shares no constant with `validation::MAX_BINDINGS`, which
+        // gates published tasks far below it: tripping this means an unvalidated
+        // spec reached the runtime.
+        if spec.bindings.len() > u16::MAX as usize {
+            anyhow::bail!(
+                "capture has {} bindings, which exceeds the combiner limit of {}",
+                spec.bindings.len(),
+                u16::MAX,
+            );
+        }
+
         let ser_policy = doc::SerPolicy::noop();
 
-        let bindings = bindings
-            .into_iter()
+        let bindings = spec
+            .resolved_bindings()
             .enumerate()
-            .map(|(index, spec)| Binding::new(spec, ser_policy.clone()).context(index))
+            .map(|(index, (binding, resolved))| {
+                let (collection, _identity) =
+                    resolved.context("missing collection").context(index)?;
+                Binding::new(binding, collection, ser_policy.clone()).context(index)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         let restart = std::time::Duration::from_secs(*interval_seconds as u64);
@@ -133,11 +154,13 @@ impl Task {
 impl Binding {
     pub fn new(
         spec: &flow::capture_spec::Binding,
+        collection: &flow::CollectionSpec,
         ser_policy: doc::SerPolicy,
     ) -> anyhow::Result<Self> {
         let flow::capture_spec::Binding {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             resource_config_json: _,
             resource_path: _,
             state_key,
@@ -154,7 +177,7 @@ impl Binding {
             read_schema_json: _,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing collection")?;
+        } = collection;
 
         let partition_template = partition_template
             .as_ref()

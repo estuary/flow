@@ -697,6 +697,7 @@ Outcome {
                         backfill: 1,
                         state_key: "anything.v1",
                         ser_policy: None,
+                        collection_index: 0,
                     },
                 ],
                 shard_template: Some(
@@ -824,6 +825,7 @@ Outcome {
                 triggers_json: b"",
                 created_at: "2025-05-07",
                 sync_schedule_json: b"",
+                linked_collections: [],
             },
             previous_spec: MaterializationSpec {
                 name: "testing/db-views",
@@ -870,6 +872,7 @@ Outcome {
                         backfill: 0,
                         state_key: "",
                         ser_policy: None,
+                        collection_index: 0,
                     },
                 ],
                 shard_template: Some(
@@ -905,6 +908,7 @@ Outcome {
                 triggers_json: b"",
                 created_at: "",
                 sync_schedule_json: b"",
+                linked_collections: [],
             },
             is_touch: 0,
             dependency_hash: f70cb9d1e746ef16,

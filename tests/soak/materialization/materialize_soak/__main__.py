@@ -126,11 +126,26 @@ def constraints_for(
     return out
 
 
+def binding_collection(
+    request: models.ValidateRequest, binding: models.ValidateBinding
+) -> models.CollectionSpec:
+    """Resolve a Validate binding's source collection in either spec form.
+
+    Inline form inlines a collection per binding; indirect form shares one
+    `linkedCollections` table that bindings name by index (see
+    models.ValidateRequest). The runtime picks the form from the task's
+    `indirect-specs` shard flag, and a connector must read both."""
+    if not request.linkedCollections:
+        assert binding.collection is not None, "inline binding has no collection"
+        return binding.collection
+    return request.linkedCollections[binding.collectionIndex]
+
+
 def handle_validate(request: models.ValidateRequest) -> models.Validated:
     return models.Validated(
         bindings=[
             models.ValidatedBinding(
-                projectionConstraints=constraints_for(b.collection),
+                projectionConstraints=constraints_for(binding_collection(request, b)),
                 resourcePath=[b.resourceConfig.table],
                 deltaUpdates=b.resourceConfig.delta,
             )

@@ -34,6 +34,8 @@ impl Task {
         let collection_generation_id =
             assemble::extract_generation_id_suffix(&partition_template.name);
 
+        let derivation = derivation.as_ref().context("missing derivation")?;
+
         let flow::collection_spec::Derivation {
             config_json: _,
             connector_type: _,
@@ -41,10 +43,11 @@ impl Task {
             recovery_log_template: _,
             shard_template: _,
             shuffle_key_types: _,
-            transforms,
+            transforms: _,
             inactive_transforms: _,
             redact_salt,
-        } = derivation.as_ref().context("missing derivation")?;
+            linked_collections: _,
+        } = derivation;
 
         if key.is_empty() {
             anyhow::bail!("collection key cannot be empty");
@@ -66,10 +69,13 @@ impl Task {
             build: version.clone(),
         };
 
-        let transforms = transforms
-            .into_iter()
+        let transforms = derivation
+            .resolved_transforms()
             .enumerate()
-            .map(|(index, spec)| Transform::new(spec).context(index))
+            .map(|(index, (transform, resolved))| {
+                let (source, _identity) = resolved.context("missing collection").context(index)?;
+                Transform::new(transform, source).context(index)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
@@ -114,10 +120,14 @@ impl Task {
 }
 
 impl Transform {
-    pub fn new(spec: &flow::collection_spec::derivation::Transform) -> anyhow::Result<Self> {
+    pub fn new(
+        spec: &flow::collection_spec::derivation::Transform,
+        collection: &flow::CollectionSpec,
+    ) -> anyhow::Result<Self> {
         let flow::collection_spec::derivation::Transform {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             journal_read_suffix: _,
             lambda_config_json: _,
             name,
@@ -143,7 +153,7 @@ impl Transform {
             read_schema_json,
             uuid_ptr: _,
             write_schema_json,
-        } = collection.as_ref().context("missing collection")?;
+        } = collection;
 
         let read_schema_json = if read_schema_json.is_empty() {
             write_schema_json

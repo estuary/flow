@@ -89,9 +89,8 @@ pub async fn do_materialize_fixture(
         let mut stores = Vec::new();
 
         for (fixture_collection, docs) in transaction {
-            for (binding_index, binding) in spec.bindings.iter().enumerate() {
+            for (binding_index, (binding, resolved)) in spec.resolved_bindings().enumerate() {
                 let flow::materialization_spec::Binding {
-                    collection,
                     field_selection,
                     delta_updates,
                     ..
@@ -101,7 +100,7 @@ pub async fn do_materialize_fixture(
                     name: this_collection,
                     projections,
                     ..
-                } = collection.as_ref().unwrap();
+                } = resolved.unwrap().0;
 
                 let flow::FieldSelection { keys, values, .. } = field_selection.as_ref().unwrap();
 

@@ -336,14 +336,18 @@ pub enum Error {
     SourceCollectionWasReset { collection: String },
     #[error("materialization {materialization} uses Dekaf endpoint which cannot be reset")]
     DekafMaterializationCannotReset { materialization: String },
-    #[error(
-        "{entity} {name} has {count} bindings, which exceeds the maximum of {} bindings",
-        crate::MAX_BINDINGS
-    )]
+    #[error("shard flag {flag} must be {expect:?} if set, but is {value:?}")]
+    InvalidShardFlagValue {
+        flag: &'static str,
+        value: String,
+        expect: &'static str,
+    },
+    #[error("{entity} {name} has {count} bindings, which exceeds the maximum of {limit} bindings")]
     TooManyBindings {
         entity: &'static str,
         name: String,
         count: usize,
+        limit: usize,
     },
 
     #[error(

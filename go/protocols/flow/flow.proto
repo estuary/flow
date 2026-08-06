@@ -270,11 +270,13 @@ message CollectionSpec {
     ];
     // Transforms of the derivation.
     message Transform {
-      // Next tag: 15.
+      // Next tag: 16.
 
       // Stable and unique name of this transform.
       string name = 1 [ (gogoproto.casttype) = "Transform" ];
       // Source collection which is read by this transform.
+      // Unset if the derivation uses `linked_collections`, in which case
+      // `collection_index` identifies the source collection instead.
       CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
       // Selector of collection partitions which this materialization reads.
       protocol.LabelSelector partition_selector = 3 [ (gogoproto.nullable) = false ];
@@ -314,6 +316,10 @@ message CollectionSpec {
       // final segment of `journal_read_suffix`. Parallels the `state_key` of
       // CaptureSpec and MaterializationSpec bindings.
       string state_key = 14;
+      // Index of this transform's source collection within the derivation's
+      // `linked_collections`. Used instead of `collection` when the derivation
+      // is in indirect form, and unset otherwise.
+      uint32 collection_index = 15;
     }
     repeated Transform transforms = 3 [ (gogoproto.nullable) = false ];
     // JSON types of shuffle key components extracted by the transforms of this derivation.
@@ -336,6 +342,23 @@ message CollectionSpec {
     repeated Transform inactive_transforms = 8;
     // Salt used for redacting sensitive fields in derived documents.
     bytes redact_salt = 9;
+    // Table of source collections referenced by `collection_index` of this
+    // derivation's transforms, in place of an inlined `collection`
+    // (the "indirect" form).
+    //
+    // The form is a property of the derivation as a whole: if
+    // `linked_collections` is non-empty then every transform -- active and
+    // inactive alike -- leaves `collection` unset and resolves through
+    // `collection_index`. If it's empty then every transform inlines its
+    // `collection` and `collection_index` is unset. Mixed forms are invalid.
+    //
+    // Entries have `derivation` cleared, as inlined collections always do.
+    // Builders emit entries which are unique by value and ordered on name,
+    // but that's a convention only and not an invariant of the message:
+    // readers resolve `collection_index` and must not assume that entries
+    // are unique on name.
+    repeated CollectionSpec linked_collections = 10
+        [ (gogoproto.nullable) = false ];
   }
   Derivation derivation = 12;
 }
@@ -378,7 +401,7 @@ message CaptureSpec {
   // Bindings between endpoint resources, uniquely identified by their
   // resource path, and the collections into which they're captured.
   message Binding {
-    // Next tag: 6.
+    // Next tag: 7.
 
     // JSON-encoded configuration of the bound resource.
     bytes resource_config_json = 1 [
@@ -389,12 +412,18 @@ message CaptureSpec {
     // subresource being captured.
     repeated string resource_path = 2;
     // Collection to be captured into.
+    // Unset if the capture uses `linked_collections`, in which case
+    // `collection_index` identifies the bound collection instead.
     CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
     // Backfill counter for this binding.
     // Every increment of this counter results in a new backfill.
     uint32 backfill = 4;
     // A suggested key to use for this binding within connector states.
     string state_key = 5;
+    // Index of this binding's collection within the capture's
+    // `linked_collections`. Used instead of `collection` when the capture is
+    // in indirect form, and unset otherwise.
+    uint32 collection_index = 6;
   }
   repeated Binding bindings = 4;
   // Minimum interval of time between successive invocations of the capture.
@@ -416,6 +445,22 @@ message CaptureSpec {
   // before its creation is committed: the task is brand new, and a
   // connector should assume a current date.
   string created_at = 11;
+  // Table of collections referenced by `collection_index` of this capture's
+  // bindings, in place of an inlined `collection` (the "indirect" form).
+  //
+  // The form is a property of the capture as a whole: if `linked_collections`
+  // is non-empty then every binding -- active and inactive alike -- leaves
+  // `collection` unset and resolves through `collection_index`. If it's empty
+  // then every binding inlines its `collection` and `collection_index` is
+  // unset. Mixed forms are invalid.
+  //
+  // Entries have `derivation` cleared, as inlined collections always do.
+  // Builders emit entries which are unique by value and ordered on name,
+  // but that's a convention only and not an invariant of the message:
+  // readers resolve `collection_index` and must not assume that entries
+  // are unique on name.
+  repeated CollectionSpec linked_collections = 12
+      [ (gogoproto.nullable) = false ];
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -439,7 +484,7 @@ message MaterializationSpec {
   // Bindings between endpoint resources, uniquely identified by their
   // resource path, and the collections from which they're materialized.
   message Binding {
-    // Next tag: 15.
+    // Next tag: 16.
 
     // JSON-encoded configuration of the bound resource.
     bytes resource_config_json = 1 [
@@ -450,6 +495,8 @@ message MaterializationSpec {
     // subresource being materialized.
     repeated string resource_path = 2;
     // Collection to be materialized.
+    // Unset if the materialization uses `linked_collections`, in which case
+    // `collection_index` identifies the bound collection instead.
     CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
     // Selector of collection partitions which this materialization reads.
     protocol.LabelSelector partition_selector = 7 [ (gogoproto.nullable) = false ];
@@ -480,6 +527,10 @@ message MaterializationSpec {
     string state_key = 13;
     // Serialization policy used for this binding.
     flow.SerPolicy ser_policy = 14;
+    // Index of this binding's collection within the materialization's
+    // `linked_collections`. Used instead of `collection` when the
+    // materialization is in indirect form, and unset otherwise.
+    uint32 collection_index = 15;
   }
   repeated Binding bindings = 4;
   // Template for shards of this materialization.
@@ -509,6 +560,27 @@ message MaterializationSpec {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "syncSchedule"
   ];
+
+  // Field 8 is retired and must not be re-used.
+
+  // Table of collections referenced by `collection_index` of this
+  // materialization's bindings, in place of an inlined `collection`
+  // (the "indirect" form).
+  //
+  // The form is a property of the materialization as a whole: if
+  // `linked_collections` is non-empty then every binding -- active and
+  // inactive alike -- leaves `collection` unset and resolves through
+  // `collection_index`. If it's empty then every binding inlines its
+  // `collection` and `collection_index` is unset. Mixed forms are invalid.
+  //
+  // Entries have `derivation` cleared, as inlined collections always do.
+  // Builders emit entries which are unique by value and ordered on name,
+  // but that's a convention only and not an invariant of the message.
+  // Duplicate names are legal and do arise here: bindings of one collection
+  // having differing `group_by` rewrite the binding's `key` and
+  // `projections[*].is_primary_key` to match, so same name != same spec.
+  repeated CollectionSpec linked_collections = 13
+      [ (gogoproto.nullable) = false ];
 }
 
 // OAuth2 describes an OAuth2 provider

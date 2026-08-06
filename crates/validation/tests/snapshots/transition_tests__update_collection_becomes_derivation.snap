@@ -390,6 +390,7 @@ Outcome {
                                 not_after: None,
                                 backfill: 0,
                                 state_key: "",
+                                collection_index: 0,
                             },
                         ],
                         shuffle_key_types: [
@@ -518,6 +519,7 @@ Outcome {
                         network_ports: [],
                         inactive_transforms: [],
                         redact_salt: b"\x86\xaa!\x8f:U\x1a.\xad\x85\x17\xb4\xb5\xb8\xcb\x15",
+                        linked_collections: [],
                     },
                 ),
             },

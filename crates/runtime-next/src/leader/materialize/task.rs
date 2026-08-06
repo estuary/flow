@@ -30,19 +30,15 @@ impl Task {
         let mut binding_collection_names = Vec::with_capacity(bindings.len());
         let mut binding_journal_read_suffixes = Vec::with_capacity(bindings.len());
 
-        for binding in bindings {
+        for (binding, resolved) in spec.resolved_bindings() {
             let flow::materialization_spec::Binding {
-                collection,
                 journal_read_suffix,
                 ..
             } = binding;
 
-            let flow::CollectionSpec {
-                name: collection_name,
-                ..
-            } = collection.as_ref().context("missing collection")?;
+            let (collection, _identity) = resolved.context("missing collection")?;
 
-            binding_collection_names.push(collection_name.clone());
+            binding_collection_names.push(collection.name.clone());
             binding_journal_read_suffixes.push(journal_read_suffix.clone());
         }
 

@@ -14,7 +14,6 @@ mod derive_sqlite;
 mod derive_typescript;
 pub mod discovers;
 pub mod draft_error;
-pub mod evolutions;
 mod id;
 mod journals;
 mod labels;
@@ -68,7 +67,7 @@ pub use references::{
     tenant_from,
 };
 pub use schemas::Schema;
-pub use shards::{ENABLE_RUNTIME_V2, ShardTemplate};
+pub use shards::{ENABLE_RUNTIME_V2, INDIRECT_SPECS, ShardTemplate};
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
 pub use sync_schedule::SyncSchedule;

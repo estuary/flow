@@ -258,12 +258,13 @@ impl runtime::harness::Reader for Reader {
         derivation: &flow::CollectionSpec,
         resume: proto_gazette::consumer::Checkpoint,
     ) -> Self::Stream {
-        let transforms = &derivation.derivation.as_ref().unwrap().transforms;
-
-        let sources = transforms
-            .iter()
-            .map(|t| {
-                let collection = t.collection.as_ref().unwrap();
+        let sources = derivation
+            .derivation
+            .as_ref()
+            .unwrap()
+            .resolved_transforms()
+            .map(|(t, resolved)| {
+                let (collection, _identity) = resolved.unwrap();
 
                 Source {
                     collection: collection.name.clone(),
@@ -283,10 +284,9 @@ impl runtime::harness::Reader for Reader {
         resume: proto_gazette::consumer::Checkpoint,
     ) -> Self::Stream {
         let sources = materialization
-            .bindings
-            .iter()
-            .map(|b| {
-                let collection = b.collection.as_ref().unwrap();
+            .resolved_bindings()
+            .map(|(b, resolved)| {
+                let (collection, _identity) = resolved.unwrap();
                 Source {
                     collection: collection.name.clone(),
                     not_before: b.not_before.clone(),

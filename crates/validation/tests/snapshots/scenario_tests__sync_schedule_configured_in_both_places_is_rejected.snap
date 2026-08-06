@@ -162,6 +162,7 @@ Outcome {
                 triggers_json: b"",
                 created_at: "",
                 sync_schedule_json: b"{\"baseInterval\":\"15m\"}",
+                linked_collections: [],
             },
             previous_spec: NULL,
             is_touch: 0,

@@ -103,16 +103,13 @@ impl Connectors for NoOpConnectors {
                 materialize::Response {
                     validated: Some(materialize::response::Validated {
                         bindings: validate
-                            .bindings
-                            .iter()
+                            .resolved_bindings()
                             .enumerate()
-                            .map(|(i, binding)| {
+                            .map(|(i, (_binding, resolved))| {
                                 // Return FIELD_OPTIONAL for every collection projection
                                 // so that field selection validation succeeds.
-                                let projection_constraints = binding
-                                    .collection
-                                    .as_ref()
-                                    .map(|c| &c.projections)
+                                let projection_constraints = resolved
+                                    .map(|(collection, _identity)| &collection.projections)
                                     .into_iter()
                                     .flatten()
                                     .map(|p| {
