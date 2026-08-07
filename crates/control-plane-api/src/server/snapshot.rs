@@ -73,6 +73,37 @@ pub struct SnapshotTask {
     pub data_plane_id: models::Id,
 }
 
+/// Outcome of an authorization check evaluated against a Snapshot,
+/// classified by `Snapshot::resolve_authorization`.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Authorization {
+    /// The required grant exists in the Snapshot.
+    Authorized,
+    /// The grant is absent and the Snapshot is authoritative for the
+    /// operation's anchor: the denial is final.
+    Denied,
+    /// The grant is absent but the Snapshot predates the anchor: a grant
+    /// committed before the anchor may not be reflected yet, so the denial is
+    /// provisional and the operation should retry under a fresher Snapshot.
+    Stale,
+}
+
+impl Authorization {
+    /// Collapse to "is authorized?", surfacing a provisional denial as the
+    /// retryable `AuthorizationSnapshotStale` error which callers
+    /// (see `validation::is_authz_snapshot_stale`) convert into a retry.
+    pub fn ok_or_stale(self, catalog_name: &str) -> Result<bool, validation::Error> {
+        match self {
+            Authorization::Authorized => Ok(true),
+            Authorization::Denied => Ok(false),
+            Authorization::Stale => Err(validation::Error::AuthorizationSnapshotStale {
+                catalog_name: catalog_name.to_string(),
+            }),
+        }
+    }
+}
+
 // SnapshotMigration is the state of an underway data-plane migration.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotMigration {
@@ -179,6 +210,68 @@ impl Snapshot {
     /// an operation that started at `started`, allowing for clock skew.
     pub fn taken_after(&self, started: tokens::DateTime) -> bool {
         self.taken > (started + Self::TEMPORAL_SKEW)
+    }
+
+    /// Classify an already-evaluated authorization check against this
+    /// Snapshot's freshness: the single three-way policy — authorized /
+    /// authoritative denial / provisional denial — applied at every snapshot
+    /// authorization enforcement point.
+    ///
+    /// A denial is `Denied` only when this Snapshot was taken after `anchor`,
+    /// the instant the asking operation started: any grant committed before
+    /// the anchor is then necessarily reflected. Otherwise it is `Stale` —
+    /// possibly just unobserved. `None` means the caller has no instant to
+    /// anchor a staleness claim on, so denials are final.
+    pub fn resolve_authorization(
+        &self,
+        authorized: bool,
+        anchor: Option<tokens::DateTime>,
+    ) -> Authorization {
+        if authorized {
+            Authorization::Authorized
+        } else if anchor.is_none_or(|anchor| self.taken_after(anchor)) {
+            Authorization::Denied
+        } else {
+            Authorization::Stale
+        }
+    }
+
+    /// Evaluate whether `user_id` holds `capability` to `name` under this
+    /// Snapshot's grants, classified against `anchor` freshness
+    /// (see `resolve_authorization`).
+    pub fn user_authorization(
+        &self,
+        user_id: uuid::Uuid,
+        name: &str,
+        capability: models::Capability,
+        anchor: Option<tokens::DateTime>,
+    ) -> Authorization {
+        self.resolve_authorization(
+            tables::UserGrant::is_authorized(
+                &self.role_grants,
+                &self.user_grants,
+                user_id,
+                name,
+                capability,
+            ),
+            anchor,
+        )
+    }
+
+    /// Evaluate whether `subject` (a catalog spec acting as a role) holds
+    /// `capability` to `object` under this Snapshot's role grants, classified
+    /// against `anchor` freshness (see `resolve_authorization`).
+    pub fn role_authorization(
+        &self,
+        subject: &str,
+        object: &str,
+        capability: models::Capability,
+        anchor: Option<tokens::DateTime>,
+    ) -> Authorization {
+        self.resolve_authorization(
+            tables::RoleGrant::is_authorized(&self.role_grants, subject, object, capability),
+            anchor,
+        )
     }
 
     // Retrieve all tasks whose names start with the given `prefix`.
@@ -341,9 +434,26 @@ impl Snapshot {
             })
     }
 
+    /// Returns the "spec capabilities" of a spec named `catalog_name`: the role
+    /// grants whose `subject_role` is a prefix of the name — the capabilities the
+    /// spec holds by virtue of its own name/role. This is only to be used for error
+    /// reporting to improve error messages.
+    pub fn spec_capabilities(&self, catalog_name: &str) -> Vec<tables::RoleGrant> {
+        self.role_grants
+            .iter()
+            .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+            .cloned()
+            .collect()
+    }
+
     // Minimal interval between Snapshot refreshes.
     // We will postpone a requested refresh prior to this interval.
     pub const MIN_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(20);
+    /// Re-poll cadence for a queued task which is deferring until its
+    /// Snapshot is authoritative (see `taken_after`). This equals
+    /// `MIN_REFRESH_INTERVAL` because that's the soonest a refresh can land:
+    /// waking sooner burns polls, waking later delays the task.
+    pub const STALE_RETRY_WAKE: chrono::TimeDelta = Self::MIN_REFRESH_INTERVAL;
     // Maximum interval between Snapshot refreshes.
     // We will refresh an older Snapshot in the background.
     pub const MAX_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
@@ -835,6 +945,189 @@ mod tests {
         assert_eq!(
             cordon_time.unwrap(),
             chrono::DateTime::from_timestamp(300_000, 0).unwrap()
+        );
+    }
+
+    /// `taken_after` is the single definition of "this Snapshot is authoritative
+    /// for that instant", and every authorization-staleness decision routes
+    /// through it. The `TEMPORAL_SKEW` allowance and the strictness of the
+    /// comparison are therefore load-bearing, so pin both.
+    #[test]
+    fn test_taken_after_allows_for_temporal_skew() {
+        let started = chrono::DateTime::from_timestamp(1_000_000, 0).unwrap();
+        let at = |offset: chrono::TimeDelta| Snapshot {
+            taken: started + offset,
+            ..Snapshot::empty()
+        };
+
+        assert!(
+            !at(chrono::TimeDelta::zero()).taken_after(started),
+            "a Snapshot taken at the same instant is not authoritative"
+        );
+        assert!(
+            !at(-Snapshot::TEMPORAL_SKEW).taken_after(started),
+            "a Snapshot taken before the event is not authoritative"
+        );
+        assert!(
+            !at(Snapshot::TEMPORAL_SKEW).taken_after(started),
+            "the skew allowance is exclusive: exactly TEMPORAL_SKEW later is still not authoritative"
+        );
+        assert!(
+            at(Snapshot::TEMPORAL_SKEW + chrono::TimeDelta::milliseconds(1)).taken_after(started),
+            "one millisecond past the skew allowance is authoritative"
+        );
+    }
+
+    /// `resolve_authorization` is the shared three-way classifier behind every
+    /// snapshot authorization enforcement point. Pin its anchor semantics —
+    /// a denial is authoritative only under a Snapshot postdating the anchor,
+    /// and a `None` anchor makes denials final — and `ok_or_stale`'s collapse
+    /// into authorized / dropped / retryable.
+    #[test]
+    fn test_resolve_authorization() {
+        let anchor = chrono::DateTime::from_timestamp(1_000_000, 0).unwrap();
+        let stale = Snapshot {
+            taken: anchor,
+            ..Snapshot::empty()
+        };
+        let fresh = Snapshot {
+            taken: anchor + Snapshot::TEMPORAL_SKEW * 2,
+            ..Snapshot::empty()
+        };
+
+        // A held grant is Authorized regardless of freshness.
+        assert_eq!(
+            Authorization::Authorized,
+            stale.resolve_authorization(true, Some(anchor))
+        );
+        assert_eq!(
+            Authorization::Authorized,
+            stale.resolve_authorization(true, None)
+        );
+
+        // A denial is authoritative only under a Snapshot postdating the anchor.
+        assert_eq!(
+            Authorization::Denied,
+            fresh.resolve_authorization(false, Some(anchor))
+        );
+        assert_eq!(
+            Authorization::Stale,
+            stale.resolve_authorization(false, Some(anchor))
+        );
+
+        // Without an anchor there is no basis for a staleness claim.
+        assert_eq!(
+            Authorization::Denied,
+            stale.resolve_authorization(false, None)
+        );
+
+        assert!(matches!(
+            Authorization::Authorized.ok_or_stale("acmeCo/task"),
+            Ok(true)
+        ));
+        assert!(matches!(
+            Authorization::Denied.ok_or_stale("acmeCo/task"),
+            Ok(false)
+        ));
+        assert!(matches!(
+            Authorization::Stale.ok_or_stale("acmeCo/task"),
+            Err(validation::Error::AuthorizationSnapshotStale { catalog_name })
+                if catalog_name == "acmeCo/task"
+        ));
+    }
+
+    /// `spec_capabilities` replaced a SQL-computed `spec_capabilities` column and
+    /// now renders the "Available grants are:" list in publication authorization
+    /// errors. It answers "what may a spec named X do, by virtue of its own
+    /// name?", which is a prefix match on `subject_role` — not on `object_role`,
+    /// and not scoped to any user.
+    #[test]
+    fn test_spec_capabilities() {
+        let snapshot = Snapshot::build_fixture(None);
+        let subjects = |name: &str| {
+            snapshot
+                .spec_capabilities(name)
+                .into_iter()
+                .map(|g| {
+                    (
+                        g.subject_role.to_string(),
+                        g.object_role.to_string(),
+                        g.capability,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // A name under a granted prefix picks up every grant whose subject_role
+        // is a prefix of it — here both the tenant-wide grants and the more
+        // specific `bobCo/tires/` one.
+        insta::assert_debug_snapshot!(subjects("bobCo/tires/source-tread"), @r#"
+        [
+            (
+                "bobCo/",
+                "bobCo/",
+                Write,
+            ),
+            (
+                "bobCo/",
+                "ops/dp/public/",
+                Read,
+            ),
+            (
+                "bobCo/tires/",
+                "acmeCo/shared/",
+                Read,
+            ),
+        ]
+        "#);
+
+        // The narrower `bobCo/tires/` grant must not leak to a sibling prefix:
+        // subject matching is by prefix of the *name*, not by shared tenancy.
+        insta::assert_debug_snapshot!(subjects("bobCo/widgets/source-squash"), @r#"
+        [
+            (
+                "bobCo/",
+                "bobCo/",
+                Write,
+            ),
+            (
+                "bobCo/",
+                "ops/dp/public/",
+                Read,
+            ),
+        ]
+        "#);
+
+        // `subject_role` is matched as a prefix of the name, so the role itself
+        // qualifies.
+        assert_eq!(
+            vec![(
+                "bobCo/tires/".to_string(),
+                "acmeCo/shared/".to_string(),
+                models::Capability::Read
+            )],
+            subjects("bobCo/tires/")
+                .into_iter()
+                .filter(|(s, _, _)| s == "bobCo/tires/")
+                .collect::<Vec<_>>(),
+        );
+
+        // Grants are not matched by their object_role: `acmeCo/shared/` is
+        // reachable *from* `bobCo/tires/`, but a spec named `acmeCo/shared/x`
+        // holds only `acmeCo/`'s own grants.
+        insta::assert_debug_snapshot!(subjects("acmeCo/shared/thing"), @r#"
+        [
+            (
+                "acmeCo/",
+                "acmeCo/",
+                Write,
+            ),
+        ]
+        "#);
+
+        assert!(
+            subjects("unknownCo/thing").is_empty(),
+            "a name under no granted prefix holds nothing"
         );
     }
 }

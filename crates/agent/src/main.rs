@@ -314,6 +314,20 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .context("failed to create builds-root directory")?;
     }
 
+    // Create the snapshot source and start the refresh loop.
+    // Snapshot fetches retry internally forever, so a persistent failure (a
+    // broken query, sops / KMS breakage) would otherwise hang here with the
+    // port unbound and nothing logged at error level. Bound the wait so that
+    // startup fails visibly, and fits within Cloud Run's 240s startup probe
+    // window even after the database retry budget above.
+    let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pg_pool.clone());
+    let snapshot_watch = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokens::watch(snapshot_source).ready_owned(),
+    )
+    .await
+    .context("timed out fetching the initial authorization snapshot")?;
+
     // Start a logs sink into which agent loops may stream logs.
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
@@ -348,20 +362,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     }
     .shared();
 
-    // Create the snapshot source and start the refresh loop.
-    // Snapshot fetches retry internally forever, so a persistent failure (a
-    // broken query, sops / KMS breakage) would otherwise hang here with the
-    // port unbound and nothing logged at error level. Bound the wait so that
-    // startup fails visibly, and fits within Cloud Run's 240s startup probe
-    // window even after the database retry budget above.
-    let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pg_pool.clone());
-    let snapshot_watch = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        tokens::watch(snapshot_source).ready_owned(),
-    )
-    .await
-    .context("timed out fetching the initial authorization snapshot")?;
-
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
     let alert_config_defaults = args.controller_config.alert_config_defaults();
@@ -390,7 +390,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
-        snapshot_watch,
+        snapshot_watch.clone(),
         args.stripe_webhook_secret,
     ));
     let api_router = control_plane_api::build_router(
@@ -417,12 +417,14 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(agent::publications::PublicationsExecutor {
                 publisher,
                 pg_pool: pg_pool.clone(),
+                snapshot_watch: snapshot_watch.clone(),
                 runtime_v2_new_captures: args.runtime_v2_new_captures,
                 runtime_v2_new_materializations: args.runtime_v2_new_materializations,
                 runtime_v2_new_derivations: args.runtime_v2_new_derivations,
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
+                snapshot_watch,
             })
             .register(directive_executor)
             .register(connector_tags_executor)

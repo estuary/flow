@@ -23,7 +23,8 @@ async fn test_publication_concurrent_commits() {
             "beavers/dams": minimal_capture(None, &["beavers/dens"]),
         }
     }));
-
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     // Try to reproduce a scenario where multiple different publications all try to commit
     // concurrently. We'll expect exactly one of them to succeed, and the others to fail.
     for test_iteration in 0..5 {
@@ -41,6 +42,8 @@ async fn test_publication_concurrent_commits() {
                 None,
                 true,
                 0,
+                &snapshot,
+                None,
             )
             .await
             .unwrap();
@@ -55,6 +58,8 @@ async fn test_publication_concurrent_commits() {
                 None,
                 true,
                 0,
+                &snapshot,
+                None,
             )
             .await
             .unwrap();
@@ -68,6 +73,8 @@ async fn test_publication_concurrent_commits() {
                 None,
                 true,
                 0,
+                &snapshot,
+                None,
             )
             .await
             .unwrap();
@@ -110,6 +117,8 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/also-new": minimal_capture(Some(Id::new([8, 7, 6, 5, 4, 3, 2, 1])), &["mice/does-not-exist"]),
         }
     }));
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let naughty_pub_id = Id::new([8; 8]);
     // If a user explicitly sets `expectPubId` in the model, then a mismatch gets returned as a
     // build error, before we even try to commit.
@@ -124,6 +133,8 @@ async fn test_publication_optimistic_locking_failures() {
             None,
             true,
             0,
+            &snapshot,
+            None,
         )
         .await
         .expect("build failed");
@@ -157,7 +168,8 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/capture": minimal_capture(None, &["mice/cheese", "mice/seeds"]),
         }
     });
-
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let will_fail_pub = Id::new([9; 8]);
     let will_fail_build = harness
         .publisher
@@ -170,10 +182,13 @@ async fn test_publication_optimistic_locking_failures() {
             None,
             true,
             0,
+            &snapshot,
+            None,
         )
         .await
         .expect("build a failed");
-
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let will_commit_pub = Id::new([10; 8]);
     let will_commit_build = harness
         .publisher
@@ -186,6 +201,8 @@ async fn test_publication_optimistic_locking_failures() {
             None,
             true,
             0,
+            snapshot,
+            None,
         )
         .await
         .expect("build b failed");
@@ -228,6 +245,8 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/capture": minimal_capture(None, &["mice/cheese", "mice/seeds"]),
         }
     }));
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let will_fail_build = harness
         .publisher
         .build(
@@ -239,6 +258,8 @@ async fn test_publication_optimistic_locking_failures() {
             None,
             true,
             0,
+            snapshot,
+            None,
         )
         .await
         .expect("cheese build failed");
@@ -253,6 +274,8 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/capture": minimal_capture(None, &["mice/cheese", "mice/seeds"]),
         }
     }));
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let will_commit_build = harness
         .publisher
         .build(
@@ -264,6 +287,8 @@ async fn test_publication_optimistic_locking_failures() {
             None,
             true,
             0,
+            snapshot,
+            None,
         )
         .await
         .expect("seeds build failed");
@@ -402,6 +427,8 @@ async fn test_injected_ops_collections_are_not_locked() {
             "owls/capture": minimal_capture(None, &["owls/hoots"]),
         }
     }));
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let build = harness
         .publisher
         .build(
@@ -413,6 +440,8 @@ async fn test_injected_ops_collections_are_not_locked() {
             None,
             true,
             0,
+            snapshot,
+            None,
         )
         .await
         .expect("owls build failed");
@@ -498,6 +527,8 @@ async fn test_injected_ops_collections_are_not_locked() {
             }
         }
     }));
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let reader_build = harness
         .publisher
         .build(
@@ -509,6 +540,8 @@ async fn test_injected_ops_collections_are_not_locked() {
             None,
             true,
             0,
+            snapshot,
+            None,
         )
         .await
         .expect("reader build failed");

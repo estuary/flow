@@ -1,7 +1,7 @@
 pub mod db;
 pub mod specs;
 
-use crate::proxy_connectors::DiscoverConnectors;
+use crate::{Snapshot, proxy_connectors::DiscoverConnectors};
 
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
@@ -14,7 +14,7 @@ pub use db::{Row, fetch_discover, resolve};
 
 /// Represents the desire to discover an endpoint. The discovered bindings will be merged with
 /// those in the `base_model`.
-pub struct Discover {
+pub struct Discover<'a> {
     /// The name of the capture, which _must_ exist within the `draft`.
     pub capture_name: models::Capture,
     /// The data plane to use for the discover. For an existing capture, this
@@ -41,6 +41,19 @@ pub struct Discover {
     /// from the live task's control-plane Id. Empty if the task doesn't exist
     /// yet: the connector assumes a current date for a new task's discover.
     pub created_at: String,
+    /// The authorization Snapshot pinned by the caller for this entire
+    /// operation: preflight checks, the connector RPC window, and the
+    /// post-RPC merge all consult this same instance, so one discover
+    /// observes exactly one authorization view regardless of refreshes
+    /// landing mid-flight.
+    pub snapshot: &'a crate::Snapshot,
+    /// Time at which the discover was queued, when the caller has a durable
+    /// one. Anchors authorization staleness of the merge's target collections:
+    /// a denial from a Snapshot older than this instant is provisional —
+    /// authority committed before queuing may be missing from it — and
+    /// reschedules the discover rather than silently dropping the live
+    /// collection. A Snapshot taken after this instant is authoritative.
+    pub started_at: Option<tokens::DateTime>,
 }
 
 #[derive(Debug)]
@@ -161,7 +174,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         update_only = %req.update_only,
         image
     ))]
-    pub async fn discover(&self, db: &PgPool, req: Discover) -> anyhow::Result<DiscoverOutput> {
+    pub async fn discover(&self, db: &PgPool, req: Discover<'_>) -> anyhow::Result<DiscoverOutput> {
         let Discover {
             capture_name,
             data_plane,
@@ -172,6 +185,8 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             reset_on_key_change,
             mut draft,
             created_at,
+            snapshot,
+            started_at,
         } = req;
 
         let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
@@ -232,6 +247,8 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             spec.resource_path_pointers,
             db,
             reset_on_key_change,
+            snapshot,
+            started_at,
         )
         .await?;
 
@@ -252,7 +269,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
     async fn build_merged_catalog(
         capture_name: models::Capture,
-        user_id: uuid::Uuid,
+        user_id: Uuid,
         filter_user_authz: bool,
         update_only: bool,
         mut draft: tables::DraftCatalog,
@@ -260,6 +277,8 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         resource_path_pointers: Vec<String>,
         db: &PgPool,
         reset_on_key_change: bool,
+        snapshot: &Snapshot,
+        started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
@@ -307,12 +326,13 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .iter()
             .map(|b| b.target.to_string())
             .collect::<Vec<_>>();
-
         let live = crate::live_specs::get_live_specs(
             user_id,
             &collection_names,
             filter_user_authz.then_some(models::Capability::Read),
             db,
+            snapshot,
+            started_at,
         )
         .await?;
 

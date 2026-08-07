@@ -17,7 +17,7 @@ mod schema;
 mod storage_mapping;
 mod test_step;
 
-pub use errors::Error;
+pub use errors::{Error, is_authz_snapshot_stale};
 pub use noop::NoOpConnectors;
 
 /// Combiner slots reserved for runtime-internal bindings (today: the capture

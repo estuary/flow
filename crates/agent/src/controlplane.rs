@@ -577,12 +577,16 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
     }
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
         let names = names.into_iter().collect::<Vec<_>>();
         let mut live = live_specs::get_live_specs(
             self.system_user_id,
             &names,
             None, // don't filter based on user capability
             &self.pool,
+            &snapshot,
+            None,
         )
         .await?;
 
@@ -655,6 +659,9 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             logs_token,
             data_plane: data_plane.clone(),
             created_at,
+            snapshot,
+            // `filter_user_authz` is false, so no staleness anchor is consulted.
+            started_at: None,
         };
         discovers_handler.discover(pool, req).await
     }
@@ -666,6 +673,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         draft: tables::DraftCatalog,
         default_data_plane: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
+        let snapshot = self.snapshot_watch.token();
         let publication = DraftPublication {
             user_id: self.system_user_id,
             logs_token,
@@ -673,7 +681,14 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             detail,
             dry_run: false,
             default_data_plane_name: default_data_plane,
-            // skip authz checks for controller-initiated publications
+            // Controllers construct a fresh publication per poll, so they have
+            // no instant that stays fixed across attempts to anchor staleness
+            // on; they carry their own retry/backoff instead.
+            started_at: None,
+            snapshot: snapshot
+                .result()
+                .expect("authorization snapshot is not ready"),
+            //  Skip user-to-catalog checks; spec-to-spec `RoleGrant` checks remain mandatory.
             verify_user_authz: false,
             initialize: NoopInitialize,
             finalize: PruneUnboundCollections,

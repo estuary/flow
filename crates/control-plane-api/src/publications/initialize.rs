@@ -5,12 +5,17 @@ use std::future::Future;
 use uuid::Uuid;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
+///
+/// `snapshot` is the publication's pinned authorization view; it must be the
+/// same Snapshot the subsequent build uses, so that expansion and resolution
+/// cannot disagree about one publication.
 pub trait Initialize: Send + Sync {
     fn initialize(
         &self,
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
@@ -22,6 +27,7 @@ impl Initialize for NoopInitialize {
         _db: &sqlx::PgPool,
         _user_id: Uuid,
         _draft: &mut tables::DraftCatalog,
+        _snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -37,9 +43,10 @@ where
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
-        self.0.initialize(db, user_id, draft).await?;
-        self.1.initialize(db, user_id, draft).await?;
+        self.0.initialize(db, user_id, draft, snapshot).await?;
+        self.1.initialize(db, user_id, draft, snapshot).await?;
         Ok(())
     }
 }
@@ -65,6 +72,7 @@ impl Initialize for ExpandDraft {
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
         // the published collections. We do this so that validation can catch any inconsistencies
@@ -87,6 +95,7 @@ impl Initialize for ExpandDraft {
             &all_drafted_specs,
             capability_filter,
             db,
+            snapshot,
         )
         .await?;
         tracing::debug!(
@@ -116,6 +125,7 @@ impl Initialize for RuntimeV2Rollout {
         db: &sqlx::PgPool,
         _user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        _snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         let flag = models::Token::new(models::ENABLE_RUNTIME_V2);
 
