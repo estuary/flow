@@ -1,5 +1,5 @@
 use super::{JobStatus, Row, extract};
-use anyhow::Context;
+use control_plane_api::directives::beta_onboard::ProvisionError;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
@@ -13,11 +13,30 @@ pub struct Directive {}
 pub struct Claims {
     #[validate(nested)]
     requested_tenant: models::Token,
+    // Optional full catalog name of the public data-plane the user selected
+    // at signup, e.g. "ops/dp/public/aws-us-east-1-c1". Becomes the first
+    // (default) entry of the tenant's storage-mapping data_planes.
+    #[serde(default)]
+    #[validate(length(max = 256))]
+    requested_data_plane: Option<String>,
     // Survey results for the tenant.
     // This is persisted in the DB but is not actually used by the agent.
     #[allow(dead_code)]
     #[serde(default)]
     survey: serde_json::Value,
+}
+
+/// Colocated trial buckets are gated until est-dry-dock has created the
+/// per-plane buckets (est-dry-dock#326) and real public planes have
+/// converged. Flipping this on before then would point new tenants at
+/// buckets that don't exist. Read once and cached: the process environment
+/// doesn't change between reads, so there's no reason to re-parse it on
+/// every signup.
+fn colocate_trial_buckets_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("COLOCATED_TRIAL_BUCKETS").is_ok_and(|v| v == "1" || v == "true")
+    })
 }
 
 #[tracing::instrument(skip_all, fields(directive, row.claims))]
@@ -31,6 +50,7 @@ pub async fn apply(
         Directive {},
         Claims {
             requested_tenant,
+            requested_data_plane,
             survey: _,
         },
     ) = match extract(directive, &row.user_claims) {
@@ -60,17 +80,30 @@ pub async fn apply(
         )));
     }
 
-    control_plane_api::directives::beta_onboard::provision_tenant(
+    // The submitted plane is untrusted client input. `provision_tenant` owns
+    // the authoritative set of selectable public planes and rejects anything
+    // outside it, so there's nothing to pre-check here.
+    match control_plane_api::directives::beta_onboard::provision_tenant(
         accounts_user_email,
         Some("applied via directive".to_string()),
         &requested_tenant,
         row.user_id,
+        requested_data_plane.as_deref(),
+        colocate_trial_buckets_enabled(),
         txn,
     )
     .await
-    .context("provision_tenant")?;
+    {
+        Ok(()) => {}
+        Err(err @ ProvisionError::PlaneNotSelectable(_)) => {
+            return Ok(JobStatus::invalid_claims(anyhow::anyhow!("{err}")));
+        }
+        Err(ProvisionError::Sqlx(err)) => {
+            return Err(anyhow::Error::from(err).context("provision_tenant"));
+        }
+    }
 
-    info!(%row.user_id, requested_tenant=%requested_tenant.as_str(), "beta onboard");
+    info!(%row.user_id, requested_tenant=%requested_tenant.as_str(), requested_data_plane=?requested_data_plane, "beta onboard");
     Ok(JobStatus::Success)
 }
 
@@ -98,7 +131,8 @@ mod test {
         p3 as (
           insert into auth.users (id, email) values
           ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'new@example.com'),
-          ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'accounts@example.com')
+          ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'accounts@example.com'),
+          ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'plane@example.com')
           on conflict do nothing
         ),
         p4 as (
@@ -108,6 +142,23 @@ mod test {
           insert into user_grants (user_id, object_role, capability) values
             ('11111111-1111-1111-1111-111111111111', 'takenTenant/', 'admin'), -- Prevents new tenant.
             ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'takenTenant/', 'read')   -- New tenant allowed.
+        ),
+        p6a as (
+          -- A public plane that exists but has been closed to new selection,
+          -- cloned from the harness's default plane.
+          insert into data_planes (
+            data_plane_name, data_plane_fqdn, ops_logs_name, ops_stats_name,
+            ops_l1_inferred_name, ops_l1_stats_name, ops_l1_events_name,
+            ops_l2_inferred_transform, ops_l2_stats_transform, ops_l2_events_transform,
+            broker_address, reactor_address, hmac_keys, enable_l2, closed
+          )
+          select
+            'ops/dp/public/closed', 'closed.dp.estuary-data.com', ops_logs_name, ops_stats_name,
+            ops_l1_inferred_name, ops_l1_stats_name, ops_l1_events_name,
+            ops_l2_inferred_transform, ops_l2_stats_transform, ops_l2_events_transform,
+            broker_address, reactor_address, hmac_keys, enable_l2, true
+          from data_planes where data_plane_name = 'ops/dp/public/test'
+          on conflict do nothing
         ),
         p6 as (
           insert into applied_directives (directive_id, user_id, user_claims) values
@@ -123,6 +174,16 @@ mod test {
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"invalid/requested/tenant"}'),
           -- Fails: tenant already exists.
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"TakenTeNaNt"}'),
+          -- Fails: requestedDataPlane is not a public plane name.
+          ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"PlaneTenantA","requestedDataPlane":"ops/dp/private/acmeCo/aws-us-east-1-c1"}'),
+          -- Fails: requestedDataPlane does not exist.
+          ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"PlaneTenantB","requestedDataPlane":"ops/dp/public/aws-nope-1-c1"}'),
+          -- Fails: requestedDataPlane exists and is public, but is closed to
+          -- new selection.
+          ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"PlaneTenantD","requestedDataPlane":"ops/dp/public/closed"}'),
+          -- Success: creates PlaneTenantC with a valid requestedDataPlane, using a
+          -- fresh user since aaaaaaaa is about to become admin of AcmeTenant below.
+          ('cc00000000000000', 'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"requestedTenant":"PlaneTenantC","requestedDataPlane":"ops/dp/public/test"}'),
           -- Success: creates AcmeTenant.
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"AcmeTenant","survey":"feedback"}')
         )
@@ -189,7 +250,7 @@ mod test {
             },
             "did": "cc:00:00:00:00:00:00:00",
             "status": {
-              "error": "unknown field `invalid`, expected `requestedTenant` or `survey` at line 1 column 10",
+              "error": "unknown field `invalid`, expected one of `requestedTenant`, `requestedDataPlane`, `survey` at line 1 column 10",
               "type": "invalidClaims"
             }
           },
@@ -211,6 +272,49 @@ mod test {
             "status": {
               "error": "The organization name TakenTeNaNt is already in use, please choose a different one or contact support@estuary.dev.",
               "type": "invalidClaims"
+            }
+          },
+          {
+            "claims": {
+              "requestedDataPlane": "ops/dp/private/acmeCo/aws-us-east-1-c1",
+              "requestedTenant": "PlaneTenantA"
+            },
+            "did": "cc:00:00:00:00:00:00:00",
+            "status": {
+              "error": "ops/dp/private/acmeCo/aws-us-east-1-c1 is not a selectable public data-plane",
+              "type": "invalidClaims"
+            }
+          },
+          {
+            "claims": {
+              "requestedDataPlane": "ops/dp/public/aws-nope-1-c1",
+              "requestedTenant": "PlaneTenantB"
+            },
+            "did": "cc:00:00:00:00:00:00:00",
+            "status": {
+              "error": "ops/dp/public/aws-nope-1-c1 is not a selectable public data-plane",
+              "type": "invalidClaims"
+            }
+          },
+          {
+            "claims": {
+              "requestedDataPlane": "ops/dp/public/closed",
+              "requestedTenant": "PlaneTenantD"
+            },
+            "did": "cc:00:00:00:00:00:00:00",
+            "status": {
+              "error": "ops/dp/public/closed is not a selectable public data-plane",
+              "type": "invalidClaims"
+            }
+          },
+          {
+            "claims": {
+              "requestedDataPlane": "ops/dp/public/test",
+              "requestedTenant": "PlaneTenantC"
+            },
+            "did": "cc:00:00:00:00:00:00:00",
+            "status": {
+              "type": "success"
             }
           },
           {
@@ -244,6 +348,10 @@ mod test {
             select json_build_object('prefix', m.catalog_prefix, 'storageMapping', m.spec)
                 from storage_mappings m where m.catalog_prefix like '%AcmeTenant%'
             union all
+            -- Expect PlaneTenantC's storage mapping reflects its requestedDataPlane.
+            select json_build_object('prefix', m.catalog_prefix, 'storageMapping', m.spec)
+                from storage_mappings m where m.catalog_prefix like '%PlaneTenantC%'
+            union all
             -- Expect an alert subscription was created.
             select json_build_object('catalog_prefix', s.catalog_prefix, 'email', s.email)
                 from alert_subscriptions s where s.catalog_prefix = 'AcmeTenant/'
@@ -260,6 +368,10 @@ mod test {
           {
             "detail": null,
             "tenant": "takenTenant/"
+          },
+          {
+            "detail": "applied via directive",
+            "tenant": "PlaneTenantC/"
           },
           {
             "detail": "applied via directive",
@@ -298,6 +410,32 @@ mod test {
           },
           {
             "prefix": "recovery/AcmeTenant/",
+            "storageMapping": {
+              "stores": [
+                {
+                  "bucket": "estuary-trial",
+                  "provider": "GCS"
+                }
+              ]
+            }
+          },
+          {
+            "prefix": "PlaneTenantC/",
+            "storageMapping": {
+              "data_planes": [
+                "ops/dp/public/test"
+              ],
+              "stores": [
+                {
+                  "bucket": "estuary-trial",
+                  "prefix": "collection-data/",
+                  "provider": "GCS"
+                }
+              ]
+            }
+          },
+          {
+            "prefix": "recovery/PlaneTenantC/",
             "storageMapping": {
               "stores": [
                 {
