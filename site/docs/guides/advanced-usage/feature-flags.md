@@ -115,12 +115,25 @@ Generates synthetic row identifiers for tables without primary keys.
 Allows materializations to write to tables that already exist in the destination, even for newly added bindings.
 
 - **Default:** Disabled. New bindings fail if the target table already exists.
-- **Use case:** Migrating data from another system into Estuary-managed tables, or re-creating a materialization that was previously deleted.
+- **Use case:** Migrating data from another system into Estuary-managed tables, re-creating a materialization that was previously deleted, or pre-creating a table so you control its DDL, for example [BigQuery partitioning](/reference/Connectors/materialization-connectors/BigQuery/#table-partitioning), which cannot be set on a table after it is created.
 - **Caveats:**
   - Enabling this flag makes the connector load existing keys from the destination before merging, instead of skipping that lookup for keys it expects to be new. It is slightly slower but ensures merges and updates work correctly against rows that already exist in the table.
   - The connector cannot verify that existing table schemas are compatible.
   - This flag alone does **not** prevent backfill of the source collection. To avoid backfilling data into the existing table, also configure [`notBefore`](/reference/time-travel) or use "Only Changes" mode on the binding.
+  - If the table already contains rows that Estuary did not write, this flag is not sufficient on its own. See [Migrate an existing pipeline to Estuary](/guides/migrate-to-estuary/).
 - **Applies to:** All SQL and warehouse materialization connectors (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, etc.)
+
+#### What the connector does to the existing table
+
+On the first publication after attaching, the connector reconciles the table against the binding's field selection:
+
+- Columns in the field selection that the table does not have are added with `ALTER TABLE ... ADD COLUMN`, as nullable. This includes Estuary's own `flow_document`, `flow_published_at`, and `_meta/op` columns.
+- Columns the table has that are **not** in the field selection are altered to drop `NOT NULL`, if they had it. Keep this in mind when you pre-create a table from DDL you care about: a `NOT NULL` constraint on a column Estuary does not materialize will be relaxed.
+- The table itself is not dropped or recreated by this reconciliation, so partitioning, clustering, and other table-level DDL survive it.
+
+Because missing columns are added for you, you can pre-create a table with only the columns you need to control (the partition column and the collection key, for instance) and let the connector fill in the rest.
+
+Attaching is not the only thing that touches the table, though. A [backfill](/reference/backfilling-data/#schema-changes-during-backfill) truncates it by default, which preserves table-level DDL, but drops and recreates it when a selected field's type changes incompatibly, when the collection key changes, or when `always_drop_tables_on_backfill` is set. Since the default [`onIncompatibleSchemaChange`](/concepts/advanced/evolutions/) is `backfill`, an incompatible schema change can reach that path without anyone asking for a backfill. Set it to `abort` if the table's DDL or its pre-existing rows matter.
 
 ### retain_existing_data_on_backfill
 
