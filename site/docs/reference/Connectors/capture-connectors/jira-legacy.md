@@ -3,7 +3,7 @@
 
 This connector captures data from [Jira's REST API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/) into Estuary collections.
 
-:::warning
+:::deprecated
 This connector is deprecated. It is recommended that you use the new native [Jira connector](./jira-native.md) instead.
 :::
 

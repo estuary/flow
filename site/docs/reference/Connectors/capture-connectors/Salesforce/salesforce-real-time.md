@@ -5,7 +5,7 @@ This connector captures data from Salesforce objects into Estuary collections in
 [A separate connector is available for syncing historical Salesforce data](./salesforce-historical-data.md).
 For help using both connectors in parallel, [contact your Estuary account manager](mailto:info@estuary.dev).
 
-:::warning
+:::deprecated
 This connector is deprecated. Consider using the new [native Salesforce connector](./salesforce-native.md) instead.
 :::
 

@@ -194,6 +194,12 @@ const config = {
           editUrl: 'https://github.com/estuary/flow/edit/master/site/',
           routeBasePath: '/',
           remarkPlugins: [codeImport],
+          admonitions: {
+            // 'deprecated' renders like `:::warning` (see src/theme/Admonition)
+            // but carries its own `theme-admonition-deprecated` CSS class, so
+            // Kapa's crawler can exclude deprecated connector pages from search.
+            keywords: ['deprecated'],
+          },
           async sidebarItemsGenerator({ defaultSidebarItemsGenerator, ...args }) {
             const sidebarItems = await defaultSidebarItemsGenerator(args);
             return sortSidebarAlphabetically(sidebarItems);

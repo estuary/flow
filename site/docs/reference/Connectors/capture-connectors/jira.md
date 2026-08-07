@@ -3,7 +3,7 @@
 
 This connector captures data from Jira into Estuary collections.
 
-:::warning
+:::deprecated
 This connector is deprecated. See the new [Jira connector](./jira-native.md) for the latest integration.
 :::
 

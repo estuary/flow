@@ -3,7 +3,7 @@
 
 This connector captures data from a Hubspot account.
 
-:::warning
+:::deprecated
 This connector is deprecated. It is recommended that you use the new native [HubSpot connector](/reference/Connectors/capture-connectors/HubSpot-real-time) instead.
 :::
 
