@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use control_plane_api::alerts::{Alert, fetch_alert_by_id};
 use notifications::Renderer;
 
+pub use crate::email::{EmailSender, Sender};
+
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NotifierState {
     pub(crate) fired_completed: Option<DateTime<Utc>>,
@@ -83,114 +85,6 @@ impl<ES: EmailSender> AlertNotifications<ES> {
         } else {
             state.fired_completed = Some(Utc::now());
             Ok(AlertOutcome::AwaitResolution)
-        }
-    }
-}
-
-pub trait EmailSender: std::fmt::Debug + Send + Sync + 'static {
-    fn send<'s>(
-        &'s self,
-        email: notifications::NotificationEmail,
-    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send + 's;
-}
-
-/// Sends emails using the resend
-#[derive(Debug)]
-pub struct ResendSender {
-    from_address: String,
-    reply_to_address: String,
-    resend_client: resend_rs::Resend,
-    retry_options: resend_rs::rate_limit::RetryOptions,
-}
-
-impl ResendSender {
-    async fn send(&self, notification: notifications::NotificationEmail) -> anyhow::Result<()> {
-        let notifications::NotificationEmail {
-            idempotency_key,
-            recipient: notifications::Recipient { email, .. },
-            subject,
-            body,
-        } = notification;
-
-        let Self {
-            from_address,
-            reply_to_address,
-            resend_client,
-            retry_options,
-        } = self;
-
-        let resend_req =
-            resend_rs::types::CreateEmailBaseOptions::new(from_address, [email.as_str()], subject)
-                .with_reply(reply_to_address.as_str())
-                .with_html(body.as_str())
-                .with_idempotency_key(idempotency_key.as_str());
-
-        // Note on retries: We don't technically need to handle retries here, as
-        // we could instead return and just schedule ourselves to run again.
-        // It's common for many alerts to fire more or less simultaneously, and
-        // the resend rate limit is only 9 req/s. So my current thinking is that
-        // it's better to handle retries here, so that we don't end up having a
-        // bunch of other notifier tasks run and then have this one hit another
-        // rate limit error when we retry it. Better to retry each notification
-        // until it succeeds. If we exhaust the number of retries, we'll return
-        // an error and back off somewhat longer.
-        let response = resend_rs::rate_limit::send_with_retry_opts(
-            || async { resend_client.emails.send(resend_req.clone()).await },
-            retry_options,
-        )
-        .await
-        .context("calling resend API")?;
-
-        tracing::debug!(%idempotency_key, to = %email, email_id = %response.id, "successfully sent alert email");
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub enum Sender {
-    Disabled,
-    Resend(ResendSender),
-}
-
-impl Sender {
-    pub fn resend(
-        api_key: &str,
-        from_address: String,
-        reply_to_address: String,
-        http_client: reqwest::Client,
-    ) -> Sender {
-        let resend_client = resend_rs::Resend::with_client(api_key, http_client);
-        let inner = ResendSender {
-            from_address,
-            reply_to_address,
-            resend_client,
-            retry_options: resend_rs::rate_limit::RetryOptions {
-                duration_ms: 150,
-                jitter_range_ms: 0..1000,
-                max_retries: 5,
-            },
-        };
-        Sender::Resend(inner)
-    }
-}
-
-impl EmailSender for Sender {
-    async fn send<'s>(
-        &'s self,
-        notification: notifications::NotificationEmail,
-    ) -> anyhow::Result<()> {
-        match self {
-            Sender::Disabled => {
-                tracing::warn!(
-                    to = %notification.recipient.email,
-                    subject = %notification.subject,
-                    idempotency_key = %notification.idempotency_key,
-                    "skipping sending alert email (disabled)"
-                );
-                return Ok(());
-            }
-            Sender::Resend(resend) => resend.send(notification).await,
         }
     }
 }
