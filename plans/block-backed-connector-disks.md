@@ -210,7 +210,7 @@ every block that changed at that boundary, and it may carry some blocks that
 did not — extra copies the daemon includes to move the recovery floor forward.
 [Horizons](#horizons) explains why.
 
-Nothing in the encoding separates the two. An extra copy is an ordinary `DATA`
+Nothing in the encoding separates the two. An extra copy is an ordinary data
 chunk, so a reader treats every chunk identically, which is what keeps replay
 simple.
 
@@ -380,6 +380,23 @@ The host filesystem that stores images must support hole punching.
 The disk journal is created lazily on the first transaction that needs durable
 disk state.
 
+Its `JournalSpec` sets the `SNAPPY` compression codec, matching recovery logs.
+A connector writes whatever it likes to its disk, so the payload may be text or
+may be already-compressed archives. A codec that passes incompressible input
+through cheaply is the right default when the input is unknown. Compression also
+runs in the primary broker's spool and is paid on every append, so per-byte cost
+matters more here than ratio does.
+
+Dropping zero tails does more for volume than the codec choice does, because it
+removes those bytes from the append and from replication as well as from
+storage. Gazette compresses only when the primary spools a fragment, so appends
+and replication to peers carry uncompressed bytes.
+
+Journal offsets stay uncompressed byte positions, so the codec does not affect
+the recovery-range arithmetic. Fragments record their own codec and readers
+dispatch per fragment, so this choice can change later without a migration and
+without touching the format.
+
 Records use Gazette's fixed Protobuf framing and one disk-specific message:
 
 ```text
@@ -413,17 +430,51 @@ A chunk has this form:
 
 ```text
 Chunk
-┌──────────────┬──────────────┬────────────┬─────────┬────────────────────┐
-│ offset: u64  │ length: u32  │ crc32: u32 │ kind    │ bytes (if DATA)    │
-└──────────────┴──────────────┴────────────┴─────────┴────────────────────┘
-   DATA   bytes present at the boundary
-   PUNCH  an allocated range was discarded
+┌───────────────┬───────────────────────────────────────────────────┐
+│ block: u32    │ starting block index                              │
+│ one of                                                            │
+│   bytes       │ content, from that block forward                  │
+│   punch: u32  │ this many blocks were discarded                   │
+└───────────────┴───────────────────────────────────────────────────┘
 ```
 
-At a boundary, a dirty block that remains allocated becomes `DATA`. A dirty
-block that is no longer allocated becomes `PUNCH`. An unchanged block that the
-daemon copies to advance a horizon is also `DATA`, with nothing to mark it
-apart.
+A block index rather than a byte offset makes 4 KiB alignment impossible to
+misencode, and indexes the bitmaps with no arithmetic. A 10 GiB disk is
+2,621,440 blocks, and a `u32` covers 17 TiB at this block size.
+
+A data chunk carries no length. Protobuf already delimits `bytes`, and a second
+copy of the same fact is a second thing that can be wrong.
+
+The length of `bytes` need not be a whole number of blocks. Block contents
+often end in zeroes — a file's last block, a directory block with a few entries,
+an inode table block with mostly unused entries — so the daemon scans backward
+for the zero tail and drops it. The chunk then covers `ceil(len(bytes) / 4096)`
+blocks, and the tail of the last one is zero.
+
+> A reader must write those zeroes explicitly. It cannot rely on the image being
+> sparse, because a block rewritten by a later delta would otherwise keep the
+> earlier delta's tail.
+
+That trailing zero is the trap in this encoding. It only shows up on blocks that
+are written more than once, so it survives casual testing.
+
+A data chunk with empty `bytes` means the block is allocated and entirely zero.
+That is a real state, and it differs from a punch, which means the block is not
+allocated at all. Replay zeroes the first and hole-punches the second.
+
+At a boundary, a dirty block that remains allocated becomes a data chunk. A
+dirty block that is no longer allocated becomes a punch. An unchanged block that
+the daemon copies to advance a horizon is an ordinary data chunk, with nothing
+to mark it apart.
+
+Chunks carry no checksum. A checksum can only detect corruption between the
+moment it is computed and the moment it is verified, and TLS and Gazette's
+fragment content sums already cover that span. It would not detect a wrong
+block index, a mis-coalesced run, or a stale buffer, because each of those
+produces a self-consistent chunk. The safeguards that do catch those are
+structural: the copy loop must find its block set empty before it appends the
+acknowledgement, chunks in one delta never overlap, and a horizon completes only
+when every allocated block has been covered.
 
 Chunks in one delta never overlap, but they are not guaranteed to be sorted.
 Concurrent writes can force a block ahead of the copy cursor to be emitted
@@ -578,7 +629,7 @@ resolves itself:
 - A block the daemon holds and a reader does not is a block with an
   unpublished write. A later delta publishes it and clears the bit.
 - A block a reader holds and the daemon does not is a block a later delta
-  discards. That delta records `PUNCH`, which clears the bit.
+  discards. That delta records a punch, which clears the bit.
 
 An inexact snapshot therefore costs a little redundant work and never produces
 a wrong result.
@@ -914,8 +965,8 @@ The copy walks the owed-set:
 
 1. Claim the next contiguous owed chunk.
 2. Read its current bytes with `pread`.
-3. Compute the CRC and move the chunk into a bounded, immutable output
-   buffer.
+3. Drop the trailing zeroes and move the chunk into a bounded, immutable
+   output buffer.
 4. Mark the blocks captured and remove them from the owed-set.
 5. Append a record when the output batch reaches its limit, retaining its
    bytes until the append is confirmed.
@@ -955,9 +1006,9 @@ Copy before overwrite does not extend to unchanged blocks copied to advance a
 horizon, for the reason [Horizons](#horizons) gives.
 
 Discards follow the same rule as writes. If the delta still owes the block, it
-first captures the old `DATA`. The discard then clears the live allocated bit
+first captures the old content. The discard then clears the live allocated bit
 and dirties the block. If it remains unallocated at the next boundary, that
-delta records `PUNCH`.
+delta records a punch.
 
 ### Committing a delta
 
@@ -1216,27 +1267,37 @@ The reader makes one forward pass:
    image or undo log.
 4. Acknowledged deltas apply in physical order. The live append barrier makes
    this commit order.
-5. At a record that sets `opens_horizon`, the reader copies its current
+5. The reader verifies that chunks within one delta do not overlap. It already
+   tracks the allocated set, so the check is nearly free, and it catches a wrong
+   block index — which no checksum could, because a mis-placed chunk is
+   internally consistent.
+6. At a record that sets `opens_horizon`, the reader copies its current
    allocated set into the horizon bitmap, then clears a bit for each chunk it
    applies after that point.
-6. When the horizon bitmap empties, that horizon is complete and its offset
+7. When the horizon bitmap empties, that horizon is complete and its offset
    becomes the new floor.
-7. The reader accepts more than one horizon record in the range, because the
+8. The reader accepts more than one horizon record in the range, because the
    label may lag. Each one replaces the previous snapshot.
-8. A new session's delta producer abandons an older producer's unacknowledged
+9. A new session's delta producer abandons an older producer's unacknowledged
    delta. A later acknowledgement for an abandoned delta is an ordering error.
-9. The reader may begin in the middle of a delta when the label is absent or
-   lags, seeing trailing records and an acknowledgement for records it never
-   read. This is safe: those records precede the floor, and the floor rule
-   guarantees every allocated block has a copy at or after it.
-10. At `H`, every acknowledged delta must be applied. Unacknowledged spills are
+10. The reader may begin in the middle of a delta when the label is absent or
+    lags, seeing trailing records and an acknowledgement for records it never
+    read. This is safe: those records precede the floor, and the floor rule
+    guarantees every allocated block has a copy at or after it.
+11. At `H`, every acknowledged delta must be applied. Unacknowledged spills are
     deleted.
 
-The reader writes only allocated chunks into a fresh sparse image. `PUNCH`
-chunks hole-punch the recovered file. A rebuilt disk therefore remains as
-sparse as the source. Applying `DATA` and `PUNCH` also rebuilds the allocated
-bitmap. Replay itself does not mark blocks dirty because it is reconstructing
-the committed baseline.
+The reader writes data chunks into a fresh sparse image and hole-punches the
+range of every punch chunk, so a rebuilt disk stays as sparse as its source.
+Applying both kinds also rebuilds the allocated bitmap. Replay does not mark
+blocks dirty, because it is reconstructing the committed baseline.
+
+A data chunk whose `bytes` stop part way through its last block must have the
+rest of that block written as zeroes. Leaving it untouched would keep whatever a
+previous delta put there.
+
+Hole punching is block-granular, which is the same 4 KiB, so writing those
+zeroes costs no sparseness. There is no sub-block hole to preserve.
 
 Replay leaves the daemon holding the image, the allocated bitmap, an empty dirty
 bitmap, the horizon bitmap, and the floor. The daemon returns that floor in
