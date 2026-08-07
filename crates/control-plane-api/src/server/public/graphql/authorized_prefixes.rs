@@ -1,34 +1,48 @@
-/// Returns catalog prefixes where the authenticated user has at least
-/// `min_capability`, optionally narrowed to those overlapping `prefix_filter`.
+/// Largest authorized-prefix set a prefix-scoped list query will serve.
+///
+/// The caller's prefixes are resolved in memory from the request's
+/// authorization Snapshot and bound into SQL as a `text[]` for a
+/// `^@ ANY($1)` scope check, so the array has to be bounded somewhere. A
+/// caller over this many prefixes is refused rather than served a query with
+/// an unbounded scope array.
+///
+/// Shared by every prefix-scoped list query so the ceiling is uniform across
+/// the API.
+pub(super) const MAX_PREFIXES: usize = 100;
+
+/// Returns catalog prefixes where the authenticated user holds all
+/// `required_capabilities`.
 ///
 /// Intended for use by GraphQL queries that list resources scoped to the
-/// caller's authorized prefixes, with an optional prefix filter.
-///
-/// When `prefix_filter` is provided, a prefix is included if the filter is a
-/// sub-prefix of the grant OR the grant is a sub-prefix of the filter. This
-/// bidirectional check lets callers query with a filter that is either broader
-/// or narrower than their grants.
+/// caller's authorized prefixes. This function answers only the authorization
+/// question: user-supplied filters are never applied here, and instead go to
+/// the resolver's SQL alongside this set (see `filtered_authorized_prefixes`).
 pub(super) fn authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
     user_id: uuid::Uuid,
-    min_capability: impl Into<models::authz::CapabilitySet>,
-    prefix_filter: Option<&str>,
+    required_capabilities: impl Into<models::authz::CapabilitySet>,
 ) -> Vec<String> {
-    let min_bits: models::authz::CapabilitySet = min_capability.into();
+    let required_bits: models::authz::CapabilitySet = required_capabilities.into();
 
     // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
     // so the parent-prune step below can run directly on it.
     let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, user_id)
         .into_iter()
-        .filter(|(prefix, _)| {
-            prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
-        })
-        .filter(|(_, (bits, _))| bits.is_superset(min_bits))
+        .filter(|(_, (bits, _))| bits.is_superset(required_bits))
         .map(|(prefix, _)| prefix.to_string());
 
+    prune_covered(prefixes)
+}
+
+/// Drops prefixes already covered by a shorter prefix in the same set, so
+/// `["acmeCo/", "acmeCo/data/"]` collapses to `["acmeCo/"]`.
+///
+/// Input must be sorted, which puts a covering parent immediately before the
+/// run of children it covers.
+fn prune_covered(sorted: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut pruned: Vec<String> = Vec::new();
-    for p in prefixes {
+    for p in sorted {
         if pruned
             .last()
             .is_none_or(|parent| !p.starts_with(parent.as_str()))
@@ -36,24 +50,24 @@ pub(super) fn authorized_prefixes(
             pruned.push(p);
         }
     }
-
     pruned
 }
 
-/// Resolves the caller's prefixes for `min_capability`, narrowed by an optional
-/// `PrefixFilter`, and returns them with the filter's decomposed
-/// `startsWith`/`in` parts (which callers bind into their own SQL). `field`
-/// names the GraphQL input field for the mutual-exclusion error.
+/// Resolves the caller's prefixes for `required_capabilities` and returns them
+/// with the optional `PrefixFilter` decomposed into its `startsWith`/`in`
+/// parts, which callers bind into their own SQL. `field` names the GraphQL
+/// input field for the mutual-exclusion error.
 ///
-/// This chains the three steps every prefix-scoped list query repeats —
-/// `PrefixFilter::into_parts`, `authorized_prefixes`, and
-/// `PrefixFilter::narrow_to_exact_set` — so the narrow-only invariant (a filter
-/// can only remove authorized prefixes, never add them) has a single owner.
+/// The two outputs stay separate all the way into SQL, where the resolver ANDs
+/// an unconditional `^@ ANY($authorized)` scope check against the filter's own
+/// clause. Authorization is therefore built from grants alone and never from
+/// caller input, so a bug in filter handling can only return too few rows,
+/// never widen visibility.
 pub(super) fn filtered_authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
     user_id: uuid::Uuid,
-    min_capability: impl Into<models::authz::CapabilitySet>,
+    required_capabilities: impl Into<models::authz::CapabilitySet>,
     filter: Option<super::filters::PrefixFilter>,
     field: &str,
 ) -> async_graphql::Result<(Vec<String>, Option<String>, Option<Vec<String>>)> {
@@ -61,16 +75,7 @@ pub(super) fn filtered_authorized_prefixes(
         Some(cp) => cp.into_parts(field)?,
         None => (None, None),
     };
-    let mut prefixes = authorized_prefixes(
-        role_grants,
-        user_grants,
-        user_id,
-        min_capability,
-        starts_with.as_deref(),
-    );
-    if let Some(exact) = r#in.as_deref() {
-        super::filters::PrefixFilter::narrow_to_exact_set(&mut prefixes, exact);
-    }
+    let prefixes = authorized_prefixes(role_grants, user_grants, user_id, required_capabilities);
     Ok((prefixes, starts_with, r#in))
 }
 
@@ -106,7 +111,7 @@ mod tests {
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
     #[test]
-    fn no_filter_returns_all_at_or_above_capability() {
+    fn returns_all_at_or_above_capability() {
         let (ug, rg) = make_grants(
             &[
                 (ALICE, "acmeCo/", Admin),
@@ -116,49 +121,21 @@ mod tests {
             &[],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Admin);
         assert_eq!(result, vec!["acmeCo/"]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Write);
         assert_eq!(result, vec!["acmeCo/", "widgets/"]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Read, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Read);
         assert_eq!(result, vec!["acmeCo/", "readonly/", "widgets/"]);
-    }
-
-    #[test]
-    fn filter_narrower_than_grant() {
-        // Grant is on "acmeCo/", filter is "acmeCo/data/" — the grant covers
-        // the filter, so "acmeCo/" is included.
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
-
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/data/"));
-        assert_eq!(result, vec!["acmeCo/"]);
-    }
-
-    #[test]
-    fn filter_broader_than_grant() {
-        // Grant is on "acmeCo/data/", filter is "acmeCo/" — the grant starts
-        // with the filter, so "acmeCo/data/" is included.
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/data/", Admin)], &[]);
-
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/"));
-        assert_eq!(result, vec!["acmeCo/data/"]);
-    }
-
-    #[test]
-    fn filter_excludes_non_overlapping() {
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "other/", Admin)], &[]);
-
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/"));
-        assert_eq!(result, vec!["acmeCo/"]);
     }
 
     #[test]
     fn no_grants_returns_empty() {
         let (ug, rg) = make_grants(&[], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Admin);
         assert!(result.is_empty());
     }
 
@@ -170,11 +147,11 @@ mod tests {
             &[("acmeCo/", "shared/", Write)],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Write);
         assert_eq!(result, vec!["acmeCo/", "shared/"]);
 
         // Admin threshold excludes the transitive Write grant.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Admin);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -187,7 +164,7 @@ mod tests {
             &[],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Admin);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -200,7 +177,7 @@ mod tests {
             &[("acmeCo/", "acmeCo/team/", Write)],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Write);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -209,7 +186,7 @@ mod tests {
         let bob = uuid::Uuid::from_bytes([0x22; 16]);
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, bob, Read, None);
+        let result = authorized_prefixes(&rg, &ug, bob, Read);
         assert!(result.is_empty());
     }
 
@@ -308,11 +285,11 @@ mod tests {
         // child of the qualifying parent. If the union were across
         // ancestors, acmeCo/data/ would qualify on its own (Writer +
         // inherited Admin bits) — it does not.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Admin);
         assert_eq!(result, vec!["acmeCo/"]);
 
         // min=Write: both qualify on their own bits; parent prunes child.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&rg, &ug, ALICE, Write);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -329,48 +306,41 @@ mod tests {
     }
 
     #[test]
-    fn filtered_starts_with_narrows_by_subtree_and_returns_part() {
+    fn filtered_passes_the_filter_through_without_touching_the_authorized_set() {
+        // A filter narrows rows in SQL, not the authorized set: both grants
+        // come back either way, and the filter is returned verbatim for the
+        // resolver to bind alongside them.
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
-        let filter = PrefixFilter {
-            starts_with: Some("acmeCo/".to_string()),
-            r#in: None,
-        };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
             &rg,
             &ug,
             ALICE,
             Admin,
-            Some(filter),
+            Some(PrefixFilter {
+                starts_with: Some("acmeCo/".to_string()),
+                r#in: None,
+            }),
             "filter.catalogPrefix",
         )
         .unwrap();
-        assert_eq!(prefixes, vec!["acmeCo/"]);
+        assert_eq!(prefixes, vec!["acmeCo/", "beta/"]);
         assert_eq!(starts_with.as_deref(), Some("acmeCo/"));
         assert_eq!(r#in, None);
-    }
 
-    #[test]
-    fn filtered_in_narrows_to_exact_set_and_returns_part() {
-        // `authorized_prefixes` runs with no subtree filter (startsWith is None
-        // when `in` is set), so both grants come back; `narrow_to_exact_set`
-        // then drops everything not overlapping the `in` set.
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
-
-        let filter = PrefixFilter {
-            starts_with: None,
-            r#in: Some(vec!["acmeCo/".to_string()]),
-        };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
             &rg,
             &ug,
             ALICE,
             Admin,
-            Some(filter),
+            Some(PrefixFilter {
+                starts_with: None,
+                r#in: Some(vec!["acmeCo/".to_string()]),
+            }),
             "filter.catalogPrefix",
         )
         .unwrap();
-        assert_eq!(prefixes, vec!["acmeCo/"]);
+        assert_eq!(prefixes, vec!["acmeCo/", "beta/"]);
         assert_eq!(starts_with, None);
         assert_eq!(r#in, Some(vec!["acmeCo/".to_string()]));
     }

@@ -1,4 +1,4 @@
-use super::filters;
+use super::{authorized_prefixes::MAX_PREFIXES, filters};
 use crate::directives::storage_mappings::{
     collection_and_recovery_spec_from, insert_storage_mapping, strip_collection_data_suffix,
     update_storage_mapping, upsert_storage_mapping,
@@ -656,8 +656,6 @@ pub type PaginatedStorageMappings = Connection<
 #[derive(Debug, Default)]
 pub struct StorageMappingsQuery;
 
-const MAX_PREFIXES: usize = 20;
-
 #[async_graphql::Object]
 impl StorageMappingsQuery {
     /// Returns storage mappings accessible to the current user.
@@ -719,9 +717,9 @@ impl StorageMappingsQuery {
             return Ok(PaginatedStorageMappings::new(false, false));
         }
         if read_prefixes.len() > MAX_PREFIXES {
-            return Err(async_graphql::Error::new(
-                "Too many accessible prefixes; narrow results with a filter",
-            ));
+            return Err(async_graphql::Error::new(format!(
+                "Too many accessible prefixes to list; this query supports at most {MAX_PREFIXES}"
+            )));
         }
 
         let (rows, has_prev, has_next) =
@@ -1210,8 +1208,7 @@ mod test {
 
         // A cross-tenant `in` entry is dropped rather than widening scope; an
         // unknown prefix simply matches nothing. This also confirms several
-        // `in` entries return every authorized exact match (`filters::test`
-        // covers the multi-entry narrowing logic directly).
+        // `in` entries return every authorized exact match.
         let exact_cross_tenant = prefixes(
             &server,
             &alice_token,

@@ -1,4 +1,4 @@
-use super::{Sensitive, TimestampCursor};
+use super::{Sensitive, TimestampCursor, authorized_prefixes::MAX_PREFIXES};
 use async_graphql::{Context, types::connection};
 
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
@@ -72,7 +72,6 @@ pub type PaginatedServiceAccounts = connection::Connection<
 pub struct ServiceAccountsQuery;
 
 const DEFAULT_PAGE_SIZE: usize = 25;
-const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl ServiceAccountsQuery {
@@ -92,14 +91,15 @@ impl ServiceAccountsQuery {
             &snapshot.user_grants,
             env.claims()?.sub,
             models::authz::Capability::QueryServiceAccounts,
-            None,
         );
 
         if user_accessible_prefixes.is_empty() {
             return Ok(PaginatedServiceAccounts::new(false, false));
         }
         if user_accessible_prefixes.len() > MAX_PREFIXES {
-            return Err(async_graphql::Error::new("Too many accessible prefixes"));
+            return Err(async_graphql::Error::new(format!(
+                "Too many accessible prefixes to list; this query supports at most {MAX_PREFIXES}"
+            )));
         }
 
         connection::query_with::<TimestampCursor, _, _, _, async_graphql::Error>(

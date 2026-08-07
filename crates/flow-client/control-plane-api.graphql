@@ -1540,8 +1540,7 @@ input PrefixFilter {
 	between 1 and 100 entries: an empty `in` is rejected during input
 	validation rather than silently matching nothing (or everything), and
 	the upper bound keeps this caller-controlled set from driving unbounded
-	work — every entry is narrowed against the caller's authorized prefixes
-	in memory and bound into a SQL `= ANY(...)` on each request.
+	work — every entry is bound into a SQL `= ANY(...)` on each request.
 	`startsWith` and `in` are mutually exclusive: a resolver rejects a
 	filter that sets both, so a prefix scope is always either a subtree
 	(`startsWith`) or an exact set (`in`), never a mix.
