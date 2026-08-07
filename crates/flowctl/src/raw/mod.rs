@@ -90,7 +90,7 @@ pub struct Get {
     #[clap(long)]
     table: String,
     /// Optional query parameters.
-    #[clap(long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
+    #[clap(short = 'q', long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
     query: Vec<(String, String)>,
 }
 
@@ -101,7 +101,7 @@ pub struct Update {
     #[clap(long)]
     table: String,
     /// Optional query parameters.
-    #[clap(long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
+    #[clap(short = 'q', long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
     query: Vec<(String, String)>,
     /// Serialized JSON argument of the request.
     #[clap(long)]
@@ -115,7 +115,7 @@ pub struct Rpc {
     #[clap(long)]
     function: String,
     /// Optional query parameters.
-    #[clap(long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
+    #[clap(short = 'q', long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
     query: Vec<(String, String)>,
     /// Serialized JSON argument of the request.
     #[clap(long)]
