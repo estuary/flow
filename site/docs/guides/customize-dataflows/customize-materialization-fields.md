@@ -366,7 +366,7 @@ Since Estuary no longer writes to it, you can manually drop the leftover column 
 A new binding, or a backfill that takes the [drop-and-recreate path](/reference/backfilling-data/#schema-changes-during-backfill), creates the table without the `flow_document` column entirely.
 
 :::note
-For an existing Estuary-managed table, the storage savings are only realized after a backfill clears the stored documents.
+For an existing Estuary-managed table, the storage savings are only realized after a backfill clears the stored `flow_document` fields.
 :::
 
 ### Migrating into a table another tool populated

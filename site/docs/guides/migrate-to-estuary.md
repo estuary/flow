@@ -71,7 +71,7 @@ materializations:
 - [`onIncompatibleSchemaChange: abort`](/concepts/advanced/evolutions/) replaces the default of `backfill`, which responds to an incompatible schema change by refreshing the table from the collection. Against history the collection does not have, that is data loss.
 
 :::warning
-Do not use the **Backfill** button on this materialization. A backfill truncates the destination table, and paired with an incompatible schema change it drops and recreates it. Either way the pre-existing rows are gone, along with any partitioning. See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill).
+Do not use the **Backfill** button on this materialization. A backfill truncates the destination table, which preserves your partitioning but removes the rows. If the publication also carries an incompatible schema change, or the collection key has changed, it drops and recreates the table instead, losing the partitioning too. See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill).
 :::
 
 ### 5. Overlap, then decommission

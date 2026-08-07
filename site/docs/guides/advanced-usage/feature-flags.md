@@ -129,9 +129,11 @@ On the first publication after attaching, the connector reconciles the table aga
 
 - Columns in the field selection that the table does not have are added with `ALTER TABLE ... ADD COLUMN`, as nullable. This includes Estuary's own `flow_document`, `flow_published_at`, and `_meta/op` columns.
 - Columns the table has that are **not** in the field selection are altered to drop `NOT NULL`, if they had it. Keep this in mind when you pre-create a table from DDL you care about: a `NOT NULL` constraint on a column Estuary does not materialize will be relaxed.
-- The table itself is never dropped or recreated, so partitioning, clustering, and other table-level DDL survive.
+- The table itself is not dropped or recreated by this reconciliation, so partitioning, clustering, and other table-level DDL survive it.
 
 Because missing columns are added for you, you can pre-create a table with only the columns you need to control (the partition column and the collection key, for instance) and let the connector fill in the rest.
+
+Attaching is not the only thing that touches the table, though. A [backfill](/reference/backfilling-data/#schema-changes-during-backfill) truncates it by default, which preserves table-level DDL, but drops and recreates it when a selected field's type changes incompatibly, when the collection key changes, or when `always_drop_tables_on_backfill` is set. Since the default [`onIncompatibleSchemaChange`](/concepts/advanced/evolutions/) is `backfill`, an incompatible schema change can reach that path without anyone asking for a backfill. Set it to `abort` if the table's DDL or its pre-existing rows matter.
 
 ### retain_existing_data_on_backfill
 
