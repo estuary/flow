@@ -84,6 +84,7 @@ src/
 │       ├── actor.rs         # event loop driving open / commit / acknowledge / trigger
 │       ├── frontier_mapping.rs  # consumer.Checkpoint <-> shuffle::Frontier
 │       ├── triggers.rs      # webhook trigger delivery
+│       ├── sync_now.rs      # TaskControl.SyncNow outcome evaluation
 │       ├── sync_schedule.rs # compiled sync-schedule evaluator (commit pacing)
 │       └── task.rs          # per-task state held by the leader actor
 │
@@ -301,6 +302,27 @@ Enforcement rides the close policy's min/max transaction durations:
 ceilings still force early commits — a backfill drains under memory pressure
 with no caught-up detection — and `CloseNow` bypasses a hold, so spec updates
 restart promptly. The first transaction of a leader session is never held.
+
+## Sync-now (materialize)
+
+`TaskControl.SyncNow` is a user-facing RPC forcing an immediate commit of a
+materialization's open transaction — collapsing any sync-schedule hold — and
+resolving once that transaction is fully acknowledged (committed and
+queryable in the destination). The tonic service lives beside `Leader` in
+`leader/service.rs` but is registered separately, because callers present
+ordinary gazette READ claims over the task's shards rather than LEAD.
+
+The service delivers the request to the task's live leader session via a
+per-session `SyncNowHandle` registered in `ServiceImpl`. The Actor evaluates
+a pure outcome function (`sync_now::evaluate` over `fsm::sync_now_inputs`),
+acks it, arms the FSM's existing `close_requested` input when an open
+transaction can still be told to close, and parks the caller as a waiter on
+a monotonic count of `Tail::Done` transitions — so N concurrent requests
+await the same commit. Parked waiters receive ~15s Progress heartbeats, then
+Done with committed stats; a session that exits with parked waiters errors
+them out (sync-now is idempotent — callers re-invoke). Derivations and
+captures resolve `NOT_APPLICABLE`; tasks without a live session are
+`NOT_FOUND`.
 
 ## Status
 

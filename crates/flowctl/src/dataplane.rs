@@ -57,12 +57,7 @@ pub async fn user_task_authorization(
     gazette::shard::Client,
     gazette::journal::Client,
 )> {
-    let watch = tokens::watch(workflows::UserTaskAuth {
-        client: rest.clone(),
-        user_tokens: user_tokens.clone(),
-        task: models::Name::new(task),
-        capability: models::Capability::Read,
-    });
+    let watch = user_task_auth_watch(rest, user_tokens, task);
 
     let (shard_id_prefix, ops_logs_journal, ops_stats_journal) = {
         let ready = watch.ready().await.token();
@@ -90,6 +85,50 @@ pub async fn user_task_authorization(
     ))
 }
 
+/// A TaskControl client dialed at a data-plane reactor front door,
+/// bearing a reactor token.
+pub type TaskControlClient = proto_grpc::runtime::task_control_client::TaskControlClient<
+    tonic::service::interceptor::InterceptedService<
+        tonic::transport::Channel,
+        proto_grpc::Metadata,
+    >,
+>;
+
+/// Start a live authorization watch for user access to a task.
+/// Callers hold the watch and mint clients from it as needed, so that each
+/// RPC bears a currently-valid data-plane token.
+pub fn user_task_auth_watch(
+    rest: &flow_client_next::rest::Client,
+    user_tokens: &tokens::PendingWatch<UserToken>,
+    task: &str,
+) -> tokens::PendingWatch<models::authorizations::UserTaskAuthorization> {
+    tokens::watch(workflows::UserTaskAuth {
+        client: rest.clone(),
+        user_tokens: user_tokens.clone(),
+        task: models::Name::new(task),
+        capability: models::Capability::Read,
+    })
+}
+
+/// Build a TaskControl client for the reactor front door of the data-plane
+/// hosting the task which `auth` authorizes. TaskControl RPCs are un-routed:
+/// the front door resolves the task's leader and proxies as needed.
+pub async fn new_task_control_client(
+    auth: &tokens::PendingWatch<models::authorizations::UserTaskAuthorization>,
+) -> anyhow::Result<TaskControlClient> {
+    let ready = auth.ready().await.token();
+    let model = ready.result()?;
+
+    let channel = gazette::dial_channel(&model.reactor_address)?;
+    let metadata = proto_grpc::Metadata::new().with_bearer_token(&model.reactor_token)?;
+
+    Ok(
+        proto_grpc::runtime::task_control_client::TaskControlClient::with_interceptor(
+            channel, metadata,
+        ),
+    )
+}
+
 /// Authorize the user for administrative operations over a task's shards
 /// and recovery logs, returning the task's ops journal names and
 /// Admin-capability shard + journal clients.
@@ -106,12 +145,7 @@ pub async fn user_task_admin(
     gazette::journal::Client,
 )> {
     let (ops_logs_journal, ops_stats_journal) = {
-        let watch = tokens::watch(workflows::UserTaskAuth {
-            client: rest.clone(),
-            user_tokens: user_tokens.clone(),
-            task: models::Name::new(task),
-            capability: models::Capability::Read,
-        });
+        let watch = user_task_auth_watch(rest, user_tokens, task);
         let ready = watch.ready().await.token();
         let model = ready.result()?;
 

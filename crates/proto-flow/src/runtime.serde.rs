@@ -10571,6 +10571,749 @@ impl<'de> serde::Deserialize<'de> for Stopped {
         deserializer.deserialize_struct("runtime.Stopped", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for SyncNowRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.task_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.SyncNowRequest", len)?;
+        if !self.task_name.is_empty() {
+            struct_ser.serialize_field("taskName", &self.task_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SyncNowRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "task_name",
+            "taskName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            TaskName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "taskName" | "task_name" => Ok(GeneratedField::TaskName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SyncNowRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SyncNowRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut task_name__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::TaskName => {
+                            if task_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("taskName"));
+                            }
+                            task_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SyncNowRequest {
+                    task_name: task_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SyncNowResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.response.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.SyncNowResponse", len)?;
+        if let Some(v) = self.response.as_ref() {
+            match v {
+                sync_now_response::Response::Ack(v) => {
+                    struct_ser.serialize_field("ack", v)?;
+                }
+                sync_now_response::Response::Progress(v) => {
+                    struct_ser.serialize_field("progress", v)?;
+                }
+                sync_now_response::Response::Done(v) => {
+                    struct_ser.serialize_field("done", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SyncNowResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ack",
+            "progress",
+            "done",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Ack,
+            Progress,
+            Done,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "ack" => Ok(GeneratedField::Ack),
+                            "progress" => Ok(GeneratedField::Progress),
+                            "done" => Ok(GeneratedField::Done),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SyncNowResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SyncNowResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut response__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Ack => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ack"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Ack)
+;
+                        }
+                        GeneratedField::Progress => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("progress"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Progress)
+;
+                        }
+                        GeneratedField::Done => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("done"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Done)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SyncNowResponse {
+                    response: response__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for sync_now_response::Ack {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.outcome != 0 {
+            len += 1;
+        }
+        if self.status.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.SyncNowResponse.Ack", len)?;
+        if self.outcome != 0 {
+            let v = sync_now_response::Outcome::try_from(self.outcome)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.outcome)))?;
+            struct_ser.serialize_field("outcome", &v)?;
+        }
+        if let Some(v) = self.status.as_ref() {
+            struct_ser.serialize_field("status", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for sync_now_response::Ack {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "outcome",
+            "status",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Outcome,
+            Status,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "outcome" => Ok(GeneratedField::Outcome),
+                            "status" => Ok(GeneratedField::Status),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = sync_now_response::Ack;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse.Ack")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<sync_now_response::Ack, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut outcome__ = None;
+                let mut status__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Outcome => {
+                            if outcome__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("outcome"));
+                            }
+                            outcome__ = Some(map_.next_value::<sync_now_response::Outcome>()? as i32);
+                        }
+                        GeneratedField::Status => {
+                            if status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("status"));
+                            }
+                            status__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(sync_now_response::Ack {
+                    outcome: outcome__.unwrap_or_default(),
+                    status: status__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse.Ack", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for sync_now_response::Done {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.committed_docs_total != 0 {
+            len += 1;
+        }
+        if self.committed_bytes_total != 0 {
+            len += 1;
+        }
+        if self.open_age_millis != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.SyncNowResponse.Done", len)?;
+        if self.committed_docs_total != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("committedDocsTotal", ToString::to_string(&self.committed_docs_total).as_str())?;
+        }
+        if self.committed_bytes_total != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("committedBytesTotal", ToString::to_string(&self.committed_bytes_total).as_str())?;
+        }
+        if self.open_age_millis != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("openAgeMillis", ToString::to_string(&self.open_age_millis).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for sync_now_response::Done {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "committed_docs_total",
+            "committedDocsTotal",
+            "committed_bytes_total",
+            "committedBytesTotal",
+            "open_age_millis",
+            "openAgeMillis",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            CommittedDocsTotal,
+            CommittedBytesTotal,
+            OpenAgeMillis,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "committedDocsTotal" | "committed_docs_total" => Ok(GeneratedField::CommittedDocsTotal),
+                            "committedBytesTotal" | "committed_bytes_total" => Ok(GeneratedField::CommittedBytesTotal),
+                            "openAgeMillis" | "open_age_millis" => Ok(GeneratedField::OpenAgeMillis),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = sync_now_response::Done;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse.Done")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<sync_now_response::Done, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut committed_docs_total__ = None;
+                let mut committed_bytes_total__ = None;
+                let mut open_age_millis__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::CommittedDocsTotal => {
+                            if committed_docs_total__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("committedDocsTotal"));
+                            }
+                            committed_docs_total__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CommittedBytesTotal => {
+                            if committed_bytes_total__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("committedBytesTotal"));
+                            }
+                            committed_bytes_total__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::OpenAgeMillis => {
+                            if open_age_millis__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("openAgeMillis"));
+                            }
+                            open_age_millis__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(sync_now_response::Done {
+                    committed_docs_total: committed_docs_total__.unwrap_or_default(),
+                    committed_bytes_total: committed_bytes_total__.unwrap_or_default(),
+                    open_age_millis: open_age_millis__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse.Done", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for sync_now_response::Outcome {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Invalid => "INVALID",
+            Self::HeldCollapsed => "HELD_COLLAPSED",
+            Self::CloseRequested => "CLOSE_REQUESTED",
+            Self::AlreadyClosing => "ALREADY_CLOSING",
+            Self::Idle => "IDLE",
+            Self::NotApplicable => "NOT_APPLICABLE",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for sync_now_response::Outcome {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "INVALID",
+            "HELD_COLLAPSED",
+            "CLOSE_REQUESTED",
+            "ALREADY_CLOSING",
+            "IDLE",
+            "NOT_APPLICABLE",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = sync_now_response::Outcome;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "INVALID" => Ok(sync_now_response::Outcome::Invalid),
+                    "HELD_COLLAPSED" => Ok(sync_now_response::Outcome::HeldCollapsed),
+                    "CLOSE_REQUESTED" => Ok(sync_now_response::Outcome::CloseRequested),
+                    "ALREADY_CLOSING" => Ok(sync_now_response::Outcome::AlreadyClosing),
+                    "IDLE" => Ok(sync_now_response::Outcome::Idle),
+                    "NOT_APPLICABLE" => Ok(sync_now_response::Outcome::NotApplicable),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for sync_now_response::Status {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.sourced_docs_total != 0 {
+            len += 1;
+        }
+        if self.sourced_bytes_total != 0 {
+            len += 1;
+        }
+        if self.open_age_millis != 0 {
+            len += 1;
+        }
+        if !self.head_phase.is_empty() {
+            len += 1;
+        }
+        if !self.tail_phase.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.SyncNowResponse.Status", len)?;
+        if self.sourced_docs_total != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sourcedDocsTotal", ToString::to_string(&self.sourced_docs_total).as_str())?;
+        }
+        if self.sourced_bytes_total != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sourcedBytesTotal", ToString::to_string(&self.sourced_bytes_total).as_str())?;
+        }
+        if self.open_age_millis != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("openAgeMillis", ToString::to_string(&self.open_age_millis).as_str())?;
+        }
+        if !self.head_phase.is_empty() {
+            struct_ser.serialize_field("headPhase", &self.head_phase)?;
+        }
+        if !self.tail_phase.is_empty() {
+            struct_ser.serialize_field("tailPhase", &self.tail_phase)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for sync_now_response::Status {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "sourced_docs_total",
+            "sourcedDocsTotal",
+            "sourced_bytes_total",
+            "sourcedBytesTotal",
+            "open_age_millis",
+            "openAgeMillis",
+            "head_phase",
+            "headPhase",
+            "tail_phase",
+            "tailPhase",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            SourcedDocsTotal,
+            SourcedBytesTotal,
+            OpenAgeMillis,
+            HeadPhase,
+            TailPhase,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "sourcedDocsTotal" | "sourced_docs_total" => Ok(GeneratedField::SourcedDocsTotal),
+                            "sourcedBytesTotal" | "sourced_bytes_total" => Ok(GeneratedField::SourcedBytesTotal),
+                            "openAgeMillis" | "open_age_millis" => Ok(GeneratedField::OpenAgeMillis),
+                            "headPhase" | "head_phase" => Ok(GeneratedField::HeadPhase),
+                            "tailPhase" | "tail_phase" => Ok(GeneratedField::TailPhase),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = sync_now_response::Status;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse.Status")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<sync_now_response::Status, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut sourced_docs_total__ = None;
+                let mut sourced_bytes_total__ = None;
+                let mut open_age_millis__ = None;
+                let mut head_phase__ = None;
+                let mut tail_phase__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::SourcedDocsTotal => {
+                            if sourced_docs_total__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sourcedDocsTotal"));
+                            }
+                            sourced_docs_total__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::SourcedBytesTotal => {
+                            if sourced_bytes_total__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sourcedBytesTotal"));
+                            }
+                            sourced_bytes_total__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::OpenAgeMillis => {
+                            if open_age_millis__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("openAgeMillis"));
+                            }
+                            open_age_millis__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::HeadPhase => {
+                            if head_phase__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("headPhase"));
+                            }
+                            head_phase__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TailPhase => {
+                            if tail_phase__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tailPhase"));
+                            }
+                            tail_phase__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(sync_now_response::Status {
+                    sourced_docs_total: sourced_docs_total__.unwrap_or_default(),
+                    sourced_bytes_total: sourced_bytes_total__.unwrap_or_default(),
+                    open_age_millis: open_age_millis__.unwrap_or_default(),
+                    head_phase: head_phase__.unwrap_or_default(),
+                    tail_phase: tail_phase__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse.Status", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for Task {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

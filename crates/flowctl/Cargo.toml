@@ -30,6 +30,7 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = [
     "capture_client",
+    "runtime_client",
     "shuffle_client",
 ] }
 publisher = { path = "../publisher" }
@@ -83,5 +84,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
+proto-grpc = { path = "../proto-grpc", features = ["runtime_server"] }
 tempfile = { workspace = true }
+tokio-stream = { workspace = true, features = ["net"] }
 insta = { workspace = true }

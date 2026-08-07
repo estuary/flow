@@ -19,6 +19,7 @@ mod preview_next;
 mod shards;
 mod spec;
 mod split_shards;
+mod sync_now;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -75,6 +76,9 @@ pub enum Command {
     ListShards(TaskSelector),
     /// Split each shard of a task on either shuffled key or rotated clock.
     SplitShards(split_shards::Split),
+    /// Force a materialization to immediately commit its open transaction,
+    /// and wait until that transaction is acknowledged by its endpoint.
+    SyncNow(sync_now::SyncNow),
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
@@ -232,6 +236,7 @@ impl Advanced {
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::SplitShards(split) => split_shards::do_split(ctx, split).await,
+            Command::SyncNow(sync_now) => sync_now::do_sync_now(ctx, sync_now).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
             Command::PreviewNext(preview) => preview.run(ctx).await,
         }

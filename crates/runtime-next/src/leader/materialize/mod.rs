@@ -2,6 +2,7 @@ mod actor;
 mod fsm;
 mod handler;
 mod startup;
+pub(crate) mod sync_now;
 mod sync_schedule;
 mod task;
 mod triggers;
@@ -9,6 +10,7 @@ mod triggers;
 use super::close_policy;
 
 pub(crate) use handler::serve;
+pub(crate) use sync_now::SyncNow;
 
 #[derive(Clone)]
 pub(crate) struct Metrics {

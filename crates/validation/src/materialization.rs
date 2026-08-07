@@ -695,6 +695,14 @@ async fn walk_materialization<C: Connectors>(
             if let Err(detail) = sync_schedule.validate() {
                 Error::SyncScheduleInvalid { detail }.push(scope, errors);
             }
+            // A model-level sync schedule is silently inert under the V1
+            // runtime, so reject it outright.
+            if crate::flag_value(&shards.flags, models::ENABLE_RUNTIME_V2) != Some("true") {
+                Error::SyncScheduleRequiresRuntimeV2 {
+                    materialization: materialization.to_string(),
+                }
+                .push(scope, errors);
+            }
             // A connector-side sync schedule and a model-level one would fight
             // over commit cadence; reject configuring both.
             if let models::MaterializationEndpoint::Connector(config) = &endpoint
@@ -1168,15 +1176,32 @@ fn temporary_group_by_migration(
 /// An empty `syncSchedule` object, or one whose values are all null or empty
 /// strings, is NOT configured: the connector treats those identically to an
 /// absent key, and a UI removing the schedule may leave such a remnant behind.
+///
+/// A zero-duration `syncFrequency` with no other fields set is also NOT
+/// configured: it's the connector's documented "off" switch (no ack delay at
+/// all), and the sanctioned pairing with a model-level sync schedule. The
+/// connector parses it as a Go duration, which has many zero spellings
+/// ("0s", "0m0s", a bare "0"), so we test that every digit is zero rather than
+/// enumerate them; a value that isn't a duration is the connector's to reject.
+/// With any fast-sync field set the connector still delays acks outside the
+/// fast window, so that remains configured.
 fn connector_config_has_sync_schedule(config: &models::RawValue) -> bool {
     let Ok(serde_json::Value::Object(map)) = serde_json::from_str(config.get()) else {
         return false;
     };
     match map.get("syncSchedule") {
         None | Some(serde_json::Value::Null) => false,
-        Some(serde_json::Value::Object(sched)) => sched
-            .values()
-            .any(|value| !value.is_null() && value.as_str() != Some("")),
+        Some(serde_json::Value::Object(sched)) => sched.iter().any(|(field, value)| {
+            if value.is_null() || value.as_str() == Some("") {
+                false
+            } else if field == "syncFrequency" {
+                !value
+                    .as_str()
+                    .is_some_and(|freq| freq.chars().all(|c| !c.is_ascii_digit() || c == '0'))
+            } else {
+                true
+            }
+        }),
         // Any other shape is malformed, but conservatively "configured".
         Some(_) => true,
     }
