@@ -1,1068 +1,663 @@
 # Block-Backed Connector Disks
 
-## Decision summary
+## Solution overview
 
-Each live connector shard gets a private 10 GiB POSIX filesystem at a stable
-path. The disk advances atomically with Flow transactions: after a failure, it
-is rebuilt to the filesystem state associated with the last committed
-transaction.
+A shard is one running partition of a task. Flow gives each live connector
+shard a private 10 GiB filesystem at a stable path inside its sandbox. A
+connector uses ordinary POSIX file operations and does not need to configure or
+negotiate for the disk. The disk is private to one shard and is not shared with
+other shards. It can hold embedded databases, indexes, staged files, caches,
+and other working state without encoding file contents in a connector
+checkpoint.
 
-Every connector block write goes through the disk daemon, which records the
-blocks that change. At a transaction boundary the daemon copies those blocks
-into a per-shard Gazette journal. Each delta also carries a small number of
-blocks that did not change, and these move the start of the necessary replay
-range forward. Recovery therefore does not replay an unbounded history.
+The filesystem advances with Flow transactions. When a transaction commits,
+its connector checkpoint and disk changes become durable together. After a
+failure, Flow creates a new local filesystem from the disk state associated
+with the last committed checkpoint. Changes from an uncommitted transaction
+are discarded.
 
-The daemon observes every block write through Linux `ublk`, which sits between
-the host filesystem and the daemon. This is an implementation detail and is not
-part of the durable format.
+A privileged disk daemon provides the filesystem. It stores the current disk
+in a sparse local image and exposes that image to the host kernel through Linux
+`ublk`. The host mounts an ext4 filesystem and passes its directory to the
+connector sandbox. Connectors never receive a block device or elevated host
+privileges.
 
-The derivation connector protocol fits naturally with coordinating the necessary
-disk quiescense periods for snapshots to be recorded. Runtime authoritative
-materializations also work well with the existing protocol, but not remote
-authoritative ones. Captures need no protocol change at all; the guarantee a
-capture receives follows from its own behavior, as [Captures](#captures)
-describes. This design describes support for derivations,
-runtime-authoritative materializations, and captures.
+The disk daemon is designed as a general-purpose service. Its core primitive is
+a block device whose state advances atomically with an external commit and
+whose history is stored in Gazette. That primitive does not depend on Flow, so
+the daemon can also be used as a stand-alone Gazette-backed utility by other
+systems.
 
-### Design boundaries
+The daemon writes changed 4 KiB blocks to a per-shard Gazette journal. These
+block deltas are the durable copy of the disk; the local image is disposable.
+The runtime commits a delta by recording its acknowledgement in the same
+recovery-log transaction as the connector checkpoint. The daemon also copies a
+small amount of unchanged data with each delta. These copies move the start of
+the required recovery range forward, which keeps recovery time and retained
+journal data bounded.
 
-**Connector calls.** Every live capture, derivation, and materialization shard
-gets a directory at a stable path inside its sandbox before the connector opens.
-The daemon formats and mounts the filesystem behind that path. There is no
-opt-in or capability negotiation. Validation, discovery, `Apply`, and other
-non-transactional connector calls do not get a disk because their filesystem
-changes cannot be tied to a Flow commit.
+The product behavior is:
 
-**Capacity.** Every disk is 10 GiB. This is a platform constant rather than a
-catalog or connector setting because the compaction, spill, and local-capacity
-assumptions below depend on a small known maximum. It is a number largely picked
-out of the air as "not too big, but big enough to be useful".
-
-**Platform.** The daemon requires Linux 6.0 or later with `ublk_drv`. It is a
-privileged component: mounting ext4 needs `CAP_SYS_ADMIN`, which also covers
-`ublk` device creation. The reactor needs only the daemon's socket, plus
-`/dev/kvm` when it uses a `libkrun` sandbox, and is unprivileged. Either a
-`libkrun` guest or a plain container can consume the mount, so the design does
-not depend on which one a connector gets.
-
-**Guarantee.** Recovery reproduces the filesystem contents seen at the
-committed boundary. It does not promise a byte-identical image because mounting
-and unmounting change filesystem bookkeeping.
-
-**Shard splits.** TBD. Options here may include copying the parent disk in child
-shards, or simply not allowing live splits and requiring the number of shards
-for a task to be specified at creation. It will almost certainly not be possible
-to "merge" split shards once they have written to their disks.
-
-## Disk daemon
-
-The capability described here is not specific to Flow. "A block device whose
-state advances atomically with an external commit, backed by a journal" is a
-general-purpose primitive — roughly litestream generalized from SQLite to whole
-devices, and with journal latency in place of object-store latency. It is worth
-building as a stand-alone service rather than as runtime internals, and it may
-be worth an open-source push.
-
-The disk daemon is a machine singleton. It provides the `ublk` io_uring service
-and a gRPC interface over a unix domain socket. There is one daemon and one
-reactor per machine.
-
-Two properties of the design make this extraction clean, and both are worth
-protecting:
-
-- The commit obligation is **opaque** to the caller. The runtime stores bytes
-  and returns them without interpretation.
-- The recovery floor is a **hint** and not an authority. The caller can pass it,
-  omit it, or pass a stale one, and the daemon rebuilds the same disk.
-
-If either were otherwise, the daemon would have to understand what a Flow
-transaction is, or what a Flow label means.
-
-### Division of responsibility
-
-Most of this document describes the daemon: the image, the bitmaps, the device
-gate, copy before overwrite, the journal format, horizons, and recovery.
-
-These four things stay with the runtime:
-
-| Runtime responsibility | Reason |
+| Area | Behavior |
 | --- | --- |
-| Connector protocol timing | The daemon cannot know when a connector is quiet |
-| `AI:` acks | The commit is the runtime's, in its own recovery log |
-| `estuary.dev/truncated-at` | A Flow label name does not belong in a general service |
-| The `JournalSpec` | Deriving it from a task template is catalog knowledge |
+| Provisioning | Every live capture, derivation, and runtime-authoritative materialization shard receives a disk before its connector opens. |
+| Capacity | Each disk has a fixed logical size of 10 GiB. The sparse local image consumes space only for allocated blocks. |
+| Configuration | There is no catalog setting, connector capability, or opt-in. |
+| Durability | Disk contents commit atomically with the Flow transaction that uses them. |
+| Recovery | Flow rebuilds a fresh local image from the last committed disk state. Recovery reproduces filesystem contents, not byte-for-byte ext4 metadata. |
+| Derivations | The terminal flush response provides a checkpoint-aligned disk boundary. |
+| Materializations | Runtime-authoritative materializations use their commit and acknowledge exchange. Remote-authoritative materializations are not supported. |
+| Captures | A capture gets checkpoint-aligned recovery only when it stops writing the disk between a checkpoint and its acknowledgement. Other captures may use the disk for cache or scratch data, but not for resume-critical state. |
+| Other connector calls | Validation, discovery, `Apply`, and other non-transactional calls do not receive a disk. |
+| Platform | The disk daemon requires Linux 6.0 or later, `ublk_drv`, and `CAP_SYS_ADMIN`. Reactors and connectors remain unprivileged. |
+| Shard Splits | Splitting shards with disk journals is TBD, but will require a mechanism similar to splitting tasks with per-shard recovery logs (captures) |
+| Recovery Logs | A possible future candidate for replacement of the existing gazette RocksDB store mechanism with these general purpose journal backed disks |
 
-A rule that keeps the boundary honest: anything named `estuary.dev/` stays in
-the runtime.
+The first transaction that uses a fresh disk must publish the filesystem's
+initial metadata as well as the connector's changes. Later transactions publish
+only changed blocks and the bounded amount of data needed to advance recovery.
+With the policy in this design, the required recovery range is approximately
+bounded to five times the disk's live allocated size.
 
-### Session protocol
+## Scope and guarantees
 
-One device is one session, and one session is one bidirectional stream. The
-device lives for exactly as long as the stream. A dropped stream unmounts the
-filesystem and destroys the device, which is what stops an orphaned process from
-writing to a journal it no longer owns.
+### Provisioning
 
-A session hands back a **mounted directory** rather than a block device node.
-The daemon owns `mkfs`, the mount options, and every filesystem tuning decision.
-A caller receives a path it can use, and the sandbox it uses is its own
-business.
+A live task call is a connector process that participates in Flow
+transactions. Before opening such a connector, the runtime asks the daemon for
+a disk and places the returned directory at a stable path in the connector
+sandbox. This applies to captures, derivations, and runtime-authoritative
+materializations.
 
-| Request | Reply | Purpose |
-| --- | --- | --- |
-| `Open` | `Opened` | Create or recover a device |
-| `Publish` | `Published` | Publish one delta and return its ack |
-| `Commit` | `Committed` | Append an ack the caller made durable |
-| `Credentials` | — | Replace the broker credential |
+Non-transactional calls do not receive a disk. Their filesystem changes cannot
+be associated with a Flow commit. This includes validation, discovery,
+`Apply`, and similar calls.
 
-`Open` carries the device size, the `JournalSpec`, the broker address, a
-credential, every recovered ack, and an optional floor. `Opened` returns the
-mount path and the floor that the daemon derived.
+The 10 GiB capacity is a platform constant. It is not part of a catalog model
+or connector configuration. Compaction, spill limits, and local placement can
+therefore rely on a small, known maximum.
 
-`Opened` reports nothing about whether the disk was fresh. The daemon formats a
-fresh disk itself, so a caller has no decision to make.
+The mount works with both supported sandbox types:
 
-The daemon applies the `JournalSpec` only if it must append and the journal is
-absent. Journal creation therefore stays lazy: a connector that never writes its
-disk never gets a journal.
+- A `libkrun` guest receives the directory through `virtio-fs`.
+- A plain container receives the directory through a bind mount.
 
-`Publish` cuts and publishes together. `Published` carries no ack when the disk
-did not change.
+The durable design does not depend on the sandbox type.
 
-`Committed` carries a floor only when that commit completed a horizon.
+### Filesystem guarantee
 
-The daemon never sends a message that does not answer a request, and it does no
-work between calls. The stream is a lifetime scope rather than a channel for
-events. A terminal condition ends the stream instead, including a local image
-failure while the device is idle.
+Recovery presents the same filesystem contents that the connector saw at the
+committed boundary. It does not reproduce an identical block image. Mounting,
+filesystem-journal replay, and unmounting can change ext4 bookkeeping such as
+timestamps and mount counts.
 
-### Order of operations
+The daemon guarantees that each published delta is a coherent point-in-time
+device state. The runtime and connector guarantee that this point is aligned
+with a connector checkpoint. If the connector violates its boundary contract,
+the disk remains a valid filesystem but may contain state from before or after
+the checkpoint.
 
-At startup the caller must:
-
-1. Acquire and recover the shard recovery log.
-2. Read the `estuary.dev/truncated-at` label from the journal.
-3. Send `Open` with every recovered ack and that floor.
-4. Give the returned mount path to the sandbox, over `virtio-fs` for a
-   `libkrun` guest or as a bind mount for a container.
-5. Open the connector.
-
-At each boundary the caller must:
-
-1. Bring the connector to a boundary, as [Task boundaries](#task-boundaries)
-   describes.
-2. Send `Publish`.
-3. Stop here if the reply carries no ack.
-4. Record the ack as `AI:` in the same commit as the checkpoint.
-5. Send `Commit` with that ack, after that commit is durable.
-6. Apply the label if `Committed` returns a floor.
-7. Release the connector.
-
-### Rules the caller must obey
-
-- Hold only one ack. Send `Commit` before the next `Publish`. A second `Publish`
-  is a protocol error and ends the session.
-- Send `Commit` only after the ack is durable in the recovery log.
-- Return the exact ack bytes. Do not serialize them again.
-- Keep the connector quiet from the boundary until release.
-
-### What each side promises
-
-The daemon promises **coherence**. What it publishes is a valid point-in-time
-state of the device.
-
-The caller promises **alignment**. The boundary is at a connector checkpoint.
-
-The daemon keeps its promise even when a connector breaks the caller's. The disk
-is then still valid, but it can hold more state than the checkpoint, or less.
-
-### Errors
-
-The daemon retries a broker failure by itself and does not report it.
-
-Any error that reaches the caller is terminal. The session is over, and the
-caller must tear down the shard.
-
-A fence failure means that another process owns the shard and holds the journal.
-
-
-## Correctness model
-
-The local image is a disposable working copy. The durable disk state is the set
-of committed deltas in the disk journal.
-
-A **delta** is the set of chunks that one transaction commits. It carries
-every block that changed at that boundary, and it may carry some blocks that
-did not — extra copies the daemon includes to move the recovery floor forward.
-[Horizons](#horizons) explains why.
-
-Nothing in the encoding separates the two. An extra copy is an ordinary data
-chunk, so a reader treats every chunk identically, which is what keeps replay
-simple.
-
-The **recovery floor** is the offset of the first record that recovery must
-read. Recovery calculates the floor from the journal contents. The
-`estuary.dev/truncated-at` journal label holds the floor as a message clock.
-
-The label is a bookmark rather than an authority, and that distinction carries
-more weight than it first appears. The floor is a fact about what the journal
-contains, so any reader rederives it from a replay it must perform anyway. A
-label that is absent, or behind the true floor, costs replay work and nothing
-else.
-
-The recovery log carries one kind of disk state:
-
-- `AI:{journal}` is the exact serialized acknowledgement record that a
-  committed transaction still requires the daemon to append.
-
-`AI:` makes post-commit publication recoverable. A delta without an
-acknowledgement is not committed.
-
-### What the connector must do
-
-The daemon can tell whether blocks changed and can capture a coherent image
-while writes continue. It cannot tell whether a connector has finished an
-application-level transaction or flushed its own buffers.
+### Connector boundary contract
 
 At a boundary where its disk changed, a connector must:
 
-1. `fsync` the state that belongs to the boundary;
-2. report the appropriate protocol response; and
-3. avoid further disk writes until the runtime signals that the boundary has
-   been taken.
+1. `fsync` the state that belongs to the transaction.
+2. Return the protocol response that marks the boundary.
+3. Stop writing the disk until the runtime releases it.
 
-A connector that skips `fsync` gets power-cut semantics for its own disk. A
-connector that writes during the quiet interval can put its disk ahead of its
-checkpoint. Neither the runtime nor the daemon can detect either violation,
-because connector messages and block I/O are independently buffered.
+Skipping `fsync` gives the connector power-loss semantics for buffered data.
+Writing during the quiet period can move the disk ahead of its checkpoint.
+Connector messages and block I/O are buffered independently, so neither the
+runtime nor the daemon can detect these violations.
 
-The connector contract aligns the disk snapshot with the connector checkpoint.
-The daemon produces a coherent snapshot even if the connector violates that
-contract, but the snapshot may then be missing expected state or include state
-newer than the checkpoint.
+The exact boundary and release messages depend on the task type. They are
+defined in [Task-specific boundaries](#task-specific-boundaries).
 
-## Components and durable state
+## Architecture
 
-The block store for each live shard incarnation has four local data
-structures:
+The disk daemon is a machine-level singleton with two interfaces:
+
+- a userspace block-device server that handles Linux `ublk` I/O through
+  `io_uring`; and
+- a gRPC service on a Unix domain socket for the runtime.
+
+The daemon's protocol uses opaque acknowledgements and generic journal metadata.
+It does not interpret Flow transactions, labels, catalog models, or connector
+filesystems.
+
+```text
+connector process
+       │ POSIX file operations
+       ▼
+virtio-fs or bind mount
+       │
+       ▼
+host ext4 filesystem
+       │ block requests
+       ▼
+Linux ublk device ◄──── disk daemon ────► sparse local image
+                           │
+                           │ block deltas
+                           ▼
+                  per-shard Gazette journal
+```
+
+### Division of responsibility
+
+The daemon owns the device image, change-tracking bitmaps, device gate, delta
+capture, journal format, compaction horizons, and recovery.
+
+The runtime owns Flow-specific coordination:
+
+| Runtime responsibility | Reason |
+| --- | --- |
+| Connector protocol timing | Only the runtime knows when a connector has reached a transaction boundary. |
+| `AI:` recovery-log entries | The Flow recovery log is the authority for a committed transaction. |
+| `estuary.dev/truncated-at` | The label is part of Flow's journal conventions. |
+| `JournalSpec` construction | The spec comes from task and catalog templates. |
+
+### Local and durable state
+
+Each live disk has four local data structures:
 
 - a sparse image file;
 - a dirty bitmap;
 - an allocated bitmap; and
 - a horizon bitmap.
 
-If the disk has ever committed, it also has one per-shard Gazette journal.
+The local structures are disposable. A disk that has published state has a
+per-shard Gazette journal. Its acknowledged deltas, plus any pending delta
+identified by a recovered `AI:`, define the durable disk state.
+
+The **recovery floor** is the earliest journal offset needed to rebuild the
+disk. The daemon derives it from journal contents. The runtime stores the same
+position as a message clock in `estuary.dev/truncated-at` so the daemon can seek
+near it on the next recovery.
+
+## Daemon session protocol
+
+One device corresponds to one bidirectional gRPC stream. The device exists for
+the lifetime of the stream. If the stream closes, the daemon unmounts the
+filesystem and destroys the device. This prevents an orphaned process from
+writing to a journal after it loses ownership.
+
+The daemon returns a mounted directory, not a block-device node. It owns
+formatting, mount options, and filesystem tuning. The runtime only needs a path
+that it can pass into a sandbox.
+
+The stream has four request types:
+
+| Request | Reply | Purpose |
+| --- | --- | --- |
+| `Open` | `Opened` | Create or recover a disk and return its mount path. |
+| `Publish` | `Published` | Cut one point-in-time delta and return its acknowledgement. |
+| `Commit` | `Committed` | Append an acknowledgement that the runtime has made durable. |
+| `Credentials` | none | Replace the broker credential. |
+
+`Open` includes the device size, `JournalSpec`, broker address, credential,
+recovered acknowledgements, and an optional recovery floor. `Opened` returns
+the mount path and the floor derived by the daemon. It does not report whether
+the disk is fresh because the daemon handles fresh-disk formatting itself.
+
+The daemon uses the supplied `JournalSpec` only when it first needs to append
+and the journal does not exist. Journal creation is lazy.
+
+`Publish` establishes the boundary and finishes publication of its delta. If
+the disk has no changes and no horizon work was published, `Published`
+contains no acknowledgement. `Committed` includes a new floor only when that
+commit completes a horizon.
+
+The stream contains request and reply messages only. The daemon does not send
+unsolicited events. Device I/O and an in-flight copy can continue while the
+stream is otherwise idle. A terminal device error closes the stream.
+
+### Opening a session
+
+The runtime opens a disk in this order:
+
+1. Acquire and recover the shard recovery log.
+2. Read `estuary.dev/truncated-at` from the disk journal.
+3. Send `Open` with every recovered `AI:` acknowledgement and the label value.
+4. Place the returned mount path in the sandbox through `virtio-fs` or a bind
+   mount.
+5. Open the connector.
+
+### Publishing and committing a boundary
+
+At each transaction boundary, the runtime:
+
+1. Brings the connector to the task-specific boundary and keeps it quiet.
+2. Sends `Publish`.
+3. Takes the unchanged fast path if `Published` contains no acknowledgement.
+4. Otherwise records the exact acknowledgement as `AI:` in the same
+   recovery-log commit as the checkpoint.
+5. Sends `Commit` with the same bytes after the recovery-log commit is durable.
+6. Applies `estuary.dev/truncated-at` if `Committed` returns a newer floor.
+7. Releases the connector.
+
+The runtime may hold at most one uncommitted acknowledgement for a session. It
+must send `Commit` before the next `Publish`. A second `Publish`, an early
+`Commit`, changed acknowledgement bytes, or connector writes during the quiet
+period are protocol violations.
+
+### Errors
+
+The daemon retries broker errors internally. An error returned to the runtime
+is terminal for the session, and the runtime tears down the shard.
+
+A fence failure means that another process owns the shard's disk journal. It is
+also terminal.
+
+## Local filesystem implementation
 
 ### Sparse image
 
-The image is a sparse file created with `O_TMPFILE` and sized to 10 GiB with
-`ftruncate`. It never has a directory entry. Byte *N* of the file is byte *N*
-of the block device.
+The daemon creates the 10 GiB image with `O_TMPFILE` and `ftruncate`. The image
+has no directory entry. Byte *N* in the file is byte *N* on the block device.
 
-The image starts with no allocated host blocks. A connector using 200 MiB
-therefore consumes about 200 MiB rather than 10 GiB. The daemon treats the
-contents as opaque bytes. It never parses superblocks, inodes, or directory
-entries.
+The file starts with no allocated host blocks. A disk containing 200 MiB of
+allocated data therefore uses about 200 MiB of local storage, plus metadata.
+The daemon treats the content as opaque bytes and never parses ext4
+superblocks, inodes, or directory entries.
 
-Keeping the image as one ordinary file allows the daemon to use normal file
-operations for block reads, writes, checksums, hole punching, and final
-cleanup.
+Using one ordinary file allows block reads, writes, checksums, hole punching,
+and cleanup to use normal file operations. The host filesystem must support
+hole punching.
 
 ### Change tracking
 
-The daemon keeps three bitmaps. Each bitmap has one bit for each 4 KiB block. A
-10 GiB image has 2,621,440 blocks, so each bitmap is 320 KiB. The bitmaps are
-arrays of atomic words. The write path sets the necessary bits before it issues
-the image write.
+All tracking uses 4 KiB blocks. A 10 GiB image has 2,621,440 blocks, so each
+bitmap is 320 KiB. Each bitmap is an array of atomic words.
 
-The **dirty bitmap** answers this question:
+The **dirty bitmap** identifies blocks that may differ from the last published
+boundary. The write path sets a block's bit before writing the image and again
+after the write completes. The bit stays set for the full interval in which
+the block may be unstable. At a boundary, the daemon swaps in an empty bitmap.
+The old bitmap becomes the set of blocks still owed to that delta.
 
-> Might this block differ from what was last published?
+The **allocated bitmap** identifies blocks that currently occupy space in the
+image. Writes set allocated bits. Successful aligned discards clear them. This
+bitmap gives placement an exact measure of physical use and initializes the
+horizon bitmap.
 
-The write path sets a block's bit before it issues the image write and again
-after that write completes. The bit is therefore set for the whole period in
-which the block's content is unstable. [Delta capture](#delta-capture) relies on
-that.
+The **horizon bitmap** identifies allocated blocks whose newest durable copy is
+before the active recovery horizon. The daemon fills it when a horizon starts,
+then clears bits as later deltas cover those blocks. It is empty when no horizon
+is active.
 
-At a boundary the daemon replaces this bitmap with an empty bitmap. The old
-bitmap becomes the delta's remaining block set.
-
-The **allocated bitmap** answers this question:
-
-> Does this block occupy space in the image now?
-
-The allocated bitmap gives the initial content of the horizon bitmap. It also
-gives placement an exact measure of physical use. A write sets allocated bits. A
-successful aligned discard clears them.
-
-The **horizon bitmap** answers this question:
-
-> Is the newest copy of this block before the current horizon?
-
-The daemon fills this bitmap when it starts a horizon. Deltas clear its bits.
-The bitmap is empty when no horizon is open.
-
-The bitmaps are independent: a block can be allocated without having changed
-since the last boundary.
+The bitmaps answer different questions. For example, a block can be allocated
+without being dirty.
 
 ### Block transport
 
-The block path is:
+The daemon creates one ephemeral `ublk` device for each disk:
 
-```text
-connector process (unprivileged)
-                │ ordinary file I/O
-                ▼
-   virtio-fs  ──or──  bind mount
-                │
-                ▼
-    ext4 filesystem (host kernel)
-                │ the daemon's mount point
-                ▼
-          /dev/ublkbN
-                │ ublk_drv
-                ▼
-        ublk server (daemon) ──► sparse image
-```
+1. Loading `ublk_drv` exposes the host-wide `/dev/ublk-control` device.
+2. The daemon sends `UBLK_CMD_ADD_DEV` and lets the kernel select device number
+   `N`. Devtmpfs and udev create `/dev/ublkcN`, which is the character device
+   served by the daemon.
+3. The daemon configures the size and queue limits and starts the I/O queues.
+   `UBLK_CMD_START_DEV` exposes `/dev/ublkbN`, which is the block device mounted
+   by the daemon.
+4. Session teardown stops the block device and deletes the character device.
+   The kernel can immediately reuse `N`.
 
-The daemon formats `/dev/ublkbN` when it is fresh and mounts it at a path the
-daemon owns. It then hands that path to the caller. Both `ublkcN` and `ublkbN`
-stay inside the daemon; no device node reaches another process.
+Both device nodes stay in the daemon's namespace. Device numbers, mount paths,
+and mount options never appear in the durable format.
 
-A `libkrun` guest receives the path over `virtio-fs`. A plain container receives
-it as a bind mount. The connector sees an ordinary directory either way, and
-reaches the filesystem only through file-level calls.
+The daemon uses one gate across every `ublk` queue to establish transaction
+boundaries. Reads do not use the gate. Writes, discards, write-zero requests,
+and flushes enter it before changing the image and leave after the backing
+operation completes.
 
-`/dev/ublkbN` is created for each device; it is not a persistent identifier:
+The target honors every flush and force-unit-access (`FUA`) write that it
+advertises. This preserves ext4 ordering across queues.
 
-1. Loading `ublk_drv` exposes the host-wide `/dev/ublk-control`.
-2. The daemon sends `UBLK_CMD_ADD_DEV` and asks the kernel to choose `N`. Host
-   devtmpfs and udev then create `/dev/ublkcN`, the character device the daemon
-   serves.
-3. The daemon sets the device size and queue limits and starts its I/O queues.
-   `UBLK_CMD_START_DEV` then exposes `/dev/ublkbN`, the block device the daemon
-   mounts.
-4. Teardown stops the block device and deletes the character device. The kernel
-   may reuse `N` immediately.
+### Format and mount
 
-The daemon holds `/dev/ublk-control` directly and both device nodes stay in its
-own namespace. See [Privilege and isolation](#privilege-and-isolation).
+The daemon formats only a fresh image. Recovery treats all filesystem
+structures as data and never formats a rebuilt image.
 
-Everything below remains independent of this transport:
+Fresh disks use ext4 with:
 
-- the image and bitmaps;
-- copy-before-overwrite capture;
-- the disk-log format;
-- commit coordination;
-- compaction; and
-- recovery.
+- a 4 KiB block size, matching the tracking granularity;
+- zero reserved blocks;
+- the default inode density;
+- e2fsprogs 1.47.0 or later with `assume_storage_prezeroed=1`; and
+- whole-device discard disabled during format with `nodiscard`.
 
-Three rules keep the transport out of everything durable:
+A fresh sparse image is logically zero-filled.
+`assume_storage_prezeroed=1` lets `mkfs` avoid writing zeroes across unused inode
+tables and the internal journal. It also marks the inode tables initialized.
+Those reserved ranges remain holes, do not enter the allocated bitmap, and do
+not cause later background initialization writes. This reduces the first
+delta, which is on the first disk-writing transaction's critical path.
 
-- the durable format never contains a mount path, device identity, or mount
-  option;
-- the daemon never interprets the connector filesystem; and
-- point-in-time capture never depends on a filesystem freeze.
+Fresh and recovered disks use the same mount options:
 
-The host filesystem that stores images must support hole punching.
+- `noatime`, so reads do not create deltas;
+- `nodev`, `nosuid`, and `noexec`; and
+- `discard`, so ext4 releases blocks when it frees them.
 
-### Disk journal
+The sandbox applies `nodev`, `nosuid`, and `noexec` again when it re-exports the
+directory. Host mount options do not propagate through a `virtio-fs` mount or a
+container bind mount.
 
-The disk journal is created lazily on the first transaction that needs durable
-disk state.
+Formatting and mounting write through the served device. The daemon retains
+those dirty bits. When a connector first uses its disk, the first delta
+therefore contains all allocated filesystem metadata as well as connector
+data. Unwritten zero ranges stay sparse and are omitted.
 
-Its `JournalSpec` sets the `SNAPPY` compression codec, matching recovery logs.
-A connector writes whatever it likes to its disk, so the payload may be text or
-may be already-compressed archives. A codec that passes incompressible input
-through cheaply is the right default when the input is unknown. Compression also
-runs in the primary broker's spool and is paid on every append, so per-byte cost
-matters more here than ratio does.
+The daemon also retains changes made while mounting a recovered disk. Ext4
+journal replay and mount bookkeeping change the rebuilt committed baseline, so
+the next delta must include them. The daemon never clears the dirty bitmap
+after a mount.
 
-Dropping zero tails does more for volume than the codec choice does, because it
-removes those bytes from the append and from replication as well as from
-storage. Gazette compresses only when the primary spools a fragment, so appends
-and replication to peers carry uncompressed bytes.
+## Disk journal
 
-Journal offsets stay uncompressed byte positions, so the codec does not affect
-the recovery-range arithmetic. Fragments record their own codec and readers
-dispatch per fragment, so this choice can change later without a migration and
-without touching the format.
+### Journal creation and format
+
+The daemon creates the per-shard journal when the disk first needs durable
+state. A fresh connector that never causes a disk transaction does not create a
+journal.
+
+The `JournalSpec` uses `SNAPPY`, matching recovery logs. Disk content may be
+plain text or data that is already compressed. Snappy passes incompressible
+data through at low cost. The broker performs compression while spooling a
+fragment; appends and replication to peers carry uncompressed bytes.
+
+Journal offsets count uncompressed bytes. Fragment readers select the codec
+recorded on each fragment, so the codec can change later without changing the
+record format or recovery arithmetic. Removing zero tails from block chunks
+reduces append, replication, and storage volume before compression.
 
 Records use Gazette's fixed Protobuf framing and one disk-specific message:
 
 ```text
 DiskRecord
 ┌────────────────┬────────────────────────────────────────────────┐
-│ chunks         │ zero or more chunks                            │
+│ chunks         │ zero or more block chunks                      │
 │ opens_horizon  │ true only on the first record of a transaction │
 │ installs_epoch │ present only on a fence record                 │
 └────────────────┴────────────────────────────────────────────────┘
 ```
 
-The Gazette UUID of each record supplies the producer, the clock, and the
-transaction flag. There is no separate begin record and no separate end record:
+The Gazette UUID supplies the producer, clock, and transaction flag.
 
-- A **fence** record is `OUTSIDE_TXN`. It sets `installs_epoch`, carries no
-  chunks, and does not change disk state.
-- A **delta** is one or more `CONTINUE_TXN` records and one `ACK_TXN` record.
-  The `ACK_TXN` record commits the delta and carries no chunks.
+- A **fence record** is `OUTSIDE_TXN`. It has `installs_epoch`, contains no
+  chunks, and does not change disk contents.
+- A **delta** has one or more `CONTINUE_TXN` records followed by one `ACK_TXN`
+  record. The acknowledgement contains no chunks and commits the delta.
 
-The acknowledgement is the only terminator a delta needs. A journal has no
-interior gaps, so a reader that finds the acknowledgement holds every record of
-that delta. The copy loop must find its block set empty before it appends the
-acknowledgement; that local assertion catches an omitted chunk at the point
-where the bug happens, which a count in the journal cannot.
+The daemon bounds record size and append-batch size. Gazette serializes appends
+to a journal, so these limits keep one large disk transaction from blocking
+later work indefinitely.
 
-A record that sets `opens_horizon` must be the first record of its transaction.
-Any other position is a protocol error, for the reason
-[Horizons](#horizons) gives.
+Before constructing an acknowledgement, the copy loop asserts that its owed
+block set is empty and every data append is confirmed. This catches a missing
+chunk at the writer. The daemon returns the exact serialized acknowledgement
+to the runtime. It appends that acknowledgement only after the runtime returns
+it in `Commit`.
 
-A chunk has this form:
+### Chunk encoding
+
+Each chunk has this form:
 
 ```text
 Chunk
 ┌───────────────┬───────────────────────────────────────────────────┐
-│ block: u32    │ starting block index                              │
+│ block: u32    │ starting 4 KiB block index                        │
 │ one of                                                            │
-│   bytes       │ content, from that block forward                  │
-│   punch: u32  │ this many blocks were discarded                   │
+│   bytes       │ content beginning at that block                   │
+│   punch: u32  │ number of blocks to discard                       │
 └───────────────┴───────────────────────────────────────────────────┘
 ```
 
-A block index rather than a byte offset makes 4 KiB alignment impossible to
-misencode, and indexes the bitmaps with no arithmetic. A 10 GiB disk is
-2,621,440 blocks, and a `u32` covers 17 TiB at this block size.
+Using a block index enforces 4 KiB alignment and maps directly to the bitmaps.
+A `u32` covers up to 17 TiB at this block size.
 
-A data chunk carries no length. Protobuf already delimits `bytes`, and a second
-copy of the same fact is a second thing that can be wrong.
+Protobuf already carries the length of `bytes`. The length can end within the
+last block. The daemon removes trailing zeroes from a data run, and the chunk
+covers `ceil(len(bytes) / 4096)` blocks. Replay must explicitly write zeroes
+from the end of `bytes` through the end of its last block. Otherwise an older
+value in that block's tail would survive.
 
-The length of `bytes` need not be a whole number of blocks. Block contents
-often end in zeroes — a file's last block, a directory block with a few entries,
-an inode table block with mostly unused entries — so the daemon scans backward
-for the zero tail and drops it. The chunk then covers `ceil(len(bytes) / 4096)`
-blocks, and the tail of the last one is zero.
+An empty `bytes` value represents one allocated block filled with zeroes. A
+`punch` represents unallocated blocks. Replay writes the former and
+hole-punches the latter.
 
-> A reader must write those zeroes explicitly. It cannot rely on the image being
-> sparse, because a block rewritten by a later delta would otherwise keep the
-> earlier delta's tail.
+At a boundary:
 
-That trailing zero is the trap in this encoding. It only shows up on blocks that
-are written more than once, so it survives casual testing.
+- a dirty block that is still allocated becomes a data chunk;
+- a dirty block that is no longer allocated becomes a punch; and
+- an unchanged block copied for a horizon becomes an ordinary data chunk.
 
-A data chunk with empty `bytes` means the block is allocated and entirely zero.
-That is a real state, and it differs from a punch, which means the block is not
-allocated at all. Replay zeroes the first and hole-punches the second.
+Chunks have no additional checksum. TLS protects transport and Gazette fragment
+content sums protect stored fragments. Writer assertions validate that every
+owed block was included. These checks cover the spans in which the daemon can
+detect corruption.
 
-At a boundary, a dirty block that remains allocated becomes a data chunk. A
-dirty block that is no longer allocated becomes a punch. An unchanged block that
-the daemon copies to advance a horizon is an ordinary data chunk, with nothing
-to mark it apart.
+Chunks in one delta are not required to be sorted or unique. Concurrent writes
+can make the mutation path capture a block before the normal copy cursor reaches
+it, and a block copied early can become dirty again before the boundary. Replay
+applies chunks in journal order, so the last chunk for a block wins.
 
-Chunks carry no checksum. A checksum can only detect corruption between the
-moment it is computed and the moment it is verified, and TLS and Gazette's
-fragment content sums already cover that span. It would not detect a wrong
-block index, a mis-coalesced run, or a stale buffer, because each of those
-produces a self-consistent chunk. The safeguards that do catch those are
-structural: the copy loop must find its block set empty before it appends the
-acknowledgement, and a horizon completes only when every allocated block has
-been covered.
+### Record sequencing
 
-Chunks in one delta are neither sorted nor distinct. Concurrent writes force a
-block ahead of the copy cursor to be emitted early, and a block published before
-a boundary can be written again and published a second time. Readers apply
-chunks in journal order, and the last chunk for a block wins.
+A shard session uses one Gazette producer for all its deltas. A replacement
+session uses a new producer. Each fence uses a separate producer and carries
+the shard-session producer that it installs as the writer epoch.
 
-Records and append batches are bounded. Gazette serializes appends to a
-journal, so one enormous append could otherwise block a later delta for an
-unbounded time.
+Readers use Gazette `message.Sequencer` semantics. The sequencer groups records
+by producer and clock, removes duplicate UUIDs, and releases only acknowledged
+transactions.
 
-### Record groups
-
-Gazette gives every record a producer ID and a clock, so the disk journal does
-not add a separate stream ID:
-
-- A shard session uses one producer for all its deltas. A replacement session
-  uses a new producer.
-- Each fence record uses its own producer and carries the shard-session
-  producer that it installs as the writer epoch.
-
-Readers follow Gazette `message.Sequencer` semantics: the sequencer groups
-records by producer and clock, discards duplicate UUIDs, and releases only
-acknowledged records.
+## Commit authority and writer fencing
 
 ### Recovery-log authority
 
-The task recovery log commits the checkpoint, connector state, and disk
-obligations together:
+The local image is a working copy. The acknowledged disk-journal deltas are its
+durable state. The Flow recovery log decides which delta acknowledgements must
+exist.
+
+The recovery log stores one disk entry:
+
+- `AI:{journal}` is the exact serialized `ACK_TXN` record required by a
+  committed Flow transaction.
+
+An unacknowledged delta is not committed disk state. If a Flow commit becomes
+durable before its disk acknowledgement is appended, the recovered `AI:` entry
+requires the next session to append those exact bytes.
 
 ```text
-                        transaction boundary
-                                 │
-                                 ▼
-connector ──► guest ext4 ──► virtio + ublk ──► image
-                                                  │ dirty bitmap
-                                                  ▼
-                                            disk journal
-                                                  │ replay
-                                                  ▼
-connector ◄── guest ext4 ◄── rebuilt image ◄──────┘
-
-                        recovery log
-                 ┌────────────────────────┐
-                 │ AI: exact pending Ack  │
-                 │ checkpoint and state   │
-                 └────────────────────────┘
-                        decides authority
+connector checkpoint and state ─┐
+                                ├─ Flow recovery-log transaction
+AI: pending disk acknowledgement ┘             │
+                                                │ commits authority
+                                                ▼
+                                  acknowledged disk-journal delta
+                                                │
+                                                │ replay
+                                                ▼
+                                      rebuilt local image
 ```
 
-For derivations and materializations, the Shuffle Leader includes every
-shard's disk obligations in one recovery-log `Persist`. Each disk-owning shard
-then appends to its own journal. Captures perform the same coordination inside
-their local transaction FSM.
+Derivations and materializations have one recovery log owned by the Shuffle
+Leader. One `Persist` records the checkpoint and every shard's disk obligation.
+Each shard then appends its acknowledgement to its own disk journal. Captures
+perform the same coordination in their local transaction state machine.
 
-This is why `AI:` exists at all. Derivations and materializations have exactly
-one recovery log — shard zero's — while every shard has its own disk journal.
-The commit and the disk acknowledgements are therefore unavoidably different
-appends to different journals, and something has to bridge them. That follows
-from the shard topology rather than from anything about the disk format.
+The shared recovery log and per-shard disk journals require this two-step
+commit. The `AI:` entries connect the authoritative Flow commit to its separate
+disk-journal appends.
 
 ### One writer per journal
 
-Acquiring a shard recovery log prevents an old primary from committing another
-`Persist`, but it does not by itself stop the old process from appending to the
-separate disk journal. Each journal therefore has an `author` register.
+Owning a shard recovery log prevents an old primary from committing another
+`Persist`, but the disk journal is separate. Each disk journal therefore has an
+`author` register.
 
-When the daemon opens a device, it:
+When a daemon opens a journal, it chooses a fresh epoch `E`, reads the current
+`author` value once as `R`, and never refreshes `R`. It claims the journal by
+appending `Fence(E)` while atomically changing `author` from `R` to `E`. The
+daemon waits for broker confirmation before other journal operations.
 
-1. chooses a fresh epoch `E`;
-2. reads the current `author` register once and remembers it as `R`; and
-3. never refreshes `R`.
+The one-time comparison prevents a stale session from reading a replacement's
+epoch and then taking ownership back. A session may only replace the value it
+observed during startup.
 
-Claiming the journal appends `Fence(E)` while atomically changing `author` from
-the remembered value `R` to `E`. The daemon waits for broker confirmation before
-any other journal operation.
+Claim timing depends on durable state:
 
-The epoch is entirely daemon-internal. The runtime cannot validate an ack it
-does not parse, so it plays no part in fencing.
-
-The one-time comparison matters. A stale session might reach its first disk
-write after a replacement has taken over. If it re-read the register, it could
-overwrite the replacement's epoch. It may attempt only the transition observed
-at startup.
-
-The claim happens at different times depending on journal contents:
-
-- If the journal exists, the daemon claims it before repairing `AI:`, fixing a
+- If the journal contains an acknowledged delta or `Open` carries a recovered
+  `AI:`, the daemon claims it before repairing acknowledgements, selecting a
   recovery range, replaying, or returning from `Open`.
-- If the journal does not exist, the daemon takes only the read-only snapshot
-  `R`. Journal creation and the deferred claim happen on first use.
+- If the journal has no acknowledged delta and `Open` carries no `AI:`, the
+  daemon only records `R`. This includes an absent journal and a journal
+  containing records from a failed first use. Creation and the `R` to `E` claim
+  occur when the next transaction first publishes disk state.
 
-An ambiguous fence append is retried idempotently as a check for `E`, not as a
-new attempt to take ownership. A register mismatch ends the session. Every
-later append checks `author=E`; no ordinary appender responds to a mismatch by
-taking the register back.
+An ambiguous fence append is retried idempotently by checking for `E`. It is
+not retried with a new epoch. A register mismatch ends the session. Every later
+append requires `author=E`.
 
-Journal registers fence cooperative writers but do not become commit
-authority. A lost register set can satisfy a comparison against absence, so
-`AI:` and the committed journal contents remain the final authority even when
-register state is empty.
+The epoch is internal to the daemon. The runtime stores acknowledgements as
+opaque bytes and does not validate epochs.
 
-Gazette orders the fence with appends. Old content before the fence matters
-only if it was already committed; an old append ordered after the fence fails
-its `author` check.
+The register fences cooperative writers but is not commit authority. Register
+state can be lost independently of journal contents. Committed records and
+recovered `AI:` entries remain authoritative. Gazette orders the fence with all
+other appends, so an old append ordered after the fence fails its author check.
 
-## Horizons
+## Capturing a transaction
 
-Without compaction the journal and the recovery time grow without bound. The
-daemon moves the recovery floor forward with **horizons**.
+A **delta** is the set of block chunks published for one Flow transaction. It
+contains every block that changed at the boundary and may include unchanged
+blocks copied for an active horizon. The encoding treats both kinds of data
+chunks identically.
 
-A **horizon** is a point in the journal. The rule a horizon must satisfy is:
+### Copying during the transaction
 
-> Every allocated block has a copy at or after the horizon.
+The daemon can append dirty blocks while a transaction is running. It does not
+need to wait for the boundary and then copy the whole changed set. One rule
+makes early publication correct:
 
-When a horizon satisfies this rule the horizon is **complete**, and the
-recovery floor can move to it.
-
-### The horizon bitmap
-
-When the daemon starts a horizon it copies the allocated bitmap into the
-horizon bitmap. A set bit shows that the newest copy of that block is before
-the horizon.
-
-Two things clear a bit:
-
-- The connector writes the block. The delta publishes it after the horizon, so
-  the bit clears at no extra cost.
-- The daemon copies the block into a delta even though it did not change.
-
-Bits clear when the delta **commits**, never while the copy runs. Clearing a bit
-earlier would claim a block was covered by a copy that a failed transaction then
-discarded. A failed transaction therefore leaves the bitmap untouched, which is
-exactly what a replaying session derives, since it discards that delta too.
-
-Nothing needs to change during the copy. The candidate set already subtracts the
-blocks in this delta, so the daemon cannot re-select one of them.
-
-A horizon consequently never completes in the middle of a transaction.
-
-Bits never become set again during a horizon. The horizon bitmap therefore only
-decreases, and a horizon always completes. A horizon that makes no progress
-loses nothing and continues later.
-
-The daemon finds blocks to copy with a cursor that moves forward through the
-horizon bitmap. Bits behind the cursor are always clear, so a horizon completes
-after exactly one pass of the cursor.
-
-The snapshot need not be exact, which is part of what keeps this cheap. The
-daemon takes the live allocated set while a reader takes the committed
-allocated set at the same offset, and the two can differ. Each difference
-resolves itself:
-
-- A block the daemon holds and a reader does not is a block with an
-  unpublished write. A later delta publishes it and clears the bit.
-- A block a reader holds and the daemon does not is a block a later delta
-  discards. That delta records a punch, which clears the bit.
-
-An inexact snapshot therefore costs a little redundant work and never produces
-a wrong result.
-
-### Which blocks to copy
-
-The daemon reads these blocks from the local image and never from the journal.
-The image is local and hot, while the oldest fragments of a journal are the
-ones most likely to have been offloaded to cloud storage.
-
-The daemon must select only blocks whose current image content is already
-committed. This is the one rule in the design that can corrupt a disk without
-raising an error: if a block carries an unpublished change, its current content
-belongs to a later transaction, and publishing it now puts the disk ahead of
-its own checkpoint.
-
-At the cut, the candidate set is:
-
-> the horizon bitmap, minus the blocks in this delta, minus the blocks with
-> unpublished changes.
-
-The live dirty bitmap is empty at the cut, so the last term is empty.
-
-If a mutation targets a selected block during the copy, the daemon drops it
-from the delta and does not capture the old bytes. The mutation publishes the
-block in the next delta, and that delta clears the bit. This is why copy before
-overwrite does not extend to these blocks, and why no block is ever owed by two
-copies at once.
-
-### The horizon record
-
-The first record of a delta can set `opens_horizon`. The horizon is at that
-record's offset.
-
-A record that sets `opens_horizon` must be the first record of its transaction.
-The reason is worth stating, because a violation loses data silently. A reader
-holds a delta's chunks until the acknowledgement, so it takes its horizon
-snapshot before applying any chunk of that delta. If the flag sat on a later
-record, the reader would go on to apply the earlier chunks of the same delta
-and clear their bits — while a reader that started at the horizon would never
-see those chunks at all. Those blocks would then have no copy after the
-horizon.
-
-The horizon is part of the delta. If the delta does not commit there is no
-horizon, and the daemon starts a new one later.
-
-A writer must not start a horizon while a previous horizon is open. This is a
-protocol error and ends the session. A reader must accept more than one horizon
-in its range, because the label can lag. At each horizon record the reader
-takes a new snapshot that replaces the previous one.
-
-### Why the flag lives in the journal
-
-The horizon bitmap is in memory only. A reader rebuilds it during the replay it
-must perform anyway:
-
-1. Read from the floor and rebuild the image.
-2. At a horizon record, copy the current allocated set into the horizon bitmap.
-3. Clear a bit for each chunk applied after that point.
-
-The copies are themselves the record of progress. They are ordinary chunks,
-indistinguishable from connector writes, so replaying the journal
-reconstructs the bookkeeping for free and a new session resumes a horizon
-rather than restarting it.
-
-Without the flag a new session could not locate the horizon. It would start a
-fresh one at the write head and discard the previous session's work. That is
-tolerable when restarts are rarer than horizons and pathological when they are
-not: the floor never advances, the journal grows without bound, and the longer
-journal makes startup slower on a shard that is already unhealthy.
-
-### Policy
-
-The quota for one delta is proportional to that delta's changed bytes:
-
-> unchanged bytes copied = `k` × changed bytes
-
-A commit that does not change the disk appends no records and pays nothing. The
-fast path is unchanged.
-
-The daemon starts a horizon when the journal range from the floor to the write
-head exceeds `r` times the live allocated size, subject to an absolute floor of
-1 GiB. The absolute floor prevents constant horizons on a small disk.
-
-The two constants are independent:
-
-- `k` sets write amplification, which is `1 + k`, and how quickly a horizon
-  completes.
-- `r` sets how large the journal grows before a horizon starts.
-
-The policy is `k = 0.5` and `r = 2`, which bounds the recovery range at roughly
-five times the live allocated size. These are platform constants and not user
-settings.
-
-A connector that rewrites much of its disk pays almost nothing, because its own
-writes clear bits. The work scales with how much of the disk is genuinely
-static, rather than with how large the disk is.
-
-If the connector stops writing its disk, an open horizon stalls. The journal is
-not growing either, so the recovery range freezes rather than deteriorating.
-Nothing gets worse while the disk is quiet, and the horizon resumes when writes
-resume. A lower `r` bounds the size at which a horizon can freeze, and costs
-nothing in write amplification.
-
-### Completion
-
-The floor moves when the horizon bitmap becomes empty:
-
-1. A delta commits, and clearing its blocks empties the daemon's horizon bitmap.
-2. The daemon waits until the broker confirms that delta's acknowledgement.
-3. The daemon returns the floor to the runtime in `Committed`. The floor is the
-   message clock of the record that set `opens_horizon`.
-4. The runtime applies the `estuary.dev/truncated-at` label with that clock.
-
-Step 2 is a correctness requirement. If the daemon reported the floor at append
-time and the transaction then failed, the label would point past a block whose
-only copy lies behind it.
-
-Nothing is written to record completion. Every reader arrives at the same
-completion point from the same records, so there is nothing to announce. A
-completion record would also be a claim a reader could not verify, where a
-derived one cannot be wrong.
-
-The label update is idempotent and monotonic. The runtime retries it at startup
-and during normal operation. A failed update costs nothing, because the next
-session observes the same completion and applies the label then.
-
-The label may lag the true floor but must never lead it. Physical fragment
-deletion is handled separately.
-
-### The shared label
-
-`estuary.dev/truncated-at` already exists for capture backfills. Both uses mean
-that no reader needs data before that clock, and both obey the same rule that
-the label may lag but must never lead. `go/labels/labels.go` already preserves
-the label through spec convergence, which is exactly the protection a
-runtime-maintained label on a control-plane-managed journal spec needs.
-
-The two uses differ in one respect. A backfill clock is a decision, and nothing
-in the collection journal records it, so `AB:{state_key}` must hold it in the
-recovery log. The disk floor is a fact about journal contents that replay
-rediscovers at every startup. The disk feature therefore adds no key to the
-recovery log.
-
-The label documentation and the convergence comment in `go/labels/labels.go`
-must describe both uses.
-
-## Lifecycle
-
-The disk journal has only two states:
-
-| State | Meaning |
-| --- | --- |
-| No committed delta | No disk state has ever committed. An absent journal is normal; any existing records are orphans. |
-| One or more committed deltas | The committed deltas are authoritative. |
-
-The first delta always carries blocks, because it holds the `mkfs` output. A
-committed but empty state is therefore impossible, which is what makes these
-two states unambiguous without a marker in the recovery log.
-
-```text
-no committed delta
-  fresh image ── first disk-writing commit ──► committed
-
-committed:
-  recover ── transactions ──► deltas
-              │
-              └── horizon ──► floor moves forward
-```
-
-### Fresh disk startup
-
-When the journal has no committed delta, `Open` does these steps:
-
-1. Create a fresh sparse image.
-2. Create a ublk device over the image.
-3. Format the device.
-4. Mount the filesystem at a daemon-owned path.
-5. Choose `E` and take the read-only author snapshot `R`.
-6. Return the mount path.
-
-The runtime then gives that path to the sandbox and opens the connector.
-
-The daemon creates no journal and appends nothing until first use.
-
-The daemon does not clear the dirty bitmap after the format and the mount.
-[Mount](#mount) explains why.
-
-If the journal does not exist, `R` means “author absent.” Creating the journal
-on first use produces an empty register set, after which the deferred fence can
-change the absent author to `E`. If another session fenced first, that
-transition fails.
-
-#### Format
-
-The daemon formats only a fresh image. Recovery treats filesystem structures as
-payload and never formats them again.
-
-Format and mount decisions belong to the daemon and are not caller settings.
-That is much of the point of serving a mount: a caller receives a directory
-whose tuning it does not have to know about or get right.
-
-The filesystem is ext4 with:
-
-- a 4 KiB block size, matching the tracking granularity;
-- zero reserved blocks;
-- ext4's default inode density;
-- e2fsprogs 1.47.0 or later with
-  `assume_storage_prezeroed=1`; and
-- whole-device discard disabled with `nodiscard`.
-
-`nodiscard` applies only while formatting. The mounted filesystem uses
-continuous discard as described below.
-
-The new sparse image is logically all zero. `assume_storage_prezeroed` lets
-`mkfs` skip writing zeroes across the unused inode tables and internal journal,
-and marks the inode tables initialized. Those ext4-reserved ranges therefore
-remain holes in the host image, do not enter the allocated bitmap or the first
-delta, and do not cause later background initialization writes.
-
-This option earns its place because the first delta sits on the critical path
-of the very first commit, and the `mkfs` output is that delta's contents.
-
-The default inode density avoids imposing an unusually low file-count limit for
-a small storage saving.
-
-#### Mount
-
-The daemon mounts fresh and recovered disks with the same options:
-
-- `noatime`, so reads do not create deltas;
-- `nodev`, `nosuid`, and `noexec`; and
-- `discard`, so ext4 releases blocks as it frees them.
-
-A sandbox that re-exports the mount applies its own options on top. A
-`virtio-fs` guest mount and a container bind mount must each carry `nodev`,
-`nosuid`, and `noexec` as well; the host mount's options do not propagate.
-
-`mkfs` and the first mount write through the served device. The daemon does
-**not** clear the dirty bitmap after those writes.
-
-Blocks actually written by `mkfs` and mount are real filesystem content, and no
-earlier record holds them. The dirty bitmap therefore carries the full
-allocated set at the first boundary, and the first delta contains every
-allocated block. Unwritten zero ranges remain sparse and are omitted. The first
-delta is a complete image copy, but it needs no special record type and no
-special code path to produce one.
-
-The daemon also does not clear the dirty bitmap after mounting a recovered
-disk. Mount bookkeeping and filesystem-journal replay are genuine changes from
-an existing committed baseline and must appear in the next delta.
-
-One rule therefore covers both a fresh disk and a recovered one: never clear the
-dirty bitmap after a mount.
-
-### First use
-
-The first transaction in which a connector changes its disk creates the
-initial durable state:
-
-1. The connector reaches a valid boundary.
-2. The daemon observes a non-empty dirty bitmap. On a fresh disk that bitmap
-   holds the full `mkfs` and mount output.
-3. The daemon applies the `JournalSpec` the runtime supplied in `Open`, through
-   broker `Apply`, or confirms that the journal already exists.
-4. The daemon performs the deferred `R → E` fence.
-5. The daemon copies the dirty blocks as bounded records and appends the
-   acknowledgement.
-6. `Persist` atomically records the checkpoint, connector state, and `AI:`.
-
-This first delta is intentionally on the transaction's critical path. There is
-no older disk from which the transaction can recover.
-
-A failure before `Persist` leaves the journal with no committed delta. The
-journal may be absent, or may hold a fence and an unacknowledged delta.
-Recovery ignores all of it, destroys the uncommitted local image, and starts
-from a fresh disk.
-
-### Delta capture
-
-Every delta must represent the disk at one exact boundary, even if the
-connector resumes writing before its blocks have been copied into the journal.
-
-The daemon does not wait for the boundary to start publishing. It appends chunks
-for dirty blocks throughout the transaction. The boundary stays exact because of
-one rule:
-
-> The last chunk for a block in a delta carries that block's value at the
+> The last chunk for each block contains that block's value at the transaction
 > boundary.
 
-Publishing a block early only helps if the daemon can then stop tracking it, so
-the sequence is: clear the block's bit, read the block, append the chunk.
+To publish a dirty block early, the copy path clears its dirty bit, reads the
+image, and appends an immutable copy. Clearing the bit before reading is
+required. A concurrent write sets the bit before changing the image and again
+after it completes. The write therefore leaves the block dirty, and the
+boundary publishes it again. The later chunk replaces an early or torn read.
 
-The clear must come first. Read first and clear second, and a write arriving
-between the two sets the bit only to have the clear wipe it — the block is then
-untracked and holds a value the daemon never published.
+A block that is copied early and not changed again already has its boundary
+value in the journal. A delta starts with its first data record during the
+transaction and ends only when the later acknowledgement commits it.
 
-Clearing first is safe because of what a dirty bit means. A write sets the bit
-before it issues the image write and again after that write completes, so the
-bit is set at every instant from before a write starts until after it finishes.
-For a published value to be wrong, some write must have touched the block at or
-after the read began, and that write sets the bit again once it lands. The
-boundary then republishes the block, and the later chunk supersedes the earlier
-one.
+### Establishing the boundary
 
-A block published early and never written again keeps the value the daemon read,
-which is its value at the boundary.
+The connector first flushes and stops its own writes. Ext4 can still issue
+journal and writeback requests, so the daemon establishes the exact device
+boundary:
 
-An early read may be torn, and that does not matter. A torn read implies a
-concurrent write, a concurrent write implies a set bit, and a set bit implies
-the boundary republishes the block.
+1. Call `syncfs` on the daemon's mount.
+2. Close the shared device gate so new mutations wait.
+3. Wait for every admitted mutation to finish.
+4. Swap the dirty bitmap. If the next transaction opens a horizon, also take
+   the allocated-bitmap snapshot and register the new copy.
+5. Reopen the gate.
 
-A delta therefore begins at the start of its transaction rather than at the cut.
-Its first record is the one that can set `opens_horizon`.
+The daemon issues `syncfs` itself so correctness does not depend on how a
+connector's `fsync` propagates through `virtio-fs` or a bind mount. Connector
+flushes normally keep this work small.
 
-The connector flushes and stops its own writes before a boundary, but ext4 may
-still issue journal or writeback requests. The daemon therefore establishes
-the boundary at the block device with one gate shared by every `ublk` queue.
-Writes, discards, write-zeroes requests, and flushes enter the gate before
-being handled and leave only after their backing operation completes.
+The bitmap swap is the point-in-time cut. Each mutation is entirely before or
+after it. Reads continue, and ext4 requests that arrive while the gate is closed
+wait until it reopens. The gate gives priority to a waiting boundary so
+continuous writeback cannot starve the cut.
 
-To establish a boundary, the daemon:
+An ext4 journal operation can span the cut as several block requests. The
+image is still a valid power-loss point. On recovery, ext4 either replays a
+committed filesystem-journal operation or discards an incomplete one. Each
+recovered image is therefore mounted as a dirty filesystem and runs ext4
+journal replay.
 
-1. calls `syncfs` on its own mount;
-2. closes the gate so that new requests wait;
-3. waits for every admitted request to finish;
-4. swaps the dirty bitmap, takes an allocated-bitmap snapshot if the next
-   transaction opens a horizon, and registers the new copy; and
-5. reopens the gate.
+### Finishing a delta
 
-Step 1 is what makes a served mount safe. A connector's `fsync` reaches the host
-through `virtio-fs` or a bind mount, and whether that forces the host filesystem
-to write back is not something this design should depend on. If it did not, the
-connector's data would still be in the host page cache, the cut would miss it,
-and the disk would land behind its checkpoint. A `syncfs` the daemon issues
-itself removes the dependency. It is bounded work, because the connector has
-normally flushed already.
+After the cut, the old dirty bitmap is the delta's owed set. The copy loop:
 
-The bitmap operation in step 4 is the cut. A request is handled entirely before
-or after it. Reads need not stop, and ext4 may continue submitting requests
-while the gate is closed; those requests simply wait. The gate is held only
-while the cut is established, not while the image is copied. It gives priority
-to a waiting boundary so continuous writeback cannot starve it.
-
-The ublk target must honor every flush and force-unit-access (`FUA`) write it
-advertises, which preserves ext4's ordering across queues. An ext4 journal
-operation may span the cut as several block requests, but the resulting image is
-a valid power-loss point: recovery either replays a committed journal operation
-or discards an incomplete one.
-
-That last property has an operational consequence worth stating plainly. A
-published image is never a cleanly unmounted filesystem, so every recovery
-mounts a dirty one and runs journal replay. This is within the envelope the
-filesystem is built for, but it happens on every session start rather than only
-after a machine loses power.
-
-The copy walks the owed-set:
-
-1. Claim the next contiguous owed chunk.
-2. Read its current bytes with `pread`.
-3. Drop the trailing zeroes and move the chunk into a bounded, immutable
-   output buffer.
-4. Mark the blocks captured and remove them from the owed-set.
-5. Append a record when the output batch reaches its limit, retaining its
+1. Claims the next contiguous owed range.
+2. Reads the range with `pread`.
+3. Removes trailing zeroes and places the result in a bounded, immutable output
+   buffer.
+4. Marks the blocks captured and removes them from the owed set.
+5. Appends a record when the output batch reaches its limit, retaining the
    bytes until the append is confirmed.
-6. Append the acknowledgement after every block is captured and every record is
-   confirmed.
+6. Constructs the acknowledgement after the owed set is empty and every data
+   record is confirmed.
 
-Repeated writes to one block therefore produce a single chunk, and adjacent
-dirty blocks coalesce into one. A transaction with 4,000 writes to 2,000
-distinct blocks publishes exactly 2,000 blocks rather than the write history.
+Adjacent blocks coalesce into one chunk. Repeated writes to one block normally
+produce one boundary chunk, plus any earlier copy that was superseded during
+the transaction. The journal records block states, not individual write
+operations.
 
-The image remains writable while the copy runs. The rule that makes this safe
-is **copy before overwrite**:
+The image remains writable while this copy runs. **Copy before overwrite**
+protects blocks still owed to the in-flight delta:
 
-> If a mutation targets a block still owed by an in-flight copy, capture the
-> old block into that copy before changing the image.
+> Before mutating an owed block, capture its old value into the in-flight
+> delta.
 
-The copier and mutation path coordinate a block through three logical states:
-`OWED → CAPTURING → CAPTURED`. A striped lock or equivalent claim prevents a
-copier's `pread` from racing the backing mutation. A mutation encountering
-`OWED` captures the old bytes itself; one encountering `CAPTURING` waits.
+The copier and mutation path move each block through three logical states:
+`OWED`, `CAPTURING`, and `CAPTURED`. A striped lock or equivalent claim keeps a
+copier's `pread` from racing the backing mutation. A mutation that finds an
+`OWED` block captures the old bytes. A mutation that finds a `CAPTURING` block
+waits.
 
-Only one copy is ever in flight, so no block is owed by two copies at once.
+`CAPTURED` means an immutable output buffer owns the bytes. It does not require
+broker confirmation. If the bounded buffer is full, the block request waits
+instead of overwriting an uncaptured block.
 
-Captured means that an immutable output buffer owns the bytes, not that
-Gazette has confirmed them. The mutation may then proceed while publication
-continues. If that bounded output is full, the block request waits rather than
-overwriting an uncaptured block.
+The rule covers writes, filesystem-journal writes, writeback, discards, and
+write-zero requests. A discard first captures an owed old value, then clears
+the live allocated bit and marks the block dirty. If the block is still
+unallocated at the next boundary, the next delta records a punch.
 
-This rule covers connector writes, filesystem journal and writeback requests,
-discards, and write zeroes. It replaces filesystem freezing and is the reason
-a copy remains coherent under concurrent write load.
+Only one copy can be in flight, so a block is never owed to two copies. Horizon
+copies use a separate mutation rule described in
+[Selecting horizon blocks](#selecting-horizon-blocks).
 
-Rescuing a block ahead of the normal cursor also explains why delta chunks
-may be out of offset order. Journal order, not offset order, is what a reader
-follows.
+### Commit sequence
 
-Copy before overwrite does not extend to unchanged blocks copied to advance a
-horizon, for the reason [Horizons](#horizons) gives.
+An ordinary disk-changing transaction commits in this order:
 
-Discards follow the same rule as writes. If the delta still owes the block, it
-first captures the old content. The discard then clears the live allocated bit
-and dirties the block. If it remains unallocated at the next boundary, that
-delta records a punch.
-
-### Committing a delta
-
-At an ordinary boundary:
-
-1. The connector finishes and flushes its application state.
+1. The connector flushes its application state and reaches its protocol
+   boundary.
 2. The runtime sends `Publish`.
-3. The daemon closes the device gate, drains admitted requests, swaps the
-   dirty bitmap, and reopens the gate.
-4. If the old bitmap is empty and the daemon appended nothing earlier in this
-   transaction, it returns no ack and the transaction takes the unchanged fast
-   path.
-5. Otherwise the daemon may add unchanged blocks to advance a horizon, as
-   [Horizons](#horizons) describes, then copies and appends the remaining
-   records.
-6. The daemon waits for confirmation and returns the exact ack in `Published`.
-7. The runtime reports that ack to the transaction coordinator.
-8. `Persist` atomically records the checkpoint, connector state, and `AI:`
+3. The daemon establishes the device cut and swaps the dirty bitmap.
+4. The daemon adds eligible horizon blocks, copies the remaining owed blocks,
+   and waits for every data append to be confirmed.
+5. The daemon returns the exact, not-yet-appended acknowledgement in
+   `Published`.
+6. The runtime reports that acknowledgement to the transaction coordinator.
+7. `Persist` atomically records the checkpoint, connector state, and `AI:`
    obligation.
-9. After `Persisted`, the coordinator tells each shard to send `Commit` with its
-   recorded ack.
-10. Each daemon appends the ack, waits for the append barrier, and confirms that
-    it is durable.
-11. The transaction cannot begin closing its successor until every shard has
-    confirmed.
+8. After `Persisted`, the coordinator tells each shard to send `Commit` with
+   its recorded acknowledgement.
+9. Each daemon appends the acknowledgement, waits for its append barrier, and
+   returns `Committed`.
+10. The coordinator waits for every shard before allowing the next transaction
+    to reach its closing boundary.
 
-The point-in-time boundary is established by the bitmap swap. Copying may
-overlap later connector work when the task protocol allows it; copy before
-overwrite protects the stream either way.
+If the disk has no changed blocks and no horizon chunks were published during
+the transaction, `Published` has no acknowledgement and steps 4 through 10
+have no disk work.
 
 ```text
 daemon                  runtime                     coordinator
    │                       │                             │
    ◄──── Publish ──────────┤                             │
-   ├─ append delta         │                             │
-   ├─ wait, then ack ─────►│                             │
+   ├─ finish data appends  │                             │
+   ├─ return ack bytes ───►│                             │
    │                       ├─ report ack ───────────────►│
    │                       │                  Persist(checkpoint,
    │                       │                          state, AI)
@@ -1077,311 +672,448 @@ daemon                  runtime                     coordinator
    │                       │◄──── next txn may close ────┘
 ```
 
-The append barrier is a correctness requirement. The next delta's first record
-cannot be appended until the previous `Ack` is confirmed. Otherwise Gazette
-could treat both deltas as one pending transaction, and one later ACK could
-advance the recovered disk farther than the recovery-log commit.
+The acknowledgement barrier is part of the correctness model. The next
+delta's first record cannot be appended until the previous acknowledgement is
+confirmed. This keeps Gazette from grouping two deltas into one pending
+transaction and advancing the disk farther than the Flow recovery-log commit.
+Local connector work may resume when its task protocol permits; only the next
+delta publication waits.
 
-This delays publication of the next delta, not local writes after the task
-protocol has released the connector.
+For a multi-shard task, one recovery-log `Persist` contains all disk
+obligations. The acknowledgement appends are independent and idempotent:
 
-For a multi-shard task, the one recovery-log `Persist` carries every shard's
-disk obligations. The physical ACK appends remain independent and idempotent:
+- If `Persist` does not commit, none of the disk deltas commit.
+- If `Persist` commits, recovered `AI:` entries bring every disk to that
+  transaction even when some acknowledgement appends failed.
 
-- if `Persist` does not land, no disk advances;
-- if it lands, recovered `AI:` values bring every disk to the transaction even
-  if some appends did not complete.
+The next `Persist` replaces the previous obligation set. The coordinator must
+not construct it while an earlier disk acknowledgement remains outstanding.
 
-The next `Persist` replaces the prior intent set, so it must not be constructed
-while any prior disk ACK remains outstanding. New transaction work arriving at
-a shard with an undischarged intent is an ordering error and ends the session.
+Failures before `Persist` leave unacknowledged delta records, which recovery
+ignores. Failures after `Persist` cannot roll back the Flow transaction, so
+recovery appends the exact `AI:` bytes before normal journal use. Gazette
+deduplicates a repaired acknowledgement by its original UUID.
 
-Failures fall on one side of `Persist`:
+## Bounded recovery with horizons
 
-- Before `Persist`, incomplete or complete delta records remain
-  unacknowledged and recovery ignores them.
-- After `Persist`, the transaction cannot roll back. Recovery must append the
-  exact `AI:` bytes before normal journal use.
+Without compaction, the journal range and recovery time would grow with every
+disk change. A **horizon** incrementally moves the recovery floor forward.
 
-Gazette deduplicates a repaired ACK by its original UUID. A writer-register
-mismatch always ends the stale session.
+A horizon is a journal position that satisfies this invariant:
 
-## Task boundaries
+> Every allocated block has a committed copy at or after the horizon.
 
-All task types use the same disk log, copy algorithm, commit authority, and
-recovery rules. They differ only in how they identify a boundary and when the
-connector may write again.
+Once the invariant holds, recovery can start at the horizon. Older fragments
+are no longer needed for this disk.
+
+### Tracking a horizon
+
+When a horizon starts, the daemon copies the allocated bitmap into the horizon
+bitmap. A set bit means that the newest committed copy of that block is before
+the horizon.
+
+A committed delta clears a bit when either:
+
+- the connector changed that block and the delta published it; or
+- the daemon copied the unchanged block into the delta for compaction.
+
+Bits clear only after the delta commits. A failed delta leaves the bitmap
+unchanged, matching what recovery derives when it discards the same delta. Bits
+never become set again during one horizon. The bitmap therefore decreases until
+it is empty.
+
+The daemon scans the horizon bitmap with a forward cursor. Bits behind the
+cursor are clear, so each horizon needs at most one full pass through the
+bitmap.
+
+The live allocated snapshot can differ from the committed allocated set at the
+same journal position:
+
+- A live-only block has an unpublished write. A later delta publishes it and
+  clears the bit.
+- A committed-only block has a later unpublished discard. That delta records a
+  punch and clears the bit.
+
+These differences add limited redundant work but do not change the recovered
+state.
+
+### Selecting horizon blocks
+
+The daemon reads horizon blocks from the local image. This avoids fetching old
+journal fragments that may already be in cloud storage.
+
+Only a block whose current image value is already committed can be copied as
+unchanged data. At the transaction cut, the candidate set is:
+
+> horizon bitmap minus this delta's changed blocks minus blocks with
+> unpublished changes
+
+The live dirty bitmap is empty at the instant of the cut. Mutations that arrive
+after the cut use the rule below.
+
+If a mutation reaches a selected horizon block while it is being copied, the
+daemon removes that block from the horizon work for this delta and lets the
+mutation proceed. The next delta publishes the new value and clears its horizon
+bit. Horizon blocks therefore do not use copy before overwrite, and no block is
+owed to both the current delta and a future delta.
+
+### Encoding and resuming a horizon
+
+The first record of the delta that starts a horizon sets `opens_horizon`. The
+horizon position is that record's offset. The flag must appear on the first
+record because recovery snapshots the allocated set before applying any chunk
+from that delta. Placing it later would let earlier chunks clear bits even
+though a reader starting at the horizon could not see those chunks.
+
+The horizon is part of its opening delta. If that delta does not commit, the
+horizon does not exist. A writer can have only one open horizon. Recovery may
+encounter several completed horizons when the journal label is behind; each new
+horizon replaces the previous snapshot.
+
+The horizon bitmap is local memory. Recovery rebuilds it during normal replay:
+
+1. Rebuild the image from the current floor.
+2. At `opens_horizon`, copy the current allocated set into the horizon bitmap.
+3. Clear bits for chunks applied at and after the horizon.
+
+The ordinary data chunks are also the durable record of compaction progress. A
+replacement session resumes the open horizon instead of restarting it.
+
+### Compaction policy
+
+Each disk-changing delta may copy unchanged data in proportion to its changed
+data:
+
+> unchanged bytes copied = `k` × changed bytes
+
+The initial policy is `k = 0.5`. Total journal write amplification during
+compaction is therefore at most `1 + k`, excluding framing. A transaction that
+does not change the disk appends nothing and performs no horizon work.
+
+The daemon opens a horizon when the journal range from the current floor to the
+write head exceeds `r` times the live allocated size. The policy uses `r = 2`
+and a minimum threshold of 1 GiB. The minimum prevents frequent horizons on a
+small disk.
+
+`k` controls write amplification and completion speed. `r` controls the range
+size at which compaction starts. With `k = 0.5` and `r = 2`, the required
+recovery range is approximately bounded to five times the live allocated size.
+Both values are platform constants.
+
+Connector rewrites also clear horizon bits. A connector that rewrites most of
+its disk therefore needs little extra copying. If a connector stops changing
+the disk, an open horizon pauses. The journal also stops growing, so the
+recovery range remains fixed until disk writes resume.
+
+### Completing a horizon
+
+The floor moves after a committed delta empties the horizon bitmap:
+
+1. `Commit` appends the delta acknowledgement.
+2. The daemon waits for broker confirmation.
+3. `Committed` returns the message clock of the record that opened the horizon.
+4. The runtime writes that clock to `estuary.dev/truncated-at`.
+
+No completion record is needed. Every reader derives completion from the same
+chunks and allocated bitmap.
+
+The runtime updates the label monotonically and retries at startup and during
+normal operation. The label can be absent or behind the derived floor. It must
+never be ahead. A stale value increases replay work but does not change the
+result. Physical fragment deletion is a separate operation.
+
+`estuary.dev/truncated-at` is also used by capture backfills. In both cases it
+means that readers need no records before the given message clock. The label is
+preserved through journal-spec convergence by `go/labels/labels.go`; its
+documentation and convergence comment must cover both uses.
+
+A capture backfill floor is a runtime decision that is not recoverable from the
+collection journal, so the recovery log stores it as `AB:{state_key}`. A disk
+floor is derived from disk-journal contents during every replay and needs no
+additional recovery-log entry.
+
+## Task-specific boundaries
+
+All task types use the same journal format, capture algorithm, commit authority,
+and recovery path. They differ in how they make a connector quiet and when they
+release it.
 
 ### Derivations
 
-Terminal `Flushed { more: false }` is the boundary. Before returning it, a
-connector that changed its disk must `fsync`. It must not write again until the
-runtime's next request.
+Terminal `Flushed { more: false }` marks the boundary. A connector that changed
+its disk must flush that state before returning the response. It must not write
+again until the runtime sends the next request.
 
-`Flushed { more: true }` is not a boundary because another flush iteration
-still belongs to the same transaction.
+`Flushed { more: true }` is not a boundary because another flush iteration is
+part of the same transaction.
 
-`derive-sqlite` continues using its recorded SQLite VFS. Converting it to a
-runtime-authoritative derivation backed by this disk is out of scope here.
+`derive-sqlite` uses its recorded SQLite VFS and does not use a connector disk.
 
 ### Materializations
 
-`C:StartedCommit` establishes that all preceding `C:Store` requests were
-processed. The connector must not mutate the disk while handling
-`C:StartCommit`; it flushes any earlier changes before returning
-`C:StartedCommit`. The runtime sends `Publish` after `StartedCommit` and before
-`Persist`, and the connector remains quiet until `Acknowledge`.
+This design supports runtime-authoritative materializations.
+`C:StartedCommit` confirms that the connector processed all preceding `C:Store`
+requests. The connector flushes prior disk changes before returning
+`C:StartedCommit` and does not mutate the disk while handling `C:StartCommit`.
 
-The existing `Acknowledge` releases the connector after the recovery-log
-commit. It is ordered before any connector-facing request for the next
-transaction; the runtime need not wait for `Acknowledged`.
+The runtime sends `Publish` after `C:StartedCommit` and before `Persist`. The
+connector remains quiet until `Acknowledge`. `Acknowledge` releases
+the connector after the recovery-log commit and is ordered before every
+connector request for the next transaction. The runtime does not need to wait
+for `Acknowledged`.
+
+Remote-authoritative materializations do not have the required runtime commit
+boundary and are not supported.
 
 ### Captures
 
-A capture emits documents and checkpoints continuously, and the runtime chooses
-a closing checkpoint after the connector has already moved on. The disk boundary
-is taken after that close, so a capture's disk can be newer than the checkpoint
-its transaction commits.
+A capture emits documents and checkpoints continuously. The runtime can choose
+a closing checkpoint after the connector has already moved on. The disk cut
+occurs after that close. Without additional connector discipline, the disk can
+therefore be newer than the checkpoint committed in the same transaction.
 
-That is the unsafe direction. A connector which resumes from the committed
-checkpoint, and finds a disk recording work it has already done, skips documents
-that were never committed and loses them.
+A newer disk is unsafe for resume-critical state. On restart, the connector
+could see work recorded on disk that produced documents which never committed,
+then skip those documents.
 
-The capture protocol already carries the signal needed to avoid this, so no
-protocol change is required. A connector that sets `explicit_acknowledgements`
-in `Opened` receives `Acknowledge`, which states how many of its preceding
-checkpoints have committed. The cut falls between the close and `Acknowledge`,
-so a connector that makes no disk writes between emitting a checkpoint and
-receiving its acknowledgement is quiet across the cut. Its disk is then never
-ahead of the committed checkpoint.
+A capture's explicit-acknowledgement protocol provides the required boundary.
+A connector that sets `explicit_acknowledgements` in `Opened` receives an
+`Acknowledge` describing how many preceding checkpoints committed. If the
+connector makes no disk writes between emitting a checkpoint and receiving its
+acknowledgement, it is quiet across the runtime's cut. Its disk cannot advance
+past the committed checkpoint.
 
-A capture therefore chooses its own guarantee through its own behavior:
+Capture behavior therefore determines the guarantee:
 
 | Connector behavior | Disk guarantee |
 | --- | --- |
-| No disk writes between a checkpoint and its acknowledgement | Never ahead of the committed checkpoint |
-| Writes its disk while checkpoints are outstanding | Coherent, from some point in the connector's history |
+| No disk writes between a checkpoint and its acknowledgement | The disk is never ahead of the committed checkpoint and may hold resume-critical state. |
+| Disk writes while checkpoints are outstanding | The disk is coherent but may represent a later point in connector history. It is suitable only for caches, staged downloads, and scratch data. |
 
-`source-http-ingest` already has the first shape, because it holds each HTTP
-response until the documents it produced are acknowledged. A connector built
-that way can keep resume-critical state on its disk.
+`source-http-ingest` follows the first pattern. It holds each HTTP
+response until the documents produced from it are acknowledged.
 
-A connector of the second kind cannot. It must keep resume position in its
-checkpoint, where it already lives, and use its disk for caches, staged
-downloads, and scratch — state where holding more than the checkpoint accounts
-for costs redundant work and nothing else.
+Captures need no new protocol messages. The runtime cuts and publishes the disk
+at the same point it uses for a derivation.
 
-Neither case asks anything new of the connector at a boundary. The runtime cuts
-and publishes exactly as it does for a derivation.
+## Lifecycle and recovery
 
-## Recovery
+### Durable lifecycle
 
-Startup recovers all disk `AI:` obligations. Each session creates a new local
-image. If the journal holds committed deltas, recovery repairs those
-acknowledgements before fixing and replaying the journal range.
+A disk journal has two durable states:
 
-### Startup with no committed delta
+| State | Meaning |
+| --- | --- |
+| No committed Flow disk state | The journal has no acknowledged delta and the recovery log has no `AI:`. An absent journal is normal. Any data records are orphans from a failed first use. |
+| Committed Flow disk state | The journal has an acknowledged delta or the recovery log has an `AI:` for a pending delta. Recovery first repairs each acknowledgement and then rebuilds the image. |
 
-Recovery:
+The first committed delta contains the allocated `mkfs` and mount output, so it
+cannot be empty. No separate initialization marker is required.
 
-- does not mutate an existing orphan journal;
-- takes the read-only author snapshot needed for a possible later first-use
-  fence; and
-- starts with a fresh image.
+```text
+fresh local image
+       │ first disk-changing Flow commit
+       ▼
+committed disk journal
+       │ later deltas and horizons
+       ▼
+new committed states with an advancing recovery floor
+```
 
-An `AI:` value for a journal with no committed delta is invalid.
+### Fresh startup and first commit
 
-An absent journal is the common, healthy state. A journal containing records
-from a failed first-use attempt is ignored until a later first use claims it.
+With no acknowledged delta and no recovered `AI:`, `Open`:
 
-### Startup with committed deltas
+1. Creates a fresh sparse image.
+2. Creates a `ublk` device over it.
+3. Formats the device.
+4. Mounts the filesystem at a daemon-owned path.
+5. Chooses epoch `E` and reads the current author value `R` without claiming
+   it.
+6. Returns the mount path.
 
-Inside `Open`, the daemon does these steps:
+The daemon creates no journal append until the first disk transaction. On that
+first transaction it:
 
-1. Chooses `E`, reads `R`, and claims the journal.
-2. Appends every recovered `AI:` value exactly and waits for its barrier.
-3. Fixes a replay range and rebuilds a fresh image.
-4. Creates the ublk device over the rebuilt image.
-5. Mounts the rebuilt filesystem and returns its path.
+1. Applies the supplied `JournalSpec` if the journal is absent.
+2. Claims the author register with the deferred `R` to `E` fence.
+3. Publishes every dirty allocated block, including filesystem initialization
+   and mount output.
+4. Returns the acknowledgement to be included in `Persist`.
+5. Appends the acknowledgement only after the runtime sends `Commit`.
 
-The runtime then gives that path to the sandbox and opens the connector.
+The first data publication is on the transaction's critical path because no
+older committed disk can recover that transaction.
 
-### Fixing the replay range
+A failure before `Persist` can leave a fence and unacknowledged data records.
+They are not committed disk state. The next startup ignores them and creates a
+fresh image.
+
+### Startup with committed state
+
+When the journal contains an acknowledged delta or `Open` carries a recovered
+`AI:`, `Open`:
+
+1. Chooses epoch `E`, reads `R`, and claims the journal.
+2. Appends every recovered `AI:` acknowledgement exactly and waits for its
+   barrier.
+3. Selects a fixed replay range and rebuilds a fresh sparse image.
+4. Creates a `ublk` device over the rebuilt image.
+5. Mounts the filesystem and returns its path.
+
+The runtime then places the directory in the sandbox and opens the connector.
+This sequence also repairs the crash window in which the first `Persist`
+committed but its disk acknowledgement did not reach the journal.
+
+A startup with neither acknowledged state nor a recovered `AI:` does not mutate
+an orphan journal. It only reads the author value needed for a later first-use
+fence.
+
+### Selecting the replay range
 
 After fencing and acknowledgement repair, the daemon obtains a broker-confirmed
-write head `H`. The runtime supplies the floor in `Open`, having read it from
-the `estuary.dev/truncated-at` label. The daemon resolves that clock to an
-offset `O` and reads `[O, H)`. If the runtime supplied no floor, the daemon
-reads from the first available fragment.
+write head `H`. `H` fixes the end of this recovery attempt.
 
-The daemon treats the floor as a seek hint and not as a message filter. A seek
-that lands before the floor costs replay work and nothing else, while a filter
-could drop a record from the middle of a delta.
+The runtime supplies `estuary.dev/truncated-at` as the floor hint. The daemon
+resolves its message clock to offset `O` and reads `[O, H)`. If the label is
+absent, it starts at the first available fragment.
 
-The connector has not opened, the new fence excludes the old writer, and all
-recovered intents are already inside `H`. Later irrelevant appends cannot
-change what this attempt considers.
+The floor controls the seek position, not record filtering. A seek that starts
+early causes extra replay. Filtering by clock could remove a record from the
+middle of a delta and is not allowed.
 
-Recovery uses a disk-specific, single-journal reader. The append barrier admits
-only one unacknowledged delta at a time, so the reader's spill holds at most
-one delta.
+The connector is not yet open, the new fence excludes the previous writer, and
+all recovered acknowledgements are before `H`. Later appends do not affect the
+fixed range.
 
-### Reader rules
+Recovery uses a disk-specific reader for one journal. The append barrier allows
+at most one unacknowledged delta, so spill storage only needs to hold one delta.
 
-The reader makes one forward pass:
+### Replay rules
 
-1. Fence records are validated and make no disk change.
-2. The reader follows Gazette `message.Sequencer` semantics: producer and clock
-   group transactions, duplicate UUIDs are dropped, and only acknowledged
-   records are released.
-3. Delta chunks are spilled, never applied before their acknowledgement. A
-   `pwrite` cannot be rolled back, and this design deliberately has no shadow
-   image or undo log.
-4. Acknowledged deltas apply in physical order. The live append barrier makes
-   this commit order.
-5. At a record that sets `opens_horizon`, the reader copies its current
-   allocated set into the horizon bitmap, then clears a bit for each chunk it
-   applies after that point.
-6. When the horizon bitmap empties, that horizon is complete and its offset
-   becomes the new floor.
-7. The reader accepts more than one horizon record in the range, because the
-   label may lag. Each one replaces the previous snapshot.
-8. A new session's delta producer abandons an older producer's unacknowledged
-   delta. A later acknowledgement for an abandoned delta is an ordering error.
-9. The reader may begin in the middle of a delta when the label is absent or
-   lags, seeing trailing records and an acknowledgement for records it never
-   read. This is safe: those records precede the floor, and the floor rule
-   guarantees every allocated block has a copy at or after it.
-10. At `H`, every acknowledged delta must be applied. Unacknowledged spills are
-    deleted.
+The reader makes one forward pass through the range:
 
-The reader writes data chunks into a fresh sparse image and hole-punches the
-range of every punch chunk, so a rebuilt disk stays as sparse as its source.
-Applying both kinds also rebuilds the allocated bitmap. Replay does not mark
-blocks dirty, because it is reconstructing the committed baseline.
+1. Validate fence records without changing the image.
+2. Use Gazette `message.Sequencer` behavior to group records by producer and
+   clock, remove duplicate UUIDs, and release only acknowledged transactions.
+3. Spill delta chunks until their acknowledgement arrives. Applying
+   unacknowledged chunks directly would require an undo image.
+4. Apply acknowledged deltas in physical journal order. The live append
+   barrier makes this the commit order.
+5. At `opens_horizon`, copy the current allocated bitmap into the horizon
+   bitmap before applying that record's chunks.
+6. Clear horizon bits as chunks at or after the horizon are applied. When the
+   bitmap becomes empty, record that horizon's offset as the new floor.
+7. Accept later horizons in the range. Each one replaces the previous horizon
+   snapshot.
+8. Treat a new session producer as abandoning an older producer's
+   unacknowledged delta. A later acknowledgement of an abandoned delta is an
+   ordering error.
+9. Allow the range to begin within an older delta. Records before the floor are
+   unnecessary because the completed-horizon invariant places a copy of every
+   allocated block at or after the floor.
+10. At `H`, require every acknowledged delta to have been applied and delete
+    any remaining unacknowledged spill.
 
-A data chunk whose `bytes` stop part way through its last block must have the
-rest of that block written as zeroes. Leaving it untouched would keep whatever a
-previous delta put there.
+Data chunks are written into a fresh sparse image. Punch chunks hole-punch their
+ranges. Applying both kinds rebuilds the allocated bitmap. Replay does not set
+dirty bits because it is reconstructing the committed baseline.
 
-Hole punching is block-granular, which is the same 4 KiB, so writing those
-zeroes costs no sparseness. There is no sub-block hole to preserve.
+When data bytes end within a block, replay zeroes the rest of that block. Hole
+punching uses the same 4 KiB granularity, so this explicit zero fill does not
+remove any smaller sparse region.
 
-Replay leaves the daemon holding the image, the allocated bitmap, an empty dirty
-bitmap, the horizon bitmap, and the floor. The daemon returns that floor in
-`Opened`. If it is ahead of the label, the runtime applies the label.
+At the end of replay, the daemon holds the rebuilt image, allocated bitmap,
+empty dirty bitmap, reconstructed horizon bitmap, and derived floor. `Opened`
+returns that floor. If it is ahead of the journal label, the runtime updates
+the label.
 
+### Mounting the rebuilt image
 
-### Mount after recovery
+The daemon mounts the image with the standard options and retains all dirty
+bits produced by the mount. Ext4 may update its superblock, set recovery flags,
+or replay its filesystem journal. These changes are newer than the replayed
+baseline and are included in the next delta.
 
-The daemon mounts the rebuilt image with the standard options. It does **not**
-clear the dirty bitmap afterward, which is the rule [Mount](#mount) states.
+This produces the filesystem-level recovery guarantee: once mounted, the disk
+presents the same files and contents visible at the committed boundary, while
+incidental filesystem metadata may differ.
 
-Mounting may update the superblock, set recovery flags, or replay the
-filesystem journal. These are changes relative to an existing committed
-baseline. Clearing them would leave the local image permanently ahead of
-replicas rebuilt from the disk journal. The next delta therefore carries them.
+## Security and operations
 
-This is why the correctness guarantee is filesystem-level rather than
-whole-image byte equality:
+### Process privileges
 
-> Once mounted, a rebuilt disk presents the same filesystem contents the
-> connector saw at the committed boundary.
-
-Mount counts, timestamps, and similar filesystem bookkeeping may differ.
-
-## Operations
-
-### Privilege and isolation
-
-The daemon is a systemd-supervised machine singleton, and it is privileged. It
-needs:
+The daemon runs as a systemd-supervised machine singleton. It requires:
 
 - Linux 6.0 or later with `ublk_drv` loaded;
-- `CAP_SYS_ADMIN`, to mount and unmount its own filesystems and to create ublk
-  devices;
+- `CAP_SYS_ADMIN` for its mounts and `ublk` devices;
 - access to `/dev/ublk-control`;
-- seccomp rules that permit the required `io_uring` operations; and
-- owned storage directories on a filesystem that supports hole punching.
+- seccomp rules for the required `io_uring` operations; and
+- owned image and spill directories on a filesystem that supports hole
+  punching.
 
-`CAP_SYS_ADMIN` is unavoidable. The kernel refuses to let an unprivileged user
-mount a block-backed filesystem, for the reason
-[What the host kernel parses](#what-the-host-kernel-parses) describes. Running
-under a dedicated non-root UID with that one capability ambient is still worth
-doing, because it withholds `CAP_SYS_MODULE`, `CAP_NET_ADMIN`,
-`CAP_DAC_OVERRIDE` and the rest.
+The daemon runs under a dedicated non-root UID with `CAP_SYS_ADMIN` ambient.
+It does not receive unrelated capabilities such as `CAP_SYS_MODULE`,
+`CAP_NET_ADMIN`, or `CAP_DAC_OVERRIDE`. `CAP_SYS_ADMIN` is still broad, so the
+daemon must remain small and single-purpose.
 
-The reactor runs as a non-root container and needs much less:
+The reactor runs as a non-root container. It needs only:
 
-- the daemon's unix domain socket;
-- access to `/dev/kvm`, when it uses a `libkrun` sandbox; and
-- seccomp rules that permit the required KVM operations.
+- the daemon's Unix domain socket;
+- `/dev/kvm` when it starts a `libkrun` sandbox; and
+- seccomp rules for the required KVM operations.
 
-The reactor never touches `ublk` and never mounts anything. It receives a
-directory path and re-exports it to a sandbox.
+The reactor never accesses `ublk` or performs a mount. It receives a directory
+and re-exports it to a sandbox. It has no `CAP_SYS_ADMIN`, `CAP_MKNOD`, host
+mount propagation, broad device access, privileged-container mode, or rootful
+Podman socket.
 
-`UBLK_CMD_ADD_DEV` assigns an unpredictable device number. The host kernel
-creates `ublkcN` and `ublkbN` in its own device namespace, and both stay inside
-the daemon. No device node reaches another process, so no udev rule or device
-helper is required. Device numbers are ephemeral and are never used as durable
-identity.
+The daemon and VMM are separate processes. A sandbox receives only its mounted
+directory and connector root filesystem. It does not receive the image file
+descriptor, `ublk` control device, spill directory, or journal credentials. No
+trusted component runs as root inside the guest.
 
-The daemon is the only privileged component, and containment rests on it being
-small and single-purpose rather than on narrow capabilities. What matters is
-that everything running third-party code is unprivileged. The reactor receives
-no `CAP_SYS_ADMIN`, no `CAP_MKNOD`, no host mount propagation, no broad device
-access, no privileged container mode, and no rootful Podman socket.
+### Device isolation
 
-The daemon and any VMM are separate processes by construction. This satisfies
-libkrun's security model and prevents ublk shutdown from waiting on a client of
-its own device. A sandbox gets the mount and its own connector root filesystem.
-It does not get the image descriptor, the ublk control device, the spill
-directory, or journal credentials.
+`UBLK_CMD_ADD_DEV` assigns an ephemeral device number. The host creates
+`ublkcN` and `ublkbN` inside the daemon's device namespace. No other process
+receives those nodes, and durable state never refers to their numbers. No udev
+rule or device helper is required.
 
-#### What the host kernel parses
+Dropping a session stream unmounts its filesystem and removes both device
+nodes. Keeping the daemon and VMM in separate processes prevents ublk teardown
+from depending on a client served by the daemon itself.
 
-The daemon mounts the filesystem, so the host kernel's filesystem code runs on
-data a connector influenced. That is a real cost and it is worth stating exactly
-what it does and does not expose.
+### Host filesystem parsing
 
-The attack class at issue is a crafted image: author on-disk structures by hand,
-get a kernel to mount them, and its parsers run on your data in kernel context.
-Block-level write access is the enabling condition for that class.
+The host kernel mounts ext4 data that a connector can influence. The relevant
+threat is a crafted filesystem image that exploits kernel parsing of on-disk
+structures. A connector does not have the block-level access required to author
+those structures directly. It can only use file operations such as `open`,
+`write`, `rename`, `setxattr`, and `link`. The host ext4 driver encodes the
+resulting metadata.
 
-A connector never has block-level access. Its only path to the filesystem is
-file-level calls — `open`, `write`, `rename`, `setxattr`, `link`. Every on-disk
-structure is therefore encoded by the host's own ext4 driver. A connector
-influences metadata by choosing names, depths, sizes, and attribute contents,
-but it cannot author a structure.
+The host kernel therefore parses filesystem metadata written by the same host
+kernel. Three exposures remain:
 
-> The host kernel parses only filesystem metadata that the host kernel wrote.
+- A connector can issue legal but hostile file-operation patterns, including
+  deep directory trees, many hard links, large attributes, severe
+  fragmentation, and rename storms. This is the same class of exposure as a
+  writable container volume.
+- A `libkrun` sandbox adds `virtiofsd`, which translates guest file operations
+  into host calls. This is the same interface used for other `libkrun` OCI
+  volume mounts.
+- Every recovered image represents a power-loss point, so ext4 journal replay
+  runs on every session recovery rather than only after a machine failure.
 
-Three exposures remain:
+## Remaining work
 
-- **The write path.** A connector can still drive the driver with legal but
-  hostile sequences: very many hard links, maximum nesting, huge attributes,
-  extreme fragmentation, rename storms. This is the same exposure as any
-  container with a writable volume on the same machine.
-- **`virtiofsd`**, for a `libkrun` guest. A host userspace process now
-  translates guest requests into host calls. It is the same surface `libkrun`
-  already uses for every OCI volume mount.
-- **Journal replay on every recovery.** A published image is a power-loss point
-  and never a clean unmount, so each session start mounts a dirty filesystem.
-  This is the path where the claim above does the most work, and it runs far
-  more often than a dirty mount normally would. Running `e2fsck -p` on a
-  rebuilt image before mounting it would move that parse into a userspace
-  process the daemon controls, at a startup cost proportional to filesystem
-  size. Anything it repaired would appear in the next delta, exactly as mount
-  bookkeeping does.
+Two lifecycle areas must be specified before the feature is complete:
 
-A connector runs under an unprivileged UID inside its sandbox. No trusted
-component runs as root inside a guest, because the daemon does the format and
-the mount before the sandbox starts.
-
-### Local lifecycle and cleanup
-
-TBD
-
-## Shard splits
-
-TBD
+- **Local cleanup.** Define cleanup after daemon or machine crashes, removal of
+  orphaned image and spill files, local-capacity enforcement, and cleanup after
+  task deletion. Normal session teardown unmounts the filesystem,
+  deletes the `ublk` device, and closes the anonymous image.
+- **Shard splits.** Define how a child shard receives its initial disk state and
+  whether tasks with committed connector disks can split. Until this is
+  specified, live splits of those shards are unsupported.
