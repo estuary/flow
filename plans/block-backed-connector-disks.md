@@ -9,21 +9,13 @@ transaction.
 
 Every connector block write goes through the disk daemon, which records the
 blocks that change. At a transaction boundary the daemon copies those blocks
-into a per-shard Gazette journal. Each delta also carries a small number of blocks
-that did not change, and these move the start of the necessary replay range
-forward. Recovery therefore does not replay an unbounded history.
+into a per-shard Gazette journal. Each delta also carries a small number of
+blocks that did not change, and these move the start of the necessary replay
+range forward. Recovery therefore does not replay an unbounded history.
 
-> An important detail this design shook out: The connector sandboxing strategy
-  is impactful on shaping the joint between the reactor and connector. A
-  hypothetical `libkrun` based sandbox has (on paper, at least) a nice
-  implementation path for a non-root reactor, and that's what I'm assuming we'll
-  be working with for the rest of this document. But, if some connectors are to
-  run without this sandboxing vs. some that do, a different design will be
-  needed. That is the subject of further investigation.
-
-The initial implementation uses Linux `ublk` between libkrun and the daemon.
-This is an adapter for libkrun's path-based disk API, not part of the durable
-format.
+The daemon observes every block write through Linux `ublk`, which sits between
+the host filesystem and the daemon. This is an implementation detail and is not
+part of the durable format.
 
 The derivation connector protocol fits naturally with coordinating the necessary
 disk quiescense periods for snapshots to be recorded. Runtime authoritative
@@ -34,21 +26,23 @@ for derivations, runtime-authoritative materializations, and captures.
 ### Design boundaries
 
 **Connector calls.** Every live capture, derivation, and materialization shard
-gets a disk mounted at a stable path inside its sandbox before the connector
-opens. There is no opt-in or capability negotiation. Validation, discovery,
-`Apply`, and other non-transactional connector calls do not get a disk because
-their filesystem changes cannot be tied to a Flow commit.
+gets a directory at a stable path inside its sandbox before the connector opens.
+The daemon formats and mounts the filesystem behind that path. There is no
+opt-in or capability negotiation. Validation, discovery, `Apply`, and other
+non-transactional connector calls do not get a disk because their filesystem
+changes cannot be tied to a Flow commit.
 
 **Capacity.** Every disk is 10 GiB. This is a platform constant rather than a
 catalog or connector setting because the compaction, spill, and local-capacity
 assumptions below depend on a small known maximum. It is a number largely picked
 out of the air as "not too big, but big enough to be useful".
 
-**Initial platform.** The first implementation requires Linux 6.0 or later,
-KVM, libkrun sandboxing, and unprivileged `ublk`. The daemon holds the `ublk`
-access and the reactor holds only `/dev/kvm` and the daemon socket; neither runs
-as root. A trusted process inside the guest formats and mounts the filesystem;
-the host never mounts connector-controlled filesystem bytes.
+**Platform.** The daemon requires Linux 6.0 or later with `ublk_drv`. It is a
+privileged component: mounting ext4 needs `CAP_SYS_ADMIN`, which also covers
+`ublk` device creation. The reactor needs only the daemon's socket, plus
+`/dev/kvm` when it uses a `libkrun` sandbox, and is unprivileged. Either a
+`libkrun` guest or a plain container can consume the mount, so the design does
+not depend on which one a connector gets.
 
 **Guarantee.** Recovery reproduces the filesystem contents seen at the
 committed boundary. It does not promise a byte-identical image because mounting
@@ -103,9 +97,14 @@ the runtime.
 ### Session protocol
 
 One device is one session, and one session is one bidirectional stream. The
-device lives for exactly as long as the stream. A dropped stream destroys the
-device, which is what stops an orphaned process from writing to a journal it no
-longer owns.
+device lives for exactly as long as the stream. A dropped stream unmounts the
+filesystem and destroys the device, which is what stops an orphaned process from
+writing to a journal it no longer owns.
+
+A session hands back a **mounted directory** rather than a block device node.
+The daemon owns `mkfs`, the mount options, and every filesystem tuning decision.
+A caller receives a path it can use, and the sandbox it uses is its own
+business.
 
 | Request | Reply | Purpose |
 | --- | --- | --- |
@@ -117,7 +116,10 @@ longer owns.
 
 `Open` carries the device size, the `JournalSpec`, the broker address, a
 credential, every recovered ack, and an optional floor. `Opened` returns the
-device path, an `is_fresh` flag, and the floor that the daemon derived.
+mount path and the floor that the daemon derived.
+
+`Opened` reports nothing about whether the disk was fresh. The daemon formats a
+fresh disk itself, so a caller has no decision to make.
 
 The daemon applies the `JournalSpec` only if it must append and the journal is
 absent. Journal creation therefore stays lazy: a connector that never writes its
@@ -140,9 +142,9 @@ At startup the caller must:
 1. Acquire and recover the shard recovery log.
 2. Read the `estuary.dev/truncated-at` label from the journal.
 3. Send `Open` with every recovered ack and that floor.
-4. Start the VMM with the returned device path.
-5. Tell the guest bootstrap to format the device if `is_fresh` is true.
-6. Open the connector.
+4. Give the returned mount path to the sandbox, over `virtio-fs` for a
+   `libkrun` guest or as a bind mount for a container.
+5. Open the connector.
 
 At each boundary the caller must:
 
@@ -314,17 +316,17 @@ since the last boundary.
 
 ### Block transport
 
-The initial block path is:
+The block path is:
 
 ```text
-connector process (guest, unprivileged)
+connector process (unprivileged)
                 │ ordinary file I/O
                 ▼
-       ext4 filesystem (guest)
+   virtio-fs  ──or──  bind mount
                 │
                 ▼
-       virtio-blk (libkrun)
-                │
+    ext4 filesystem (host kernel)
+                │ the daemon's mount point
                 ▼
           /dev/ublkbN
                 │ ublk_drv
@@ -332,27 +334,28 @@ connector process (guest, unprivileged)
         ublk server (daemon) ──► sparse image
 ```
 
-libkrun opens `/dev/ublkbN` as a raw disk with direct I/O and
-`KRUN_SYNC_FULL`. The guest sees a virtio block device. A trusted guest
-bootstrap formats it when fresh, mounts it at the connector's stable disk path,
-and then starts the connector as an unprivileged guest process. The host treats
-the filesystem as opaque bytes.
+The daemon formats `/dev/ublkbN` when it is fresh and mounts it at a path the
+daemon owns. It then hands that path to the caller. Both `ublkcN` and `ublkbN`
+stay inside the daemon; no device node reaches another process.
 
-`/dev/ublkbN` is created for each sandbox; it is not a persistent identifier:
+A `libkrun` guest receives the path over `virtio-fs`. A plain container receives
+it as a bind mount. The connector sees an ordinary directory either way, and
+reaches the filesystem only through file-level calls.
+
+`/dev/ublkbN` is created for each device; it is not a persistent identifier:
 
 1. Loading `ublk_drv` exposes the host-wide `/dev/ublk-control`.
-2. The daemon sends `UBLK_CMD_ADD_DEV` with the unprivileged-device flag. The
-   daemon asks the kernel to choose `N`; host devtmpfs and udev then create
-   `/dev/ublkcN`, the character device the daemon serves.
+2. The daemon sends `UBLK_CMD_ADD_DEV` and asks the kernel to choose `N`. Host
+   devtmpfs and udev then create `/dev/ublkcN`, the character device the daemon
+   serves.
 3. The daemon sets the device size and queue limits and starts its I/O queues.
-   `UBLK_CMD_START_DEV` then exposes `/dev/ublkbN`, the block device opened by
-   libkrun.
+   `UBLK_CMD_START_DEV` then exposes `/dev/ublkbN`, the block device the daemon
+   mounts.
 4. Teardown stops the block device and deletes the character device. The kernel
    may reuse `N` immediately.
 
-The daemon holds `/dev/ublk-control` directly, so only `/dev/ublkbN` has to
-reach another process — the VMM the runtime starts. See
-[Privilege and isolation](#privilege-and-isolation).
+The daemon holds `/dev/ublk-control` directly and both device nodes stay in its
+own namespace. See [Privilege and isolation](#privilege-and-isolation).
 
 Everything below remains independent of this transport:
 
@@ -363,7 +366,7 @@ Everything below remains independent of this transport:
 - compaction; and
 - recovery.
 
-To allow a direct libkrun block backend later, the design follows three rules:
+Three rules keep the transport out of everything durable:
 
 - the durable format never contains a mount path, device identity, or mount
   option;
@@ -668,9 +671,9 @@ The two constants are independent:
   completes.
 - `r` sets how large the journal grows before a horizon starts.
 
-An initial policy is `k = 0.5` and `r = 2`, which bounds the recovery range at
-roughly five times the live allocated size. This policy is required, not a user
-setting.
+The policy is `k = 0.5` and `r = 2`, which bounds the recovery range at roughly
+five times the live allocated size. These are platform constants and not user
+settings.
 
 A connector that rewrites much of its disk pays almost nothing, because its own
 writes clear bits. The work scales with how much of the disk is genuinely
@@ -750,36 +753,37 @@ committed:
 
 ### Fresh disk startup
 
-When the journal has no committed delta, startup does these steps:
+When the journal has no committed delta, `Open` does these steps:
 
-Inside `Open`, the daemon:
+1. Create a fresh sparse image.
+2. Create a ublk device over the image.
+3. Format the device.
+4. Mount the filesystem at a daemon-owned path.
+5. Choose `E` and take the read-only author snapshot `R`.
+6. Return the mount path.
 
-1. creates a fresh sparse image;
-2. creates an unprivileged ublk device over the image;
-3. chooses `E` and takes the read-only author snapshot `R`; and
-4. returns the device path with `is_fresh` set.
-
-The runtime then:
-
-5. starts the libkrun sandbox with that path;
-6. lets the trusted guest bootstrap format and mount the filesystem; and
-7. opens the connector.
+The runtime then gives that path to the sandbox and opens the connector.
 
 The daemon creates no journal and appends nothing until first use.
 
-There is no baseline step, and the daemon does not clear the dirty bitmap.
+The daemon does not clear the dirty bitmap after the format and the mount.
+[Mount](#mount) explains why.
 
 If the journal does not exist, `R` means “author absent.” Creating the journal
 on first use produces an empty register set, after which the deferred fence can
 change the absent author to `E`. If another session fenced first, that
 transition fails.
 
-#### Formatting
+#### Format
 
-Only a fresh image is formatted. The trusted guest bootstrap runs `mkfs`;
-recovery treats filesystem structures as payload and never formats them again.
+The daemon formats only a fresh image. Recovery treats filesystem structures as
+payload and never formats them again.
 
-The initial filesystem is ext4 with:
+Format and mount decisions belong to the daemon and are not caller settings.
+That is much of the point of serving a mount: a caller receives a directory
+whose tuning it does not have to know about or get right.
+
+The filesystem is ext4 with:
 
 - a 4 KiB block size, matching the tracking granularity;
 - zero reserved blocks;
@@ -803,13 +807,17 @@ of the very first commit, and the `mkfs` output is that delta's contents.
 The default inode density avoids imposing an unusually low file-count limit for
 a small storage saving.
 
-#### Guest mount
+#### Mount
 
-Fresh and recovered disks use the same mount options:
+The daemon mounts fresh and recovered disks with the same options:
 
 - `noatime`, so reads do not create deltas;
 - `nodev`, `nosuid`, and `noexec`; and
 - `discard`, so ext4 releases blocks as it frees them.
+
+A sandbox that re-exports the mount applies its own options on top. A
+`virtio-fs` guest mount and a container bind mount must each carry `nodev`,
+`nosuid`, and `noexec` as well; the host mount's options do not propagate.
 
 `mkfs` and the first mount write through the served device. The daemon does
 **not** clear the dirty bitmap after those writes.
@@ -825,7 +833,8 @@ The daemon also does not clear the dirty bitmap after mounting a recovered
 disk. Mount bookkeeping and filesystem-journal replay are genuine changes from
 an existing committed baseline and must appear in the next delta.
 
-Fresh and recovered disks thus follow a single rule.
+One rule therefore covers both a fresh disk and a recovered one: never clear the
+dirty bitmap after a mount.
 
 ### First use
 
@@ -868,24 +877,38 @@ being handled and leave only after their backing operation completes.
 
 To establish a boundary, the daemon:
 
-1. closes the gate so that new requests wait;
-2. waits for every admitted request to finish;
-3. swaps the dirty bitmap, takes an allocated-bitmap snapshot if a horizon
+1. calls `syncfs` on its own mount;
+2. closes the gate so that new requests wait;
+3. waits for every admitted request to finish;
+4. swaps the dirty bitmap, takes an allocated-bitmap snapshot if a horizon
    starts here, and registers the new copy; and
-4. reopens the gate.
+5. reopens the gate.
 
-The bitmap operation in step 3 is the cut. A request is handled entirely before
+Step 1 is what makes a served mount safe. A connector's `fsync` reaches the host
+through `virtio-fs` or a bind mount, and whether that forces the host filesystem
+to write back is not something this design should depend on. If it did not, the
+connector's data would still be in the host page cache, the cut would miss it,
+and the disk would land behind its checkpoint. A `syncfs` the daemon issues
+itself removes the dependency. It is bounded work, because the connector has
+normally flushed already.
+
+The bitmap operation in step 4 is the cut. A request is handled entirely before
 or after it. Reads need not stop, and ext4 may continue submitting requests
 while the gate is closed; those requests simply wait. The gate is held only
 while the cut is established, not while the image is copied. It gives priority
 to a waiting boundary so continuous writeback cannot starve it.
 
-`KRUN_SYNC_FULL` passes guest flushes through to ublk. The ublk target must
-honor every flush and force-unit-access (`FUA`) write it advertises. This
-preserves ext4's ordering across queues. An ext4 journal operation may span the
-cut as several block requests, but the resulting image is a valid power-loss
-point: recovery either replays a committed journal operation or discards an
-incomplete one.
+The ublk target must honor every flush and force-unit-access (`FUA`) write it
+advertises, which preserves ext4's ordering across queues. An ext4 journal
+operation may span the cut as several block requests, but the resulting image is
+a valid power-loss point: recovery either replays a committed journal operation
+or discards an incomplete one.
+
+That last property has an operational consequence worth stating plainly. A
+published image is never a cleanly unmounted filesystem, so every recovery
+mounts a dirty one and runs journal replay. This is within the envelope the
+filesystem is built for, but it happens on every session start rather than only
+after a machine loses power.
 
 The copy walks the owed-set:
 
@@ -1028,8 +1051,7 @@ runtime's next request.
 still belongs to the same transaction.
 
 `derive-sqlite` continues using its recorded SQLite VFS. Converting it to a
-runtime-authoritative derivation backed by this disk is separate work after
-this design is proven.
+runtime-authoritative derivation backed by this disk is out of scope here.
 
 ### Materializations
 
@@ -1156,21 +1178,18 @@ Inside `Open`, the daemon does these steps:
 1. Chooses `E`, reads `R`, and claims the journal.
 2. Appends every recovered `AI:` value exactly and waits for its barrier.
 3. Fixes a replay range and rebuilds a fresh image.
-4. Creates the ublk device and returns its path.
+4. Creates the ublk device over the rebuilt image.
+5. Mounts the rebuilt filesystem and returns its path.
 
-The runtime then does these steps:
-
-5. Starts the libkrun sandbox with that path.
-6. Lets the trusted guest bootstrap mount the rebuilt filesystem.
-7. Opens the connector.
+The runtime then gives that path to the sandbox and opens the connector.
 
 ### Fixing the replay range
 
 After fencing and acknowledgement repair, the daemon obtains a broker-confirmed
-write head `H`. The runtime supplies the floor in `Open`, having read it from the
-`estuary.dev/truncated-at` label. The daemon resolves that clock to an offset `O`
-and reads `[O, H)`. If the runtime supplied no floor, the daemon reads from the
-first available fragment.
+write head `H`. The runtime supplies the floor in `Open`, having read it from
+the `estuary.dev/truncated-at` label. The daemon resolves that clock to an
+offset `O` and reads `[O, H)`. If the runtime supplied no floor, the daemon
+reads from the first available fragment.
 
 The daemon treats the floor as a seek hint and not as a message filter. A seek
 that lands before the floor costs replay work and nothing else, while a filter
@@ -1224,11 +1243,10 @@ bitmap, the horizon bitmap, and the floor. The daemon returns that floor in
 `Opened`. If it is ahead of the label, the runtime applies the label.
 
 
-### Guest mount after recovery
+### Mount after recovery
 
-The trusted guest bootstrap mounts the rebuilt image with the standard options.
-The daemon does **not** clear the dirty bitmap afterward, following the single
-rule that [Guest mount](#guest-mount) states.
+The daemon mounts the rebuilt image with the standard options. It does **not**
+clear the dirty bitmap afterward, which is the rule [Mount](#mount) states.
 
 Mounting may update the superblock, set recovery flags, or replay the
 filesystem journal. These are changes relative to an existing committed
@@ -1247,52 +1265,89 @@ Mount counts, timestamps, and similar filesystem bookkeeping may differ.
 
 ### Privilege and isolation
 
-The daemon is a systemd-supervised machine singleton. It runs as a non-root host
-UID and needs:
+The daemon is a systemd-supervised machine singleton, and it is privileged. It
+needs:
 
 - Linux 6.0 or later with `ublk_drv` loaded;
-- access to `/dev/ublk-control` and permission to create unprivileged ublk
+- `CAP_SYS_ADMIN`, to mount and unmount its own filesystems and to create ublk
   devices;
+- access to `/dev/ublk-control`;
 - seccomp rules that permit the required `io_uring` operations; and
 - owned storage directories on a filesystem that supports hole punching.
 
+`CAP_SYS_ADMIN` is unavoidable. The kernel refuses to let an unprivileged user
+mount a block-backed filesystem, for the reason
+[What the host kernel parses](#what-the-host-kernel-parses) describes. Running
+under a dedicated non-root UID with that one capability ambient is still worth
+doing, because it withholds `CAP_SYS_MODULE`, `CAP_NET_ADMIN`,
+`CAP_DAC_OVERRIDE` and the rest.
+
 The reactor runs as a non-root container and needs much less:
 
-- access to `/dev/kvm`;
-- seccomp rules that permit the required KVM operations; and
-- the daemon's unix domain socket.
+- the daemon's unix domain socket;
+- access to `/dev/kvm`, when it uses a `libkrun` sandbox; and
+- seccomp rules that permit the required KVM operations.
 
-The reactor never touches `ublk`. It receives a device path and gives it to a
-VMM. Because the daemon is a systemd unit rather than a container, it holds its
-device access directly, and no dynamically created node has to appear inside a
-container's private `/dev`.
+The reactor never touches `ublk` and never mounts anything. It receives a
+directory path and re-exports it to a sandbox.
 
 `UBLK_CMD_ADD_DEV` assigns an unpredictable device number. The host kernel
-creates `ublkcN` and `ublkbN` in its own device namespace. `ublkcN` belongs to
-the daemon and stays there. Only `ublkbN` must reach another process, so a host
-udev rule or narrow helper must:
+creates `ublkcN` and `ublkbN` in its own device namespace, and both stay inside
+the daemon. No device node reaches another process, so no udev rule or device
+helper is required. Device numbers are ephemeral and are never used as durable
+identity.
 
-1. identify the exact `ublkbN` created for a device;
-2. make it visible to the VMM that will open it; and
-3. remove it during teardown.
+The daemon is the only privileged component, and containment rests on it being
+small and single-purpose rather than on narrow capabilities. What matters is
+that everything running third-party code is unprivileged. The reactor receives
+no `CAP_SYS_ADMIN`, no `CAP_MKNOD`, no host mount propagation, no broad device
+access, no privileged container mode, and no rootful Podman socket.
 
-That helper is privileged host provisioning, but neither the daemon nor the
-reactor is privileged. Neither receives `CAP_SYS_ADMIN`, `CAP_MKNOD`, host mount
-propagation, broad device access, privileged container mode, or a rootful Podman
-socket. Device numbers are ephemeral and never used as durable identity.
+The daemon and any VMM are separate processes by construction. This satisfies
+libkrun's security model and prevents ublk shutdown from waiting on a client of
+its own device. A sandbox gets the mount and its own connector root filesystem.
+It does not get the image descriptor, the ublk control device, the spill
+directory, or journal credentials.
 
-The daemon and the libkrun VMM are separate processes by construction. This
-satisfies libkrun's security model and prevents ublk shutdown from waiting on a
-client of its own device. The VMM gets only the exact `ublkbN`, its connector
-root filesystem, and the other resources that invocation requires. It does not
-get the image descriptor, the ublk control device, the spill directory, or
-journal credentials.
+#### What the host kernel parses
 
-A trusted bootstrap runs as root inside the guest. It formats a fresh disk,
-mounts it with `nodev`, `nosuid`, `noexec`, and `noatime`, and starts the
-connector under an unprivileged guest UID. Guest root is not host root. The
-host kernel never parses the connector-controlled ext4 filesystem; it handles
-only KVM, virtio, ublk requests, and opaque image bytes.
+The daemon mounts the filesystem, so the host kernel's filesystem code runs on
+data a connector influenced. That is a real cost and it is worth stating exactly
+what it does and does not expose.
+
+The attack class at issue is a crafted image: author on-disk structures by hand,
+get a kernel to mount them, and its parsers run on your data in kernel context.
+Block-level write access is the enabling condition for that class.
+
+A connector never has block-level access. Its only path to the filesystem is
+file-level calls — `open`, `write`, `rename`, `setxattr`, `link`. Every on-disk
+structure is therefore encoded by the host's own ext4 driver. A connector
+influences metadata by choosing names, depths, sizes, and attribute contents,
+but it cannot author a structure.
+
+> The host kernel parses only filesystem metadata that the host kernel wrote.
+
+Three exposures remain:
+
+- **The write path.** A connector can still drive the driver with legal but
+  hostile sequences: very many hard links, maximum nesting, huge attributes,
+  extreme fragmentation, rename storms. This is the same exposure as any
+  container with a writable volume on the same machine.
+- **`virtiofsd`**, for a `libkrun` guest. A host userspace process now
+  translates guest requests into host calls. It is the same surface `libkrun`
+  already uses for every OCI volume mount.
+- **Journal replay on every recovery.** A published image is a power-loss point
+  and never a clean unmount, so each session start mounts a dirty filesystem.
+  This is the path where the claim above does the most work, and it runs far
+  more often than a dirty mount normally would. Running `e2fsck -p` on a
+  rebuilt image before mounting it would move that parse into a userspace
+  process the daemon controls, at a startup cost proportional to filesystem
+  size. Anything it repaired would appear in the next delta, exactly as mount
+  bookkeeping does.
+
+A connector runs under an unprivileged UID inside its sandbox. No trusted
+component runs as root inside a guest, because the daemon does the format and
+the mount before the sandbox starts.
 
 ### Local lifecycle and cleanup
 
