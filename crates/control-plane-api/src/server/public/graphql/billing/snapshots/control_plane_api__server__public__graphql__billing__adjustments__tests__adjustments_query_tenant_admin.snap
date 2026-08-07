@@ -1,0 +1,29 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/adjustments.rs
+expression: listed
+---
+{
+  "data": {
+    "tenant": {
+      "billing": {
+        "adjustments": {
+          "edges": [
+            {
+              "node": {
+                "authorizer": "support@estuary.test",
+                "billedMonth": "2026-07-01T00:00:00+00:00",
+                "detail": "make-good for incident",
+                "tenant": "adjustco/",
+                "usdCents": -5000
+              }
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false,
+            "hasPreviousPage": false
+          }
+        }
+      }
+    }
+  }
+}
