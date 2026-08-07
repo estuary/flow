@@ -291,10 +291,15 @@ the image write.
 
 The **dirty bitmap** answers this question:
 
-> Did this block change after the last transaction boundary?
+> Might this block differ from what was last published?
+
+The write path sets a block's bit before it issues the image write and again
+after that write completes. The bit is therefore set for the whole period in
+which the block's content is unstable. [Delta capture](#delta-capture) relies on
+that.
 
 At a boundary the daemon replaces this bitmap with an empty bitmap. The old
-bitmap becomes the block set for the delta.
+bitmap becomes the delta's remaining block set.
 
 The **allocated bitmap** answers this question:
 
@@ -473,12 +478,13 @@ fragment content sums already cover that span. It would not detect a wrong
 block index, a mis-coalesced run, or a stale buffer, because each of those
 produces a self-consistent chunk. The safeguards that do catch those are
 structural: the copy loop must find its block set empty before it appends the
-acknowledgement, chunks in one delta never overlap, and a horizon completes only
-when every allocated block has been covered.
+acknowledgement, and a horizon completes only when every allocated block has
+been covered.
 
-Chunks in one delta never overlap, but they are not guaranteed to be sorted.
-Concurrent writes can force a block ahead of the copy cursor to be emitted
-early. Readers must accept this order and rely only on non-overlap.
+Chunks in one delta are neither sorted nor distinct. Concurrent writes force a
+block ahead of the copy cursor to be emitted early, and a block published before
+a boundary can be written again and published a second time. Readers apply
+chunks in journal order, and the last chunk for a block wins.
 
 Records and append batches are bounded. Gazette serializes appends to a
 journal, so one enormous append could otherwise block a later delta for an
@@ -918,7 +924,38 @@ later Flow transaction boundary. Their delta ordering is described under
 
 Every delta must represent the disk at one exact boundary, even if the
 connector resumes writing before its blocks have been copied into the journal.
-A delta owes the dirty blocks taken at that boundary.
+
+The daemon does not wait for the boundary to start publishing. It appends chunks
+for dirty blocks throughout the transaction. The boundary stays exact because of
+one rule:
+
+> The last chunk for a block in a delta carries that block's value at the
+> boundary.
+
+Publishing a block early only helps if the daemon can then stop tracking it, so
+the sequence is: clear the block's bit, read the block, append the chunk.
+
+The clear must come first. Read first and clear second, and a write arriving
+between the two sets the bit only to have the clear wipe it — the block is then
+untracked and holds a value the daemon never published.
+
+Clearing first is safe because of what a dirty bit means. A write sets the bit
+before it issues the image write and again after that write completes, so the
+bit is set at every instant from before a write starts until after it finishes.
+For a published value to be wrong, some write must have touched the block at or
+after the read began, and that write sets the bit again once it lands. The
+boundary then republishes the block, and the later chunk supersedes the earlier
+one.
+
+A block published early and never written again keeps the value the daemon read,
+which is its value at the boundary.
+
+An early read may be torn, and that does not matter. A torn read implies a
+concurrent write, a concurrent write implies a set bit, and a set bit implies
+the boundary republishes the block.
+
+A delta therefore begins at the start of its transaction rather than at the cut.
+Its first record is the one that can set `opens_horizon`.
 
 The connector flushes and stops its own writes before a boundary, but ext4 may
 still issue journal or writeback requests. The daemon therefore establishes
@@ -931,8 +968,8 @@ To establish a boundary, the daemon:
 1. calls `syncfs` on its own mount;
 2. closes the gate so that new requests wait;
 3. waits for every admitted request to finish;
-4. swaps the dirty bitmap, takes an allocated-bitmap snapshot if a horizon
-   starts here, and registers the new copy; and
+4. swaps the dirty bitmap, takes an allocated-bitmap snapshot if the next
+   transaction opens a horizon, and registers the new copy; and
 5. reopens the gate.
 
 Step 1 is what makes a served mount safe. A connector's `fsync` reaches the host
@@ -1000,7 +1037,8 @@ discards, and write zeroes. It replaces filesystem freezing and is the reason
 a copy remains coherent under concurrent write load.
 
 Rescuing a block ahead of the normal cursor also explains why delta chunks
-may be out of offset order. Non-overlap, not sorting, is the invariant.
+may be out of offset order. Journal order, not offset order, is what a reader
+follows.
 
 Copy before overwrite does not extend to unchanged blocks copied to advance a
 horizon, for the reason [Horizons](#horizons) gives.
@@ -1018,10 +1056,12 @@ At an ordinary boundary:
 2. The runtime sends `Publish`.
 3. The daemon closes the device gate, drains admitted requests, swaps the
    dirty bitmap, and reopens the gate.
-4. If the old bitmap is empty, the daemon returns no ack. The transaction takes
-   the unchanged fast path and appends nothing.
+4. If the old bitmap is empty and the daemon appended nothing earlier in this
+   transaction, it returns no ack and the transaction takes the unchanged fast
+   path.
 5. Otherwise the daemon may add unchanged blocks to advance a horizon, as
-   [Horizons](#horizons) describes, then copies and appends the delta records.
+   [Horizons](#horizons) describes, then copies and appends the remaining
+   records.
 6. The daemon waits for confirmation and returns the exact ack in `Published`.
 7. The runtime reports that ack to the transaction coordinator.
 8. `Persist` atomically records the checkpoint, connector state, and `AI:`
@@ -1267,24 +1307,20 @@ The reader makes one forward pass:
    image or undo log.
 4. Acknowledged deltas apply in physical order. The live append barrier makes
    this commit order.
-5. The reader verifies that chunks within one delta do not overlap. It already
-   tracks the allocated set, so the check is nearly free, and it catches a wrong
-   block index — which no checksum could, because a mis-placed chunk is
-   internally consistent.
-6. At a record that sets `opens_horizon`, the reader copies its current
+5. At a record that sets `opens_horizon`, the reader copies its current
    allocated set into the horizon bitmap, then clears a bit for each chunk it
    applies after that point.
-7. When the horizon bitmap empties, that horizon is complete and its offset
+6. When the horizon bitmap empties, that horizon is complete and its offset
    becomes the new floor.
-8. The reader accepts more than one horizon record in the range, because the
+7. The reader accepts more than one horizon record in the range, because the
    label may lag. Each one replaces the previous snapshot.
-9. A new session's delta producer abandons an older producer's unacknowledged
+8. A new session's delta producer abandons an older producer's unacknowledged
    delta. A later acknowledgement for an abandoned delta is an ordering error.
-10. The reader may begin in the middle of a delta when the label is absent or
-    lags, seeing trailing records and an acknowledgement for records it never
-    read. This is safe: those records precede the floor, and the floor rule
-    guarantees every allocated block has a copy at or after it.
-11. At `H`, every acknowledged delta must be applied. Unacknowledged spills are
+9. The reader may begin in the middle of a delta when the label is absent or
+   lags, seeing trailing records and an acknowledgement for records it never
+   read. This is safe: those records precede the floor, and the floor rule
+   guarantees every allocated block has a copy at or after it.
+10. At `H`, every acknowledged delta must be applied. Unacknowledged spills are
     deleted.
 
 The reader writes data chunks into a fresh sparse image and hole-punches the
