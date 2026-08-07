@@ -47,7 +47,7 @@ mod tenant;
 pub(crate) use scalars::Sensitive;
 
 /// Whether the current user holds `capability` on `name`, as a pure check
-/// against the request's authorization Snapshot.
+/// against the request's [`crate::Authority`].
 ///
 /// This is the visibility gate: use it to hide a field or filter a list,
 /// failing closed to an empty or default value when it returns `false`. Unlike
@@ -63,14 +63,7 @@ fn may_access(
     capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
-    let snapshot = env.snapshot();
-    Ok(tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        env.claims()?.sub,
-        name,
-        capability,
-    ))
+    Ok(env.authority()?.is_authorized(name, capability))
 }
 
 /// Errors unless the current user holds `capability` on `prefix`.
@@ -87,12 +80,7 @@ async fn verify_authorization(
     prefix: &str,
     capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 ) -> async_graphql::Result<()> {
-    let policy_result = crate::server::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        capability,
-        [prefix],
-    );
+    let policy_result = env.authority()?.evaluate(capability, [prefix]);
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
     Ok(())
 }

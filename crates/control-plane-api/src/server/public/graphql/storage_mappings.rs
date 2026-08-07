@@ -206,7 +206,6 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -214,7 +213,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -346,7 +345,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -483,7 +482,6 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<ConnectionHealthTestResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -491,7 +489,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -507,46 +505,36 @@ impl StorageMappingsMutation {
 
 async fn evaluate_authorization(
     env: &crate::Envelope,
-    claims: &crate::ControlClaims,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> Result<(), crate::ApiError> {
-    let policy_result =
-        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
+    let policy_result = check_authorization(
+        &env.authority()?,
+        &env.snapshot().role_grants,
+        catalog_prefix,
+        data_plane_names,
+    );
     env.authorization_outcome(policy_result).await?;
     Ok(())
 }
 
 fn check_authorization(
-    snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
+    authority: &crate::Authority<'_>,
+    role_grants: &tables::RoleGrants,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> crate::AuthZResult<()> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
     // Verify the User admins `catalog_prefix`.
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        *user_id,
-        catalog_prefix,
-        models::Capability::Admin,
-    ) {
-        return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
-        )));
-    }
+    let (_cordon, ()) = authority.evaluate(models::Capability::Admin, [catalog_prefix])?;
 
     for data_plane_name in data_plane_names {
         // Verify `catalog_prefix` is authorized to access the data-plane for Read.
+        // This is a role-to-role question — may this catalog prefix use this data
+        // plane — so it is answered from the grant graph and takes no scope. The
+        // caller's own authority over `catalog_prefix` was already established
+        // above, and that check is scoped.
         if !tables::RoleGrant::is_authorized(
-            &snapshot.role_grants,
+            role_grants,
             catalog_prefix,
             data_plane_name,
             models::Capability::Read,
@@ -701,12 +689,9 @@ impl StorageMappingsQuery {
             (None, filter_catalog_prefix) => filter_catalog_prefix,
         };
 
-        let snapshot = env.snapshot();
         let (read_prefixes, under_prefix, exact_prefixes) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                env.claims()?.sub,
+                &env.authority()?,
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -769,23 +754,19 @@ impl StorageMappingsQuery {
             )
             .await?;
 
-        let snapshot = env.snapshot();
-        let claims = env.claims()?;
+        let authority = env.authority()?;
         let edges = rows
             .into_iter()
             .map(|row| {
-                let user_capability = tables::UserGrant::get_user_capability(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    claims.sub,
-                    &row.catalog_prefix,
-                )
-                .ok_or_else(|| {
-                    async_graphql::Error::new(format!(
-                        "missing capability for catalog prefix '{}'",
-                        row.catalog_prefix
-                    ))
-                })?;
+                let user_capability =
+                    authority
+                        .capability_at(&row.catalog_prefix)
+                        .ok_or_else(|| {
+                            async_graphql::Error::new(format!(
+                                "missing capability for catalog prefix '{}'",
+                                row.catalog_prefix
+                            ))
+                        })?;
 
                 // Strip "collection-data/" suffix from store prefixes before returning to user.
                 let user_facing_spec = strip_collection_data_suffix(row.spec);

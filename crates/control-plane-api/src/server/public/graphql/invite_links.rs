@@ -76,12 +76,9 @@ impl InviteLinksQuery {
             .as_ref()
             .and_then(|f| f.single_use.as_ref())
             .and_then(|f| f.eq);
-        let snapshot = env.snapshot();
         let (admin_prefixes, prefix_starts_with, prefix_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                env.claims()?.sub,
+                &env.authority()?,
                 models::Capability::Admin,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
