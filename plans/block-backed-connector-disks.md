@@ -7,10 +7,11 @@ path. The disk advances atomically with Flow transactions: after a failure, it
 is rebuilt to the filesystem state associated with the last committed
 transaction.
 
-Every connector block write passes through the runtime, which tracks exactly
-what changed. At a transaction boundary the runtime copies those blocks into a
-per-shard Gazette journal. It occasionally writes a new complete copy so
-recovery does not have to replay an unbounded history.
+Every connector block write goes through the runtime, which records the blocks
+that change. At a transaction boundary the runtime copies those blocks into a
+per-shard Gazette journal. Each delta also carries a small number of blocks
+that did not change, and these move the start of the necessary replay range
+forward. Recovery therefore does not replay an unbounded history.
 
 > An important detail this design shook out: The connector sandboxing strategy
   is impactful on shaping the joint between the reactor and connector. A
@@ -59,25 +60,35 @@ to "merge" split shards once they have written to their disks.
 
 ## Correctness model
 
-The local image is a disposable working copy. The durable disk state is the
-journal state selected by the task recovery log:
+The local image is a disposable working copy. The durable disk state is the set
+of committed deltas in the disk journal.
 
-> the designated full copy, followed by every committed delta after it.
+A **delta** is the set of chunks that one transaction commits. It carries
+every block that changed at that boundary, and it may carry some blocks that
+did not — extra copies the runtime includes to move the recovery floor forward.
+[Horizons](#horizons) explains why.
 
-A **full** contains every allocated block in the image at one boundary. A
-**delta** contains every block that changed since the previous boundary. Both
-use the same extent encoding.
+Nothing in the encoding separates the two. An extra copy is an ordinary `DATA`
+chunk, so a reader treats every chunk identically, which is what keeps replay
+simple.
 
-The recovery log carries two kinds of disk state:
+The **recovery floor** is the offset of the first record that recovery must
+read. Recovery calculates the floor from the journal contents. The
+`estuary.dev/truncated-at` journal label holds the floor as a message clock.
 
-- `DR:{shard}` is the disk-journal byte offset of the `Begin` record for the
-  currently designated full.
-- `AI:{journal}` is the exact serialized `Ack` record that a committed
-  transaction still requires the shard to append.
+The label is a bookmark rather than an authority, and that distinction carries
+more weight than it first appears. The floor is a fact about what the journal
+contains, so any reader rederives it from a replay it must perform anyway. A
+label that is absent, or behind the true floor, costs replay work and nothing
+else.
 
-`DR:` chooses the recovery base. `AI:` makes post-commit publication
-recoverable. A complete full that is not named by `DR:` is only an orphan, and
-an unacknowledged delta is not committed.
+The recovery log carries one kind of disk state:
+
+- `AI:{journal}` is the exact serialized acknowledgement record that a
+  committed transaction still requires the shard to append.
+
+`AI:` makes post-commit publication recoverable. A delta without an
+acknowledgement is not committed.
 
 ### What the connector must do
 
@@ -104,15 +115,15 @@ newer than the checkpoint.
 
 ## Components and durable state
 
-The block store for each live shard incarnation has three local data
+The block store for each live shard incarnation has four local data
 structures:
 
 - a sparse image file;
-- a dirty bitmap; and
-- an allocated bitmap.
+- a dirty bitmap;
+- an allocated bitmap; and
+- a horizon bitmap.
 
 If the disk has ever committed, it also has one per-shard Gazette journal.
-Authority over that journal remains in the task recovery log.
 
 ### Sparse image
 
@@ -131,28 +142,35 @@ cleanup.
 
 ### Change tracking
 
-Both bitmaps have one bit per 4 KiB block. A 10 GiB image has 2,621,440 blocks,
-so each bitmap is 320 KiB. They are arrays of atomic words, and the write path
-sets the relevant bits before issuing the image write.
+The runtime keeps three bitmaps. Each bitmap has one bit for each 4 KiB block. A
+10 GiB image has 2,621,440 blocks, so each bitmap is 320 KiB. The bitmaps are
+arrays of atomic words. The write path sets the necessary bits before it issues
+the image write.
 
-The **dirty bitmap** answers:
+The **dirty bitmap** answers this question:
 
-> Has this block changed since the last transaction boundary?
+> Did this block change after the last transaction boundary?
 
-At a boundary the runtime swaps it for an empty bitmap. The old bitmap becomes
-the owed-set for the delta being captured.
+At a boundary the runtime replaces this bitmap with an empty bitmap. The old
+bitmap becomes the block set for the delta.
 
-The **allocated bitmap** answers:
+The **allocated bitmap** answers this question:
 
-> Does this block currently occupy space in the image?
+> Does this block occupy space in the image now?
 
-It supplies the owed-set for a full and gives placement an exact measure of
-physical use. A write sets allocated bits. A successful aligned discard clears
-them.
+The allocated bitmap gives the initial content of the horizon bitmap. It also
+gives placement an exact measure of physical use. A write sets allocated bits. A
+successful aligned discard clears them.
 
-The two bitmaps are independent: a block can be allocated without having
-changed since the last boundary. Fresh-disk initialization relies on this
-distinction, as described later.
+The **horizon bitmap** answers this question:
+
+> Is the newest copy of this block before the current horizon?
+
+The runtime fills this bitmap when it starts a horizon. Deltas clear its bits.
+The bitmap is empty when no horizon is open.
+
+The bitmaps are independent: a block can be allocated without having changed
+since the last boundary.
 
 ### Block transport
 
@@ -219,25 +237,39 @@ The host filesystem that stores images must support hole punching.
 The disk journal is created lazily on the first transaction that needs durable
 disk state.
 
-Records use Gazette's fixed Protobuf framing and a disk-specific message:
-
-| Operation | Purpose |
-| --- | --- |
-| `Fence` | Installs the current shard session's writer epoch without changing disk state |
-| `Begin` | Starts a full or delta |
-| `Chunk` | Carries a bounded batch of extents |
-| `End` | Finishes a stream and states its totals |
-| `Ack` | Commits one complete delta through Gazette sequencing |
-
-Full records and `Fence` records are `OUTSIDE_TXN`. A delta's `Begin`, `Chunk`,
-and `End` records are `CONTINUE_TXN`; its `Ack` is `ACK_TXN`.
-
-A `Begin` states whether the stream is a full or delta.
-
-A `Chunk` contains extents:
+Records use Gazette's fixed Protobuf framing and one disk-specific message:
 
 ```text
-Extent
+DiskRecord
+┌────────────────┬────────────────────────────────────────────────┐
+│ chunks         │ zero or more chunks                            │
+│ opens_horizon  │ true only on the first record of a transaction │
+│ installs_epoch │ present only on a fence record                 │
+└────────────────┴────────────────────────────────────────────────┘
+```
+
+The Gazette UUID of each record supplies the producer, the clock, and the
+transaction flag. There is no separate begin record and no separate end record:
+
+- A **fence** record is `OUTSIDE_TXN`. It sets `installs_epoch`, carries no
+  chunks, and does not change disk state.
+- A **delta** is one or more `CONTINUE_TXN` records and one `ACK_TXN` record.
+  The `ACK_TXN` record commits the delta and carries no chunks.
+
+The acknowledgement is the only terminator a delta needs. A journal has no
+interior gaps, so a reader that finds the acknowledgement holds every record of
+that delta. The copy loop must find its block set empty before it appends the
+acknowledgement; that local assertion catches an omitted chunk at the point
+where the bug happens, which a count in the journal cannot.
+
+A record that sets `opens_horizon` must be the first record of its transaction.
+Any other position is a protocol error, for the reason
+[Horizons](#horizons) gives.
+
+A chunk has this form:
+
+```text
+Chunk
 ┌──────────────┬──────────────┬────────────┬─────────┬────────────────────┐
 │ offset: u64  │ length: u32  │ crc32: u32 │ kind    │ bytes (if DATA)    │
 └──────────────┴──────────────┴────────────┴─────────┴────────────────────┘
@@ -245,38 +277,32 @@ Extent
    PUNCH  an allocated range was discarded
 ```
 
-At a delta boundary, a dirty block that remains allocated becomes `DATA`. A
-dirty block that is no longer allocated becomes `PUNCH`. A full emits `DATA`
-for every allocated block.
+At a boundary, a dirty block that remains allocated becomes `DATA`. A dirty
+block that is no longer allocated becomes `PUNCH`. An unchanged block that the
+runtime copies to advance a horizon is also `DATA`, with nothing to mark it
+apart.
 
-An `End` states the stream's extent count and byte total. This catches
-truncation even when all record frames before the truncation were valid.
-
-Extents in one stream never overlap, but they are not guaranteed to be sorted.
+Chunks in one delta never overlap, but they are not guaranteed to be sorted.
 Concurrent writes can force a block ahead of the copy cursor to be emitted
 early. Readers must accept this order and rely only on non-overlap.
 
 Records and append batches are bounded. Gazette serializes appends to a
-journal, so one enormous append from a background full could otherwise block a
-live transaction delta for an unbounded time.
+journal, so one enormous append could otherwise block a later delta for an
+unbounded time.
 
-### Grouping journal records
+### Record groups
 
-A full is a stream of `Begin`, `Chunk`, and `End` records. A delta uses the
-same records plus an `Ack` that commits it. Fulls are copied in the background,
-so their records can be interleaved with live deltas. Failed attempts can also
-leave streams that never become authoritative. Recovery must know which
-records belong together.
+Gazette gives every record a producer ID and a clock, so the disk journal does
+not add a separate stream ID:
 
-Gazette already gives every record a producer ID, so the disk journal does not
-add a separate stream ID:
-
-- A shard session uses one producer for all its deltas. `Begin` and `End`
-  delimit each delta, and a replacement session uses a new producer.
-- Each full attempt uses a fresh producer. All records in that full carry the
-  same producer.
-- Each `Fence` record uses its own producer and carries the shard-session
+- A shard session uses one producer for all its deltas. A replacement session
+  uses a new producer.
+- Each fence record uses its own producer and carries the shard-session
   producer that it installs as the writer epoch.
+
+Readers follow Gazette `message.Sequencer` semantics: the sequencer groups
+records by producer and clock, discards duplicate UUIDs, and releases only
+acknowledged records.
 
 ### Recovery-log authority
 
@@ -297,7 +323,6 @@ connector ◄── guest ext4 ◄── rebuilt image ◄──────┘
 
                         recovery log
                  ┌────────────────────────┐
-                 │ DR: designated full    │
                  │ AI: exact pending Ack  │
                  │ checkpoint and state   │
                  └────────────────────────┘
@@ -308,6 +333,12 @@ For derivations and materializations, the Shuffle Leader includes every
 shard's disk obligations in one recovery-log `Persist`. Each disk-owning shard
 then appends to its own journal. Captures perform the same coordination inside
 their local transaction FSM.
+
+This is why `AI:` exists at all. Derivations and materializations have exactly
+one recovery log — shard zero's — while every shard has its own disk journal.
+The commit and the disk acknowledgements are therefore unavoidably different
+appends to different journals, and something has to bridge them. That follows
+from the shard topology rather than from anything about the disk format.
 
 ### One writer per journal
 
@@ -335,13 +366,12 @@ write after a replacement has taken over. If it re-read the register, it could
 overwrite the replacement's epoch. It may attempt only the transition observed
 at startup.
 
-The claim happens at different times depending on durable state:
+The claim happens at different times depending on journal contents:
 
-- If `DR:` exists, the shard claims the journal before repairing `AI:`, fixing
-  a recovery range, replaying, or opening the connector. A missing journal is
-  fatal.
-- If `DR:` does not exist, the shard takes only the read-only snapshot `R`.
-  Journal creation and the deferred claim happen on first use.
+- If the journal exists, the shard claims it before repairing `AI:`, fixing a
+  recovery range, replaying, or opening the connector.
+- If the journal does not exist, the shard takes only the read-only snapshot
+  `R`. Journal creation and the deferred claim happen on first use.
 
 An ambiguous fence append is retried idempotently as a check for `E`, not as a
 new attempt to take ownership. A register mismatch ends the session. Every
@@ -350,42 +380,247 @@ taking the register back.
 
 Journal registers fence cooperative writers but do not become commit
 authority. A lost register set can satisfy a comparison against absence, so
-`DR:` and `AI:` remain the final authority even when register state is empty.
+`AI:` and the committed journal contents remain the final authority even when
+register state is empty.
 
 Gazette orders the fence with appends. Old content before the fence matters
-only if `DR:` or `AI:` already made it authoritative; an old append ordered
-after the fence fails its `author` check.
+only if it was already committed; an old append ordered after the fence fails
+its `author` check.
+
+## Horizons
+
+Without compaction the journal and the recovery time grow without bound. The
+runtime moves the recovery floor forward with **horizons**.
+
+A **horizon** is a point in the journal. The rule a horizon must satisfy is:
+
+> Every allocated block has a copy at or after the horizon.
+
+When a horizon satisfies this rule the horizon is **complete**, and the
+recovery floor can move to it.
+
+### The horizon bitmap
+
+When the runtime starts a horizon it copies the allocated bitmap into the
+horizon bitmap. A set bit shows that the newest copy of that block is before
+the horizon.
+
+Two things clear a bit:
+
+- The connector writes the block. The delta publishes it after the horizon, so
+  the bit clears at no extra cost.
+- The runtime copies the block into a delta even though it did not change.
+
+Bits clear when the delta **commits**, never while the copy runs. Clearing a bit
+earlier would claim a block was covered by a copy that a failed transaction then
+discarded. A failed transaction therefore leaves the bitmap untouched, which is
+exactly what a replaying session derives, since it discards that delta too.
+
+Nothing needs to change during the copy. The candidate set already subtracts the
+blocks in this delta, so the runtime cannot re-select one of them.
+
+A horizon consequently never completes in the middle of a transaction.
+
+Bits never become set again during a horizon. The horizon bitmap therefore only
+decreases, and a horizon always completes. A horizon that makes no progress
+loses nothing and continues later.
+
+The runtime finds blocks to copy with a cursor that moves forward through the
+horizon bitmap. Bits behind the cursor are always clear, so a horizon completes
+after exactly one pass of the cursor.
+
+The snapshot need not be exact, which is part of what keeps this cheap. The
+runtime takes the live allocated set while a reader takes the committed
+allocated set at the same offset, and the two can differ. Each difference
+resolves itself:
+
+- A block the runtime holds and a reader does not is a block with an
+  unpublished write. A later delta publishes it and clears the bit.
+- A block a reader holds and the runtime does not is a block a later delta
+  discards. That delta records `PUNCH`, which clears the bit.
+
+An inexact snapshot therefore costs a little redundant work and never produces
+a wrong result.
+
+### Which blocks to copy
+
+The runtime reads these blocks from the local image and never from the journal.
+The image is local and hot, while the oldest fragments of a journal are the
+ones most likely to have been offloaded to cloud storage.
+
+The runtime must select only blocks whose current image content is already
+committed. This is the one rule in the design that can corrupt a disk without
+raising an error: if a block carries an unpublished change, its current content
+belongs to a later transaction, and publishing it now puts the disk ahead of
+its own checkpoint.
+
+At the cut, the candidate set is:
+
+> the horizon bitmap, minus the blocks in this delta, minus the blocks with
+> unpublished changes.
+
+For derivations and materializations the live dirty bitmap is empty at the cut,
+so the last term is empty. For captures the set is larger, as
+[Captures](#captures) describes.
+
+If a mutation targets a selected block during the copy, the runtime drops it
+from the delta and does not capture the old bytes. The mutation publishes the
+block in the next delta, and that delta clears the bit. This is why copy before
+overwrite does not extend to these blocks, and why no block is ever owed by two
+copies at once.
+
+### The horizon record
+
+The first record of a delta can set `opens_horizon`. The horizon is at that
+record's offset.
+
+A record that sets `opens_horizon` must be the first record of its transaction.
+The reason is worth stating, because a violation loses data silently. A reader
+holds a delta's chunks until the acknowledgement, so it takes its horizon
+snapshot before applying any chunk of that delta. If the flag sat on a later
+record, the reader would go on to apply the earlier chunks of the same delta
+and clear their bits — while a reader that started at the horizon would never
+see those chunks at all. Those blocks would then have no copy after the
+horizon.
+
+The horizon is part of the delta. If the delta does not commit there is no
+horizon, and the runtime starts a new one later.
+
+A writer must not start a horizon while a previous horizon is open. This is a
+protocol error and ends the session. A reader must accept more than one horizon
+in its range, because the label can lag. At each horizon record the reader
+takes a new snapshot that replaces the previous one.
+
+### Why the flag lives in the journal
+
+The horizon bitmap is in memory only. A reader rebuilds it during the replay it
+must perform anyway:
+
+1. Read from the floor and rebuild the image.
+2. At a horizon record, copy the current allocated set into the horizon bitmap.
+3. Clear a bit for each chunk applied after that point.
+
+The copies are themselves the record of progress. They are ordinary chunks,
+indistinguishable from connector writes, so replaying the journal
+reconstructs the bookkeeping for free and a new session resumes a horizon
+rather than restarting it.
+
+Without the flag a new session could not locate the horizon. It would start a
+fresh one at the write head and discard the previous session's work. That is
+tolerable when restarts are rarer than horizons and pathological when they are
+not: the floor never advances, the journal grows without bound, and the longer
+journal makes startup slower on a shard that is already unhealthy.
+
+### Policy
+
+The quota for one delta is proportional to that delta's changed bytes:
+
+> unchanged bytes copied = `k` × changed bytes
+
+A commit that does not change the disk appends no records and pays nothing. The
+fast path is unchanged.
+
+The runtime starts a horizon when the journal range from the floor to the write
+head exceeds `r` times the live allocated size, subject to an absolute floor of
+1 GiB. The absolute floor prevents constant horizons on a small disk.
+
+The two constants are independent:
+
+- `k` sets write amplification, which is `1 + k`, and how quickly a horizon
+  completes.
+- `r` sets how large the journal grows before a horizon starts.
+
+An initial policy is `k = 0.5` and `r = 2`, which bounds the recovery range at
+roughly five times the live allocated size. This policy is required, not a user
+setting.
+
+A connector that rewrites much of its disk pays almost nothing, because its own
+writes clear bits. The work scales with how much of the disk is genuinely
+static, rather than with how large the disk is.
+
+If the connector stops writing its disk, an open horizon stalls. The journal is
+not growing either, so the recovery range freezes rather than deteriorating.
+Nothing gets worse while the disk is quiet, and the horizon resumes when writes
+resume. A lower `r` bounds the size at which a horizon can freeze, and costs
+nothing in write amplification.
+
+### Completion
+
+The runtime moves the floor when the horizon bitmap becomes empty:
+
+1. A delta commits, and clearing its blocks empties the horizon bitmap.
+2. Wait until the broker confirms that delta's acknowledgement.
+3. Apply the `estuary.dev/truncated-at` label with the message clock of the
+   record that set `opens_horizon`.
+
+Step 2 is a correctness requirement. If the runtime applied the label at append
+time and the transaction then failed, the label would point past a block whose
+only copy lies behind it.
+
+Nothing is written to record completion. Every reader arrives at the same
+completion point from the same records, so there is nothing to announce. A
+completion record would also be a claim a reader could not verify, where a
+derived one cannot be wrong.
+
+The label update is idempotent and monotonic. The runtime retries it at startup
+and during normal operation. A failed update costs nothing, because the next
+session observes the same completion and applies the label then.
+
+The label may lag the true floor but must never lead it. Physical fragment
+deletion is handled separately.
+
+### The shared label
+
+`estuary.dev/truncated-at` already exists for capture backfills. Both uses mean
+that no reader needs data before that clock, and both obey the same rule that
+the label may lag but must never lead. `go/labels/labels.go` already preserves
+the label through spec convergence, which is exactly the protection a
+runtime-maintained label on a control-plane-managed journal spec needs.
+
+The two uses differ in one respect. A backfill clock is a decision, and nothing
+in the collection journal records it, so `AB:{state_key}` must hold it in the
+recovery log. The disk floor is a fact about journal contents that replay
+rediscovers at every startup. The disk feature therefore adds no key to the
+recovery log.
+
+The label documentation and the convergence comment in `go/labels/labels.go`
+must describe both uses.
 
 ## Lifecycle
 
-The recovery log has only two durable disk states:
+The disk journal has only two states:
 
-| Durable state | Meaning |
+| State | Meaning |
 | --- | --- |
-| No `DR:` | No disk state has ever committed. An absent journal is normal; any existing records are orphans. |
-| `DR:` present | The named full and its committed following deltas are authoritative. The journal must exist. |
+| No committed delta | No disk state has ever committed. An absent journal is normal; any existing records are orphans. |
+| One or more committed deltas | The committed deltas are authoritative. |
+
+The first delta always carries blocks, because it holds the `mkfs` output. A
+committed but empty state is therefore impossible, which is what makes these
+two states unambiguous without a marker in the recovery log.
 
 ```text
-no DR:
-  fresh image ── first disk-writing commit ──► DR present
+no committed delta
+  fresh image ── first disk-writing commit ──► committed
 
-DR present:
+committed:
   recover ── transactions ──► deltas
               │
-              └── compaction ──► newer DR
+              └── horizon ──► floor moves forward
 ```
 
-### Starting a fresh disk
+### Fresh disk startup
 
-When no `DR:` exists, startup:
+When the journal has no committed delta, startup does these steps:
 
-1. creates a fresh sparse image;
-2. creates an unprivileged ublk device over it;
-3. starts the libkrun sandbox with that device;
-4. has the trusted guest bootstrap format and mount it;
-5. establishes the clean baseline;
-6. chooses `E` and takes the read-only author snapshot `R`; and
-7. starts the connector without creating or appending to a journal.
+1. Create a fresh sparse image.
+2. Create an unprivileged ublk device over the image.
+3. Start the libkrun sandbox with that device.
+4. Let the trusted guest bootstrap format and mount the filesystem.
+5. Choose `E` and take the read-only author snapshot `R`.
+6. Start the connector. Do not create the journal and do not append to it.
+
+There is no baseline step, and the runtime does not clear the dirty bitmap.
 
 If the journal does not exist, `R` means “author absent.” Creating the journal
 on first use produces an empty register set, after which the deferred fence can
@@ -412,13 +647,16 @@ continuous discard as described below.
 The new sparse image is logically all zero. `assume_storage_prezeroed` lets
 `mkfs` skip writing zeroes across the unused inode tables and internal journal,
 and marks the inode tables initialized. Those ext4-reserved ranges therefore
-remain holes in the host image, do not enter the allocated bitmap or first
-full, and do not cause later background initialization writes.
+remain holes in the host image, do not enter the allocated bitmap or the first
+delta, and do not cause later background initialization writes.
+
+This option earns its place because the first delta sits on the critical path
+of the very first commit, and the `mkfs` output is that delta's contents.
 
 The default inode density avoids imposing an unusually low file-count limit for
 a small storage saving.
 
-#### Guest mount and fresh baseline
+#### Guest mount
 
 Fresh and recovered disks use the same mount options:
 
@@ -426,22 +664,21 @@ Fresh and recovered disks use the same mount options:
 - `nodev`, `nosuid`, and `noexec`; and
 - `discard`, so ext4 releases blocks as it frees them.
 
-`mkfs` and the first mount write through the served device. On a fresh disk,
-the trusted guest bootstrap mounts the filesystem, calls `syncfs`, and signals
-that initialization is complete. Before allowing it to start the connector,
-the runtime drains the block-device queues and:
+`mkfs` and the first mount write through the served device. The runtime does
+**not** clear the dirty bitmap after those writes.
 
-> clears the dirty bitmap and retains the allocated bitmap.
+Blocks actually written by `mkfs` and mount are real filesystem content, and no
+earlier record holds them. The dirty bitmap therefore carries the full
+allocated set at the first boundary, and the first delta contains every
+allocated block. Unwritten zero ranges remain sparse and are omitted. The first
+delta is a complete image copy, but it needs no special record type and no
+special code path to produce one.
 
-Blocks actually written by `mkfs` and mount are real filesystem content and
-must be included in the first full. Unwritten zero ranges remain sparse and are
-omitted. Clearing only the dirty bitmap prevents platform initialization from
-counting as connector use. The runtime then releases the guest bootstrap to
-start the connector.
+The runtime also does not clear the dirty bitmap after mounting a recovered
+disk. Mount bookkeeping and filesystem-journal replay are genuine changes from
+an existing committed baseline and must appear in the next delta.
 
-This baseline step applies only to a fresh disk. A recovered disk already has a
-committed baseline. Mount bookkeeping and filesystem-journal replay are genuine
-changes from that baseline and must appear in the next delta.
+Fresh and recovered disks thus follow a single rule.
 
 ### First use
 
@@ -449,35 +686,32 @@ The first transaction in which a connector changes its disk creates the
 initial durable state:
 
 1. The connector reaches a valid boundary.
-2. The runtime observes a non-empty dirty bitmap.
+2. The runtime observes a non-empty dirty bitmap. On a fresh disk that bitmap
+   holds the full `mkfs` and mount output.
 3. The shard derives a `JournalSpec` from the task's disk-journal template and
    creates it through broker `Apply`, or confirms that it already exists.
 4. The shard performs the deferred `R → E` fence.
-5. It appends a full `Begin` under a fresh producer and records the
-   broker-confirmed starting offset `O`.
-6. It copies every allocated block as bounded `Chunk` records, appends `End`,
-   and waits for confirmation.
-7. The authoritative `Persist` writes `DR:{shard}=O`.
+5. The shard copies the dirty blocks as bounded records and appends the
+   acknowledgement.
+6. `Persist` atomically records the checkpoint, connector state, and `AI:`.
 
-This first full is intentionally on the transaction's critical path. There is
+This first delta is intentionally on the transaction's critical path. There is
 no older disk from which the transaction can recover.
 
-A failure before `Persist` leaves `DR:` absent. The journal may be absent or
-may hold a fence and an incomplete or complete orphan full. Recovery ignores
-all of it, destroys the uncommitted local image, and starts from a fresh disk.
+A failure before `Persist` leaves the journal with no committed delta. The
+journal may be absent, or may hold a fence and an unacknowledged delta.
+Recovery ignores all of it, destroys the uncommitted local image, and starts
+from a fresh disk.
 
 Captures begin first use at their first disk sync point rather than at the
-later Flow transaction boundary. Their full and delta ordering is described
-under [Captures](#captures).
+later Flow transaction boundary. Their delta ordering is described under
+[Captures](#captures).
 
-### Capturing a consistent delta or full
+### Delta capture
 
-Every delta and full must represent the disk at one exact boundary, even if the
+Every delta must represent the disk at one exact boundary, even if the
 connector resumes writing before its blocks have been copied into the journal.
-They use the same copy machinery and differ only in the initial owed-set:
-
-- a delta owes the dirty blocks taken at a boundary;
-- a full owes every block allocated when the full starts.
+A delta owes the dirty blocks taken at that boundary.
 
 The connector flushes and stops its own writes before a boundary, but ext4 may
 still issue journal or writeback requests. The runtime therefore establishes
@@ -489,8 +723,8 @@ To establish a boundary, the runtime:
 
 1. closes the gate so that new requests wait;
 2. waits for every admitted request to finish;
-3. swaps the dirty bitmap, takes any allocated-bitmap snapshot needed by a
-   full, and registers the new copy; and
+3. swaps the dirty bitmap, takes an allocated-bitmap snapshot if a horizon
+   starts here, and registers the new copy; and
 4. reopens the gate.
 
 The bitmap operation in step 3 is the cut. A request is handled entirely before
@@ -508,19 +742,19 @@ incomplete one.
 
 The copy walks the owed-set:
 
-1. Claim the next contiguous owed run.
+1. Claim the next contiguous owed chunk.
 2. Read its current bytes with `pread`.
-3. Compute the CRC and move the extent into a bounded, immutable output
+3. Compute the CRC and move the chunk into a bounded, immutable output
    buffer.
 4. Mark the blocks captured and remove them from the owed-set.
-5. Append a `Chunk` when the output batch reaches its limit, retaining its
+5. Append a record when the output batch reaches its limit, retaining its
    bytes until the append is confirmed.
-6. Append and confirm `End` after every block is captured and every `Chunk` is
+6. Append the acknowledgement after every block is captured and every record is
    confirmed.
 
-Repeated writes to one block therefore produce one extent, and adjacent dirty
-blocks become one run. A transaction with 4,000 writes to 2,000 distinct
-blocks publishes exactly 2,000 blocks rather than the write history.
+Repeated writes to one block therefore produce a single chunk, and adjacent
+dirty blocks coalesce into one. A transaction with 4,000 writes to 2,000
+distinct blocks publishes exactly 2,000 blocks rather than the write history.
 
 The image remains writable while the copy runs. The rule that makes this safe
 is **copy before overwrite**:
@@ -531,8 +765,9 @@ is **copy before overwrite**:
 The copier and mutation path coordinate a block through three logical states:
 `OWED → CAPTURING → CAPTURED`. A striped lock or equivalent claim prevents a
 copier's `pread` from racing the backing mutation. A mutation encountering
-`OWED` captures the old bytes itself; one encountering `CAPTURING` waits. If a
-delta and background full both owe the block, both copies must capture it.
+`OWED` captures the old bytes itself; one encountering `CAPTURING` waits.
+
+Only one copy is ever in flight, so no block is owed by two copies at once.
 
 Captured means that an immutable output buffer owns the bytes, not that
 Gazette has confirmed them. The mutation may then proceed while publication
@@ -543,13 +778,16 @@ This rule covers connector writes, filesystem journal and writeback requests,
 discards, and write zeroes. It replaces filesystem freezing and is the reason
 a copy remains coherent under concurrent write load.
 
-Rescuing a block ahead of the normal cursor also explains why stream extents
+Rescuing a block ahead of the normal cursor also explains why delta chunks
 may be out of offset order. Non-overlap, not sorting, is the invariant.
 
-Discards follow the same rule as writes. If a full or delta still owes the
-block, it first captures the old `DATA`. The discard then clears the live
-allocated bit and dirties the block. If it remains unallocated at the next
-boundary, that delta records `PUNCH`.
+Copy before overwrite does not extend to unchanged blocks copied to advance a
+horizon, for the reason [Horizons](#horizons) gives.
+
+Discards follow the same rule as writes. If the delta still owes the block, it
+first captures the old `DATA`. The discard then clears the live allocated bit
+and dirties the block. If it remains unallocated at the next boundary, that
+delta records `PUNCH`.
 
 ### Committing a delta
 
@@ -558,10 +796,13 @@ At an ordinary boundary:
 1. The connector finishes and flushes its application state.
 2. The runtime closes the device gate, drains admitted requests, swaps the
    dirty bitmap, and reopens the gate.
-3. If the old bitmap is empty, the transaction takes the unchanged fast path.
-4. Otherwise, the shard copies and appends `Begin ... Chunk ... End`.
-5. It waits for `End`, constructs the exact `Ack` frame, and reports that frame
-   to the transaction coordinator.
+3. If the old bitmap is empty, the transaction takes the unchanged fast path
+   and appends nothing.
+4. Otherwise, the runtime may add unchanged blocks to advance a horizon, as
+   [Horizons](#horizons) describes, and the shard copies and appends the delta
+   records.
+5. It waits for confirmation, constructs the exact `Ack` frame, and reports
+   that frame to the transaction coordinator.
 6. `Persist` atomically records the checkpoint, connector state, and `AI:`
    obligation.
 7. After `Persisted`, the coordinator tells each shard to append its recorded
@@ -578,7 +819,7 @@ overwrite protects the stream either way.
 ```text
 disk shard                                  coordinator
     │
-    ├─ append Begin ... End
+    ├─ append delta records
     ├─ wait for confirmation
     ├─ report exact Ack ───────────────────────►
     │                                          │
@@ -594,7 +835,7 @@ disk shard                                  coordinator
     ◄──────── next transaction may close ──────┘
 ```
 
-The append barrier is a correctness requirement. The next delta's `Begin`
+The append barrier is a correctness requirement. The next delta's first record
 cannot be appended until the previous `Ack` is confirmed. Otherwise Gazette
 could treat both deltas as one pending transaction, and one later ACK could
 advance the recovered disk farther than the recovery-log commit.
@@ -720,179 +961,123 @@ per-checkpoint durability and pays a quiet round trip each time. Syncing less
 often amortizes the cost and accepts loss of the unflushed tail after a crash,
 which its checkpoint behavior must already tolerate.
 
-First-use and compaction fulls also begin at a disk sync point. The full is
-armed at that quiet instant and remains protected by copy before overwrite
-after `SyncedDisk` releases the connector. Checkpoint deltas taken after the
-full's boundary advance the later delta. Pending deltas are not rewritten
-around a full: changes already present in the full may also appear in that
-delta and apply idempotently. On first use, `Persist` designates the confirmed
-full and records the composed delta's `Ack` together.
+A capture publishes its composed delta at the Flow transaction boundary, and
+the runtime chooses which unchanged blocks to copy at that moment. The set of
+blocks carrying unpublished changes is wider here than for other task types. It
+holds:
 
-## Compaction
+- the blocks in the composed checkpoint deltas; and
+- the blocks in the live dirty bitmap, which changed after the last real
+  checkpoint.
 
-Without compaction, both the journal and recovery time grow forever.
-Compaction writes a new full, then moves `DR:` to that full after it is safely
-complete.
+The runtime must not copy any block in that set. Such a block's current image
+content belongs to a later checkpoint, and copying it now would put the disk
+ahead of the transaction's own checkpoint.
 
-The ordering rule is:
-
-> A candidate full contains the disk at boundary `B`, and every delta needed
-> after `B` begins after the candidate's confirmed `Begin` offset.
-
-Until a later `Persist` moves `DR:`, the candidate is only an orphanable stream.
-The previous full remains authoritative.
-
-### When to compact
-
-The runtime compares:
-
-- the committed recovery range from the current `DR:` offset to the journal
-  write head; and
-- the image's live allocated size.
-
-An initial policy is to compact when the range is at least 5 GiB and more
-than four times the live data. The floor prevents constant compaction of tiny
-disks. The ratio bounds normal replay work relative to useful state.
-
-This policy is required, not a user setting. No format generation or elapsed
-time independently triggers a full.
-
-### Publishing a candidate
-
-A compaction candidate is ordered around transaction `T` as follows:
-
-1. Boundary `T` establishes the disk state the full will contain. If `T` has a
-   delta, the shard first appends and confirms that delta through `End`.
-2. Before constructing `Persist(T)`, the shard appends a full `Begin` under a
-   fresh producer and records its broker-confirmed offset `O`.
-3. The full begins copying in the background. It is safe to start before
-   `Persist(T)` because it is not yet authoritative.
-4. Transaction `T` commits normally. Its delta data is before `O`, while its
-   later `Ack` is after `O`. The full already contains the delta's effect, so
-   recovery correctly treats this as an ACK with no matching data in range.
-5. Full `Chunk` records may interleave with deltas from later transactions.
-   Every such delta has its `Begin` after `O`.
-6. A broker-confirmed full `End` makes the candidate eligible for designation.
-7. The first later transaction that observes completion writes
-   `DR:{shard}=O` in its `Persist`.
-8. After that `Persisted`, the runtime advances the journal's
-   `estuary.dev/truncated-at` label to the Gazette timestamp of the designated
-   `Begin`.
-
-Transaction `T` never designates the candidate it started. Waiting for the
-full's `End` would put the whole background copy on `T`'s critical path.
-Allowing the next transaction to designate it costs only one transaction of
-delay.
-
-For captures, an armed full begins at the next disk sync point rather than at
-the Flow transaction boundary. That sync point supplies the committed-alignable
-image.
-
-A failure of `T` cancels its candidate. An ordinary copy or append failure
-abandons the candidate and leaves compaction armed for a later attempt; it does
-not retroactively fail a transaction that already committed. A writer-fence
-mismatch still ends the session. A candidate that stops making progress is
-abandoned and counted.
-
-After a new `DR:` commits, `estuary.dev/truncated-at` may lag authority but must
-never lead it. The update is monotonic and retried on startup and during normal
-operation. Physical fragment deletion is handled separately.
+A horizon may begin at a capture's transaction boundary exactly as it does
+elsewhere. A horizon needs no disk sync point, because its allocated-bitmap
+snapshot does not have to be exact — [Horizons](#horizons) explains why.
 
 ## Recovery
 
-Startup first recovers `DR:` and all disk `AI:` obligations. Each session
-creates a new local image. If `DR:` exists, recovery repairs committed ACKs
-before fixing and replaying the journal range.
+Startup recovers all disk `AI:` obligations. Each session creates a new local
+image. If the journal holds committed deltas, recovery repairs those
+acknowledgements before fixing and replaying the journal range.
 
-### Startup without `DR:`
+### Startup with no committed delta
 
-No `DR:` means no disk has ever committed. Recovery:
+Recovery:
 
-- does not read the journal;
 - does not mutate an existing orphan journal;
 - takes the read-only author snapshot needed for a possible later first-use
   fence; and
 - starts with a fresh image.
 
-An `AI:` value without `DR:` is invalid.
+An `AI:` value for a journal with no committed delta is invalid.
 
 An absent journal is the common, healthy state. A journal containing records
 from a failed first-use attempt is ignored until a later first use claims it.
 
-### Startup with `DR:`
+### Startup with committed deltas
 
-When `DR:` exists, startup:
+Startup does these steps:
 
-1. requires the journal to exist;
-2. chooses `E`, reads `R`, and claims the journal;
-3. appends every recovered `AI:` value exactly and waits for its barrier;
-4. fixes a replay range and rebuilds a fresh image;
-5. creates the ublk device and starts the libkrun sandbox;
-6. has the trusted guest bootstrap mount the rebuilt filesystem; and
-7. starts the connector.
+1. Choose `E`, read `R`, and claim the journal.
+2. Append every recovered `AI:` value exactly and wait for its barrier.
+3. Fix a replay range and rebuild a fresh image.
+4. Create the ublk device and start the libkrun sandbox.
+5. Let the trusted guest bootstrap mount the rebuilt filesystem.
+6. Start the connector.
 
 ### Fixing the replay range
 
-After fencing and ACK repair, the shard obtains a broker-confirmed write head
-`H`. Recovery reads exactly `[O, H)`, where `O` is the offset in `DR:`.
+After fencing and acknowledgement repair, the shard obtains a broker-confirmed
+write head `H`. The shard reads the `estuary.dev/truncated-at` label, resolves
+it to an offset `O`, and reads `[O, H)`. If the label is absent, the shard
+reads from the first available fragment.
+
+The shard treats the label as a seek hint and not as a message filter. A seek
+that lands before the floor costs replay work and nothing else, while a filter
+could drop a record from the middle of a delta.
 
 The connector has not opened, the new fence excludes the old writer, and all
 recovered intents are already inside `H`. Later irrelevant appends cannot
 change what this attempt considers.
 
-Recovery uses a disk-specific, single-journal reader. Deltas may have to wait on
-a full that is still interleaved later in the range, so the reader spills to
-local storage.
-
-```text
-O                                                                  H
-│                                                                  │
-▼                                                                  ▼
-Full Begin(P)  Delta A Begin...End  Full Chunk(P)  Ack A  ... Full End(P)
-                     │                           │
-                     └──── spill until base ─────┘
-```
+Recovery uses a disk-specific, single-journal reader. The append barrier admits
+only one unacknowledged delta at a time, so the reader's spill holds at most
+one delta.
 
 ### Reader rules
 
 The reader makes one forward pass:
 
-1. The record exactly at `O` must be a full `Begin`. Its producer identifies
-   the designated full.
-2. The reader applies exactly one complete stream from that producer. Other
-   full attempts are decoded and validated but ignored.
-3. `Fence` records are validated and make no disk change.
-4. The reader follows Gazette `message.Sequencer` semantics for delta records:
-   producer and clock group transactions, duplicate UUIDs are dropped, and
-   only acknowledged records are released.
-5. Delta extents are spilled, never applied before their `Ack`. A `pwrite`
-   cannot be rolled back, and this design deliberately has no shadow image or
-   undo log.
-6. An ACKed delta waits until the designated full is complete, then applies in
-   physical ACK order. The live ACK barrier makes this commit order.
-7. An `Ack` without pending delta records is valid. This is the expected
-   compaction case where the delta data precedes `O` but its ACK follows it.
+1. Fence records are validated and make no disk change.
+2. The reader follows Gazette `message.Sequencer` semantics: producer and clock
+   group transactions, duplicate UUIDs are dropped, and only acknowledged
+   records are released.
+3. Delta chunks are spilled, never applied before their acknowledgement. A
+   `pwrite` cannot be rolled back, and this design deliberately has no shadow
+   image or undo log.
+4. Acknowledged deltas apply in physical order. The live append barrier makes
+   this commit order.
+5. At a record that sets `opens_horizon`, the reader copies its current
+   allocated set into the horizon bitmap, then clears a bit for each chunk it
+   applies after that point.
+6. When the horizon bitmap empties, that horizon is complete and its offset
+   becomes the new floor.
+7. The reader accepts more than one horizon record in the range, because the
+   label may lag. Each one replaces the previous snapshot.
 8. A new session's delta producer abandons an older producer's unacknowledged
-   stream. A later ACK for an abandoned stream is an ordering error.
-9. At `H`, the designated full and every ACKed delta must be complete and
-   applied. Unacknowledged spills are deleted.
+   delta. A later acknowledgement for an abandoned delta is an ordering error.
+9. The reader may begin in the middle of a delta when the label is absent or
+   lags, seeing trailing records and an acknowledgement for records it never
+   read. This is safe: those records precede the floor, and the floor rule
+   guarantees every allocated block has a copy at or after it.
+10. At `H`, every acknowledged delta must be applied. Unacknowledged spills are
+    deleted.
 
-The full writes only allocated extents into a fresh sparse image. `PUNCH`
-extents hole-punch the recovered file. A rebuilt disk therefore remains as
+The reader writes only allocated chunks into a fresh sparse image. `PUNCH`
+chunks hole-punch the recovered file. A rebuilt disk therefore remains as
 sparse as the source. Applying `DATA` and `PUNCH` also rebuilds the allocated
 bitmap. Replay itself does not mark blocks dirty because it is reconstructing
 the committed baseline.
 
-### Opening the result in the guest
+Replay leaves the runtime holding the image, the allocated bitmap, an empty
+dirty bitmap, the horizon bitmap, and the floor. If the floor is ahead of the
+label, the runtime applies the label.
+
+
+### Guest mount after recovery
 
 The trusted guest bootstrap mounts the rebuilt image with the standard options.
-The runtime does **not** clear the dirty bitmap afterward.
+The runtime does **not** clear the dirty bitmap afterward, following the single
+rule that [Guest mount](#guest-mount) states.
 
 Mounting may update the superblock, set recovery flags, or replay the
-filesystem journal. Unlike the fresh-disk format and first mount, these are
-changes relative to an existing committed baseline. Clearing them would leave
-the local image permanently ahead of replicas rebuilt from the disk journal.
-The next delta therefore carries them.
+filesystem journal. These are changes relative to an existing committed
+baseline. Clearing them would leave the local image permanently ahead of
+replicas rebuilt from the disk journal. The next delta therefore carries them.
 
 This is why the correctness guarantee is filesystem-level rather than
 whole-image byte equality:
