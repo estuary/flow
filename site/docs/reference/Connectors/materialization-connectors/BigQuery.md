@@ -180,7 +180,34 @@ Tables are automatically created with
 [clustering](https://cloud.google.com/bigquery/docs/clustered-tables) based on the Estuary collection
 primary keys. Tables are not created with any other [partitioning](https://cloud.google.com/bigquery/docs/partitioned-tables), but pre-existing partitioned tables can be materialized to.
 
-It isn't possible to alter the partitioning of an existing table, but you can convert an existing table to one with partitioning by creating a new table and copying the data from the existing table into it. This can be done to tables that the connector is materializing to, as long as the materializing task is temporarily disabled while doing the conversion.
+BigQuery does not allow the partitioning of a table to be altered after it is created, so there are two ways to get a partitioned destination table. Which one you need depends on whether the table exists yet.
+
+### Partitioning a new table
+
+If the binding does not exist yet, create the table yourself with the partitioning you want, then attach a binding to it. This avoids the copy-and-rename conversion below entirely, which matters if you are adding many tables.
+
+1. Create the table in BigQuery with your partitioning. You only need the columns you want to control, such as the partition column and the collection key:
+```sql
+create table <your_dataset>.<your_table> (
+  <partition_column> timestamp,
+  <key_column> string
+)
+partition by <your_partitioning>;
+```
+Partitioning on `flow_published_at` is a common choice, since Estuary writes that column on every row and incremental transformations often filter on it.
+
+2. Enable the [`allow_existing_tables_for_new_bindings`](/guides/advanced-usage/feature-flags/#allow_existing_tables_for_new_bindings) feature flag on the materialization, under **Endpoint Config → Advanced Options**. Without it, a new binding whose table already exists fails validation.
+
+3. Add the binding. On the first publication the connector adds the remaining columns from the binding's field selection with `ALTER TABLE ... ADD COLUMN`, including its own `flow_document`, `flow_published_at`, and `_meta/op` columns. The table is not recreated, so your partitioning is preserved.
+
+Two things to note:
+
+* A `NOT NULL` constraint on a column that Estuary does not materialize will be dropped when the connector reconciles the table.
+* This procedure assumes the table you create is **empty**. If it already holds rows that Estuary did not write, more configuration is needed: see [Migrate an existing pipeline to Estuary](/guides/migrate-to-estuary/).
+
+### Repartitioning an existing table
+
+If the table is already being materialized to, you can convert it by creating a new table and copying the data from the existing table into it. This can be done to tables that the connector is materializing to, as long as the materializing task is temporarily disabled while doing the conversion.
 
 To convert an existing materialized table to one with different partitioning:
 1. Pause your materialization by disabling it from the [UI](../../../concepts/web-app.md) or editing the task specification with the [CLI](../../../guides/flowctl/edit-specification-locally.md).

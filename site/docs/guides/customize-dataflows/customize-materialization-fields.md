@@ -366,8 +366,14 @@ Since Estuary no longer writes to it, you can manually drop the leftover column 
 A new binding, or a backfill that takes the [drop-and-recreate path](/reference/backfilling-data/#schema-changes-during-backfill), creates the table without the `flow_document` column entirely.
 
 :::note
-The main motivation for this option is saving destination storage. For an existing table, those savings are only realized after a backfill clears the stored documents.
+For an existing Estuary-managed table, the storage savings are only realized after a backfill clears the stored documents.
 :::
+
+### Migrating into a table another tool populated
+
+Saving storage is one reason to exclude `flow_document`. The other is migration: this option is **required** when a new binding attaches to a table that already holds rows Estuary did not write, because the connector cannot populate a stored document for rows it never wrote and reads a null instead. Reconstructing from the top-level columns is what makes those rows mergeable.
+
+That case has its own guide, including the rest of the configuration it needs: [Migrate an existing pipeline to Estuary](/guides/migrate-to-estuary/).
 
 ## Pruned fields
 
