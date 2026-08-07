@@ -20,8 +20,10 @@ part of the durable format.
 The derivation connector protocol fits naturally with coordinating the necessary
 disk quiescense periods for snapshots to be recorded. Runtime authoritative
 materializations also work well with the existing protocol, but not remote
-authoritative ones. Captures are complex as well. This design describes support
-for derivations, runtime-authoritative materializations, and captures.
+authoritative ones. Captures need no protocol change at all; the guarantee a
+capture receives follows from its own behavior, as [Captures](#captures)
+describes. This design describes support for derivations,
+runtime-authoritative materializations, and captures.
 
 ### Design boundaries
 
@@ -109,7 +111,6 @@ business.
 | Request | Reply | Purpose |
 | --- | --- | --- |
 | `Open` | `Opened` | Create or recover a device |
-| `Cut` | `Boundary` | Establish a boundary and retain it locally |
 | `Publish` | `Published` | Publish one delta and return its ack |
 | `Commit` | `Committed` | Append an ack the caller made durable |
 | `Credentials` | — | Replace the broker credential |
@@ -125,8 +126,8 @@ The daemon applies the `JournalSpec` only if it must append and the journal is
 absent. Journal creation therefore stays lazy: a connector that never writes its
 disk never gets a journal.
 
-`Publish` with no boundary cuts and publishes together, which is the common
-case. `Published` carries no ack when the disk did not change.
+`Publish` cuts and publishes together. `Published` carries no ack when the disk
+did not change.
 
 `Committed` carries a floor only when that commit completed a horizon.
 
@@ -157,10 +158,6 @@ At each boundary the caller must:
 6. Apply the label if `Committed` returns a floor.
 7. Release the connector.
 
-Captures send `Cut` at each disk sync point. They then send `Publish` through
-the boundary that matches the closing checkpoint. Derivations and
-materializations never need `Cut`.
-
 ### Rules the caller must obey
 
 - Hold only one ack. Send `Commit` before the next `Publish`. A second `Publish`
@@ -168,17 +165,6 @@ materializations never need `Cut`.
 - Send `Commit` only after the ack is durable in the recovery log.
 - Return the exact ack bytes. Do not serialize them again.
 - Keep the connector quiet from the boundary until release.
-
-`Cut` is legal while an ack is outstanding, because it appends nothing.
-`Publish` is not.
-
-That asymmetry is not arbitrary. A capture connector keeps running after a
-transaction closes, so a disk sync point can arrive while the previous ack is
-still outstanding — and the runtime never declines a requested sync. Forbidding
-an overlapping `Publish` also keeps the candidate rule in
-[Horizons](#horizons) to two terms rather than three: with no in-flight delta to
-account for, the daemon never has to exclude blocks it has published but not yet
-committed.
 
 ### What each side promises
 
@@ -657,9 +643,7 @@ At the cut, the candidate set is:
 > the horizon bitmap, minus the blocks in this delta, minus the blocks with
 > unpublished changes.
 
-For derivations and materializations the live dirty bitmap is empty at the cut,
-so the last term is empty. For captures the set is larger, as
-[Captures](#captures) describes.
+The live dirty bitmap is empty at the cut, so the last term is empty.
 
 If a mutation targets a selected block during the copy, the daemon drops it
 from the delta and does not capture the old bytes. The mutation publishes the
@@ -916,10 +900,6 @@ journal may be absent, or may hold a fence and an unacknowledged delta.
 Recovery ignores all of it, destroys the uncommitted local image, and starts
 from a fresh disk.
 
-Captures begin first use at their first disk sync point rather than at the
-later Flow transaction boundary. Their delta ordering is described under
-[Captures](#captures).
-
 ### Delta capture
 
 Every delta must represent the disk at one exact boundary, even if the
@@ -1158,89 +1138,41 @@ transaction; the runtime need not wait for `Acknowledged`.
 
 ### Captures
 
-Captures need an explicit disk sync point because their Flow transaction
-boundary is retrospective.
+A capture emits documents and checkpoints continuously, and the runtime chooses
+a closing checkpoint after the connector has already moved on. The disk boundary
+is taken after that close, so a capture's disk can be newer than the checkpoint
+its transaction commits.
 
-A capture emits documents and checkpoints continuously. The runtime later
-chooses a closing checkpoint after the connector has already moved on.
-Saving the live disk at close time would make it newer than that checkpoint.
-That is unsafe: a disk behind its checkpoint may repeat source work, while a
-disk ahead of its checkpoint may cause the connector to skip documents that
-never committed.
+That is the unsafe direction. A connector which resumes from the committed
+checkpoint, and finds a disk recording work it has already done, skips documents
+that were never committed and loses them.
 
-Only the connector can order its checkpoint messages with its disk writes.
-Each checkpoint therefore describes the disk changes since the previous
-checkpoint, or since `Opened` for the first one.
+The capture protocol already carries the signal needed to avoid this, so no
+protocol change is required. A connector that sets `explicit_acknowledgements`
+in `Opened` receives `Acknowledge`, which states how many of its preceding
+checkpoints have committed. The cut falls between the close and `Acknowledge`,
+so a connector that makes no disk writes between emitting a checkpoint and
+receiving its acknowledgement is quiet across the cut. Its disk is then never
+ahead of the committed checkpoint.
 
-A capture that changed its disk during that span must:
+A capture therefore chooses its own guarantee through its own behavior:
 
-1. `fsync` its changes;
-2. set `sync_disk: true` on the checkpoint; and
-3. make no further disk changes until it receives `SyncedDisk`.
+| Connector behavior | Disk guarantee |
+| --- | --- |
+| No disk writes between a checkpoint and its acknowledgement | Never ahead of the committed checkpoint |
+| Writes its disk while checkpoints are outstanding | Coherent, from some point in the connector's history |
 
-A checkpoint without `sync_disk` attests that there were no disk changes since
-the previous checkpoint, or since `Opened` for the first one.
+`source-http-ingest` already has the first shape, because it holds each HTTP
+response until the documents it produced are acknowledged. A connector built
+that way can keep resume-critical state on its disk.
 
-The quiet rule applies only to disk writes. The connector may continue reading
-its source and emitting records while it waits, although pausing entirely is
-the simplest implementation.
+A connector of the second kind cannot. It must keep resume position in its
+checkpoint, where it already lives, and use its disk for caches, staged
+downloads, and scratch — state where holding more than the checkpoint accounts
+for costs redundant work and nothing else.
 
-At a requested disk sync, the runtime sends `Cut`. The daemon then:
-
-1. uses the device gate to drain admitted requests and swap the dirty bitmap;
-2. retains the dirty blocks as a local boundary; and
-3. returns that boundary's identifier without waiting for journal publication.
-
-The runtime records which checkpoint the boundary belongs to, and returns
-`SyncedDisk` to the connector.
-
-The runtime never declines a requested disk sync. Once writes after that
-checkpoint overwrite a block, the checkpoint's disk state cannot be
-reconstructed.
-
-Checkpoint deltas remain local until a Flow transaction closes. They compose
-block by block, with later deltas winning. The transaction publishes the
-composition as one ordinary delta and one `Ack`; the disk-log and recovery
-formats need no records specific to capture connectors.
-
-```text
-stream:       ... C3(sync) ── C4 ── C5(sync) ── C6 ── C7  ◄── close
-disk deltas:      Δ3                Δ5
-commit:       checkpoint C7, documents through C7, delta Δ3 composed with Δ5
-```
-
-This close is aligned because C6 and C7 attest that the disk did not change
-after C5. A synthetic checkpoint carries no connector state and makes no
-attestation, but it does not break the chain: a synthetically closed
-transaction still commits pending checkpoint deltas through the last real
-checkpoint.
-
-The live dirty bitmap may be non-empty at a capture connector's transaction
-boundary. It represents changes after the latest real checkpoint and must not
-enter the current transaction. The fast path is therefore “no pending
-checkpoint deltas,” not “empty dirty bitmap.”
-
-The connector chooses its sync frequency. Syncing every checkpoint gives
-per-checkpoint durability and pays a quiet round trip each time. Syncing less
-often amortizes the cost and accepts loss of the unflushed tail after a crash,
-which its checkpoint behavior must already tolerate.
-
-A capture publishes its composed delta at the Flow transaction boundary, and
-the daemon chooses which unchanged blocks to copy at that moment. The set of
-blocks carrying unpublished changes is wider here than for other task types. It
-holds:
-
-- the blocks in the composed checkpoint deltas; and
-- the blocks in the live dirty bitmap, which changed after the last real
-  checkpoint.
-
-The daemon must not copy any block in that set. Such a block's current image
-content belongs to a later checkpoint, and copying it now would put the disk
-ahead of the transaction's own checkpoint.
-
-A horizon may begin at a capture's transaction boundary exactly as it does
-elsewhere. A horizon needs no disk sync point, because its allocated-bitmap
-snapshot does not have to be exact — [Horizons](#horizons) explains why.
+Neither case asks anything new of the connector at a boundary. The runtime cuts
+and publishes exactly as it does for a derivation.
 
 ## Recovery
 
