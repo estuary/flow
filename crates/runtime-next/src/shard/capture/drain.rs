@@ -2,7 +2,7 @@
 //!
 //! [`drain_and_publish`] runs as the actor's parked `drain_fut`: it consumes a
 //! rotated combiner, publishes captured documents as `CONTINUE_TXN` journal
-//! appends, folds connector-reported schemas into per-binding inference, and
+//! appends, folds connector-reported schemas into per-target inference, and
 //! assembles the [`fsm::DrainedCapture`] the TailFSM needs to build stats and
 //! the committing Persist.
 //!
@@ -13,14 +13,14 @@
 use crate::leader::capture::{Task, fsm};
 use anyhow::Context;
 use bytes::Bytes;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-/// Schema-complexity limit for a binding the connector described with a
-/// SourcedSchema. Such a binding has a meaningful source-derived schema, so
-/// inference is trusted with far more leeway than a purely-inferred binding
+/// Schema-complexity limit for a collection the connector described with a
+/// SourcedSchema. Such a collection has a meaningful source-derived schema, so
+/// inference is trusted with far more leeway than a purely-inferred one
 /// (which uses [`doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT`]). The
 /// limit rides in the shape's annotations and so persists across sessions —
-/// see `Task::binding_shapes_by_index`.
+/// see `Task::shapes_by_target`.
 const SOURCED_SCHEMA_COMPLEXITY_LIMIT: usize = 10_000;
 
 /// Resources and results handed back to the actor when a drain completes.
@@ -31,7 +31,7 @@ pub(super) struct Output<P: crate::Publisher> {
     pub(super) drained: fsm::DrainedCapture,
     /// The publisher, borrowed for the drain's journal appends.
     pub(super) publisher: P,
-    /// Per-binding inferred write-shapes, carried across sessions of the shard.
+    /// Per-target inferred write-shapes, carried across sessions of the shard.
     pub(super) shapes: Vec<doc::Shape>,
 }
 
@@ -54,9 +54,10 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
     // `Clock::update` is monotonic and never regresses.
     publisher.update_clock();
 
-    // Bindings updated this transaction — by a sourced schema or by widening
-    // an inferred shape — are logged once the drain completes.
-    let mut updated_inferences = BTreeSet::<usize>::new();
+    // Targets whose inference updated this transaction — by a sourced schema or
+    // by widening an inferred shape — are logged once the drain completes, each
+    // naming the last binding which updated it.
+    let mut updated_inferences = BTreeMap::<usize, u32>::new();
 
     apply_sourced_schemas(&mut shapes, &task, sourced_schemas, &mut updated_inferences)?;
 
@@ -92,18 +93,20 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
             continue;
         }
 
-        if shapes[binding].widen_owned(&doc) {
-            let limit = complexity_limit(&shapes[binding]);
+        let target = task.bindings[binding].target as usize;
+
+        if shapes[target].widen_owned(&doc) {
+            let limit = complexity_limit(&shapes[target]);
             doc::shape::limits::enforce_shape_complexity_limit(
-                &mut shapes[binding],
+                &mut shapes[target],
                 limit,
                 doc::shape::limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
             );
-            updated_inferences.insert(binding);
+            updated_inferences.insert(target, binding as u32);
         }
 
         let bytes_written = publisher
-            .publish_doc(binding, doc, &task.bindings[binding].document_uuid_ptr)
+            .publish_doc(binding, doc, &task.targets[target].document_uuid_ptr)
             .await
             .context("publishing captured document")?;
 
@@ -122,14 +125,14 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
         connector_patches.push(b']');
     }
 
-    for binding in updated_inferences.iter() {
+    for (target, binding) in updated_inferences.iter() {
         // `to_schema` emits the shape's annotations, including the
         // `x-complexity-limit` set by `apply_sourced_schemas` or the
-        // per-session default seeded by `Task::binding_shapes_by_index`.
-        let schema = doc::shape::schema::to_schema(shapes[*binding].clone());
+        // per-session default seeded by `Task::shapes_by_target`.
+        let schema = doc::shape::schema::to_schema(shapes[*target].clone());
         logger.event(crate::LogEvent::InferredSchema {
-            collection_name: &task.bindings[*binding].collection_name,
-            binding: Some(*binding),
+            collection_name: &task.targets[*target].collection_name,
+            binding: Some(*binding as usize), // Diagnostic.
             schema: &schema,
         });
         metrics.inferred_schema_updates.increment(1);
@@ -146,50 +149,54 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
     })
 }
 
-/// Fold this transaction's connector-sourced shapes into long-lived per-binding
-/// inference: each is intersected with the binding's write-schema shape, then
-/// unioned into the running inferred shape. A sourced binding is also stamped
-/// with an elevated complexity limit, recorded in the shape's annotations.
+/// Fold this transaction's connector-sourced shapes into long-lived
+/// per-target inference: each is intersected with the target collection's
+/// write-schema shape, then unioned into the running inferred shape. The target
+/// is also stamped with an elevated complexity limit, recorded in the shape's
+/// annotations.
+///
+/// Sourced schemas arrive keyed by binding and are mapped to targets on the
+/// way in, so several bindings' sourced schemas union into one collection
+/// shape.
 fn apply_sourced_schemas(
     shapes: &mut [doc::Shape],
     task: &Task,
     sourced_schemas: BTreeMap<u32, doc::Shape>,
-    updated_inferences: &mut BTreeSet<usize>,
+    updated_inferences: &mut BTreeMap<usize, u32>,
 ) -> anyhow::Result<()> {
     for (binding, sourced_shape) in sourced_schemas {
-        let binding = binding as usize;
-
-        let write_shape = task
+        let target = task
             .bindings
-            .get(binding)
+            .get(binding as usize)
             .with_context(|| format!("invalid sourced schema binding {binding}"))?
-            .write_shape
-            .clone();
+            .target as usize;
 
         // By construction, we cannot capture documents which don't adhere to
         // the write schema. Intersect it to avoid generating incompatible
         // inference updates.
-        let mut sourced_shape = doc::Shape::intersect(sourced_shape, write_shape);
+        let mut sourced_shape =
+            doc::Shape::intersect(sourced_shape, task.targets[target].write_shape.clone());
 
         // Shape::union intersects annotations and retains only those having equal key/values.
         sourced_shape.annotations.insert(
             crate::X_GENERATION_ID.to_string(),
-            shapes[binding].annotations[crate::X_GENERATION_ID].clone(),
+            shapes[target].annotations[crate::X_GENERATION_ID].clone(),
         );
 
-        shapes[binding] = doc::Shape::union(
-            std::mem::replace(&mut shapes[binding], doc::Shape::nothing()),
+        shapes[target] = doc::Shape::union(
+            std::mem::replace(&mut shapes[target], doc::Shape::nothing()),
             sourced_shape,
         );
 
         // Presence of a sourced schema ratchets up the complexity limit for
-        // inferences of this binding. It then rides with the shape: surviving widening,
-        // emitted into the logged schema, and read back by `complexity_limit`.
-        shapes[binding].annotations.insert(
+        // inferences of this target collection. It then rides with the shape:
+        // surviving widening, emitted into the logged schema, and read back by
+        // `complexity_limit`.
+        shapes[target].annotations.insert(
             doc::shape::X_COMPLEXITY_LIMIT.to_string(),
             serde_json::json!(SOURCED_SCHEMA_COMPLEXITY_LIMIT),
         );
-        updated_inferences.insert(binding);
+        updated_inferences.insert(target, binding);
     }
     Ok(())
 }
@@ -204,4 +211,93 @@ fn complexity_limit(shape: &doc::Shape) -> usize {
         .map_or(doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, |n| {
             n as usize
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::leader::capture::task::fixture;
+    use crate::logger::RecordingLogger;
+
+    /// Two bindings of one collection widen a single shared shape, and the
+    /// collection is logged exactly once, naming the last binding to update it.
+    /// A third binding on a second collection is the control: it has its own
+    /// target and its own event.
+    #[tokio::test]
+    async fn drain_infers_once_per_collection() {
+        let task = std::sync::Arc::new(fixture::task(
+            &[
+                ("acmeCo/one", "stateA", ""),
+                ("acmeCo/one", "stateB", ""),
+                ("acmeCo/two", "stateC", ""),
+            ],
+            br#"{"type":"object"}"#,
+            false,
+        ));
+        assert_eq!(task.targets.len(), 2);
+
+        // Each binding of `acmeCo/one` contributes a distinct property, so the
+        // shared shape must carry both if -- and only if -- they widen one shape.
+        let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+        for (binding, doc_json) in [
+            (0u16, br#"{"from_a":1}"#.as_slice()),
+            (1, br#"{"from_b":2}"#.as_slice()),
+            (2, br#"{"from_c":3}"#.as_slice()),
+        ] {
+            let (memtable, _alloc, doc) = accumulator.parse_json_doc(doc_json).unwrap();
+            memtable.add(binding, doc, false).unwrap();
+        }
+        let (drainer, parser) = accumulator.into_drainer().unwrap();
+
+        let logger = RecordingLogger::default();
+        let output = drain_and_publish(
+            drainer,
+            parser,
+            crate::publish::RecordingPublisher::default(),
+            task.clone(),
+            BTreeMap::new(),
+            task.shapes_by_target(Default::default()),
+            super::super::Metrics::new("test/shard"),
+            logger.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(output.shapes.len(), 2); // One shape per collection, not per binding.
+        assert_eq!(
+            output.shapes[0]
+                .object
+                .properties
+                .iter()
+                .map(|property| &*property.name)
+                .collect::<Vec<_>>(),
+            ["from_a", "from_b"],
+            "both bindings of acmeCo/one widened its single shape",
+        );
+
+        // One event per collection, naming the last binding which updated it:
+        // binding 1 for `acmeCo/one` (bindings 0 and 1 share its target), and
+        // binding 2 for `acmeCo/two`.
+        let logs = logger.logs.lock().unwrap();
+        let field = |log: &ops::Log, field: &str| {
+            log.fields_json_map
+                .get(field)
+                .map(|value| String::from_utf8_lossy(value).into_owned())
+        };
+        assert_eq!(
+            logs.len(),
+            2,
+            "one inference event per collection: {logs:?}"
+        );
+
+        for (log, (collection, binding)) in logs.iter().zip([("acmeCo/one", 1), ("acmeCo/two", 2)])
+        {
+            assert_eq!(log.message, "inferred schema updated");
+            assert_eq!(
+                field(log, "collection_name"),
+                Some(format!("\"{collection}\"")),
+            );
+            assert_eq!(field(log, "binding"), Some(format!("{binding}")));
+        }
+    }
 }

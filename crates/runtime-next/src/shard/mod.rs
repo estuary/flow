@@ -304,7 +304,7 @@ mod tests {
     /// re-evaluated forever.
     #[test]
     fn start_due_split_terminally_ignores_unsplittable_journals() {
-        let publisher = crate::publish::NoopPublisher;
+        let publisher = crate::publish::RecordingPublisher::default();
         let (mut policy, now) = due_policy();
 
         assert!(start_due_split(&mut policy, &publisher, now).is_none());
