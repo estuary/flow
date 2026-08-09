@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 pub struct SliceActor {
     /// Immutable slice configuration: topology, bindings, journal clients.
     pub topology: Topology,
-    /// Per-binding schema validators, indexed by binding index.
+    /// Schema validators, indexed by Source.
     pub validators: Vec<doc::Validator>,
     /// Per-read producer tracking
     pub reads: Vec<ReadState>,
@@ -270,7 +270,8 @@ impl SliceActor {
             }
             let join_handle = super::listing::spawn_listing(
                 binding,
-                (*self.topology.journal_clients[binding.index as usize]).clone(),
+                &self.topology.sources[binding.source as usize],
+                (*self.topology.journal_clients[binding.source as usize]).clone(),
                 self.slice_response_tx.clone(),
                 cancel.clone(),
             );
@@ -343,7 +344,7 @@ impl SliceActor {
             .context("StartRead invalid binding")?;
 
         let binding_state_key = binding.state_key().to_string();
-        let client = (*self.topology.journal_clients[binding.index as usize]).clone();
+        let client = (*self.topology.journal_clients[binding.source as usize]).clone();
         let spec = spec.context("StartRead missing spec")?;
 
         let truncated_at = match spec
@@ -651,8 +652,9 @@ impl SliceActor {
 
         let ready_read = match parse_lines_batch(
             &mut self.parser,
-            &mut self.validators[read_state.binding_index as usize],
+            &mut self.validators[binding.source as usize],
             binding,
+            &self.topology.sources[binding.source as usize],
             &read_state.journal,
             read,
             lines_batch,

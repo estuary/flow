@@ -19,7 +19,9 @@ pub struct Topology {
     pub slice_shard_index: u32,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
-    /// Lazily-initialized Gazette clients for listing and reading journals, indexed by binding.
+    /// Source collections read by the task's bindings.
+    pub sources: Vec<crate::Source>,
+    /// Lazily-initialized Gazette clients for listing and reading journals, indexed by Source.
     pub journal_clients: Vec<super::LazyJournalClient>,
     /// Sorted index for projecting hinted journal names to bindings.
     pub hint_index: HintIndex,
@@ -531,13 +533,14 @@ impl HintIndex {
         }
     }
 
-    pub fn from_bindings(bindings: &[crate::Binding]) -> Self {
+    pub fn from_bindings(bindings: &[crate::Binding], sources: &[crate::Source]) -> Self {
         Self::new(bindings.iter().map(|b| {
+            let source = &sources[b.source as usize];
             (
-                b.partition_prefix.as_ref(),
+                source.partition_prefix.as_ref(),
                 b.index,
                 b.cohort,
-                PartitionFilter::new(&b.partition_fields, &b.partition_selector),
+                PartitionFilter::new(&source.partition_fields, &b.partition_selector),
             )
         }))
     }

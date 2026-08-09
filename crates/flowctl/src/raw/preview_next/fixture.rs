@@ -201,7 +201,7 @@ pub fn build(
     requested_targets: &[u32],
     n_shards: u32,
 ) -> anyhow::Result<FixturePlan> {
-    let (bindings, mut validators, collection_bindings) = task_bindings(task)?;
+    let (bindings, sources, mut validators, collection_bindings) = task_bindings(task)?;
 
     let mut transactions = parse(path)?;
     // A session bounded by `max_transactions` can't run zero transactions, so
@@ -247,6 +247,7 @@ pub fn build(
             frontiers.push(write_transaction(
                 &transaction,
                 &bindings,
+                &sources,
                 &mut validators,
                 &collection_bindings,
                 &shards,
@@ -331,7 +332,7 @@ pub fn start_streaming(
     eof_stop: tokio_util::sync::CancellationToken,
     hold: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<(String, tokio::task::JoinHandle<anyhow::Result<()>>)> {
-    let (bindings, validators, collection_bindings) = task_bindings(task)?;
+    let (bindings, sources, validators, collection_bindings) = task_bindings(task)?;
 
     // The session reads from its own directory, mirroring the eager per-session
     // layout.
@@ -344,6 +345,7 @@ pub fn start_streaming(
 
     let handle = tokio::spawn(feed_stream(
         bindings,
+        sources,
         validators,
         collection_bindings,
         path,
@@ -358,6 +360,7 @@ pub fn start_streaming(
 
 async fn feed_stream(
     bindings: Vec<shuffle::Binding>,
+    sources: Vec<shuffle::Source>,
     mut validators: Vec<doc::Validator>,
     collection_bindings: HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
@@ -370,6 +373,7 @@ async fn feed_stream(
     let mut sealed = Vec::new();
     let result = feed_lines(
         &bindings,
+        &sources,
         &mut validators,
         &collection_bindings,
         path,
@@ -410,6 +414,7 @@ async fn feed_stream(
 /// cancels), or on a stream / fixture error.
 async fn feed_lines(
     bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
     validators: &mut [doc::Validator],
     collection_bindings: &HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
@@ -464,6 +469,7 @@ async fn feed_lines(
                 let frontier = write_transaction(
                     &std::mem::take(&mut current),
                     bindings,
+                    sources,
                     validators,
                     collection_bindings,
                     shards,
@@ -490,6 +496,7 @@ async fn feed_lines(
         let frontier = write_transaction(
             &current,
             bindings,
+            sources,
             validators,
             collection_bindings,
             shards,
@@ -505,27 +512,28 @@ async fn feed_lines(
     Ok(())
 }
 
-/// Build shuffle bindings and validators for `task`, plus a map from each
-/// source collection name to the binding indices it feeds (a collection may be
-/// read by multiple derivation transforms).
+/// Build shuffle bindings, sources, and per-source validators for `task`, plus
+/// a map from each source collection name to the binding indices it feeds (a
+/// collection may be read by multiple derivation transforms).
 fn task_bindings(
     task: &shuffle::proto::Task,
 ) -> anyhow::Result<(
     Vec<shuffle::Binding>,
+    Vec<shuffle::Source>,
     Vec<doc::Validator>,
     HashMap<String, Vec<usize>>,
 )> {
-    let (bindings, validators) =
+    let (bindings, sources, validators) =
         shuffle::Binding::from_task(task).context("building shuffle bindings from task")?;
 
     let mut collection_bindings: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, binding) in bindings.iter().enumerate() {
         collection_bindings
-            .entry(binding.collection.to_string())
+            .entry(sources[binding.source as usize].collection.to_string())
             .or_default()
             .push(index);
     }
-    Ok((bindings, validators, collection_bindings))
+    Ok((bindings, sources, validators, collection_bindings))
 }
 
 /// Write one transaction as a log block per shard receiving documents, and
@@ -544,6 +552,7 @@ fn task_bindings(
 fn write_transaction(
     transaction: &Transaction,
     bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
     validators: &mut [doc::Validator],
     collection_bindings: &HashMap<String, Vec<usize>>,
     shards: &[shuffle::proto::Shard],
@@ -577,12 +586,13 @@ fn write_transaction(
 
         for &bi in binding_indices {
             let binding = &bindings[bi];
-            let journal = fixture_journal(&binding.collection);
+            let source = &sources[binding.source as usize];
+            let journal = fixture_journal(&source.collection);
 
             // Inject a synthetic UUID at the collection's UUID pointer.
             let mut doc = doc.clone();
             let synthetic_uuid = uuid::build(FIXTURE_PRODUCER, doc_clock, uuid::Flags::OUTSIDE_TXN);
-            *json::ptr::create_value(&binding.source_uuid_ptr, &mut doc)
+            *json::ptr::create_value(&source.uuid_ptr, &mut doc)
                 .context("creating fixture UUID location in document")? =
                 serde_json::json!(synthetic_uuid.as_hyphenated().to_string());
 
@@ -595,7 +605,7 @@ fn write_transaction(
             // Mirror the slice: set the schema-valid flag from validation and
             // pack the shuffle key from the archived document.
             let mut flags = uuid::Flags::OUTSIDE_TXN.0;
-            if validators[bi].is_valid(archived) {
+            if validators[binding.source as usize].is_valid(archived) {
                 flags |= shuffle::FLAGS_SCHEMA_VALID;
             }
 

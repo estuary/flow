@@ -123,7 +123,7 @@ impl SliceActor {
             min_etcd_revision: 0,
             header: None,
         };
-        let client = (*self.topology.journal_clients[binding.index as usize]).clone();
+        let client = (*self.topology.journal_clients[binding.source as usize]).clone();
 
         let read: super::ReadLines = Box::pin(gazette::journal::read::ReadLines::new(
             client.read(request).boxed(),
@@ -380,8 +380,9 @@ impl SliceActor {
 
         let ready_read = match read::parse_lines_batch(
             &mut self.parser,
-            &mut self.validators[read_state.binding_index as usize],
+            &mut self.validators[binding.source as usize],
             binding,
+            &self.topology.sources[binding.source as usize],
             &read_state.journal,
             read,
             lines_batch,

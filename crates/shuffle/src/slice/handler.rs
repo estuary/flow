@@ -70,7 +70,7 @@ where
 
     let metrics = super::Metrics::new(shard_id);
     let task = task.context("Open must include task")?;
-    let (bindings, validators) = crate::Binding::from_task(&task)?;
+    let (bindings, sources, validators) = crate::Binding::from_task(&task)?;
 
     service_kit::event!(
         tracing::Level::INFO,
@@ -119,12 +119,12 @@ where
         }),
     )?;
 
-    let journal_clients = bindings
+    let journal_clients = sources
         .iter()
-        .map(|binding| {
+        .map(|source| {
             let service = service.clone();
             let shard_id = shard_id.to_string();
-            let partition_prefix = binding.partition_prefix.clone().into();
+            let partition_prefix = source.partition_prefix.clone().into();
 
             LazyJournalClient::new(Box::new(move || {
                 (service.journal_client_factory)(shard_id, partition_prefix)
@@ -132,13 +132,14 @@ where
         })
         .collect();
 
-    let hint_index = state::HintIndex::from_bindings(&bindings);
+    let hint_index = state::HintIndex::from_bindings(&bindings, &sources);
 
     let topology = state::Topology {
         session_id,
         shards,
         slice_shard_index,
         bindings,
+        sources,
         journal_clients,
         hint_index,
     };

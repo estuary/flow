@@ -383,6 +383,7 @@ pub fn parse_lines_batch(
     parser: &mut simd_doc::SimdParser,
     validator: &mut doc::Validator,
     binding: &crate::Binding,
+    source: &crate::Source,
     journal: &str,
     mut read: super::ReadLines,
     mut lines_batch: gazette::journal::read::LinesBatch,
@@ -411,7 +412,7 @@ pub fn parse_lines_batch(
         read.as_mut().put_back(lines_batch.content.into());
     }
 
-    let metas = extract_metas(&transcoded, &binding.source_uuid_ptr, validator, journal)?;
+    let metas = extract_metas(&transcoded, &source.uuid_ptr, validator, journal)?;
 
     // Consume into owned documents and pair with pre-extracted metadata.
     let mut doc_tail = transcoded.into_iter();
