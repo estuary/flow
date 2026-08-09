@@ -358,6 +358,9 @@ where
         .resolved_bindings()
         .filter_map(|(_binding, resolved)| resolved.map(|(collection, _identity)| collection))
         .collect();
+    // A capture presently opens one publisher target per binding.
+    let binding_targets: Vec<u32> = (0..collection_specs.len() as u32).collect();
+
     let publisher = service
         .publisher_factory
         .open(
@@ -365,6 +368,7 @@ where
             producer,
             &labeling.stats_journal,
             &collection_specs,
+            &binding_targets,
         )
         .context("opening publisher")?;
 

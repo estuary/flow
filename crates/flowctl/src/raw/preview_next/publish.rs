@@ -11,6 +11,7 @@
 //! (`--output-apply`) — flows through the separate
 //! [`Logger`](runtime_next::Logger) seam in [`super::logger`].
 
+use anyhow::Context as _;
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::io::Write as _;
@@ -36,9 +37,23 @@ impl runtime_next::PublisherFactory for PreviewPublisherFactory {
         _producer: proto_gazette::uuid::Producer,
         _stats_journal: &str,
         collection_specs: &[&proto_flow::flow::CollectionSpec],
+        binding_targets: &[u32],
     ) -> anyhow::Result<PreviewPublisher> {
+        // Preview frames documents by collection name, so the binding -> target
+        // remap is resolved here rather than carried into `publish_doc`.
+        let collection_names = binding_targets
+            .iter()
+            .enumerate()
+            .map(|(binding, &target)| {
+                let spec = collection_specs.get(target as usize).with_context(|| {
+                    format!("binding {binding} maps to unknown target {target}")
+                })?;
+                Ok(spec.name.clone())
+            })
+            .collect::<anyhow::Result<Vec<String>>>()?;
+
         Ok(PreviewPublisher {
-            collection_names: collection_specs.iter().map(|s| s.name.clone()).collect(),
+            collection_names,
             line_buf: Vec::new(),
         })
     }
