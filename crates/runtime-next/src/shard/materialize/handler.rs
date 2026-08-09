@@ -263,8 +263,6 @@ where
 
     let startup::Startup {
         accumulator,
-        bindings,
-        binding_state_keys,
         mut connector_rx,
         connector_tx,
         db,
@@ -274,6 +272,7 @@ where
         leader_tx,
         max_keys,
         shuffle_reader,
+        task,
         token_restart_at,
     } = startup::run(
         controller_rx,
@@ -294,15 +293,14 @@ where
     handler.set_phase("running");
 
     let result = super::actor::Actor::new(
-        bindings,
-        binding_state_keys,
+        codec,
         connector_tx,
         db,
         disable_load_optimization,
-        codec,
         leader_tx,
         max_keys,
         metrics,
+        std::sync::Arc::new(task),
         token_restart_at,
     )
     .serve(

@@ -1,4 +1,4 @@
-use super::Binding;
+use super::Task;
 use crate::proto;
 use anyhow::Context;
 use futures::StreamExt;
@@ -65,8 +65,6 @@ pub async fn dial_and_join(
 
 pub(super) struct Startup {
     pub accumulator: crate::Accumulator,
-    pub bindings: Vec<Binding>,
-    pub binding_state_keys: Vec<String>,
     pub connector_rx: futures::stream::BoxStream<'static, tonic::Result<materialize::Response>>,
     pub connector_tx: mpsc::Sender<materialize::Request>,
     pub db: crate::shard::RocksDB,
@@ -76,6 +74,7 @@ pub(super) struct Startup {
     pub leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     pub max_keys: Vec<(bytes::Bytes, bytes::Bytes)>,
     pub shuffle_reader: shuffle::log::Reader,
+    pub task: Task,
     pub token_restart_at: Option<std::time::SystemTime>,
 }
 
@@ -123,18 +122,14 @@ where
         publisher_id: _,
     } = l_task;
 
-    // Build task definition.
     let spec = flow::MaterializationSpec::decode(spec_bytes.as_ref())
         .context("invalid Task materialization")?;
-    let (bindings, shard_ref) =
-        super::task::build_bindings(&spec, &labeling).context("building task definition")?;
-    // Reserved for future logging; the actor and scan/drain activities
-    // don't presently need shard identity.
-    let _ = shard_ref;
+    let task = Task::new(&spec, &labeling).context("building task definition")?;
 
-    // Scan and send L:Recover state from RocksDB.
+    // Scan and send L:Recover state from RocksDB. Persisted state is
+    // per-binding, keyed by each binding's `state_key`.
     let (mut db, mut recover) = db
-        .scan(bindings.iter().map(|b| b.state_key.as_str()))
+        .scan(task.binding_state_keys.iter())
         .await
         .context("scanning RocksDB")?;
     if shard_index == 0 {
@@ -145,8 +140,6 @@ where
         recover: Some(recover),
         ..Default::default()
     });
-
-    let binding_state_keys: Vec<String> = bindings.iter().map(|b| b.state_key.clone()).collect();
 
     // Read and execute L:Apply and L:Persist from the leader until L:Open.
     let open = loop {
@@ -198,7 +191,7 @@ where
                 ..
             } => {
                 db = db
-                    .persist(&persist, &binding_state_keys)
+                    .persist(&persist, &task.binding_state_keys)
                     .await
                     .context("Persist failed")?;
 
@@ -277,11 +270,11 @@ where
     let shuffle_reader =
         shuffle::log::Reader::new(std::path::Path::new(&shuffle_directory), shard_index);
 
-    let accumulator = crate::Accumulator::new(super::task::combine_spec(&bindings)?)
-        .context("building materialize combiner")?;
+    let accumulator =
+        crate::Accumulator::new(task.combine_spec()?).context("building materialize combiner")?;
 
     // Densify the leader's sparse `max_keys` map into a per-binding Vec.
-    let max_keys: Vec<(bytes::Bytes, bytes::Bytes)> = (0..bindings.len() as u32)
+    let max_keys: Vec<(bytes::Bytes, bytes::Bytes)> = (0..task.bindings.len() as u32)
         .map(|i| {
             (
                 max_keys.get(&i).cloned().unwrap_or_default(), // Previous max.
@@ -292,8 +285,6 @@ where
 
     Ok(Startup {
         accumulator,
-        bindings,
-        binding_state_keys,
         connector_rx,
         connector_tx,
         db,
@@ -303,6 +294,7 @@ where
         leader_tx,
         max_keys,
         shuffle_reader,
+        task,
         token_restart_at,
     })
 }
