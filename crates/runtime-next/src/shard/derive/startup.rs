@@ -134,6 +134,7 @@ where
             shard_producer,
             &labeling.stats_journal,
             &[&spec],
+            &[0], // The derived collection is the shard's single binding.
         )
         .context("opening publisher")?;
 
