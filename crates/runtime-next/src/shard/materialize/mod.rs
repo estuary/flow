@@ -8,6 +8,7 @@ mod startup;
 mod task;
 
 pub(crate) use handler::serve;
+use task::{Binding, Task};
 
 #[derive(Clone)]
 pub(crate) struct Metrics {
@@ -78,19 +79,6 @@ impl Metrics {
             ),
         }
     }
-}
-
-#[derive(Debug)]
-struct Binding {
-    collection_name: String,             // Source collection.
-    delta_updates: bool,                 // Delta updates, or standard?
-    document_uuid_ptr: json::Pointer,    // Document UUID pointer (often /_meta/uuid).
-    key_extractors: Vec<doc::Extractor>, // Key extractors for this collection.
-    read_schema_json: bytes::Bytes,      // Read JSON-Schema of collection documents.
-    ser_policy: doc::SerPolicy,          // Serialization policy for this source.
-    state_key: String,                   // State key for this binding.
-    store_document: bool, // Are we storing the root document (often `flow_document`)?
-    value_plan: doc::ExtractorPlan,
 }
 
 // Set of observed keys, used to de-duplicate sent C:Load requests.

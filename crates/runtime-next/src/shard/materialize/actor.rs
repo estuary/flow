@@ -1,10 +1,11 @@
-use super::{Binding, LoadKeys, boundaries::Boundaries, drain, scan};
+use super::{LoadKeys, Task, boundaries::Boundaries, drain, scan};
 use crate::{patches, proto};
 use anyhow::Context;
 use bytes::Bytes;
 use futures::{FutureExt, StreamExt, future, future::BoxFuture};
 use proto_flow::materialize;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::proto::materialize::flushed::Binding as FlushedBinding;
@@ -22,8 +23,6 @@ pub(super) enum Phase {
 
 /// Shard-side materialization reactor for one joined leader session.
 pub(super) struct Actor {
-    // Task binding specifications.
-    bindings: Vec<Binding>,
     // Per-binding backfill-truncation boundaries. Both the scanner and
     // asynchronous Loaded handling classify ingress documents against them,
     // and an advancing boundary truncates the accumulator at L:Load receipt.
@@ -33,17 +32,13 @@ pub(super) struct Actor {
     connector_pending: Vec<materialize::Request>,
     // Bounded channel out to the connector subprocess.
     connector_tx: mpsc::Sender<materialize::Request>,
-    // RocksDB and binding state keys, when a Persist is not in flight.
-    db: Option<(crate::shard::RocksDB, Vec<String>)>,
+    // RocksDB, when a Persist is not in flight.
+    db: Option<crate::shard::RocksDB>,
     // RocksDB future when a Persist is in flight. Resolves to the reply the
     // leader awaits: a `Persisted` echo, or (when `rescan`) a fresh
     // `Recover` reflecting the just-written on-disk state.
-    db_persist_fut: Option<
-        BoxFuture<
-            'static,
-            anyhow::Result<((crate::shard::RocksDB, Vec<String>), proto::Materialize)>,
-        >,
-    >,
+    db_persist_fut:
+        Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Materialize)>>>,
     // When true, don't suppress C:Load for keys less-than `max_keys`.
     disable_load_optimization: bool,
     // Wire codec negotiated with the connector.
@@ -61,6 +56,8 @@ pub(super) struct Actor {
     max_keys: Vec<(Bytes, Bytes)>,
     // Per-session metrics counters.
     metrics: super::Metrics,
+    // Task being executed.
+    task: Arc<Task>,
     // When Some, a deadline at which we ask the leader for a graceful session
     // stop, ahead of the expiry of IAM credentials injected into the connector
     // config. The session's restart re-runs the connector with fresh tokens.
@@ -70,15 +67,14 @@ pub(super) struct Actor {
 
 impl Actor {
     pub fn new(
-        bindings: Vec<Binding>,
-        binding_state_keys: Vec<String>,
+        codec: connector_init::Codec,
         connector_tx: mpsc::Sender<materialize::Request>,
         db: crate::shard::RocksDB,
         disable_load_optimization: bool,
-        codec: connector_init::Codec,
         leader_tx: mpsc::UnboundedSender<proto::Materialize>,
         max_keys: Vec<(Bytes, Bytes)>,
         metrics: super::Metrics,
+        task: Arc<Task>,
         token_restart_at: Option<std::time::SystemTime>,
     ) -> Self {
         // Map the wall-clock deadline onto the monotonic clock driving `serve`.
@@ -89,13 +85,11 @@ impl Actor {
             tokio::time::Instant::now() + delay
         });
 
-        let l = bindings.len();
         Self {
-            bindings,
-            boundaries: Boundaries::new(l),
+            boundaries: Boundaries::new(task.bindings.len()),
             connector_pending: Vec::new(),
             connector_tx,
-            db: Some((db, binding_state_keys)),
+            db: Some(db),
             db_persist_fut: None,
             disable_load_optimization,
             codec,
@@ -104,6 +98,7 @@ impl Actor {
             load_keys: Default::default(),
             max_keys,
             metrics,
+            task,
             token_restart_at,
         }
     }
@@ -166,7 +161,7 @@ impl Actor {
                 // Channel is stuffed -- don't allow further requests to queue.
             } else if let Phase::Scanning(mut scanner) = phase {
                 if scanner.step(
-                    &self.bindings,
+                    &self.task.bindings,
                     &self.boundaries,
                     &mut self.load_keys,
                     &mut self.max_keys,
@@ -204,7 +199,7 @@ impl Actor {
                 }
                 continue;
             } else if let Phase::Draining(mut drainer) = phase {
-                if let Some(request) = drainer.step(&self.bindings, self.codec)? {
+                if let Some(request) = drainer.step(&self.task.bindings, self.codec)? {
                     self.connector_pending.push(request);
                     phase = Phase::Draining(drainer);
                 } else {
@@ -316,7 +311,7 @@ impl Actor {
         // Leader-protocol invariant: the leader does not send L:Stopped while a
         // Persist is outstanding — every L:Persist is acknowledged with
         // L:Persisted before L:Stopped.
-        let Some((db, _)) = self.db.take() else {
+        let Some(db) = self.db.take() else {
             anyhow::bail!("leader Stopped while a Persist is in flight");
         };
 
@@ -466,35 +461,36 @@ impl Actor {
             let seq_no = persist.seq_no;
             let rescan = persist.rescan;
 
-            let (db, binding_state_keys) = self
+            let db = self
                 .db
                 .take()
                 .context("received L:Persist while a Persist is already in flight")?;
+            let task = Arc::clone(&self.task);
 
             self.db_persist_fut = Some(
                 async move {
-                    let db = db.persist(&persist, &binding_state_keys).await?;
+                    let db = db.persist(&persist, &task.binding_state_keys).await?;
 
                     if !rescan {
                         let response = proto::Materialize {
                             persisted: Some(proto::Persisted { seq_no }),
                             ..Default::default()
                         };
-                        return Ok(((db, binding_state_keys), response));
+                        return Ok((db, response));
                     }
 
                     // Rescan Persist (leader startup reconciliation): re-scan the
                     // freshly-written DB and reply Recover so the leader observes
                     // the reconciled on-disk state.
                     let (db, recover) = db
-                        .scan(binding_state_keys.iter())
+                        .scan(task.binding_state_keys.iter())
                         .await
                         .context("re-scanning RocksDB after rescan Persist")?;
                     let response = proto::Materialize {
                         recover: Some(recover),
                         ..Default::default()
                     };
-                    Ok(((db, binding_state_keys), response))
+                    Ok((db, response))
                 }
                 .boxed(),
             );
@@ -576,15 +572,15 @@ impl Actor {
                 }
             };
             let binding_index = binding as usize;
-            let binding_spec = self
-                .bindings
-                .get(binding_index)
-                .ok_or_else(|| anyhow::anyhow!("Loaded binding {binding_index} out of range"))?;
-
-            let (memtable, _alloc, doc) =
-                accumulator.parse_json_doc(&doc_json).with_context(|| {
-                    format!("parsing loaded doc for {}", binding_spec.collection_name)
+            let binding_spec =
+                self.task.bindings.get(binding_index).ok_or_else(|| {
+                    anyhow::anyhow!("Loaded binding {binding_index} out of range")
                 })?;
+            let source = &self.task.sources[binding_spec.source as usize];
+
+            let (memtable, _alloc, doc) = accumulator
+                .parse_json_doc(&doc_json)
+                .with_context(|| format!("parsing loaded doc for {}", source.collection_name))?;
 
             // Classify by the row's embedded document-UUID clock, not message
             // timing: staleness reflects when the row was last STORED, and a row
@@ -592,13 +588,11 @@ impl Actor {
             // A never-truncated binding needs no classification (nor a UUID).
             let stale = if !self.boundaries.has_boundary(binding_index) {
                 false
-            } else if let Some(doc::HeapNode::String(uuid)) =
-                binding_spec.document_uuid_ptr.query(&doc)
-            {
+            } else if let Some(doc::HeapNode::String(uuid)) = source.document_uuid_ptr.query(&doc) {
                 let (_, clock, _) = proto_gazette::uuid::parse_str(uuid).with_context(|| {
                     format!(
                         "loaded doc for {} has an unparseable document UUID {uuid:?}",
-                        binding_spec.collection_name,
+                        source.collection_name,
                     )
                 })?;
                 self.boundaries.is_stale(binding_index, clock)
@@ -607,8 +601,8 @@ impl Actor {
                     "loaded doc for {} is being backfill-truncated but has no document UUID \
                      at {}; the materialization must store the root document \
                      (flow_document) or reconstruct its UUID",
-                    binding_spec.collection_name,
-                    binding_spec.document_uuid_ptr,
+                    source.collection_name,
+                    source.document_uuid_ptr,
                 );
             };
             if stale {
@@ -684,13 +678,22 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shard::materialize::task::{Binding, Source};
     use proto_flow::flow;
     use proto_flow::materialize::response;
     use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
+    /// An empty Task: no bindings, no sources, no persisted state keys.
+    fn empty_task() -> Arc<Task> {
+        Arc::new(Task {
+            bindings: Vec::new(),
+            sources: Vec::new(),
+            binding_state_keys: Vec::new(),
+        })
+    }
+
     fn make_idle_phase() -> Phase {
-        let accumulator =
-            crate::Accumulator::new(super::super::task::combine_spec(&[]).unwrap()).unwrap();
+        let accumulator = crate::Accumulator::new(empty_task().combine_spec().unwrap()).unwrap();
         let shuffle_reader = shuffle::log::Reader::new(std::path::Path::new("/dev/null"), 0);
         Phase::Idle {
             accumulator,
@@ -709,7 +712,6 @@ mod tests {
 
         (
             Actor {
-                bindings: Vec::new(),
                 boundaries: Boundaries::new(0),
                 connector_pending: Vec::new(),
                 connector_tx,
@@ -722,6 +724,7 @@ mod tests {
                 flushed: HashMap::new(),
                 max_keys: Vec::new(),
                 metrics: super::super::Metrics::new("test/shard"),
+                task: empty_task(),
                 token_restart_at: None,
             },
             leader_rx,
@@ -808,11 +811,10 @@ mod tests {
         let db = crate::shard::RocksDB::open(None).await.unwrap();
 
         let actor = Actor {
-            bindings: Vec::new(),
             boundaries: Boundaries::new(0),
             connector_pending: Vec::new(),
             connector_tx: actor_to_conn_tx,
-            db: Some((db, Vec::new())),
+            db: Some(db),
             db_persist_fut: None,
             disable_load_optimization: false,
             codec: connector_init::Codec::Proto,
@@ -821,11 +823,11 @@ mod tests {
             flushed: HashMap::new(),
             max_keys: Vec::new(),
             metrics: super::super::Metrics::new("test/shard"),
+            task: empty_task(),
             token_restart_at: None,
         };
 
-        let accumulator =
-            crate::Accumulator::new(super::super::task::combine_spec(&[]).unwrap()).unwrap();
+        let accumulator = crate::Accumulator::new(empty_task().combine_spec().unwrap()).unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
         let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
 
@@ -1005,34 +1007,40 @@ mod tests {
         assert_eq!(recover.last_applied.as_ref(), b"persisted-spec-bytes");
     }
 
-    // A full-reduction binding storing the root document, keyed on /key, whose
-    // `v` array reduces by append. `document_uuid_ptr` lets the shard read each
-    // loaded row's UUID to classify it against the backfill boundary.
-    fn backfill_binding() -> Binding {
-        Binding {
-            collection_name: "test/collection".to_string(),
-            delta_updates: false,
-            document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
-            key_extractors: vec![doc::Extractor::with_default(
-                "/key",
-                &doc::SerPolicy::noop(),
-                serde_json::json!(""),
-            )],
-            read_schema_json: bytes::Bytes::from_static(
-                br#"{
-                    "type": "object",
-                    "properties": {
-                        "key": { "type": "string" },
-                        "v": { "type": "array", "reduce": { "strategy": "append" } }
-                    },
-                    "reduce": { "strategy": "merge" }
-                }"#,
-            ),
-            ser_policy: doc::SerPolicy::noop(),
-            state_key: "test/collection".to_string(),
-            store_document: true,
-            value_plan: doc::ExtractorPlan::new(&[]),
-        }
+    // A Task of one full-reduction binding storing the root document, keyed on
+    // /key, whose source's `v` array reduces by append. The source's
+    // `document_uuid_ptr` lets the shard read each loaded row's UUID to
+    // classify it against the backfill boundary.
+    fn backfill_task() -> Arc<Task> {
+        Arc::new(Task {
+            bindings: vec![Binding {
+                source: 0,
+                delta_updates: false,
+                key_extractors: vec![doc::Extractor::with_default(
+                    "/key",
+                    &doc::SerPolicy::noop(),
+                    serde_json::json!(""),
+                )],
+                ser_policy: doc::SerPolicy::noop(),
+                store_document: true,
+                value_plan: doc::ExtractorPlan::new(&[]),
+            }],
+            sources: vec![Source {
+                collection_name: "test/collection".to_string(),
+                document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
+                read_schema_json: bytes::Bytes::from_static(
+                    br#"{
+                        "type": "object",
+                        "properties": {
+                            "key": { "type": "string" },
+                            "v": { "type": "array", "reduce": { "strategy": "append" } }
+                        },
+                        "reduce": { "strategy": "merge" }
+                    }"#,
+                ),
+            }],
+            binding_state_keys: vec!["test/collection".to_string()],
+        })
     }
 
     // Build an L:Load message whose Frontier carries `truncated_at` as binding
@@ -1059,16 +1067,13 @@ mod tests {
         let fresh = mk_uuid(proto_gazette::uuid::Clock::from_unix(1_700_000_001, 0));
 
         let (mut actor, _leader_rx, _connector_rx) = make_actor();
-        actor.bindings = vec![backfill_binding()];
+        actor.task = backfill_task();
         actor.boundaries = Boundaries::new(1);
 
         // Seed the accumulator with a pre-boundary source document BEFORE the
         // truncating L:Load. The truncate() at L:Load receipt must purge it (a
         // pre-boundary source carries no existence), so it never drains.
-        let mut accumulator = crate::Accumulator::new(
-            super::super::task::combine_spec(&[backfill_binding()]).unwrap(),
-        )
-        .unwrap();
+        let mut accumulator = crate::Accumulator::new(actor.task.combine_spec().unwrap()).unwrap();
         {
             let mt = accumulator.memtable().unwrap();
             let node = doc::HeapNode::from_node(
@@ -1146,7 +1151,7 @@ mod tests {
 
         let mut stores = Vec::new();
         while let Some(req) = drainer
-            .step(&actor.bindings, connector_init::Codec::Json)
+            .step(&actor.task.bindings, connector_init::Codec::Json)
             .unwrap()
         {
             let store = req.store.expect("drained request is a Store");
@@ -1181,14 +1186,11 @@ mod tests {
         // A begin that doesn't advance the boundary must not truncate again, or
         // it would purge freshly-accumulated post-boundary sources.
         let (mut actor, _leader_rx, _connector_rx) = make_actor();
-        actor.bindings = vec![backfill_binding()];
+        actor.task = backfill_task();
         actor.boundaries = Boundaries::new(1);
         let truncated_at = proto_gazette::uuid::Clock::from_unix(1_700_000_000, 0);
 
-        let accumulator = crate::Accumulator::new(
-            super::super::task::combine_spec(&[backfill_binding()]).unwrap(),
-        )
-        .unwrap();
+        let accumulator = crate::Accumulator::new(actor.task.combine_spec().unwrap()).unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
         let idle = Phase::Idle {
             accumulator,
@@ -1234,7 +1236,7 @@ mod tests {
 
         let mut keys = Vec::new();
         while let Some(req) = drainer
-            .step(&actor.bindings, connector_init::Codec::Json)
+            .step(&actor.task.bindings, connector_init::Codec::Json)
             .unwrap()
         {
             let doc: serde_json::Value =
@@ -1251,7 +1253,7 @@ mod tests {
     #[tokio::test]
     async fn loaded_doc_with_corrupt_uuid_errors() {
         let (mut actor, _leader_rx, _connector_rx) = make_actor();
-        actor.bindings = vec![backfill_binding()];
+        actor.task = backfill_task();
         actor.boundaries = Boundaries::new(1);
         // The binding is truncating, so a loaded row's clock is required.
         actor
