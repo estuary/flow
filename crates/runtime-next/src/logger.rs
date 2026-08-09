@@ -97,8 +97,9 @@ pub enum LogEvent<'a> {
     Applied { action_description: &'a str },
 
     /// A collection's inferred write-schema widened this transaction.
-    /// `binding` is the source binding index for captures (multiple bindings
-    /// per task) and `None` for derivations (a single derived collection).
+    /// `binding` is the most-recently-updated binding index for captures
+    /// (multiple bindings may target the same collection, and only the
+    /// latest is retained as a diagnostic). For derivations, it's `None`.
     /// `schema` is the representative JSON Schema of the widened write-shape,
     /// as produced by [`doc::shape::schema::to_schema`].
     #[non_exhaustive]
@@ -315,6 +316,50 @@ impl LoggerFactory for TracingLoggerFactory {
 
     fn open(&self, _task_name: &str) -> TracingLogger {
         TracingLogger
+    }
+}
+
+/// Test [`Logger`] recording the task's stream at both of its layers, so a test
+/// may assert at whichever one it means: every [`ops::Log`] sunk, and each
+/// [`LogEvent::InferredSchema`] intercepted structurally as a widened
+/// collection's `(name, most-recently-updated binding, rendered JSON Schema)`.
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct RecordingLogger {
+    pub logs: Arc<std::sync::Mutex<Vec<ops::Log>>>,
+    pub inferences: Arc<std::sync::Mutex<Vec<(String, Option<usize>, String)>>>,
+}
+
+#[cfg(test)]
+impl RecordingLogger {
+    pub fn take_inferences(&self) -> Vec<(String, Option<usize>, String)> {
+        std::mem::take(&mut *self.inferences.lock().unwrap())
+    }
+}
+
+#[cfg(test)]
+impl Logger for RecordingLogger {
+    fn log(&self, log: &ops::Log) {
+        self.logs.lock().unwrap().push(log.clone());
+    }
+
+    fn event(&self, event: LogEvent<'_>) {
+        if let LogEvent::InferredSchema {
+            collection_name,
+            binding,
+            schema,
+            ..
+        } = &event
+        {
+            self.inferences.lock().unwrap().push((
+                collection_name.to_string(),
+                *binding,
+                serde_json::to_string(schema).unwrap(),
+            ));
+        }
+        if let Some(log) = event.to_log() {
+            self.log(&log);
+        }
     }
 }
 

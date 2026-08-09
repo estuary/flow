@@ -731,7 +731,7 @@ mod tests {
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
             crate::TracingLogger,
-            crate::publish::NoopPublisher,
+            crate::publish::RecordingPublisher::default(),
             task,
             write_shape,
         );

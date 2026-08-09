@@ -706,7 +706,7 @@ mod tests {
     fn mk_actor(
         n_shards: usize,
     ) -> (
-        Actor<crate::publish::NoopPublisher, crate::TracingLogger>,
+        Actor<crate::publish::RecordingPublisher, crate::TracingLogger>,
         Vec<mpsc::UnboundedReceiver<tonic::Result<proto::Materialize>>>,
     ) {
         let mut shard_tx = Vec::with_capacity(n_shards);
@@ -736,7 +736,7 @@ mod tests {
             None,
             super::super::Metrics::new("test/task/shard"),
             crate::TracingLogger,
-            crate::publish::NoopPublisher,
+            crate::publish::RecordingPublisher::default(),
             shard_tx,
             task,
         );

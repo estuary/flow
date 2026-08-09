@@ -155,8 +155,9 @@ where
     let verify = crate::verify("Capture", "Join", "controller");
 
     // Inferred document shapes are held only in memory and accumulate across
-    // every session of this Shard stream. They're keyed by stable binding
-    // identity so a spec update that reorders bindings still resumes inference.
+    // every session of this Shard stream. They're keyed by stable collection
+    // identity (`partition_template_name`) so a spec update that reorders or
+    // re-fans bindings still resumes inference of each collection.
     let mut shapes_by_key: BTreeMap<String, doc::Shape> = BTreeMap::new();
 
     // Producer identity for this shard's Publisher, selected once and held
@@ -354,12 +355,23 @@ where
         max_transactions,
     )?);
 
-    let collection_specs: Vec<&flow::CollectionSpec> = spec
-        .resolved_bindings()
-        .filter_map(|(_binding, resolved)| resolved.map(|(collection, _identity)| collection))
-        .collect();
-    // A capture presently opens one publisher target per binding.
-    let binding_targets: Vec<u32> = (0..collection_specs.len() as u32).collect();
+    // Publisher targets follow the Task's targets, so a fan-in capture opens one
+    // journal client and one partitions watch per collection rather than per
+    // binding, and the combiner validator and publisher target of a binding are
+    // grouped identically.
+    let collection_specs: Vec<&flow::CollectionSpec> = task
+        .targets
+        .iter()
+        .map(|target| {
+            let index = target.first_binding as usize;
+            Ok(spec
+                .binding_collection(&spec.bindings[index])
+                .context("missing collection")
+                .context(index)?
+                .0)
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let binding_targets: Vec<u32> = task.bindings.iter().map(|binding| binding.target).collect();
 
     let publisher = service
         .publisher_factory
@@ -390,8 +402,8 @@ where
     });
 
     // Restore inferred shapes accumulated by prior sessions into this session's
-    // binding layout, and stow the session's final shapes back when it ends.
-    let shapes = task.binding_shapes_by_index(std::mem::take(shapes_by_key));
+    // inference-slot layout, and stow the session's final shapes back when it ends.
+    let shapes = task.shapes_by_target(std::mem::take(shapes_by_key));
 
     // Only shard zero drives backfill truncation: it owns the origin of the key
     // and r-clock ranges, so it sees each backfill's full lifecycle even when split.
@@ -413,7 +425,7 @@ where
     .serve(connector_rx, controller_rx, head, tail)
     .await?;
 
-    *shapes_by_key = task.binding_shapes_by_key(shapes);
+    *shapes_by_key = task.shapes_by_key(shapes);
 
     _ = controller_tx.send(Ok(proto::Capture {
         stopped: Some(proto::Stopped {}),
