@@ -3,7 +3,7 @@ use bytes::BufMut;
 use proto_flow::{derive, flow};
 use std::collections::{HashMap, VecDeque};
 
-use super::task::Transform;
+use super::{Source, Transform};
 use crate::proto::derive::loaded::Binding as LoadedBinding;
 
 /// Scanner is a synchronous state machine that walks a `shuffle::Frontier` one
@@ -47,6 +47,7 @@ impl Scanner {
     pub fn step(
         &mut self,
         transforms: &[Transform],
+        sources: &[Source],
         validators: &mut [doc::Validator],
         codec: connector_init::Codec,
         out: &mut Vec<derive::Request>,
@@ -79,11 +80,12 @@ impl Scanner {
             if meta.flags.to_native() & shuffle::FLAGS_SCHEMA_VALID == 0 {
                 let Transform {
                     transform: name,
-                    collection,
+                    source,
                     ..
                 } = &transforms[transform as usize];
+                let collection = &sources[*source as usize].collection_name;
 
-                validators[transform as usize]
+                validators[*source as usize]
                     .validate(doc.doc.get(), |_| None)
                     .with_context(|| {
                         format!(
