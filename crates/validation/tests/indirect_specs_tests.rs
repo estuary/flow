@@ -80,6 +80,58 @@ fn test_flagged_tasks_build_indirect_specs() {
     insta::assert_snapshot!(summarize_all(&outcome));
 }
 
+/// A capture binds its target unmodified, so bindings of one collection share
+/// a single resolution of it. They must nonetheless keep their own per-binding
+/// state: a shared resolution is a shared *collection*, not a shared binding.
+#[test]
+fn test_shared_targets_keep_per_binding_state() {
+    let outcome = common::run(
+        INDIRECT_SPECS_YAML,
+        r#"
+test://example/catalog.yaml:
+  captures:
+    acmeCo/capture:
+      bindings:
+        - target: acmeCo/one
+          resource: { _meta: { path: [one, a] }, source: one-a }
+          backfill: 7
+        - target: acmeCo/two
+          resource: { _meta: { path: [two, a] }, source: two-a }
+        - target: acmeCo/one
+          resource: { _meta: { path: [one, b] }, source: one-b }
+          backfill: 3
+        - target: acmeCo/one
+          resource: { _meta: { path: [one, c] }, source: one-c }
+"#,
+    );
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+
+    let spec = outcome.built_captures[0].spec.as_ref().unwrap();
+
+    // Three bindings of `acmeCo/one` share one table entry: the shared
+    // resolution guarantees value-identical specs, which the interner's
+    // by-value de-duplication then collapses.
+    assert_eq!(spec.linked_collections.len(), 2);
+
+    let summary: Vec<String> = spec
+        .resolved_bindings()
+        .map(|(binding, resolved)| {
+            let (collection, index) = resolved.unwrap();
+            format!(
+                "{:?} backfill={} state_key={} resource={} => [{}] {}",
+                binding.resource_path,
+                binding.backfill,
+                binding.state_key,
+                std::str::from_utf8(&binding.resource_config_json).unwrap(),
+                index.unwrap(),
+                collection.name,
+            )
+        })
+        .collect();
+
+    insta::assert_debug_snapshot!(summary);
+}
+
 /// Clearing the flag re-inlines every collection, yielding the encoding which
 /// predates indirect specs. This is the round-trip of interning and inlining.
 #[test]
