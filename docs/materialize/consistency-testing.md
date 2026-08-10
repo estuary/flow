@@ -344,7 +344,13 @@ batch, keyed by binding — not a pointer to work the destination is asked to re
 because leftover staging cannot say whether its transaction committed or was abandoned. Only
 the **primary** shard runs them, learning of its peers' staged work from the aggregated state
 patches the runtime delivers with `Acknowledge`, so two shards never contend for one
-binding's table; `Apply` deliberately drains nothing — not because it cannot, since
+binding's table. That describes steady state only: a replay session sends no `Acknowledge` for
+the transaction it is recovering, so committed-but-unapplied work reaches the connector in
+`Open.state_json` rather than as a re-delivered patch — which is the path
+`split-after-commit-before-apply` exercises. The reference connector reads both; only this
+sentence used to describe one.
+
+`Apply` is the third detail: `Apply` deliberately drains nothing — not because it cannot, since
 `Apply.state_json` exists and runtime-next populates it, but because draining there would add a
 second reconciliation path exercised only by some runtimes, where `Acknowledge` is the path
 every transaction already takes. And the load is deferred until `Flush`,
@@ -371,8 +377,9 @@ destination *behind* the checkpoint is impossible and is refused rather than gue
 
 It also has to be **delta-updates only**. An offset counts rows the destination accepted,
 which says nothing about an upsert; Snowpipe v2 supports only delta bindings, so the
-reference class refuses a merge binding rather than emulating something no such connector
-does. Scenarios therefore choose their binding set, and a subject without a standard
+reference class is never *given* a merge binding rather than emulating something no such
+connector does — the scenario decides the binding set, and nothing in the connector refuses
+one. Scenarios therefore choose their binding set, and a subject without a standard
 binding is still held to per-document cardinality, running-sum-against-oracle and
 monotonicity — the sharpest checks here.
 
@@ -478,6 +485,22 @@ source shard's primary off its recovery log and then unassigns it.
 pubsub, kafka, pinecone, sheets, and the csv/parquet file materializations — have
 no destination-reading method and are out of scope until they migrate. Most are
 at-least-once by design and would be exempt regardless.
+
+**Deletions, entirely.** The workload only ever inserts and updates: `source-soak` emits no
+tombstones, so nothing in the suite exercises a delete. Every question about them is therefore
+open — whether a replayed delete is idempotent, whether a document deleted before a crash stays
+deleted after one, whether a delete and a later insert of the same key survive reordering. This is
+the largest single gap by surface area, and closing it needs a workload change rather than a
+scenario.
+
+**A wedged split is ambiguous, by construction.** For `split-during-commit` and
+`split-after-commit-before-apply`, mutually-fencing children *are* the paired defect's signature —
+and for `crash-in-split-leader` and `crash-in-split-non-leader`, whose defects duplicate rather
+than wedge, the same wedge would be environmental. Both reach the post-split recovery gate before
+their fault fires, so neither reading can be chosen positionally, and the gate is left unmarked:
+an environmental wedge in one of the latter two scores as a defect caught. Distinguishing them
+needs evidence the split actually landed — the trace carries it, in the narrowed ranges of the
+children's `Opened` events — which is a check worth writing when something makes it matter.
 
 **Protocol surfaces no scenario perturbs.** Each is reachable in principle and none is
 covered, so they are listed rather than left to be rediscovered:

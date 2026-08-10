@@ -274,15 +274,9 @@ async fn both_ways(name: &str) {
         // between the clean and defective halves silently vacated the pairing, which is the
         // exact regression the pairing exists to detect.
         Err(err) => {
-            let unexercised = err.chain().find_map(|e| {
-                if e.is::<harness::stack::PublishFailed>() {
-                    Some("the stack would not publish it")
-                } else if e.is::<harness::BeforeFault>() {
-                    Some("it failed before its fault fired")
-                } else {
-                    None
-                }
-            });
+            let unexercised = err
+                .chain()
+                .find_map(|e| e.downcast_ref::<harness::Environment>());
 
             if let Some(why) = unexercised {
                 panic!(
@@ -299,7 +293,7 @@ async fn both_ways(name: &str) {
 /// One test per scenario, and the covered-names list, from a single declaration.
 ///
 /// Each scenario needs its own test function so that it gets its own pass/fail line and can be
-/// run alone by name — but written out by hand, that was fourteen identical bodies beside a
+/// run alone by name — but written out by hand, that was one identical body per scenario beside a
 /// separately-maintained list of the same names. The list could then claim a scenario was
 /// covered while no test existed to run it, which `every_scenario_is_reached_by_a_test` could
 /// not detect: it compared the list against the scenario table, and the test functions were

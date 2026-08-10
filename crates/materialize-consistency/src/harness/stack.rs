@@ -28,23 +28,6 @@ pub struct Stack {
     ca_cert: String,
 }
 
-/// Marker in the error chain of a publication that would not land.
-///
-/// Present so that a caller can distinguish a stack that refused to publish from a task
-/// that published fine and then failed. The defective half of a scenario treats a failed
-/// *run* as the defect being caught; a failed *publish* is the environment, and counting
-/// it as a catch would let a flaky control plane silently vacate a defect pairing.
-#[derive(Debug)]
-pub struct PublishFailed;
-
-impl std::fmt::Display for PublishFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the stack would not publish the catalog")
-    }
-}
-
-impl std::error::Error for PublishFailed {}
-
 /// Run a command to completion under a deadline, returning its stdout.
 ///
 /// `what` names the invocation for every failure this can produce — the deadline, the spawn,
@@ -242,7 +225,7 @@ impl Stack {
         }
 
         Err(last.expect("at least one attempt was made"))
-            .context(PublishFailed)
+            .context(super::Environment::PublishFailed)
             .context("publishing the scenario's catalog")
     }
 
@@ -321,10 +304,15 @@ impl Stack {
 
         let shards = self.shards(task).await?;
 
-        Ok(shards.iter().all(|shard| {
-            shard.spec.as_ref().is_some_and(|spec| spec.disable)
-                && !shard.status.iter().any(|s| s.code() == Code::Primary)
-        }))
+        // `!is_empty` for the same reason `all_primary` has it: `all` over nothing is true, so an
+        // anomalous empty listing would read as "stopped" and send the run off to read an
+        // expectation from a collection still growing. A disabled task keeps its shard specs, so
+        // an empty listing here is not the expected steady state — it is a listing to disbelieve.
+        Ok(!shards.is_empty()
+            && shards.iter().all(|shard| {
+                shard.spec.as_ref().is_some_and(|spec| spec.disable)
+                    && !shard.status.iter().any(|s| s.code() == Code::Primary)
+            }))
     }
 
     /// Read every committed document of a collection.

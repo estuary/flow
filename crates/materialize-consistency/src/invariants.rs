@@ -137,13 +137,22 @@ pub enum Invariant {
     NoDuplicates,
     /// A key's sequence only ever advances at the sink.
     Monotonicity,
-    /// A document that arrived is byte-for-byte the document the collection holds.
+    /// A document that arrived carries the values the collection holds for it.
     ///
     /// Separate from [`Invariant::OracleAgreement`] because it is a different claim, and because
     /// filing it there made it exemptable: `at-least-once-never-loses` declares an oracle
     /// exemption for duplication, and content corruption was silenced by it. No connector has a
     /// reason to alter a document in transit, whatever else it gets wrong, so nothing should
     /// exempt this.
+    ///
+    /// **Not byte-for-byte, and the difference is worth knowing.** It compares the fields
+    /// [`Event`] parses — the balance delta and the oracle's sequence and balance — because those
+    /// are the fields every checker here reasons about. The workload's `set` operation, its
+    /// `transfer` correlation object, `ts`, and `oracle.set` are parsed by nothing and so verified
+    /// nowhere: a connector that mangled the set column or truncated a string would pass every
+    /// scenario. Widening this means widening `Event`, and for `oracle.set` it also means
+    /// comparing an order-dependent reduction — see the design doc's Deferred section, where that
+    /// trade is set out.
     DocumentIntegrity,
     /// The latest delta row per key reconstructs the standard row.
     StandardDeltaAgreement,
@@ -649,6 +658,22 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
                 ),
             }),
             Some(_) => {}
+        }
+    }
+
+    // Rows for an account the collection does not hold. Both other checkers report their
+    // leftovers and this one did not, which mattered most for the class least able to spare it: a
+    // `documentCounter` subject has no standard binding, so this checker was the merged path's only
+    // extra-row detector and it had no such check at all.
+    for (id, seq) in highest {
+        if !expected.accounts.contains_key(&id) {
+            out.push(Violation {
+                invariant: Invariant::NoDuplicates,
+                detail: format!(
+                    "the delta binding holds account {id} (up to seq {seq}), which the collection \
+                     does not"
+                ),
+            });
         }
     }
 }

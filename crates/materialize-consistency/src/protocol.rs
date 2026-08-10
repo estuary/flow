@@ -76,6 +76,14 @@ pub enum Trigger {
     Acknowledge,
     /// A `Response.Acknowledged` — the connector has finished applying.
     ///
+    /// **"Acknowledged means applied" is a property of the fleet, not of the protocol.** The proto
+    /// is explicit that `Acknowledged` is *not* a direct response to `Request.Acknowledge` and that
+    /// the two "may be written in either order" — so a conforming connector could acknowledge
+    /// before applying, and against one of those this trigger would fire earlier than the scenario
+    /// intends and test less than it claims. Every connector in the fleet applies and then
+    /// acknowledges, which is what makes `crash-between-commits` mean what it says; a subject that
+    /// does otherwise needs its own reasoning rather than this one.
+    ///
     /// This, not `Acknowledge`, is where `crash-between-commits` faults: it is the earliest and
     /// most targeted point at which the connector has applied a transaction and the shim can
     /// still kill it before the runtime records that fact. Not the *only* one — a crash
@@ -128,6 +136,11 @@ pub struct FaultRule {
     pub nth: u64,
     /// Transactions the session must have committed before this rule is armed.
     ///
+    /// "Committed" as the shim can see it, which is `StartedCommit` responses: the connector has
+    /// started committing and the runtime is about to commit its recovery log, so the count runs
+    /// slightly ahead of durability. Every use is for spacing a fault away from startup, which
+    /// that serves exactly.
+    ///
     /// This is why `Store` and `Load` count per transaction rather than per
     /// session: `nth` only ever rises, so a rule not yet armed when occurrence
     /// `nth` went past could never fire at all. Counting them per transaction makes
@@ -177,6 +190,11 @@ pub enum ShardTarget {
 
 impl ShardTarget {
     /// Whether a session over this range may fire a rule aimed at `self`.
+    ///
+    /// A split is detected on the *key* axis alone, which is narrower than the type reads: a
+    /// shard split on its r-clock while keeping the whole keyspace would classify here as
+    /// unsplit. Every split this suite drives is a key split, so the two agree today — but a
+    /// future scenario that splits on the clock needs this widened rather than trusted.
     ///
     /// Shard zero is the origin of both axes. A split has happened when the range is
     /// narrower than the whole keyspace — which has to be tested on *both* bounds:
@@ -243,7 +261,12 @@ pub struct TraceEvent {
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Event {
     /// A session opened over `[key_begin, key_end]`, inclusive at both ends as Flow's
-    /// ranges are (`flow.proto`: "[begin, end] inclusive"). Shard identity as the
+    /// ranges are (`flow.proto`: "[begin, end] inclusive").
+    ///
+    /// `materialize.proto` contradicts itself on this within two sentences — the fencing
+    /// paragraph says `[key_begin, key_end)` and then, two lines later, `[key_begin, key_end]` —
+    /// so the citation above is `flow.proto`, and the side taken is the one every real fence
+    /// implementation takes. Noted so the next reader need not re-run the audit. Shard identity as the
     /// connector sees it, which is how the harness correlates a trace with a
     /// shard split.
     Opened {

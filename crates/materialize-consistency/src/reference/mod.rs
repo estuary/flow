@@ -367,7 +367,12 @@ fn spec() -> materialize::Response {
         "required": ["table"],
         "properties": {
             "table": {"type": "string", "title": "Destination table", "x-collection-name": true},
-            "delta": {"type": "boolean", "title": "Delta updates", "default": false},
+            // `x-delta-updates` for the same reason `table` carries `x-collection-name`: the
+            // suite's discovery reads both annotations to learn how a subject spells its
+            // resource config. Discovery runs only for an *external* subject, so this one was
+            // absent and harmless — and the reference connector would have been refused by the
+            // suite's own discovery path, which is not a state to leave sitting there.
+            "delta": {"type": "boolean", "title": "Delta updates", "default": false, "x-delta-updates": true},
         },
     });
 
@@ -501,7 +506,7 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
     // dropped by the harness at the end of a run rather than by the connector under test.
     for table in last {
         if !tables.iter().any(|b| b.name == table.name) {
-            store.drop_table(&table.name)?;
+            store.drop_table(&table)?;
             actions.push(format!("dropped {}", table.name));
         }
     }
@@ -792,7 +797,11 @@ fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i
 ///
 /// It is not the only legal shape. `materialize-elasticsearch`, `-bigtable` and
 /// `-google-sheets` instead call `it.WaitForAcknowledged()` once before the loop and then read
-/// per key, which is equally correct because the wait still precedes any read.
+/// per key, which is equally correct *for them* because the wait still precedes any read and
+/// none of them coordinates across shards. It does not generalise: `WaitForAcknowledged` waits
+/// for this shard's own acknowledgement, not for its peers', so a coordinating connector that
+/// took the pattern at face value would read a destination its primary has not yet applied to —
+/// which is the defect `split-during-commit` exists to catch.
 /// `materialize-clickhouse` looks like that from the outside but belongs with the stagers: it
 /// waits up front because `Acknowledge` is what creates its load tables, then stages keys into
 /// them inside the loop and joins afterwards. What matters throughout is the ordering, not the

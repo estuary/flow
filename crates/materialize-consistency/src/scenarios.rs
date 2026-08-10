@@ -26,6 +26,7 @@ use crate::reference::{Class, Defect};
 ///
 /// The harness overwrites `path` for the reference connector, whose destination belongs
 /// to the run; a real connector's config is passed through untouched.
+#[derive(Clone)]
 pub struct Subject {
     pub connector: Vec<String>,
     pub config: serde_json::Value,
@@ -107,9 +108,23 @@ pub struct RuntimeGap {
     pub detail: &'static str,
 }
 
+/// Most reordering a membership-change exemption may absorb.
+///
+/// Uncapped, these would have been the suite's widest blind spot, and on precisely the scenarios
+/// where reordering bugs live. Against the reference connector order *is* recoverable — its tables
+/// carry an autoincrementing `ord`, so a read replays the sequence of appends — so a defect that
+/// shuffled thousands of rows while keeping the set exactly right would be absorbed in full.
+///
+/// 500 against a measured 9-54 per run: an order-of-magnitude guard, not a tight bound, chosen the
+/// same way and for the same reason as the duplication ceiling in `at-least-once-never-loses`. It
+/// binds only on the reference connector: a remotely-read subject also carries the blanket
+/// monotonicity exemption, which is unbounded because order is not recoverable through a table
+/// scan at all, and an unbounded exemption lifts a narrower ceiling for the same invariant.
+const REORDERING_CEILING: usize = 500;
+
 /// Why a membership change is not held to delivery order.
 ///
-/// Stated once and shared: three scenarios reconfigure shards and every one of them owes
+/// Stated once and shared: four scenarios reconfigure shards and every one of them owes
 /// the same explanation, so a copy per scenario would only give the wording room to drift.
 ///
 /// The wording is deliberately about what is *observed*. An earlier version asserted the
@@ -152,13 +167,20 @@ const APPENDS_DURING_STORE_REORDERS: &str = "This class appends during Store, so
 /// Excludes the counted channel, which writes during `Store`: when a membership change lands
 /// on a transaction whose rows are already in the destination, the children open channels at
 /// offset zero and append the replay a second time. That is the runtime gap discussion 2581
-/// names, and `split-lands-on-prepared-transaction` measures it — deterministically, by
-/// stalling a live prepared transaction.
+/// names, and `split-lands-on-prepared-transaction` is where it is measured.
 ///
-/// These three scenarios reach the same state, but only by race: a split lands mid-transaction
-/// nearly always rather than always, and only once a batch has been appended. Asking a counted
-/// channel a question whose answer is a coin flip would report the runtime's gap as the
-/// connector's defect on some runs and pass it on others, which is worse than not asking.
+/// The four scenarios excluded here reach that state only by race — a split lands
+/// mid-transaction nearly always rather than always, and only once a batch has been appended.
+/// Asking a counted channel a question whose answer is a coin flip would report the runtime's
+/// gap as the connector's defect on some runs and pass it on others, which is worse than not
+/// asking. Two of them — `split-during-commit` and `split-after-commit-before-apply` — split
+/// while the task is *down* after a crash, which is deterministic in when the split lands but
+/// not in what the counted channel had already appended before dying, so the coin flip is the
+/// same one.
+///
+/// And `split-lands-on-prepared-transaction` is no more deterministic; it simply carries the
+/// gap declaration instead. Its own comment records the two attempts to force the overlap that
+/// both suppressed it.
 ///
 /// Note this is *not* true of `crash-in-split-leader` and `crash-in-split-non-leader`: they
 /// crash after the split has settled, so the replay happens under stable membership, and a
@@ -404,6 +426,7 @@ fn split_during_store() -> Scenario {
     )
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
     .splitting(5)
 }
@@ -449,6 +472,7 @@ fn split_during_commit() -> Scenario {
     .fault(FaultRule::crash_at(Trigger::StartCommit, 4))
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
     .splitting_after_fault(5)
 }
@@ -482,6 +506,7 @@ fn split_after_commit_before_apply() -> Scenario {
     .fault(FaultRule::crash_at(Trigger::Acknowledge, 4))
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
     .splitting_after_fault(5)
 }
@@ -538,6 +563,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
     // measures the gap. For a real subject of another class the blanket external monotonicity
     // exemption would cover the same violations anyway.
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .at_most(REORDERING_CEILING)
     // Written against the counted-channel class, which the gap below leaves unable to pass
     // it, but the perturbation is not class-specific: a split landing on a prepared
     // transaction is something every class must survive. A class that only *stages* during
@@ -578,6 +604,7 @@ fn join_after_split() -> Scenario {
     )
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
     // Settles longer than a split alone: this waits out a split, then a join, and each
     // membership change costs the task a recovery.
@@ -705,6 +732,7 @@ fn crash_in_split_leader() -> Scenario {
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitLeader))
     .catches(Defect::DropDocumentCounter)
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .splitting(5)
 }
 
@@ -730,6 +758,7 @@ fn crash_in_split_non_leader() -> Scenario {
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitNonLeader))
     .catches(Defect::DropDocumentCounter)
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .splitting(5)
 }
 
@@ -752,26 +781,30 @@ fn at_least_once_never_loses() -> Scenario {
     .applies_to(EVERY_CLASS)
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocuments)
-    // The three ceilings below are all the same number for the same reason, so it is stated once.
+    // Every exemption below is licensed by *one* replayed transaction, and all four are therefore
+    // tied to `NoDuplicates` with `caused_by`: a replay that re-delivers documents leaves duplicate
+    // rows, so if no duplicate row appears anywhere in the run then nothing was replayed and a
+    // divergence has some other cause. Without that tie, this scenario licensed an oracle
+    // disagreement from *any* cause — and a subject whose replay path corrupted merged values
+    // while emitting no extra rows broke only oracle agreement and conservation, both exempt,
+    // and passed the entire suite.
     //
-    // Each of these exemptions is licensed by *one* replayed transaction, and one transaction is
-    // tens of documents: a reference run measures 59 duplicates, 76 oracle disagreements and 40
-    // order inversions over ~5,200 documents. A connector that duplicated systematically — every
-    // transaction re-applied rather than the interrupted one — would produce thousands, and
-    // without a ceiling this scenario would call that at-least-once and pass it.
-    //
-    // 500 is an order-of-magnitude guard rather than a tight bound. It is roughly seven times the
-    // largest measured count, which leaves room for a run whose fault lands in an unusually large
-    // transaction, and roughly a tenth of the workload, which is far below any systematic
-    // duplication. A ceiling near the measurements would only teach whoever hits it to raise it.
-    .declaring_at_most(
+    // Only the duplicate count carries a ceiling, and that is the other half of the same lesson.
+    // One transaction is tens of documents: a reference run measures 59-69 duplicates over ~5,200,
+    // so 500 is an order-of-magnitude guard — far above any single replay, far below the
+    // systematic re-delivery of a whole workload. The oracle-agreement count cannot be bounded
+    // usefully because the *checker* bounds it: at most three violations per account in
+    // `check_standard` and two in `check_merged_delta` over forty accounts, so nothing above ~200
+    // can ever bind and the 500 that used to sit there was decoration. Monotonicity is per-row and
+    // could carry one, but its cause is now stated exactly, which is the stronger claim.
+    .declaring(
         Invariant::NoDuplicates,
-        500,
         "At-least-once by construction: this class commits during Store with no \
          record of what it applied, so an interrupted transaction is re-applied on \
          replay. Declared rather than fixed, because the weaker guarantee is the one \
          the connector offers.",
     )
+    .at_most(500)
     .declaring(
         Invariant::Conservation,
         "Conservation is arithmetic over delivered documents, so a duplicate can break it \
@@ -784,18 +817,19 @@ fn at_least_once_never_loses() -> Scenario {
          impossible, and this exemption measures zero on most runs. Zero here means rare, \
          not unnecessary: removing it would make this scenario fail intermittently.",
     )
-    .declaring_at_most(
+    .caused_by(Invariant::NoDuplicates)
+    .declaring(
         Invariant::OracleAgreement,
-        500,
         "A duplicated document leaves the reduced balance disagreeing with its own \
          oracle. Same cause as the duplication exemption above.",
     )
-    .declaring_at_most(
+    .caused_by(Invariant::NoDuplicates)
+    .declaring(
         Invariant::Monotonicity,
-        500,
         "Re-applying an interrupted transaction re-delivers sequences the sink has \
          already seen. Same cause as the duplication exemption above.",
     )
+    .caused_by(Invariant::NoDuplicates)
 }
 
 impl Scenario {
@@ -807,26 +841,33 @@ impl Scenario {
             invariant,
             justification: justification.to_string(),
             max_suppressed: None,
+            conditional_on: None,
         });
         self
     }
 
-    /// As [`Scenario::declaring`], but failing anyway past `max_suppressed` violations.
+    /// Bound the exemption just declared; see [`Exemption::max_suppressed`].
     ///
-    /// Use this wherever the justification implies a volume — see [`Exemption::max_suppressed`]
-    /// for when it does not.
-    fn declaring_at_most(
-        mut self,
-        invariant: Invariant,
-        max_suppressed: usize,
-        justification: &str,
-    ) -> Self {
-        self.exempt.push(Exemption {
-            invariant,
-            justification: justification.to_string(),
-            max_suppressed: Some(max_suppressed),
-        });
+    /// Worth setting only where the *checker* does not already bound the count. A per-account
+    /// invariant cannot exceed the workload's forty accounts however wrong the subject is, so a
+    /// ceiling there measures the workload rather than the subject.
+    fn at_most(mut self, max_suppressed: usize) -> Self {
+        self.last_exemption().max_suppressed = Some(max_suppressed);
         self
+    }
+
+    /// Hold the exemption just declared to its stated cause; see [`Exemption::conditional_on`].
+    fn caused_by(mut self, invariant: Invariant) -> Self {
+        self.last_exemption().conditional_on = Some(invariant);
+        self
+    }
+
+    /// Panics rather than erroring: a modifier with nothing to modify is a typo in this file, not
+    /// a condition a run could encounter.
+    fn last_exemption(&mut self) -> &mut Exemption {
+        self.exempt
+            .last_mut()
+            .expect("a modifier follows the `declaring` whose exemption it modifies")
     }
 }
 
@@ -886,7 +927,7 @@ mod test {
             for rule in &scenario.faults {
                 // Only a crash matters. A stall or a zombie leaves the shard
                 // running, so the warmup gate keeps making progress through them —
-                // `zombie-at-start-commit` fires in the second transaction and is fine.
+                // `zombie-at-start-commit` fires at the session's `Open` and is fine.
                 if rule.action != Action::Crash {
                     continue;
                 }
