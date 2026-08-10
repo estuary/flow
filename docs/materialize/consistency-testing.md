@@ -155,9 +155,11 @@ checkpoint the connector chose.
 *order* at the sink.**
 
 The suite observes exactly that shape, repeatably: no loss, no duplicates, conservation
-intact and oracle agreement intact, alongside a crop of monotonicity complaints — 9 to 33 per
-run on the reconfiguration scenarios, and 40 to 54 on the counted channel's, measured after the
-two monotonicity checkers were made to score a regression the same way.
+intact and oracle agreement intact, alongside a crop of monotonicity complaints — 9 to 93 per run
+against the reference connector, whose destination is read as an ordered table, and several
+hundred against one read as a remote table, where arrival order is not recoverable at all (295
+measured against `materialize-databricks`). All measured after the two monotonicity checkers were
+made to score a regression the same way.
 
 **The mechanism is not understood, and this document used to claim it was.** The natural
 explanation — a split child delivering a sequence the departing parent had already raced past —
@@ -477,9 +479,15 @@ would exercise a different startup path, with no inherited state for either shar
 etcd would exercise the runtime's fencing and the connector's together at maximum
 fidelity, but it is lease-timing-dependent and needs privileged host manipulation.
 The shim-based zombie is deterministic and targets the connector's own fencing,
-which is what a connector-compliance suite should judge — and the split-derived
-zombie picks up the runtime half for free, since the split workflow fences the
-source shard's primary off its recovery log and then unassigns it.
+which is what a connector-compliance suite should judge — and it is the *only* zombie the suite
+exercises. This section used to claim the split scenarios picked up the runtime half for free,
+because the split workflow fences the source primary off its recovery log. That is the legacy
+consumer-layer workflow, which engages only for a shard labelled `estuary.dev/split-source`;
+`flowctl raw split-shards` builds children directly with no such label and no primary hints, so
+it never runs. The parent hands over through the V2 term contract — the spec update cancels its
+term and the session stops gracefully — which is a *graceful* stop rather than a fencing race,
+and incidentally explains why `split-lands-on-prepared-transaction` so often finds the runtime
+handing over at a quiet point.
 
 **Connectors predating the shared materializer interface** — webhook, slack, sns,
 pubsub, kafka, pinecone, sheets, and the csv/parquet file materializations — have

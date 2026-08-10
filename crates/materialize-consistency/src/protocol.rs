@@ -91,6 +91,11 @@ pub enum Trigger {
     /// what `crash-mid-store` also does — but the earliest, so the least is happening around
     /// it. The restart replays that `Acknowledge`, and only an idempotent one leaves the
     /// destination unchanged.
+    ///
+    /// "Replays" means the same *transaction*, not a byte-identical message: a restarted session's
+    /// first `Acknowledge` carries empty `state_patches_json`, and the committed patches reach the
+    /// connector through `Open.state_json` instead. The design doc spells that out, and the
+    /// reference connector reads both paths.
     Acknowledged,
 }
 
@@ -115,9 +120,13 @@ pub enum Action {
     /// happened. Keyed at `Open`, the zombie has taken its fence and done nothing else, which
     /// is the one point where it is guaranteed alive.
     ///
-    /// This is also why the race carries the session's *first* transaction rather than a
-    /// later one: the runtime opens a materialization session once per shard assignment, so
-    /// the only `Open` a run offers is the one at startup.
+    /// The race therefore carries whichever transaction is the *session's* first. Sessions are
+    /// per term rather than per assignment — a spec update restarts one in place, an expiring
+    /// credential can request a graceful restart, and `max_transactions` rotates them — so a run
+    /// may offer more than one `Open`. That does no harm: the fired marker makes the zombie
+    /// one-shot, which is what `zombie_action` consults. An earlier version of this comment
+    /// claimed one `Open` per run and used that as the justification; the real reason to freeze
+    /// here is the liveness argument above.
     Zombie {
         /// Live-instance `StartedCommit` responses to await before thawing.
         thaw_after_commits: u64,

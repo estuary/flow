@@ -154,19 +154,31 @@ pub enum Invariant {
     /// comparing an order-dependent reduction — see the design doc's Deferred section, where that
     /// trade is set out.
     DocumentIntegrity,
+    /// Every row in the destination corresponds to a document the collection holds.
+    ///
+    /// Split out of [`Invariant::NoDuplicates`], which all three checkers used to file it under —
+    /// and which is exempted by `at-least-once-never-loses`, whose justification is that a replay
+    /// *re-delivers* documents. A replay can only re-deliver what the collection contains, so
+    /// nothing about at-least-once licenses a row for a key that was never in it: filing the two
+    /// together let a duplication exemption absorb up to five hundred invented rows.
+    ///
+    /// Not exemptable, for the same reason as [`Invariant::DocumentIntegrity`]: no class of
+    /// connector has a reason to invent a key, whatever else it gets wrong.
+    NoFabrication,
     /// The latest delta row per key reconstructs the standard row.
     StandardDeltaAgreement,
 }
 
 impl Invariant {
     /// Every invariant, so anything enumerating them cannot fall behind the enum.
-    pub const ALL: [Invariant; 7] = [
+    pub const ALL: [Invariant; 8] = [
         Invariant::Conservation,
         Invariant::OracleAgreement,
         Invariant::NoLoss,
         Invariant::NoDuplicates,
         Invariant::Monotonicity,
         Invariant::DocumentIntegrity,
+        Invariant::NoFabrication,
         Invariant::StandardDeltaAgreement,
     ];
 }
@@ -180,6 +192,7 @@ impl std::fmt::Display for Invariant {
             Self::NoDuplicates => "no-duplicates",
             Self::Monotonicity => "monotonicity",
             Self::DocumentIntegrity => "document-integrity",
+            Self::NoFabrication => "no-fabrication",
             Self::StandardDeltaAgreement => "standard-delta-agreement",
         };
         f.write_str(name)
@@ -424,7 +437,7 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
     for id in by_id.keys() {
         if !expected.accounts.contains_key(id) {
             out.push(Violation {
-                invariant: Invariant::NoDuplicates,
+                invariant: Invariant::NoFabrication,
                 detail: format!(
                     "the standard binding holds account {id}, which the collection does not"
                 ),
@@ -520,7 +533,7 @@ fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
 
     for ((id, seq), n) in seen {
         out.push(Violation {
-            invariant: Invariant::NoDuplicates,
+            invariant: Invariant::NoFabrication,
             detail: format!(
                 "the log binding holds account {id} seq {seq} ({n}×), which the collection does not"
             ),
@@ -668,7 +681,7 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
     for (id, seq) in highest {
         if !expected.accounts.contains_key(&id) {
             out.push(Violation {
-                invariant: Invariant::NoDuplicates,
+                invariant: Invariant::NoFabrication,
                 detail: format!(
                     "the delta binding holds account {id} (up to seq {seq}), which the collection \
                      does not"

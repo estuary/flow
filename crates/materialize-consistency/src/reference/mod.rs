@@ -193,9 +193,11 @@ pub struct Session {
     /// Work staged by the transaction in progress, not yet published in a checkpoint.
     /// Work whose transaction the log has confirmed, awaiting release.
     ///
-    /// Applied on *every* `Acknowledge` until released, because the runtime may retry an
-    /// `Acknowledge` and the statements are idempotent — the trailing `DELETE` retires the
-    /// batch, so a re-run changes nothing. Released at the next `StartCommit`, by which
+    /// Applied on *every* `Acknowledge` until released, because the runtime may replay one — and
+    /// the statements are idempotent, since the trailing `DELETE` retires the batch, so a re-run
+    /// changes nothing. Replay means *across sessions*: within one, the boilerplate's shared loop
+    /// treats a misplaced `Acknowledge` as an error and the connector exits, so this is slightly
+    /// more tolerant than the fleet rather than modelling something it does. Released at the next `StartCommit`, by which
     /// point the clearing patch has had its chance to commit. A connector that skipped the
     /// retirement would duplicate on the retry, which is the `non-idempotent-acknowledge`
     /// defect and is what makes it observable.

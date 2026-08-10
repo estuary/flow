@@ -104,8 +104,9 @@ json.dump(strip(yaml.safe_load(sys.stdin)), sys.stdout)' > /tmp/subject-config.j
 
 **A subject driven through a shard split also needs multi-shard operation enabled**, which for
 `materialize-databricks` means adding `scale_out` to `advanced.feature_flags` in that config —
-off by default, and the suite cannot know a given connector's flag names. Without it the suite
-reports a crash-loop and lost documents that are the configuration's doing, not the connector's.
+off by default, and the suite cannot know a given connector's flag names. Without it the connector
+refuses to open a partial-range shard at all and the task crash-loops — a failure that is the
+configuration's doing, not the connector's.
 
 **Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
 drives; `testctl` is separate, and is how verification reads the destination back and how a run
@@ -188,8 +189,11 @@ how to add one; a connector still in `package main` needs converting first.
 operation.** Where that is behind a feature flag the harness cannot know its name, and a
 connector run multi-shard without it will fail in ways that look like defects but are not:
 `materialize-databricks` gates its coordinator behaviour on `advanced.feature_flags:
-scale_out`, off by default, and without it two shards contend over one table. Set whatever
-the connector requires in the config you pass.
+scale_out`, off by default, and its `validateShardRange` now *refuses* to open a shard covering
+less than the whole keyspace without the flag — so the task crash-loops rather than corrupting
+anything. (It contended over one table and lost documents silently before that check existed,
+which is how two invalid issues came to be filed against it; see the design document.) Set
+whatever the connector requires in the config you pass.
 
 **Timing scales with the subject.** A remote destination commits in tens of seconds where
 the reference connector commits in milliseconds, so a named subject gets longer

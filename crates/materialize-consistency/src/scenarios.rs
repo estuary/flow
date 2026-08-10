@@ -115,7 +115,7 @@ pub struct RuntimeGap {
 /// carry an autoincrementing `ord`, so a read replays the sequence of appends — so a defect that
 /// shuffled thousands of rows while keeping the set exactly right would be absorbed in full.
 ///
-/// 500 against a measured 9-54 per run: an order-of-magnitude guard, not a tight bound, chosen the
+/// 500 against a measured 9-93 per run: an order-of-magnitude guard, not a tight bound, chosen the
 /// same way and for the same reason as the duplication ceiling in `at-least-once-never-loses`. It
 /// binds only on the reference connector: a remotely-read subject also carries the blanket
 /// monotonicity exemption, which is unbounded because order is not recoverable through a table
@@ -124,16 +124,17 @@ const REORDERING_CEILING: usize = 500;
 
 /// Why a membership change is not held to delivery order.
 ///
-/// Stated once and shared: four scenarios reconfigure shards and every one of them owes
-/// the same explanation, so a copy per scenario would only give the wording room to drift.
+/// Stated once and shared by the four scenarios that use it, so a copy per scenario would only
+/// give the wording room to drift. (Seven scenarios reconfigure shards; the other three describe
+/// a class that appends during `Store` and use `APPENDS_DURING_STORE_REORDERS`.)
 ///
 /// The wording is deliberately about what is *observed*. An earlier version asserted the
 /// interleaving — a split child delivering a sequence the departing parent had raced past —
 /// and review could not construct it: on these classes' delta paths a parent write past a
 /// child's resume point is either fence-refused or a duplicate, and `NoDuplicates` is not
-/// exempt, so the run would fail regardless. Yet these exemptions suppress 9-33 violations
-/// per run, measured after the two monotonicity checkers were made to agree, so the
-/// reordering is real. Rather than keep a mechanism nobody has demonstrated, the
+/// exempt, so the run would fail regardless. Yet these exemptions suppress 9-93 violations per
+/// run against a locally-read destination and several hundred against a remotely-read one — 295
+/// measured against `materialize-databricks` — so the reordering is real. Rather than keep a mechanism nobody has demonstrated, the
 /// justification records the observation and says the cause is unknown.
 const MEMBERSHIP_CHANGE_REORDERS: &str = "A membership change does not preserve delivery *order* at the sink, only \
          exactly-once delivery of the set: rows of an id are observed landing out of \
@@ -416,10 +417,20 @@ fn crash_at_flush() -> Scenario {
     .catches(Defect::DropDocuments)
 }
 
-/// Scale-out during the store phase. A split also manufactures a zombie by design:
-/// the runtime fences the source shard's primary off its recovery log during the
-/// children's recovery and then unassigns it, so this exercises the runtime's
-/// fencing alongside the connector's.
+/// Scale-out during the store phase.
+///
+/// This used to claim the split "manufactures a zombie by design", fencing the source primary
+/// off its recovery log so the scenario exercised the runtime's fencing as well as the
+/// connector's. That is the *legacy* consumer-layer split workflow, which engages only for a
+/// shard labelled `estuary.dev/split-source` (`go/runtime/split_workflow.go`). The suite splits
+/// via `flowctl raw split-shards`, which builds children directly through
+/// `activate::map_shard_to_split` — no such label, `primary_hints: None`, children explicitly
+/// stateless — so that workflow never runs and no primary is fenced off a log. Handover goes
+/// through the V2 term contract instead: the spec update cancels the term and the session stops
+/// gracefully.
+///
+/// The scenario's checks and its defect pairing are unaffected, but the extra coverage it claimed
+/// does not exist. The only zombie this suite exercises is the shim's own.
 fn split_during_store() -> Scenario {
     Scenario::new(
         "split-during-store",
@@ -486,7 +497,8 @@ fn split_during_commit() -> Scenario {
 /// `merge_peer_patches`, and `apply_pending` over a range that no longer exists.
 ///
 /// The fault is keyed on the `Acknowledge` *request*, and the timing is worth spelling out. The
-/// runtime's cycle is `Acknowledge → Flush → Store → StartCommit → Persist`, so an `Acknowledge`
+/// runtime's cycle is `Acknowledge → Flush → Store → StartCommit → Persist` (abbreviated — a
+/// hint-Persist sits between `Flush` and `Store`, which nothing here turns on), so an `Acknowledge`
 /// opens each transaction and confirms the one before it. Since the shim fires before forwarding,
 /// crashing at `Acknowledge` #4 leaves transaction *3* in exactly the state wanted: its statements
 /// were rendered at `StartCommit`, its state patch went into the recovery log at `Persist`, and

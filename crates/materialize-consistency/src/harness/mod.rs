@@ -34,10 +34,20 @@ pub struct Exemption {
     /// exemption also absorbs a subject that re-delivered the entire workload, which is a
     /// different failure wearing the same justification.
     ///
-    /// `None` where the cause has no principled bound to write down. That is not laziness: the
-    /// reordering seen around membership changes is observed but unexplained, so any number here
-    /// would be invented, and an invented ceiling produces intermittent failures that teach the
-    /// reader to raise it. Better to leave it off and say so.
+    /// `None` where a ceiling would say nothing, and there are two such cases — neither of them
+    /// "the cause is not understood". The membership-change reordering *is* unexplained and still
+    /// carries a ceiling (`REORDERING_CEILING`), because an unexplained cause still has an
+    /// observed volume, and uncapped it was the widest blind spot in the suite: against a
+    /// destination read as an ordered table, a defect shuffling thousands of rows while keeping
+    /// the set exactly right was absorbed in full.
+    ///
+    /// Leave it off when:
+    ///
+    /// - the invariant is not recoverable through this subject's read at all, so no volume of
+    ///   violations means anything — the blanket monotonicity exemption a remotely-read
+    ///   destination carries; or
+    /// - the *checker* already bounds the count, in which case a ceiling measures the workload
+    ///   rather than the subject. See below.
     ///
     /// A ceiling is also worthless where the *checker* bounds the count for it. `OracleAgreement`
     /// reports at most three violations per account in `check_standard` and two in
@@ -710,13 +720,17 @@ fn partition_exempt(
     // filed under `OracleAgreement`, where `at-least-once-never-loses`'s duplication exemption
     // silenced it — which is how a corruption check came to be switched off by a scenario about
     // duplication.
-    assert!(
-        !exemptions
-            .iter()
-            .any(|e| e.invariant == Invariant::DocumentIntegrity),
-        "a scenario declares an exemption for {}, which nothing may exempt",
-        Invariant::DocumentIntegrity,
-    );
+    //
+    // `NoFabrication` joins it for the same reason and by the same route: all three checkers used
+    // to file a row for a key the collection does not hold under `NoDuplicates`, which
+    // `at-least-once-never-loses` exempts because a replay *re-delivers*. A replay can only
+    // re-deliver what the collection contains, so that exemption was absorbing invented rows too.
+    for invariant in [Invariant::DocumentIntegrity, Invariant::NoFabrication] {
+        assert!(
+            !exemptions.iter().any(|e| e.invariant == invariant),
+            "a scenario declares an exemption for {invariant}, which nothing may exempt",
+        );
+    }
 
     // An exemption whose stated cause did not occur does not apply. See
     // [`Exemption::conditional_on`]: evaluated over the raw violations, so a duplicate this
