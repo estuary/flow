@@ -790,9 +790,15 @@ fn at_least_once_never_loses() -> Scenario {
     // and passed the entire suite.
     //
     // Only the duplicate count carries a ceiling, and that is the other half of the same lesson.
-    // One transaction is tens of documents: a reference run measures 59-69 duplicates over ~5,200,
-    // so 500 is an order-of-magnitude guard — far above any single replay, far below the
-    // systematic re-delivery of a whole workload. The oracle-agreement count cannot be bounded
+    // One transaction is tens of documents: reference runs measure 20-69 duplicates, scaling with
+    // how much the run wrote, so 500 is an order-of-magnitude guard — far above any single replay,
+    // far below the systematic re-delivery of a whole workload.
+    //
+    // The tie to `NoDuplicates` does assume the replay re-delivers *something*, which is what makes
+    // the count non-zero on every run measured so far. A crash landing in a transaction that
+    // carried no documents for any account would duplicate nothing, and then a divergence from
+    // some other cause would be held rather than exempt — a failure in the safe direction, and
+    // loud, but a flake if it ever happens. The oracle-agreement count cannot be bounded
     // usefully because the *checker* bounds it: at most three violations per account in
     // `check_standard` and two in `check_merged_delta` over forty accounts, so nothing above ~200
     // can ever bind and the 500 that used to sit there was decoration. Monotonicity is per-row and
