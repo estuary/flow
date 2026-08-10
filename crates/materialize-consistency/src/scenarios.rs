@@ -140,8 +140,10 @@ const MEMBERSHIP_CHANGE_REORDERS: &str = "A membership change does not preserve 
          order across a split while remaining exactly one row per document. The \
          mechanism is NOT understood — the obvious candidate, a parent delivering past \
          a child's resume point, is either fenced off or a duplicate, and duplicates are \
-         not exempt. What is established is the observation: 9-33 such violations per \
-         run, with the set-based checks passing. Those checks — no-loss, no-duplicates, \
+         not exempt. What is established is the observation: 9-93 such violations per \
+         run against a locally-read destination, and several hundred against one read as a \
+         remote table, where arrival order is not recoverable at all — 295 measured against \
+         materialize-databricks. Either way the set-based checks pass. Those checks — no-loss, no-duplicates, \
          conservation and oracle agreement — carry the exactly-once claim here and are \
          NOT exempt, which is why an unexplained ordering deviation can be tolerated \
          without weakening what the scenario proves.";

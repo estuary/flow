@@ -85,6 +85,28 @@ FLOW_CONSISTENCY_SUBJECT_NAME=materialize-databricks \
 All five are required together; setting some alone is an error rather than a silent fall back
 to the reference connector.
 
+**The config has to be plain JSON with `_sops` suffixes stripped.** A connector's checked-in
+`testdata/config.local.yaml` is sops-encrypted, and `sops -d` alone is not enough: Estuary's
+convention marks an encrypted field by suffixing its *name*, so a decrypted config still carries
+`personal_access_token_sops`, which the connector rejects as an unknown field — a `buildFailed`
+publication with `json: unknown field "..._sops"` in the build log. Strip the suffix from every
+key recursively, and convert to JSON:
+
+```bash
+sops -d materialize-yourthing/testdata/config.local.yaml \
+  | python3 -c 'import sys,json,yaml
+def strip(n):
+    if isinstance(n, dict): return {k.removesuffix("_sops"): strip(v) for k, v in n.items()}
+    if isinstance(n, list): return [strip(v) for v in n]
+    return n
+json.dump(strip(yaml.safe_load(sys.stdin)), sys.stdout)' > /tmp/subject-config.json
+```
+
+**A subject driven through a shard split also needs multi-shard operation enabled**, which for
+`materialize-databricks` means adding `scale_out` to `advanced.feature_flags` in that config —
+off by default, and the suite cannot know a given connector's flag names. Without it the suite
+reports a crash-loop and lost documents that are the configuration's doing, not the connector's.
+
 **Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
 drives; `testctl` is separate, and is how verification reads the destination back and how a run
 drops the tables it created. `FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the

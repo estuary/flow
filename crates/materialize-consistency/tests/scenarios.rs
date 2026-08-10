@@ -14,6 +14,7 @@
 //! nextest profile. Run them with `mise run ci:consistency`.
 
 use materialize_consistency::harness;
+use materialize_consistency::invariants::Invariant;
 use materialize_consistency::scenarios::{self, Scenario, Subject};
 
 fn init_tracing() {
@@ -166,10 +167,23 @@ async fn both_ways(name: &str) {
             .iter()
             .filter(|v| v.invariant == exempt.invariant)
             .count();
+        // A ceiling is reported only when it is actually enforced. Ceilings are per invariant and
+        // the broadest claim governs, so an unbounded exemption for the same invariant lifts this
+        // one's — which is exactly what a real subject does, carrying the blanket monotonicity
+        // exemption alongside a scenario's capped one. Printing "295 of at most 500" there
+        // described a limit nothing was applying, and read as a near miss.
+        let lifted_by_broader = scenario
+            .exempt
+            .iter()
+            .any(|e| e.invariant == exempt.invariant && e.max_suppressed.is_none())
+            || external.is_some() && exempt.invariant == Invariant::Monotonicity;
+
         eprintln!(
             "exempt: [{}] suppressed {suppressed}{} violation(s): {}",
             exempt.invariant,
             match exempt.max_suppressed {
+                Some(_) if lifted_by_broader =>
+                    " (ceiling lifted by a broader exemption)".to_string(),
                 Some(max) => format!(" of at most {max}"),
                 None => String::new(),
             },
