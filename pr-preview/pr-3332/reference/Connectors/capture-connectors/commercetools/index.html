@@ -5,8 +5,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async="" src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary's [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can't find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/pr-preview/pr-3332/assets/css/styles.ce924ef5.css">
-<script src="/pr-preview/pr-3332/assets/js/runtime~main.1de9091d.js" defer="defer"></script>
-<script src="/pr-preview/pr-3332/assets/js/main.985b752c.js" defer="defer"></script>
+<script src="/pr-preview/pr-3332/assets/js/runtime~main.4fdffb8e.js" defer="defer"></script>
+<script src="/pr-preview/pr-3332/assets/js/main.a66c54b5.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -25,7 +25,14 @@
 <p>To set up the commercetools source connector, you'll need:</p>
 <ul>
 <li class="">Your commercetools <strong>Project key</strong>, and the <strong>region</strong> hosting that Project. Both are visible in the Merchant Center under <strong>Settings &gt; Developer settings</strong>, in the API URL shown for your Project.</li>
-<li class="">A commercetools <a href="https://docs.commercetools.com/api/authorization" target="_blank" rel="noopener noreferrer" class="">API Client</a> with the <code>view_orders</code>, <code>view_customers</code>, and <code>view_payments</code> <a href="https://docs.commercetools.com/api/scopes" target="_blank" rel="noopener noreferrer" class="">scopes</a>, created in the Merchant Center under <strong>Settings &gt; Developer settings &gt; Create new API client</strong>. Note the client ID and secret when the client is created.</li>
+<li class="">A commercetools <a href="https://docs.commercetools.com/api/authorization" target="_blank" rel="noopener noreferrer" class="">API Client</a> created in the Merchant Center under <strong>Settings &gt; Developer settings &gt; Create new API client</strong>, with the following <a href="https://docs.commercetools.com/api/scopes" target="_blank" rel="noopener noreferrer" class="">scopes</a>:<!-- -->
+<ul>
+<li class=""><code>view_orders</code></li>
+<li class=""><code>view_customers</code></li>
+<li class=""><code>view_payments</code>
+Note the client ID and secret when the client is created.</li>
+</ul>
+</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="configuration">Configuration<a href="#configuration" class="hash-link" aria-label="Direct link to Configuration" title="Direct link to Configuration" translate="no">​</a></h2>
 <p>You configure connectors either in the Estuary web app, or by directly editing the catalog specification file.
