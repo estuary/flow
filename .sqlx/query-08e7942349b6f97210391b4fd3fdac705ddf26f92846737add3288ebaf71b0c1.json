@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            i.image as \"image!: String\",\n            ct.default_capture_interval as \"default_capture_interval: crate::Interval\"\n        from unnest($1::text[], $2::text[], $3::text[]) as i(image, image_name, image_tag)\n        join connectors c on c.image_name = i.image_name\n        join connector_tags ct on c.id = ct.connector_id and ct.image_tag = i.image_tag\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "image!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "default_capture_interval: crate::Interval",
+        "type_info": "Interval"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      true
+    ]
+  },
+  "hash": "08e7942349b6f97210391b4fd3fdac705ddf26f92846737add3288ebaf71b0c1"
+}

@@ -2,7 +2,7 @@ use anyhow::Context;
 use serde_json::value::RawValue;
 
 use crate::{
-    DataPlanes, Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection,
+    ConnectorTags, DataPlanes, Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection,
     LiveCollections, LiveMaterialization, LiveMaterializations, LiveTest, LiveTests,
     StorageMappings,
 };
@@ -203,6 +203,7 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
+            connector_tags,
             data_planes,
             errors,
             inferred_schemas,
@@ -214,6 +215,7 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
+            connector_tags,
             data_planes,
             errors,
             inferred_schemas,
@@ -228,6 +230,7 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
+            connector_tags,
             data_planes,
             errors,
             inferred_schemas,
@@ -239,6 +242,7 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
+            connector_tags,
             data_planes,
             errors,
             inferred_schemas,
@@ -254,6 +258,7 @@ impl LiveCatalog {
 pub struct LiveCatalog {
     pub captures: LiveCaptures,
     pub collections: LiveCollections,
+    pub connector_tags: ConnectorTags,
     pub data_planes: DataPlanes,
     pub errors: Errors,
     pub inferred_schemas: InferredSchemas,

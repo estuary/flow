@@ -23,6 +23,7 @@ pub async fn walk_all_captures<C: Connectors>(
     live_captures: &tables::LiveCaptures,
     built_collections: &tables::BuiltCollections,
     connectors: &C,
+    connector_tags: &tables::ConnectorTags,
     data_planes: &tables::DataPlanes,
     explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
@@ -52,6 +53,7 @@ pub async fn walk_all_captures<C: Connectors>(
                 eob,
                 built_collections,
                 connectors,
+                connector_tags,
                 data_planes,
                 explicit_plane,
                 dependencies,
@@ -84,6 +86,7 @@ async fn walk_capture<C: Connectors>(
     eob: EOB<&tables::LiveCapture, &tables::DraftCapture>,
     built_collections: &tables::BuiltCollections,
     connectors: &C,
+    connector_tags: &tables::ConnectorTags,
     data_planes: &tables::DataPlanes,
     explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
@@ -493,12 +496,27 @@ async fn walk_capture<C: Connectors>(
         false, // Don't disable wait_for_ack.
         &network_ports,
     );
+    // Resolve the interval for this build only: a user-set `interval` wins, then
+    // the connector tag's default, then the global default.
+    let tag_default = match &endpoint {
+        models::CaptureEndpoint::Connector(config) => connector_tags
+            .get_key(&config.image)
+            .and_then(|tag| tag.default_capture_interval_seconds)
+            .map(|secs| std::time::Duration::from_secs(secs as u64)),
+        // Local captures run a command rather than an image, so they have no tag.
+        models::CaptureEndpoint::Local(_) => None,
+    };
+    let interval_seconds = interval
+        .or(tag_default)
+        .unwrap_or_else(models::CaptureDef::default_interval)
+        .as_secs() as u32;
+
     let mut spec = flow::CaptureSpec {
         name: capture.to_string(),
         connector_type,
         config_json,
         bindings: bindings_spec,
-        interval_seconds: interval.as_secs() as u32,
+        interval_seconds,
         recovery_log_template: Some(recovery_log_template),
         shard_template: Some(shard_template),
         network_ports,

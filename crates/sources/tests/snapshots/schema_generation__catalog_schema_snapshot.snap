@@ -258,7 +258,7 @@ expression: "&schema"
         },
         "interval": {
           "title": "Interval of time between invocations of the capture.",
-          "description": "Configured intervals are applicable only to connectors which are\nunable to continuously tail their source, and which instead produce\na current quantity of output and then exit. Flow will start the\nconnector again after the given interval of time has passed.\n\nIntervals are relative to the start of an invocation and not its completion.\nFor example, if the interval is five minutes, and an invocation of the\ncapture finishes after two minutes, then the next invocation will be started\nafter three additional minutes.",
+          "description": "Configured intervals are applicable only to connectors which are\nunable to continuously tail their source, and which instead produce\na current quantity of output and then exit. Flow will start the\nconnector again after the given interval of time has passed.\n\nIntervals are relative to the start of an invocation and not its completion.\nFor example, if the interval is five minutes, and an invocation of the\ncapture finishes after two minutes, then the next invocation will be started\nafter three additional minutes.\n\nWhen unset, the interval is resolved at build time: first from a default\nconfigured for the task's connector, and otherwise from a global default.",
           "type": [
             "string",
             "null"

@@ -969,6 +969,7 @@ pub async fn resolve_live_specs(
     .collect();
 
     resolve_inferred_schemas(draft, &mut live, db).await?;
+    resolve_connector_tags(draft, &mut live, db).await?;
 
     Ok(live)
 }
@@ -1004,6 +1005,63 @@ async fn resolve_inferred_schemas(
             collection_name: models::Collection::new(collection_name),
             schema: models::Schema::new(models::RawValue::from(schema.0)),
             md5,
+        });
+    }
+    Ok(())
+}
+
+/// Resolves connector tags of drafted captures and adds them to the live catalog.
+async fn resolve_connector_tags(
+    draft: &tables::DraftCatalog,
+    live: &mut tables::LiveCatalog,
+    db: &sqlx::PgPool,
+) -> anyhow::Result<()> {
+    let images: Vec<&str> = draft
+        .captures
+        .iter()
+        .filter_map(|row| match &row.model.as_ref()?.endpoint {
+            models::CaptureEndpoint::Connector(cfg) => Some(cfg.image.as_str()),
+            // Local captures run a command rather than an image, so they have no tag to resolve.
+            models::CaptureEndpoint::Local(_) => None,
+        })
+        .sorted()
+        .dedup()
+        .collect();
+
+    if images.is_empty() {
+        return Ok(());
+    }
+
+    let (image_names, image_tags): (Vec<String>, Vec<String>) = images
+        .iter()
+        .map(|image| models::split_image_tag(image))
+        .unzip();
+
+    // Unlike `fetch_connector_spec`, this doesn't require a completed spec
+    // discovery: an interval is meaningful even for a tag we've yet to inspect.
+    let rows = sqlx::query!(
+        r#"
+        select
+            i.image as "image!: String",
+            ct.default_capture_interval as "default_capture_interval: crate::Interval"
+        from unnest($1::text[], $2::text[], $3::text[]) as i(image, image_name, image_tag)
+        join connectors c on c.image_name = i.image_name
+        join connector_tags ct on c.id = ct.connector_id and ct.image_tag = i.image_tag
+        "#,
+        &images as &[&str],
+        &image_names as &[String],
+        &image_tags as &[String],
+    )
+    .fetch_all(db)
+    .await
+    .context("fetching connector tags of drafted captures")?;
+
+    for row in rows {
+        live.connector_tags.insert(tables::ConnectorTag {
+            image: row.image,
+            default_capture_interval_seconds: row
+                .default_capture_interval
+                .and_then(|interval| u32::try_from(interval.num_seconds()).ok()),
         });
     }
     Ok(())
