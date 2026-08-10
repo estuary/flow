@@ -304,14 +304,19 @@ async fn walk_materialization<C: Connectors>(
     let mut interner = linked::Interner::default();
     let bindings_validate: Vec<materialize::request::validate::Binding> = bindings
         .iter()
-        .filter_map(|(_path, _model, _disable_task, validate)| validate.clone())
-        .map(|mut binding| {
-            let source = binding
-                .collection
-                .take()
-                .expect("active binding resolved its source collection");
-            binding.collection_index = interner.intern(source);
-            binding
+        .filter_map(|(_path, _model, _disable_task, validate)| validate.as_ref())
+        .map(|binding| materialize::request::validate::Binding {
+            resource_config_json: binding.resource_config_json.clone(),
+            collection: None,
+            field_config_json_map: binding.field_config_json_map.clone(),
+            backfill: binding.backfill,
+            group_by: binding.group_by.clone(),
+            collection_index: interner.intern_ref(
+                binding
+                    .collection
+                    .as_ref()
+                    .expect("active binding resolved its source collection"),
+            ),
         })
         .collect();
     let bindings_validate_len = bindings_validate.len();
@@ -335,7 +340,7 @@ async fn walk_materialization<C: Connectors>(
     _ = request_tx
         .send(
             materialize::Request {
-                validate: Some(validate_request.clone()),
+                validate: Some(validate_request),
                 ..Default::default()
             }
             .with_internal(|internal| {

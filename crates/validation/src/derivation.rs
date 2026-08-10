@@ -547,7 +547,7 @@ async fn walk_derivation<C: Connectors>(
     _ = request_tx
         .send(
             derive::Request {
-                validate: Some(validate_request.clone()),
+                validate: Some(validate_request),
                 ..Default::default()
             }
             .with_internal(|internal| {
