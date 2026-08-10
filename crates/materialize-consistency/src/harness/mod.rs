@@ -452,11 +452,8 @@ async fn execute(
     }
 
     if scenario.join_shards {
-        // Every child must commit *for itself* before the join, not merely two commits
-        // between them. The survivor keeps its recovery log through the join, and if it
-        // has not yet written a checkpoint of its own, that log still holds the
-        // parent's — whose clock predates the log's close, which recovery refuses. That
-        // is what wedged this scenario in a 33-restart loop.
+        // Every child must commit *for itself* before the join, not merely two commits between
+        // them; `commits_per_split_shard` is where that requirement is explained.
         //
         // Unmarked, and that is the correction rather than an oversight: this gate runs *after*
         // the split, and the only scenario that joins injects no fault, so the split is its
@@ -978,10 +975,8 @@ async fn restart_task(
 ///
 /// Two remedies, in order of cost. Unassigning a FAILED shard is enough for most faults:
 /// the allocator will not reschedule a shard it has given up on, and unassigning clears
-/// that. But some do not come back that way — a crash in either shard of a split task
-/// fails the whole task, and even a single-shard crash sometimes sat FAILED for the full
-/// deadline — so after a third of the budget this republishes the task, disabled then
-/// enabled, which tears the shards down and rebuilds them from the recovery log.
+/// that. After a third of the budget it escalates to [`restart_task`], which is where the
+/// reasoning for that heavier remedy lives.
 ///
 /// The escalation lives here rather than behind a per-scenario flag because it is not a
 /// property of the scenario: any crash can land a shard somewhere unassigning will not

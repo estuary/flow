@@ -269,11 +269,9 @@ impl Stack {
     /// A single listing with no waiting, used only as `drain`'s health signal — to tell
     /// a task that has genuinely gone quiet from one that has fallen over.
     ///
-    /// Nothing *waits* on shard status any more. A blocking version existed and was
-    /// removed: it failed both after a perturbation, by catching the crash the scenario
-    /// had just injected, and before one, because a task starts processing the moment it
-    /// is activated and could crash while the harness was still checking a sibling.
-    /// Progress — `await_commits` over the shim's trace — is the gate instead.
+    /// A single listing is all this is: nothing in the suite *waits* on shard status, and the
+    /// reasoning for that — why a blocking version was unsafe in either position — is stated once
+    /// at the top of `harness::execute`.
     pub async fn all_primary(&self, task: &str) -> anyhow::Result<bool> {
         use proto_gazette::consumer::replica_status::Code;
 
@@ -457,11 +455,10 @@ impl Stack {
 
     /// Run the suite's shard tooling, which drives `gazctl` rather than `flowctl`.
     ///
-    /// Unassigning a shard and joining a task's shards are local test affordances, not
-    /// things an operator or connector author needs from the CLI, so they are scripts in
-    /// this crate instead of `flowctl` subcommands. `gazctl` already implements both; the
-    /// only missing piece was pointing it at a Flow data plane, which
-    /// `flowctl raw gazctl-env` supplies.
+    /// `gazctl` already implements both operations; the only missing piece was pointing it at a
+    /// Flow data plane, which `flowctl raw gazctl-env` supplies. Why they are scripts rather than
+    /// new `flowctl` subcommands is a design decision, recorded under that heading in
+    /// `docs/materialize/consistency-testing.md`.
     async fn shard_tool(&self, args: &[&str]) -> anyhow::Result<String> {
         // Resolved from the crate's own source directory, not from the target directory:
         // a build may put artefacts far outside the checkout, but the scripts ship beside
