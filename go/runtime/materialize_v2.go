@@ -284,6 +284,7 @@ func (m *materializeAppV2) Destroy() {
 		m.client = nil
 	}
 	m.taskBase.drop()
+	m.taskBase.removeRecoveryDir()
 	m.taskBase.opsCancel()
 	_ = os.RemoveAll(m.shuffleDir)
 }

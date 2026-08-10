@@ -244,6 +244,7 @@ func (d *deriveApp) Destroy() {
 	if d.sqlite != nil {
 		d.sqlite.Destroy()
 	}
+	d.taskBase.removeRecoveryDir()
 	d.taskBase.opsCancel()
 }
 
