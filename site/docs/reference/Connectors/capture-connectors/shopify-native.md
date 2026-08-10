@@ -22,6 +22,7 @@ The following data resources are supported through the Shopify API:
    * Inventory Levels
 * [Locations](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/locations?example=Retrieve+a+list+of+locations)
    * Location Metafields
+* [Markets](https://shopify.dev/docs/api/admin-graphql/latest/queries/markets)
 * [Orders](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/orders?example=Retrieve+a+list+of+orders)
    * Order Agreements
    * Order Metafields
@@ -73,6 +74,7 @@ When authenticating with an access token or client credentials, ensure the follo
 * `read_locations`
 * `read_marketing_events`
 * `read_marketplace_fulfillment_orders`
+* `read_markets`
 * `read_merchant_managed_fulfillment_orders`
 * `read_orders`
   * If you want to read orders older than 60 days, extend the `read_orders` scope with `read_all_orders`
