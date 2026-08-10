@@ -203,6 +203,7 @@ func (c *captureAppV2) Destroy() {
 		c.client = nil
 	}
 	c.taskBase.drop()
+	c.taskBase.removeRecoveryDir()
 	c.taskBase.opsCancel()
 }
 

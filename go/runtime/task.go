@@ -10,6 +10,7 @@ import (
 	"hash/fnv"
 	"io"
 	"math"
+	"os"
 	"path"
 	"runtime/pprof"
 	"sync/atomic"
@@ -206,6 +207,21 @@ func (t *taskBase[TaskSpec]) ProxyHook() (*pr.Container, ops.Publisher) {
 
 func (t *taskBase[TaskSpec]) drop() {
 	t.svc.Drop()
+}
+
+// removeRecoveryDir reclaims the shard's recovery-log playback directory.
+// Call only after drop(): the Rust runtime holds RocksDB open until its task
+// service is dropped.
+func (t *taskBase[TaskSpec]) removeRecoveryDir() {
+	if t.recorder == nil {
+		return // Shards may run without a recovery log.
+	}
+	if err := os.RemoveAll(t.recorder.Dir()); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"dir": t.recorder.Dir(),
+			"err": err,
+		}).Error("failed to remove shard recovery directory")
+	}
 }
 
 func newTaskTerm[TaskSpec pf.Task](

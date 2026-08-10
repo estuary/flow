@@ -406,6 +406,7 @@ func (c *captureApp) Destroy() {
 		_ = c.client.CloseSend()
 	}
 	c.taskBase.drop()
+	c.taskBase.removeRecoveryDir()
 	c.taskBase.opsCancel()
 }
 
