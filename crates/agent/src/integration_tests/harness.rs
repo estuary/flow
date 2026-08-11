@@ -129,7 +129,7 @@ pub struct UserDiscoverResult {
 }
 
 impl UserDiscoverResult {
-    async fn load(discover_id: Id, db: &sqlx::PgPool) -> UserDiscoverResult {
+    pub async fn load(discover_id: Id, db: &sqlx::PgPool) -> UserDiscoverResult {
         let discover = sqlx::query!(
             r#"select
                 draft_id as "draft_id: Id",
@@ -165,6 +165,24 @@ async fn load_draft_errors(draft_id: Id, db: &sqlx::PgPool) -> Vec<(String, Stri
     .into_iter()
     .map(|de| (de.scope, de.detail))
     .collect::<Vec<(String, String)>>()
+}
+
+/// Owned counterpart of `TestHarness::refresh_snapshot_authoritative`, handed
+/// out by `TestHarness::snapshot_refresher` to `'static` test fixtures which
+/// cannot borrow the harness.
+#[derive(Clone)]
+pub struct SnapshotRefresher {
+    pool: sqlx::PgPool,
+    set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+}
+
+impl SnapshotRefresher {
+    /// See `TestHarness::refresh_snapshot_authoritative`.
+    pub async fn refresh_authoritative(&self) {
+        let taken = tokens::now() + TestHarness::snapshot_settle();
+        let snapshot = TestHarness::fetch_snapshot_at(&self.pool, taken).await;
+        (self.set_snapshot)(snapshot);
+    }
 }
 
 /// Facilitates writing integration tests.
@@ -637,6 +655,16 @@ impl TestHarness {
     pub async fn refresh_snapshot_at(&self, taken: tokens::DateTime) {
         let snapshot = Self::fetch_snapshot_at(&self.pool, taken).await;
         (self.set_snapshot)(snapshot);
+    }
+
+    /// An owned handle which performs `refresh_snapshot_authoritative`, for
+    /// injecting a refresh from within `'static` test fixtures — such as a
+    /// `DiscoverConnectors` impl — which cannot borrow the harness.
+    pub fn snapshot_refresher(&self) -> SnapshotRefresher {
+        SnapshotRefresher {
+            pool: self.pool.clone(),
+            set_snapshot: self.set_snapshot.clone(),
+        }
     }
 
     /// Refreshes with `taken` pushed far enough forward to be authoritative
@@ -1403,6 +1431,110 @@ impl TestHarness {
         );
 
         UserDiscoverResult::load(disco_id, &self.pool).await
+    }
+
+    /// Registers an additional data-plane beyond the `ops/dp/public/test` one
+    /// that `setup_test_connectors` creates. Tests use this when they need a
+    /// plane that *exists* but that a given user has no grant to read, which is
+    /// the only way to distinguish an authorization denial from a missing plane.
+    pub async fn add_data_plane(&self, data_plane_name: &str) {
+        sqlx::query!(
+            r##"insert into data_planes (
+                data_plane_name,
+                data_plane_fqdn,
+                ops_logs_name,
+                ops_stats_name,
+                ops_l1_inferred_name,
+                ops_l1_stats_name,
+                ops_l1_events_name,
+                ops_l2_inferred_transform,
+                ops_l2_stats_transform,
+                ops_l2_events_transform,
+                broker_address,
+                reactor_address,
+                hmac_keys,
+                enable_l2
+            ) values (
+                $1,
+                $2,
+                'ops/logs',
+                'ops/stats',
+                'ops/L1/inferred',
+                'ops/L1/stats',
+                'ops/L1/events',
+                'from-L1-inferred',
+                'from-L1-stats',
+                'from-L1-events',
+                'broker:address',
+                'reactor:address',
+                '{secret-key}',
+                false
+            );"##,
+            data_plane_name as &str,
+            format!("{}.dp.estuary-data.com", data_plane_name.replace('/', "-")) as String,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to insert data-plane");
+    }
+
+    /// Inserts a queued `discovers` row for a caller-chosen `data_plane_name`
+    /// and returns its id, without running it. Unlike `user_discover`, the
+    /// data-plane is a parameter so tests can drive authorization outcomes
+    /// (which are evaluated against `data_plane_name`).
+    pub async fn queue_discover(
+        &self,
+        image_name: &str,
+        image_tag: &str,
+        capture_name: &str,
+        draft_id: Id,
+        data_plane_name: &str,
+    ) -> Id {
+        let connector_tag = sqlx::query!(
+            r##"select ct.id as "id: Id"
+            from connectors c
+            join connector_tags ct on c.id = ct.connector_id
+            where c.image_name = $1 and ct.image_tag = $2;"##,
+            image_name,
+            image_tag
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("querying for connector_tags id");
+
+        let config_json = TextJson(models::RawValue::from_str("{}").unwrap());
+        let disco = sqlx::query!(
+            r##"insert into discovers (
+                capture_name,
+                connector_tag_id,
+                draft_id,
+                endpoint_config,
+                update_only,
+                data_plane_name
+            ) values ($1, $2, $3, $4, false, $5)
+            returning id as "id: Id";"##,
+            capture_name as &str,
+            connector_tag.id as Id,
+            draft_id as Id,
+            config_json as TextJson<models::RawValue>,
+            data_plane_name as &str,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        disco.id
+    }
+
+    pub async fn discover_job_status(&self, discover_id: Id) -> crate::discovers::JobStatus {
+        let row = sqlx::query!(
+            r#"select job_status as "job_status: TextJson<discovers::JobStatus>"
+            from discovers where id = $1;"#,
+            discover_id as Id,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("failed to query discover");
+        row.job_status.0
     }
 
     pub async fn fail_shard(&mut self, shard: &ShardRef) {
