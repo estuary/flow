@@ -295,12 +295,18 @@ export class Derivation extends Types.IDerivation {"#
     };
 
     let logs_token = uuid::Uuid::new_v4();
+    let snapshot = app.snapshot_watch.token();
     let publication = DraftPublication {
         user_id: *user_id,
         logs_token,
         draft,
         dry_run,
         detail: Some(format!("publication for updating L2 reporting")),
+        // A one-shot handler invocation, with no queued row to anchor on.
+        started_at: None,
+        snapshot: snapshot
+            .result()
+            .expect("authorization snapshot is not ready"),
         default_data_plane_name: if default_data_plane.trim().is_empty() {
             None
         } else {

@@ -1,6 +1,6 @@
 use anyhow::Context;
 use control_plane_api::{
-    connector_tags,
+    Snapshot, connector_tags,
     discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
     proxy_connectors::DiscoverConnectors,
@@ -100,6 +100,9 @@ fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
 
 pub struct DiscoverExecutor<C: DiscoverConnectors> {
     pub handler: DiscoverHandler<C>,
+    /// Authorization Snapshot watch. Each poll pins one Snapshot from this
+    /// watch, which serves every authorization decision of the discover.
+    pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
@@ -127,7 +130,13 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
         let draft_id = row.draft_id;
         assert_eq!(row.id, task_id);
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-        let (status, result) = self.process(row, pool).await?;
+
+        // Pin one Snapshot for this poll: every authorization decision of the
+        // discover observes the same view.
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+
+        let (status, result) = self.process(row, pool, snapshot).await?;
         tracing::info!(id=%task_id, %time_queued, ?status, "finished");
         inbox.clear();
         Ok(DiscoverOutcome {
@@ -145,6 +154,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         &self,
         row: Row,
         pool: &sqlx::PgPool,
+        snapshot: &Snapshot,
     ) -> anyhow::Result<(JobStatus, ProcessResult)> {
         tracing::info!(
             %row.capture_name,
@@ -216,6 +226,12 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             image_composed,
             data_plane,
             pool,
+            &snapshot,
+            // `None` anchors authorization staleness to each spec's own
+            // `last_pub_id`, preserving the pre-Snapshot semantics. A
+            // follow-up anchors this to the queued discover row and defers
+            // on staleness instead.
+            None,
         )
         .await;
 
@@ -263,7 +279,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 /// row, even if it differs from the endpoint on the drafted or live spec. All
 /// other specs in the given draft will be loaded as they are and used as the
 /// base for the merge after the discover completes.
-async fn prepare_discover(
+async fn prepare_discover<'a>(
     user_id: uuid::Uuid,
     draft_id: Id,
     capture_name: models::Capture,
@@ -272,8 +288,10 @@ async fn prepare_discover(
     logs_token: uuid::Uuid,
     image_composed: String,
     data_plane: tables::DataPlane,
-    pool: &sqlx::PgPool,
-) -> anyhow::Result<Discover> {
+    pool: &'a sqlx::PgPool,
+    snapshot: &'a Snapshot,
+    started_at: Option<tokens::DateTime>,
+) -> anyhow::Result<Discover<'a>> {
     let mut draft = draft::load_draft(draft_id, pool)
         .await
         .context("loading draft")?;
@@ -287,11 +305,18 @@ async fn prepare_discover(
     // embedded in its control-plane Id — is carried on the Discover request,
     // so that re-discovers resolve connector feature-flag defaults as the
     // running task does. It's empty for a task which doesn't exist yet.
-    // Filter to only specs that the user can read. If they can't admin, then
+    // Filter to only specs that the user can view. If they can't edit, then
     // wait until they try to publish to surface that error.
     let name = &[capture_name.to_string()];
-    let live =
-        live_specs::get_live_specs(user_id, name, Some(models::Capability::Read), pool).await?;
+    let live = live_specs::get_live_specs(
+        user_id,
+        name,
+        Some(models::authz::Capability::CatalogRead.into()),
+        pool,
+        &snapshot,
+        started_at,
+    )
+    .await?;
     let live_capture = live.captures.into_iter().next();
     let created_at = live_capture
         .as_ref()
@@ -362,6 +387,8 @@ async fn prepare_discover(
         reset_on_key_change,
         logs_token,
         created_at,
+        snapshot,
+        started_at,
     })
 }
 
@@ -442,7 +469,10 @@ mod test {
             dekaf_address: None,
             dekaf_registry_address: None,
         };
-
+        harness.refresh_snapshot().await;
+        let snapshot = harness.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+        let started_at = tokens::now();
         let result = super::prepare_discover(
             user_id,
             draft_id,
@@ -453,6 +483,8 @@ mod test {
             image_composed.clone(),
             data_plane.clone(),
             &harness.pool,
+            &snapshot,
+            Some(started_at),
         )
         .await
         .unwrap();

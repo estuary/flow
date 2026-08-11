@@ -1,16 +1,20 @@
 use anyhow::Context;
 use itertools::Itertools;
-use models::Capability;
 use std::future::Future;
 use uuid::Uuid;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
+///
+/// `snapshot` is the publication's pinned authorization view; it must be the
+/// same Snapshot the subsequent build uses, so that expansion and resolution
+/// cannot disagree about one publication.
 pub trait Initialize: Send + Sync {
     fn initialize(
         &self,
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
@@ -22,6 +26,7 @@ impl Initialize for NoopInitialize {
         _db: &sqlx::PgPool,
         _user_id: Uuid,
         _draft: &mut tables::DraftCatalog,
+        _snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -37,20 +42,22 @@ where
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
-        self.0.initialize(db, user_id, draft).await?;
-        self.1.initialize(db, user_id, draft).await?;
+        self.0.initialize(db, user_id, draft, snapshot).await?;
+        self.1.initialize(db, user_id, draft, snapshot).await?;
         Ok(())
     }
 }
 
 /// An `Initialize` that expands the draft to touch live specs that read from or write to
 /// any drafted collections. This may optionally filter the specs based on whether the user
-/// has `admin` capability to them.
+/// is authorized to edit them.
 pub struct ExpandDraft {
-    /// Whether to filter specs based on the user's capability. If true, then only specs for which
-    /// the user has `admin` capability will be added to the draft.
-    pub filter_user_has_admin: bool,
+    /// Whether to filter specs based on the user's capability. If true, then only specs for
+    /// which the user holds `SpecEdit` will be added to the draft — matching the capability
+    /// which publication requires of every drafted spec.
+    pub filter_user_authz: bool,
 }
 
 impl Initialize for ExpandDraft {
@@ -58,13 +65,14 @@ impl Initialize for ExpandDraft {
         level = "debug",
         skip_all,
         err,
-        fields(filter_user_has_admin = self.filter_user_has_admin)
+        fields(filter_user_authz = self.filter_user_authz)
     )]
     async fn initialize(
         &self,
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
         // the published collections. We do this so that validation can catch any inconsistencies
@@ -76,17 +84,16 @@ impl Initialize for ExpandDraft {
             .collect::<Vec<_>>();
         let all_drafted_specs = draft.all_spec_names().collect::<Vec<_>>();
 
-        let capability_filter = if self.filter_user_has_admin {
-            Some(Capability::Admin)
-        } else {
-            None
-        };
+        let capability_filter = self
+            .filter_user_authz
+            .then_some(models::authz::Capability::SpecEdit.into());
         let expanded_catalog = crate::live_specs::get_connected_live_specs(
             user_id,
             &drafted_collections,
             &all_drafted_specs,
             capability_filter,
             db,
+            snapshot,
         )
         .await?;
         tracing::debug!(
@@ -116,6 +123,7 @@ impl Initialize for RuntimeV2Rollout {
         db: &sqlx::PgPool,
         _user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        _snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         let flag = models::Token::new(models::ENABLE_RUNTIME_V2);
 

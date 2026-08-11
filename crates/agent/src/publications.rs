@@ -1,4 +1,5 @@
 use anyhow::Context;
+use control_plane_api::Snapshot;
 use control_plane_api::publications::{Row, fetch_publication};
 use models::draft_error;
 use tracing::info;
@@ -15,6 +16,9 @@ use control_plane_api::{
 pub struct PublicationsExecutor {
     pub publisher: Publisher,
     pub pg_pool: sqlx::PgPool,
+    /// Authorization Snapshot watch. Each poll pins one Snapshot from this
+    /// watch, which serves every authorization decision of the publication.
+    pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<Snapshot>>,
     /// When true, newly-created captures are published onto runtime v2; see [`RuntimeV2Rollout`].
     pub runtime_v2_new_captures: bool,
     /// When true, newly-created materializations are published onto runtime v2; see [`RuntimeV2Rollout`].
@@ -93,12 +97,17 @@ impl PublicationsExecutor {
             }
         }
 
+        // Pin one Snapshot for this poll: every authorization decision of the
+        // publication observes the same view.
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+
         let dry_run = row.dry_run;
         let draft_id = row.draft_id;
 
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
 
-        let (status, draft_errors, final_pub_id) = match self.process(row).await {
+        let (status, draft_errors, final_pub_id) = match self.process(row, snapshot).await {
             Ok(result) => {
                 if dry_run {
                     specs::add_built_specs_to_draft_specs(draft_id, &result.built, &self.pg_pool)
@@ -155,7 +164,7 @@ impl PublicationsExecutor {
         %row.dry_run,
         %row.user_id,
     ))]
-    async fn process(&self, row: Row) -> anyhow::Result<PublicationResult> {
+    async fn process(&self, row: Row, snapshot: &Snapshot) -> anyhow::Result<PublicationResult> {
         info!(
             %row.logs_token,
             %row.created_at,
@@ -192,6 +201,13 @@ impl PublicationsExecutor {
             dry_run: row.dry_run,
             detail: row.detail.clone(),
             draft,
+            // `None` anchors authorization staleness to each spec's own
+            // `last_pub_id`, preserving the pre-Snapshot semantics where a
+            // denial is always evaluated against current-enough state. A
+            // follow-up anchors this to the queued publication row and defers
+            // on staleness instead.
+            started_at: None,
+            snapshot,
             verify_user_authz: true,
             default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
             initialize: (
@@ -201,7 +217,7 @@ impl PublicationsExecutor {
                     new_derivations: self.runtime_v2_new_derivations,
                 },
                 ExpandDraft {
-                    filter_user_has_admin: true,
+                    filter_user_authz: true,
                 },
             ),
             finalize: PruneUnboundCollections,

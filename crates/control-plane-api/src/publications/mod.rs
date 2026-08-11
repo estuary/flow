@@ -1,11 +1,11 @@
-use std::u32;
-
 use super::logs;
+use crate::Snapshot;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use rand::Rng;
 use sqlx::Executor;
 use sqlx::types::Uuid;
+use std::u32;
 use tables::BuiltRow;
 
 pub mod builds;
@@ -29,7 +29,13 @@ use models::draft_error;
 
 /// Represents a desire to publish the given `draft`, along with associated metadata and behavior
 /// for handling draft initialization, build finalizing, and retrying failures.
-pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit> {
+pub struct DraftPublication<
+    's,
+    Init: Initialize,
+    Fin: FinalizeBuild,
+    Ret: RetryPolicy,
+    C: WithCommit,
+> {
     /// The id of the user that is publishing the draft.
     pub user_id: Uuid,
     /// Write logs to `internal.log_lines` using this token.
@@ -42,8 +48,25 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
     pub draft: tables::DraftCatalog,
     /// Detail message to associate with this publication.
     pub detail: Option<String>,
-    /// Whether to check user permissions when publishing specs. If this is false, then all
-    /// permission checks will be skipped, and the publication may modify any specs.
+    /// The instant this publication was queued, which decides whether an
+    /// authorization denial is terminal or merely not-yet-observed by the
+    /// snapshot: a denial counts only once the snapshot was taken after it.
+    ///
+    /// This is distinct from `UncommittedBuild::started_at`, which is stamped
+    /// per build attempt. It must be durable across attempts for the retry to
+    /// converge, so it comes from the queued `publications` row (`updated_at`).
+    /// `None` means "no durable instant" — see [`specs::resolve_live_specs`].
+    pub started_at: Option<tokens::DateTime>,
+    /// The authorization Snapshot to evaluate this publication against. One
+    /// pinned Snapshot serves every phase and internal retry of this
+    /// publication; its freshness relative to `started_at` decides whether a
+    /// denial is terminal or retryable (see [`specs::resolve_live_specs`]).
+    pub snapshot: &'s Snapshot,
+    /// Whether to verify that `user_id` is authorized to the drafted and
+    /// referenced catalog names, and to the selected data plane. Set `false`
+    /// by system-initiated publications (controllers, data-plane creation)
+    /// which are pre-authorized and may touch any spec. Spec-to-spec
+    /// `RoleGrant` checks are enforced regardless of this setting.
     pub verify_user_authz: bool,
     /// Default data plane to use for publishing new specs. This is optional only when the
     /// publication _only_ updates and/or deletes existing live specs.
@@ -141,7 +164,7 @@ impl PublicationResult {
 }
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Publisher {
     flowctl_go: std::path::PathBuf,
     builds_root: url::Url,
@@ -270,16 +293,28 @@ impl Publisher {
     ))]
     pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
         &self,
-        publication: DraftPublication<Ini, Fin, Ret, C>,
+        publication: DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut retry_count = 0u32;
         loop {
             // Generate a new id on each attempt, so that we can retry `PublicationSuperseded`
             // errors with a greater id.
             let publication_id = self.next_id();
-            let result = self
+            let result = match self
                 .try_publish(publication_id, retry_count, &publication)
-                .await?;
+                .await
+            {
+                Ok(result) => result,
+                Err(err) if validation::is_authz_snapshot_stale(&err) => {
+                    // The draft was denied by a Snapshot older than the denial
+                    // freshness anchor, so the required grant may not be reflected
+                    // yet. Request an early refresh and return the retryable error;
+                    // task-based callers reschedule it against a newer Snapshot.
+                    publication.snapshot.revoke.cancel();
+                    return Err(err);
+                }
+                Err(err) => return Err(err),
+            };
 
             if result.status.is_success() || result.status.is_empty_draft() {
                 return Ok(result);
@@ -303,16 +338,19 @@ impl Publisher {
             draft: raw_draft,
             verify_user_authz,
             detail,
+            started_at,
+            snapshot,
             default_data_plane_name,
             initialize,
             finalize,
             retry: _,
             with_commit,
-        }: &DraftPublication<Ini, Fin, Ret, C>,
+        }: &DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
+        let snapshot = *snapshot;
         initialize
-            .initialize(&self.db, *user_id, &mut draft)
+            .initialize(&self.db, *user_id, &mut draft, snapshot)
             .await
             .context("initializing draft")?;
         // It's important that we generate the pub id inside the retry loop so that we can
@@ -327,6 +365,8 @@ impl Publisher {
                 default_data_plane_name.as_deref(),
                 *verify_user_authz,
                 retry_count,
+                snapshot,
+                *started_at,
             )
             .await?;
         finalize.finalize(&mut built).context("finalizing build")?;
@@ -350,7 +390,7 @@ impl Publisher {
 
     /// Build and verify the given draft. This is `pub` only because we have existing tests that
     /// use it. If you want to publish something, use the `Publisher::publish` function instead.
-    #[tracing::instrument(level = "info", skip(self, draft))]
+    #[tracing::instrument(level = "info", skip(self, draft, snapshot))]
     pub async fn build(
         &self,
         user_id: Uuid,
@@ -361,6 +401,8 @@ impl Publisher {
         explicit_plane_name: Option<&str>,
         verify_user_authz: bool,
         retry_count: u32,
+        snapshot: &crate::Snapshot,
+        started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = tokens::now();
         let build_id = self.id_gen.lock().unwrap().next();
@@ -406,6 +448,8 @@ impl Publisher {
             &self.db,
             verify_user_authz,
             explicit_plane_name,
+            snapshot,
+            started_at,
         )
         .await?;
 

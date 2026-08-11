@@ -727,12 +727,35 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
+/// Builds the retryable `AuthorizationSnapshotStale` error returned when an
+/// authorization denial was evaluated against a snapshot that isn't yet
+/// authoritative for the operation being denied.
+/// Resolves the live specs which a draft drafts or references, authorizing each
+/// against `snapshot`.
+///
+/// `started` is the instant the publication was queued, and decides whether an
+/// authorization denial is terminal or merely not-yet-observed: a denial is
+/// authoritative only once `snapshot` was taken after it. It must therefore be
+/// durable across retries — a value re-stamped per attempt (`now()`) can never
+/// be overtaken by a snapshot, so denials would retry forever.
+///
+/// `None` is for callers with no such durable instant: controllers and ad-hoc
+/// system publications, which construct a fresh publication per attempt and
+/// carry their own retry/backoff. They fall back to anchoring on each denied
+/// spec's own last publication, which bounds the window in which grants could
+/// have been committed alongside the spec. Named data planes have no equivalent
+/// fallback timestamp, so their denials remain terminal omissions.
+///
+/// `verify_user_authz` skips only user-to-catalog authorization. Specification
+/// `RoleGrant` checks remain mandatory.
 pub async fn resolve_live_specs(
-    user_id: Uuid,
+    user_id: uuid::Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
+    snapshot: &crate::Snapshot,
+    started: Option<tokens::DateTime>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -759,15 +782,9 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows = crate::live_specs::fetch_live_specs(
-        user_id,
-        &all_spec_names,
-        verify_user_authz,
-        true, // always fetch spec capabilities
-        db,
-    )
-    .await
-    .context("fetching live specs")?;
+    let rows = crate::live_specs::fetch_live_specs(&all_spec_names, db)
+        .await
+        .context("fetching live specs")?;
 
     // Check the user and spec authorizations.
     // Start by making an easy way to lookup whether each row was drafted or not.
@@ -782,14 +799,28 @@ pub async fn resolve_live_specs(
         let catalog_name = spec_row.catalog_name.as_str();
         let n_errors = live.errors.len();
 
+        // Use the queued publication time when available; callers without one
+        // fall back to the last publication time of the spec.
+        let freshness_anchor = Some(started.unwrap_or_else(|| spec_row.last_pub_id.timestamp()));
+
         if drafted_names.contains(catalog_name) {
             // Get the metadata about the draft spec that matches this catalog name.
             // This must exist in `draft`, otherwise `spec_meta` will panic.
             let (catalog_type, reads_from, writes_to) = spec_meta(draft, catalog_name);
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
-            // If the spec is included in the draft, then the user must have admin capability to it.
-            if verify_user_authz && !matches!(spec_row.user_capability, Some(Capability::Admin)) {
+            // If the spec is included in the draft, then the user must be
+            // authorized to edit it.
+            if verify_user_authz
+                && !snapshot
+                    .user_authorization(
+                        user_id,
+                        &spec_row.catalog_name,
+                        models::authz::Capability::SpecEdit,
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
+            {
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -800,30 +831,44 @@ pub async fn resolve_live_specs(
                 // of referenced collections.
                 continue;
             }
-            // Spec authz must always be checked, even if we're not checking user authz
+            // Spec authz must always be checked, even if we're not checking user authz.
+            // These spec-to-spec checks stay on legacy capabilities: they must agree
+            // with the runtime's task authorization, which enforces the same legacy
+            // roles when the task actually reads or writes collection journals.
             for source in reads_from {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read
-                }) {
+                if !snapshot
+                    .role_authorization(
+                        &spec_row.catalog_name,
+                        &source,
+                        Capability::Read,
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
+                {
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            serde_json::to_string_pretty(&snapshot.spec_capabilities(&spec_row.catalog_name)).unwrap(),
                         ),
                     });
                 }
             }
             for target in writes_to {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    target.starts_with(c.object_role.as_str())
-                        && matches!(c.capability, Capability::Write | Capability::Admin)
-                }) {
+                if !snapshot
+                    .role_authorization(
+                        &spec_row.catalog_name,
+                        &target,
+                        Capability::Write,
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
+                {
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            serde_json::to_string_pretty(&snapshot.spec_capabilities(&spec_row.catalog_name)).unwrap(),
                         ),
                     });
                 }
@@ -832,15 +877,19 @@ pub async fn resolve_live_specs(
         // access capability to them as long as they are not drafted.
         } else if !ops_collection_names.contains(&spec_row.catalog_name) {
             // This is a live spec that is not included in the draft.
-            // The user needs read capability to it because it was referenced by one of the specs
-            // in their draft. Note that the _user_ does not need `Capability::Write` as long as
+            // The user needs `CatalogRead` to it because it was referenced by one of the specs
+            // in their draft. Note that the _user_ does not need any write capability as long as
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !spec_row
-                    .user_capability
-                    .map(|c| c >= Capability::Read)
-                    .unwrap_or(false)
+                && !snapshot
+                    .user_authorization(
+                        user_id,
+                        &spec_row.catalog_name,
+                        models::authz::Capability::CatalogRead,
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
             {
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
@@ -911,7 +960,7 @@ pub async fn resolve_live_specs(
 
     // Fetch data planes that are referenced by live specs (`data_plane_ids`),
     // or by storage mappings (`data_plane_names`), or by `explicit_plane_name`.
-    let data_plane_names: Vec<&str> = live
+    let candidate_data_plane_names: Vec<&str> = live
         .storage_mappings
         .iter()
         .flat_map(|m| m.data_planes.iter().map(String::as_str))
@@ -920,6 +969,21 @@ pub async fn resolve_live_specs(
         .dedup()
         .collect();
 
+    let mut data_plane_names = Vec::with_capacity(candidate_data_plane_names.len());
+    for name in candidate_data_plane_names {
+        // Legacy `read` is what conveys deploy-level trust in a data plane;
+        // no narrow capability bit expresses that trust yet.
+        if !verify_user_authz
+            || snapshot
+                .user_authorization(user_id, name, models::Capability::Read, started)
+                .ok_or_stale(name)?
+        {
+            data_plane_names.push(name);
+        }
+    }
+
+    // IDs preserve the assignments of live specs already accepted above. They
+    // are not user-selected plane names and intentionally bypass this user check.
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
@@ -932,14 +996,10 @@ pub async fn resolve_live_specs(
             FROM UNNEST($1::flowid[]) AS t(id)
         ),
         data_plane_names AS (
+            -- Names have already passed the caller's user-authorization policy,
+            -- so no in-SQL authorization check is needed here.
             SELECT name
             FROM UNNEST($2::text[]) AS t(name)
-            -- User must be read-authorized to data-plane.
-            WHERE EXISTS (
-                SELECT 1
-                FROM internal.user_roles($3, 'read') AS r
-                WHERE starts_with(t.name, r.role_prefix)
-            )
         )
         SELECT
             d.id AS "control_id: Id",
@@ -961,7 +1021,6 @@ pub async fn resolve_live_specs(
         "#,
         &data_plane_ids as &[Id],
         &data_plane_names as &[&str],
-        user_id as Uuid,
     )
     .fetch_all(db)
     .await?
@@ -1149,5 +1208,369 @@ mod test {
                 panic!("expected success for example: {example}, but got error: {error:?}");
             }
         }
+    }
+}
+
+/// `resolve_live_specs` makes four independent authorization decisions per row —
+/// the drafter must hold `SpecEdit` to a drafted spec; a drafted spec must itself
+/// be read-authorized to each source and write-authorized to each target; and the
+/// user must hold `CatalogRead` to any *referenced* spec. Named data planes add
+/// another user-authorization decision. Each denial is evaluated against a `Snapshot`
+/// and short-circuits with retryable `AuthorizationSnapshotStale` when that
+/// Snapshot is not authoritative for the operation.
+///
+/// These tests pin both halves of every branch: what a stale Snapshot returns,
+/// and the (unchanged) error text an authoritative one reports.
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    // From `fixtures/authz_specs.sql`.
+    const CAROL: uuid::Uuid = uuid::uuid!("33333333-3333-3333-3333-333333333333");
+    const DAN: uuid::Uuid = uuid::uuid!("44444444-4444-4444-4444-444444444444");
+    const COLLECTION: &str = "carolCo/data/foo";
+    const CAPTURE: &str = "carolCo/in/capture-foo";
+    const MATERIALIZATION: &str = "carolCo/out/materialize-bar";
+    const PLANE: &str = "ops/dp/public/aws-us-west-2-c1";
+
+    fn draft_of(catalog_json: serde_json::Value) -> tables::DraftCatalog {
+        let catalog: models::Catalog =
+            serde_json::from_value(catalog_json).expect("failed to parse catalog");
+        tables::DraftCatalog::from(catalog)
+    }
+
+    /// A materialization drafted under `carolCo/out/`, which holds no grants and
+    /// so is not read-authorized to `sources`.
+    fn materialization_draft(sources: &[&str]) -> tables::DraftCatalog {
+        draft_of(serde_json::json!({
+            "materializations": {
+                MATERIALIZATION: {
+                    "endpoint": { "connector": { "image": "materialize/test:test", "config": {} } },
+                    "bindings": sources.iter().map(|source| serde_json::json!({
+                        "resource": { "table": "t" },
+                        "source": source,
+                    })).collect::<Vec<_>>(),
+                }
+            }
+        }))
+    }
+
+    /// A capture drafted under `carolCo/in/`, which may write to `carolCo/data/`
+    /// but nowhere else.
+    fn capture_draft(targets: &[&str]) -> tables::DraftCatalog {
+        draft_of(serde_json::json!({
+            "captures": {
+                CAPTURE: {
+                    "endpoint": { "connector": { "image": "source/test:test", "config": {} } },
+                    "bindings": targets.iter().map(|target| serde_json::json!({
+                        "resource": { "id": "r" },
+                        "target": target,
+                    })).collect::<Vec<_>>(),
+                }
+            }
+        }))
+    }
+
+    /// Staleness compares the Snapshot's `taken` against the timestamp embedded
+    /// in a spec's `last_pub_id`, so read that back rather than recomputing it —
+    /// `flowid` is `macaddr8`, which silently widens short literals.
+    async fn published_at(pool: &sqlx::PgPool) -> tokens::DateTime {
+        sqlx::query_scalar!(
+            r#"select last_pub_id as "last_pub_id: models::Id"
+            from live_specs where catalog_name = $1"#,
+            COLLECTION,
+        )
+        .fetch_one(pool)
+        .await
+        .expect("fixture collection should exist")
+        .timestamp()
+    }
+
+    async fn snapshot_offset(pool: &sqlx::PgPool, offset: chrono::TimeDelta) -> crate::Snapshot {
+        let mut decrypted_hmac_keys = std::collections::HashMap::new();
+        let data = crate::snapshot::try_fetch(pool, &mut decrypted_hmac_keys)
+            .await
+            .expect("failed to fetch snapshot");
+        crate::Snapshot::new(published_at(pool).await + offset, data)
+    }
+
+    /// Taken clear of the publication plus `TEMPORAL_SKEW`: denials are definitive.
+    async fn authoritative(pool: &sqlx::PgPool) -> crate::Snapshot {
+        snapshot_offset(pool, crate::Snapshot::TEMPORAL_SKEW * 4).await
+    }
+
+    /// Taken before the publication it would judge: denials are retryable.
+    async fn stale(pool: &sqlx::PgPool) -> crate::Snapshot {
+        snapshot_offset(pool, -crate::Snapshot::TEMPORAL_SKEW * 4).await
+    }
+
+    /// Renders `live.errors` as `(scope, message)` pairs for snapshot assertions.
+    fn error_pairs(live: &tables::LiveCatalog) -> Vec<(String, String)> {
+        live.errors
+            .iter()
+            .map(|e| (e.scope.to_string(), format!("{:#}", e.error)))
+            .collect()
+    }
+
+    fn assert_stale_for(err: anyhow::Error, catalog_name: &str) {
+        assert!(
+            validation::is_authz_snapshot_stale(&err),
+            "expected a retryable stale-snapshot error, got: {err:#}"
+        );
+        assert!(
+            err.to_string().contains(catalog_name),
+            "stale error should name the offending spec, got: {err:#}"
+        );
+    }
+
+    /// Branch 1: a user drafting an existing spec must hold `SpecEdit` to it.
+    /// Dan does not, but the denial is only definitive once the Snapshot
+    /// outlives the spec.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_drafted_spec_requires_spec_edit(pool: sqlx::PgPool) {
+        let draft = draft_of(serde_json::json!({
+            "collections": {
+                COLLECTION: {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+
+        let err = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await, None)
+            .await
+            .expect_err("a denial against a stale Snapshot should be retryable");
+        assert_stale_for(err, COLLECTION);
+
+        let live = resolve_live_specs(
+            DAN,
+            &draft,
+            &pool,
+            true,
+            None,
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is reported, not raised");
+        insta::assert_debug_snapshot!(error_pairs(&live), @r#"
+        [
+            (
+                "flow://collection/carolCo/data/foo",
+                "User is not authorized to create or change this catalog name",
+            ),
+        ]
+        "#);
+    }
+
+    /// Branch 2: a drafted spec must itself be read-authorized to each source.
+    /// Carol admins the whole tenant, so the user check passes and only the
+    /// *spec's* own role grants are at issue.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_drafted_spec_reads_from_authz(pool: sqlx::PgPool) {
+        let draft = materialization_draft(&[COLLECTION]);
+
+        let err = resolve_live_specs(CAROL, &draft, &pool, true, None, &stale(&pool).await, None)
+            .await
+            .expect_err("a denial against a stale Snapshot should be retryable");
+        assert_stale_for(err, MATERIALIZATION);
+
+        let live = resolve_live_specs(
+            CAROL,
+            &draft,
+            &pool,
+            true,
+            None,
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is reported, not raised");
+        // The rendered grant list comes from `Snapshot::spec_capabilities`, which
+        // replaced a SQL-computed column; pin it so the two can't drift.
+        insta::assert_debug_snapshot!(error_pairs(&live), @r#"
+        [
+            (
+                "flow://materialization/carolCo/out/materialize-bar",
+                "Specification 'carolCo/out/materialize-bar' is not read-authorized to 'carolCo/data/foo'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"carolCo/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+            ),
+        ]
+        "#);
+    }
+
+    /// Branch 3: a drafted spec must be write-authorized to each target.
+    /// `carolCo/in/` may write to `carolCo/data/` but nowhere else.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_drafted_spec_writes_to_authz(pool: sqlx::PgPool) {
+        let draft = capture_draft(&["carolCo/elsewhere/thing"]);
+
+        let err = resolve_live_specs(CAROL, &draft, &pool, true, None, &stale(&pool).await, None)
+            .await
+            .expect_err("a denial against a stale Snapshot should be retryable");
+        assert_stale_for(err, CAPTURE);
+
+        let live = resolve_live_specs(
+            CAROL,
+            &draft,
+            &pool,
+            true,
+            None,
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is reported, not raised");
+        insta::assert_debug_snapshot!(error_pairs(&live), @r#"
+        [
+            (
+                "flow://capture/carolCo/in/capture-foo",
+                "Specification is not write-authorized to 'carolCo/elsewhere/thing'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"carolCo/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"carolCo/in/\",\n    \"object_role\": \"carolCo/data/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  }\n]",
+            ),
+        ]
+        "#);
+    }
+
+    /// The write-authorized target resolves cleanly, confirming the branch above
+    /// fails for the reason claimed rather than incidentally.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_authorized_draft_resolves_without_errors(pool: sqlx::PgPool) {
+        let draft = capture_draft(&[COLLECTION]);
+
+        for snapshot in [stale(&pool).await, authoritative(&pool).await] {
+            let live = resolve_live_specs(CAROL, &draft, &pool, true, Some(PLANE), &snapshot, None)
+                .await
+                .expect("an authorized draft resolves");
+
+            assert!(
+                live.errors.is_empty(),
+                "unexpected errors: {:?}",
+                error_pairs(&live)
+            );
+            assert_eq!(1, live.captures.len());
+            assert_eq!(1, live.collections.len());
+            assert_eq!(
+                vec![PLANE],
+                live.data_planes
+                    .iter()
+                    .map(|d| d.data_plane_name.as_str())
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    /// Branch 4: a *referenced* (non-drafted) spec only requires `CatalogRead`.
+    /// Dan admins `danCo/`, so his own drafted spec passes, and the denial lands
+    /// on `carolCo/data/foo` — which, being an existing spec, can be stale.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_referenced_spec_requires_catalog_read(pool: sqlx::PgPool) {
+        let draft = draft_of(serde_json::json!({
+            "materializations": {
+                "danCo/materialize-x": {
+                    "endpoint": { "connector": { "image": "materialize/test:test", "config": {} } },
+                    "bindings": [ { "resource": { "table": "t" }, "source": COLLECTION } ],
+                }
+            }
+        }));
+
+        let err = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await, None)
+            .await
+            .expect_err("a denial against a stale Snapshot should be retryable");
+        assert_stale_for(err, COLLECTION);
+
+        let live = resolve_live_specs(
+            DAN,
+            &draft,
+            &pool,
+            true,
+            None,
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is reported, not raised");
+        insta::assert_debug_snapshot!(error_pairs(&live), @r#"
+        [
+            (
+                "flow://unauthorized/carolCo/data/foo",
+                "User is not authorized to read this catalog name",
+            ),
+            (
+                "flow://materialization/danCo/materialize-x",
+                "Specification 'danCo/materialize-x' is not read-authorized to 'carolCo/data/foo'.\nAvailable grants are: []",
+            ),
+        ]
+        "#);
+    }
+
+    /// Without a durable request timestamp (`started: None`), a brand-new spec
+    /// falls back to its zero `last_pub_id` as the freshness anchor, so its
+    /// denial is terminal against any Snapshot — this keeps such a first
+    /// publication from looping instead of reporting its error. This holds
+    /// only for the `None` fallback: a queued publication supplies `started`,
+    /// which replaces the anchor and can make the same denial retryable.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_new_spec_denial_without_started_is_terminal(pool: sqlx::PgPool) {
+        let draft = draft_of(serde_json::json!({
+            "collections": {
+                "carolCo/data/brand-new": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+
+        let live = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await, None)
+            .await
+            .expect("without a request anchor, a spec with no publication history cannot be stale");
+        insta::assert_debug_snapshot!(error_pairs(&live), @r#"
+        [
+            (
+                "flow://collection/carolCo/data/brand-new",
+                "User is not authorized to create or change this catalog name",
+            ),
+        ]
+        "#);
+    }
+
+    /// Spec-level (`reads_from` / `writes_to`) checks remain active when user
+    /// authorization is skipped. This test pins that stale denials from those
+    /// checks still propagate as retryable errors.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_spec_authz_staleness_applies_without_user_authz(pool: sqlx::PgPool) {
+        let draft = capture_draft(&["carolCo/elsewhere/thing"]);
+
+        let err = resolve_live_specs(
+            uuid::Uuid::nil(),
+            &draft,
+            &pool,
+            false, // verify_user_authz
+            None,
+            &stale(&pool).await,
+            None,
+        )
+        .await
+        .expect_err("spec authorization is checked regardless of verify_user_authz");
+        assert_stale_for(err, CAPTURE);
     }
 }
