@@ -809,13 +809,14 @@ pub async fn resolve_live_specs(
             let (catalog_type, reads_from, writes_to) = spec_meta(draft, catalog_name);
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
-            // If the spec is included in the draft, then the user must have admin capability to it.
+            // If the spec is included in the draft, then the user must be
+            // authorized to edit it.
             if verify_user_authz
                 && !snapshot
                     .user_authorization(
                         user_id,
                         &spec_row.catalog_name,
-                        models::Capability::Admin,
+                        models::authz::Capability::SpecEdit,
                         freshness_anchor,
                     )
                     .ok_or_stale(catalog_name)?
@@ -830,7 +831,10 @@ pub async fn resolve_live_specs(
                 // of referenced collections.
                 continue;
             }
-            // Spec authz must always be checked, even if we're not checking user authz
+            // Spec authz must always be checked, even if we're not checking user authz.
+            // These spec-to-spec checks stay on legacy capabilities: they must agree
+            // with the runtime's task authorization, which enforces the same legacy
+            // roles when the task actually reads or writes collection journals.
             for source in reads_from {
                 if !snapshot
                     .role_authorization(
@@ -873,8 +877,8 @@ pub async fn resolve_live_specs(
         // access capability to them as long as they are not drafted.
         } else if !ops_collection_names.contains(&spec_row.catalog_name) {
             // This is a live spec that is not included in the draft.
-            // The user needs read capability to it because it was referenced by one of the specs
-            // in their draft. Note that the _user_ does not need `Capability::Write` as long as
+            // The user needs `CatalogRead` to it because it was referenced by one of the specs
+            // in their draft. Note that the _user_ does not need any write capability as long as
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
@@ -882,7 +886,7 @@ pub async fn resolve_live_specs(
                     .user_authorization(
                         user_id,
                         &spec_row.catalog_name,
-                        Capability::Read,
+                        models::authz::Capability::CatalogRead,
                         freshness_anchor,
                     )
                     .ok_or_stale(catalog_name)?
@@ -967,6 +971,8 @@ pub async fn resolve_live_specs(
 
     let mut data_plane_names = Vec::with_capacity(candidate_data_plane_names.len());
     for name in candidate_data_plane_names {
+        // Legacy `read` is what conveys deploy-level trust in a data plane;
+        // no narrow capability bit expresses that trust yet.
         if !verify_user_authz
             || snapshot
                 .user_authorization(user_id, name, models::Capability::Read, started)

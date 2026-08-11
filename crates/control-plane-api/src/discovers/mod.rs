@@ -329,7 +329,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         let live = crate::live_specs::get_live_specs(
             user_id,
             &collection_names,
-            filter_user_authz.then_some(models::Capability::Read),
+            filter_user_authz.then_some(models::authz::Capability::CatalogRead.into()),
             db,
             snapshot,
             started_at,

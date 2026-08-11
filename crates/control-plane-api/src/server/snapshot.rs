@@ -243,7 +243,7 @@ impl Snapshot {
         &self,
         user_id: uuid::Uuid,
         name: &str,
-        capability: models::Capability,
+        capability: impl Into<models::authz::CapabilitySet>,
         anchor: Option<tokens::DateTime>,
     ) -> Authorization {
         self.resolve_authorization(
@@ -265,7 +265,7 @@ impl Snapshot {
         &self,
         subject: &str,
         object: &str,
-        capability: models::Capability,
+        capability: impl Into<models::authz::CapabilitySet>,
         anchor: Option<tokens::DateTime>,
     ) -> Authorization {
         self.resolve_authorization(

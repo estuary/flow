@@ -785,7 +785,7 @@ async fn test_publication_uses_one_snapshot_across_phases() {
         default_data_plane_name: Some("ops/dp/public/test".to_string()),
         initialize: (
             publications::ExpandDraft {
-                filter_user_has_admin: true,
+                filter_user_authz: true,
             },
             RevokeMidPublication {
                 harness: &harness,
@@ -830,7 +830,7 @@ async fn test_publication_uses_one_snapshot_across_phases() {
         verify_user_authz: true,
         default_data_plane_name: Some("ops/dp/public/test".to_string()),
         initialize: publications::ExpandDraft {
-            filter_user_has_admin: true,
+            filter_user_authz: true,
         },
         finalize: publications::PruneUnboundCollections,
         retry: publications::DoNotRetry,

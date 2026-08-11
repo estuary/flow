@@ -5,7 +5,6 @@ pub use db::{
     InferredSchemaRow, LiveSpec, fetch_expanded_live_specs, fetch_inferred_schemas,
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
-use models::Capability;
 use std::ops::Deref;
 use uuid::Uuid;
 
@@ -23,7 +22,7 @@ use uuid::Uuid;
 pub async fn get_live_specs(
     user_id: uuid::Uuid,
     names: &[String],
-    filter_capability: Option<Capability>,
+    filter_capability: Option<models::authz::CapabilitySet>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
     started_at: Option<tokens::DateTime>,
@@ -93,7 +92,7 @@ pub async fn get_connected_live_specs(
     user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
-    filter_capability: Option<Capability>,
+    filter_capability: Option<models::authz::CapabilitySet>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
@@ -244,7 +243,7 @@ mod tests {
             let live = get_live_specs(
                 CAROL,
                 &[COLLECTION.to_string()],
-                Some(Capability::Read),
+                Some(models::authz::Capability::CatalogRead.into()),
                 &pool,
                 &snapshot,
                 None,
@@ -267,7 +266,7 @@ mod tests {
         let live = get_live_specs(
             DAN,
             &[COLLECTION.to_string()],
-            Some(Capability::Read),
+            Some(models::authz::Capability::CatalogRead.into()),
             &pool,
             &snapshot,
             None,
@@ -293,7 +292,7 @@ mod tests {
         let err = get_live_specs(
             DAN,
             &[COLLECTION.to_string()],
-            Some(Capability::Read),
+            Some(models::authz::Capability::CatalogRead.into()),
             &pool,
             &snapshot,
             None,
@@ -319,34 +318,27 @@ mod tests {
             pool: &sqlx::PgPool,
             user: uuid::Uuid,
             snapshot: &crate::Snapshot,
-            filter: Option<Capability>,
+            filter: Option<models::authz::CapabilitySet>,
         ) -> anyhow::Result<tables::LiveCatalog> {
             get_connected_live_specs(user, &[COLLECTION], &[COLLECTION], filter, pool, snapshot)
                 .await
         }
+        let read_filter = Some(models::authz::CapabilitySet::from(
+            models::authz::Capability::CatalogRead,
+        ));
 
-        let live = connected(
-            &pool,
-            CAROL,
-            &authoritative(&pool).await,
-            Some(Capability::Read),
-        )
-        .await
-        .expect("carol is authorized");
+        let live = connected(&pool, CAROL, &authoritative(&pool).await, read_filter)
+            .await
+            .expect("carol is authorized");
         assert_eq!(1, live.captures.len());
         assert_eq!(CAPTURE, live.captures[0].capture.as_str());
 
-        let live = connected(
-            &pool,
-            DAN,
-            &authoritative(&pool).await,
-            Some(Capability::Read),
-        )
-        .await
-        .expect("an authoritative denial is not an error");
+        let live = connected(&pool, DAN, &authoritative(&pool).await, read_filter)
+            .await
+            .expect("an authoritative denial is not an error");
         assert!(live.captures.is_empty());
 
-        let live = connected(&pool, DAN, &stale(&pool).await, Some(Capability::Read))
+        let live = connected(&pool, DAN, &stale(&pool).await, read_filter)
             .await
             .expect("a denial filters silently even under a stale Snapshot");
         assert!(live.captures.is_empty());
