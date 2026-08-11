@@ -41,12 +41,12 @@ Start using Estuary with these recommended resources.
 - **[Quickstart](./quickstart.md)**: Take a look at the Quickstart to see how easy it is to set up a real-time
   data flow.
 
-- **[User guides](../guides/README.md)**: Get familiar with Flow concepts by reading these byte-sized user guides.
+- **[User guides](../guides/README.md)**: Get familiar with Estuary concepts by reading these byte-sized user guides.
 
 - **[Tutorials](tutorials/README.md)**: Check out some of our step-by-step tutorials where we show you how to set up
   complete data flows.
 
-- **[High level concepts](../concepts/README.md)**: Start here to learn more about important Flow terms.
+- **[High level concepts](../concepts/README.md)**: Start here to learn more about important Estuary terms.
 
 ## Watch the videos
 
@@ -57,7 +57,7 @@ Start using Estuary with these recommended resources.
 
 ## **Other resources**
 
-- Our [website](https://www.estuary.dev) offers general information about Flow, Estuary, and how we fit into the data
+- Our [website](https://estuary.dev) offers general information about Estuary and how we fit into the data
   infrastructure landscape.
 - Our source code lives on [GitHub](https://github.com/estuary).
   - Find complete projects in our [examples repo](https://github.com/estuary/examples).
