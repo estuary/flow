@@ -6,7 +6,7 @@ It uses batch processing and is ideal for syncing your historical Salesforce dat
 [A separate connector is available for real-time Salesforce data capture](./salesforce-real-time.md).
 For help using both connectors in parallel, [contact your Estuary account manager](mailto:info@estuary.dev).
 
-:::warning
+:::deprecated
 This connector is deprecated. Consider using the new [native Salesforce connector](./salesforce-native.md) instead.
 :::
 

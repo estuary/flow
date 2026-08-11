@@ -3,7 +3,7 @@
 
 This connector materializes [delta updates](/concepts/materialization/#delta-updates) of your Estuary collections into Rockset collections.
 
-:::warning
+:::deprecated
 This connector is deprecated. For the best experience, we recommend using one of our other [materialization connectors](/reference/Connectors/materialization-connectors).
 :::
 
