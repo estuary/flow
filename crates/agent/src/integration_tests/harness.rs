@@ -589,10 +589,24 @@ impl TestHarness {
     //
     // Production refreshes the authorization Snapshot through
     // `PgSnapshotSource`'s timer-gated polling loop. The harness backs the
-    // same watch with a manual writer (`set_snapshot`) instead: refreshes are
-    // explicit, nothing refreshes on a timer, and `MIN_REFRESH_INTERVAL`
-    // never gates a test. Grant-mutating helpers refresh the watch after
-    // writing, so authorization observes what a test just set up.
+    // same watch with a manual writer (`set_snapshot`) instead:
+    //
+    // - Refreshes are explicit. Nothing refreshes on a timer, and
+    //   `MIN_REFRESH_INTERVAL` never gates a test. Grant-mutating helpers
+    //   either refresh the watch (`add_role_grant`) or deliberately leave it
+    //   holding the pre-grant world (`add_role_grant_unobserved`).
+    //
+    // - Observed *state* and the authoritative *timestamp* are controlled
+    //   separately. A refresh always fetches current Postgres state, but
+    //   stamps it with a caller-chosen `taken`. Staleness compares `taken`
+    //   against an operation's freshness anchor (`Snapshot::taken_after`,
+    //   allowing `TEMPORAL_SKEW`), and tests compress wall-clock time into
+    //   milliseconds — a `taken = now()` Snapshot still reads as stale for a
+    //   row written moments earlier. `refresh_snapshot_authoritative` /
+    //   `refresh_snapshot_stale` push `taken` clear of the skew in either
+    //   direction.
+    //
+    // Individual helpers below document only how they differ.
 
     // Current Postgres state, stamped `taken = now()`.
     async fn fetch_snapshot(pool: &sqlx::PgPool) -> control_plane_api::Snapshot {
@@ -618,7 +632,8 @@ impl TestHarness {
         self.refresh_snapshot_at(tokens::now()).await
     }
 
-    /// Refreshes with an exact `taken`.
+    /// Refreshes with an exact `taken`. Prefer `refresh_snapshot_authoritative`
+    /// / `refresh_snapshot_stale` unless a test needs a precise instant.
     pub async fn refresh_snapshot_at(&self, taken: tokens::DateTime) {
         let snapshot = Self::fetch_snapshot_at(&self.pool, taken).await;
         (self.set_snapshot)(snapshot);
@@ -629,6 +644,14 @@ impl TestHarness {
     /// rather than retryable.
     pub async fn refresh_snapshot_authoritative(&self) {
         self.refresh_snapshot_at(tokens::now() + Self::snapshot_settle())
+            .await
+    }
+
+    /// The inverse: current grant state stamped in the past, so any denial it
+    /// produces reads as provisional and retries. Models production's window
+    /// where a write has landed in Postgres but the Snapshot predates it.
+    pub async fn refresh_snapshot_stale(&self) {
+        self.refresh_snapshot_at(tokens::now() - Self::snapshot_settle())
             .await
     }
 
@@ -660,6 +683,22 @@ impl TestHarness {
     }
 
     pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {
+        self.add_role_grant_unobserved(subject, object, capability)
+            .await;
+        // Re-sync the authorization Snapshot with the new grant.
+        self.refresh_snapshot().await;
+    }
+
+    /// Writes a role grant to Postgres *without* re-syncing the authorization
+    /// Snapshot, modelling production's window between a grant landing in the
+    /// database and the next Snapshot refresh observing it. Authorization run
+    /// during that window sees the pre-grant world.
+    pub async fn add_role_grant_unobserved(
+        &mut self,
+        subject: &str,
+        object: &str,
+        capability: Capability,
+    ) {
         sqlx::query!(
             r#"
                 insert into role_grants (subject_role, object_role, capability)
@@ -672,11 +711,22 @@ impl TestHarness {
         .execute(&self.pool)
         .await
         .unwrap();
+    }
+
+    pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
+        self.add_user_grant_unobserved(user_id, role, capability)
+            .await;
         // Re-sync the authorization Snapshot with the new grant.
         self.refresh_snapshot().await;
     }
 
-    pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
+    /// The `add_role_grant_unobserved` counterpart for user grants.
+    pub async fn add_user_grant_unobserved(
+        &mut self,
+        user_id: Uuid,
+        role: &str,
+        capability: Capability,
+    ) {
         let mut txn = self.pool.begin().await.unwrap();
         control_plane_api::grants::upsert_user_grant(
             user_id,
@@ -688,8 +738,28 @@ impl TestHarness {
         .await
         .unwrap();
         txn.commit().await.unwrap();
-        // Re-sync the authorization Snapshot with the new grant.
-        self.refresh_snapshot().await;
+    }
+
+    /// Rewrites `catalog_name`'s `last_pub_id` so the spec reads as published
+    /// long before any event in the current test. Compressed test time means
+    /// everything is otherwise "just published", which sidesteps the common
+    /// production shape of an old spec whose *authorization* changes now. The
+    /// id sits a few days past the Estuary epoch — old, but non-zero, because
+    /// a zero id means "never published".
+    pub async fn age_live_spec(&self, catalog_name: &str) {
+        let updated = sqlx::query(
+            "update live_specs set last_pub_id = '00:08:00:00:00:00:00:00'::flowid
+            where catalog_name = $1",
+        )
+        .bind(catalog_name)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            1,
+            updated.rows_affected(),
+            "expected to age exactly one live spec named {catalog_name}"
+        );
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
@@ -1389,16 +1459,16 @@ impl TestHarness {
             .await
     }
 
-    /// Runs a publication by inserting into the `publications` table and
-    /// waiting for the publications handler to process it. Returns
-    /// a `ScenarioResult` (a hold over from the old publications tests, which
-    /// were ported over) describing the results of the publication.
-    async fn async_publication(
+    /// Inserts a queued `publications` row (creating the draft if one wasn't
+    /// supplied) and returns its id, *without* running it. `async_publication`
+    /// runs the task to completion; tests that need to control what the
+    /// authorization Snapshot looks like between polls drive it themselves.
+    pub async fn queue_publication(
         &mut self,
         user_id: Uuid,
         detail: impl Into<String>,
         draft: Either<tables::DraftCatalog, Id>,
-    ) -> ScenarioResult {
+    ) -> Id {
         let detail = detail.into();
         let draft_id = match draft {
             Either::L(catalog) => self.create_draft(user_id, detail.clone(), catalog).await,
@@ -1413,30 +1483,75 @@ impl TestHarness {
             &mut txn,
             user_id,
             draft_id,
-            detail.clone(),
+            detail,
             "ops/dp/public/test".to_string(),
         )
         .await
         .expect("failed to create publication");
         txn.commit().await.expect("failed to commit transaction");
+        pub_id
+    }
 
-        // The publication's pinned Snapshot must be authoritative for specs
-        // committed earlier in this test, or an authorization denial reads as
-        // provisional. Compressed test time never advances past the skew on
-        // its own, so model production's elapsed wait explicitly.
-        self.refresh_snapshot_authoritative().await;
-
+    /// Runs exactly one poll of the publications task `pub_id` and returns the
+    /// resulting `ScenarioResult`. A result whose status is still `Queued` means
+    /// the executor rescheduled rather than resolving — today that happens only
+    /// for a stale authorization Snapshot.
+    pub async fn poll_publication_once(&mut self, pub_id: Id) -> ScenarioResult {
         let task_id = self
             .run_automation_task(automations::task_types::PUBLICATIONS)
             .await
             .expect("expected a publication task to have run");
-        assert_eq!(
-            task_id, pub_id,
-            "automations task id should match the publication that was just created"
-        );
+        assert_eq!(task_id, pub_id, "an unexpected publication task ran");
+        self.get_publication_result(pub_id.into()).await
+    }
 
-        let pub_result = self.get_publication_result(pub_id.into()).await;
-        assert_ne!(publications::StatusType::Queued, pub_result.status.r#type);
+    /// Runs a publication by inserting into the `publications` table and
+    /// waiting for the publications handler to process it. Returns a
+    /// `ScenarioResult` (a hold over from the old publications tests, which
+    /// were ported over) describing the results of the publication.
+    async fn async_publication(
+        &mut self,
+        user_id: Uuid,
+        detail: impl Into<String>,
+        draft: Either<tables::DraftCatalog, Id>,
+    ) -> ScenarioResult {
+        let detail = detail.into();
+        let pub_id = self.queue_publication(user_id, detail, draft).await;
+
+        // A stale-Snapshot publication reschedules (Action::Sleep) rather
+        // than resolving. Mimic production's re-poll-after-refresh loop,
+        // bounded so a genuine failure to converge still surfaces.
+        let mut attempts = 0;
+        let pub_result = loop {
+            let task_id = self
+                .run_automation_task(automations::task_types::PUBLICATIONS)
+                .await
+                .expect("expected a publication task to have run");
+            assert_eq!(
+                task_id, pub_id,
+                "automations task id should match the publication that was just created"
+            );
+
+            let pub_result = self.get_publication_result(pub_id.into()).await;
+            if pub_result.status.r#type != publications::StatusType::Queued {
+                break pub_result;
+            }
+
+            attempts += 1;
+            assert!(
+                attempts < 5,
+                "publication kept rescheduling on a stale authorization snapshot"
+            );
+            // Compressed test time never advances past the skew on its own,
+            // so model production's elapsed wait explicitly (see the Snapshot
+            // testing model above `fetch_snapshot`).
+            self.refresh_snapshot_authoritative().await;
+            self.set_min_task_wake_at(pub_id).await;
+        };
+        assert!(
+            attempts == 0 || !pub_result.status.is_success(),
+            "an authorized publication resolved only after {attempts} deferral(s)"
+        );
         pub_result
     }
 
@@ -2330,7 +2445,7 @@ impl ControlPlane for TestControlPlane {
     }
 }
 
-enum Either<L, R> {
+pub enum Either<L, R> {
     L(L),
     R(R),
 }

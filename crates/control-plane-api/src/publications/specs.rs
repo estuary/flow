@@ -1228,6 +1228,9 @@ mod resolve_tests {
     // From `fixtures/authz_specs.sql`.
     const CAROL: uuid::Uuid = uuid::uuid!("33333333-3333-3333-3333-333333333333");
     const DAN: uuid::Uuid = uuid::uuid!("44444444-4444-4444-4444-444444444444");
+    // From `fixtures/attenuated_grants.sql`.
+    const ERIN: uuid::Uuid = uuid::uuid!("55555555-5555-5555-5555-555555555555");
+    const FRANK: uuid::Uuid = uuid::uuid!("66666666-6666-6666-6666-666666666666");
     const COLLECTION: &str = "carolCo/data/foo";
     const CAPTURE: &str = "carolCo/in/capture-foo";
     const MATERIALIZATION: &str = "carolCo/out/materialize-bar";
@@ -1572,5 +1575,320 @@ mod resolve_tests {
         .await
         .expect_err("spec authorization is checked regardless of verify_user_authz");
         assert_stale_for(err, CAPTURE);
+    }
+
+    /// Named data planes use the publication's durable `started` timestamp as
+    /// their freshness anchor. Grants win regardless of Snapshot age, while a
+    /// denial is retryable only until the Snapshot becomes authoritative.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_data_plane_name_authorization_freshness(pool: sqlx::PgPool) {
+        let dan_draft = draft_of(serde_json::json!({
+            "collections": {
+                "danCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let started = published_at(&pool).await;
+        let stale_snapshot = stale(&pool).await;
+
+        // Dan admins `danCo/` but was granted nothing on `ops/dp/public/`.
+        // Because this Snapshot is not authoritative for `started`, its denial
+        // is provisional and names the plane which triggered it.
+        let err = resolve_live_specs(
+            DAN,
+            &dan_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &stale_snapshot,
+            Some(started),
+        )
+        .await
+        .expect_err("a stale data-plane denial should be retryable");
+        assert_stale_for(err, PLANE);
+
+        // Once the Snapshot is authoritative, the same denial preserves the
+        // existing non-disclosure behavior and silently omits the plane.
+        let live = resolve_live_specs(
+            DAN,
+            &dan_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &authoritative(&pool).await,
+            Some(started),
+        )
+        .await
+        .expect("an authoritative data-plane denial is terminal omission");
+        assert!(
+            live.errors.is_empty(),
+            "unexpected errors: {:?}",
+            error_pairs(&live)
+        );
+        assert!(
+            live.data_planes.is_empty(),
+            "an authoritatively denied data-plane should be omitted"
+        );
+
+        // Carol holds `carolCo/ -> ops/dp/public/ read`, so the same plane is
+        // included even though the Snapshot is too old to make denials final.
+        let carol_draft = draft_of(serde_json::json!({
+            "collections": {
+                "carolCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let live = resolve_live_specs(
+            CAROL,
+            &carol_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &stale_snapshot,
+            Some(started),
+        )
+        .await
+        .expect("an observed grant wins regardless of Snapshot age");
+        assert_eq!(1, live.data_planes.len());
+
+        // System publications skip user authorization for named planes as well
+        // as catalog specs. Spec-to-spec RoleGrant checks remain mandatory.
+        let live = resolve_live_specs(
+            DAN,
+            &dan_draft,
+            &pool,
+            false,
+            Some(PLANE),
+            &stale_snapshot,
+            Some(started),
+        )
+        .await
+        .expect("verify_user_authz=false should include the named plane");
+        assert_eq!(1, live.data_planes.len());
+
+        // Callers without a durable operation timestamp must not invent one:
+        // their denials preserve the prior terminal omission behavior.
+        let live = resolve_live_specs(
+            DAN,
+            &dan_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &stale_snapshot,
+            None,
+        )
+        .await
+        .expect("a plane denial without a freshness anchor is terminal");
+        assert!(live.data_planes.is_empty());
+    }
+
+    /// Storage-mapping plane names follow the same freshness policy even when
+    /// there is no explicit/default plane name in the publication.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_storage_mapping_data_plane_authorization_freshness(pool: sqlx::PgPool) {
+        let mapping = crate::TextJson(models::StorageDef {
+            data_planes: vec![PLANE.to_string()],
+            stores: vec![models::Store::example()],
+        });
+        sqlx::query("insert into storage_mappings (catalog_prefix, spec) values ($1, $2)")
+            .bind("danCo/")
+            .bind(&mapping)
+            .execute(&pool)
+            .await
+            .expect("failed to insert test storage mapping");
+
+        let draft = draft_of(serde_json::json!({
+            "collections": {
+                "danCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let err = resolve_live_specs(
+            DAN,
+            &draft,
+            &pool,
+            true,
+            None,
+            &stale(&pool).await,
+            Some(published_at(&pool).await),
+        )
+        .await
+        .expect_err("a stale storage-mapping plane denial should be retryable");
+        assert_stale_for(err, PLANE);
+    }
+
+    /// The data-plane name filter must be decided by *effective* (attenuated)
+    /// authority, not the raw legacy capability of the edge which reached the
+    /// prefix. Erin and frank traverse the identical 2-hop path through
+    /// `sharedCo/` to a raw-`admin` grant on `ops/dp/public/`; only frank's
+    /// root grant delegates the Viewer bits, so only frank sees the plane. A
+    /// regression to raw-capability filtering makes the plane visible to erin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../fixtures",
+            scripts("data_planes", "authz_specs", "attenuated_grants")
+        )
+    )]
+    async fn test_attenuated_data_plane_grant_is_not_visible(pool: sqlx::PgPool) {
+        let snapshot = authoritative(&pool).await;
+
+        // The premise that makes this attenuation rather than simple absence:
+        // erin's raw reachable capability at the plane is Admin, and yet her
+        // effective authority does not satisfy Read.
+        assert_eq!(
+            Some(models::Capability::Admin),
+            tables::UserGrant::get_user_capability(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                ERIN,
+                PLANE,
+            ),
+        );
+        assert!(!tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            ERIN,
+            PLANE,
+            models::Capability::Read,
+        ));
+
+        let erin_draft = draft_of(serde_json::json!({
+            "collections": {
+                "erinCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let live = resolve_live_specs(ERIN, &erin_draft, &pool, true, Some(PLANE), &snapshot, None)
+            .await
+            .expect("an unauthorized data-plane name is not an error");
+        assert!(
+            live.errors.is_empty(),
+            "unexpected errors: {:?}",
+            error_pairs(&live)
+        );
+        assert!(
+            live.data_planes.is_empty(),
+            "a plane reached with raw admin but attenuated effective authority must not be visible"
+        );
+
+        let frank_draft = draft_of(serde_json::json!({
+            "collections": {
+                "frankCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let live = resolve_live_specs(
+            FRANK,
+            &frank_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &snapshot,
+            None,
+        )
+        .await
+        .expect("frank is authorized to the plane");
+        assert!(
+            live.errors.is_empty(),
+            "unexpected errors: {:?}",
+            error_pairs(&live)
+        );
+        assert_eq!(1, live.data_planes.len());
+    }
+
+    /// Scenario 2: Request-relative staleness anchoring allows retries when the
+    /// snapshot predates the request, even if the spec is old. This is the
+    /// "old-spec late-grant" case: a grant might exist but arrive in the system
+    /// after the snapshot was taken but before the request was queued.
+    ///
+    /// This test shows that with request-relative anchoring, a denial is:
+    /// - Retried if snapshot.taken_before(request_start) (grant might exist but not in snapshot)
+    /// - Terminal if snapshot.taken_after(request_start) (grant would be in snapshot if it existed)
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("authz_specs"))
+    )]
+    async fn test_old_spec_stale_snapshot_relative_to_request(pool: sqlx::PgPool) {
+        let draft = capture_draft(&[CAPTURE]);
+
+        // A snapshot taken well before "now" is stale relative to any request
+        // queued around "now". This should trigger a retry even though the spec
+        // itself is old.
+        let stale_snapshot = stale(&pool).await;
+        let now = published_at(&pool).await + chrono::TimeDelta::seconds(3600);
+
+        let err = resolve_live_specs(
+            uuid::Uuid::nil(),
+            &draft,
+            &pool,
+            false,
+            None,
+            &stale_snapshot,
+            // Request was queued at `now`, well after the stale snapshot.
+            Some(now),
+        )
+        .await
+        .expect_err("spec authorization required even without user authz");
+
+        // The denial should be stale relative to the request time, so retryable.
+        assert_stale_for(err, CAPTURE);
+    }
+
+    /// When the snapshot is authoritative relative to the request start time,
+    /// an authorization denial is terminal (not retried), even for an old spec.
+    /// This shows the request-relative anchor is properly applied.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("authz_specs"))
+    )]
+    async fn test_old_spec_authoritative_snapshot_relative_to_request(pool: sqlx::PgPool) {
+        let draft = capture_draft(&[CAPTURE]);
+
+        // An authoritative snapshot is taken at published_at + TEMPORAL_SKEW * 4.
+        let authoritative_snapshot = authoritative(&pool).await;
+        let pub_time = published_at(&pool).await;
+        // Request queued just before the snapshot. Since snapshot is at pub_time + 1s,
+        // queuing at pub_time means snapshot.taken_after(now) is true (snapshot is authoritative).
+        let now = pub_time;
+
+        let live = resolve_live_specs(
+            uuid::Uuid::nil(),
+            &draft,
+            &pool,
+            false,
+            None,
+            &authoritative_snapshot,
+            // Request was queued at `now`, before the authoritative snapshot.
+            Some(now),
+        )
+        .await
+        .expect("resolve should not error with authoritative snapshot");
+
+        // The denial should be terminal (not stale) because the snapshot is
+        // authoritative relative to the request start time. The capture spec
+        // lacks authorization, so we get a hard error, not a retry.
+        assert!(!live.errors.is_empty(), "expected authorization denial");
+        let error = &live.errors.iter().next().unwrap().error;
+        assert!(
+            !validation::is_authz_snapshot_stale(error),
+            "error should not be stale-snapshot error"
+        );
     }
 }
