@@ -699,7 +699,7 @@ fn assert_live_collection_preserved(draft: &tables::DraftCatalog) {
 }
 
 /// The merge phase fetches the capture's target collections with the user's
-/// read capability, and its staleness anchor must be the discover request —
+/// `CatalogRead` capability, and its staleness anchor must be the discover request —
 /// not the target collection's own age. This is the late-observation race for
 /// a *collection*: the grant to `dogs/shared/` commits before the discover is
 /// queued, but the Snapshot predates both. Judged spec-relatively the (aged)

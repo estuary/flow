@@ -106,7 +106,7 @@ pub async fn get_connected_live_specs(
             // consults Snapshot freshness (`None` anchor): the worst case of a
             // not-yet-observed grant is only a narrower validation, while an
             // anchored check would defer nearly every publication touching a
-            // connected spec its user can't admin, since the pinned Snapshot
+            // connected spec its user can't edit, since the pinned Snapshot
             // almost always predates the queued row.
             if !snapshot
                 .user_authorization(user_id, &exp.catalog_name, minimum_capability, None)

@@ -1212,10 +1212,10 @@ mod test {
 }
 
 /// `resolve_live_specs` makes four independent authorization decisions per row —
-/// the drafter must admin a drafted spec; a drafted spec must itself be
-/// read-authorized to each source and write-authorized to each target; and the
-/// user must be able to read any *referenced* spec. Named data planes add another
-/// user-authorization decision. Each denial is evaluated against a `Snapshot`
+/// the drafter must hold `SpecEdit` to a drafted spec; a drafted spec must itself
+/// be read-authorized to each source and write-authorized to each target; and the
+/// user must hold `CatalogRead` to any *referenced* spec. Named data planes add
+/// another user-authorization decision. Each denial is evaluated against a `Snapshot`
 /// and short-circuits with retryable `AuthorizationSnapshotStale` when that
 /// Snapshot is not authoritative for the operation.
 ///
@@ -1326,13 +1326,14 @@ mod resolve_tests {
         );
     }
 
-    /// Branch 1: a user drafting an existing spec must admin it. Dan does not,
-    /// but the denial is only definitive once the Snapshot outlives the spec.
+    /// Branch 1: a user drafting an existing spec must hold `SpecEdit` to it.
+    /// Dan does not, but the denial is only definitive once the Snapshot
+    /// outlives the spec.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
     )]
-    async fn test_drafted_spec_requires_admin(pool: sqlx::PgPool) {
+    async fn test_drafted_spec_requires_spec_edit(pool: sqlx::PgPool) {
         let draft = draft_of(serde_json::json!({
             "collections": {
                 COLLECTION: {
@@ -1472,14 +1473,14 @@ mod resolve_tests {
         }
     }
 
-    /// Branch 4: a *referenced* (non-drafted) spec only requires read. Dan admins
-    /// `danCo/`, so his own drafted spec passes, and the denial lands on
-    /// `carolCo/data/foo` — which, being an existing spec, can be stale.
+    /// Branch 4: a *referenced* (non-drafted) spec only requires `CatalogRead`.
+    /// Dan admins `danCo/`, so his own drafted spec passes, and the denial lands
+    /// on `carolCo/data/foo` — which, being an existing spec, can be stale.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
     )]
-    async fn test_referenced_spec_requires_read(pool: sqlx::PgPool) {
+    async fn test_referenced_spec_requires_catalog_read(pool: sqlx::PgPool) {
         let draft = draft_of(serde_json::json!({
             "materializations": {
                 "danCo/materialize-x": {
