@@ -1589,7 +1589,7 @@ impl TestHarness {
             maybe_claims: control_plane_api::MaybeControlClaims::with_verified(verified),
             original_uri: axum::http::Uri::from_static("/graphql"),
             pg_pool: self.pool.clone(),
-            refresh: app.snapshot.token(),
+            refresh: app.snapshot_watch.token(),
             retry_after: tokens::DateTime::UNIX_EPOCH,
             started: tokens::now(),
             locale: control_plane_api::Locale::EnUS,
