@@ -13,8 +13,10 @@ impl Task {
             version,
         } = open.clone().open.context("expected Open")?;
 
+        let spec = spec.as_ref().context("missing materialization")?;
+
         let flow::MaterializationSpec {
-            bindings,
+            bindings: _,
             config_json,
             connector_type: _,
             name,
@@ -24,7 +26,9 @@ impl Task {
             inactive_bindings: _,
             triggers_json: _,
             created_at: _,
-        } = spec.as_ref().context("missing materialization")?;
+            sync_schedule_json: _,
+            linked_collections: _,
+        } = spec;
         let range = range.context("missing range")?;
 
         if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
@@ -61,10 +65,26 @@ impl Task {
             doc::SerPolicy::noop()
         };
 
-        let bindings = bindings
-            .into_iter()
+        // `doc::combine` packs its binding index into a u16. This guards the
+        // *format* limit and deliberately shares no constant with
+        // `validation::MAX_BINDINGS`, which gates published tasks far below it:
+        // tripping this means an unvalidated spec reached the runtime.
+        if spec.bindings.len() > u16::MAX as usize {
+            anyhow::bail!(
+                "materialization has {} bindings, which exceeds the combiner limit of {}",
+                spec.bindings.len(),
+                u16::MAX,
+            );
+        }
+
+        let bindings = spec
+            .resolved_bindings()
             .enumerate()
-            .map(|(index, spec)| Binding::new(spec, &ser_policy).context(index))
+            .map(|(index, (binding, resolved))| {
+                let (collection, _identity) =
+                    resolved.context("missing collection").context(index)?;
+                Binding::new(binding, collection, &ser_policy).context(index)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         let shard_ref = ops::ShardRef {
@@ -104,11 +124,13 @@ impl Task {
 impl Binding {
     pub fn new(
         spec: &flow::materialization_spec::Binding,
+        collection: &flow::CollectionSpec,
         default_ser_policy: &doc::SerPolicy,
     ) -> anyhow::Result<Self> {
         let flow::materialization_spec::Binding {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             delta_updates,
             deprecated_shuffle: _,
             field_selection,
@@ -143,7 +165,7 @@ impl Binding {
             read_schema_json,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing collection")?;
+        } = collection;
 
         // TODO(whb): At some point once all built materialization specs have
         // been updated we can get rid of the `default_ser_policy` parameter and

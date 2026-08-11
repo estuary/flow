@@ -7,7 +7,7 @@ description: Receive webhook data with the HTTP Ingest connector as JSON payload
 The HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests.
 A common use case is to capture webhook deliveries, turning them into an Estuary collection.
 
-If you need to capture a dataset hosted at an HTTP endpoint, see the [HTTP File](./http-file.md) connector.
+If you need to capture a dataset hosted at an HTTP endpoint, see the [HTTP File](../http-file.md) connector.
 
 ## Usage
 
@@ -22,7 +22,7 @@ To begin, use the web app to create and publish a capture. Estuary will create a
 
 Some services, such as GitHub, Shopify, and Segment, allow you to send data to a specified URL. Estuary can generate and manage this destination URL. You will then need to add Estuary’s URL to the source service. This will allow the source service to send webhook data directly to your Estuary capture.
 
-![](<../connector-images/webhook-url.png>)
+![](<../../connector-images/webhook-url.png>)
 
 To determine the full URL:
 
@@ -40,7 +40,7 @@ Using this example, the full webhook URL would be: `https://abc123-8080.us-centr
 
 Each path will correspond to a separate binding. If you're editing the capture via the UI, click the "refresh" button after editing the URL paths in the endpoint config to see the resulting collections in the bindings editor. For example, if you set the path to `/my-webhook.json`, then the full URL for that binding would be `https://<your-unique-hostname>/my-webhook.json`.
 
-Any URL query parameters that are sent on the request will be captured and serialized under `/_meta/query/*` the in documents. For example, a webhook request that's sent to `/webhook-data?testKey=testValue` would result in a document like:
+Any URL query parameters that are sent on the request will be captured and serialized under `/_meta/query/*` in the documents. For example, a webhook request that's sent to `/webhook-data?testKey=testValue` would result in a document like:
 
 ```
 {
@@ -59,7 +59,7 @@ Any URL query parameters that are sent on the request will be captured and seria
 
 1. After publishing the capture, click the endpoint link from the confirmation dialog to open the Swagger UI page for your capture.
 
-   ![](<../connector-images/webhook-swagger-docs.png>)
+   ![](<../../connector-images/webhook-swagger-docs.png>)
 
 2. Expand **POST** or **PUT** and click **Try it out** to send some example JSON documents using the UI. You can also copy the provided `curl` commands to send data via the command line.
 
@@ -256,7 +256,6 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **** | EndpointConfig |  | object | Required |
 | `/requireAuthToken` | Authentication token | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
 | `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
 | `/allowedCorsOrigins` | CORS Allowed Origins | List of allowed CORS origins. Set to an empty array to disable CORS. Must not include `*` when an authentication token is configured. | string array | `["*"]` |
@@ -309,7 +308,6 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **** | ResourceConfig |  | object | Required |
 | `/idFromHeader` |  | Set the &#x2F;&#x5F;meta&#x2F;webhookId from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of &#x60;&#x2F;&#x5F;meta&#x2F;webhookId&#x60;. | null, string |  |
 | `/path` |  | The URL path to use for adding documents to this binding. Defaults to the name of the collection. | null, string |  |
 | `/stream` |  | The name of the binding, which is used as a merge key when doing Discovers. | null, string |  |

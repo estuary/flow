@@ -225,6 +225,8 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
 
+        // Legacy `read` is what conveys deploy-level trust in a data plane;
+        // no narrow capability bit expresses that trust yet.
         match snapshot.user_authorization(
             row.user_id,
             &row.data_plane_name,
@@ -360,7 +362,7 @@ async fn prepare_discover<'a>(
     // embedded in its control-plane Id — is carried on the Discover request,
     // so that re-discovers resolve connector feature-flag defaults as the
     // running task does. It's empty for a task which doesn't exist yet.
-    // Filter to only specs that the user can read. If they can't admin, then
+    // Filter to only specs that the user can view. If they can't edit, then
     // wait until they try to publish to surface that error.
     // Use request-relative staleness: a denial from a Snapshot older than the
     // queued discover is provisional, because a grant committed before queuing
@@ -369,7 +371,7 @@ async fn prepare_discover<'a>(
     let live = live_specs::get_live_specs(
         user_id,
         name,
-        Some(models::Capability::Read),
+        Some(models::authz::Capability::CatalogRead.into()),
         pool,
         &snapshot,
         started_at,

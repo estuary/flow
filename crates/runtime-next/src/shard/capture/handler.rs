@@ -355,9 +355,8 @@ where
     )?);
 
     let collection_specs: Vec<&flow::CollectionSpec> = spec
-        .bindings
-        .iter()
-        .filter_map(|b| b.collection.as_ref())
+        .resolved_bindings()
+        .filter_map(|(_binding, resolved)| resolved.map(|(collection, _identity)| collection))
         .collect();
     let publisher = service
         .publisher_factory

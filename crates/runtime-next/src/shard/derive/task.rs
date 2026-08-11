@@ -48,13 +48,9 @@ pub(super) struct Transform {
 /// Build the runtime [`Transform`] for a single derivation transform (input binding).
 fn build_transform(
     t: &flow::collection_spec::derivation::Transform,
+    collection: &flow::CollectionSpec,
     ser_policy: &doc::SerPolicy,
 ) -> anyhow::Result<Transform> {
-    let collection = t
-        .collection
-        .as_ref()
-        .context("transform missing source collection")?;
-
     // Prefer the read schema, falling back to the write schema, so
     // re-validation uses the same schema the shuffle read pipeline
     // validated against when it set `FLAGS_SCHEMA_VALID`.
@@ -103,11 +99,13 @@ impl Task {
             anyhow::bail!("derived collection key cannot be empty");
         }
 
+        let derivation = derivation.as_ref().context("missing derivation")?;
+
         let flow::collection_spec::Derivation {
             transforms,
             redact_salt,
             ..
-        } = derivation.as_ref().context("missing derivation")?;
+        } = derivation;
 
         // The built `Transform.state_key` is intentionally left unpopulated until the
         // V2 derivation migration completes (the frozen V1 derive connectors reject the
@@ -121,9 +119,13 @@ impl Task {
 
         let ser_policy = doc::SerPolicy::noop();
 
-        let sources = transforms
-            .iter()
-            .map(|t| build_transform(t, &ser_policy))
+        let sources = derivation
+            .resolved_transforms()
+            .map(|(t, resolved)| {
+                let (collection, _identity) =
+                    resolved.context("transform missing source collection")?;
+                build_transform(t, collection, &ser_policy)
+            })
             .collect::<anyhow::Result<Vec<Transform>>>()?;
 
         let partition_template = partition_template

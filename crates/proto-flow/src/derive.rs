@@ -88,6 +88,24 @@ pub mod request {
         /// Version of the last validated CollectionSpec.
         #[prost(string, tag = "9")]
         pub last_version: ::prost::alloc::string::String,
+        /// Table of source collections referenced by `collection_index` of this
+        /// request's transforms, in place of an inlined `collection`
+        /// (the "indirect" form).
+        ///
+        /// The form is a property of the request as a whole: if
+        /// `linked_collections` is non-empty then every transform leaves
+        /// `collection` unset and resolves through `collection_index`. If it's
+        /// empty then every transform inlines its `collection` and
+        /// `collection_index` is unset. Mixed forms are invalid. The derived
+        /// `collection` and `last_collection` are self-contained and unaffected.
+        ///
+        /// Entries have `derivation` cleared, as inlined collections always do.
+        /// Builders emit entries which are unique by value and ordered on name,
+        /// but that's a convention only and not an invariant of the message:
+        /// readers resolve `collection_index` and must not assume that entries
+        /// are unique on name.
+        #[prost(message, repeated, tag = "10")]
+        pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
@@ -97,6 +115,8 @@ pub mod request {
             #[prost(string, tag = "1")]
             pub name: ::prost::alloc::string::String,
             /// Sourced collection of this transform.
+            /// Unset if the request uses `linked_collections`, in which case
+            /// `collection_index` identifies the source collection instead.
             #[prost(message, optional, tag = "2")]
             pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
             /// JSON-encoded object which specifies the shuffle lambda configuration.
@@ -109,6 +129,11 @@ pub mod request {
             /// Backfill counter for this transform.
             #[prost(uint32, tag = "5")]
             pub backfill: u32,
+            /// Index of this transform's source collection within the request's
+            /// `linked_collections`. Used instead of `collection` when the request is
+            /// in indirect form, and unset otherwise.
+            #[prost(uint32, tag = "6")]
+            pub collection_index: u32,
         }
     }
     /// Open a derivation stream.

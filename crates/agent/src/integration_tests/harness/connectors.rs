@@ -214,10 +214,9 @@ impl Connectors for TestConnectors {
                     continue;
                 } else if let Some(validate) = request.validate {
                     let v_bindings = validate
-                        .bindings
-                        .iter()
-                        .map(|binding| {
-                            let collection = binding.collection.as_ref().unwrap();
+                        .resolved_bindings()
+                        .map(|(binding, resolved)| {
+                            let (collection, _identity) = resolved.unwrap();
                             let resource_config: serde_json::Value =
                                 serde_json::from_slice(&binding.resource_config_json).unwrap();
                             let delta_updates = resource_config

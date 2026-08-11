@@ -176,18 +176,27 @@ pub fn fetch_all_collection_names(spec: &MaterializationSpec) -> anyhow::Result<
         .collect::<Result<Vec<_>, _>>()
 }
 
+/// Find the binding of `spec` which serves `topic_name`.
+///
+/// The returned binding is detached from `spec`, so its collection is inlined
+/// even when `spec` is in indirect form and the binding indexes a shared table.
 pub fn get_binding_for_topic(
     spec: &MaterializationSpec,
     topic_name: &str,
 ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
     Ok(spec
-        .bindings
-        .iter()
-        .find(|binding| {
+        .resolved_bindings()
+        .find(|(binding, _resolved)| {
             binding
                 .resource_path
                 .first()
                 .is_some_and(|path| path == topic_name)
         })
-        .map(|b| b.clone()))
+        .map(
+            |(binding, resolved)| proto_flow::flow::materialization_spec::Binding {
+                collection: resolved.map(|(collection, _identity)| collection.clone()),
+                collection_index: 0,
+                ..binding.clone()
+            },
+        ))
 }

@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Block until this stack's services are accepting connections"
+#USAGE flag "--timeout <timeout>" help="Seconds to wait before giving up (default 900)"
+
+# Why this exists: every flow-*@.service is `Type=simple`, so systemd marks a
+# unit `active` the moment ExecStart forks -- and the units build before they
+# serve (ExecStartPre runs cargo/go). Neither `is-active` nor
+# `flow-plane@<dp>.target` being active therefore implies "usable": the target
+# aggregates its members with `Wants=`, so it reports active even while a member
+# is still in start-pre compiling. The only honest readiness signal is a
+# connection to the port each service listens on, which is what this does.
+
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+
+TIMEOUT="${usage_timeout:-900}"
+
+# Systemd instance names for data-plane units are `<data-plane>-<port>` for
+# brokers and reactors, but a bare `<data-plane>` for the sidecar and Dekaf.
+# Recover the latter's port block from the former: brokers count up from
+# base+0 and reactors down from base+99, so the lowest port seen for a data
+# plane, rounded down to a multiple of 100, is that plane's base.
+plane_base_for() {
+    local dp="$1" lowest="" port
+    # `--plain` is load-bearing: without it systemctl prefixes not-found/failed
+    # units with a `●` marker, shifting every column and silently turning the
+    # unit name into `●`.
+    for port in $(systemctl --user list-units --all --no-legend --no-pager --plain \
+        "flow-gazette@${dp}-*.service" "flow-reactor@${dp}-*.service" 2>/dev/null \
+        | awk '{print $1}' | sed -E 's/^.*-([0-9]+)\.service$/\1/'); do
+        if [ -z "${lowest}" ] || [ "${port}" -lt "${lowest}" ]; then
+            lowest="${port}"
+        fi
+    done
+    if [ -z "${lowest}" ]; then
+        echo "${FLOW_PLANE_BASE}" # No brokers/reactors found; assume plane 0.
+        return
+    fi
+    echo "$((lowest - lowest % 100))"
+}
+
+# Echo the TCP port `unit` listens on, or nothing when it has none to probe
+# (`flow-plane-link@` is a oneshot that exits, and unknown units are skipped
+# rather than guessed at).
+port_for_unit() {
+    local unit="$1" tmpl inst
+    tmpl="${unit%@*}"
+    inst="${unit#*@}"
+    inst="${inst%.service}"
+
+    case "${tmpl}" in
+    flow-etcd) echo "${FLOW_PORT_ETCD}" ;;
+    flow-supabase) echo "${FLOW_PORT_SUPABASE_DB}" ;;
+    flow-control-agent) echo "${FLOW_PORT_AGENT}" ;;
+    flow-config-encryption) echo "${FLOW_PORT_CONFIG_ENC}" ;;
+    flow-bigtable) echo "${FLOW_PORT_BIGTABLE}" ;;
+    flow-dekaf-kafka) echo "${FLOW_PORT_KAFKA}" ;;
+    flow-gazette | flow-reactor) echo "${inst##*-}" ;;
+    flow-runtime-sidecar) echo "$(($(plane_base_for "${inst}") + 60))" ;;
+    flow-dekaf) echo "$(($(plane_base_for "${inst}") + 50))" ;;
+    *) echo "" ;;
+    esac
+}
+
+# `--plain` suppresses the `●` marker systemctl puts on failed/not-found units;
+# without it those lines shift a column and the unit name reads as `●`, which
+# would drop exactly the broken units this check exists to catch.
+UNITS="$(systemctl --user list-units --all --no-legend --no-pager --plain \
+    "flow-*@${FLOW_STACK_NAME}.service" \
+    "flow-*@${FLOW_CLUSTER}.service" \
+    "flow-*@${FLOW_CLUSTER}-*.service" 2>/dev/null | awk '{print $1}')"
+
+if [ -z "${UNITS}" ]; then
+    echo "error: no units loaded for stack '${FLOW_STACK_NAME}' — start it with: mise run local:stack" >&2
+    exit 1
+fi
+
+# Pair each probe-able unit with its port once, up front.
+TARGETS=""
+for unit in ${UNITS}; do
+    port="$(port_for_unit "${unit}")"
+    [ -n "${port}" ] && TARGETS="${TARGETS}${TARGETS:+ }${unit}:${port}"
+done
+
+echo "Waiting up to ${TIMEOUT}s for $(echo "${TARGETS}" | wc -w) service(s) of stack '${FLOW_STACK_NAME}'..."
+
+ELAPSED=0
+LAST_REPORT=""
+while true; do
+    PENDING=""
+    for target in ${TARGETS}; do
+        unit="${target%:*}"
+        port="${target##*:}"
+
+        # Fail fast rather than burning the whole timeout on a dead unit.
+        if systemctl --user is-failed --quiet "${unit}"; then
+            echo "error: ${unit} failed to start. Logs:" >&2
+            journalctl --user -u "${unit}" --no-pager -n 40 >&2
+            exit 1
+        fi
+        if ! nc -z localhost "${port}" 2>/dev/null; then
+            # Distinguish "still compiling" from "started but not yet listening":
+            # the units build in ExecStartPre, which can dominate a cold start.
+            if systemctl --user is-active --quiet "${unit}"; then
+                PENDING="${PENDING}${PENDING:+ }${unit%@*}:${port}"
+            else
+                PENDING="${PENDING}${PENDING:+ }${unit%@*}:${port}(building)"
+            fi
+        fi
+    done
+
+    [ -z "${PENDING}" ] && break
+
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "error: stack '${FLOW_STACK_NAME}' not ready after ${TIMEOUT}s; still waiting on: ${PENDING}" >&2
+        exit 1
+    fi
+    # Report only on change, so a long cold-start build stays quiet but visible.
+    if [ "${PENDING}" != "${LAST_REPORT}" ]; then
+        echo "  waiting on: ${PENDING}"
+        LAST_REPORT="${PENDING}"
+    fi
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+done
+
+echo "All services of stack '${FLOW_STACK_NAME}' are accepting connections."

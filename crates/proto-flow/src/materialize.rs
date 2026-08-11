@@ -70,17 +70,38 @@ pub mod request {
         /// Version of the last validated MaterializationSpec.
         #[prost(string, tag = "6")]
         pub last_version: ::prost::alloc::string::String,
+        /// Table of collections referenced by `collection_index` of this request's
+        /// bindings, in place of an inlined `collection` (the "indirect" form).
+        ///
+        /// The form is a property of the request as a whole: if
+        /// `linked_collections` is non-empty then every binding leaves `collection`
+        /// unset and resolves through `collection_index`. If it's empty then every
+        /// binding inlines its `collection` and `collection_index` is unset.
+        /// Mixed forms are invalid. `last_materialization` is self-contained and
+        /// carries whichever form it was built with, independent of this request.
+        ///
+        /// Entries have `derivation` cleared, as inlined collections always do.
+        /// Builders emit entries which are unique by value and ordered on name,
+        /// but that's a convention only and not an invariant of the message.
+        /// Duplicate names are legal and do arise here: bindings of one collection
+        /// having differing `group_by` rewrite the binding's `key` and
+        /// `projections\[*\].is_primary_key` to match, so same name != same spec.
+        #[prost(message, repeated, tag = "7")]
+        pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
         /// Bindings of endpoint resources and collections from which they would be
-        /// materialized. Bindings are ordered and unique on the bound collection name.
+        /// materialized. Bindings are ordered and unique on their resource path.
+        /// Multiple bindings may materialize from a single collection.
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Binding {
             /// JSON-encoded object which specifies the endpoint resource to be materialized.
             #[prost(bytes = "bytes", tag = "1")]
             pub resource_config_json: ::prost::bytes::Bytes,
             /// Collection to be materialized.
+            /// Unset if the request uses `linked_collections`, in which case
+            /// `collection_index` identifies the bound collection instead.
             #[prost(message, optional, tag = "2")]
             pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
             /// Projection configuration, keyed by the projection field name,
@@ -97,6 +118,11 @@ pub mod request {
             /// Identical to `keys` of the post-validation FieldSelection.
             #[prost(string, repeated, tag = "5")]
             pub group_by: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+            /// Index of this binding's collection within the request's
+            /// `linked_collections`. Used instead of `collection` when the request is
+            /// in indirect form, and unset otherwise.
+            #[prost(uint32, tag = "6")]
+            pub collection_index: u32,
         }
     }
     /// Apply an updated materialization specification to its endpoint,
@@ -354,10 +380,10 @@ pub mod response {
     pub mod validated {
         /// ProjectionConstraint pairs a projection field name with a single Constraint.
         /// A repeated list of ProjectionConstraint allows multiple constraints to be
-        /// expressed for the same field simultaneously.
-        /// For example, INCOMPATIBLE and LOCATION_REQUIRED on the same field signals that
-        /// the field is required but the existing destination column has an incompatible
-        /// type, and a backfill is needed.
+        /// expressed for the same field simultaneously. For example, INCOMPATIBLE and
+        /// LOCATION_REQUIRED on the same field signals that the field is required but
+        /// the existing destination column has an incompatible type, and a backfill is
+        /// needed.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct ProjectionConstraint {
             #[prost(string, tag = "1")]

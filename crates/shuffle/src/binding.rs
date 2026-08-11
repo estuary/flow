@@ -86,24 +86,30 @@ impl Binding {
                     .as_ref()
                     .context("CollectionSpec missing derivation")?;
 
+                guard_index_width("derivation", derivation.transforms.len())?;
+
                 let pairs = derivation
-                    .transforms
-                    .iter()
+                    .resolved_transforms()
                     .enumerate()
-                    .map(|(index, transform)| {
-                        Self::from_derivation_transform(index as u16, transform)
+                    .map(|(index, (transform, resolved))| {
+                        let (collection, _identity) =
+                            resolved.context("missing source collection")?;
+                        Self::from_derivation_transform(index as u16, transform, collection)
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
                 pairs
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
+                guard_index_width("materialization", materialization.bindings.len())?;
+
                 let pairs = materialization
-                    .bindings
-                    .iter()
+                    .resolved_bindings()
                     .enumerate()
-                    .map(|(index, binding)| {
-                        Self::from_materialization_binding(index as u16, binding)
+                    .map(|(index, (binding, resolved))| {
+                        let (collection, _identity) =
+                            resolved.context("missing source collection")?;
+                        Self::from_materialization_binding(index as u16, binding, collection)
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -148,10 +154,12 @@ impl Binding {
     fn from_derivation_transform(
         index: u16,
         spec: &flow::collection_spec::derivation::Transform,
+        collection: &flow::CollectionSpec,
     ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::collection_spec::derivation::Transform {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             journal_read_suffix,
             lambda_config_json: _,
             name: _,
@@ -177,7 +185,7 @@ impl Binding {
             read_schema_json,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing source collection")?;
+        } = collection;
 
         let partition_template_name = partition_template
             .as_ref()
@@ -243,10 +251,12 @@ impl Binding {
     fn from_materialization_binding(
         index: u16,
         spec: &flow::materialization_spec::Binding,
+        collection: &flow::CollectionSpec,
     ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::materialization_spec::Binding {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             delta_updates: _,
             deprecated_shuffle: _,
             field_selection: _,
@@ -272,7 +282,7 @@ impl Binding {
             read_schema_json,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing source collection")?;
+        } = collection;
 
         let partition_template_name = partition_template
             .as_ref()
@@ -366,6 +376,21 @@ impl Binding {
     pub fn state_key(&self) -> &str {
         self.journal_read_suffix.rsplit("/").next().unwrap()
     }
+}
+
+/// Guard [`Binding::index`]'s u16 width, which is also the width of
+/// `doc::combine`'s binding index. This is a *format* limit and deliberately
+/// shares no constant with `validation::MAX_BINDINGS`, which gates published
+/// tasks far below it: tripping this means an unvalidated spec reached the
+/// runtime.
+fn guard_index_width(entity: &str, count: usize) -> anyhow::Result<()> {
+    if count > u16::MAX as usize {
+        anyhow::bail!(
+            "{entity} has {count} bindings, which exceeds the shuffle limit of {}",
+            u16::MAX,
+        );
+    }
+    Ok(())
 }
 
 /// Assign cohort indices to bindings. Bindings sharing the same
@@ -638,6 +663,35 @@ mod test {
 
     fn fields(names: &[&str]) -> Vec<String> {
         names.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `Binding::index` is a u16, so a task past the format limit must error
+    /// early -- before any per-binding work, and independently of
+    /// `validation::MAX_BINDINGS`, which gates published tasks far below it.
+    #[test]
+    fn from_task_guards_the_index_width() {
+        let over = u16::MAX as usize + 1;
+
+        for task in [
+            shuffle::task::Task::Materialization(flow::MaterializationSpec {
+                bindings: vec![Default::default(); over],
+                ..Default::default()
+            }),
+            shuffle::task::Task::Derivation(flow::CollectionSpec {
+                derivation: Some(flow::collection_spec::Derivation {
+                    transforms: vec![Default::default(); over],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        ] {
+            let err = Binding::from_task(&shuffle::Task { task: Some(task) }).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("65536 bindings, which exceeds the shuffle limit of 65535"),
+                "unexpected error: {err}",
+            );
+        }
     }
 
     #[test]

@@ -243,7 +243,7 @@ impl Snapshot {
         &self,
         user_id: uuid::Uuid,
         name: &str,
-        capability: models::Capability,
+        capability: impl Into<models::authz::CapabilitySet>,
         anchor: Option<tokens::DateTime>,
     ) -> Authorization {
         self.resolve_authorization(
@@ -259,12 +259,12 @@ impl Snapshot {
     }
 
     /// Evaluate whether `user_id` may fetch the live spec `catalog_name` with
-    /// `capability`: the single spec-fetch policy shared by every live-spec
-    /// fetcher (`live_specs::get_live_specs`, `get_connected_live_specs`,
-    /// `evolutions::resolve_specs`). Staleness anchors on `started` — the
-    /// fetching operation's durable queued instant — when the caller has one,
-    /// and otherwise on the spec's own last publication, which bounds the
-    /// window in which grants could have been committed alongside the spec.
+    /// `capability`: the policy applied when fetching specs the caller
+    /// explicitly named (`live_specs::get_live_specs`). Staleness anchors on
+    /// `started` — the fetching operation's durable queued instant — when the
+    /// caller has one, and otherwise on the spec's own last publication, which
+    /// bounds the window in which grants could have been committed alongside
+    /// the spec.
     ///
     /// `Ok(false)` is an authoritative denial: callers drop or suppress the
     /// spec, the pre-existing behavior. A provisional denial surfaces as the
@@ -273,7 +273,7 @@ impl Snapshot {
         &self,
         user_id: uuid::Uuid,
         catalog_name: &str,
-        capability: models::Capability,
+        capability: impl Into<models::authz::CapabilitySet>,
         started: Option<tokens::DateTime>,
         last_pub_id: models::Id,
     ) -> Result<bool, validation::Error> {
@@ -289,7 +289,7 @@ impl Snapshot {
         &self,
         subject: &str,
         object: &str,
-        capability: models::Capability,
+        capability: impl Into<models::authz::CapabilitySet>,
         anchor: Option<tokens::DateTime>,
     ) -> Authorization {
         self.resolve_authorization(

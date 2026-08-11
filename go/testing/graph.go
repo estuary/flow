@@ -97,7 +97,8 @@ func (g *Graph) addTask(t pf.Task) {
 	// Index into |outputs|.
 	if capture, ok := t.(*pf.CaptureSpec); ok {
 		for _, b := range capture.Bindings {
-			g.outputs[name] = append(g.outputs[name], b.Collection.Name)
+			g.outputs[name] = append(g.outputs[name],
+				capture.BindingCollection(b).Name)
 		}
 	} else if derivation, ok := t.(*pf.CollectionSpec); ok {
 		g.outputs[name] = append(g.outputs[name], derivation.Name)
@@ -105,9 +106,12 @@ func (g *Graph) addTask(t pf.Task) {
 
 	// Index into |readers|.
 	if derivation, ok := t.(*pf.CollectionSpec); ok && derivation.Derivation != nil {
-		for _, t := range derivation.Derivation.Transforms {
-			g.readers[t.Collection.Name] = append(
-				g.readers[t.Collection.Name],
+		for i := range derivation.Derivation.Transforms {
+			var t = &derivation.Derivation.Transforms[i]
+			var source = derivation.Derivation.TransformCollection(t).Name
+
+			g.readers[source] = append(
+				g.readers[source],
 				taskRead{
 					task:   name,
 					suffix: ";" + t.JournalReadSuffix,
@@ -116,8 +120,10 @@ func (g *Graph) addTask(t pf.Task) {
 		}
 	} else if materialization, ok := t.(*pf.MaterializationSpec); ok {
 		for _, b := range materialization.Bindings {
-			g.readers[b.Collection.Name] = append(
-				g.readers[b.Collection.Name],
+			var source = materialization.BindingCollection(b).Name
+
+			g.readers[source] = append(
+				g.readers[source],
 				taskRead{
 					task:   name,
 					suffix: ";" + b.JournalReadSuffix,

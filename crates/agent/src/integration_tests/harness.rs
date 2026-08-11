@@ -1680,6 +1680,10 @@ impl TestHarness {
             self.refresh_snapshot_authoritative().await;
             self.set_min_task_wake_at(pub_id).await;
         };
+        assert!(
+            attempts == 0 || !pub_result.status.is_success(),
+            "an authorized publication resolved only after {attempts} deferral(s)"
+        );
         pub_result
     }
 

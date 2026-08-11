@@ -97,7 +97,7 @@ func (c *captureApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _
 		c.watches = append(c.watches, client.NewWatchedList(
 			watchCtx,
 			shard.JournalClient(),
-			flow.CollectionWatchRequest(&binding.Collection),
+			flow.CollectionWatchRequest(c.term.taskSpec.BindingCollection(binding)),
 			nil,
 		))
 	}
@@ -332,7 +332,7 @@ func (c *captureApp) ConsumeMessage(shard consumer.Shard, env message.Envelope, 
 				return fmt.Errorf("unpacking partitions: %w", err)
 			}
 			if _, err = pub.PublishUncommitted(mapper.Map, flow.Mappable{
-				Spec:       &c.term.taskSpec.Bindings[captured.Binding].Collection,
+				Spec:       c.term.taskSpec.BindingCollection(c.term.taskSpec.Bindings[captured.Binding]),
 				Doc:        captured.DocJson,
 				PackedKey:  capturedExt.KeyPacked,
 				Partitions: partitions,

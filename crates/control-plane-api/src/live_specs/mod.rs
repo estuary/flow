@@ -5,7 +5,6 @@ pub use db::{
     InferredSchemaRow, LiveSpec, fetch_expanded_live_specs, fetch_inferred_schemas,
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
-use models::Capability;
 use std::ops::Deref;
 use uuid::Uuid;
 
@@ -23,7 +22,7 @@ use uuid::Uuid;
 pub async fn get_live_specs(
     user_id: uuid::Uuid,
     names: &[String],
-    filter_capability: Option<Capability>,
+    filter_capability: Option<models::authz::CapabilitySet>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
     started_at: Option<tokens::DateTime>,
@@ -82,27 +81,35 @@ pub async fn get_live_specs(
     Ok(live)
 }
 
+/// Fetches the live specs connected to `collection_names` — tasks that read
+/// from or write to them — excluding `exclude_names`. When `filter_capability`
+/// is set, specs to which the user lacks that capability are silently omitted:
+/// expansion is filtering, so a denial is final regardless of Snapshot
+/// freshness and is never surfaced as a retryable stale error.
 pub async fn get_connected_live_specs(
     user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
-    filter_capability: Option<Capability>,
+    filter_capability: Option<models::authz::CapabilitySet>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
-    started: Option<tokens::DateTime>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let expanded_rows = db::fetch_expanded_live_specs(collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
 
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !snapshot.spec_fetch_authorization(
-                user_id,
-                &exp.catalog_name,
-                minimum_capability,
-                started,
-                exp.last_pub_id,
-            )? {
+            // Expansion widens validation with specs the caller never named, so
+            // a denial is a final omission rather than an error, and never
+            // consults Snapshot freshness (`None` anchor): the worst case of a
+            // not-yet-observed grant is only a narrower validation, while an
+            // anchored check would defer nearly every publication touching a
+            // connected spec its user can't edit, since the pinned Snapshot
+            // almost always predates the queued row.
+            if !snapshot
+                .user_authorization(user_id, &exp.catalog_name, minimum_capability, None)
+                .ok_or_stale(&exp.catalog_name)?
+            {
                 continue;
             }
         }
@@ -136,17 +143,23 @@ pub async fn get_connected_live_specs(
 }
 
 /// Both fetchers apply authorization in-process against a `Snapshot` rather than
-/// in SQL. Because the Snapshot lags Postgres, a denial is only trusted once the
-/// Snapshot is authoritative for the operation asking — its `started` request
-/// time when the caller has a durable one, or the denied spec's own last
-/// publication otherwise. Until then the caller gets a retryable
-/// `AuthorizationSnapshotStale` rather than a silently-dropped spec.
-/// These tests pin that three-way outcome — included / dropped / retryable — and
-/// the exact instant the last two swap over.
+/// in SQL, but they trust a denial differently. `get_live_specs` fetches specs
+/// the caller explicitly named, where a wrongly-dropped spec corrupts the
+/// operation's output; because the Snapshot lags Postgres, a denial is only
+/// trusted once the Snapshot is authoritative for the operation asking — its
+/// `started_at` request time when the caller has a durable one, or the denied
+/// spec's own last publication otherwise — and until then the caller gets a
+/// retryable `AuthorizationSnapshotStale` rather than a silently-dropped spec.
+/// `get_connected_live_specs` expands to specs the caller never named, purely to
+/// widen validation, so a denial is always a final silent omission and Snapshot
+/// freshness is never consulted.
+/// These tests pin the three-way outcome — included / dropped / retryable — for
+/// the former, the exact instant the last two swap over, and the two-way
+/// outcome for the latter.
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{assert_stale_for, authoritative, published_at, stale};
+    use crate::test_support::{assert_stale_for, authoritative, stale};
 
     // From `fixtures/authz_specs.sql`. Carol is admin of `carolCo/`; Dan holds no
     // grants at all and so models an unauthorized caller.
@@ -183,7 +196,7 @@ mod tests {
             let live = get_live_specs(
                 CAROL,
                 &[COLLECTION.to_string()],
-                Some(Capability::Read),
+                Some(models::authz::Capability::CatalogRead.into()),
                 &pool,
                 &snapshot,
                 None,
@@ -206,7 +219,7 @@ mod tests {
         let live = get_live_specs(
             DAN,
             &[COLLECTION.to_string()],
-            Some(Capability::Read),
+            Some(models::authz::Capability::CatalogRead.into()),
             &pool,
             &snapshot,
             None,
@@ -232,7 +245,7 @@ mod tests {
         let err = get_live_specs(
             DAN,
             &[COLLECTION.to_string()],
-            Some(Capability::Read),
+            Some(models::authz::Capability::CatalogRead.into()),
             &pool,
             &snapshot,
             None,
@@ -244,117 +257,48 @@ mod tests {
     }
 
     /// `get_connected_live_specs` reaches specs by graph traversal rather than by
-    /// name, but applies the identical rule. The fixture's capture writes to the
-    /// collection, so it is reachable from it.
+    /// name, and it filters rather than authorizes: an unauthorized spec is
+    /// silently omitted, and the Snapshot's age never converts that omission
+    /// into a retryable error. The fixture's capture writes to the collection,
+    /// so it is reachable from it.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
     )]
-    async fn test_get_connected_live_specs_staleness(pool: sqlx::PgPool) {
+    async fn test_get_connected_live_specs_filtering(pool: sqlx::PgPool) {
         // Exclude the collection itself, leaving just the capture that writes it.
         async fn connected(
             pool: &sqlx::PgPool,
             user: uuid::Uuid,
             snapshot: &crate::Snapshot,
-            filter: Option<Capability>,
-            started: Option<tokens::DateTime>,
+            filter: Option<models::authz::CapabilitySet>,
         ) -> anyhow::Result<tables::LiveCatalog> {
-            get_connected_live_specs(
-                user,
-                &[COLLECTION],
-                &[COLLECTION],
-                filter,
-                pool,
-                snapshot,
-                started,
-            )
-            .await
+            get_connected_live_specs(user, &[COLLECTION], &[COLLECTION], filter, pool, snapshot)
+                .await
         }
+        let read_filter = Some(models::authz::CapabilitySet::from(
+            models::authz::Capability::CatalogRead,
+        ));
 
-        let live = connected(
-            &pool,
-            CAROL,
-            &authoritative(&pool).await,
-            Some(Capability::Read),
-            None,
-        )
-        .await
-        .expect("carol is authorized");
+        let live = connected(&pool, CAROL, &authoritative(&pool).await, read_filter)
+            .await
+            .expect("carol is authorized");
         assert_eq!(1, live.captures.len());
         assert_eq!(CAPTURE, live.captures[0].capture.as_str());
 
-        let live = connected(
-            &pool,
-            DAN,
-            &authoritative(&pool).await,
-            Some(Capability::Read),
-            None,
-        )
-        .await
-        .expect("an authoritative denial is not an error");
+        let live = connected(&pool, DAN, &authoritative(&pool).await, read_filter)
+            .await
+            .expect("an authoritative denial is not an error");
         assert!(live.captures.is_empty());
 
-        let err = connected(
-            &pool,
-            DAN,
-            &stale(&pool).await,
-            Some(Capability::Read),
-            None,
-        )
-        .await
-        .expect_err("a denial against a stale Snapshot should be retryable");
-        assert_stale_for(err, CAPTURE);
+        let live = connected(&pool, DAN, &stale(&pool).await, read_filter)
+            .await
+            .expect("a denial filters silently even under a stale Snapshot");
+        assert!(live.captures.is_empty());
 
-        let live = connected(&pool, DAN, &stale(&pool).await, None, None)
+        let live = connected(&pool, DAN, &stale(&pool).await, None)
             .await
             .expect("an unfiltered traversal should not consult the Snapshot");
         assert_eq!(1, live.captures.len());
-    }
-
-    /// When the caller supplies a durable request time, staleness is judged
-    /// against *it*, displacing the spec's age entirely — in both directions.
-    /// A Snapshot which outlives the spec but predates the request cannot
-    /// rule out a grant committed just before the request (the late-grant,
-    /// old-spec race); a Snapshot which predates the spec but outlives the
-    /// request already reflects everything the request could rely upon.
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
-    )]
-    async fn test_get_connected_live_specs_request_relative_staleness(pool: sqlx::PgPool) {
-        let spec_time = published_at(&pool).await;
-
-        // Snapshot outlives the spec, but the request is newer still.
-        let snapshot = authoritative(&pool).await;
-        let started = Some(spec_time + crate::Snapshot::TEMPORAL_SKEW * 8);
-        let err = get_connected_live_specs(
-            DAN,
-            &[COLLECTION],
-            &[COLLECTION],
-            Some(Capability::Read),
-            &pool,
-            &snapshot,
-            started,
-        )
-        .await
-        .expect_err("a Snapshot older than the request cannot make a denial authoritative");
-        assert_stale_for(err, CAPTURE);
-
-        // Snapshot predates the spec — stale by the spec-relative anchor —
-        // but it outlives the request, so the denial is authoritative.
-        let snapshot = stale(&pool).await;
-        let started = Some(spec_time - crate::Snapshot::TEMPORAL_SKEW * 8);
-        let live = get_connected_live_specs(
-            DAN,
-            &[COLLECTION],
-            &[COLLECTION],
-            Some(Capability::Read),
-            &pool,
-            &snapshot,
-            started,
-        )
-        .await
-        .expect("a Snapshot taken after the request is authoritative regardless of spec age");
-        assert!(live.captures.is_empty());
     }
 }

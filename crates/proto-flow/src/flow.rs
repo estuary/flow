@@ -393,18 +393,37 @@ pub mod collection_spec {
         /// Salt used for redacting sensitive fields in derived documents.
         #[prost(bytes = "bytes", tag = "9")]
         pub redact_salt: ::prost::bytes::Bytes,
+        /// Table of source collections referenced by `collection_index` of this
+        /// derivation's transforms, in place of an inlined `collection`
+        /// (the "indirect" form).
+        ///
+        /// The form is a property of the derivation as a whole: if
+        /// `linked_collections` is non-empty then every transform -- active and
+        /// inactive alike -- leaves `collection` unset and resolves through
+        /// `collection_index`. If it's empty then every transform inlines its
+        /// `collection` and `collection_index` is unset. Mixed forms are invalid.
+        ///
+        /// Entries have `derivation` cleared, as inlined collections always do.
+        /// Builders emit entries which are unique by value and ordered on name,
+        /// but that's a convention only and not an invariant of the message:
+        /// readers resolve `collection_index` and must not assume that entries
+        /// are unique on name.
+        #[prost(message, repeated, tag = "10")]
+        pub linked_collections: ::prost::alloc::vec::Vec<super::CollectionSpec>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
         /// Transforms of the derivation.
         ///
-        /// Next tag: 15.
+        /// Next tag: 16.
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Transform {
             /// Stable and unique name of this transform.
             #[prost(string, tag = "1")]
             pub name: ::prost::alloc::string::String,
             /// Source collection which is read by this transform.
+            /// Unset if the derivation uses `linked_collections`, in which case
+            /// `collection_index` identifies the source collection instead.
             #[prost(message, optional, tag = "2")]
             pub collection: ::core::option::Option<super::super::CollectionSpec>,
             /// Selector of collection partitions which this materialization reads.
@@ -451,6 +470,11 @@ pub mod collection_spec {
             /// CaptureSpec and MaterializationSpec bindings.
             #[prost(string, tag = "14")]
             pub state_key: ::prost::alloc::string::String,
+            /// Index of this transform's source collection within the derivation's
+            /// `linked_collections`. Used instead of `collection` when the derivation
+            /// is in indirect form, and unset otherwise.
+            #[prost(uint32, tag = "15")]
+            pub collection_index: u32,
         }
         #[derive(
             Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
@@ -591,13 +615,29 @@ pub struct CaptureSpec {
     /// connector should assume a current date.
     #[prost(string, tag = "11")]
     pub created_at: ::prost::alloc::string::String,
+    /// Table of collections referenced by `collection_index` of this capture's
+    /// bindings, in place of an inlined `collection` (the "indirect" form).
+    ///
+    /// The form is a property of the capture as a whole: if `linked_collections`
+    /// is non-empty then every binding -- active and inactive alike -- leaves
+    /// `collection` unset and resolves through `collection_index`. If it's empty
+    /// then every binding inlines its `collection` and `collection_index` is
+    /// unset. Mixed forms are invalid.
+    ///
+    /// Entries have `derivation` cleared, as inlined collections always do.
+    /// Builders emit entries which are unique by value and ordered on name,
+    /// but that's a convention only and not an invariant of the message:
+    /// readers resolve `collection_index` and must not assume that entries
+    /// are unique on name.
+    #[prost(message, repeated, tag = "12")]
+    pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
     /// Bindings between endpoint resources, uniquely identified by their
     /// resource path, and the collections into which they're captured.
     ///
-    /// Next tag: 6.
+    /// Next tag: 7.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
         /// JSON-encoded configuration of the bound resource.
@@ -608,6 +648,8 @@ pub mod capture_spec {
         #[prost(string, repeated, tag = "2")]
         pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// Collection to be captured into.
+        /// Unset if the capture uses `linked_collections`, in which case
+        /// `collection_index` identifies the bound collection instead.
         #[prost(message, optional, tag = "3")]
         pub collection: ::core::option::Option<super::CollectionSpec>,
         /// Backfill counter for this binding.
@@ -617,6 +659,11 @@ pub mod capture_spec {
         /// A suggested key to use for this binding within connector states.
         #[prost(string, tag = "5")]
         pub state_key: ::prost::alloc::string::String,
+        /// Index of this binding's collection within the capture's
+        /// `linked_collections`. Used instead of `collection` when the capture is
+        /// in indirect form, and unset otherwise.
+        #[prost(uint32, tag = "6")]
+        pub collection_index: u32,
     }
     /// Type of the capture's connector.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -686,13 +733,36 @@ pub struct MaterializationSpec {
     /// connector should assume a current date.
     #[prost(string, tag = "11")]
     pub created_at: ::prost::alloc::string::String,
+    /// JSON-encoded sync schedule for this materialization, if configured.
+    /// Decoded as a models::SyncSchedule and enforced by runtime-next to pace
+    /// transaction commits. Empty when no schedule is set.
+    #[prost(bytes = "bytes", tag = "12")]
+    pub sync_schedule_json: ::prost::bytes::Bytes,
+    /// Table of collections referenced by `collection_index` of this
+    /// materialization's bindings, in place of an inlined `collection`
+    /// (the "indirect" form).
+    ///
+    /// The form is a property of the materialization as a whole: if
+    /// `linked_collections` is non-empty then every binding -- active and
+    /// inactive alike -- leaves `collection` unset and resolves through
+    /// `collection_index`. If it's empty then every binding inlines its
+    /// `collection` and `collection_index` is unset. Mixed forms are invalid.
+    ///
+    /// Entries have `derivation` cleared, as inlined collections always do.
+    /// Builders emit entries which are unique by value and ordered on name,
+    /// but that's a convention only and not an invariant of the message.
+    /// Duplicate names are legal and do arise here: bindings of one collection
+    /// having differing `group_by` rewrite the binding's `key` and
+    /// `projections\[*\].is_primary_key` to match, so same name != same spec.
+    #[prost(message, repeated, tag = "13")]
+    pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
     /// Bindings between endpoint resources, uniquely identified by their
     /// resource path, and the collections from which they're materialized.
     ///
-    /// Next tag: 15.
+    /// Next tag: 16.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
         /// JSON-encoded configuration of the bound resource.
@@ -703,6 +773,8 @@ pub mod materialization_spec {
         #[prost(string, repeated, tag = "2")]
         pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// Collection to be materialized.
+        /// Unset if the materialization uses `linked_collections`, in which case
+        /// `collection_index` identifies the bound collection instead.
         #[prost(message, optional, tag = "3")]
         pub collection: ::core::option::Option<super::CollectionSpec>,
         /// Selector of collection partitions which this materialization reads.
@@ -740,6 +812,11 @@ pub mod materialization_spec {
         /// Serialization policy used for this binding.
         #[prost(message, optional, tag = "14")]
         pub ser_policy: ::core::option::Option<super::SerPolicy>,
+        /// Index of this binding's collection within the materialization's
+        /// `linked_collections`. Used instead of `collection` when the
+        /// materialization is in indirect form, and unset otherwise.
+        #[prost(uint32, tag = "15")]
+        pub collection_index: u32,
     }
     /// Nested message and enum types in `Binding`.
     pub mod binding {

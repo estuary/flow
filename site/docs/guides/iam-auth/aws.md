@@ -43,12 +43,12 @@ For example, these are the issuer values for a few common public data planes:
 
 ![Add Identity Provider](../guide-images/aws-iam-1.png)
 
-# Trust Relationship in Role
+## Trust Relationship in Role
 
 Finally, return to the details page of your role, head to "Trust relationships" tab and add the following trust policy, replacing:
 
 * The OpenID URL with the correct issuer value for your data plane
-* The principal with the ARN of the Identity Provider depending on the data plane (if you use a private deployment or BYOC, we will provide you with this value) you use
+* The principal with the ARN of the Identity Provider you created in the previous step. This provider lives in your own AWS account, so copy its ARN from the IAM console rather than writing it by hand
 * The `:sub` condition with your tenant name so only tasks from your tenant are allowed to assume this role
 
 :::tip
@@ -77,3 +77,13 @@ Make sure the `:aud` and `:sub` values use the correct issuer. Minor discrepanci
     ]
 }
 ```
+
+## Resources in a Different AWS Account
+
+Estuary makes a single `sts:AssumeRoleWithWebIdentity` call. There is no second, chained `AssumeRole`, so a role in one account cannot be used as a stepping stone to a role in another.
+
+An IAM OIDC identity provider is a per-account resource, and a role's trust policy can only name a provider in the same account as the role. If the resource you want to connect to lives in a different AWS account from one you have already set up, create both the identity provider and the role in the account that owns the resource, then use that role's ARN in your endpoint configuration. Nothing needs to change in your original account.
+
+A task's endpoint configuration holds a single role ARN, so resources spread across several accounts need one task per account.
+
+Granting your existing role cross-account access through a resource-based policy is not a substitute. Connectors often call account-level APIs during discovery, such as `dynamodb:ListTables`, which a resource-based policy on an individual resource cannot grant.

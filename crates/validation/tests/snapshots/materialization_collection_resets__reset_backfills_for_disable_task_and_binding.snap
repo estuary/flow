@@ -356,6 +356,7 @@ expression: outcome.built_materializations
                     backfill: 1,
                     state_key: "a.v1",
                     ser_policy: None,
+                    collection_index: 0,
                 },
                 Binding {
                     resource_config_json: b"{\"table\":\"b\"}",
@@ -602,6 +603,7 @@ expression: outcome.built_materializations
                     backfill: 1,
                     state_key: "b.v1",
                     ser_policy: None,
+                    collection_index: 0,
                 },
             ],
             shard_template: Some(
@@ -728,6 +730,8 @@ expression: outcome.built_materializations
             inactive_bindings: [],
             triggers_json: b"",
             created_at: "2025-05-07",
+            sync_schedule_json: b"",
+            linked_collections: [],
         },
         previous_spec: MaterializationSpec {
             name: "testing/materialize",
@@ -774,6 +778,7 @@ expression: outcome.built_materializations
                     backfill: 0,
                     state_key: "",
                     ser_policy: None,
+                    collection_index: 0,
                 },
                 Binding {
                     resource_config_json: b"",
@@ -815,6 +820,7 @@ expression: outcome.built_materializations
                     backfill: 0,
                     state_key: "",
                     ser_policy: None,
+                    collection_index: 0,
                 },
             ],
             shard_template: Some(
@@ -849,6 +855,8 @@ expression: outcome.built_materializations
             inactive_bindings: [],
             triggers_json: b"",
             created_at: "",
+            sync_schedule_json: b"",
+            linked_collections: [],
         },
         is_touch: 0,
         dependency_hash: eea0c2493934ba84,

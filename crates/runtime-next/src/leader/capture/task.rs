@@ -61,8 +61,10 @@ impl Task {
             explicit_acknowledgements,
         } = opened.clone().opened.context("expected Opened")?;
 
+        let spec = spec.as_ref().context("missing capture")?;
+
         let flow::CaptureSpec {
-            bindings,
+            bindings: _,
             config_json: _,
             connector_type: _,
             interval_seconds,
@@ -73,7 +75,8 @@ impl Task {
             inactive_bindings: _,
             redact_salt,
             created_at: _,
-        } = spec.as_ref().context("missing capture")?;
+            linked_collections: _,
+        } = spec;
         let range = range.context("missing range")?;
 
         if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
@@ -94,11 +97,29 @@ impl Task {
             .context("missing max_txn_duration")?
             .try_into()?;
 
+        // `doc::combine` packs its binding index into a u16, and the
+        // connector-state pseudo-binding sits at index `bindings.len()`, so the
+        // length itself must also fit. This guards the *format* limit and
+        // deliberately shares no constant with `validation::MAX_BINDINGS`, which
+        // gates published tasks far below it: tripping this means an unvalidated
+        // spec reached the runtime.
+        if spec.bindings.len() > u16::MAX as usize {
+            anyhow::bail!(
+                "capture has {} bindings, which exceeds the combiner limit of {}",
+                spec.bindings.len(),
+                u16::MAX,
+            );
+        }
+
         let ser_policy = doc::SerPolicy::noop();
-        let bindings = bindings
-            .iter()
+        let bindings = spec
+            .resolved_bindings()
             .enumerate()
-            .map(|(index, spec)| Binding::new(spec, ser_policy.clone()).context(index))
+            .map(|(index, (binding, resolved))| {
+                let (collection, _identity) =
+                    resolved.context("missing collection").context(index)?;
+                Binding::new(binding, collection, ser_policy.clone()).context(index)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         // A Clock one poll `interval` from now, on the same wall-clock base as
@@ -207,10 +228,15 @@ impl Task {
 }
 
 impl Binding {
-    fn new(spec: &flow::capture_spec::Binding, ser_policy: doc::SerPolicy) -> anyhow::Result<Self> {
+    fn new(
+        spec: &flow::capture_spec::Binding,
+        collection: &flow::CollectionSpec,
+        ser_policy: doc::SerPolicy,
+    ) -> anyhow::Result<Self> {
         let flow::capture_spec::Binding {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             resource_config_json: _,
             resource_path: _,
             state_key,
@@ -227,7 +253,7 @@ impl Binding {
             read_schema_json: _,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing collection")?;
+        } = collection;
 
         let partition_template = partition_template
             .as_ref()
@@ -269,5 +295,92 @@ impl Binding {
             format!("captured collection {}", self.collection_name),
             validator,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_collection(index: usize) -> flow::CollectionSpec {
+        flow::CollectionSpec {
+            name: format!("acmeCo/collection-{index}"),
+            key: vec!["/id".to_string()],
+            partition_template: Some(proto_gazette::broker::JournalSpec {
+                name: format!("acmeCo/collection-{index}/00112233445566{index:02x}"),
+                ..Default::default()
+            }),
+            projections: serde_json::from_value(serde_json::json!([
+                {"field": "id", "ptr": "/id", "inference": {"types": ["string"]}},
+            ]))
+            .unwrap(),
+            uuid_ptr: "/_meta/uuid".to_string(),
+            write_schema_json: r#"{"type":"object"}"#.into(),
+            ..Default::default()
+        }
+    }
+
+    /// An indirect-form capture Open / Opened over `collections` linked collections
+    /// and `bindings` bindings, assigned round-robin: any `bindings >
+    /// collections` fans several bindings into one collection.
+    fn mk_open(collections: usize, bindings: usize) -> (Request, Response) {
+        let spec = flow::CaptureSpec {
+            name: "acmeCo/capture".to_string(),
+            bindings: (0..bindings)
+                .map(|index| flow::capture_spec::Binding {
+                    collection_index: (index % collections) as u32,
+                    resource_path: vec![format!("table-{index}")],
+                    state_key: format!("table-{index}"),
+                    ..Default::default()
+                })
+                .collect(),
+            linked_collections: (0..collections).map(mk_collection).collect(),
+            shard_template: Some(consumer::ShardSpec {
+                min_txn_duration: Some(std::time::Duration::ZERO.into()),
+                max_txn_duration: Some(std::time::Duration::from_secs(1).into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let open = Request {
+            open: Some(request::Open {
+                capture: Some(spec),
+                range: Some(flow::RangeSpec {
+                    key_begin: 0,
+                    key_end: u32::MAX,
+                    r_clock_begin: 0,
+                    r_clock_end: u32::MAX,
+                }),
+                version: "aabbccdd".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let opened = Response {
+            opened: Some(response::Opened {
+                explicit_acknowledgements: true,
+            }),
+            ..Default::default()
+        };
+        (open, opened)
+    }
+
+    /// The runtime guards `doc::combine`'s u16 binding index independently of
+    /// `validation::MAX_BINDINGS`: a spec at the format limit builds, and one
+    /// past it is a hard error rather than a wrapped pseudo-binding.
+    #[test]
+    fn task_guards_the_combiner_format_limit() {
+        let (open, opened) = mk_open(1, u16::MAX as usize);
+        let task = Task::new(&open, &opened, 0).unwrap();
+        assert_eq!(task.bindings.len(), u16::MAX as usize);
+
+        let (open, opened) = mk_open(1, u16::MAX as usize + 1);
+        let err = Task::new(&open, &opened, 0).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("65536 bindings, which exceeds the combiner limit of 65535"),
+            "unexpected error: {err}",
+        );
     }
 }

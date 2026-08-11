@@ -84,6 +84,57 @@ fn parse_broker_url(broker_url: &str) -> anyhow::Result<(ConnectionScheme, Strin
     Ok((scheme, host, port))
 }
 
+/// Where a `FindCoordinator` response directs us.
+#[derive(Debug)]
+enum CoordinatorTarget {
+    /// The broker we're already connected to should serve this group.
+    Current,
+    /// Connect to this broker URL to serve this group.
+    Broker(String),
+    /// The cluster has no servable coordinator yet, but expects to shortly.
+    Retry(kafka_protocol::ResponseError),
+}
+
+/// Interpret a `FindCoordinator` response into the broker we should talk to.
+fn coordinator_target(
+    scheme: ConnectionScheme,
+    resp: &messages::FindCoordinatorResponse,
+) -> anyhow::Result<CoordinatorTarget> {
+    // v4 moved the result into `coordinators` to allow batching; v0-3 carry a
+    // single result inline. We request v3, but handle both so that bumping the
+    // requested version doesn't silently start reading zeroed inline fields.
+    let (error_code, host, port) = match resp.coordinators.first() {
+        Some(coord) => (coord.error_code, coord.host.as_str(), coord.port),
+        None => (resp.error_code, resp.host.as_str(), resp.port),
+    };
+
+    match error_code.err() {
+        // The coordinator's `__consumer_offsets` partition is being replayed or
+        // created. Notably, a cluster which has no `__consumer_offsets` topic
+        // auto-creates it in response to this very request, so the first group
+        // of a cluster's lifetime reliably sees this at least once.
+        Some(
+            err @ (kafka_protocol::ResponseError::CoordinatorNotAvailable
+            | kafka_protocol::ResponseError::CoordinatorLoadInProgress),
+        ) => return Ok(CoordinatorTarget::Retry(err)),
+        Some(err) => anyhow::bail!("FindCoordinator failed: {err}"),
+        None => {}
+    }
+
+    // Brokers also spell "I have no coordinator for you" as an empty host with
+    // a port of -1, without necessarily setting an error code. This must be
+    // checked *before* building a URL: -1 is not a representable port, so
+    // `broker_url_for_host_port` would reject it as a malformed address rather
+    // than the transient condition it actually is.
+    if host.is_empty() && port == -1 {
+        return Ok(CoordinatorTarget::Current);
+    }
+
+    Ok(CoordinatorTarget::Broker(broker_url_for_host_port(
+        scheme, host, port,
+    )?))
+}
+
 static ROOT_CERT_STORE: tokio::sync::OnceCell<Arc<RootCertStore>> =
     tokio::sync::OnceCell::const_new();
 
@@ -467,37 +518,72 @@ impl KafkaApiClient {
         resp
     }
 
+    /// Resolve the group coordinator for `key`, polling while the cluster
+    /// reports one is still loading.
+    ///
+    /// Every caller is serving a live consumer-group API, and Dekaf has no way
+    /// to hand a client a retryable error mid-session: an error here propagates
+    /// out of `dispatch_request_frame` and closes the connection, which the
+    /// client reports as a transport failure. So a condition the cluster tells
+    /// us to wait on must be waited on here rather than returned.
     #[instrument(skip(self))]
     pub async fn connect_to_group_coordinator(&mut self, key: &str) -> anyhow::Result<&mut Self> {
-        let req = messages::FindCoordinatorRequest::default()
-            .with_key(protocol::StrBytes::from_string(key.to_string()))
-            // https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/FindCoordinatorRequest.java#L119
-            .with_key_type(0); // 0: consumer, 1: transaction
+        const MAX_ATTEMPTS: u32 = 6;
+        const BASE_DELAY: Duration = Duration::from_millis(250);
 
-        let resp = self
-            .send_request(
-                req,
-                Some(
-                    messages::RequestHeader::default()
-                        .with_request_api_key(messages::FindCoordinatorRequest::KEY)
-                        .with_request_api_version(3),
-                ),
-            )
-            .await?;
+        // `None` once resolved means "keep using the current connection".
+        // Resolving into a local rather than returning `&mut self` from inside
+        // the loop keeps the borrow of `self` confined to a single iteration.
+        let mut target = None;
 
-        let (coord_host, coord_port) = if let Some(coord) = resp.coordinators.first() {
-            (coord.host.as_str(), coord.port)
-        } else {
-            (resp.host.as_str(), resp.port)
-        };
+        for attempt in 1..=MAX_ATTEMPTS {
+            let resp = self
+                .send_request(
+                    messages::FindCoordinatorRequest::default()
+                        .with_key(protocol::StrBytes::from_string(key.to_string()))
+                        // https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/FindCoordinatorRequest.java#L119
+                        .with_key_type(0), // 0: consumer, 1: transaction
+                    Some(
+                        messages::RequestHeader::default()
+                            .with_request_api_key(messages::FindCoordinatorRequest::KEY)
+                            .with_request_api_version(3),
+                    ),
+                )
+                .await?;
 
-        let coord_url = broker_url_for_host_port(self.scheme, coord_host, coord_port)?;
+            match coordinator_target(self.scheme, &resp)? {
+                CoordinatorTarget::Current => break,
+                CoordinatorTarget::Broker(url) => {
+                    target = Some(url);
+                    break;
+                }
+                CoordinatorTarget::Retry(err) if attempt == MAX_ATTEMPTS => {
+                    anyhow::bail!(
+                        "group coordinator for {key} still unavailable after {attempt} attempts: {err}"
+                    );
+                }
+                CoordinatorTarget::Retry(err) => {
+                    // Exponential backoff of 250ms, 500ms, 1s, 2s, 4s: ~7.75s
+                    // in total, which is comfortably within the request timeout
+                    // a Kafka client allows for group operations.
+                    let delay = BASE_DELAY * 2u32.pow(attempt - 1);
 
-        Ok(if coord_host.len() == 0 && coord_port == -1 {
-            self
-        } else {
-            self.client_for_broker(&coord_url).await?
-        })
+                    tracing::warn!(
+                        %key,
+                        %err,
+                        attempt,
+                        ?delay,
+                        "group coordinator is not yet available; retrying"
+                    );
+                    () = tokio::time::sleep(delay).await;
+                }
+            }
+        }
+
+        match target {
+            Some(url) => self.client_for_broker(&url).await,
+            None => Ok(self),
+        }
     }
 
     /// Some APIs can only be sent to the current cluster controller broker.
@@ -890,7 +976,73 @@ impl rsasl::callback::SessionCallback for MSKCredentialsProvider {
 mod tests {
     use insta::assert_snapshot;
 
-    use super::{ConnectionScheme, broker_url_for_host_port, parse_broker_url};
+    use super::{ConnectionScheme, broker_url_for_host_port, coordinator_target, parse_broker_url};
+    use kafka_protocol::{messages, protocol::StrBytes};
+
+    /// A v0-3 style response, which carries its single result inline.
+    fn inline_response(
+        error_code: i16,
+        host: &str,
+        port: i32,
+    ) -> messages::FindCoordinatorResponse {
+        messages::FindCoordinatorResponse::default()
+            .with_error_code(error_code)
+            .with_host(StrBytes::from_string(host.to_string()))
+            .with_port(port)
+    }
+
+    /// A v4+ style response, which batches results under `coordinators`.
+    fn batched_response(
+        error_code: i16,
+        host: &str,
+        port: i32,
+    ) -> messages::FindCoordinatorResponse {
+        messages::FindCoordinatorResponse::default().with_coordinators(vec![
+            messages::find_coordinator_response::Coordinator::default()
+                .with_error_code(error_code)
+                .with_host(StrBytes::from_string(host.to_string()))
+                .with_port(port),
+        ])
+    }
+
+    #[test]
+    fn test_coordinator_target() {
+        let target = |resp| match coordinator_target(ConnectionScheme::Tls, &resp) {
+            Ok(target) => format!("{target:?}"),
+            Err(err) => format!("Err({err})"),
+        };
+
+        // A resolved coordinator, in both response shapes.
+        assert_snapshot!(
+            target(inline_response(0, "broker.example", 9092)),
+            @r#"Broker("tls://broker.example:9092")"#
+        );
+        assert_snapshot!(
+            target(batched_response(0, "broker.example", 9092)),
+            @r#"Broker("tls://broker.example:9092")"#
+        );
+
+        // The condition that regressed: a coordinator which isn't servable yet
+        // must be retried, not reported as a malformed broker address.
+        assert_snapshot!(
+            target(inline_response(15, "", -1)),
+            @"Retry(CoordinatorNotAvailable)"
+        );
+        assert_snapshot!(
+            target(batched_response(14, "", -1)),
+            @"Retry(CoordinatorLoadInProgress)"
+        );
+
+        // The same sentinel without an accompanying error code leaves us on the
+        // broker we're already connected to.
+        assert_snapshot!(target(inline_response(0, "", -1)), @"Current");
+
+        // Anything else is terminal.
+        assert_snapshot!(
+            target(inline_response(29, "", -1)),
+            @"Err(FindCoordinator failed: TopicAuthorizationFailed)"
+        );
+    }
 
     #[test]
     fn test_parse_broker_url_success_cases() {

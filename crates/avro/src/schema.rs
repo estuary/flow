@@ -150,6 +150,11 @@ fn object_to_avro(loc: json::Location, obj: doc::shape::ObjShape) -> avro::Schem
             extra = doc::Shape::union(extra, prop.shape);
             continue; // Cannot be represented under Avro's name restrictions.
         }
+
+        if prop.shape.type_ == types::INVALID {
+            continue;
+        }
+
         let default = prop.shape.default.as_ref().map(|d| d.0.clone());
         let schema = shape_to_avro(loc.push_prop(&prop.name), prop.shape, prop.is_required);
 
@@ -318,6 +323,39 @@ mod test {
         }).to_string();
 
         let key = &["/a_bool", "/obj/a_map/a_const"];
+        let key: Vec<_> = key.iter().map(|p| json::Pointer::from(*p)).collect();
+        insta::assert_json_snapshot!(schema_test(&fixture, &key));
+    }
+
+    #[test]
+    fn test_all_of_invalid_field_default() {
+        let fixture = json!({
+          "$defs": {
+            "flow://relaxed-write-schema": {
+              "$id": "flow://relaxed-write-schema",
+              "properties": {
+                "id": {"type": "string"},
+                "value": { "type": "string", "default":"42"},
+              },
+            },
+            "flow://inferred-schema": {
+              "$id": "flow://inferred-schema",
+              "additionalProperties": false,
+              "properties": {
+                "id": {"type": "string"},
+              },
+              "required": ["id"],
+              "type": "object",
+            },
+          },
+          "allOf": [
+            {"$ref": "flow://relaxed-write-schema"},
+            {"$ref": "flow://inferred-schema"},
+          ],
+        })
+        .to_string();
+
+        let key = &["/id"];
         let key: Vec<_> = key.iter().map(|p| json::Pointer::from(*p)).collect();
         insta::assert_json_snapshot!(schema_test(&fixture, &key));
     }

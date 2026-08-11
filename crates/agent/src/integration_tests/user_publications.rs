@@ -728,7 +728,6 @@ impl publications::Initialize for RevokeMidPublication<'_> {
         _user_id: uuid::Uuid,
         _draft: &mut tables::DraftCatalog,
         _snapshot: &control_plane_api::Snapshot,
-        _started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<()> {
         sqlx::query(
             "delete from role_grants where subject_role = 'dogs/' and object_role = 'cats/'",
@@ -786,7 +785,7 @@ async fn test_publication_uses_one_snapshot_across_phases() {
         default_data_plane_name: Some("ops/dp/public/test".to_string()),
         initialize: (
             publications::ExpandDraft {
-                filter_user_has_admin: true,
+                filter_user_authz: true,
             },
             RevokeMidPublication {
                 harness: &harness,
@@ -831,7 +830,7 @@ async fn test_publication_uses_one_snapshot_across_phases() {
         verify_user_authz: true,
         default_data_plane_name: Some("ops/dp/public/test".to_string()),
         initialize: publications::ExpandDraft {
-            filter_user_has_admin: true,
+            filter_user_authz: true,
         },
         finalize: publications::PruneUnboundCollections,
         retry: publications::DoNotRetry,

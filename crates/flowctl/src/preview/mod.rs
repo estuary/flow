@@ -303,10 +303,10 @@ async fn preview_capture<L: runtime::LogHandler>(
 
             tracing::trace!(?key_packed, ?partitions_packed, "captured");
 
-            let collection = &spec.bindings[binding as usize]
-                .collection
-                .as_ref()
+            let collection = &spec
+                .binding_collection(&spec.bindings[binding as usize])
                 .unwrap()
+                .0
                 .name;
 
             print!("[{collection:?},{}]\n", str::from_utf8(&doc_json).unwrap());

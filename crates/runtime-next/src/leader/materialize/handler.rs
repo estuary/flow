@@ -221,6 +221,7 @@ where
         let head = fsm::Head::Idle(fsm::HeadIdle {
             last_close: committed_close,
             idempotent_replay,
+            session_start: true,
             ..Default::default()
         });
         let pending = fsm::PendingDeltas {

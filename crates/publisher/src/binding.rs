@@ -39,13 +39,10 @@ pub struct FixedBinding {
 impl Binding {
     /// Build Bindings for a CaptureSpec, one per active capture binding.
     pub fn from_capture_spec(spec: &flow::CaptureSpec) -> anyhow::Result<Vec<Self>> {
-        spec.bindings
-            .iter()
+        spec.resolved_bindings()
             .enumerate()
-            .map(|(index, binding)| {
-                let collection_spec = binding
-                    .collection
-                    .as_ref()
+            .map(|(index, (_binding, resolved))| {
+                let (collection_spec, _identity) = resolved
                     .with_context(|| format!("capture binding {index} missing collection"))?;
 
                 Self::from_collection_spec(collection_spec).with_context(|| {

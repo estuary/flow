@@ -470,6 +470,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.created_at.is_empty() {
             len += 1;
         }
+        if !self.linked_collections.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -510,6 +513,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.created_at.is_empty() {
             struct_ser.serialize_field("createdAt", &self.created_at)?;
         }
+        if !self.linked_collections.is_empty() {
+            struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
+        }
         struct_ser.end()
     }
 }
@@ -540,6 +546,8 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             "redactSalt",
             "created_at",
             "createdAt",
+            "linked_collections",
+            "linkedCollections",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -555,6 +563,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             InactiveBindings,
             RedactSalt,
             CreatedAt,
+            LinkedCollections,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -588,6 +597,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             "inactiveBindings" | "inactive_bindings" => Ok(GeneratedField::InactiveBindings),
                             "redactSalt" | "redact_salt" => Ok(GeneratedField::RedactSalt),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
+                            "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -618,6 +628,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                 let mut inactive_bindings__ = None;
                 let mut redact_salt__ = None;
                 let mut created_at__ = None;
+                let mut linked_collections__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -692,6 +703,12 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             created_at__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LinkedCollections => {
+                            if linked_collections__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("linkedCollections"));
+                            }
+                            linked_collections__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -709,6 +726,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                     inactive_bindings: inactive_bindings__.unwrap_or_default(),
                     redact_salt: redact_salt__.unwrap_or_default(),
                     created_at: created_at__.unwrap_or_default(),
+                    linked_collections: linked_collections__.unwrap_or_default(),
                 })
             }
         }
@@ -738,6 +756,9 @@ impl serde::Serialize for capture_spec::Binding {
         if !self.state_key.is_empty() {
             len += 1;
         }
+        if self.collection_index != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -755,6 +776,9 @@ impl serde::Serialize for capture_spec::Binding {
         }
         if !self.state_key.is_empty() {
             struct_ser.serialize_field("stateKey", &self.state_key)?;
+        }
+        if self.collection_index != 0 {
+            struct_ser.serialize_field("collectionIndex", &self.collection_index)?;
         }
         struct_ser.end()
     }
@@ -774,6 +798,8 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
             "backfill",
             "state_key",
             "stateKey",
+            "collection_index",
+            "collectionIndex",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -783,6 +809,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
             Collection,
             Backfill,
             StateKey,
+            CollectionIndex,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -810,6 +837,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
                             "collection" => Ok(GeneratedField::Collection),
                             "backfill" => Ok(GeneratedField::Backfill),
                             "stateKey" | "state_key" => Ok(GeneratedField::StateKey),
+                            "collectionIndex" | "collection_index" => Ok(GeneratedField::CollectionIndex),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -834,6 +862,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
                 let mut collection__ = None;
                 let mut backfill__ = None;
                 let mut state_key__ = None;
+                let mut collection_index__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -870,6 +899,14 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
                             }
                             state_key__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::CollectionIndex => {
+                            if collection_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("collectionIndex"));
+                            }
+                            collection_index__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -881,6 +918,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
                     collection: collection__,
                     backfill: backfill__.unwrap_or_default(),
                     state_key: state_key__.unwrap_or_default(),
+                    collection_index: collection_index__.unwrap_or_default(),
                 })
             }
         }
@@ -1262,6 +1300,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.redact_salt.is_empty() {
             len += 1;
         }
+        if !self.linked_collections.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation", len)?;
         if self.connector_type != 0 {
             let v = collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1300,6 +1341,9 @@ impl serde::Serialize for collection_spec::Derivation {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("redactSalt", pbjson::private::base64::encode(&self.redact_salt).as_str())?;
         }
+        if !self.linked_collections.is_empty() {
+            struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
+        }
         struct_ser.end()
     }
 }
@@ -1327,6 +1371,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             "inactiveTransforms",
             "redact_salt",
             "redactSalt",
+            "linked_collections",
+            "linkedCollections",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1340,6 +1386,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             NetworkPorts,
             InactiveTransforms,
             RedactSalt,
+            LinkedCollections,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1371,6 +1418,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
                             "inactiveTransforms" | "inactive_transforms" => Ok(GeneratedField::InactiveTransforms),
                             "redactSalt" | "redact_salt" => Ok(GeneratedField::RedactSalt),
+                            "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1399,6 +1447,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                 let mut network_ports__ = None;
                 let mut inactive_transforms__ = None;
                 let mut redact_salt__ = None;
+                let mut linked_collections__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1459,6 +1508,12 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::LinkedCollections => {
+                            if linked_collections__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("linkedCollections"));
+                            }
+                            linked_collections__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1474,6 +1529,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                     network_ports: network_ports__.unwrap_or_default(),
                     inactive_transforms: inactive_transforms__.unwrap_or_default(),
                     redact_salt: redact_salt__.unwrap_or_default(),
+                    linked_collections: linked_collections__.unwrap_or_default(),
                 })
             }
         }
@@ -1690,6 +1746,9 @@ impl serde::Serialize for collection_spec::derivation::Transform {
         if !self.state_key.is_empty() {
             len += 1;
         }
+        if self.collection_index != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation.Transform", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -1737,6 +1796,9 @@ impl serde::Serialize for collection_spec::derivation::Transform {
         if !self.state_key.is_empty() {
             struct_ser.serialize_field("stateKey", &self.state_key)?;
         }
+        if self.collection_index != 0 {
+            struct_ser.serialize_field("collectionIndex", &self.collection_index)?;
+        }
         struct_ser.end()
     }
 }
@@ -1771,6 +1833,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             "backfill",
             "state_key",
             "stateKey",
+            "collection_index",
+            "collectionIndex",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1789,6 +1853,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             NotAfter,
             Backfill,
             StateKey,
+            CollectionIndex,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1825,6 +1890,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                             "notAfter" | "not_after" => Ok(GeneratedField::NotAfter),
                             "backfill" => Ok(GeneratedField::Backfill),
                             "stateKey" | "state_key" => Ok(GeneratedField::StateKey),
+                            "collectionIndex" | "collection_index" => Ok(GeneratedField::CollectionIndex),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1858,6 +1924,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                 let mut not_after__ = None;
                 let mut backfill__ = None;
                 let mut state_key__ = None;
+                let mut collection_index__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -1954,6 +2021,14 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                             }
                             state_key__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::CollectionIndex => {
+                            if collection_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("collectionIndex"));
+                            }
+                            collection_index__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1974,6 +2049,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                     not_after: not_after__,
                     backfill: backfill__.unwrap_or_default(),
                     state_key: state_key__.unwrap_or_default(),
+                    collection_index: collection_index__.unwrap_or_default(),
                 })
             }
         }
@@ -3984,6 +4060,12 @@ impl serde::Serialize for MaterializationSpec {
         if !self.created_at.is_empty() {
             len += 1;
         }
+        if !self.sync_schedule_json.is_empty() {
+            len += 1;
+        }
+        if !self.linked_collections.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -4021,6 +4103,14 @@ impl serde::Serialize for MaterializationSpec {
         if !self.created_at.is_empty() {
             struct_ser.serialize_field("createdAt", &self.created_at)?;
         }
+        if !self.sync_schedule_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("syncSchedule", &crate::as_raw_json(&self.sync_schedule_json)?)?;
+        }
+        if !self.linked_collections.is_empty() {
+            struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
+        }
         struct_ser.end()
     }
 }
@@ -4049,6 +4139,10 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "triggers",
             "created_at",
             "createdAt",
+            "sync_schedule_json",
+            "syncSchedule",
+            "linked_collections",
+            "linkedCollections",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4063,6 +4157,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             InactiveBindings,
             TriggersJson,
             CreatedAt,
+            SyncScheduleJson,
+            LinkedCollections,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4095,6 +4191,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             "inactiveBindings" | "inactive_bindings" => Ok(GeneratedField::InactiveBindings),
                             "triggers" | "triggers_json" => Ok(GeneratedField::TriggersJson),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
+                            "syncSchedule" | "sync_schedule_json" => Ok(GeneratedField::SyncScheduleJson),
+                            "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4124,6 +4222,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut inactive_bindings__ = None;
                 let mut triggers_json__ = None;
                 let mut created_at__ = None;
+                let mut sync_schedule_json__ = None;
+                let mut linked_collections__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -4190,6 +4290,20 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             created_at__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::SyncScheduleJson => {
+                            if sync_schedule_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("syncSchedule"));
+                            }
+                            sync_schedule_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
+                        GeneratedField::LinkedCollections => {
+                            if linked_collections__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("linkedCollections"));
+                            }
+                            linked_collections__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4206,6 +4320,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     inactive_bindings: inactive_bindings__.unwrap_or_default(),
                     triggers_json: triggers_json__.unwrap_or_default(),
                     created_at: created_at__.unwrap_or_default(),
+                    sync_schedule_json: sync_schedule_json__.unwrap_or_default(),
+                    linked_collections: linked_collections__.unwrap_or_default(),
                 })
             }
         }
@@ -4262,6 +4378,9 @@ impl serde::Serialize for materialization_spec::Binding {
         if self.ser_policy.is_some() {
             len += 1;
         }
+        if self.collection_index != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -4307,6 +4426,9 @@ impl serde::Serialize for materialization_spec::Binding {
         if let Some(v) = self.ser_policy.as_ref() {
             struct_ser.serialize_field("serPolicy", v)?;
         }
+        if self.collection_index != 0 {
+            struct_ser.serialize_field("collectionIndex", &self.collection_index)?;
+        }
         struct_ser.end()
     }
 }
@@ -4342,6 +4464,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             "stateKey",
             "ser_policy",
             "serPolicy",
+            "collection_index",
+            "collectionIndex",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4360,6 +4484,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             Backfill,
             StateKey,
             SerPolicy,
+            CollectionIndex,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4396,6 +4521,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             "backfill" => Ok(GeneratedField::Backfill),
                             "stateKey" | "state_key" => Ok(GeneratedField::StateKey),
                             "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
+                            "collectionIndex" | "collection_index" => Ok(GeneratedField::CollectionIndex),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4429,6 +4555,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                 let mut backfill__ = None;
                 let mut state_key__ = None;
                 let mut ser_policy__ = None;
+                let mut collection_index__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -4521,6 +4648,14 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             }
                             ser_policy__ = map_.next_value()?;
                         }
+                        GeneratedField::CollectionIndex => {
+                            if collection_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("collectionIndex"));
+                            }
+                            collection_index__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4541,6 +4676,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                     backfill: backfill__.unwrap_or_default(),
                     state_key: state_key__.unwrap_or_default(),
                     ser_policy: ser_policy__,
+                    collection_index: collection_index__.unwrap_or_default(),
                 })
             }
         }
