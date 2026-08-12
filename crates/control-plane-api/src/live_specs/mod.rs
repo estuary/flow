@@ -48,15 +48,13 @@ pub async fn get_live_specs(
                 continue;
             };
             if let Some(min_capability) = filter_capability {
-                // For discovers, anchor to the discover request time (started_at).
-                // For other callers, anchor to the spec's publication time.
-                // An authoritative denial is today's silent drop; a provisional
-                // one surfaces as a retryable stale error.
-                let anchor = started_at.unwrap_or_else(|| row.last_pub_id.timestamp());
-                if !snapshot
-                    .user_authorization(user_id, &row.catalog_name, min_capability, Some(anchor))
-                    .ok_or_stale(&row.catalog_name)?
-                {
+                if !snapshot.spec_fetch_authorization(
+                    user_id,
+                    &row.catalog_name,
+                    min_capability,
+                    started_at,
+                    row.last_pub_id,
+                )? {
                     continue;
                 }
             }
@@ -161,6 +159,7 @@ pub async fn get_connected_live_specs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{assert_stale_for, authoritative, stale};
 
     // From `fixtures/authz_specs.sql`. Carol is admin of `carolCo/`; Dan holds no
     // grants at all and so models an unauthorized caller.
@@ -168,52 +167,6 @@ mod tests {
     const DAN: uuid::Uuid = uuid::uuid!("44444444-4444-4444-4444-444444444444");
     const COLLECTION: &str = "carolCo/data/foo";
     const CAPTURE: &str = "carolCo/in/capture-foo";
-
-    /// Staleness compares the Snapshot's `taken` against the timestamp embedded
-    /// in a spec's `last_pub_id`, so read that back rather than recomputing it —
-    /// `flowid` is `macaddr8`, which silently widens short literals.
-    async fn published_at(pool: &sqlx::PgPool) -> tokens::DateTime {
-        sqlx::query_scalar!(
-            r#"select last_pub_id as "last_pub_id: models::Id"
-            from live_specs where catalog_name = $1"#,
-            COLLECTION,
-        )
-        .fetch_one(pool)
-        .await
-        .expect("fixture collection should exist")
-        .timestamp()
-    }
-
-    /// A Snapshot holding the fixture's real grants, stamped `offset` away from
-    /// the instant the fixture's specs were published.
-    async fn snapshot_offset(pool: &sqlx::PgPool, offset: chrono::TimeDelta) -> crate::Snapshot {
-        let mut decrypted_hmac_keys = std::collections::HashMap::new();
-        let data = crate::snapshot::try_fetch(pool, &mut decrypted_hmac_keys)
-            .await
-            .expect("failed to fetch snapshot");
-        crate::Snapshot::new(published_at(pool).await + offset, data)
-    }
-
-    /// Taken clear of the publication plus `TEMPORAL_SKEW`: denials are definitive.
-    async fn authoritative(pool: &sqlx::PgPool) -> crate::Snapshot {
-        snapshot_offset(pool, crate::Snapshot::TEMPORAL_SKEW * 4).await
-    }
-
-    /// Taken before the publication it would judge: denials are retryable.
-    async fn stale(pool: &sqlx::PgPool) -> crate::Snapshot {
-        snapshot_offset(pool, -crate::Snapshot::TEMPORAL_SKEW * 4).await
-    }
-
-    fn assert_stale_for(err: anyhow::Error, catalog_name: &str) {
-        assert!(
-            validation::is_authz_snapshot_stale(&err),
-            "expected a retryable stale-snapshot error, got: {err:#}"
-        );
-        assert!(
-            err.to_string().contains(catalog_name),
-            "stale error should name the offending spec, got: {err:#}"
-        );
-    }
 
     /// With no capability filter the Snapshot is never consulted, so even a
     /// wholly unauthorized caller reading against a stale Snapshot gets the spec.
