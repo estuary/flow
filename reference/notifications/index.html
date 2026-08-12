@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/assets/css/styles.ce924ef5.css">
-<script src="/assets/js/runtime~main.86a33bbd.js" defer="defer"></script>
-<script src="/assets/js/main.183554f9.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.9fa38f6f.js" defer="defer"></script>
+<script src="/assets/js/main.7c69d832.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -25,7 +25,9 @@
 <li class="">Select the <a href="https://dashboard.estuary.dev/admin/settings" target="_blank" rel="noopener noreferrer" class=""><strong>Settings</strong></a> tab</li>
 <li class="">If you have access to more than one prefix, select your desired tenant from the <strong>Prefix</strong> dropdown</li>
 <li class="">Under the <strong>Organization Notifications</strong> section, click <strong>Configure Notifications</strong> to create a new subscription or <strong>Edit</strong> an existing one</li>
-<li class="">Enter your desired prefix, email, and <a href="#alert-types" class="">alert types</a></li>
+<li class="">In the alert configuration screen, specify a subprefix if desired or use the base prefix to apply the subscription to the whole tenant</li>
+<li class="">Under <strong>Global Settings</strong>, optionally choose default values for alert settings</li>
+<li class="">Add one or more <strong>Recipients</strong>, each of which should specify an email and the <a href="#alert-types" class="">alert types</a> to send to that email</li>
 <li class="">Save your alert subscription</li>
 </ol></div><div role="tabpanel" class="tabItem_Ymn6" hidden=""><ol>
 <li class="">
@@ -48,8 +50,9 @@ Active and historical notifications include the type of alert, when it was fired
 <p>Alerts are broken out into different categories. These categories cover different failure modes, unexpected behavior, and warnings.</p>
 <p>One email may subscribe to multiple alert types.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="data-movement-alerts">Data Movement Alerts<a href="#data-movement-alerts" class="hash-link" aria-label="Direct link to Data Movement Alerts" title="Direct link to Data Movement Alerts" translate="no">​</a></h3>
-<p>A user can select an interval for tracking zero data movement for a specific capture or materialization.</p>
-<p>On the capture or materialization details page, select the <strong>Alerts</strong> tab. Under the <strong>Notification Settings</strong> card, select a time interval from the <strong>Interval</strong> dropdown. You must have already configured notifications in order for the alert to take effect. If you are not yet subscribed to notifications, an info box will appear prompting you to set up a subscription by clicking on <code>CLICK HERE</code>.</p>
+<p>A user can select an interval for tracking zero data movement for a specific capture or materialization or apply a default interval for tasks within a specific prefix.</p>
+<p>Default settings can be managed when creating or editing an alert subscription.</p>
+<p>To select an interval for a specific task, select the <strong>Alerts</strong> tab on the capture or materialization details page. Under the <strong>Notification Settings</strong> card, select a time interval from the <strong>Interval</strong> dropdown. You must have already configured notifications in order for the alert to take effect. If you are not yet subscribed to notifications, an info box will appear prompting you to set up a subscription by clicking on <code>CLICK HERE</code>.</p>
 <p>If your task does not receive any new documents with the selected timeframe, an email will be sent to any email addresses that are subscribed to the &quot;Data Movement Stalled&quot; alert type.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="auto-discover-alerts">Auto-Discover Alerts<a href="#auto-discover-alerts" class="hash-link" aria-label="Direct link to Auto-Discover Alerts" title="Direct link to Auto-Discover Alerts" translate="no">​</a></h3>
 <p>If schema evolution features are turned on for a capture, Estuary periodically attempts to auto-discover any updates or new data resources for that capture.
