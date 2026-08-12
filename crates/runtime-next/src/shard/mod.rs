@@ -59,7 +59,6 @@ pub fn start_due_split<P: crate::Publisher>(
             policy.ignore(&journal);
             continue;
         };
-        tracing::info!(journal, "starting automatic journal split");
         return Some(async move { (journal, split.await) }.boxed());
     }
     None
@@ -92,7 +91,7 @@ pub fn finish_split(
         // Too narrow to split, and a journal's width never grows: terminally
         // stop observing it.
         Ok(publisher::SplitOutcome::AtFloor) => {
-            tracing::debug!(
+            tracing::info!(
                 journal,
                 "journal is at the minimum split width; will not auto-split"
             );

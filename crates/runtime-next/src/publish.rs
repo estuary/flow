@@ -429,6 +429,30 @@ pub(crate) struct RecordingPublisher {
     pub stats: std::sync::Arc<std::sync::Mutex<Vec<ops::proto::Stats>>>,
 }
 
+/// Test [`PublisherFactory`] opening [`RecordingPublisher`]s, for tests which
+/// need to stand up a whole `Service` rather than an actor. Each `open` yields
+/// a fresh publisher, so this is for tests that never inspect what was
+/// published — those build a `RecordingPublisher` directly.
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct RecordingPublisherFactory;
+
+#[cfg(test)]
+impl PublisherFactory for RecordingPublisherFactory {
+    type Publisher = RecordingPublisher;
+
+    fn open(
+        &self,
+        _authz_subject: String,
+        _producer: uuid::Producer,
+        _stats_journal: &str,
+        _collection_specs: &[&proto_flow::flow::CollectionSpec],
+        _binding_targets: &[u32],
+    ) -> anyhow::Result<RecordingPublisher> {
+        Ok(RecordingPublisher::default())
+    }
+}
+
 #[cfg(test)]
 impl RecordingPublisher {
     pub fn take_docs(&self) -> Vec<(usize, String)> {
