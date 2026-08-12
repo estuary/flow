@@ -1,5 +1,5 @@
 use super::filters;
-use crate::directives::storage_mappings::{
+use crate::storage_mappings::{
     collection_and_recovery_spec_from, insert_storage_mapping, strip_collection_data_suffix,
     update_storage_mapping, upsert_storage_mapping,
 };

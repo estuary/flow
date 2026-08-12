@@ -1,7 +1,7 @@
 use crate::publications::{
     DoNotRetry, DraftPublication, NoopInitialize, NoopWithCommit, PruneUnboundCollections,
 };
-use crate::directives::storage_mappings::{fetch_storage_mappings, upsert_storage_mapping};
+use crate::storage_mappings::{fetch_storage_mappings, upsert_storage_mapping};
 use anyhow::Context;
 use validator::Validate;
 
