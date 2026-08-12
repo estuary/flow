@@ -1,12 +1,15 @@
+---
+description: Customize alert settings to subscribe to notifications based on environment, finetune error thresholds, or disable alert types by prefix.
+---
 
 # Customizing Alerts
 
 You can configure alert thresholds and scope subscriptions to customize when and how you receive notifications.
-You may manage these customization options using [`flowctl`](/guides/get-started-with-flowctl), Estuary's CLI tool.
+You may manage these customization options within the dashboard or by using [`flowctl`](/guides/get-started-with-flowctl), Estuary's CLI tool.
 
 ## Scope notifications per environment
 
-Subscriptions are scoped by catalog prefix, and a subscription can target a sub-prefix such as a single environment (for example `acmeCo/prod/`). Subscriptions are additive: an alert notifies every subscription whose prefix is a parent of the failing task. To route environments differently, create a separate subscription for each prefix.
+Subscriptions are scoped by catalog prefix, and a subscription can target a sub-prefix such as a single environment (for example `acmeCo/prod/`). Subscriptions are additive: an alert notifies every subscription whose prefix is a parent of the failing task. To route environments differently, create a separate [subscription](/reference/notifications) for each prefix.
 
 For example, you can page an on-call address for `acmeCo/prod/` but send `acmeCo/dev/` alerts to a team list.
 
@@ -25,13 +28,18 @@ Catalog prefixes must end in `/`.
 
 ## Alert configurations
 
-Alert conditions can be tuned per prefix or per task with `flowctl alerts configs`.
+Alert conditions can be tuned per prefix or per task.
 Configure alerts to reduce noise, or to apply different sensitivity to different environments.
 
 A more specific prefix overrides a broader one, field by field; any value you don't set inherits the default.
 This lets you set tenant-wide behavior with per-subprefix or per-task exceptions.
 
-Alerts that can be configured include:
+Alert conditions that can be configured using the dashboard include:
+* [Data Movement Stalled](/reference/notifications/#data-movement-alerts)
+   * Set a default interval value for the chosen prefix when creating or editing a notification subscription
+   * Set interval values on a per-task basis from the task's **Alerts** tab
+
+Alerts that can be configured using `flowctl alerts configs` include:
 * [`shardFailed`](/reference/notifications/#task-failure-alerts) (for task failures)
    * `taskChronicallyFailing`
 * [`dataMovementStalled`](/reference/notifications/#data-movement-alerts)

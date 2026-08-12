@@ -363,6 +363,7 @@ pub async fn split_partition(
     if key_range_width(split.key_begin, split.key_end) < 2 * MIN_PARTITION_WIDTH {
         return Ok(SplitOutcome::AtFloor);
     }
+    tracing::info!(journal, "starting automatic journal split");
 
     // Read the parent's current spec: the watch tracks only its name, key
     // range, and revision, while the split derives the LHS / RHS specs from
