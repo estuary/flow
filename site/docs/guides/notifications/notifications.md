@@ -20,8 +20,10 @@ To configure alert subscriptions:
 2. Select the [**Settings**](https://dashboard.estuary.dev/admin/settings) tab
 3. If you have access to more than one prefix, select your desired tenant from the **Prefix** dropdown
 4. Under the **Organization Notifications** section, click **Configure Notifications** to create a new subscription or **Edit** an existing one
-5. Enter your desired prefix, email, and [alert types](#alert-types)
-6. Save your alert subscription
+5. In the alert configuration screen, specify a subprefix if desired or use the base prefix to apply the subscription to the whole tenant
+6. Under **Global Settings**, optionally choose default values for alert settings
+7. Add one or more **Recipients**, each of which should specify an email and the [alert types](#alert-types) to send to that email
+8. Save your alert subscription
 
 </TabItem>
 <TabItem value="Using flowctl">
@@ -71,9 +73,11 @@ One email may subscribe to multiple alert types.
 
 ### Data Movement Alerts
 
-A user can select an interval for tracking zero data movement for a specific capture or materialization.
+A user can select an interval for tracking zero data movement for a specific capture or materialization or apply a default interval for tasks within a specific prefix.
 
-On the capture or materialization details page, select the **Alerts** tab. Under the **Notification Settings** card, select a time interval from the **Interval** dropdown. You must have already configured notifications in order for the alert to take effect. If you are not yet subscribed to notifications, an info box will appear prompting you to set up a subscription by clicking on `CLICK HERE`.
+Default settings can be managed when creating or editing an alert subscription.
+
+To select an interval for a specific task, select the **Alerts** tab on the capture or materialization details page. Under the **Notification Settings** card, select a time interval from the **Interval** dropdown. You must have already configured notifications in order for the alert to take effect. If you are not yet subscribed to notifications, an info box will appear prompting you to set up a subscription by clicking on `CLICK HERE`.
 
 If your task does not receive any new documents with the selected timeframe, an email will be sent to any email addresses that are subscribed to the "Data Movement Stalled" alert type.
 

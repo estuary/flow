@@ -169,6 +169,12 @@ where
             proto::Capture {
                 join: Some(join), ..
             } => join,
+
+            // A Stop addressed to a session which has already returned here;
+            // see the materialize session loop for how the controller comes to
+            // send one, and why failing the stream over it strands the shard.
+            proto::Capture { stop: Some(_), .. } => continue,
+
             request => return Err(verify.fail_msg(request)),
         };
 
@@ -580,4 +586,53 @@ fn labels_build_for(spec: &flow::CaptureSpec) -> String {
     labels::expect_one(set, labels::BUILD)
         .unwrap_or_default()
         .to_string()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let service = crate::shard::Service::new(
+            crate::Plane::Local,
+            String::new(),
+            None,
+            "test/task".to_string(),
+            crate::publish::RecordingPublisherFactory,
+            crate::TracingLoggerFactory,
+            service_kit::Registry::new(),
+            None,
+        );
+
+        let (controller_tx, controller_rx) = mpsc::unbounded_channel();
+        let mut responses = service.spawn_capture(
+            tokio_stream::wrappers::UnboundedReceiverStream::new(controller_rx),
+        );
+
+        controller_tx
+            .send(Ok(proto::Capture {
+                session_loop: Some(proto::SessionLoop {
+                    rocksdb_descriptor: None,
+                }),
+                ..Default::default()
+            }))
+            .unwrap();
+        controller_tx
+            .send(Ok(proto::Capture {
+                stop: Some(proto::Stop {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        std::mem::drop(controller_tx);
+
+        let mut collected = Vec::new();
+        while let Some(response) = responses.recv().await {
+            collected.push(response);
+        }
+        assert!(
+            collected.is_empty(),
+            "session loop must absorb the Stop and close cleanly, got {collected:?}",
+        );
+    }
 }
