@@ -134,6 +134,22 @@ where
     Ok((None, ()))
 }
 
+/// Require that the requesting user holds `admin` over the `ops/` tenant,
+/// evaluated against the request's pinned Snapshot — the same Snapshot the
+/// rest of the operation then uses: one request, one authorization view.
+/// A denial is terminal only once the Snapshot postdates the request's start;
+/// otherwise `authorization_outcome` yields the standard retry response.
+pub(crate) async fn authorize_ops_admin(env: &crate::Envelope) -> Result<(), crate::ApiError> {
+    let policy_result = crate::evaluate_names_authorization(
+        env.snapshot(),
+        env.claims()?,
+        models::Capability::Admin,
+        ["ops/"],
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
+    Ok(())
+}
+
 /// Looks up the user's authorization grants for each item in
 /// `prefixes_or_names`, and calls the provided `attach` function with each
 /// item and its capability. The `Some` results are returned in a vec.
