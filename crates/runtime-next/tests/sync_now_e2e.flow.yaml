@@ -1,0 +1,37 @@
+collections:
+  testing/source:
+    schema:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        payload: { type: string }
+    key: [/id]
+
+materializations:
+  # Schedule-paced task: commits land on a 2h grid, so an open transaction
+  # (after the session's first, which is never schedule-held) is genuinely
+  # held until a SyncNow collapses the hold.
+  testing/sync-now:
+    endpoint:
+      connector:
+        image: test/image
+        config: {}
+    syncSchedule: { baseInterval: 2h }
+    shards: { flags: { enable-runtime-v2: "true" } }
+    bindings:
+      - source: testing/source
+        resource: { table: sync_now }
+
+  # No schedule; a 300s minimum-transaction-duration floor holds the open
+  # transaction instead, exercising the CLOSE_REQUESTED outcome (which
+  # bypasses the floor).
+  testing/sync-now-floor:
+    endpoint:
+      connector:
+        image: test/image
+        config: {}
+    shards: { minTxnDuration: 300s, flags: { enable-runtime-v2: "true" } }
+    bindings:
+      - source: testing/source
+        resource: { table: sync_now_floor }

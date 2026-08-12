@@ -1407,6 +1407,45 @@ pub mod derive {
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct StartedCommit {}
 }
+/// SyncNowRequest is the request of a TaskControl.SyncNow RPC.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncNowRequest {
+    /// Name of the task to synchronize.
+    #[prost(string, tag = "1")]
+    pub task_name: ::prost::alloc::string::String,
+}
+/// SyncNowResponse is the streamed response of a TaskControl.SyncNow RPC.
+/// Its messages are structural: they mark the caller's position in the
+/// stream and carry no payload. Statistics of the awaited transaction are
+/// recorded to the task's stats journal, which is where callers read them.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncNowResponse {
+    #[prost(oneof = "sync_now_response::Response", tags = "1, 2, 3")]
+    pub response: ::core::option::Option<sync_now_response::Response>,
+}
+/// Nested message and enum types in `SyncNowResponse`.
+pub mod sync_now_response {
+    /// Ack is sent exactly once, as the first message of the stream: the
+    /// request reached the task's leader and the commit has been forced.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Ack {}
+    /// Heartbeat keeps a long-lived stream alive while the caller waits.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Heartbeat {}
+    /// Done is sent exactly once, as the final message of the stream: the
+    /// awaited transaction is committed and queryable in the endpoint.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Done {}
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Ack(Ack),
+        #[prost(message, tag = "2")]
+        Heartbeat(Heartbeat),
+        #[prost(message, tag = "3")]
+        Done(Done),
+    }
+}
 /// Plane describes the type of data plane in which the runtime is operating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

@@ -1248,6 +1248,29 @@ fn compute_open_duration(
     hold..hold
 }
 
+/// Gather the POD inputs of a sync-now decision from live FSM state.
+/// Lives here (rather than with `sync_now::evaluate`) because it reads
+/// private `Extents` fields.
+pub(crate) fn sync_now_inputs(head: &Head, tail: &Tail) -> super::sync_now::Inputs {
+    let (head_open, head_deciding) = match head {
+        Head::Idle(s) => {
+            let is_open = s.extents.open != uuid::Clock::zero();
+            (is_open, is_open)
+        }
+        Head::Extend(_) => (true, true),
+        Head::Stop => (false, false),
+        // Flush / Persist / Store / WriteStats / StartCommit: the close
+        // decision is behind us and the transaction is already closing.
+        _ => (true, false),
+    };
+
+    super::sync_now::Inputs {
+        head_open,
+        head_deciding,
+        tail_done: matches!(tail, Tail::Done(_)),
+    }
+}
+
 /// Leader-lifetime debounce state for materialization triggers. Accumulates
 /// per-transaction windows and gates firing to at most once per the task's
 /// configured trigger `interval`.

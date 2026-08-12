@@ -1,5 +1,6 @@
 use super::{Task, fsm};
 use crate::proto;
+use crate::proto::sync_now_response;
 use anyhow::Context;
 use bytes::Bytes;
 use futures::stream::{BoxStream, FuturesUnordered};
@@ -37,6 +38,13 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
     // Future for an in-flight stats flush, if any, yielding ACK intents.
     stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
+    // Clock of the last sync-now Progress heartbeat broadcast.
+    sync_now_heartbeat_at: uuid::Clock,
+    // Parked sync-now waiters, resolved as `tail_done_count` reaches their targets.
+    sync_now_waiters: Vec<SyncNowWaiter>,
+    // Monotonic count of Tail arrivals at Done within this session:
+    // the anchor against which sync-now waiter targets are expressed.
+    tail_done_count: u64,
     // Task being executed by this actor.
     task: Task,
     // Leader-lifetime trigger debounce accumulator and last-fire times.
@@ -44,6 +52,17 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     // Future for an in-flight trigger dispatch, if any.
     trigger_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
 }
+
+/// A parked `TaskControl.SyncNow` caller, resolved when the actor's count of
+/// Tail::Done transitions reaches its target.
+struct SyncNowWaiter {
+    target: u64,
+    reply_tx: mpsc::UnboundedSender<tonic::Result<proto::SyncNowResponse>>,
+}
+
+/// Cadence of heartbeats to parked sync-now waiters. Coarse: beats keep
+/// hour-long streams alive through LB idle timeouts.
+const SYNC_NOW_HEARTBEAT: Duration = Duration::from_secs(15);
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
@@ -69,6 +88,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             pending_ack_intents: BTreeMap::new(),
             shard_tx,
             stats_write_fut: None,
+            sync_now_heartbeat_at: uuid::Clock::zero(),
+            sync_now_waiters: Vec::new(),
+            tail_done_count: 0,
             task,
             trigger_debounce: fsm::TriggerDebounce::default(),
             trigger_fut: None,
@@ -78,10 +100,46 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
     pub async fn serve<S: crate::leader::ShuffleSession>(
         &mut self,
+        head: fsm::Head,
+        tail: fsm::Tail,
+        session: S,
+        shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
+        mut sync_now_rx: mpsc::UnboundedReceiver<super::SyncNow>,
+    ) -> anyhow::Result<()> {
+        let result = self
+            .serve_inner(head, tail, session, shard_rx, &mut sync_now_rx)
+            .await;
+
+        // Parked waiters (and undelivered requests) cannot resolve once this
+        // session ends: the Tail::Done they await happens — if ever — in a
+        // future session. Error them out; sync-now is idempotent and callers
+        // re-invoke to await the next session.
+        //
+        // Close first, so that a request racing this drain fails to send and
+        // is answered Unavailable by the service, rather than landing in a
+        // channel nobody will read again.
+        sync_now_rx.close();
+
+        let status = tonic::Status::unavailable(
+            "leader session ended before the awaited transaction was fully acknowledged; retry",
+        );
+        while let Ok(request) = sync_now_rx.try_recv() {
+            let _ = request.reply_tx.send(Err(status.clone()));
+        }
+        for waiter in self.sync_now_waiters.drain(..) {
+            let _ = waiter.reply_tx.send(Err(status.clone()));
+        }
+
+        result
+    }
+
+    async fn serve_inner<S: crate::leader::ShuffleSession>(
+        &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
         mut session: S,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
+        sync_now_rx: &mut mpsc::UnboundedReceiver<super::SyncNow>,
     ) -> anyhow::Result<()> {
         service_kit::event!(
             tracing::Level::INFO,
@@ -152,6 +210,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
             let mut action: fsm::Action;
             let prev_kind = tail.kind();
+            let prev_resolves = !matches!(tail, fsm::Tail::Done(_) | fsm::Tail::Begin(_));
             (action, tail) = tail.step(
                 &self.trigger_debounce,
                 self.intents_write_fut.is_none(),
@@ -170,6 +229,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     next = tail.kind(),
                     "transition",
                 );
+            }
+            // Tail arriving at Done is the "committed and queryable" instant
+            // that sync-now waiters await. The Begin→Done stopping shortcut is
+            // excluded: it defers connector acknowledgement to a future
+            // session rather than completing it, so its waiters must not
+            // resolve (they instead error when this session exits).
+            if prev_resolves && matches!(tail, fsm::Tail::Done(_)) {
+                self.tail_done_count += 1;
+                self.resolve_sync_now_waiters();
             }
             self.merge_backfill_clocks(&mut action);
             let tail_wake_after = self.dispatch(action)?;
@@ -229,6 +297,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
             };
             let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
+            let wake_after = self.sync_now_heartbeat(now, wake_after);
 
             // If `head` and `tail` are awaiting IO and `ready_shard_rx` was not
             // consumed by either, then it was unexpected and is a protocol error.
@@ -302,6 +371,14 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         ready_shard_rx = Some((shard_index, msg));
                     }
                     shard_rx.push(next_shard_rx((shard_index, rx)));
+                }
+                // Receive a sync-now request for this task.
+                Some(request) = sync_now_rx.recv() => {
+                    // Resync before parking a waiter on this clock: `now`
+                    // predates the park, which for a held transaction can be
+                    // hours long.
+                    now.update(now_clock());
+                    self.on_sync_now(request, &head, &tail, &mut close_requested, now);
                 }
                 // Receive a requested NextCheckpoint frontier.
                 result = session.recv_checkpoint(), if checkpoint_requested => {
@@ -663,6 +740,97 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         );
 
         Ok(Some(msg))
+    }
+
+    /// Receive a sync-now request: acknowledge it, arm `close_requested` when
+    /// the decision calls for it, and either resolve immediately (nothing to
+    /// await) or park a waiter on its target count of Tail::Done transitions.
+    /// Concurrent requests over the same state share a target and resolve
+    /// together.
+    fn on_sync_now(
+        &mut self,
+        request: super::SyncNow,
+        head: &fsm::Head,
+        tail: &fsm::Tail,
+        close_requested: &mut bool,
+        now: uuid::Clock,
+    ) {
+        let decision = super::sync_now::evaluate(fsm::sync_now_inputs(head, tail));
+
+        service_kit::event!(
+            tracing::Level::INFO,
+            "leader",
+            set_close_requested = decision.set_close_requested,
+            await_dones = decision.await_dones,
+            "received sync-now request",
+        );
+
+        if decision.set_close_requested {
+            *close_requested = true;
+        }
+        let _ = request.reply_tx.send(Ok(proto::SyncNowResponse {
+            response: Some(sync_now_response::Response::Ack(sync_now_response::Ack {})),
+        }));
+
+        if decision.await_dones == 0 {
+            let _ = request.reply_tx.send(Ok(proto::SyncNowResponse {
+                response: Some(sync_now_response::Response::Done(
+                    sync_now_response::Done {},
+                )),
+            }));
+            return;
+        }
+
+        if self.sync_now_waiters.is_empty() {
+            self.sync_now_heartbeat_at = now;
+        }
+        self.sync_now_waiters.push(SyncNowWaiter {
+            target: self.tail_done_count + decision.await_dones,
+            reply_tx: request.reply_tx,
+        });
+    }
+
+    /// Resolve waiters whose target Tail::Done count has been reached.
+    fn resolve_sync_now_waiters(&mut self) {
+        let count = self.tail_done_count;
+        self.sync_now_waiters.retain(|waiter| {
+            if waiter.target > count {
+                return true;
+            }
+            let _ = waiter.reply_tx.send(Ok(proto::SyncNowResponse {
+                response: Some(sync_now_response::Response::Done(
+                    sync_now_response::Done {},
+                )),
+            }));
+            false
+        });
+    }
+
+    /// While sync-now waiters are parked, emit a periodic heartbeat to each
+    /// and bound the actor's sleep so the next beat isn't overslept.
+    /// A waiter that hung up is dropped silently: its request already landed.
+    fn sync_now_heartbeat(&mut self, now: uuid::Clock, wake_after: Duration) -> Duration {
+        if self.sync_now_waiters.is_empty() {
+            return wake_after;
+        }
+        let elapsed = uuid::Clock::delta(now, self.sync_now_heartbeat_at);
+        if elapsed < SYNC_NOW_HEARTBEAT {
+            return wake_after.min(SYNC_NOW_HEARTBEAT - elapsed);
+        }
+
+        self.sync_now_waiters.retain(|waiter| {
+            waiter
+                .reply_tx
+                .send(Ok(proto::SyncNowResponse {
+                    response: Some(sync_now_response::Response::Heartbeat(
+                        sync_now_response::Heartbeat {},
+                    )),
+                }))
+                .is_ok()
+        });
+        self.sync_now_heartbeat_at = now;
+
+        wake_after.min(SYNC_NOW_HEARTBEAT)
     }
 
     /// Synchronously fan out a single leader message to every shard.

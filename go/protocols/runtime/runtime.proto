@@ -1219,3 +1219,56 @@ message Derive {
   // each leg.
   Stopped stopped = 61;
 }
+
+// SyncNowRequest is the request of a TaskControl.SyncNow RPC.
+message SyncNowRequest {
+  // Name of the task to synchronize.
+  string task_name = 1;
+}
+
+// SyncNowResponse is the streamed response of a TaskControl.SyncNow RPC.
+// Its messages are structural: they mark the caller's position in the
+// stream and carry no payload. Statistics of the awaited transaction are
+// recorded to the task's stats journal, which is where callers read them.
+message SyncNowResponse {
+  // Ack is sent exactly once, as the first message of the stream: the
+  // request reached the task's leader and the commit has been forced.
+  message Ack {}
+
+  // Heartbeat keeps a long-lived stream alive while the caller waits.
+  message Heartbeat {}
+
+  // Done is sent exactly once, as the final message of the stream: the
+  // awaited transaction is committed and queryable in the endpoint.
+  message Done {}
+
+  oneof response {
+    Ack ack = 1;
+    Heartbeat heartbeat = 2;
+    Done done = 3;
+  }
+}
+
+// TaskControl is a user-facing control surface for running tasks.
+// It's distinct from the Leader service because it has a different
+// authorization model: callers present ordinary gazette READ claims
+// scoped to the task's shards, not the LEAD capability held by shards.
+//
+// Only the runtime-next sidecar serves TaskControl over gRPC. Users reach it
+// through the reactor front door, which relays to that sidecar but exposes
+// itself as HTTP/NDJSON rather than gRPC — see go/runtime/task_control_http.go.
+service TaskControl {
+  // SyncNow asks a materialization to immediately commit its open
+  // transaction, and resolves once that transaction is fully acknowledged:
+  // committed and queryable in the endpoint. It's served by the
+  // runtime-next sidecar hosting the task's leader session, and relayed
+  // by the reactor front door.
+  //
+  // The stream is exactly one Ack, then zero or more Heartbeats while the
+  // caller waits, then exactly one Done, after which the stream closes.
+  // SyncNow is idempotent: concurrent calls await the same commit, and a
+  // caller which hangs up early has still forced the commit. There is no
+  // error for "nothing to do" — a task with nothing to await, including a
+  // capture or derivation, Acks and its Done follows immediately.
+  rpc SyncNow(SyncNowRequest) returns (stream SyncNowResponse);
+}
