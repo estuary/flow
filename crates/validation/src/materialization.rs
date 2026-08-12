@@ -700,16 +700,6 @@ async fn walk_materialization<C: Connectors>(
             if let Err(detail) = sync_schedule.validate() {
                 Error::SyncScheduleInvalid { detail }.push(scope, errors);
             }
-            // A connector-side sync schedule and a model-level one would fight
-            // over commit cadence; reject configuring both.
-            if let models::MaterializationEndpoint::Connector(config) = &endpoint
-                && connector_config_has_sync_schedule(&config.config)
-            {
-                Error::SyncScheduleConflict {
-                    materialization: materialization.to_string(),
-                }
-                .push(scope, errors);
-            }
             bytes::Bytes::from(
                 serde_json::to_vec(sync_schedule).expect("sync schedule must serialize"),
             )
@@ -1167,28 +1157,6 @@ fn temporary_group_by_migration(
         .iter()
         .map(|field| models::Field::new(field))
         .collect()
-}
-
-/// Whether a connector endpoint config carries a configured top-level
-/// `syncSchedule`, i.e. the legacy connector-side sync schedule. Detected
-/// without decryption: SOPS preserves object keys, and sync-schedule fields
-/// are not secrets so their values remain plaintext.
-///
-/// An empty `syncSchedule` object, or one whose values are all null or empty
-/// strings, is NOT configured: the connector treats those identically to an
-/// absent key, and a UI removing the schedule may leave such a remnant behind.
-fn connector_config_has_sync_schedule(config: &models::RawValue) -> bool {
-    let Ok(serde_json::Value::Object(map)) = serde_json::from_str(config.get()) else {
-        return false;
-    };
-    match map.get("syncSchedule") {
-        None | Some(serde_json::Value::Null) => false,
-        Some(serde_json::Value::Object(sched)) => sched
-            .values()
-            .any(|value| !value.is_null() && value.as_str() != Some("")),
-        // Any other shape is malformed, but conservatively "configured".
-        Some(_) => true,
-    }
 }
 
 fn validate_triggers(
