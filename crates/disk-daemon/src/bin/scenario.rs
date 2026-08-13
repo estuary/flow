@@ -389,7 +389,7 @@ fn run(command: &mut std::process::Command) -> anyhow::Result<()> {
 fn collect(captured: Captured) -> std::thread::JoinHandle<Vec<Vec<Chunk>>> {
     std::thread::spawn(move || {
         let mut mutations = Vec::new();
-        while let Some(chunks) = captured.recv() {
+        while let Some(chunks) = captured.blocking_recv() {
             mutations.push(chunks);
         }
         mutations

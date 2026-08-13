@@ -14,6 +14,7 @@ pub mod chunk;
 pub mod disk;
 pub mod image;
 pub mod inflight;
+pub mod journal;
 pub mod owner;
 pub mod ublk;
 pub mod wake;

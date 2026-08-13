@@ -3,6 +3,7 @@ use proto_gazette::broker;
 use tonic::transport::Channel;
 
 mod append;
+pub mod framing;
 pub mod list;
 pub mod read;
 
@@ -104,6 +105,26 @@ impl Client {
             router,
             tokens,
         }
+    }
+
+    /// Build a Client which draws Metadata and a default endpoint from another
+    /// tokens::Watch, re-using this Client's fragment client and Router.
+    pub fn with_tokens<Token, Extract>(
+        &self,
+        extract: Extract,
+        tokens: tokens::PendingWatch<Token>,
+    ) -> Self
+    where
+        Token: Send + Sync + 'static,
+        Extract:
+            Fn(&Token) -> tonic::Result<(proto_grpc::Metadata, String)> + Send + Sync + 'static,
+    {
+        Self::new_with_tokens(
+            extract,
+            self.fragment_client.clone(),
+            self.router.clone(),
+            tokens,
+        )
     }
 
     // TODO(johnny): Remove this method once all clients use tokens.

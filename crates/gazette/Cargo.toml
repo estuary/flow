@@ -26,6 +26,7 @@ futures-core = { workspace = true }
 jsonwebtoken = { workspace = true }
 memchr = { workspace = true }
 metrics = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }

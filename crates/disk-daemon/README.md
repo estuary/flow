@@ -13,16 +13,16 @@ Build order: [`plans/block-backed-connector-disks-phases.md`](../../plans/block-
 
 ## Scope today
 
-The durable format and the local device: the wire protocol, the chunk codec,
-the block bitmaps, the sparse image, the `ublk` device server, and the owner
-pool which serves it. A disk can be created, formatted, mounted, written, and
-torn down, and its captured mutation stream replays into an identical image.
+The durable format, the local device, and the journal writer: the wire
+protocol, the chunk codec, the block bitmaps, the sparse image, the `ublk`
+device server, the owner pool which serves it, and the writer which fences a
+journal, appends every captured mutation, and constructs the acknowledgement
+which commits a delta.
 
-What a mutation is captured *into* is still a channel a test drains. There is
-no journal I/O, no session service, and no daemon binary, so nothing here
-performs a network operation. Gazette's fixed record framing belongs in
-`crates/gazette` alongside the other framings and arrives with the journal
-writer.
+There is no session service and no daemon binary, so a caller drives a disk and
+its writer directly. Recovery is not built: nothing reads a journal back, so a
+session which opens with committed state is told so rather than deriving it.
+Horizons do not exist, so no record opens one and no floor label is written.
 
 ## Key types and entry points
 
@@ -33,7 +33,12 @@ writer.
 | [`image::Image`] | The `O_TMPFILE` sparse image and its allocated bitmap |
 | [`ublk::Control`] | `/dev/ublk-control`: add, configure, start, stop, delete |
 | [`owner::Pool`] | Owner threads; each disk is owned by exactly one |
-| [`capture::channel`] | The mutation-capture seam the journal appender plugs into |
+| [`capture::channel`] | The mutation-capture seam between an owner and the writer |
+| [`journal::Writer`] | One session's journal: fence, append pipeline, publish and commit |
+| [`journal::Config`] | Daemon-wide append bounds, spec fallbacks, and shared client |
+| [`journal::fence`] | The `author` register: probe, claim, and the fence record |
+| [`journal::spec`] | `JournalConfig` over daemon defaults, and insert-only creation |
+| [`journal::record`] | Chunks into records, records into appends, and their bounds |
 | [`inflight::InFlight`] | Serializes overlapping mutations against one image |
 | [`chunk::encode_write`] / [`chunk::encode_punch`] | Device mutation → journal chunks |
 | [`chunk::apply`] | Journal chunk → image bytes and allocated bits (replay) |
@@ -58,6 +63,24 @@ fetch  ──►  read       ──►  offer chunks ──►  write  ──►
 A discard or write-zeroes request skips the data transfer and punches instead of
 writing. `Step` in `owner.rs` is the completion's place in that sequence, packed
 into its `user_data` with the disk and the request tag.
+
+## The writing path
+
+A [`journal::Writer`] is a handle onto a task which owns the journal for the
+length of a session. The task alternates between the two things which can
+happen to a disk, and never abandons an append part-way:
+
+```text
+select ──►  request        ──►  publish  ──►  drain, confirm, return the ack
+                                commit   ──►  append the ack, await it
+                                broker   ──►  replace endpoint and credential
+
+       ──►  mutation       ──►  pack into records ──►  fill a batch ──►  append
+```
+
+Requests win that race, so a cut observes every mutation queued before it.
+`publish` drains the capture channel itself, which is exact only because the
+caller has already stopped admitting mutations and awaited the ones in flight.
 
 ## Non-obvious details
 
@@ -121,6 +144,33 @@ into its `user_data` with the disk and the request tag.
   `CAP_SYS_ADMIN`, which needs a udev rule granting that UID `/dev/ublk-control`
   and `/dev/ublkc*`, since `CAP_SYS_ADMIN` does not bypass file permissions.
 
+- **The author register is read once.** A session reads it at open and never
+  refreshes it, which is what stops a session that was displaced from taking the
+  journal back. The consequence is that a claim can only ever be attempted once,
+  so an append which may or may not have landed is resolved by re-probing for
+  the session's own epoch rather than by picking a fresh one.
+
+- **Journal creation is driven by the first append**, not by opening a session,
+  because a disk which is never written carries no information. The spec is
+  built and validated at open so that a journal which could not be created — no
+  fragment store, or a codec this crate cannot decompress — fails before a
+  device exists.
+
+- **Appends are issued one at a time and awaited**, so "every chunk of this
+  delta is confirmed" is the same statement as "the writer has no work". Records
+  and appends are bounded because Gazette serializes appends to a journal, and
+  an unbounded one would block every later append of that disk.
+
+- **The acknowledgement is built but not appended.** `publish` returns its exact
+  bytes and holds them; `commit` appends those same bytes and awaits the
+  broker. Between the two, mutations are not taken, which is what keeps Gazette
+  from grouping two deltas into one pending transaction.
+
+- **Credentials and endpoints travel together.** A session's `Broker` replaces
+  both at once through a `tokens` watch, matching how a journal client extracts
+  the pair from one token. The daemon mints nothing, and a session without a
+  credential connects anonymously.
+
 ## Testing
 
 `cargo nextest run -p disk-daemon` runs everything, privileged tests included.
@@ -132,3 +182,7 @@ actionable message rather than skipping them, and a nextest test group
 serializes them because they contend on the host-wide control device. From
 Phase 4 the daemon binary replaces the scenario helper, so tests exercise what
 ships.
+
+`tests/journal.rs` works against a real broker, which `crates/e2e-support`
+spawns over Unix sockets and which `mise run build:gazette` must have installed
+into `$GOBIN`. It needs no privileges.

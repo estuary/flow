@@ -33,6 +33,8 @@ pub enum Error {
         #[source]
         err: std::io::Error,
     },
+    #[error("failed to decode a framed record")]
+    Decode(#[from] prost::DecodeError),
     #[error("{0}")]
     Protocol(&'static str),
     #[error("reading lines: {message} (at offset {offset})")]
@@ -139,6 +141,7 @@ impl Error {
 
             Error::AppendRead(_) => false,
             Error::BearerToken(_) => false,
+            Error::Decode(_) => false,
             Error::InvalidEndpoint(_) => false,
             Error::JWT(_) => false,
             Error::Parsing { .. } => false,

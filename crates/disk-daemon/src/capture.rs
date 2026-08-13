@@ -9,6 +9,10 @@
 //! consumer is the journal appender; a test collects instead. Taking a mutation
 //! is not appending it, so a consumer may hold what it takes, which is what
 //! lets a disk's journal be created only once something is written.
+//!
+//! There are two ways to wait because there are two kinds of consumer: the
+//! journal appender awaits a mutation alongside its session's requests, and the
+//! privileged test scenario blocks a thread of its own.
 
 use crate::proto::Chunk;
 use crate::wake::Waker;
@@ -34,7 +38,8 @@ pub fn channel(capacity: usize, waker: Waker) -> (Capture, Captured) {
             parked: false,
             closed: false,
         }),
-        ready: std::sync::Condvar::new(),
+        blocked: std::sync::Condvar::new(),
+        awaiting: tokio::sync::Notify::new(),
         waker,
     });
     (Capture(shared.clone()), Captured(shared))
@@ -42,8 +47,19 @@ pub fn channel(capacity: usize, waker: Waker) -> (Capture, Captured) {
 
 struct Shared {
     state: std::sync::Mutex<State>,
-    ready: std::sync::Condvar,
+    /// Wakes a consumer parked in [`Captured::blocking_recv`].
+    blocked: std::sync::Condvar,
+    /// Wakes a consumer awaiting [`Captured::recv`].
+    awaiting: tokio::sync::Notify,
     waker: Waker,
+}
+
+impl Shared {
+    /// Wake the consumer, which may be waiting either way.
+    fn signal(&self) {
+        self.blocked.notify_one();
+        self.awaiting.notify_one();
+    }
 }
 
 struct State {
@@ -70,7 +86,7 @@ impl Capture {
         state.queue.push_back(chunks);
         drop(state);
 
-        self.0.ready.notify_one();
+        self.0.signal();
         Ok(())
     }
 }
@@ -78,14 +94,35 @@ impl Capture {
 impl Drop for Capture {
     fn drop(&mut self) {
         self.0.state.lock().unwrap().closed = true;
-        self.0.ready.notify_one();
+        self.0.signal();
     }
 }
 
 impl Captured {
+    /// Take the next mutation, awaiting one if the queue is empty. `None` once
+    /// the owner has dropped its [`Capture`] and the queue is drained.
+    ///
+    /// A dropped future has taken nothing, so this may be raced against other
+    /// work in a `select!`.
+    pub async fn recv(&self) -> Option<Vec<Chunk>> {
+        loop {
+            {
+                let mut state = self.0.state.lock().unwrap();
+
+                if let Some(chunks) = self.take(&mut state) {
+                    return Some(chunks);
+                }
+                if state.closed {
+                    return None;
+                }
+            }
+            self.0.awaiting.notified().await;
+        }
+    }
+
     /// Take the next mutation, blocking until one arrives. `None` once the
     /// owner has dropped its [`Capture`] and the queue is drained.
-    pub fn recv(&self) -> Option<Vec<Chunk>> {
+    pub fn blocking_recv(&self) -> Option<Vec<Chunk>> {
         let mut state = self.0.state.lock().unwrap();
 
         loop {
@@ -95,7 +132,7 @@ impl Captured {
             if state.closed {
                 return None;
             }
-            state = self.0.ready.wait(state).unwrap();
+            state = self.0.blocked.wait(state).unwrap();
         }
     }
 
@@ -135,11 +172,11 @@ mod test {
         let refused = capture.offer(vec![encode_punch(3, 1)]).unwrap_err();
         assert_eq!(refused, vec![encode_punch(3, 1)]);
 
-        assert_eq!(captured.recv().unwrap(), vec![encode_punch(1, 1)]);
+        assert_eq!(captured.blocking_recv().unwrap(), vec![encode_punch(1, 1)]);
         capture.offer(refused).unwrap();
 
-        assert_eq!(captured.recv().unwrap(), vec![encode_punch(2, 1)]);
-        assert_eq!(captured.recv().unwrap(), vec![encode_punch(3, 1)]);
+        assert_eq!(captured.blocking_recv().unwrap(), vec![encode_punch(2, 1)]);
+        assert_eq!(captured.blocking_recv().unwrap(), vec![encode_punch(3, 1)]);
         assert_eq!(captured.try_recv(), None);
     }
 
@@ -149,17 +186,33 @@ mod test {
         capture.offer(vec![encode_punch(7, 3)]).unwrap();
         drop(capture);
 
-        assert_eq!(captured.recv().unwrap(), vec![encode_punch(7, 3)]);
-        assert_eq!(captured.recv(), None);
+        assert_eq!(captured.blocking_recv().unwrap(), vec![encode_punch(7, 3)]);
+        assert_eq!(captured.blocking_recv(), None);
     }
 
     #[test]
     fn test_a_blocked_receiver_wakes_on_the_next_offer() {
         let (capture, captured) = pair(1);
 
-        let taker = std::thread::spawn(move || captured.recv());
+        let taker = std::thread::spawn(move || captured.blocking_recv());
         capture.offer(vec![encode_punch(9, 2)]).unwrap();
 
         assert_eq!(taker.join().unwrap(), Some(vec![encode_punch(9, 2)]));
+    }
+
+    #[tokio::test]
+    async fn test_an_awaiting_receiver_wakes_on_the_next_offer() {
+        let (capture, captured) = pair(1);
+
+        let taker = tokio::spawn(async move {
+            let first = captured.recv().await;
+            (first, captured.recv().await)
+        });
+        tokio::task::yield_now().await;
+
+        capture.offer(vec![encode_punch(9, 2)]).unwrap();
+        drop(capture);
+
+        assert_eq!(taker.await.unwrap(), (Some(vec![encode_punch(9, 2)]), None));
     }
 }
