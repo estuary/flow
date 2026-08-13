@@ -58,6 +58,7 @@ pub struct Collection {
     pub spec: flow::CollectionSpec,
     pub uuid_ptr: json::Pointer,
     pub value_schema: avro::Schema,
+    pub schema_hash: String,
     pub extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>,
     pub binding_backfill_counter: u32,
 }
@@ -261,6 +262,17 @@ impl Collection {
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
+        // Content-addresses the derived key/value schemas so callers can
+        // cheaply detect when a binding's effective schema has changed,
+        // without a network round trip (unlike `registered_schema_id`'s
+        // `avro_schema_md5`, which addresses the same schemas against the
+        // control plane's schema registry table).
+        let schema_hash = {
+            let key_json = serde_json::to_value(&key_schema).unwrap().to_string();
+            let value_json = serde_json::to_value(&value_schema).unwrap().to_string();
+            format!("{:x}", md5::compute(format!("{key_json}{value_json}")))
+        };
+
         let (mut not_before, not_after) = (
             binding.not_before.map(|b| {
                 uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
@@ -315,6 +327,7 @@ impl Collection {
             spec: collection_spec,
             uuid_ptr,
             value_schema,
+            schema_hash,
             extractors,
             // Start the backfill counter (which will map to the topic leader epoch) at 1, not 0.
             // Kafka consumers don't seem to handle going from epoch 0 to epoch 1 gracefully. Specifically,
