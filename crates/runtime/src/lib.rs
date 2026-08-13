@@ -86,14 +86,11 @@ impl RuntimeProtocol {
 }
 
 // Map an anyhow::Error into a tonic::Status.
-// If the error is already a Status, it's downcast.
+// If the error is already a Status, it's downcast (and bounded).
 // Otherwise, an internal error is used to wrap a formatted anyhow::Error chain.
-pub fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
-    match err.downcast::<tonic::Status>() {
-        Ok(status) => status,
-        Err(err) => tonic::Status::unknown(format!("{err:?}")),
-    }
-}
+// Bounding keeps an oversized status from being replaced in transit by an
+// opaque transport error; see `proto_grpc::MAX_STATUS_MESSAGE_LEN`.
+pub use proto_grpc::anyhow_to_status;
 
 // Map a tonic::Status into an anyhow::Error.
 // If the status is an internal error, its message is extracted into a dynamic anyhow::Error.
