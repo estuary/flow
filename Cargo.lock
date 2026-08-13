@@ -2955,6 +2955,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-daemon"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "insta",
+ "libc",
+ "proto-flow",
+ "quickcheck",
+ "tempfile",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

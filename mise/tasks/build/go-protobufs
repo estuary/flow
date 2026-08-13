@@ -6,6 +6,7 @@ set -euo pipefail
 PROTO_FILES=(
   "./go/protocols/capture/capture.proto"
   "./go/protocols/derive/derive.proto"
+  "./go/protocols/disk/disk.proto"
   "./go/protocols/flow/flow.proto"
   "./go/protocols/materialize/materialize.proto"
   "./go/protocols/ops/ops.proto"

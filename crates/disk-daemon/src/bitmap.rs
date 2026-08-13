@@ -1,0 +1,207 @@
+//! Fixed-size bit sets over block indices.
+//!
+//! A disk has two: the *allocated* bitmap, which tracks blocks that currently
+//! occupy space in the local image, and the *horizon* bitmap, which tracks
+//! allocated blocks whose newest durable copy is older than the active
+//! recovery horizon. Both are indexed by block, so they are the same shape.
+
+/// Bitmap is a set of block indices in `[0, blocks)`, backed by `u64` words.
+///
+/// Words are plain integers rather than atomics because a disk's owner thread
+/// is the only mutator of its bitmaps.
+///
+/// Indexing outside `[0, blocks)` panics, because block indices come from the
+/// daemon's own arithmetic over a device size it chose. Chunks decoded from a
+/// journal are range-checked by [`crate::chunk::apply`] before they reach a
+/// bitmap.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Bitmap {
+    words: Vec<u64>,
+    blocks: u32,
+}
+
+impl Bitmap {
+    /// Create an empty bitmap covering `blocks` block indices.
+    pub fn new(blocks: u32) -> Self {
+        let words = (blocks as usize).div_ceil(u64::BITS as usize);
+        Self {
+            words: vec![0; words],
+            blocks,
+        }
+    }
+
+    /// Number of block indices this bitmap covers.
+    pub fn blocks(&self) -> u32 {
+        self.blocks
+    }
+
+    pub fn set(&mut self, block: u32) {
+        let (word, bit) = self.locate(block);
+        self.words[word] |= 1 << bit;
+    }
+
+    pub fn clear(&mut self, block: u32) {
+        let (word, bit) = self.locate(block);
+        self.words[word] &= !(1 << bit);
+    }
+
+    pub fn test(&self, block: u32) -> bool {
+        let (word, bit) = self.locate(block);
+        self.words[word] & (1 << bit) != 0
+    }
+
+    /// Count of set bits. For the allocated bitmap this is the disk's live
+    /// physical size in blocks, which compaction policy compares against the
+    /// journal's recovery range.
+    pub fn count_ones(&self) -> u32 {
+        self.words.iter().map(|w| w.count_ones()).sum()
+    }
+
+    /// Index of the lowest set bit at or after `cursor`, or `None` if there is
+    /// none. `cursor` may equal `blocks`, which is the exhausted cursor.
+    ///
+    /// Horizon scans resume from their forward cursor, so each horizon makes at
+    /// most one pass over the bitmap.
+    pub fn first_set_at_or_after(&self, cursor: u32) -> Option<u32> {
+        assert!(
+            cursor <= self.blocks,
+            "cursor {cursor} exceeds bitmap length {}",
+            self.blocks
+        );
+        if cursor == self.blocks {
+            return None;
+        }
+        let (word, bit) = self.locate(cursor);
+
+        // Mask off bits below the cursor within its own word, then scan whole
+        // words. Trailing bits beyond `blocks` are never set, so the final
+        // word needs no masking.
+        let mut masked = self.words[word] & (u64::MAX << bit);
+        for index in word..self.words.len() {
+            if masked != 0 {
+                return Some((index as u32) * u64::BITS + masked.trailing_zeros());
+            }
+            masked = *self.words.get(index + 1).unwrap_or(&0);
+        }
+        None
+    }
+
+    /// Iterate set bits in increasing order.
+    pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        std::iter::successors(self.first_set_at_or_after(0), |prev| {
+            self.first_set_at_or_after(prev + 1)
+        })
+    }
+
+    /// Replace this bitmap's contents with those of `other`, which must cover
+    /// the same number of blocks. This is the snapshot of allocated blocks
+    /// taken when a horizon opens.
+    pub fn copy_from(&mut self, other: &Bitmap) {
+        assert_eq!(
+            self.blocks, other.blocks,
+            "bitmaps must cover the same number of blocks"
+        );
+        self.words.copy_from_slice(&other.words);
+    }
+
+    fn locate(&self, block: u32) -> (usize, u32) {
+        assert!(
+            block < self.blocks,
+            "block {block} exceeds bitmap length {}",
+            self.blocks
+        );
+        ((block / u64::BITS) as usize, block % u64::BITS)
+    }
+}
+
+impl std::fmt::Debug for Bitmap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Bitmap({} of {} set: ", self.count_ones(), self.blocks)?;
+        f.debug_list().entries(self.iter()).finish()?;
+        write!(f, ")")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Bitmap;
+
+    #[test]
+    fn test_set_clear_and_scan() {
+        let mut bits = Bitmap::new(200);
+        assert_eq!(bits.blocks(), 200);
+        assert_eq!(bits.count_ones(), 0);
+        assert_eq!(bits.first_set_at_or_after(0), None);
+
+        // Bits spanning several words, including word boundaries.
+        for block in [0, 1, 63, 64, 65, 127, 128, 199] {
+            bits.set(block);
+        }
+        assert_eq!(bits.count_ones(), 8);
+        assert_eq!(
+            bits.iter().collect::<Vec<_>>(),
+            vec![0, 1, 63, 64, 65, 127, 128, 199]
+        );
+
+        assert!(bits.test(63));
+        assert!(!bits.test(62));
+
+        // Scans start at, and skip over, arbitrary cursors.
+        assert_eq!(bits.first_set_at_or_after(0), Some(0));
+        assert_eq!(bits.first_set_at_or_after(1), Some(1));
+        assert_eq!(bits.first_set_at_or_after(2), Some(63));
+        assert_eq!(bits.first_set_at_or_after(63), Some(63));
+        assert_eq!(bits.first_set_at_or_after(66), Some(127));
+        assert_eq!(bits.first_set_at_or_after(129), Some(199));
+        assert_eq!(bits.first_set_at_or_after(200), None);
+
+        // Setting an already-set bit and clearing a clear bit are both no-ops.
+        bits.set(63);
+        bits.clear(62);
+        assert_eq!(bits.count_ones(), 8);
+
+        bits.clear(63);
+        bits.clear(199);
+        assert_eq!(bits.count_ones(), 6);
+        assert_eq!(bits.first_set_at_or_after(2), Some(64));
+        assert_eq!(bits.first_set_at_or_after(129), None);
+    }
+
+    #[test]
+    fn test_snapshot_copy() {
+        let mut allocated = Bitmap::new(70);
+        for block in [3, 64, 69] {
+            allocated.set(block);
+        }
+
+        let mut horizon = Bitmap::new(70);
+        horizon.set(7); // Overwritten by the snapshot.
+        horizon.copy_from(&allocated);
+
+        assert_eq!(horizon.iter().collect::<Vec<_>>(), vec![3, 64, 69]);
+
+        // The snapshot is a copy: later allocation does not re-set horizon bits.
+        allocated.set(7);
+        assert!(!horizon.test(7));
+    }
+
+    #[test]
+    fn test_debug_rendering() {
+        let mut bits = Bitmap::new(16);
+        bits.set(2);
+        bits.set(11);
+        assert_eq!(format!("{bits:?}"), "Bitmap(2 of 16 set: [2, 11])");
+    }
+
+    #[test]
+    #[should_panic(expected = "block 16 exceeds bitmap length 16")]
+    fn test_out_of_range_set_panics() {
+        Bitmap::new(16).set(16);
+    }
+
+    #[test]
+    #[should_panic(expected = "cursor 17 exceeds bitmap length 16")]
+    fn test_out_of_range_cursor_panics() {
+        _ = Bitmap::new(16).first_set_at_or_after(17);
+    }
+}

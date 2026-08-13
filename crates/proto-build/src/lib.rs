@@ -89,6 +89,7 @@ impl Boilerplate {
         let targets = vec![
             self.repo_root.join("go/protocols/capture/capture.proto"),
             self.repo_root.join("go/protocols/derive/derive.proto"),
+            self.repo_root.join("go/protocols/disk/disk.proto"),
             self.repo_root.join("go/protocols/flow/flow.proto"),
             self.repo_root
                 .join("go/protocols/materialize/materialize.proto"),

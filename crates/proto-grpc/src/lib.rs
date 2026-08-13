@@ -4,6 +4,7 @@ pub use auth::{Authenticator, Authorized, Authorizer, Signer};
 pub mod capture;
 pub mod consumer;
 pub mod derive;
+pub mod disk;
 pub mod flow;
 pub mod materialize;
 mod protocol;

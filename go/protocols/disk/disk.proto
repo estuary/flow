@@ -1,0 +1,200 @@
+syntax = "proto3";
+
+package disk;
+
+import "broker/protocol/protocol.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/estuary/flow/go/protocols/disk";
+option (gogoproto.goproto_getters_all) = false;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+// Disk serves block devices whose durable state lives in Gazette journals.
+service Disk {
+  // Session serves one disk for the lifetime of its stream. Closing the
+  // stream unmounts the filesystem and destroys the device.
+  rpc Session(stream Request) returns (stream Response);
+}
+
+// Request carries exactly one field. Open must be the first request of a
+// session, and is sent once.
+message Request {
+  oneof request {
+    Open open = 1;
+    Publish publish = 2;
+    Commit commit = 3;
+    // Replaces the session's broker connection, and has no reply. Clients
+    // holding short-lived tokens send it before expiry.
+    Broker broker = 4;
+  }
+}
+
+// Response carries exactly one field. Every request has one reply, in order,
+// except Broker which has none. The daemon sends nothing unsolicited.
+message Response {
+  oneof response {
+    Opened opened = 1;
+    Published published = 2;
+    Committed committed = 3;
+  }
+}
+
+// Open creates or recovers a disk and mounts its filesystem.
+message Open {
+  // Journal of the disk, and how to create it.
+  JournalConfig journal_config = 1;
+  // Logical size of the device in bytes, and a multiple of `block_size`. The
+  // image is sparse, so this is a capacity and not an allocation.
+  uint64 device_size = 2;
+  // Block size in bytes, and the granularity of the chunk encoding, hole
+  // punching, and the daemon's bitmaps.
+  //
+  // It is fixed from the moment a disk first publishes. Every later Open must
+  // present the same value, or replay misplaces every chunk it applies. Blocks
+  // are indexed by uint32, capping `device_size` at 2^32 blocks.
+  uint32 block_size = 3;
+  // Brokers serving the journal. If unset, the daemon uses its configured
+  // endpoint with no credential.
+  Broker broker = 4;
+  // Acknowledgements which the client committed but which may not have reached
+  // the journal, as returned by Published. The daemon appends them verbatim
+  // before it uses the journal, and Gazette de-duplicates by UUID.
+  //
+  // The disk has committed state if the journal holds an acknowledged delta, or
+  // if an acknowledgement is recovered here.
+  repeated bytes recovered_acks = 5;
+}
+
+// Broker addresses and authorizes the Gazette brokers serving a disk's journal.
+message Broker {
+  // Address of a broker. If empty, the daemon uses its configured default.
+  string endpoint = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Endpoint"];
+  // Bearer token presented to the broker. If empty, the daemon attempts to
+  // connect anonymously.
+  string credential = 2;
+}
+
+// JournalConfig names the disk's journal and configuration to create it.
+//
+// No retention is set. Gazette deletes fragments by age, which cannot see the
+// recovery floor, so any retention risks deleting records a live disk needs.
+message JournalConfig {
+  // Journal holding the disk's durable state.
+  string journal = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+  // Stores of the journal's fragments
+  repeated string fragment_stores = 2 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.FragmentStore"];
+  // Replication factor.
+  uint32 replication = 3;
+  // Labels of the created spec.
+  repeated Label labels = 4;
+  // Size a fragment reaches before it is closed and persisted.
+  int64 fragment_length = 5;
+  // Interval at which an open fragment is closed and persisted, regardless of
+  // size.
+  uint32 flush_interval_seconds = 6;
+  // Interval at which brokers re-list the fragment store.
+  uint32 refresh_interval_seconds = 7;
+  // Ceiling on the journal's sustained append rate, in bytes per second.
+  int64 max_append_rate = 8;
+  // Codec used to compress fragments.
+  protocol.CompressionCodec compression_codec = 9;
+}
+
+message Label {
+  string name = 1;
+  string value = 2;
+}
+
+message Opened {
+  // Absolute path of the mounted filesystem.
+  string mount_path = 1;
+}
+
+// Publish cuts a point-in-time boundary of the device and finishes publishing
+// the delta before it.
+//
+// A session holds at most one uncommitted acknowledgement, so the client must
+// Commit before it may Publish again.
+message Publish {}
+
+message Published {
+  // Acknowledgement record which commits the published delta. It is serialized
+  // but not appended: it becomes durable disk state only when the client
+  // returns it in Commit. The client treats it as opaque and records it in the
+  // same atomic commit as the state the delta is aligned with. That record
+  // obliges a later session to repair the acknowledgement through Open's
+  // `recovered_acks`.
+  //
+  // Empty when the transaction changed nothing. The client then has no disk
+  // obligation and sends no Commit.
+  bytes ack = 1;
+}
+
+// Commit appends an acknowledgement which the client has made durable.
+message Commit {
+  // Must byte-equal the `ack` of the corresponding Published.
+  bytes ack = 1;
+}
+
+// Committed reports that the acknowledgement is appended and confirmed by the
+// broker. The client may begin its next transaction.
+message Committed {}
+
+// DiskRecord is the only message of a disk journal. Records use Gazette's fixed
+// protobuf framing, and their UUID flags distinguish two kinds:
+//
+//   - A fence record is OUTSIDE_TXN. It carries `installs_epoch`, has no
+//     chunks, and does not change disk contents.
+//   - A delta is one or more CONTINUE_TXN records, committed by one ACK_TXN
+//     record which itself has no chunks.
+//
+// Readers apply Gazette message sequencing: group by producer and clock, drop
+// duplicate UUIDs, and apply only acknowledged deltas.
+message DiskRecord {
+  // Gazette message UUID, packing a producer, clock, and transaction flags. A
+  // session uses one producer for all of its deltas. A replacement session uses
+  // a new producer, and each fence uses a producer of its own.
+  bytes uuid = 1;
+  // Chunks published by this record, applied in journal order. They are neither
+  // sorted nor unique, because a block written repeatedly appears once per
+  // write. The last chunk covering a block wins.
+  repeated Chunk chunks = 2;
+  // Set on the first record of a delta which opens a recovery horizon. The
+  // horizon's position is that record's offset, and a reader snapshots its
+  // allocated blocks just before applying the record's chunks. The flag must be
+  // on the first record, or earlier chunks would clear bits which a reader
+  // starting at the horizon never saw.
+  //
+  // The horizon belongs to its delta. If the delta is not acknowledged, the
+  // horizon does not exist.
+  bool opens_horizon = 3;
+  // Producer installed as the journal's writer epoch, set only on a fence
+  // record. The fence is appended with a compare-and-swap of the journal's
+  // `author` register, which excludes the previous writer. This producer writes
+  // the session's later delta records.
+  bytes installs_epoch = 4;
+}
+
+// Chunk mutates a contiguous range of device blocks.
+message Chunk {
+  // First block covered by this chunk.
+  uint32 block = 1;
+
+  oneof content {
+    // Content beginning at `block`, covering
+    // `max(1, ceil(len(data) / block_size))` blocks, all of which become
+    // allocated.
+    //
+    // The writer trims trailing zeroes, so `data` may end within its last
+    // block, and empty `data` is one allocated block of zeroes. Replay writes
+    // `data` and must then zero the rest of the covered range, or an older
+    // value would survive in that tail.
+    bytes data = 2;
+    // Count of blocks to deallocate, beginning at `block`. Replay hole-punches
+    // the range. Discard and write-zeroes requests both encode this way,
+    // because an unallocated block reads as zeroes.
+    uint32 punch = 3;
+  }
+}
