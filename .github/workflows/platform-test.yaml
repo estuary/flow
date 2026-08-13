@@ -129,6 +129,8 @@ jobs:
       - run: mise run build:flowctl-go
       - run: mise run ci:nextest-build
       - run: mise run local:bigtable
+      # disk-daemon's tests serve real ublk block devices.
+      - run: sudo modprobe ublk_drv
       - run: mise run ci:nextest-run
 
       - run: mise run ci:doctest

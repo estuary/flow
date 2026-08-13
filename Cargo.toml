@@ -58,6 +58,10 @@ apache-avro = { version = "0", default-features = false, features = [
     "bzip",
 ] }
 
+# Held at the version librocksdb-sys resolves to, so that only one bindgen is
+# built.
+bindgen = "0.72"
+
 # For some reason, the version requirement "0" resulted in cargo downgrading
 # this dependency to an incompatible version. The requirement here is intended
 # to be similarly permissive of update versions, while preventing downgrade.
@@ -98,6 +102,7 @@ humantime-serde = "1"
 itertools = "0"
 indexmap = { version = "1", features = ["serde"] }
 highway = "1"
+io-uring = "0"
 iri-string = "0"
 jemallocator = { version = "0", features = [
     "profiling",

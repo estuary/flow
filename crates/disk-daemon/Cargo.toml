@@ -8,11 +8,26 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
+# The privileged tests drive this binary through `sudo -n` rather than running
+# cargo as root. From Phase 4 it is replaced by `flow-disk-daemon` itself.
+[[bin]]
+name = "disk-daemon-scenario"
+path = "src/bin/scenario.rs"
+
 [dependencies]
 proto-flow = { path = "../proto-flow" }
 
+anyhow = { workspace = true }
 bytes = { workspace = true }
+io-uring = { workspace = true }
 libc = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+bindgen = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

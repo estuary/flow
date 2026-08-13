@@ -1392,6 +1392,8 @@ dependencies = [
  "cexpr",
  "clang-sys",
  "itertools 0.13.0",
+ "log",
+ "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
@@ -2958,12 +2960,19 @@ dependencies = [
 name = "disk-daemon"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
+ "bindgen",
  "bytes",
  "insta",
+ "io-uring",
  "libc",
  "proto-flow",
  "quickcheck",
+ "serde_json",
+ "sha2",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

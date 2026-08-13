@@ -2,6 +2,11 @@
 
 serial-db-tests = { max-threads = 1 }
 
+# disk-daemon's privileged tests contend on the host-wide /dev/ublk-control, and
+# assert that a scenario leaves no device node or mount behind, which only holds
+# when no other scenario is running.
+serial-ublk-tests = { max-threads = 1 }
+
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 # Exclude e2e tests from Dekaf by default because they require special setup.
@@ -24,6 +29,10 @@ test-group = 'serial-db-tests'
 [[profile.default.overrides]]
 filter = 'package(automations) and test(test_fibonacci_bench)'
 test-group = 'serial-db-tests'
+
+[[profile.default.overrides]]
+filter = 'binary_id(disk-daemon::ublk)'
+test-group = 'serial-ublk-tests'
 
 # This `server::` filter is overly broad, as not all the tests there actually
 # need the database. But I gave up on listing all the tests individually, as

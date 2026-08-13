@@ -146,7 +146,7 @@ pub fn apply(
             }
         }
         chunk::Content::Punch(_) => {
-            punch_hole(file, offset, len)?;
+            crate::image::punch_hole(file, offset, len)?;
 
             for block in range {
                 allocated.clear(block);
@@ -154,35 +154,6 @@ pub fn apply(
         }
     }
     Ok(())
-}
-
-/// Deallocate `[offset, offset+len)` of `file`, leaving a hole which reads as
-/// zeroes. `FALLOC_FL_KEEP_SIZE` preserves the image's logical size, which is
-/// the device's fixed capacity.
-#[cfg(target_os = "linux")]
-fn punch_hole(file: &std::fs::File, offset: u64, len: u64) -> std::io::Result<()> {
-    // SAFETY: `file` keeps the descriptor open across the call, and fallocate
-    // reads no user memory.
-    let rc = unsafe {
-        libc::fallocate(
-            std::os::fd::AsRawFd::as_raw_fd(file),
-            libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
-            offset as libc::off_t,
-            len as libc::off_t,
-        )
-    };
-    if rc != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn punch_hole(_file: &std::fs::File, _offset: u64, _len: u64) -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "hole punching requires Linux fallocate()",
-    ))
 }
 
 #[cfg(test)]
@@ -547,7 +518,7 @@ mod test {
                     // The daemon encodes both requests as a punch, so the direct
                     // image punches too.
                     Op::Discard { block, blocks } | Op::WriteZeroes { block, blocks } => {
-                        crate::chunk::punch_hole(
+                        crate::image::punch_hole(
                             &direct,
                             *block as u64 * BLOCK_SIZE as u64,
                             *blocks as u64 * BLOCK_SIZE as u64,

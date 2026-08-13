@@ -9,7 +9,14 @@
 //! `plans/block-backed-connector-disks.md` for the design.
 
 pub mod bitmap;
+pub mod capture;
 pub mod chunk;
+pub mod disk;
+pub mod image;
+pub mod inflight;
+pub mod owner;
+pub mod ublk;
+pub mod wake;
 
 /// Session and journal-record protocol messages, generated from
 /// `go/protocols/disk/disk.proto`.
