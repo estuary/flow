@@ -153,18 +153,14 @@ where
 
             // No message is ready. Should we flush?
             _ = async {}, if !buffer.is_empty() => {
-                if let Err(error) = stdin.write_all(&buffer).await {
-                    tracing::warn!(%error, "i/o error writing to connector stdin");
-                }
+                write_stdin(&mut stdin, &buffer).await;
                 buffer.clear();
                 continue;
             }
         };
 
         let Some(Ok(message)) = message else {
-            if let Err(error) = stdin.write_all(&buffer).await {
-                tracing::warn!(%error, "i/o error writing to connector stdin");
-            }
+            write_stdin(&mut stdin, &buffer).await;
             if let Some(Err(error)) = message {
                 tracing::error!(%error, "failed to read next runtime request");
             }
@@ -173,6 +169,24 @@ where
         };
 
         codec.encode(&message, &mut buffer);
+    }
+}
+
+/// Write `buffer` to the connector's stdin, logging but not returning an I/O error.
+///
+/// A broken pipe means the connector has exited or is not reading its stdin, which the
+/// protocol allows and which is routine when a connector fails: the write fails *because*
+/// the connector is already gone. Logging it at `warn` puts pure downstream noise beside
+/// the causal error, so it's logged at `debug`. Any other error is unexpected and remains
+/// a `warn`.
+async fn write_stdin(stdin: &mut async_process::ChildStdio, buffer: &[u8]) {
+    let Err(error) = stdin.write_all(buffer).await else {
+        return;
+    };
+    if error.kind() == std::io::ErrorKind::BrokenPipe {
+        tracing::debug!(%error, "connector is not reading its stdin");
+    } else {
+        tracing::warn!(%error, "i/o error writing to connector stdin");
     }
 }
 
