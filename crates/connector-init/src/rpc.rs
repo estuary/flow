@@ -123,6 +123,12 @@ where
         if !status.success() {
             tracing::error!(%status, "connector failed");
 
+            // Bound before the Log reaches the wire: this Status is the sole
+            // carrier of the connector's terminal error, and an oversized
+            // trailer destroys it outright. See MAX_TERMINAL_LOG_LEN.
+            let mut last_log = last_log;
+            bound_log(&mut last_log);
+
             let mut status = Status::unknown(&last_log.message);
             status.metadata_mut().insert_bin(
                 "last-log-bin",
@@ -221,10 +227,69 @@ fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
     Status::internal(format!("{:#}", anyhow::anyhow!(err).context(message)))
 }
 
+/// Maximum byte length of the connector's final log message, which is sent
+/// both as the terminal Status message and (encoded) as its `last-log-bin`
+/// metadata.
+///
+/// A gRPC status rides entirely in an HTTP/2 trailer. hyper pins
+/// `SETTINGS_MAX_HEADER_LIST_SIZE` to 16 KiB, which gives `h2` a budget of five
+/// CONTINUATION frames; a trailer that needs more trips `too_many_continuations`,
+/// and h2 answers with a *connection*-level GOAWAY(ENHANCE_YOUR_CALM). Every
+/// stream on the connection then fails with an opaque
+/// `ResourceExhausted: h2 protocol error` — and the connector's real error,
+/// which is the whole point of this Status, is lost in transit.
+///
+/// So the trailer must fit a single 16 KiB frame. The message rides in
+/// percent-encoded `grpc-message` (up to 3x) and again in base64
+/// `last-log-bin` (4/3x, plus the Log's other fields), so the worst case is
+/// ~4.4x this bound: 2 KiB raw stays under 9 KiB encoded, with room to spare
+/// for the Log's shard, timestamp, and remaining fields.
+///
+/// `runtime-next` bounds the statuses *it* formats for the same reason; see
+/// `runtime_next::MAX_STATUS_MESSAGE_LEN`.
+const MAX_TERMINAL_LOG_LEN: usize = 2048;
+
+/// Truncate `log` so that it fits a single HTTP/2 frame once encoded into a
+/// gRPC status trailer. See [`MAX_TERMINAL_LOG_LEN`].
+fn bound_log(log: &mut ops::Log) {
+    const SUFFIX: &str = "… [truncated]";
+
+    if log.message.len() > MAX_TERMINAL_LOG_LEN {
+        // Reserve room for SUFFIX and back off to a UTF-8 char boundary.
+        let mut end = MAX_TERMINAL_LOG_LEN - SUFFIX.len();
+        while !log.message.is_char_boundary(end) {
+            end -= 1;
+        }
+        log.message.truncate(end);
+        log.message.push_str(SUFFIX);
+    }
+
+    // Structured fields are arbitrary connector-supplied JSON and are not
+    // individually meaningful enough to be worth a truncation scheme: drop
+    // them wholesale if they'd push the trailer over budget.
+    let fields_len: usize = log
+        .fields_json_map
+        .iter()
+        .map(|(name, value)| name.len() + value.len())
+        .sum();
+
+    if fields_len > MAX_TERMINAL_LOG_LEN {
+        log.fields_json_map.clear();
+        log.fields_json_map.insert(
+            "fieldsElided".to_string(),
+            format!("\"{fields_len} bytes of structured fields were elided\"").into(),
+        );
+    }
+
+    // Spans nest arbitrarily deep and carry no diagnostic value here.
+    log.spans.clear();
+}
+
 #[cfg(test)]
 mod test {
-    use super::{Codec, bidi, new_command, process_logs, unary};
+    use super::{Codec, MAX_TERMINAL_LOG_LEN, bidi, bound_log, new_command, process_logs, unary};
     use futures::{StreamExt, TryStreamExt};
+    use prost::Message;
     use proto_flow::flow::TestSpec;
 
     #[tokio::test]
@@ -526,6 +591,113 @@ mod test {
             "###);
             }
         }
+    }
+
+    #[test]
+    fn test_bound_log() {
+        // Multi-byte characters straddle the truncation point, and structured
+        // fields blow the budget on their own.
+        let mut log = ops::Log {
+            level: ops::LogLevel::Error as i32,
+            message: "π".repeat(MAX_TERMINAL_LOG_LEN),
+            fields_json_map: [(
+                "detail".to_string(),
+                format!("\"{}\"", "x".repeat(MAX_TERMINAL_LOG_LEN)).into(),
+            )]
+            .into_iter()
+            .collect(),
+            spans: vec![ops::Log::default()],
+            ..Default::default()
+        };
+        bound_log(&mut log);
+
+        assert!(log.message.len() <= MAX_TERMINAL_LOG_LEN);
+        assert!(log.message.ends_with("… [truncated]"));
+        assert_eq!(
+            log.fields_json_map.keys().collect::<Vec<_>>(),
+            vec!["fieldsElided"]
+        );
+        assert!(log.spans.is_empty());
+
+        // A Log which already fits is passed through untouched.
+        let mut log = ops::Log {
+            message: "all is well".to_string(),
+            fields_json_map: [("k".to_string(), "1".into())].into_iter().collect(),
+            ..Default::default()
+        };
+        let expect = log.clone();
+        bound_log(&mut log);
+        assert_eq!(log, expect);
+    }
+
+    #[test]
+    fn test_bounded_trailer_fits_one_frame() {
+        // A gRPC status trailer must fit one 16 KiB HTTP/2 frame, or `h2`
+        // tears down the whole connection. Model the worst case: every byte of
+        // the message percent-encodes to three bytes in `grpc-message`, and
+        // the encoded Log base64s to 4/3 in `last-log-bin`.
+        let mut log = ops::Log {
+            level: ops::LogLevel::Error as i32,
+            // '\n' is percent-encoded by tonic, and is a 1-byte character, so
+            // this maximizes both the raw length and the expansion factor.
+            message: "\n".repeat(64 * 1024),
+            fields_json_map: [("detail".to_string(), "\"boom\"".into())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        bound_log(&mut log);
+
+        let message_len = 3 * log.message.len();
+        let metadata_len = 4 * log.encode_to_vec().len().div_ceil(3);
+
+        assert!(
+            message_len + metadata_len < 16 * 1024,
+            "encoded trailer is {message_len} + {metadata_len} bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bidi_bounds_a_large_terminal_log() {
+        let requests = futures::stream::repeat_with(|| {
+            Ok(TestSpec {
+                name: "hello world".to_string(),
+                ..Default::default()
+            })
+        }); // Unbounded stream.
+
+        // Model a connector which writes a large diagnostic to stderr as it fails.
+        let responses: Vec<Result<TestSpec, _>> = bidi(
+            new_command(&[
+                "sh".to_string(),
+                "-c".to_string(),
+                "i=0; while [ $i -lt 500 ]; do printf 'a failed walrus appears' >&2; \
+                 i=$((i+1)); done; exit 1"
+                    .to_string(),
+            ]),
+            Codec::Proto,
+            requests,
+            ops::stderr_log_handler,
+        )
+        .unwrap()
+        .collect()
+        .await;
+
+        let [Err(status)] = responses.as_slice() else {
+            panic!("expected a single terminal error, got {responses:?}");
+        };
+        assert!(status.message().starts_with("a failed walrus appears"));
+        assert!(status.message().ends_with("… [truncated]"));
+        assert!(status.message().len() <= MAX_TERMINAL_LOG_LEN);
+
+        let metadata = status
+            .metadata()
+            .get_bin("last-log-bin")
+            .expect("last-log-bin is set")
+            .to_bytes()
+            .unwrap();
+        let log = ops::Log::decode(metadata).unwrap();
+        assert_eq!(log.message, status.message());
     }
 
     fn strip_log(mut status: tonic::Status) -> tonic::Status {
