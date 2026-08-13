@@ -266,10 +266,16 @@ where
     handler.finish_err(&format!("{err:#}"));
 
     // Best-effort broadcast of terminal error to all shards.
-    let status = match err.downcast_ref::<tonic::Status>() {
-        Some(status) => crate::bound_status(status.clone()),
-        None => crate::bounded_unknown_status(format!("{err:?}")),
-    };
+    //
+    // A peer's Status is never forwarded verbatim: it describes that peer's
+    // stream, not the recipient's, so a transport failure of one shard would
+    // otherwise be reported identically by every shard of the task — masking
+    // whichever shard actually failed first. Its metadata is dropped for the
+    // same reason, and because relaying an oversized trailer (such as a
+    // connector's `last-log-bin`) onward breaks further connections.
+    // The formatted chain names the failed peer, via `crate::verify`.
+    let status = crate::bounded_unknown_status(format!("leader session failed: {err:?}"));
+
     for tx in error_tx {
         let _ = tx.send(Err(status.clone()));
     }

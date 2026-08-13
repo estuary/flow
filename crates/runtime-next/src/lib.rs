@@ -151,7 +151,7 @@ impl RuntimeProtocol {
 // Status bounding lives in `proto-grpc`, which every crate speaking this
 // protocol already depends on. See `proto_grpc::MAX_STATUS_MESSAGE_LEN` for
 // why an unbounded status can't survive its trip over the wire.
-pub(crate) use proto_grpc::{bound_status, bounded_unknown_status};
+pub(crate) use proto_grpc::bounded_unknown_status;
 pub use proto_grpc::{MAX_STATUS_MESSAGE_LEN, anyhow_to_status};
 
 // Map a tonic::Status into an anyhow::Error.
@@ -164,6 +164,15 @@ pub fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
         tonic::Code::Unknown => anyhow::anyhow!(status.message().to_owned()),
         // For all other Status types, pass through the Status in order to preserve a
         // capability to lossless-ly downcast back to the Status later.
+        //
+        // A locally-produced transport Status renders opaquely — tonic formats
+        // hyper's Display, which is only `h2 protocol error: http2 error` — but it
+        // keeps the h2 error as its `source`, which names the reason and h2's debug
+        // data (`connection error received: ENHANCE_YOUR_CALM (b"too_many_continuations")`).
+        // anyhow walks that chain, so the detail reaches the log unaided. A Status
+        // which round-tripped over the wire has *no* source — only its message
+        // survived — which is why a peer's failure must be formatted into a message
+        // rather than relayed as a Status.
         _ => anyhow::Error::new(status),
     }
 }

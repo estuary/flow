@@ -199,8 +199,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
                 // Next, a leader message.
                 msg = leader_rx.next() => {
-                    let (next, stopped) =
-                        self.on_leader_message(phase, &mut accumulator, &mut accumulator_idle, msg)?;
+                    let (next, stopped) = self
+                        .on_leader_message(phase, &mut accumulator, &mut accumulator_idle, msg)
+                        .map_err(|err| prefer_connector_error(connector_rx, err))?;
                     phase = next;
 
                     if stopped {
@@ -571,6 +572,21 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             return Err(verify.fail_msg(msg));
         }
         Ok(())
+    }
+}
+
+/// Replace a leader-stream failure with the connector's own terminal error,
+/// if the connector has already failed and its error is immediately ready.
+/// See the materialize twin for why this is needed.
+fn prefer_connector_error<Conn>(connector_rx: &mut Conn, err: anyhow::Error) -> anyhow::Error
+where
+    Conn: futures::Stream<Item = tonic::Result<derive::Response>> + Unpin,
+{
+    match connector_rx.next().now_or_never() {
+        Some(Some(Err(status))) => {
+            crate::verify("Derive", "connector response", "connector").fail_status(status)
+        }
+        _ => err,
     }
 }
 
