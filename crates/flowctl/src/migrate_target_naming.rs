@@ -189,11 +189,14 @@ pub async fn do_migrate_target_naming(
     args: &MigrateTargetNaming,
 ) -> anyhow::Result<()> {
     tracing::info!("fetching materializations");
-    let rows = fetch_materializations(&ctx.client, args.prefix.as_deref()).await?;
+    let rows =
+        fetch_materializations(&ctx.pg, ctx.access_token().as_deref(), args.prefix.as_deref())
+            .await?;
     tracing::info!(count = rows.len(), "fetched materializations");
 
     tracing::info!("fetching resource spec schemas from connector_tags");
-    let schema_pointers = fetch_resource_spec_pointers(&ctx.client, &rows).await?;
+    let schema_pointers =
+        fetch_resource_spec_pointers(&ctx.pg, ctx.access_token().as_deref(), &rows).await?;
 
     let analyzed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let schema_pointers = std::sync::Arc::new(schema_pointers);
@@ -201,11 +204,14 @@ pub async fn do_migrate_target_naming(
 
     let analyses: Vec<MaterializationAnalysis> = stream::iter(rows.into_iter())
         .map(|row| {
-            let client = ctx.client.clone();
+            let pg = ctx.pg.clone();
+            let access_token = ctx.access_token();
             let schema_pointers = schema_pointers.clone();
             let analyzed = analyzed.clone();
             async move {
-                let analysis = analyze_materialization(&client, &row, &schema_pointers).await?;
+                let analysis =
+                    analyze_materialization(&pg, access_token.as_deref(), &row, &schema_pointers)
+                        .await?;
                 let count = analyzed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 if count % 100 == 0 {
                     tracing::info!(count, total, "analyzed materializations");
@@ -230,7 +236,8 @@ pub async fn do_migrate_target_naming(
 /// JSON pointer from `pointer_for_schema()`, or None if the connector doesn't
 /// support x-schema-name.
 async fn analyze_materialization(
-    client: &crate::Client,
+    pg: &postgrest::Postgrest,
+    access_token: Option<&str>,
     row: &LiveSpecRow,
     schema_pointers: &HashMap<String, Option<String>>,
 ) -> anyhow::Result<MaterializationAnalysis> {
@@ -292,7 +299,7 @@ async fn analyze_materialization(
 
     // Fetched on demand, only for rows that survive the cheap checks above:
     // built specs are too large to fetch in the 50-row pages.
-    let built_spec = fetch_built_spec(client, &row.catalog_name).await?;
+    let built_spec = fetch_built_spec(pg, access_token, &row.catalog_name).await?;
 
     if spec.shards.disable && built_spec.is_none() {
         return Ok(empty(Action::SkipDisabledNoBuiltSpec));
@@ -556,20 +563,21 @@ fn propose_target_naming(
 /// them in the 50-row pages of `fetch_materializations` produced responses
 /// big enough that the proxy truncated them mid-body for some tenants.
 async fn fetch_built_spec(
-    client: &crate::Client,
+    pg: &postgrest::Postgrest,
+    access_token: Option<&str>,
     catalog_name: &str,
 ) -> anyhow::Result<Option<MaterializationSpec>> {
     #[derive(serde::Deserialize)]
     struct Row {
         built_spec: Option<MaterializationSpec>,
     }
-    let row: Row = crate::api_exec(
-        client
-            .from("live_specs_ext")
+    let row: Row = flow_client_next::postgrest::exec(
+        pg.from("live_specs_ext")
             .select("built_spec")
             .eq("spec_type", "materialization")
             .eq("catalog_name", catalog_name)
             .single(),
+        access_token,
     )
     .await
     .with_context(|| format!("fetching built spec for {catalog_name}"))?;
@@ -577,7 +585,8 @@ async fn fetch_built_spec(
 }
 
 async fn fetch_materializations(
-    client: &crate::Client,
+    pg: &postgrest::Postgrest,
+    access_token: Option<&str>,
     prefix: Option<&str>,
 ) -> anyhow::Result<Vec<LiveSpecRow>> {
     let page_size: usize = 50;
@@ -586,7 +595,7 @@ async fn fetch_materializations(
     let mut total: usize = 0;
     let mut offset: usize = 0;
     loop {
-        let mut builder = client
+        let mut builder = pg
             .from("live_specs_ext")
             .select("catalog_name")
             .eq("spec_type", "materialization")
@@ -597,7 +606,7 @@ async fn fetch_materializations(
             builder = builder.like("catalog_name", &format!("{p}%"));
         }
 
-        let page: Vec<serde_json::Value> = crate::api_exec(builder)
+        let page: Vec<serde_json::Value> = flow_client_next::postgrest::exec(builder, access_token)
             .await
             .with_context(|| "counting materializations")?;
 
@@ -617,10 +626,11 @@ async fn fetch_materializations(
     let mut all_rows = Vec::with_capacity(total);
     let mut page_stream = stream::iter(offsets)
         .map(|offset| {
-            let client = client.clone();
+            let pg = pg.clone();
+            let access_token = access_token.map(|s| s.to_string());
             let prefix_owned = prefix_owned.clone();
             async move {
-                let mut builder = client
+                let mut builder = pg
                     .from("live_specs_ext")
                     .select("catalog_name,last_pub_id,spec,connector_image_name,connector_image_tag")
                     .eq("spec_type", "materialization")
@@ -631,9 +641,12 @@ async fn fetch_materializations(
                     builder = builder.like("catalog_name", &format!("{p}%"));
                 }
 
-                crate::api_exec::<Vec<LiveSpecRow>>(builder)
-                    .await
-                    .with_context(|| format!("fetching materializations at offset {offset}"))
+                flow_client_next::postgrest::exec::<Vec<LiveSpecRow>>(
+                    builder,
+                    access_token.as_deref(),
+                )
+                .await
+                .with_context(|| format!("fetching materializations at offset {offset}"))
             }
         })
         .buffer_unordered(concurrency);
@@ -654,7 +667,8 @@ async fn fetch_materializations(
 /// JSON pointer path (e.g. "/schema", "/dataset"), or None if the connector
 /// doesn't support x-schema-name.
 async fn fetch_resource_spec_pointers(
-    client: &crate::Client,
+    pg: &postgrest::Postgrest,
+    access_token: Option<&str>,
     rows: &[LiveSpecRow],
 ) -> anyhow::Result<HashMap<String, Option<String>>> {
     let mut cache: HashMap<String, Option<String>> = HashMap::new();
@@ -688,30 +702,23 @@ async fn fetch_resource_spec_pointers(
         let full_image = format!("{image_name}{image_tag}");
 
         let schema_ptr = match async {
-            let response = client
-                .pg_client()
-                .from("connectors")
-                .select("connector_tags(resource_spec_schema)")
-                .eq("image_name", image_name)
-                .eq("connector_tags.image_tag", image_tag)
-                .single()
-                .execute()
-                .await
-                .context("querying connector_tags")?;
+            let row: ConnectorRow = flow_client_next::postgrest::exec(
+                pg.from("connectors")
+                    .select("connector_tags(resource_spec_schema)")
+                    .eq("image_name", image_name)
+                    .eq("connector_tags.image_tag", image_tag)
+                    .single(),
+                access_token,
+            )
+            .await
+            .context("querying connector_tags")?;
 
-            if !response.status().is_success() {
-                return anyhow::Ok(None);
-            }
-
-            let body = response.text().await?;
-            let row: ConnectorRow = serde_json::from_str(&body)
-                .with_context(|| format!("parsing connector_tags response for {image_name}"))?;
-
-            Ok(row
-                .connector_tags
-                .into_iter()
-                .next()
-                .and_then(|t| t.resource_spec_schema))
+            anyhow::Ok(
+                row.connector_tags
+                    .into_iter()
+                    .next()
+                    .and_then(|t| t.resource_spec_schema),
+            )
         }
         .await
         {
@@ -1046,13 +1053,14 @@ async fn execute_migration(
     for (idx, a) in to_migrate.iter().enumerate() {
         // Re-fetch the spec to get the latest version for modification.
         // This also gives us the current last_pub_id for optimistic concurrency.
-        let row: LiveSpecRow = match crate::api_exec(
-            ctx.client
+        let row: LiveSpecRow = match flow_client_next::postgrest::exec(
+            ctx.pg
                 .from("live_specs_ext")
                 .select("catalog_name,last_pub_id,spec,connector_image_name,connector_image_tag")
                 .eq("spec_type", "materialization")
                 .eq("catalog_name", &a.catalog_name)
                 .single(),
+            ctx.access_token().as_deref(),
         )
         .await
         {
@@ -1241,7 +1249,7 @@ async fn publish_one(
     detail: &str,
 ) -> anyhow::Result<()> {
     // Create a draft.
-    let draft = crate::draft::create_draft(&ctx.client).await?;
+    let draft = crate::draft::create_draft(ctx).await?;
 
     // Upsert the modified spec into the draft.
     #[derive(serde::Serialize)]
@@ -1261,11 +1269,12 @@ async fn publish_one(
         expect_pub_id,
     };
 
-    crate::api_exec::<Vec<Value>>(
-        ctx.client
+    flow_client_next::postgrest::exec::<Vec<Value>>(
+        ctx.pg
             .from("draft_specs")
             .upsert(serde_json::to_string(&[&draft_spec]).unwrap())
             .on_conflict("draft_id,catalog_name"),
+        ctx.access_token().as_deref(),
     )
     .await
     .context("upserting draft spec")?;
@@ -1277,8 +1286,8 @@ async fn publish_one(
         logs_token: String,
     }
 
-    let PubRow { id, logs_token } = crate::api_exec(
-        ctx.client
+    let PubRow { id, logs_token } = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("publications")
             .select("id,logs_token")
             .insert(
@@ -1290,16 +1299,17 @@ async fn publish_one(
                 .to_string(),
             )
             .single(),
+        ctx.access_token().as_deref(),
     )
     .await
     .context("creating publication")?;
 
-    let outcome = crate::poll_while_queued(&ctx.client, "publications", id, &logs_token).await?;
+    let outcome = crate::poll_while_queued(ctx, "publications", id, &logs_token).await?;
 
     crate::draft::print_draft_errors(ctx, draft.id).await?;
 
     if outcome != "success" {
-        let _ = crate::draft::delete_draft(&ctx.client, draft.id).await;
+        let _ = crate::draft::delete_draft(ctx, draft.id).await;
         anyhow::bail!("publication {id} failed with status: {outcome}");
     }
 
