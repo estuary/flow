@@ -6,7 +6,7 @@
 
 use disk_daemon::capture::{self, Capture};
 use disk_daemon::chunk::{covered_blocks, encode_punch, encode_write};
-use disk_daemon::journal::{self, Writer, fence, record};
+use disk_daemon::journal::{self, Writer, fence};
 use disk_daemon::proto;
 use disk_daemon::wake::Waker;
 use gazette::journal::framing;
@@ -31,7 +31,7 @@ async fn journal_writer_tests() {
     an_ambiguous_claim_finds_its_own_epoch(&fixture).await;
     a_session_which_never_publishes_creates_no_journal(&fixture).await;
     a_committed_delta_reads_back_as_its_chunks(&fixture).await;
-    a_large_delta_respects_the_record_bound(&fixture).await;
+    a_large_delta_carries_one_record_per_mutation(&fixture).await;
     a_journal_without_a_store_never_opens(&fixture).await;
 
     data_plane
@@ -180,24 +180,16 @@ async fn a_committed_delta_reads_back_as_its_chunks(fixture: &Fixture) {
     assert!(format!("{err:#}").contains("no published delta"), "{err:#}");
 }
 
-/// Writes larger than a record span records which each hold the bound, and
-/// which together cover the same blocks the writes did.
-async fn a_large_delta_respects_the_record_bound(fixture: &Fixture) {
+/// A delta of many mutations carries exactly one record each, covering exactly
+/// the blocks those mutations wrote.
+async fn a_large_delta_carries_one_record_per_mutation(fixture: &Fixture) {
     let journal = "acmeCo/disk/bounded";
-    let max_record_bytes = record::min_record_bytes(BLOCK_SIZE) * 2;
+    const WRITES: usize = 8;
 
-    let config = journal::Config {
-        max_record_bytes,
-        max_batch_bytes: max_record_bytes * 3,
-        ..fixture.config()
-    };
-    let (capture, writer) = fixture
-        .writer(&config, fixture.journal_config(journal), false)
-        .await
-        .unwrap();
-
+    let (capture, writer) = fixture.open(journal, false).await.unwrap();
     let write = encode_write(0, &bytes::Bytes::from(vec![0x22; 128 * 1024]), BLOCK_SIZE);
-    for _ in 0..8 {
+
+    for _ in 0..WRITES {
         capture.offer(write.clone()).unwrap();
     }
 
@@ -209,11 +201,6 @@ async fn a_large_delta_respects_the_record_bound(fixture: &Fixture) {
     let mut carrying = 0;
 
     for (_uuid, decoded) in &records {
-        assert!(
-            record::framed_len(decoded) <= max_record_bytes,
-            "record of {} bytes exceeds the bound",
-            record::framed_len(decoded),
-        );
         carrying += usize::from(!decoded.chunks.is_empty());
         blocks.extend(
             decoded
@@ -223,11 +210,12 @@ async fn a_large_delta_respects_the_record_bound(fixture: &Fixture) {
         );
     }
 
-    assert!(carrying > 8, "each write must span several records");
+    // A mutation is never split, so each write is exactly one record.
+    assert_eq!(carrying, WRITES);
     assert_eq!(
         blocks,
         std::iter::repeat_with(|| 0u32..32)
-            .take(8)
+            .take(WRITES)
             .flatten()
             .collect::<Vec<_>>(),
     );
@@ -239,7 +227,7 @@ async fn a_journal_without_a_store_never_opens(fixture: &Fixture) {
         journal: "acmeCo/disk/storeless".to_string(),
         ..Default::default()
     };
-    let Err(err) = fixture.writer(&fixture.config(), journal, false).await else {
+    let Err(err) = fixture.writer(journal, false).await else {
         panic!("a journal with no store must not open");
     };
     assert!(format!("{err:#}").contains("no fragment store"), "{err:#}");
@@ -253,30 +241,24 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn config(&self) -> journal::Config {
-        journal::Config {
-            endpoint: self.endpoint.clone(),
-            ..Default::default()
-        }
-    }
-
-    /// Journal stored in the test broker's file root.
+    /// Journal stored in the test broker's file root. Every field is supplied,
+    /// because the daemon has no defaults to fall back on.
     fn journal_config(&self, journal: &str) -> proto::JournalConfig {
         proto::JournalConfig {
             journal: journal.to_string(),
             fragment_stores: vec!["file:///".to_string()],
             replication: 1,
+            labels: Vec::new(),
             fragment_length: 1 << 18,
-            ..Default::default()
+            flush_interval_seconds: Some(48 * 3600),
+            refresh_interval_seconds: 5 * 60,
+            max_append_rate: Some(1 << 22),
+            compression_codec: broker::CompressionCodec::None as i32,
         }
     }
 
     fn spec(&self, journal: &str) -> broker::JournalSpec {
-        journal::spec::build(
-            &self.journal_config(journal),
-            &self.config().journal_defaults,
-        )
-        .unwrap()
+        journal::spec::build(&self.journal_config(journal)).unwrap()
     }
 
     async fn open(
@@ -284,32 +266,28 @@ impl Fixture {
         journal: &str,
         committed_state: bool,
     ) -> anyhow::Result<(Capture, Writer)> {
-        self.writer(
-            &self.config(),
-            self.journal_config(journal),
-            committed_state,
-        )
-        .await
+        self.writer(self.journal_config(journal), committed_state)
+            .await
     }
 
     async fn writer(
         &self,
-        config: &journal::Config,
         journal: proto::JournalConfig,
         committed_state: bool,
     ) -> anyhow::Result<(Capture, Writer)> {
         let (capture, captured) = capture::channel(64, Waker::new().unwrap());
+        let (client, _router) = journal::shared_client();
 
         let writer = Writer::open(
-            config,
+            &client,
             journal::Open {
                 journal,
-                broker: Some(proto::Broker {
-                    endpoint: String::new(), // The daemon's endpoint stands.
+                broker: proto::Broker {
+                    endpoint: self.endpoint.clone(),
                     credential: self.credential.clone(),
-                }),
-                block_size: BLOCK_SIZE,
+                },
                 committed_state,
+                retained: Vec::new(),
             },
             captured,
         )

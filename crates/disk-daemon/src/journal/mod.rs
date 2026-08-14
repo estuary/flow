@@ -15,44 +15,50 @@
 use crate::capture::Captured;
 use crate::proto;
 use anyhow::Context;
+use gazette::journal::framing;
 use proto_gazette::{broker, uuid};
 
 pub mod fence;
-pub mod record;
 pub mod spec;
 
-/// Daemon configuration for writing disk journals.
-pub struct Config {
-    /// Values for the `JournalConfig` fields a session leaves unset.
-    pub journal_defaults: proto::JournalConfig,
-    /// Broker endpoint used by a session which supplies none.
-    pub endpoint: String,
-    /// Largest framed record the writer appends.
-    pub max_record_bytes: usize,
-    /// Largest append the writer issues.
-    pub max_batch_bytes: usize,
-    /// Client each session derives its own from, so that they share connections
-    /// to brokers and to fragment stores.
-    pub client: gazette::journal::Client,
-    /// Routing table of `client`, which its owner sweeps periodically to close
-    /// connections to brokers which no longer serve any disk.
-    pub router: gazette::Router,
+/// The client every session derives its own from, so that they share
+/// connections to brokers and to fragment stores, and the routing table its
+/// owner sweeps to close connections no disk needs any more.
+///
+/// The zone is empty because routing to a nearby replica is a fact a host does
+/// not have, and there is no default metadata because a session supplies its
+/// own endpoint and credential.
+pub fn shared_client() -> (gazette::journal::Client, gazette::Router) {
+    let router = gazette::Router::new("");
+
+    let client = gazette::journal::Client::new(
+        String::new(),
+        gazette::journal::Client::new_fragment_client(),
+        proto_grpc::Metadata::new(),
+        router.clone(),
+    );
+    (client, router)
 }
 
 /// Inputs of one session's journal.
 pub struct Open {
     /// Journal of the disk and how to create it.
     pub journal: proto::JournalConfig,
-    /// Brokers serving the journal, or the daemon's defaults when absent.
-    pub broker: Option<proto::Broker>,
-    /// Block size of the disk, which is the granularity a record splits an
-    /// oversized chunk on.
-    pub block_size: u32,
+    /// Brokers serving the journal.
+    pub broker: proto::Broker,
     /// Whether the disk has committed state, which is an acknowledged delta in
     /// the journal or an acknowledgement the client recovered. Such a disk
     /// claims its journal at open, because everything which follows reads or
     /// repairs state the previous writer must no longer be able to change.
     pub committed_state: bool,
+    /// Mutations of formatting and mounting a fresh disk, which are appended
+    /// ahead of the first mutation which follows them rather than as they
+    /// arrive. A disk which is only formatted carries no information, because
+    /// formatting it again reproduces it, so it publishes nothing at all.
+    ///
+    /// A recovered disk retains nothing: its journal exists, and its mount
+    /// writes belong to the next delta like any other mutation.
+    pub retained: Vec<Vec<proto::Chunk>>,
 }
 
 /// Handle to a session's journal writer.
@@ -65,6 +71,7 @@ enum Command {
     Publish(Reply<Option<bytes::Bytes>>),
     Commit(bytes::Bytes, Reply<()>),
     Broker(proto::Broker, Reply<()>),
+    Abandon(Reply<()>),
 }
 
 type Reply<T> = tokio::sync::oneshot::Sender<anyhow::Result<T>>;
@@ -80,25 +87,28 @@ impl Writer {
     ///
     /// Mutations are appended from `captured` as they arrive, until the returned
     /// handle is dropped.
-    pub async fn open(config: &Config, open: Open, captured: Captured) -> anyhow::Result<Self> {
+    pub async fn open(
+        client: &gazette::journal::Client,
+        open: Open,
+        captured: Captured,
+    ) -> anyhow::Result<Self> {
         let Open {
             journal,
             broker,
-            block_size,
             committed_state,
+            retained,
         } = open;
 
         anyhow::ensure!(
-            config.max_record_bytes >= record::min_record_bytes(block_size)
-                && config.max_batch_bytes >= config.max_record_bytes,
-            "append bounds must carry one {block_size}-byte block and a batch must hold a record",
+            !broker.endpoint.is_empty(),
+            "the session named no broker endpoint",
         );
-        let spec = spec::build(&journal, &config.journal_defaults)?;
+        let spec = spec::build(&journal)?;
 
         let (tokens, set_broker) = tokens::manual::<proto::Broker>();
-        _ = set_broker(Ok(resolve(broker.unwrap_or_default(), &config.endpoint)?));
+        _ = set_broker(Ok(broker));
 
-        let client = config.client.with_tokens(
+        let client = client.with_tokens(
             |broker: &proto::Broker| {
                 let metadata = match broker.credential.is_empty() {
                     true => proto_grpc::Metadata::new(),
@@ -117,18 +127,16 @@ impl Writer {
             spec,
             client,
             set_broker: Box::new(set_broker),
-            endpoint: config.endpoint.clone(),
             epoch,
             clock: uuid::Clock::from_time(std::time::SystemTime::now()),
-            block_size,
-            max_record_bytes: config.max_record_bytes,
-            max_batch_bytes: config.max_batch_bytes,
             fence: Fence::Deferred {
                 prior: probe.author,
                 exists: probe.exists,
             },
             delta_records: 0,
+            retained,
             pending_ack: None,
+            abandoned: false,
             drained: false,
             terminal: None,
         };
@@ -172,6 +180,16 @@ impl Writer {
         self.call(|reply| Command::Broker(broker, reply)).await
     }
 
+    /// Stop appending, and discard every mutation which follows.
+    ///
+    /// A session which is ending publishes nothing more, so what its disk does
+    /// on the way out cannot be committed and a replay would ignore it. Those
+    /// mutations are still taken, because a device whose mutations nothing
+    /// takes cannot be unmounted.
+    pub async fn abandon(&self) -> anyhow::Result<()> {
+        self.call(Command::Abandon).await
+    }
+
     async fn call<T>(&self, command: impl FnOnce(Reply<T>) -> Command) -> anyhow::Result<T> {
         let (reply, response) = tokio::sync::oneshot::channel();
 
@@ -202,17 +220,17 @@ struct Task {
     spec: broker::JournalSpec,
     client: gazette::journal::Client,
     set_broker: SetBroker,
-    endpoint: String,
     epoch: uuid::Producer,
     clock: uuid::Clock,
-    block_size: u32,
-    max_record_bytes: usize,
-    max_batch_bytes: usize,
     fence: Fence,
     /// Records appended since the last acknowledgement committed.
     delta_records: usize,
+    /// Format and mount output awaiting the mutation it is appended ahead of.
+    retained: Vec<Vec<proto::Chunk>>,
     /// Acknowledgement returned to the client and not yet committed.
     pending_ack: Option<bytes::Bytes>,
+    /// Set once the session is ending, so that mutations are discarded.
+    abandoned: bool,
     /// Set once the owner has released its half of the capture channel.
     drained: bool,
     /// Failure which ended the session, reported to every later request.
@@ -234,7 +252,7 @@ impl Task {
                         self.fail(err);
                     }
                 }
-                chunks = captured.recv(), if self.appending() => match chunks {
+                chunks = captured.recv(), if self.taking() => match chunks {
                     Some(chunks) => {
                         if let Err(err) = self.drain(&captured, Some(chunks)).await {
                             self.fail(err);
@@ -246,11 +264,18 @@ impl Task {
         }
     }
 
-    /// Whether mutations may be taken. A published delta holds them until its
-    /// acknowledgement commits, which is what keeps Gazette from grouping two
-    /// deltas into one pending transaction.
+    /// Whether mutations are taken from the capture channel. Taking stops while
+    /// a published delta awaits its commit, which is what keeps Gazette from
+    /// grouping two deltas into one pending transaction. A session which
+    /// appends no more keeps taking, because a device whose mutations nothing
+    /// takes cannot be unmounted.
+    fn taking(&self) -> bool {
+        !self.drained && (!self.appending() || self.pending_ack.is_none())
+    }
+
+    /// Whether mutations are appended rather than discarded.
     fn appending(&self) -> bool {
-        !self.drained && self.pending_ack.is_none() && self.terminal.is_none()
+        !self.abandoned && self.terminal.is_none()
     }
 
     async fn command(&mut self, command: Command, captured: &Captured) -> anyhow::Result<()> {
@@ -258,6 +283,12 @@ impl Task {
             Command::Publish(reply) => reply_with(reply, self.publish(captured).await),
             Command::Commit(ack, reply) => reply_with(reply, self.commit(ack).await),
             Command::Broker(broker, reply) => reply_with(reply, self.broker(broker)),
+            Command::Abandon(reply) => {
+                self.abandoned = true;
+                self.retained.clear();
+
+                reply_with(reply, Ok(()))
+            }
         }
     }
 
@@ -304,36 +335,51 @@ impl Task {
 
     fn broker(&mut self, broker: proto::Broker) -> anyhow::Result<()> {
         () = self.check()?;
-        _ = (self.set_broker)(Ok(resolve(broker, &self.endpoint)?));
+        anyhow::ensure!(
+            !broker.endpoint.is_empty(),
+            "the session named no broker endpoint",
+        );
+        _ = (self.set_broker)(Ok(broker));
 
         Ok(())
     }
 
     /// Append every mutation the capture channel holds, beginning with `first`.
+    ///
+    /// Retained format and mount output goes ahead of them, and only ever
+    /// alongside a mutation, so that the first delta carries all of the
+    /// filesystem's allocated metadata and a disk which is never written
+    /// creates no journal.
     async fn drain(
         &mut self,
         captured: &Captured,
         first: Option<Vec<proto::Chunk>>,
     ) -> anyhow::Result<()> {
-        let mut batch = record::Batch::new(self.max_batch_bytes);
-        let mut next = first.or_else(|| captured.try_recv());
+        let mut mutations: Vec<Vec<proto::Chunk>> = first.into_iter().collect();
 
-        while let Some(chunks) = next {
-            for packed in record::pack(chunks, self.block_size, self.max_record_bytes) {
-                let record = self.stamp(uuid::Flags::CONTINUE_TXN, packed);
+        while let Some(chunks) = captured.try_recv() {
+            mutations.push(chunks);
+        }
+        if !self.appending() {
+            self.retained.clear();
+            return Ok(());
+        }
+        if mutations.is_empty() {
+            return Ok(());
+        }
+        let mut buf = bytes::BytesMut::new();
 
-                if let Some(full) = batch.push(&record) {
-                    () = self.append(full).await?;
-                }
-                self.delta_records += 1;
-            }
-            next = captured.try_recv();
+        for chunks in std::mem::take(&mut self.retained)
+            .into_iter()
+            .chain(mutations)
+        {
+            let record = self.stamp(uuid::Flags::CONTINUE_TXN, chunks);
+
+            framing::encode(&record, &mut buf);
+            self.delta_records += 1;
         }
 
-        match batch.take() {
-            Some(full) => self.append(full).await,
-            None => Ok(()),
-        }
+        self.append(buf.freeze()).await
     }
 
     /// Append `content` under this session's fence.
@@ -440,23 +486,6 @@ fn fresh_producer() -> uuid::Producer {
     ])
 }
 
-/// Resolve a session's broker against the daemon's default endpoint.
-fn resolve(broker: proto::Broker, default: &str) -> anyhow::Result<proto::Broker> {
-    let endpoint = match broker.endpoint.is_empty() {
-        true => default,
-        false => &broker.endpoint,
-    };
-    anyhow::ensure!(
-        !endpoint.is_empty(),
-        "no broker endpoint: neither the session nor the daemon supplies one",
-    );
-
-    Ok(proto::Broker {
-        endpoint: endpoint.to_string(),
-        credential: broker.credential,
-    })
-}
-
 /// Issue one append, retrying transient broker errors, and return its response.
 async fn append<S>(
     client: &gazette::journal::Client,
@@ -478,39 +507,6 @@ where
             }
             Some(Err(gazette::RetryError { inner, .. })) => return Err(inner),
             None => unreachable!("an append stream does not end without a response"),
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        let router = gazette::Router::new("");
-
-        Self {
-            journal_defaults: proto::JournalConfig {
-                replication: 3,
-                fragment_length: 1 << 28, // 256 MiB.
-                flush_interval_seconds: 48 * 3600,
-                refresh_interval_seconds: 5 * 60,
-                max_append_rate: 1 << 22, // 4 MiB per second.
-                // Fragments are uncompressed until this daemon's reader
-                // decompresses SNAPPY, which the disk journal format wants.
-                compression_codec: broker::CompressionCodec::None as i32,
-                ..Default::default()
-            },
-            endpoint: String::new(),
-            max_record_bytes: 1 << 20, // 1 MiB.
-            max_batch_bytes: 1 << 22,  // 4 MiB.
-            // Sessions supply endpoints and credentials, so this client
-            // contributes only its connections. Its zone is empty because
-            // routing to a nearby replica is a fact a host does not have.
-            client: gazette::journal::Client::new(
-                String::new(),
-                gazette::journal::Client::new_fragment_client(),
-                proto_grpc::Metadata::new(),
-                router.clone(),
-            ),
-            router,
         }
     }
 }

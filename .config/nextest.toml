@@ -31,7 +31,7 @@ filter = 'package(automations) and test(test_fibonacci_bench)'
 test-group = 'serial-db-tests'
 
 [[profile.default.overrides]]
-filter = 'binary_id(disk-daemon::ublk)'
+filter = 'binary_id(disk-daemon::ublk) + binary_id(disk-daemon::daemon)'
 test-group = 'serial-ublk-tests'
 
 # This `server::` filter is overly broad, as not all the tests there actually

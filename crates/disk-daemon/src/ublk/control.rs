@@ -105,6 +105,30 @@ impl Control {
         Ok(info)
     }
 
+    /// Read what the kernel knows about a device, or `None` if it has none.
+    ///
+    /// Its `ublksrv_pid` is the process which called [`Control::start_dev`], so
+    /// a caller deciding whether a device is abandoned asks whether that
+    /// process is still alive.
+    pub fn dev_info(&self, dev_id: u32) -> anyhow::Result<Option<sys::UblksrvCtrlDevInfo>> {
+        let mut info = sys::UblksrvCtrlDevInfo::default();
+        let command = sys::UblksrvCtrlCmd {
+            dev_id,
+            queue_id: u16::MAX,
+            len: std::mem::size_of_val(&info) as u16,
+            addr: std::ptr::from_mut(&mut info) as u64,
+            ..Default::default()
+        };
+
+        match self.issue(sys::UBLK_U_CMD_GET_DEV_INFO, &command) {
+            Ok(_) => Ok(Some(info)),
+            Err(err) if err.raw_os_error() == Some(libc::ENODEV) => Ok(None),
+            Err(err) => {
+                Err(anyhow::Error::new(err).context(format!("reading ublk device {dev_id}")))
+            }
+        }
+    }
+
     pub fn set_params(&self, dev_id: u32, params: &sys::UblkParams) -> anyhow::Result<()> {
         self.issue(
             sys::UBLK_U_CMD_SET_PARAMS,
@@ -162,7 +186,15 @@ impl Control {
                 ..Default::default()
             },
         )?;
-        let live = self.live.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) - 1;
+        // Saturating, because a device this control never added may be deleted:
+        // one whose server is gone outlives it, to be deleted by whoever reaps.
+        let relaxed = std::sync::atomic::Ordering::Relaxed;
+        let live = self
+            .live
+            .fetch_update(relaxed, relaxed, |live| Some(live.saturating_sub(1)))
+            .expect("a saturating update never fails")
+            .saturating_sub(1);
+
         tracing::debug!(dev_id, live, "deleted a ublk device");
 
         Ok(())

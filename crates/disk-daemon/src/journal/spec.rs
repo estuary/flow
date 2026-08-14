@@ -1,47 +1,72 @@
 //! A disk journal's `JournalSpec`, built from the typed inputs a session
-//! supplies over fallbacks the daemon configures.
+//! supplies.
 //!
 //! The daemon builds the spec rather than accepting one, because a disk's
 //! recoverability rests on fields a client must not be able to get wrong: the
 //! journal must be writable and readable, and its fragments must be in a codec
 //! this daemon can decompress, since it replays them to rebuild the disk.
+//!
+//! It also holds no defaults. A journal's spec is created once and never
+//! converged, so a value the daemon invented would be one the disk is stuck
+//! with, and changing the daemon later would not reach it.
 
 use crate::proto;
 use proto_gazette::broker;
 
-/// Build the spec of `config`, filling each field it leaves unset from
-/// `defaults`.
+/// Build the spec of `config`, which must supply every field.
 ///
-/// Zero and empty are the unset markers throughout. That is unambiguous because
-/// zero is invalid for every field: Gazette rejects a zero replication, fragment
-/// length, or interval, and codec zero is `INVALID`.
-pub fn build(
-    config: &proto::JournalConfig,
-    defaults: &proto::JournalConfig,
-) -> anyhow::Result<broker::JournalSpec> {
-    anyhow::ensure!(!config.journal.is_empty(), "no journal name was supplied");
+/// Most are rejected when zero, because Gazette rejects them too and failing
+/// here names the field. The two Gazette accepts as zero are `optional` on the
+/// wire, so absence is what is refused: no append ceiling and no flush on time
+/// alone stay sayable, but only by saying them.
+pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpec> {
+    let proto::JournalConfig {
+        journal,
+        fragment_stores,
+        replication,
+        labels,
+        fragment_length,
+        flush_interval_seconds,
+        refresh_interval_seconds,
+        max_append_rate,
+        compression_codec,
+    } = config;
 
-    let stores = pick(&config.fragment_stores, &defaults.fragment_stores);
+    anyhow::ensure!(!journal.is_empty(), "no journal name was supplied");
     anyhow::ensure!(
-        !stores.is_empty(),
-        "no fragment store for journal {}: neither the session nor the daemon supplies one",
-        config.journal,
+        !fragment_stores.is_empty(),
+        "journal {journal} was given no fragment store",
+    );
+    anyhow::ensure!(
+        *replication != 0,
+        "journal {journal} was given no replication"
+    );
+    anyhow::ensure!(
+        *fragment_length != 0,
+        "journal {journal} was given no fragment length",
+    );
+    anyhow::ensure!(
+        *refresh_interval_seconds != 0,
+        "journal {journal} was given no refresh interval",
     );
 
-    let codec = broker::CompressionCodec::try_from(or(
-        config.compression_codec,
-        defaults.compression_codec,
-    ))
-    .unwrap_or(broker::CompressionCodec::Invalid);
+    // Zero is a value for these two, so absence is what is rejected.
+    let flush_interval_seconds = flush_interval_seconds
+        .ok_or_else(|| anyhow::anyhow!("journal {journal} was given no flush interval"))?;
+    let max_append_rate = max_append_rate
+        .ok_or_else(|| anyhow::anyhow!("journal {journal} was given no maximum append rate"))?;
+
+    let codec = broker::CompressionCodec::try_from(*compression_codec)
+        .unwrap_or(broker::CompressionCodec::Invalid);
 
     anyhow::ensure!(
         gazette::journal::read::supports_codec(codec),
-        "compression codec {} cannot be decompressed by this daemon, which must read \
-         this journal back to recover the disk",
+        "journal {journal} was given compression codec {}, which this daemon cannot \
+         decompress, and it must read this journal back to recover the disk",
         codec.as_str_name(),
     );
 
-    let mut labels: Vec<broker::Label> = pick(&config.labels, &defaults.labels)
+    let mut labels: Vec<broker::Label> = labels
         .iter()
         .map(|label| broker::Label {
             name: label.name.clone(),
@@ -54,21 +79,15 @@ pub fn build(
     labels.dedup_by(|l, r| (&l.name, &l.value) == (&r.name, &r.value));
 
     Ok(broker::JournalSpec {
-        name: config.journal.clone(),
-        replication: or(config.replication, defaults.replication) as i32,
+        name: journal.clone(),
+        replication: *replication as i32,
         labels: Some(broker::LabelSet { labels }),
         fragment: Some(broker::journal_spec::Fragment {
-            length: or(config.fragment_length, defaults.fragment_length),
+            length: *fragment_length,
             compression_codec: codec as i32,
-            stores: stores.to_vec(),
-            refresh_interval: Some(seconds(or(
-                config.refresh_interval_seconds,
-                defaults.refresh_interval_seconds,
-            ))),
-            flush_interval: Some(seconds(or(
-                config.flush_interval_seconds,
-                defaults.flush_interval_seconds,
-            ))),
+            stores: fragment_stores.clone(),
+            refresh_interval: Some(seconds(*refresh_interval_seconds)),
+            flush_interval: Some(seconds(flush_interval_seconds)),
             // Gazette deletes fragments by age, which cannot see the recovery
             // floor, so any retention risks deleting records a live disk needs.
             retention: None,
@@ -78,7 +97,7 @@ pub fn build(
         }),
         // The daemon both appends to this journal and replays it.
         flags: broker::journal_spec::Flag::ORdwr as u32,
-        max_append_rate: or(config.max_append_rate, defaults.max_append_rate),
+        max_append_rate,
         suspend: None,
     })
 }
@@ -107,94 +126,97 @@ pub async fn create(
     }
 }
 
-/// The session's value, or the daemon's when the session set none.
-fn pick<'a, T>(config: &'a [T], defaults: &'a [T]) -> &'a [T] {
-    if config.is_empty() { defaults } else { config }
-}
-
-/// The session's value, or the daemon's when the session set none.
-fn or<T: Default + PartialEq>(config: T, defaults: T) -> T {
-    if config == T::default() {
-        defaults
-    } else {
-        config
-    }
-}
-
 fn seconds(seconds: impl Into<u64>) -> pbjson_types::Duration {
     std::time::Duration::from_secs(seconds.into()).into()
 }
 
 #[cfg(test)]
 mod test {
-    use super::{build, or};
+    use super::build;
     use crate::proto;
     use proto_gazette::broker;
 
-    fn defaults() -> proto::JournalConfig {
-        crate::journal::Config::default().journal_defaults
+    /// A config which supplies everything, for a case to take one field away.
+    fn complete() -> proto::JournalConfig {
+        proto::JournalConfig {
+            journal: "acmeCo/disk/one".to_string(),
+            fragment_stores: vec!["file:///".to_string()],
+            replication: 1,
+            labels: Vec::new(),
+            fragment_length: 4096,
+            flush_interval_seconds: Some(3600),
+            refresh_interval_seconds: 300,
+            max_append_rate: Some(1 << 20),
+            compression_codec: broker::CompressionCodec::None as i32,
+        }
     }
 
     #[test]
-    fn test_a_session_field_wins_over_the_daemon_default() {
-        let spec = build(
-            &proto::JournalConfig {
-                journal: "acmeCo/disk/one".to_string(),
-                fragment_stores: vec!["file:///".to_string()],
-                replication: 1,
-                fragment_length: 4096,
-                ..Default::default()
-            },
-            &defaults(),
-        )
-        .unwrap();
+    fn test_every_field_reaches_the_spec() {
+        let spec = build(&complete()).unwrap();
+        let fragment = spec.fragment.clone().unwrap();
 
-        let fragment = spec.fragment.unwrap();
         assert_eq!(spec.name, "acmeCo/disk/one");
         assert_eq!(spec.replication, 1);
+        assert_eq!(spec.max_append_rate, 1 << 20);
         assert_eq!(fragment.length, 4096);
         assert_eq!(fragment.stores, vec!["file:///"]);
-        // Unset by the session, so the daemon's value stands.
-        assert_eq!(spec.max_append_rate, defaults().max_append_rate);
+        assert_eq!(fragment.refresh_interval.unwrap().seconds, 300);
+        assert_eq!(fragment.flush_interval.unwrap().seconds, 3600);
+
+        // Fixed by the daemon, whatever the session asked for.
         assert_eq!(fragment.retention, None);
+        assert_eq!(fragment.path_postfix_template, "");
         assert_eq!(spec.flags, broker::journal_spec::Flag::ORdwr as u32);
     }
 
     #[test]
-    fn test_a_journal_needing_a_store_or_a_name_is_rejected() {
-        let err = build(
-            &proto::JournalConfig {
-                journal: "acmeCo/disk/one".to_string(),
-                ..Default::default()
-            },
-            &defaults(),
-        )
-        .unwrap_err();
-        assert!(format!("{err}").contains("no fragment store"), "{err}");
+    fn test_a_missing_field_names_itself() {
+        for (take, expected) in [
+            (
+                (|c: &mut proto::JournalConfig| c.journal.clear()) as fn(&mut _),
+                "no journal name",
+            ),
+            (|c| c.fragment_stores.clear(), "no fragment store"),
+            (|c| c.replication = 0, "no replication"),
+            (|c| c.fragment_length = 0, "no fragment length"),
+            (|c| c.refresh_interval_seconds = 0, "no refresh interval"),
+            (|c| c.flush_interval_seconds = None, "no flush interval"),
+            (|c| c.max_append_rate = None, "no maximum append rate"),
+            (|c| c.compression_codec = 0, "INVALID"),
+        ] {
+            let mut config = complete();
+            () = take(&mut config);
 
-        let err = build(&proto::JournalConfig::default(), &defaults()).unwrap_err();
-        assert!(format!("{err}").contains("no journal name"), "{err}");
+            let err = build(&config).unwrap_err();
+            assert!(format!("{err}").contains(expected), "{expected}: {err}");
+        }
+    }
+
+    /// Gazette reads zero as a choice for these two, so the daemon carries it
+    /// through. Their absence is what it refuses, which is why they are
+    /// `optional` on the wire rather than plain.
+    #[test]
+    fn test_zero_is_a_value_for_the_two_optional_fields() {
+        let spec = build(&proto::JournalConfig {
+            max_append_rate: Some(0),
+            flush_interval_seconds: Some(0),
+            ..complete()
+        })
+        .unwrap();
+
+        assert_eq!(spec.max_append_rate, 0);
+        assert_eq!(spec.fragment.unwrap().flush_interval.unwrap().seconds, 0);
     }
 
     #[test]
     fn test_a_codec_which_cannot_be_read_back_is_rejected() {
-        let err = build(
-            &proto::JournalConfig {
-                journal: "acmeCo/disk/one".to_string(),
-                fragment_stores: vec!["file:///".to_string()],
-                compression_codec: broker::CompressionCodec::Snappy as i32,
-                ..Default::default()
-            },
-            &defaults(),
-        )
+        let err = build(&proto::JournalConfig {
+            compression_codec: broker::CompressionCodec::Snappy as i32,
+            ..complete()
+        })
         .unwrap_err();
 
         assert!(format!("{err}").contains("SNAPPY"), "{err}");
-    }
-
-    #[test]
-    fn test_zero_selects_the_default() {
-        assert_eq!(or(0, 7), 7);
-        assert_eq!(or(3, 7), 3);
     }
 }

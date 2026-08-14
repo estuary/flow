@@ -13,43 +13,57 @@ Build order: [`plans/block-backed-connector-disks-phases.md`](../../plans/block-
 
 ## Scope today
 
-The durable format, the local device, and the journal writer: the wire
-protocol, the chunk codec, the block bitmaps, the sparse image, the `ublk`
-device server, the owner pool which serves it, and the writer which fences a
-journal, appends every captured mutation, and constructs the acknowledgement
-which commits a delta.
+A `flow-disk-daemon` binary which serves fresh disks end to end: a session
+creates a disk, formats and mounts it, publishes and commits its deltas to a
+journal, and destroys it when the session ends.
 
-There is no session service and no daemon binary, so a caller drives a disk and
-its writer directly. Recovery is not built: nothing reads a journal back, so a
-session which opens with committed state is told so rather than deriving it.
-Horizons do not exist, so no record opens one and no floor label is written.
+Recovery is not built: nothing reads a journal back, so a session which opens
+with committed state, or which carries recovered acknowledgements, is refused.
+Horizons do not exist, so no record opens one and the configured floor label is
+never written.
 
 ## Key types and entry points
 
 | Item | Role |
 | --- | --- |
 | [`proto`] (`proto_flow::disk`) | Session RPC (`Open`/`Publish`/`Commit`/`Broker`) and journal records (`DiskRecord`, `Chunk`), from `go/protocols/disk/disk.proto` |
-| [`disk::Disk`] | One disk's lifecycle: image, device, and owner assignment |
+| [`args::Args`] | The command line, which is every knob the daemon has |
+| [`daemon::run`] | Host validation, wiring, the socket, and the drain |
+| [`session::Service`] | The session state machine, one stream per disk |
+| [`filesystem`] | The one place a filesystem type is decided: how to format, and what to mount with |
+| [`disk::Disk`] | One disk's lifecycle: image, device, and the owner serving it |
 | [`image::Image`] | The `O_TMPFILE` sparse image and its allocated bitmap |
 | [`ublk::Control`] | `/dev/ublk-control`: add, configure, start, stop, delete |
-| [`owner::Pool`] | Owner threads; each disk is owned by exactly one |
+| [`owner::spawn`] | The thread which serves one disk, and the ring it drives |
 | [`capture::channel`] | The mutation-capture seam between an owner and the writer |
 | [`journal::Writer`] | One session's journal: fence, append pipeline, publish and commit |
-| [`journal::Config`] | Daemon-wide append bounds, spec fallbacks, and shared client |
 | [`journal::fence`] | The `author` register: probe, claim, and the fence record |
-| [`journal::spec`] | `JournalConfig` over daemon defaults, and insert-only creation |
-| [`journal::record`] | Chunks into records, records into appends, and their bounds |
+| [`journal::spec`] | `JournalConfig` into a `JournalSpec`, and insert-only creation |
 | [`inflight::InFlight`] | Serializes overlapping mutations against one image |
 | [`chunk::encode_write`] / [`chunk::encode_punch`] | Device mutation → journal chunks |
 | [`chunk::apply`] | Journal chunk → image bytes and allocated bits (replay) |
 | [`chunk::covered_blocks`] | Block range a chunk covers, which is the shared rule both halves obey |
 | [`bitmap::Bitmap`] | Allocated and horizon block sets |
 
+## A session
+
+```text
+Open    ──►  image ──► device ──► format ──► mount ──► writer ──► Opened(path)
+Publish ──►  syncfs ──► close admission ──► finish the delta ──► Published(ack)
+Commit  ──►  append that ack ──► await the broker ──► Committed
+Broker  ──►  replace the endpoint and credential
+close   ──►  unmount ──► stop and delete the device ──► drop the image
+```
+
+Everything a session does is terminal on failure, and every way a stream ends
+runs the same teardown. Format and mount writes are retained rather than
+appended, and the journal is created by the first mutation which follows them.
+
 ## The serving path
 
-An owner drives one `io_uring` for all of its disks. A device request arrives as
-a fetch completion, and each of its steps is another completion on that ring, so
-the owner never blocks:
+Each disk has one owner thread driving one `io_uring`. A device request arrives
+as a fetch completion, and each of its steps is another completion on that ring,
+so the owner never blocks:
 
 ```text
 fetch  ──►  read  ──►  write ──►  commit        (device read)
@@ -62,7 +76,7 @@ fetch  ──►  read       ──►  offer chunks ──►  write  ──►
 
 A discard or write-zeroes request skips the data transfer and punches instead of
 writing. `Step` in `owner.rs` is the completion's place in that sequence, packed
-into its `user_data` with the disk and the request tag.
+into its `user_data` with the request tag.
 
 ## The writing path
 
@@ -74,6 +88,7 @@ happen to a disk, and never abandons an append part-way:
 select ──►  request        ──►  publish  ──►  drain, confirm, return the ack
                                 commit   ──►  append the ack, await it
                                 broker   ──►  replace endpoint and credential
+                                abandon  ──►  take what follows and discard it
 
        ──►  mutation       ──►  pack into records ──►  fill a batch ──►  append
 ```
@@ -83,6 +98,29 @@ Requests win that race, so a cut observes every mutation queued before it.
 caller has already stopped admitting mutations and awaited the ones in flight.
 
 ## Non-obvious details
+
+- **The cut of a publication is the owner's.** Closing a disk's admission parks
+  its arriving mutations exactly as a full capture channel does, and the owner
+  reports the cut once every mutation it did admit has reached the image. Reads
+  continue throughout.
+
+- **A session which is ending appends nothing more.** Unmounting writes, and
+  those writes could never be committed by an acknowledgement, so the writer is
+  abandoned first: it keeps taking mutations, because a device whose mutations
+  nothing takes cannot be unmounted, and discards them.
+
+- **A killed daemon is cleaned up by the next one.** The kernel frees the image,
+  which has no directory entry, and removes the block device when the process
+  serving it dies. The mount over that device and its character device both
+  survive, so the next daemon to take the mount directory unmounts what it finds
+  and deletes the device each mount point names, once the kernel confirms the
+  process which served it is gone. A device this daemon cannot prove was its own
+  is left alone, because another application's abandoned device may be one it
+  means to recover.
+
+- **The session socket is reachable by any user.** The daemon's clients are not
+  the privileged user it runs as, and it has no user model of its own, so which
+  of them may reach it is the socket directory's permissions to decide.
 
 - **A mutation is captured before it is applied.** The chunks of every accepted
   write, discard, and write-zeroes go to the capture channel before the image
@@ -103,7 +141,24 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   footprint, which the property test in `chunk.rs` asserts against two files and
   the privileged tests assert against a real filesystem.
 
-- **Bitmaps are not atomic.** A disk is owned by exactly one thread.
+- **A disk is served by a thread, and the kernel requires it.** `ublk` binds a
+  device's queue to the thread which arms its first fetch, and rejects every
+  later command from any other thread with `EINVAL`. A tokio task migrates
+  between workers, so it cannot serve a queue — this was tried, and the second
+  command a migrated task sent came back `-22`. So `owner::spawn` builds and
+  arms the ring *on* the serving thread, never on its caller, and that thread
+  is the only submitter for the life of the disk. It also makes the bitmaps
+  safe without atomics.
+
+- **Threads and rings are per disk, but kernel workers are not.** A parked
+  owner costs a kernel stack and 256 KiB of reserved address space, and its
+  128-entry ring about 12 KiB, so a hundred disks cost single-digit megabytes.
+  What does not scale that way is `io_uring`'s own worker pool, which serves
+  operations it cannot complete inline — punches reach it in ordinary use — and
+  whose default size comes from the CPU count and `RLIMIT_NPROC`. Every disk's
+  ring therefore attaches to one anchor ring with `IORING_SETUP_ATTACH_WQ`, and
+  that pool's size is registered rather than inherited. A unit file should set
+  `TasksMax`, whose default is derived from the host's `kernel.pid_max`.
 
 - **Block size is per-disk and durable.** It shapes chunk coverage and bitmap
   extent, so it is fixed once a disk first publishes. Device size and block
@@ -114,9 +169,9 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   over the vendored `ublk_cmd.h`, a copy of the uapi header, and `ublk/sys.rs`
   only renames the result and adds the offsets and helpers this crate layers on
   it. Picking up a newer kernel's features means replacing that header. The
-  `libublk` crate is deliberately not used: its queue layer assumes one queue
-  per thread and gives its own commands no room for a device id, which does not
-  fit an owner serving many disks on one ring.
+  `libublk` crate is deliberately not used: its own commands leave no room for
+  our `Step` packing, and its queue layer is a thread-local ring, which is not
+  a design choice of theirs but the kernel's affinity rule above.
 
 - **Only ioctl-encoded `UBLK_U_CMD_*` opcodes are used.** The legacy raw opcodes
   need `CONFIG_BLKDEV_UBLK_LEGACY_OPCODES`, which current kernels do not enable.
@@ -150,16 +205,41 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   so an append which may or may not have landed is resolved by re-probing for
   the session's own epoch rather than by picking a fresh one.
 
+- **A journal's spec has no daemon defaults.** Every `JournalConfig` field is
+  required, because the spec is created once and never converged: a value the
+  daemon invented would be one the disk carries for life, and changing the
+  daemon later would not reach it. A missing field is rejected at `Open`, which
+  names it. The two Gazette reads zero as a choice for are `optional` on the
+  wire, so no append ceiling and no timed flush stay reachable, but only by
+  being asked for. That is why this proto has no Go bindings: `protoc-gen-gogo`
+  refuses proto3 `optional`, and nothing in Go consumes this protocol.
+
+- **The format output is held in memory until the first write.** It is the
+  daemon's own `mkfs` and `mount` mutations, so it is bounded by filesystem
+  metadata rather than by use: 99 KiB on a 128 MiB device, 4.1 MiB on a 10 GiB
+  one. But a disk opened and left idle holds it for the whole session, which
+  makes it the largest thing a disk carries. Phase 5 replaces it by snapshotting
+  the image when the first mutation arrives, since the image already holds
+  exactly this content.
+
 - **Journal creation is driven by the first append**, not by opening a session,
-  because a disk which is never written carries no information. The spec is
-  built and validated at open so that a journal which could not be created — no
-  fragment store, or a codec this crate cannot decompress — fails before a
+  because a disk which is never written carries no information. Format and
+  mount output is retained for that first mutation and appended ahead of it, so
+  the first delta carries all of the filesystem's allocated metadata. The spec
+  is built and validated at open so that a journal which could not be created —
+  no fragment store, or a codec this crate cannot decompress — fails before a
   device exists.
 
 - **Appends are issued one at a time and awaited**, so "every chunk of this
-  delta is confirmed" is the same statement as "the writer has no work". Records
-  and appends are bounded because Gazette serializes appends to a journal, and
-  an unbounded one would block every later append of that disk.
+  delta is confirmed" is the same statement as "the writer has no work".
+
+- **One device request is one record, and one drain is one append.** Neither is
+  bounded by a tunable, because the capture channel already bounds both: a
+  mutation is capped by the device at `MAX_IO_BUF_BYTES`, and a drain sees at
+  most the channel's capacity, so an append is at most `queue_depth` mutations
+  wide. Splitting either would only give replay more to reassemble. The cost is
+  that a failed append retries its whole content, which is bandwidth under a
+  flaky broker and never correctness.
 
 - **The acknowledgement is built but not appended.** `publish` returns its exact
   bytes and holds them; `commit` appends those same bytes and awaits the
@@ -168,21 +248,31 @@ caller has already stopped admitting mutations and awaited the ones in flight.
 
 - **Credentials and endpoints travel together.** A session's `Broker` replaces
   both at once through a `tokens` watch, matching how a journal client extracts
-  the pair from one token. The daemon mints nothing, and a session without a
-  credential connects anonymously.
+  the pair from one token. Both are the session's to supply and neither has a
+  daemon-wide default: an endpoint is required, while a session without a
+  credential connects anonymously. The daemon mints nothing.
 
 ## Testing
 
 `cargo nextest run -p disk-daemon` runs everything, privileged tests included.
-`tests/ublk.rs` drives `src/bin/scenario.rs` through `sudo -n`, so cargo never
-runs as root and the target directory stays the user's; the scenario prints
-observations as JSON which the test asserts against. A missing prerequisite
-(`ublk_drv`, `/dev/ublk-control`, passwordless sudo) fails those tests with an
-actionable message rather than skipping them, and a nextest test group
-serializes them because they contend on the host-wide control device. From
-Phase 4 the daemon binary replaces the scenario helper, so tests exercise what
-ships.
+Privilege lives in `sudo -n` child processes rather than in cargo, so the target
+directory stays the user's. A missing prerequisite (`ublk_drv`,
+`/dev/ublk-control`, passwordless sudo) fails those tests with an actionable
+message rather than skipping them, and a nextest test group serializes them
+because they contend on the host-wide control device.
 
-`tests/journal.rs` works against a real broker, which `crates/e2e-support`
-spawns over Unix sockets and which `mise run build:gazette` must have installed
-into `$GOBIN`. It needs no privileges.
+`tests/daemon.rs` drives `flow-disk-daemon` itself, so it exercises what ships:
+it spawns the daemon under `sudo`, speaks the session gRPC over its socket, and
+reaches the root-owned mounts it returns through `sudo` of its own. It replays
+each journal it commits into an image and loop-mounts that to compare content.
+
+`tests/ublk.rs` drives `src/bin/scenario.rs`, which works a disk with no session
+around it, printing observations as JSON the test asserts against. It needs no
+broker. This second binary is not scaffolding: privilege needs a process
+boundary, and using the crate as a library is what lets a scenario set a queue
+depth shallow enough to force backpressure, and report the image digests and
+extent lists which show a replay matching in holes as well as in bytes.
+
+`tests/daemon.rs` and `tests/journal.rs` work against a real broker, which
+`crates/e2e-support` spawns over Unix sockets and which `mise run build:gazette`
+must have installed into `$GOBIN`. Only the daemon's tests need privileges.

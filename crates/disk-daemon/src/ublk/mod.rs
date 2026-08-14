@@ -19,6 +19,8 @@ pub use control::Control;
 /// Concurrency comes from queue depth instead, and the block path has ample
 /// headroom over the rate at which a delta can be appended.
 pub const QUEUE_ID: u16 = 0;
+
+/// Depth of that queue, which the daemon configures per device.
 pub const QUEUE_DEPTH: u16 = 32;
 
 /// Largest request the device accepts. Buffers are allocated per request, so

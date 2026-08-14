@@ -8,8 +8,12 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# The privileged tests drive this binary through `sudo -n` rather than running
-# cargo as root. From Phase 4 it is replaced by `flow-disk-daemon` itself.
+[[bin]]
+name = "flow-disk-daemon"
+path = "src/bin/daemon.rs"
+
+# The device and owner tests drive this binary through `sudo -n`, exercising a
+# disk without a session around it.
 [[bin]]
 name = "disk-daemon-scenario"
 path = "src/bin/scenario.rs"
@@ -18,19 +22,24 @@ path = "src/bin/scenario.rs"
 gazette = { path = "../gazette" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-proto-grpc = { path = "../proto-grpc", features = ["broker_client"] }
+proto-grpc = { path = "../proto-grpc", features = ["broker_client", "disk_server"] }
+service-kit = { path = "../service-kit" }
 tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }
+async-process = { path = "../async-process" }
 bytes = { workspace = true }
+clap = { workspace = true }
 futures = { workspace = true }
 io-uring = { workspace = true }
 libc = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
+rustls = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -40,7 +49,9 @@ uuid = { workspace = true, features = ["v4"] }
 bindgen = { workspace = true }
 
 [dev-dependencies]
+async-process = { path = "../async-process" }
 e2e-support = { path = "../e2e-support" }
+proto-grpc = { path = "../proto-grpc", features = ["disk_client"] }
 
 insta = { workspace = true }
 quickcheck = { workspace = true }

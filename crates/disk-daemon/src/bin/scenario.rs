@@ -5,15 +5,20 @@
 //! `CAP_SYS_ADMIN`, and cargo must not run as root or the target directory stops
 //! being the user's. So the privilege lives in this child process instead. It
 //! prints one JSON object of observations on stdout, which the test asserts
-//! against, and logs to stderr. From Phase 4 the daemon binary itself takes
-//! this role, so tests exercise what ships.
+//! against, and logs to stderr.
+//!
+//! `tests/daemon.rs` drives the daemon binary itself, so what ships is what is
+//! tested there. These scenarios use the crate as a library instead, which is
+//! how they reach what the session protocol does not offer: a queue depth
+//! shallow enough to force backpressure, and the digests, allocated counts and
+//! extent lists which show that a replayed image matches in holes as well as in
+//! bytes.
 
 use disk_daemon::bitmap::Bitmap;
 use disk_daemon::capture::Captured;
 use disk_daemon::chunk;
 use disk_daemon::disk::{Disk, Spec};
 use disk_daemon::image::Image;
-use disk_daemon::owner::Pool;
 use disk_daemon::proto::Chunk;
 use disk_daemon::ublk::Control;
 
@@ -24,7 +29,6 @@ const BLOCK_SIZE: u32 = 4096;
 
 /// Deep enough that no ordinary scenario meets it. The backpressure scenario
 /// sets its own.
-const CAPTURE_CAPACITY: usize = 4096;
 
 const MOUNT_OPTIONS: &str = "noatime,nodev,nosuid,noexec,discard";
 
@@ -40,6 +44,7 @@ fn main() -> anyhow::Result<()> {
         "ext4" => ext4(),
         "discard" => discard(),
         "backpressure" => backpressure(),
+        "reap" => reap(),
         other => anyhow::bail!("unknown scenario {other:?}"),
     }?;
 
@@ -50,7 +55,7 @@ fn main() -> anyhow::Result<()> {
 /// Create a device, serve it, read from it, and tear it down.
 fn lifecycle() -> anyhow::Result<serde_json::Value> {
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(CAPTURE_CAPACITY)?;
+    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH)?;
     let collector = collect(captured);
 
     let dev_id = disk.dev_id();
@@ -91,7 +96,7 @@ fn lifecycle() -> anyhow::Result<serde_json::Value> {
 /// remount, then replay the captured stream into a second image.
 fn ext4() -> anyhow::Result<serde_json::Value> {
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(CAPTURE_CAPACITY)?;
+    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH)?;
     let collector = collect(captured);
 
     let block_path = disk.block_path();
@@ -147,7 +152,7 @@ fn discard() -> anyhow::Result<serde_json::Value> {
     const FILE_BLOCKS: u32 = 4096;
 
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(CAPTURE_CAPACITY)?;
+    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH)?;
     let collector = collect(captured);
 
     let block_path = disk.block_path();
@@ -213,12 +218,14 @@ fn discard() -> anyhow::Result<serde_json::Value> {
 
 /// Stall the capture sink and observe that writes park rather than fail.
 fn backpressure() -> anyhow::Result<serde_json::Value> {
-    const CAPACITY: usize = 2;
+    // The capture channel holds one mutation per queue slot, so a shallow
+    // queue is a shallow channel.
+    const QUEUE_DEPTH: u16 = 2;
     const WRITES: usize = 16;
     const STALL: std::time::Duration = std::time::Duration::from_millis(500);
 
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(CAPACITY)?;
+    let (mut disk, captured) = scenario.disk(QUEUE_DEPTH)?;
 
     let done = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let failed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -266,7 +273,7 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
 
     Ok(serde_json::json!({
         "dir": scenario.dir,
-        "capacity": CAPACITY,
+        "capacity": QUEUE_DEPTH,
         "writes": WRITES,
         "during_stall": during_stall,
         "completed": after,
@@ -277,14 +284,39 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
     }))
 }
 
-/// The working directory, control device, and owner pool of one scenario.
+/// Delete every device whose block device the kernel has already removed,
+/// which is what a server killed outright leaves behind.
 ///
-/// Declared before any disk, so every disk is torn down before the pool that
-/// serves it goes away.
+/// Reaping is the test suite's to do, not a daemon's: whether a device with no
+/// server may be deleted is a decision about the whole host, and these tests
+/// are the host's only ublk user.
+fn reap() -> anyhow::Result<serde_json::Value> {
+    let control = Control::open()?;
+    let mut deleted = Vec::new();
+
+    for entry in std::fs::read_dir("/dev")? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+
+        let Some(dev_id) = name.strip_prefix("ublkc") else {
+            continue;
+        };
+        let dev_id: u32 = dev_id.parse()?;
+
+        anyhow::ensure!(
+            !sys_block_path(dev_id).exists(),
+            "device {dev_id} is still serving a block device",
+        );
+        () = control.del_dev(dev_id)?;
+        deleted.push(dev_id);
+    }
+
+    Ok(serde_json::json!({ "deleted": deleted }))
+}
+
+/// The working directory and control device of one scenario.
 struct Scenario {
     dir: std::path::PathBuf,
     control: std::sync::Arc<Control>,
-    pool: Pool,
 }
 
 impl Scenario {
@@ -295,21 +327,17 @@ impl Scenario {
         Ok(Self {
             dir,
             control: std::sync::Arc::new(Control::open()?),
-            // More than one, so a scenario would notice an owner which served
-            // only the disks it was given first.
-            pool: Pool::new(2)?,
         })
     }
 
-    fn disk(&self, capture_capacity: usize) -> anyhow::Result<(Disk, Captured)> {
+    fn disk(&self, queue_depth: u16) -> anyhow::Result<(Disk, Captured)> {
         Disk::create(
             &self.control,
-            &self.pool,
             &Spec {
                 image_dir: self.dir.clone(),
                 blocks: BLOCKS,
                 block_size: BLOCK_SIZE,
-                capture_capacity,
+                queue_depth,
             },
         )
     }

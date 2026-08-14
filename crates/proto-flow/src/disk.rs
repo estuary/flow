@@ -87,6 +87,13 @@ pub struct Broker {
 ///
 /// No retention is set. Gazette deletes fragments by age, which cannot see the
 /// recovery floor, so any retention risks deleting records a live disk needs.
+///
+/// Every field is required. The daemon holds no defaults: a value it invented
+/// would be one this journal is stuck with, since the spec is created once and
+/// never converged.
+///
+/// Two fields are `optional` because Gazette reads zero as a choice for them,
+/// which proto3 cannot otherwise tell from an omission.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalConfig {
     /// Journal holding the disk's durable state.
@@ -98,23 +105,25 @@ pub struct JournalConfig {
     /// Replication factor.
     #[prost(uint32, tag = "3")]
     pub replication: u32,
-    /// Labels of the created spec.
+    /// Labels of the created spec. May be empty.
     #[prost(message, repeated, tag = "4")]
     pub labels: ::prost::alloc::vec::Vec<Label>,
     /// Size a fragment reaches before it is closed and persisted.
     #[prost(int64, tag = "5")]
     pub fragment_length: i64,
     /// Interval at which an open fragment is closed and persisted, regardless of
-    /// size.
-    #[prost(uint32, tag = "6")]
-    pub flush_interval_seconds: u32,
+    /// size. Zero closes one on size alone.
+    #[prost(uint32, optional, tag = "6")]
+    pub flush_interval_seconds: ::core::option::Option<u32>,
     /// Interval at which brokers re-list the fragment store.
     #[prost(uint32, tag = "7")]
     pub refresh_interval_seconds: u32,
-    /// Ceiling on the journal's sustained append rate, in bytes per second.
-    #[prost(int64, tag = "8")]
-    pub max_append_rate: i64,
-    /// Codec used to compress fragments.
+    /// Ceiling on the journal's sustained append rate, in bytes per second. Zero
+    /// is no ceiling.
+    #[prost(int64, optional, tag = "8")]
+    pub max_append_rate: ::core::option::Option<i64>,
+    /// Codec used to compress fragments. Must be one this daemon can decompress,
+    /// because it reads the journal back to rebuild the disk.
     #[prost(enumeration = "::proto_gazette::broker::CompressionCodec", tag = "9")]
     pub compression_codec: i32,
 }

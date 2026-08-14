@@ -8,14 +8,18 @@
 //! See the crate README for what exists today, and
 //! `plans/block-backed-connector-disks.md` for the design.
 
+pub mod args;
 pub mod bitmap;
 pub mod capture;
 pub mod chunk;
+pub mod daemon;
 pub mod disk;
+pub mod filesystem;
 pub mod image;
 pub mod inflight;
 pub mod journal;
 pub mod owner;
+pub mod session;
 pub mod ublk;
 pub mod wake;
 

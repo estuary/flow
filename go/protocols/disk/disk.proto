@@ -81,24 +81,33 @@ message Broker {
 // No retention is set. Gazette deletes fragments by age, which cannot see the
 // recovery floor, so any retention risks deleting records a live disk needs.
 message JournalConfig {
+  // Every field is required. The daemon holds no defaults: a value it invented
+  // would be one this journal is stuck with, since the spec is created once and
+  // never converged.
+  //
+  // Two fields are `optional` because Gazette reads zero as a choice for them,
+  // which proto3 cannot otherwise tell from an omission.
+
   // Journal holding the disk's durable state.
   string journal = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
   // Stores of the journal's fragments
   repeated string fragment_stores = 2 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.FragmentStore"];
   // Replication factor.
   uint32 replication = 3;
-  // Labels of the created spec.
+  // Labels of the created spec. May be empty.
   repeated Label labels = 4;
   // Size a fragment reaches before it is closed and persisted.
   int64 fragment_length = 5;
   // Interval at which an open fragment is closed and persisted, regardless of
-  // size.
-  uint32 flush_interval_seconds = 6;
+  // size. Zero closes one on size alone.
+  optional uint32 flush_interval_seconds = 6;
   // Interval at which brokers re-list the fragment store.
   uint32 refresh_interval_seconds = 7;
-  // Ceiling on the journal's sustained append rate, in bytes per second.
-  int64 max_append_rate = 8;
-  // Codec used to compress fragments.
+  // Ceiling on the journal's sustained append rate, in bytes per second. Zero
+  // is no ceiling.
+  optional int64 max_append_rate = 8;
+  // Codec used to compress fragments. Must be one this daemon can decompress,
+  // because it reads the journal back to rebuild the disk.
   protocol.CompressionCodec compression_codec = 9;
 }
 

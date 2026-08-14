@@ -1,9 +1,9 @@
-//! One disk's lifecycle: a sparse image, a `ublk` device over it, and the owner
-//! which serves that device.
+//! One disk's lifecycle: a sparse image, a `ublk` device over it, and the
+//! thread which serves that device.
 
 use crate::capture::Captured;
 use crate::image::Image;
-use crate::owner::{self, Pool};
+use crate::owner;
 use crate::ublk::{self, Control};
 
 pub struct Spec {
@@ -13,16 +13,15 @@ pub struct Spec {
     /// Fixed once a disk first publishes: it shapes chunk coverage and bitmap
     /// extent, so a later change would misplace every replayed chunk.
     pub block_size: u32,
-    /// Mutations the capture channel holds before a device request must wait.
-    pub capture_capacity: usize,
+    /// Requests the device may have outstanding, which is its concurrency.
+    pub queue_depth: u16,
 }
 
 pub struct Disk {
     control: std::sync::Arc<Control>,
-    owner: owner::Handle,
-    dev_id: u32,
     /// Taken by the first teardown, so `stop` and `drop` cannot both run it.
-    live: bool,
+    owner: Option<owner::Handle>,
+    dev_id: u32,
 }
 
 impl Disk {
@@ -32,44 +31,85 @@ impl Disk {
     ///
     /// The order is forced by the kernel: parameters may only be set before the
     /// device starts, and starting it blocks until its queue is fetching, which
-    /// only its owner can arrange.
+    /// only the owner can arrange.
     pub fn create(
         control: &std::sync::Arc<Control>,
-        pool: &Pool,
         spec: &Spec,
     ) -> anyhow::Result<(Self, Captured)> {
         let image = Image::create(&spec.image_dir, spec.blocks, spec.block_size)
             .map_err(|err| anyhow::anyhow!("creating an image in {:?}: {err}", spec.image_dir))?;
 
-        let info = control.add_dev(ublk::QUEUE_DEPTH, ublk::MAX_IO_BUF_BYTES)?;
-        let owner = pool.owner();
-        let (capture, captured) = crate::capture::channel(spec.capture_capacity, owner.waker());
+        let info = control.add_dev(spec.queue_depth, ublk::MAX_IO_BUF_BYTES)?;
 
-        let disk = Self {
-            control: control.clone(),
-            owner,
-            dev_id: info.dev_id,
-            live: true,
+        let (disk, captured) = match Self::serve(control, spec, image, info.dev_id) {
+            Ok(served) => served,
+            Err(err) => {
+                // No owner took the device, so nothing else will delete it.
+                if let Err(err) = control.del_dev(info.dev_id) {
+                    tracing::error!(
+                        dev_id = info.dev_id,
+                        ?err,
+                        "failed to delete a device which could not be served"
+                    );
+                }
+                return Err(err);
+            }
         };
 
-        // From here the device exists, so `disk` owns tearing it down and any
-        // error below unwinds through its `Drop`.
-        let cdev = open_char_device(info.dev_id)?;
-        control.set_params(info.dev_id, &ublk::params(spec.blocks, spec.block_size))?;
-
-        disk.owner.serve(owner::Serve {
-            dev_id: info.dev_id,
-            cdev,
-            image,
-            capture,
-        })?;
-        control.start_dev(info.dev_id)?;
+        // Every tag has a fetch in flight, which is what this waits for. A
+        // failure here tears the device down by dropping `disk`.
+        () = control.start_dev(info.dev_id)?;
 
         Ok((disk, captured))
     }
 
+    /// Hand the device to an owner. Every failure here is before that owner
+    /// exists, which is what lets the caller delete the device.
+    fn serve(
+        control: &std::sync::Arc<Control>,
+        spec: &Spec,
+        image: Image,
+        dev_id: u32,
+    ) -> anyhow::Result<(Self, Captured)> {
+        let cdev = open_char_device(dev_id)?;
+        () = control.set_params(dev_id, &ublk::params(spec.blocks, spec.block_size))?;
+
+        // One waker serves both directions: the channel wakes the owner when a
+        // mutation it parked may be retried, and a command wakes it to be read.
+        let waker = crate::wake::Waker::new()?;
+        let (capture, captured) = crate::capture::channel(spec.queue_depth as usize, waker.clone());
+
+        let owner = owner::spawn(owner::Serve {
+            dev_id,
+            cdev,
+            image,
+            capture,
+            waker,
+            queue_depth: spec.queue_depth,
+        })?;
+
+        Ok((
+            Self {
+                control: control.clone(),
+                owner: Some(owner),
+                dev_id,
+            },
+            captured,
+        ))
+    }
+
     pub fn dev_id(&self) -> u32 {
         self.dev_id
+    }
+
+    /// Cut this disk's mutations at a point in time, per
+    /// [`owner::Handle::close_admission`].
+    pub async fn close_admission(&self) -> anyhow::Result<()> {
+        self.handle()?.close_admission().await
+    }
+
+    pub fn resume_admission(&self) -> anyhow::Result<()> {
+        self.handle()?.resume_admission()
     }
 
     /// Path of the block device to format and mount.
@@ -80,17 +120,23 @@ impl Disk {
     /// Tear the device down and take back the image. Idempotent, and run by
     /// `Drop` if it has not been called, so no device node is left behind.
     pub fn stop(&mut self) -> anyhow::Result<Option<Image>> {
-        if !std::mem::take(&mut self.live) {
+        let Some(owner) = self.owner.take() else {
             return Ok(None);
-        }
+        };
         // Stopping aborts the queue's fetches, which is how the owner learns to
         // quiesce; deleting waits for every reference to the device, so the
         // owner must have closed the character device first.
-        self.control.stop_dev(self.dev_id)?;
-        let image = self.owner.release(self.dev_id)?;
-        self.control.del_dev(self.dev_id)?;
+        () = self.control.stop_dev(self.dev_id)?;
+        let image = owner.release()?;
+        () = self.control.del_dev(self.dev_id)?;
 
-        Ok(image)
+        Ok(Some(image))
+    }
+
+    fn handle(&self) -> anyhow::Result<&owner::Handle> {
+        self.owner
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("device {} is stopped", self.dev_id))
     }
 }
 

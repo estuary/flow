@@ -7,9 +7,11 @@
 //! a missing prerequisite fails them rather than skipping them, and a nextest
 //! test group serializes them so their leak checks see only their own devices.
 
+mod common;
+
 /// Run `name` in the scenario helper and return its report.
 fn scenario(name: &str) -> serde_json::Value {
-    check_prerequisites();
+    common::check_prerequisites();
 
     let output = std::process::Command::new("sudo")
         .args(["-n", env!("CARGO_BIN_EXE_disk-daemon-scenario"), name])
@@ -33,61 +35,15 @@ fn scenario(name: &str) -> serde_json::Value {
     report
 }
 
-fn check_prerequisites() {
-    assert!(
-        std::path::Path::new("/sys/module/ublk_drv").exists(),
-        "ublk_drv is not loaded, so no block device can be served. \
-         Load it with `sudo modprobe ublk_drv`.",
-    );
-    assert!(
-        std::path::Path::new("/dev/ublk-control").exists(),
-        "/dev/ublk-control is absent though ublk_drv is loaded, so this kernel's \
-         module was built without the control device.",
-    );
-
-    let sudo = std::process::Command::new("sudo")
-        .args(["-n", "true"])
-        .output()
-        .expect("spawning sudo");
-
-    assert!(
-        sudo.status.success(),
-        "passwordless sudo is required, because these tests serve real ublk \
-         devices from `sudo -n` child processes: {}",
-        String::from_utf8_lossy(&sudo.stderr),
-    );
-}
-
 /// A scenario ends with no device node, no `/sys/block` entry, and no mount of
 /// its own making.
 fn assert_no_leaks(report: &serde_json::Value) {
-    let nodes = entries("/dev", |name| {
-        name.starts_with("ublk") && name != "ublk-control"
-    });
-    assert!(nodes.is_empty(), "leaked device nodes: {nodes:?}");
-
-    let blocks = entries("/sys/block", |name| name.starts_with("ublkb"));
-    assert!(blocks.is_empty(), "leaked block devices: {blocks:?}");
-
-    let dir = report["dir"]
-        .as_str()
-        .expect("every report names its directory");
-    let mounts = std::fs::read_to_string("/proc/mounts").unwrap();
-
-    for line in mounts.lines() {
-        assert!(
-            !line.contains(dir) && !line.contains("/dev/ublkb"),
-            "leaked mount: {line}",
-        );
-    }
-}
-
-fn entries(dir: &str, keep: impl Fn(&str) -> bool) -> Vec<String> {
-    std::fs::read_dir(dir)
-        .unwrap()
-        .filter_map(|entry| Some(entry.ok()?.file_name().to_string_lossy().into_owned()))
-        .filter(|name| keep(name))
-        .collect()
+    common::assert_no_leaked_devices();
+    common::assert_no_mounts_under(
+        report["dir"]
+            .as_str()
+            .expect("every report names its directory"),
+    );
 }
 
 /// The captured chunk stream, replayed onto a second image, reproduces the
