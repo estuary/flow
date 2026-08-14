@@ -8,18 +8,28 @@
 //! and awaits the broker's confirmation.
 //!
 //! The journal is created and claimed by the session's first append rather than
-//! by [`Writer::open`], so a disk which is never written creates no journal.
-//! Recovery is the exception: a disk with committed state claims at open,
-//! before anything reads or repairs it.
+//! when it is opened, so a disk which is never written creates no journal.
+//! Recovery is the exception: a disk with committed state claims before
+//! anything reads or repairs it.
 
 use crate::capture::Captured;
+use crate::image::Image;
+use crate::owner::Snapshotter;
 use crate::proto;
 use anyhow::Context;
 use gazette::journal::framing;
 use proto_gazette::{broker, uuid};
 
 pub mod fence;
+pub mod floor;
+pub mod replay;
 pub mod spec;
+
+/// Bytes of one chunk of an append's byte stream, matching
+/// `publisher::Appender`. An append is a whole drain of the capture channel,
+/// which can be the device's largest request times that channel's capacity, and
+/// a broker refuses a gRPC message beyond its own limit.
+const CHUNK_BYTES: usize = 32 << 10; // 32 KiB.
 
 /// The client every session derives its own from, so that they share
 /// connections to brokers and to fragment stores, and the routing table its
@@ -46,20 +56,14 @@ pub struct Open {
     pub journal: proto::JournalConfig,
     /// Brokers serving the journal.
     pub broker: proto::Broker,
-    /// Whether the disk has committed state, which is an acknowledged delta in
-    /// the journal or an acknowledgement the client recovered. Such a disk
-    /// claims its journal at open, because everything which follows reads or
-    /// repairs state the previous writer must no longer be able to change.
-    pub committed_state: bool,
-    /// Mutations of formatting and mounting a fresh disk, which are appended
-    /// ahead of the first mutation which follows them rather than as they
-    /// arrive. A disk which is only formatted carries no information, because
-    /// formatting it again reproduces it, so it publishes nothing at all.
-    ///
-    /// A recovered disk retains nothing: its journal exists, and its mount
-    /// writes belong to the next delta like any other mutation.
-    pub retained: Vec<Vec<proto::Chunk>>,
 }
+
+/// A session's journal before its disk exists.
+///
+/// Recovery is a step of its own because a disk with committed state must be
+/// rebuilt before a device can be created over it, while the journal must be
+/// claimed before it is read.
+pub struct Opening(Task);
 
 /// Handle to a session's journal writer.
 pub struct Writer {
@@ -81,23 +85,12 @@ type SetBroker = Box<
     dyn Fn(tonic::Result<proto::Broker>) -> Option<tokens::WaitForCancellationFutureOwned> + Send,
 >;
 
-impl Writer {
-    /// Open `journal`, reading the author register it must replace and claiming
-    /// it now if the disk has committed state.
+impl Opening {
+    /// Open `journal` and read the author register a claim must replace.
     ///
-    /// Mutations are appended from `captured` as they arrive, until the returned
-    /// handle is dropped.
-    pub async fn open(
-        client: &gazette::journal::Client,
-        open: Open,
-        captured: Captured,
-    ) -> anyhow::Result<Self> {
-        let Open {
-            journal,
-            broker,
-            committed_state,
-            retained,
-        } = open;
+    /// Nothing is appended and no journal is created here.
+    pub async fn new(client: &gazette::journal::Client, open: Open) -> anyhow::Result<Self> {
+        let Open { journal, broker } = open;
 
         anyhow::ensure!(
             !broker.endpoint.is_empty(),
@@ -122,7 +115,7 @@ impl Writer {
         let epoch = fresh_producer();
         let probe = fence::probe(&client, &spec.name).await?;
 
-        let mut task = Task {
+        Ok(Self(Task {
             journal: spec.name.clone(),
             spec,
             client,
@@ -134,22 +127,84 @@ impl Writer {
                 exists: probe.exists,
             },
             delta_records: 0,
-            retained,
+            snapshot: None,
             pending_ack: None,
             abandoned: false,
             drained: false,
             terminal: None,
-        };
+        }))
+    }
 
-        if committed_state {
-            task.claim().await?;
+    /// Rebuild `image` from every acknowledged delta of the journal, having
+    /// first claimed it and appended each of `recovered_acks` exactly.
+    ///
+    /// Returns false for a journal with no committed state, whose disk is fresh
+    /// and the caller's to format.
+    ///
+    /// The claim comes first because everything which follows reads or repairs
+    /// state the previous writer must no longer be able to change. It is made
+    /// for any journal which exists, since whether its records are committed is
+    /// only knowable by reading them, and an orphan journal's fence is one this
+    /// session was going to install with its own first append anyway.
+    pub async fn recover(
+        &mut self,
+        image: &mut Image,
+        floor_label: &str,
+        recovered_acks: Vec<bytes::Bytes>,
+    ) -> anyhow::Result<bool> {
+        let task = &mut self.0;
+
+        if recovered_acks.is_empty() && matches!(task.fence, Fence::Deferred { exists: false, .. })
+        {
+            return Ok(false);
         }
+        () = task.claim().await?;
+
+        for ack in recovered_acks {
+            () = task
+                .append(ack)
+                .await
+                .context("repairing a recovered acknowledgement")?;
+        }
+
+        // The head is read after the repair and from a broker which has just
+        // served an append, so its index covers every fragment below it. That
+        // is what fixes the end of this recovery and makes its read fresh.
+        let head = fence::probe(&task.client, &task.journal).await?.head;
+        let seek = floor::seek(&task.client, &task.journal, floor_label).await?;
+
+        let applied = replay::replay(&task.client, &task.journal, seek, head, image).await?;
+
+        tracing::info!(
+            journal = task.journal,
+            head,
+            seek,
+            applied,
+            "replayed a disk from its journal",
+        );
+        Ok(applied != 0)
+    }
+
+    /// Begin appending the mutations of `captured` as they arrive, until the
+    /// returned handle is dropped.
+    ///
+    /// `snapshot` is a fresh disk's image, which its first append publishes
+    /// ahead of the mutation which triggered it. A recovered disk has none: its
+    /// journal already holds the filesystem, and the writes its mount issues
+    /// belong to the next delta like any other mutation.
+    pub fn serve(self, captured: Captured, snapshot: Option<Snapshotter>) -> Writer {
+        let Self(mut task) = self;
+        task.snapshot = snapshot;
+
+        let epoch = task.epoch;
         let (commands, receiver) = tokio::sync::mpsc::channel(1);
         tokio::spawn(task.run(captured, receiver));
 
-        Ok(Self { commands, epoch })
+        Writer { commands, epoch }
     }
+}
 
+impl Writer {
     /// Epoch this session installs as the journal's author.
     pub fn epoch(&self) -> uuid::Producer {
         self.epoch
@@ -225,8 +280,8 @@ struct Task {
     fence: Fence,
     /// Records appended since the last acknowledgement committed.
     delta_records: usize,
-    /// Format and mount output awaiting the mutation it is appended ahead of.
-    retained: Vec<Vec<proto::Chunk>>,
+    /// A fresh disk's image, awaiting the mutation it is published ahead of.
+    snapshot: Option<Snapshotter>,
     /// Acknowledgement returned to the client and not yet committed.
     pending_ack: Option<bytes::Bytes>,
     /// Set once the session is ending, so that mutations are discarded.
@@ -285,7 +340,7 @@ impl Task {
             Command::Broker(broker, reply) => reply_with(reply, self.broker(broker)),
             Command::Abandon(reply) => {
                 self.abandoned = true;
-                self.retained.clear();
+                self.snapshot = None;
 
                 reply_with(reply, Ok(()))
             }
@@ -346,10 +401,11 @@ impl Task {
 
     /// Append every mutation the capture channel holds, beginning with `first`.
     ///
-    /// Retained format and mount output goes ahead of them, and only ever
-    /// alongside a mutation, so that the first delta carries all of the
-    /// filesystem's allocated metadata and a disk which is never written
-    /// creates no journal.
+    /// A fresh disk's image goes ahead of them, and only ever alongside a
+    /// mutation, so that the first delta carries all of the filesystem's
+    /// allocated metadata and a disk which is never written creates no journal.
+    /// A mutation the snapshot already reflects is simply applied again, which
+    /// is why the two need not be taken at the same instant.
     async fn drain(
         &mut self,
         captured: &Captured,
@@ -361,18 +417,19 @@ impl Task {
             mutations.push(chunks);
         }
         if !self.appending() {
-            self.retained.clear();
+            self.snapshot = None;
             return Ok(());
         }
         if mutations.is_empty() {
             return Ok(());
         }
+        let snapshot = match self.snapshot.take() {
+            Some(snapshotter) => snapshotter.snapshot().await?,
+            None => Vec::new(),
+        };
         let mut buf = bytes::BytesMut::new();
 
-        for chunks in std::mem::take(&mut self.retained)
-            .into_iter()
-            .chain(mutations)
-        {
+        for chunks in snapshot.into_iter().chain(mutations) {
             let record = self.stamp(uuid::Flags::CONTINUE_TXN, chunks);
 
             framing::encode(&record, &mut buf);
@@ -395,7 +452,13 @@ impl Task {
             check_registers: Some(fence::held_by(self.epoch)),
             ..Default::default()
         };
-        let source = || futures::stream::once(futures::future::ready(Ok(content.clone())));
+        let source = || {
+            let content = content.clone();
+
+            futures::stream::iter((0..content.len()).step_by(CHUNK_BYTES).map(move |at| {
+                Ok(content.slice(at..std::cmp::min(at + CHUNK_BYTES, content.len())))
+            }))
+        };
 
         _ = append(&self.client, request, source)
             .await

@@ -17,7 +17,7 @@
 use disk_daemon::bitmap::Bitmap;
 use disk_daemon::capture::Captured;
 use disk_daemon::chunk;
-use disk_daemon::disk::{Disk, Spec};
+use disk_daemon::disk::Disk;
 use disk_daemon::image::Image;
 use disk_daemon::proto::Chunk;
 use disk_daemon::ublk::Control;
@@ -331,15 +331,9 @@ impl Scenario {
     }
 
     fn disk(&self, queue_depth: u16) -> anyhow::Result<(Disk, Captured)> {
-        Disk::create(
-            &self.control,
-            &Spec {
-                image_dir: self.dir.clone(),
-                blocks: BLOCKS,
-                block_size: BLOCK_SIZE,
-                queue_depth,
-            },
-        )
+        let image = Image::create(&self.dir, BLOCKS, BLOCK_SIZE)?;
+
+        Disk::create(&self.control, image, queue_depth)
     }
 }
 

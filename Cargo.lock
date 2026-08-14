@@ -3739,6 +3739,7 @@ dependencies = [
  "reqwest 0.12.23",
  "serde_json",
  "simd-doc",
+ "snap",
  "thiserror 2.0.17",
  "tokens",
  "tokio",

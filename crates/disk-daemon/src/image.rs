@@ -120,6 +120,50 @@ impl Image {
             self.allocated.clear(block);
         }
     }
+
+    /// Apply a journal chunk, which is how replay rebuilds an image.
+    pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
+        crate::chunk::apply(chunk, self.block_size, &self.file, &mut self.allocated)
+    }
+
+    /// Discard everything the image holds, leaving it as it was created.
+    pub fn reset(&mut self) -> std::io::Result<()> {
+        punch_hole(&self.file, 0, self.blocks() as u64 * self.block_size as u64)?;
+        self.allocated = Bitmap::new(self.allocated.blocks());
+
+        Ok(())
+    }
+
+    /// Read the image back as the chunks which reproduce it, one mutation per
+    /// run of at most `run_blocks` contiguous allocated blocks.
+    ///
+    /// This is what a fresh disk publishes ahead of its first delta, because its
+    /// formatted filesystem is content the journal has never seen and the image
+    /// already holds exactly that content. Unallocated blocks are not read, so
+    /// the holes a prezeroed format left are holes in a rebuilt image too.
+    pub fn snapshot(&self, run_blocks: u32) -> std::io::Result<Vec<Vec<crate::proto::Chunk>>> {
+        assert!(run_blocks != 0, "a snapshot run covers at least one block");
+        let (mut runs, mut cursor) = (Vec::new(), 0);
+
+        while let Some(start) = self.allocated.first_set_at_or_after(cursor) {
+            let limit = std::cmp::min(self.blocks(), start.saturating_add(run_blocks));
+            let mut end = start + 1;
+
+            while end < limit && self.allocated.test(end) {
+                end += 1;
+            }
+            let mut data = vec![0u8; (end - start) as usize * self.block_size as usize];
+            () = self.read_at(start, &mut data)?;
+
+            runs.push(crate::chunk::encode_write(
+                start,
+                &data.into(),
+                self.block_size,
+            ));
+            cursor = end;
+        }
+        Ok(runs)
+    }
 }
 
 /// Deallocate `[offset, offset+len)` of `file`, leaving a hole which reads as
@@ -241,5 +285,67 @@ mod test {
 
         assert_eq!(image.horizon().iter().collect::<Vec<_>>(), vec![3]);
         assert_eq!(image.horizon().blocks(), BLOCKS);
+    }
+
+    /// A snapshot of an image, replayed into another, reproduces it in bytes and
+    /// in allocation, which is what lets a fresh disk publish its filesystem
+    /// without having retained the writes which made it.
+    #[test]
+    fn test_a_snapshot_replays_into_an_identical_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut image = image(&dir);
+
+        // Runs which cross the split, an isolated block, an all-zero block which
+        // is nonetheless allocated, and a hole punched through a written run.
+        image
+            .write_at(0, &vec![0xaa; 20 * BLOCK_SIZE as usize])
+            .unwrap();
+        image.punch(5, 2).unwrap();
+        image.write_at(30, &vec![0; BLOCK_SIZE as usize]).unwrap();
+        image
+            .write_at(63, &vec![0xbb; BLOCK_SIZE as usize])
+            .unwrap();
+
+        // Short enough that the first run is split across several mutations.
+        let runs = image.snapshot(8).unwrap();
+        assert_eq!(runs.len(), 5);
+
+        let mut replayed = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        for chunk in runs.iter().flatten() {
+            () = replayed.apply(chunk).unwrap();
+        }
+
+        assert_eq!(
+            replayed.allocated().iter().collect::<Vec<_>>(),
+            image.allocated().iter().collect::<Vec<_>>(),
+        );
+
+        let mut expect = vec![0u8; BLOCKS as usize * BLOCK_SIZE as usize];
+        let mut actual = expect.clone();
+
+        image.read_at(0, &mut expect).unwrap();
+        replayed.read_at(0, &mut actual).unwrap();
+        assert_eq!(expect, actual);
+    }
+
+    #[test]
+    fn test_reset_leaves_the_image_as_it_was_created() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut image = image(&dir);
+
+        image
+            .write_at(0, &vec![0xcc; 4 * BLOCK_SIZE as usize])
+            .unwrap();
+        image.reset().unwrap();
+
+        assert_eq!(image.allocated().count_ones(), 0);
+        assert_eq!(
+            std::os::unix::fs::MetadataExt::blocks(&image.file().metadata().unwrap()),
+            0
+        );
+        assert_eq!(
+            image.file().metadata().unwrap().len(),
+            BLOCKS as u64 * BLOCK_SIZE as u64
+        );
     }
 }

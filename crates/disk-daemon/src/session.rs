@@ -1,18 +1,21 @@
 //! The session service: one bidirectional stream serves exactly one disk.
 //!
 //! A session is a state machine over its stream. It begins with `Open`, which
-//! creates the image, the device, the filesystem and the mount; it then serves
-//! `Publish` and `Commit` pairs, which move the disk's durable state forward
-//! atomically with the client's own commit; and it ends when the stream ends,
-//! for any reason at all, by unmounting and destroying everything it made.
+//! creates the image, rebuilds it from the journal or formats it, and then
+//! creates the device and the mount over it; it then serves `Publish` and
+//! `Commit` pairs, which move the disk's durable state forward atomically with
+//! the client's own commit; and it ends when the stream ends, for any reason at
+//! all, by unmounting and destroying everything it made.
 //!
 //! Every error is terminal. A device or broker failure is terminal because the
 //! disk's contents can no longer be trusted to reach its journal, and a
 //! protocol violation is terminal because the client has lost track of which
 //! delta it owes a commit.
 
-use crate::disk::{self, Disk};
+use crate::capture::Captured;
+use crate::disk::Disk;
 use crate::filesystem::{self, Mount};
+use crate::image::Image;
 use crate::journal::{self, Writer};
 use crate::proto;
 use crate::ublk::Control;
@@ -207,9 +210,10 @@ impl Session {
 
     /// Create the disk of `open` and mount its filesystem.
     ///
-    /// This is the fresh path: the disk has no committed state, so its journal
-    /// is neither read nor claimed, and only the author register it must one
-    /// day replace is read.
+    /// A disk with committed state is rebuilt from its journal, which the
+    /// session claims before it reads. One without is formatted, and its
+    /// journal is neither created nor claimed: only the author register that a
+    /// later first append must replace is read.
     async fn open(&self, open: proto::Open) -> anyhow::Result<Serving> {
         let proto::Open {
             journal_config,
@@ -219,31 +223,36 @@ impl Session {
             recovered_acks,
         } = open;
 
-        anyhow::ensure!(
-            recovered_acks.is_empty(),
-            "this daemon cannot yet recover a disk, so it has no use for {} recovered acknowledgements",
-            recovered_acks.len(),
-        );
         let journal_config = journal_config.unwrap_or_default();
         let blocks = blocks(device_size, block_size)?;
         self.handler.set_label(journal_config.journal.clone());
 
-        // Validated before a device exists, because a journal which cannot be
+        // Built before a device exists, because a journal which cannot be
         // created is a disk which can never publish.
-        _ = journal::spec::build(&journal_config)?;
+        let mut opening = journal::Opening::new(
+            &self.daemon.client,
+            journal::Open {
+                journal: journal_config,
+                broker: broker.unwrap_or_default(),
+            },
+        )
+        .await?;
 
-        let spec = disk::Spec {
-            image_dir: self.daemon.image_dir.clone(),
-            blocks,
-            block_size,
-            queue_depth: crate::ublk::QUEUE_DEPTH,
-        };
+        let mut image = Image::create(&self.daemon.image_dir, blocks, block_size)
+            .with_context(|| format!("creating an image in {:?}", self.daemon.image_dir))?;
+
+        let recovered = opening
+            .recover(&mut image, &self.daemon.floor_label, recovered_acks)
+            .await?;
+
         let control = self.control.clone();
 
         // Creating a device is a handshake with the kernel and with the thread
         // which will own it, neither of which is async.
-        let (disk, captured) =
-            tokio::task::spawn_blocking(move || Disk::create(&control, &spec)).await??;
+        let (disk, captured) = tokio::task::spawn_blocking(move || {
+            Disk::create(&control, image, crate::ublk::QUEUE_DEPTH)
+        })
+        .await??;
 
         self.handler.set_field("dev_id", disk.dev_id());
 
@@ -253,42 +262,52 @@ impl Session {
                 .mount_dir
                 .join(format!("{}{}", crate::daemon::MOUNT_PREFIX, disk.dev_id()));
 
-        // Bound after the disk, so that a failure below unmounts before the
-        // device the filesystem is over is torn down.
-        let (mount, retained) = retaining(&captured, async {
-            () = filesystem::format(
-                filesystem::Type::Ext4,
-                &block_path,
-                block_size,
-                filesystem::MKFS_TIMEOUT,
-            )
-            .await?;
+        // A recovered disk is serving before it is mounted, because the writes
+        // its mount issues belong to the next delta. A fresh disk's format and
+        // mount output is instead dropped and reproduced by the snapshot its
+        // first append takes, so it begins serving once both are done.
+        let (mount, writer) = match recovered {
+            true => {
+                let writer = opening.serve(captured, None);
 
-            Mount::new(
-                filesystem::Type::Ext4,
-                &block_path,
-                mount_path,
-                filesystem::MOUNT_TIMEOUT,
-            )
-            .await
-        })
-        .await?;
+                let mount = Mount::new(
+                    filesystem::Type::Ext4,
+                    &block_path,
+                    mount_path,
+                    filesystem::MOUNT_TIMEOUT,
+                )
+                .await?;
 
-        let writer = Writer::open(
-            &self.daemon.client,
-            journal::Open {
-                journal: journal_config,
-                broker: broker.unwrap_or_default(),
-                committed_state: false,
-                retained,
-            },
-            captured,
-        )
-        .await?;
+                (mount, writer)
+            }
+            false => {
+                let mount = draining(&captured, async {
+                    () = filesystem::format(
+                        filesystem::Type::Ext4,
+                        &block_path,
+                        block_size,
+                        filesystem::MKFS_TIMEOUT,
+                    )
+                    .await?;
+
+                    Mount::new(
+                        filesystem::Type::Ext4,
+                        &block_path,
+                        mount_path,
+                        filesystem::MOUNT_TIMEOUT,
+                    )
+                    .await
+                })
+                .await?;
+
+                (mount, opening.serve(captured, Some(disk.snapshotter()?)))
+            }
+        };
 
         tracing::info!(
             dev_id = disk.dev_id(),
             mount = ?mount.path(),
+            recovered,
             "opened a disk",
         );
 
@@ -370,17 +389,17 @@ impl Serving {
     }
 }
 
-/// Run `work`, taking every mutation the disk makes while it does.
+/// Run `work`, taking and dropping every mutation the disk makes while it does.
 ///
-/// Formatting and mounting a fresh disk writes to it, and that output is
-/// retained rather than appended: a disk which is never written carries no
-/// information, because formatting it again reproduces it. It is the writer
-/// which appends this, ahead of the first mutation which follows.
-async fn retaining<T>(
-    captured: &crate::capture::Captured,
+/// Formatting and mounting a fresh disk writes to it, and the capture channel
+/// is bounded, so a mutation nothing takes would park the device. Nothing here
+/// needs keeping: what these writes leave in the image is exactly what the
+/// first append snapshots, and a disk which is never written publishes nothing
+/// at all, because formatting it again reproduces it.
+async fn draining<T>(
+    captured: &Captured,
     work: impl Future<Output = anyhow::Result<T>>,
-) -> anyhow::Result<(T, Vec<Vec<proto::Chunk>>)> {
-    let mut retained = Vec::new();
+) -> anyhow::Result<T> {
     futures::pin_mut!(work);
 
     loop {
@@ -389,27 +408,13 @@ async fn retaining<T>(
             // device is.
             biased;
 
-            result = &mut work => {
-                let result = result?;
+            result = &mut work => return result,
 
-                // Whatever is already queued is part of mounting rather than a
-                // mutation which follows it, and this is where that is still
-                // knowable.
-                while let Some(chunks) = captured.try_recv() {
-                    retained.push(chunks);
+            chunks = captured.recv() => {
+                if chunks.is_none() {
+                    anyhow::bail!("the device stopped serving before it was mounted");
                 }
-                tracing::debug!(
-                    mutations = retained.len(),
-                    bytes = retained.iter().flatten().map(chunk_bytes).sum::<usize>(),
-                    "retained the format and mount output",
-                );
-                return Ok((result, retained));
             }
-
-            chunks = captured.recv() => match chunks {
-                Some(chunks) => retained.push(chunks),
-                None => anyhow::bail!("the device stopped serving before it was mounted"),
-            },
         }
     }
 }
@@ -464,13 +469,5 @@ mod test {
             let err = blocks(device_size, block_size).unwrap_err();
             assert!(format!("{err}").contains(expect), "{err}");
         }
-    }
-}
-
-/// Heap the chunk's payload holds.
-fn chunk_bytes(chunk: &proto::Chunk) -> usize {
-    match &chunk.content {
-        Some(proto::chunk::Content::Data(data)) => data.len(),
-        _ => 0,
     }
 }

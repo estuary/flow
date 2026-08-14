@@ -57,15 +57,27 @@ pub struct Serve {
 }
 
 /// Cuts and ends one disk's service.
-pub struct Handle {
+pub struct Handle(Commands);
+
+/// Asks a disk to read its image back as chunks, and can do nothing else to it.
+///
+/// It is a handle of its own because the journal writer holds one for the length
+/// of a session, while the session itself holds the [`Handle`].
+#[derive(Clone)]
+pub struct Snapshotter(Commands);
+
+/// Sends a command to a disk's owner, and wakes it to be read.
+#[derive(Clone)]
+struct Commands {
     dev_id: u32,
-    commands: std::sync::mpsc::Sender<Command>,
+    sender: std::sync::mpsc::Sender<Command>,
     waker: Waker,
 }
 
 enum Command {
     CloseAdmission(tokio::sync::oneshot::Sender<()>),
     ResumeAdmission,
+    Snapshot(tokio::sync::oneshot::Sender<std::io::Result<Vec<Vec<Chunk>>>>),
     Release(std::sync::mpsc::Sender<Image>),
 }
 
@@ -101,11 +113,11 @@ pub fn spawn(serve: Serve) -> anyhow::Result<Handle> {
         .recv()
         .map_err(|_| anyhow::anyhow!("device {dev_id} stopped before it was served"))??;
 
-    Ok(Handle {
+    Ok(Handle(Commands {
         dev_id,
-        commands,
+        sender: commands,
         waker,
-    })
+    }))
 }
 
 impl Handle {
@@ -118,15 +130,19 @@ impl Handle {
     /// waits for [`Handle::resume_admission`] rather than failing.
     pub async fn close_admission(&self) -> anyhow::Result<()> {
         let (quiet, quieted) = tokio::sync::oneshot::channel();
-        () = self.send(Command::CloseAdmission(quiet))?;
+        () = self.0.send(Command::CloseAdmission(quiet))?;
 
         quieted
             .await
-            .map_err(|_| anyhow::anyhow!("device {} stopped being served", self.dev_id))
+            .map_err(|_| anyhow::anyhow!("device {} stopped being served", self.0.dev_id))
     }
 
     pub fn resume_admission(&self) -> anyhow::Result<()> {
-        self.send(Command::ResumeAdmission)
+        self.0.send(Command::ResumeAdmission)
+    }
+
+    pub fn snapshotter(&self) -> Snapshotter {
+        Snapshotter(self.0.clone())
     }
 
     /// Stop serving and take back the image, once the owner has closed the
@@ -134,15 +150,36 @@ impl Handle {
     /// has aborted the queue's fetches.
     pub fn release(self) -> anyhow::Result<Image> {
         let (reply, replied) = std::sync::mpsc::channel();
-        () = self.send(Command::Release(reply))?;
+        () = self.0.send(Command::Release(reply))?;
+
+        replied.recv().map_err(|_| {
+            anyhow::anyhow!("device {} was torn down without its image", self.0.dev_id)
+        })
+    }
+}
+
+impl Snapshotter {
+    /// Read the disk's image back as the chunks which reproduce it, per
+    /// [`Image::snapshot`].
+    ///
+    /// A mutation may be applied between this being asked for and the read, so
+    /// the snapshot may already reflect one. That is why it is only ever
+    /// appended ahead of every mutation captured since the mount: one already
+    /// reflected in it is simply applied again.
+    pub async fn snapshot(&self) -> anyhow::Result<Vec<Vec<Chunk>>> {
+        let (reply, replied) = tokio::sync::oneshot::channel();
+        () = self.0.send(Command::Snapshot(reply))?;
 
         replied
-            .recv()
-            .map_err(|_| anyhow::anyhow!("device {} was torn down without its image", self.dev_id))
+            .await
+            .map_err(|_| anyhow::anyhow!("device {} stopped being served", self.0.dev_id))?
+            .map_err(|err| anyhow::anyhow!("snapshotting device {}: {err}", self.0.dev_id))
     }
+}
 
+impl Commands {
     fn send(&self, command: Command) -> anyhow::Result<()> {
-        self.commands
+        self.sender
             .send(command)
             .map_err(|_| anyhow::anyhow!("device {} stopped being served", self.dev_id))?;
         self.waker.wake();
@@ -336,6 +373,14 @@ impl Owner {
                 Ok(Command::ResumeAdmission) => {
                     self.admitting = true;
                     self.retry_parked();
+                }
+                Ok(Command::Snapshot(reply)) => {
+                    // The owner is the only reader of its bitmap, so this runs
+                    // here rather than on the asking task. It reads only the
+                    // blocks a formatted filesystem allocated, which is the
+                    // single-digit megabytes a `mkfs` writes.
+                    let run_blocks = ublk::MAX_IO_BUF_BYTES / self.image.block_size();
+                    _ = reply.send(self.image.snapshot(run_blocks));
                 }
                 Ok(Command::Release(reply)) => {
                     self.release = Some(reply);

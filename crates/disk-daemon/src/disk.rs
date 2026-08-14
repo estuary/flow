@@ -6,17 +6,6 @@ use crate::image::Image;
 use crate::owner;
 use crate::ublk::{self, Control};
 
-pub struct Spec {
-    /// Directory the image is created in.
-    pub image_dir: std::path::PathBuf,
-    pub blocks: u32,
-    /// Fixed once a disk first publishes: it shapes chunk coverage and bitmap
-    /// extent, so a later change would misplace every replayed chunk.
-    pub block_size: u32,
-    /// Requests the device may have outstanding, which is its concurrency.
-    pub queue_depth: u16,
-}
-
 pub struct Disk {
     control: std::sync::Arc<Control>,
     /// Taken by the first teardown, so `stop` and `drop` cannot both run it.
@@ -25,23 +14,24 @@ pub struct Disk {
 }
 
 impl Disk {
-    /// Create an image, a device over it, and serve it. The returned
-    /// [`Captured`] is the consumer half of the disk's capture channel, which
-    /// the journal appender takes.
+    /// Create a device over `image` and serve it. The returned [`Captured`] is
+    /// the consumer half of the disk's capture channel, which the journal
+    /// appender takes.
+    ///
+    /// The image is the caller's because a recovered disk is rebuilt from its
+    /// journal before any device may read it.
     ///
     /// The order is forced by the kernel: parameters may only be set before the
     /// device starts, and starting it blocks until its queue is fetching, which
     /// only the owner can arrange.
     pub fn create(
         control: &std::sync::Arc<Control>,
-        spec: &Spec,
+        image: Image,
+        queue_depth: u16,
     ) -> anyhow::Result<(Self, Captured)> {
-        let image = Image::create(&spec.image_dir, spec.blocks, spec.block_size)
-            .map_err(|err| anyhow::anyhow!("creating an image in {:?}: {err}", spec.image_dir))?;
+        let info = control.add_dev(queue_depth, ublk::MAX_IO_BUF_BYTES)?;
 
-        let info = control.add_dev(spec.queue_depth, ublk::MAX_IO_BUF_BYTES)?;
-
-        let (disk, captured) = match Self::serve(control, spec, image, info.dev_id) {
+        let (disk, captured) = match Self::serve(control, image, queue_depth, info.dev_id) {
             Ok(served) => served,
             Err(err) => {
                 // No owner took the device, so nothing else will delete it.
@@ -67,17 +57,17 @@ impl Disk {
     /// exists, which is what lets the caller delete the device.
     fn serve(
         control: &std::sync::Arc<Control>,
-        spec: &Spec,
         image: Image,
+        queue_depth: u16,
         dev_id: u32,
     ) -> anyhow::Result<(Self, Captured)> {
         let cdev = open_char_device(dev_id)?;
-        () = control.set_params(dev_id, &ublk::params(spec.blocks, spec.block_size))?;
+        () = control.set_params(dev_id, &ublk::params(image.blocks(), image.block_size()))?;
 
         // One waker serves both directions: the channel wakes the owner when a
         // mutation it parked may be retried, and a command wakes it to be read.
         let waker = crate::wake::Waker::new()?;
-        let (capture, captured) = crate::capture::channel(spec.queue_depth as usize, waker.clone());
+        let (capture, captured) = crate::capture::channel(queue_depth as usize, waker.clone());
 
         let owner = owner::spawn(owner::Serve {
             dev_id,
@@ -85,7 +75,7 @@ impl Disk {
             image,
             capture,
             waker,
-            queue_depth: spec.queue_depth,
+            queue_depth,
         })?;
 
         Ok((
@@ -110,6 +100,12 @@ impl Disk {
 
     pub fn resume_admission(&self) -> anyhow::Result<()> {
         self.handle()?.resume_admission()
+    }
+
+    /// A handle with which the journal writer asks for this disk's image, per
+    /// [`owner::Snapshotter`].
+    pub fn snapshotter(&self) -> anyhow::Result<owner::Snapshotter> {
+        Ok(self.handle()?.snapshotter())
     }
 
     /// Path of the block device to format and mount.

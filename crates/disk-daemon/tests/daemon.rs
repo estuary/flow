@@ -24,6 +24,9 @@ const BLOCK_SIZE: u32 = 4096;
 /// How long a teardown which cannot be observed over the session is waited for.
 const TEARDOWN: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Label the daemon under test derives its recovery floor from.
+const FLOOR_LABEL: &str = "acmeCo/truncated-at";
+
 #[tokio::test]
 async fn disk_daemon_tests() {
     common::check_prerequisites();
@@ -44,9 +47,15 @@ async fn disk_daemon_tests() {
     an_unchanged_transaction_appends_nothing(&fixture, &daemon).await;
     a_broker_replacement_has_no_reply(&fixture, &daemon).await;
     a_disk_which_is_never_written_creates_no_journal(&fixture, &daemon).await;
-    the_first_write_publishes_the_retained_format_output(&fixture, &daemon).await;
+    the_first_write_publishes_a_snapshot_of_the_formatted_image(&fixture, &daemon).await;
     a_journal_without_a_store_is_terminal(&fixture, &daemon).await;
     protocol_violations_are_terminal(&fixture, &daemon).await;
+    a_committed_disk_reopens_with_its_contents(&fixture, &daemon).await;
+    an_acknowledgement_lost_after_commit_is_repaired(&fixture, &daemon).await;
+    an_uncommitted_delta_is_discarded(&fixture, &daemon).await;
+    an_orphaned_first_use_yields_a_fresh_disk(&fixture, &daemon).await;
+    the_floor_label_is_only_a_seek_hint(&fixture, &daemon).await;
+    a_cut_during_writeback_recovers_a_consistent_filesystem(&fixture, &daemon).await;
     an_abrupt_disconnect_tears_the_disk_down(&fixture, &daemon).await;
 
     daemon.drain().await;
@@ -145,9 +154,13 @@ async fn a_disk_which_is_never_written_creates_no_journal(fixture: &Fixture, dae
     assert!(!fixture.exists(journal).await);
 }
 
-/// The first mutation after mount publishes the format and mount output which
-/// was retained for it, so the first delta holds the whole filesystem.
-async fn the_first_write_publishes_the_retained_format_output(fixture: &Fixture, daemon: &Daemon) {
+/// The first mutation after mount publishes a snapshot of the image, so the
+/// first delta holds the whole formatted filesystem and nothing more: the ranges
+/// a prezeroed format left as holes are holes in a replay of it too.
+async fn the_first_write_publishes_a_snapshot_of_the_formatted_image(
+    fixture: &Fixture,
+    daemon: &Daemon,
+) {
     let journal = "acmeCo/disk/first-write";
     let mut session = daemon.session().await;
 
@@ -164,10 +177,17 @@ async fn the_first_write_publishes_the_retained_format_output(fixture: &Fixture,
     let covered = fixture.replay(journal, &image).await;
 
     // A few small files could not account for a filesystem's metadata, and the
-    // replay mounts, which only the format output makes possible.
+    // replay mounts, which only the snapshot makes possible.
     assert!(
         covered > 512,
         "the first delta covered only {covered} blocks"
+    );
+    let allocated =
+        std::os::unix::fs::MetadataExt::blocks(&std::fs::metadata(&image).unwrap()) * 512;
+
+    assert!(
+        allocated < DEVICE_SIZE / 4,
+        "the replayed image allocated {allocated} of the device's {DEVICE_SIZE} bytes",
     );
     fixture.assert_content_matches(&image, &source);
 }
@@ -262,6 +282,205 @@ async fn protocol_violations_are_terminal(fixture: &Fixture, daemon: &Daemon) {
     () = session.ended().await;
 
     fixture.assert_no_leaks();
+}
+
+/// A disk which committed reopens holding the files it committed, over several
+/// sequential transactions, and two recoveries of one journal agree.
+async fn a_committed_disk_reopens_with_its_contents(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/reopened";
+    let source = fixture.dir.path().join("reopened");
+
+    for generation in 1..=3u8 {
+        let mut session = daemon.session().await;
+        let mount = session.open(fixture.open(journal)).await.unwrap();
+
+        // Every generation but the first opens a disk rebuilt from the journal,
+        // which holds what the generation before it committed.
+        if generation != 1 {
+            assert_tree_matches(&source, &format!("{mount}/data"));
+        }
+        write_source(&source, generation);
+        copy_through(&source, &mount);
+
+        let ack = session.publish().await.unwrap();
+        assert!(!ack.is_empty(), "generation {generation} changed the disk");
+
+        () = session.commit(ack).await.unwrap();
+        () = session.close().await;
+    }
+
+    // Recovery is deterministic, so recovering twice more without committing
+    // anything reproduces the same filesystem both times.
+    for _ in 0..2 {
+        let mut session = daemon.session().await;
+        let mount = session.open(fixture.open(journal)).await.unwrap();
+
+        assert_tree_matches(&source, &format!("{mount}/data"));
+        () = session.close().await;
+    }
+}
+
+/// A client which made an acknowledgement durable and then failed before it
+/// could commit hands that acknowledgement back, which repairs the delta.
+async fn an_acknowledgement_lost_after_commit_is_repaired(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/repaired";
+    let mut session = daemon.session().await;
+
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let source = fixture.source("repaired");
+
+    copy_through(&source, &mount);
+    let ack = session.publish().await.unwrap();
+
+    drop(session);
+    fixture.wait_for_teardown().await;
+
+    let mut session = daemon.session().await;
+    let mount = session
+        .open(proto::Open {
+            recovered_acks: vec![ack],
+            ..fixture.open(journal)
+        })
+        .await
+        .unwrap();
+
+    assert_tree_matches(&source, &format!("{mount}/data"));
+    () = session.close().await;
+}
+
+/// A delta which was published but never committed is not disk state, so it is
+/// discarded and the disk recovers to the transaction before it.
+async fn an_uncommitted_delta_is_discarded(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/uncommitted";
+    let mut session = daemon.session().await;
+
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let source = fixture.dir.path().join("uncommitted");
+
+    write_source(&source, 1);
+    copy_through(&source, &mount);
+
+    let ack = session.publish().await.unwrap();
+    () = session.commit(ack).await.unwrap();
+
+    // A second generation which is published and never committed.
+    let discarded = fixture.dir.path().join("uncommitted-discarded");
+    write_source(&discarded, 2);
+    copy_through(&discarded, &mount);
+
+    assert!(!session.publish().await.unwrap().is_empty());
+    drop(session);
+    fixture.wait_for_teardown().await;
+
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    assert_tree_matches(&source, &format!("{mount}/data"));
+    () = session.close().await;
+}
+
+/// A journal holding only the records of a first use which failed holds no
+/// committed state, so its disk is formatted afresh.
+async fn an_orphaned_first_use_yields_a_fresh_disk(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/orphaned";
+    let mut session = daemon.session().await;
+
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+    copy_through(&fixture.source("orphaned"), &mount);
+
+    assert!(!session.publish().await.unwrap().is_empty());
+    drop(session);
+    fixture.wait_for_teardown().await;
+
+    assert!(fixture.exists(journal).await, "the delta created a journal");
+
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    assert_eq!(
+        sudo(&["ls", "-A", &mount]).trim(),
+        "lost+found",
+        "the disk was not formatted afresh",
+    );
+    () = session.close().await;
+}
+
+/// The floor label seeks a replay and nothing more: a stale one costs replay
+/// work and rebuilds the same disk, while one which cannot be parsed is
+/// terminal rather than silently ignored.
+async fn the_floor_label_is_only_a_seek_hint(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/floored";
+    let mut session = daemon.session().await;
+
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let source = fixture.source("floored");
+
+    copy_through(&source, &mount);
+    let ack = session.publish().await.unwrap();
+
+    () = session.commit(ack).await.unwrap();
+    () = session.close().await;
+
+    // A clock long before the disk was written, which every fragment is at or
+    // after.
+    () = fixture.set_floor(journal, "0000000000000001").await;
+
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    assert_tree_matches(&source, &format!("{mount}/data"));
+    () = session.close().await;
+
+    () = fixture.set_floor(journal, "nonsense").await;
+
+    let mut session = daemon.session().await;
+    let status = session.open(fixture.open(journal)).await.unwrap_err();
+
+    assert!(status.message().contains("malformed"), "{status}");
+    () = session.ended().await;
+}
+
+/// A boundary cut while the filesystem is writing back rebuilds into a
+/// filesystem which mounts and which passes a consistency check, because ext4
+/// replays its own journal over whatever the cut caught mid-flight.
+async fn a_cut_during_writeback_recovers_a_consistent_filesystem(
+    fixture: &Fixture,
+    daemon: &Daemon,
+) {
+    let journal = "acmeCo/disk/writeback";
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    // No `fsync`, so the cut lands amongst ext4's own writeback and journal
+    // traffic rather than after it.
+    let mut writer = std::process::Command::new("sudo")
+        .args(["-n", "dd", "if=/dev/urandom", "bs=1M", "count=48"])
+        .arg(format!("of={mount}/churn"))
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawning dd");
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let ack = session.publish().await.unwrap();
+    () = session.commit(ack).await.unwrap();
+
+    _ = writer.wait().expect("waiting for dd");
+    drop(session);
+    fixture.wait_for_teardown().await;
+
+    // The daemon mounts what it rebuilds, so opening at all is ext4 having
+    // replayed its journal over the rebuilt image.
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    _ = sudo(&["ls", "-A", &mount]);
+    () = session.close().await;
+
+    let image = fixture.dir.path().join("writeback.img");
+    _ = fixture.replay(journal, &image).await;
+
+    () = assert_fsck_clean(&image);
 }
 
 /// A client which disappears mid-write leaves no device and no mount behind.
@@ -375,7 +594,11 @@ impl Fixture {
                 flush_interval_seconds: Some(48 * 3600),
                 refresh_interval_seconds: 5 * 60,
                 max_append_rate: Some(1 << 22),
-                compression_codec: proto_gazette::broker::CompressionCodec::None as i32,
+                // The codec the design specifies for disk journals. Its
+                // fragments live on the broker's own filesystem, which the test
+                // has no transport to fetch, so the broker is what decompresses
+                // them here; `gazette::journal::read` covers its own decoder.
+                compression_codec: proto_gazette::broker::CompressionCodec::Snappy as i32,
             }),
             device_size: DEVICE_SIZE,
             block_size: BLOCK_SIZE,
@@ -439,21 +662,55 @@ impl Fixture {
         // as a recovered disk's mount does.
         sudo(&["mount", "-o", "loop", path(image), path(&mount)]);
 
-        let diff = std::process::Command::new("sudo")
-            .args(["-n", "diff", "-r"])
-            .arg(source)
-            .arg(mount.join("data"))
-            .output()
-            .expect("spawning diff");
-
+        let diff = tree_diff(source, path(&mount.join("data")));
         let _ = sudo(&["umount", path(&mount)]);
 
-        assert!(
-            diff.status.success(),
-            "the replayed filesystem differs from what was written:\n{}{}",
-            String::from_utf8_lossy(&diff.stdout),
-            String::from_utf8_lossy(&diff.stderr),
-        );
+        assert!(diff.is_none(), "{}", diff.unwrap());
+    }
+
+    /// Write the daemon's floor label onto `journal`'s spec, which is what
+    /// completing a horizon will do.
+    async fn set_floor(&self, journal: &str, value: &str) {
+        let listing = self
+            .client
+            .list(broker::ListRequest {
+                selector: Some(broker::LabelSelector {
+                    include: Some(broker::LabelSet {
+                        labels: vec![broker::Label {
+                            name: "name".to_string(),
+                            value: journal.to_string(),
+                            prefix: false,
+                        }],
+                    }),
+                    exclude: None,
+                }),
+                ..Default::default()
+            })
+            .await
+            .expect("listing a journal");
+
+        let listed = &listing.journals[0];
+        let mut spec = listed.spec.clone().expect("a listed journal has a spec");
+
+        let labels = &mut spec.labels.get_or_insert_default().labels;
+        labels.retain(|label| label.name != FLOOR_LABEL);
+
+        labels.push(broker::Label {
+            name: FLOOR_LABEL.to_string(),
+            value: value.to_string(),
+            prefix: false,
+        });
+
+        self.client
+            .apply(broker::ApplyRequest {
+                changes: vec![broker::apply_request::Change {
+                    expect_mod_revision: listed.mod_revision,
+                    upsert: Some(spec),
+                    delete: String::new(),
+                }],
+            })
+            .await
+            .expect("applying a floor label");
     }
 
     /// Every record of `journal`, paired with the flags of its UUID.
@@ -555,7 +812,7 @@ impl Daemon {
             .arg(dir.join(format!("{name}-images")))
             .arg("--mount-dir")
             .arg(dir.join(format!("{name}-mounts")))
-            .args(["--floor-label", "acmeCo/truncated-at"]);
+            .args(["--floor-label", FLOOR_LABEL]);
 
         let child: async_process::Child = command.spawn().expect("spawning the daemon").into();
 
@@ -717,6 +974,55 @@ impl Session {
 /// earlier generation put there.
 fn copy_through(source: &std::path::Path, mount: &str) {
     sudo(&["cp", "-rT", path(source), &format!("{mount}/data")]);
+}
+
+/// Require `dir`, which a mount holds, to be exactly the `source` tree.
+fn assert_tree_matches(source: &std::path::Path, dir: &str) {
+    if let Some(diff) = tree_diff(source, dir) {
+        panic!("{diff}");
+    }
+}
+
+/// How `dir` differs from the `source` tree, or `None` when it does not. The
+/// mounts are root-owned, so comparing them is privileged too.
+fn tree_diff(source: &std::path::Path, dir: &str) -> Option<String> {
+    let diff = std::process::Command::new("sudo")
+        .args(["-n", "diff", "-r"])
+        .arg(source)
+        .arg(dir)
+        .output()
+        .expect("spawning diff");
+
+    if diff.status.success() {
+        return None;
+    }
+    Some(format!(
+        "{dir} differs from what was written:\n{}{}",
+        String::from_utf8_lossy(&diff.stdout),
+        String::from_utf8_lossy(&diff.stderr),
+    ))
+}
+
+/// Require `image` to hold a filesystem which is consistent once its own
+/// journal is replayed, and which needs no repair beyond that.
+fn assert_fsck_clean(image: &std::path::Path) {
+    // The first pass replays the filesystem journal, which modifies the image
+    // and which e2fsck reports as one. The second must find nothing at all.
+    for (args, may_modify) in [("-fy", true), ("-fn", false)] {
+        let output = std::process::Command::new("sudo")
+            .args(["-n", "e2fsck", args])
+            .arg(image)
+            .output()
+            .expect("spawning e2fsck");
+
+        let code = output.status.code().unwrap_or(-1);
+        assert!(
+            code == 0 || (code == 1 && may_modify),
+            "e2fsck {args} exited {code} over {image:?}:\n{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
 }
 
 /// Run a privileged command, which is how a test reaches a root-owned mount.

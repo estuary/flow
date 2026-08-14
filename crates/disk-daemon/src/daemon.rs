@@ -21,6 +21,9 @@ const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub struct Config {
     pub image_dir: std::path::PathBuf,
     pub mount_dir: std::path::PathBuf,
+    /// Label on a disk journal's own spec which holds its recovery floor, and
+    /// which every replay reads back as its seek hint.
+    pub floor_label: String,
     /// Shared by every session's journal writer.
     pub client: gazette::journal::Client,
     /// Routing table of `client`, swept periodically to close connections to
@@ -40,6 +43,7 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
     let config = std::sync::Arc::new(Config {
         image_dir: args.image_dir.clone(),
         mount_dir: args.mount_dir.clone(),
+        floor_label: args.floor_label.clone(),
         client,
         router,
     });

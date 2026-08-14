@@ -13,14 +13,13 @@ Build order: [`plans/block-backed-connector-disks-phases.md`](../../plans/block-
 
 ## Scope today
 
-A `flow-disk-daemon` binary which serves fresh disks end to end: a session
-creates a disk, formats and mounts it, publishes and commits its deltas to a
-journal, and destroys it when the session ends.
+A `flow-disk-daemon` binary which serves disks end to end: a session creates a
+disk, formats it or rebuilds it from its journal, mounts it, publishes and
+commits its deltas, and destroys it when the session ends. A client which
+recovered an acknowledgement hands it back, and the session repairs it.
 
-Recovery is not built: nothing reads a journal back, so a session which opens
-with committed state, or which carries recovered acknowledgements, is refused.
-Horizons do not exist, so no record opens one and the configured floor label is
-never written.
+Horizons do not exist, so no record opens one, a replay rejects one it finds,
+and the configured floor label is read but never written.
 
 ## Key types and entry points
 
@@ -36,8 +35,10 @@ never written.
 | [`ublk::Control`] | `/dev/ublk-control`: add, configure, start, stop, delete |
 | [`owner::spawn`] | The thread which serves one disk, and the ring it drives |
 | [`capture::channel`] | The mutation-capture seam between an owner and the writer |
-| [`journal::Writer`] | One session's journal: fence, append pipeline, publish and commit |
+| [`journal::Opening`] / [`journal::Writer`] | One session's journal: fence, recovery, append pipeline, publish and commit |
+| [`journal::replay`] | Journal into a rebuilt image, which is the durability guarantee |
 | [`journal::fence`] | The `author` register: probe, claim, and the fence record |
+| [`journal::floor`] | The label a replay seeks from |
 | [`journal::spec`] | `JournalConfig` into a `JournalSpec`, and insert-only creation |
 | [`inflight::InFlight`] | Serializes overlapping mutations against one image |
 | [`chunk::encode_write`] / [`chunk::encode_punch`] | Device mutation → journal chunks |
@@ -48,7 +49,8 @@ never written.
 ## A session
 
 ```text
-Open    ──►  image ──► device ──► format ──► mount ──► writer ──► Opened(path)
+Open    ──►  image ──► fence, repair and replay ──► device ──► mount ──► Opened(path)
+             a disk with no committed state is formatted instead
 Publish ──►  syncfs ──► close admission ──► finish the delta ──► Published(ack)
 Commit  ──►  append that ack ──► await the broker ──► Committed
 Broker  ──►  replace the endpoint and credential
@@ -56,8 +58,7 @@ close   ──►  unmount ──► stop and delete the device ──► drop t
 ```
 
 Everything a session does is terminal on failure, and every way a stream ends
-runs the same teardown. Format and mount writes are retained rather than
-appended, and the journal is created by the first mutation which follows them.
+runs the same teardown.
 
 ## The serving path
 
@@ -91,6 +92,7 @@ select ──►  request        ──►  publish  ──►  drain, confirm, 
                                 abandon  ──►  take what follows and discard it
 
        ──►  mutation       ──►  pack into records ──►  fill a batch ──►  append
+                                a fresh disk's first append snapshots its image
 ```
 
 Requests win that race, so a cut observes every mutation queued before it.
@@ -214,21 +216,44 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   being asked for. That is why this proto has no Go bindings: `protoc-gen-gogo`
   refuses proto3 `optional`, and nothing in Go consumes this protocol.
 
-- **The format output is held in memory until the first write.** It is the
-  daemon's own `mkfs` and `mount` mutations, so it is bounded by filesystem
-  metadata rather than by use: 99 KiB on a 128 MiB device, 4.1 MiB on a 10 GiB
-  one. But a disk opened and left idle holds it for the whole session, which
-  makes it the largest thing a disk carries. Phase 5 replaces it by snapshotting
-  the image when the first mutation arrives, since the image already holds
-  exactly this content.
+- **A fresh disk holds nothing between its format and its first write.** Format
+  and mount output is taken from the capture channel and dropped, and the first
+  append instead asks the owner for a snapshot of the image: the allocated
+  blocks, read back and encoded as chunks. The image already holds exactly that
+  content, so nothing has to be kept, and a block written twice while formatting
+  collapses to one chunk.
+
+  The snapshot is taken after some mutations may already have been applied, and
+  that is benign: every mutation captured since the mount is appended after it,
+  so one already reflected in it is simply applied again, and a delta is durable
+  only once its acknowledgement commits.
+
+  A recovered disk takes no snapshot. Its journal already holds the filesystem,
+  and the writes its mount issues belong to the next delta like any other.
 
 - **Journal creation is driven by the first append**, not by opening a session,
-  because a disk which is never written carries no information. Format and
-  mount output is retained for that first mutation and appended ahead of it, so
-  the first delta carries all of the filesystem's allocated metadata. The spec
-  is built and validated at open so that a journal which could not be created —
-  no fragment store, or a codec this crate cannot decompress — fails before a
+  because a disk which is never written carries no information. The spec is
+  built and validated at open so that a journal which could not be created — no
+  fragment store, or a codec this crate cannot decompress — fails before a
   device exists.
+
+- **Recovery claims the fence for any journal which exists.** Whether a
+  journal's records are committed is only knowable by reading them, and reading
+  must exclude the previous writer first. A journal holding only the orphans of
+  a failed first use therefore gains a fence record and then yields a fresh,
+  formatted disk — which is the fence this session would have installed with its
+  own first append anyway.
+
+- **A replay buffers nothing.** It applies every delta as it reads it and finds
+  a delta which was never acknowledged only at the end of the range. The image
+  is then discarded and the range read again, reading over that delta's records.
+  Which costs one extra read exactly when a session did not shut down cleanly,
+  and removes a spill file with its own budget, `fsync` and validation.
+
+  An unacknowledged delta is not always the last thing in the range: a
+  replacement session appends after the orphan records of the one it displaced.
+  So the rule is by producer and clock rather than by offset, and it covers both
+  cases with one mechanism.
 
 - **Appends are issued one at a time and awaited**, so "every chunk of this
   delta is confirmed" is the same statement as "the writer has no work".
@@ -237,9 +262,11 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   bounded by a tunable, because the capture channel already bounds both: a
   mutation is capped by the device at `MAX_IO_BUF_BYTES`, and a drain sees at
   most the channel's capacity, so an append is at most `queue_depth` mutations
-  wide. Splitting either would only give replay more to reassemble. The cost is
-  that a failed append retries its whole content, which is bandwidth under a
-  flaky broker and never correctness.
+  wide. Splitting either would only give replay more to reassemble. That is
+  larger than a broker's gRPC message limit, so the append's byte stream is cut
+  into chunks of `CHUNK_BYTES` as `publisher::Appender` does. That is a
+  transport detail and not a boundary a record or a delta can see. The cost is that a failed append retries its
+  whole content, which is bandwidth under a flaky broker and never correctness.
 
 - **The acknowledgement is built but not appended.** `publish` returns its exact
   bytes and holds them; `commit` appends those same bytes and awaits the
@@ -265,6 +292,8 @@ because they contend on the host-wide control device.
 it spawns the daemon under `sudo`, speaks the session gRPC over its socket, and
 reaches the root-owned mounts it returns through `sudo` of its own. It replays
 each journal it commits into an image and loop-mounts that to compare content.
+Its crash matrix reopens a disk after committing, after publishing without a
+commit, with a recovered acknowledgement, and after a cut taken mid-writeback.
 
 `tests/ublk.rs` drives `src/bin/scenario.rs`, which works a disk with no session
 around it, printing observations as JSON the test asserts against. It needs no

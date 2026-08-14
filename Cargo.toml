@@ -175,6 +175,7 @@ serde-transcode = "1"
 serde-wasm-bindgen = "0"
 sha2 = "0"
 size = "0"
+snap = "1"
 socket2 = "0"
 strsim = "0"
 strum = { version = "0", features = ["derive"] }

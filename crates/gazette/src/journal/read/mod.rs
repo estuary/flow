@@ -10,6 +10,8 @@ pub use lines::{LinesBatch, ReadLines};
 mod json_lines;
 pub use json_lines::{ReadJsonLine, ReadJsonLines};
 
+mod snappy;
+
 impl Client {
     /// Invoke the Gazette journal Read API.
     /// This routine directly fetches journal fragments from cloud storage where possible,
@@ -230,8 +232,9 @@ pub fn supports_codec(codec: broker::CompressionCodec) -> bool {
         broker::CompressionCodec::None
         | broker::CompressionCodec::Gzip
         | broker::CompressionCodec::GzipOffloadDecompression
+        | broker::CompressionCodec::Snappy
         | broker::CompressionCodec::Zstandard => true,
-        broker::CompressionCodec::Snappy | broker::CompressionCodec::Invalid => false,
+        broker::CompressionCodec::Invalid => false,
     }
 }
 
@@ -285,9 +288,10 @@ async fn read_fragment_url(
             let decoder = async_compression::futures::bufread::ZstdDecoder::new(raw_reader);
             read_fragment_url_body(co, metrics, fragment, decoder, req, write_head).await
         }
-        broker::CompressionCodec::Snappy => Err(Error::Protocol(
-            "snappy compression is not yet implemented by this client",
-        )),
+        broker::CompressionCodec::Snappy => {
+            let decoder = snappy::decode(raw_reader);
+            read_fragment_url_body(co, metrics, fragment, decoder, req, write_head).await
+        }
         broker::CompressionCodec::Invalid => {
             Err(Error::Protocol("invalid compression codec for fragment"))
         }

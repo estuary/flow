@@ -208,15 +208,4 @@ mod test {
         assert_eq!(spec.max_append_rate, 0);
         assert_eq!(spec.fragment.unwrap().flush_interval.unwrap().seconds, 0);
     }
-
-    #[test]
-    fn test_a_codec_which_cannot_be_read_back_is_rejected() {
-        let err = build(&proto::JournalConfig {
-            compression_codec: broker::CompressionCodec::Snappy as i32,
-            ..complete()
-        })
-        .unwrap_err();
-
-        assert!(format!("{err}").contains("SNAPPY"), "{err}");
-    }
 }

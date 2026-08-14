@@ -6,13 +6,19 @@
 
 use disk_daemon::capture::{self, Capture};
 use disk_daemon::chunk::{covered_blocks, encode_punch, encode_write};
-use disk_daemon::journal::{self, Writer, fence};
+use disk_daemon::image::Image;
+use disk_daemon::journal::{self, Opening, Writer, fence};
 use disk_daemon::proto;
 use disk_daemon::wake::Waker;
 use gazette::journal::framing;
 use proto_gazette::{broker, uuid};
 
 const BLOCK_SIZE: u32 = 4096;
+const BLOCKS: u32 = 64;
+
+/// Label a replay reads its floor from. No case writes one, so every replay
+/// begins at the first fragment available.
+const FLOOR_LABEL: &str = "acmeCo/truncated-at";
 
 #[tokio::test]
 async fn journal_writer_tests() {
@@ -33,6 +39,9 @@ async fn journal_writer_tests() {
     a_committed_delta_reads_back_as_its_chunks(&fixture).await;
     a_large_delta_carries_one_record_per_mutation(&fixture).await;
     a_journal_without_a_store_never_opens(&fixture).await;
+    recovery_applies_only_committed_deltas(&fixture).await;
+    a_recovered_acknowledgement_is_repaired(&fixture).await;
+    an_orphaned_journal_recovers_nothing(&fixture).await;
 
     data_plane
         .graceful_stop()
@@ -44,7 +53,7 @@ async fn journal_writer_tests() {
 /// record, and appends its delta under that claim.
 async fn first_use_claims_the_journal(fixture: &Fixture) {
     let journal = "acmeCo/disk/first-use";
-    let (capture, writer) = fixture.open(journal, false).await.unwrap();
+    let (capture, writer) = fixture.open(journal).await.unwrap();
 
     capture.offer(vec![encode_punch(3, 2)]).unwrap();
     let ack = writer
@@ -87,14 +96,15 @@ async fn first_use_claims_the_journal(fixture: &Fixture) {
 /// cannot append.
 async fn a_replacement_writer_fences_the_first(fixture: &Fixture) {
     let journal = "acmeCo/disk/contended";
-    let (first_capture, first) = fixture.open(journal, false).await.unwrap();
+    let (first_capture, first) = fixture.open(journal).await.unwrap();
 
     first_capture.offer(vec![encode_punch(0, 1)]).unwrap();
     let ack = first.publish().await.unwrap().unwrap();
     () = first.commit(ack).await.unwrap();
 
-    // The journal now holds a committed delta, so a replacement claims at open.
-    let (_second_capture, second) = fixture.open(journal, true).await.unwrap();
+    // The journal now holds a committed delta, so a replacement claims as it
+    // recovers.
+    let (_second_capture, second, _blocks) = fixture.recover(journal, Vec::new()).await.unwrap();
     assert_ne!(first.epoch(), second.epoch());
 
     first_capture.offer(vec![encode_punch(1, 1)]).unwrap();
@@ -113,7 +123,7 @@ async fn a_replacement_writer_fences_the_first(fixture: &Fixture) {
 /// resolved by finding the epoch already installed, not by choosing a new one.
 async fn an_ambiguous_claim_finds_its_own_epoch(fixture: &Fixture) {
     let journal = "acmeCo/disk/ambiguous";
-    let (_capture, writer) = fixture.open(journal, false).await.unwrap();
+    let (_capture, writer) = fixture.open(journal).await.unwrap();
 
     let epoch = writer.epoch();
     let fence_record = fence::record(epoch);
@@ -140,7 +150,7 @@ async fn an_ambiguous_claim_finds_its_own_epoch(fixture: &Fixture) {
 /// A session which publishes nothing leaves no journal behind at all.
 async fn a_session_which_never_publishes_creates_no_journal(fixture: &Fixture) {
     let journal = "acmeCo/disk/untouched";
-    let (capture, writer) = fixture.open(journal, false).await.unwrap();
+    let (capture, writer) = fixture.open(journal).await.unwrap();
 
     assert_eq!(writer.publish().await.unwrap(), None);
     drop((capture, writer));
@@ -151,7 +161,7 @@ async fn a_session_which_never_publishes_creates_no_journal(fixture: &Fixture) {
 /// A committed delta reads back as exactly the chunks which were captured.
 async fn a_committed_delta_reads_back_as_its_chunks(fixture: &Fixture) {
     let journal = "acmeCo/disk/delta";
-    let (capture, writer) = fixture.open(journal, false).await.unwrap();
+    let (capture, writer) = fixture.open(journal).await.unwrap();
 
     let mutations = vec![
         encode_write(0, &bytes::Bytes::from(vec![0x11; 8192]), BLOCK_SIZE),
@@ -186,7 +196,7 @@ async fn a_large_delta_carries_one_record_per_mutation(fixture: &Fixture) {
     let journal = "acmeCo/disk/bounded";
     const WRITES: usize = 8;
 
-    let (capture, writer) = fixture.open(journal, false).await.unwrap();
+    let (capture, writer) = fixture.open(journal).await.unwrap();
     let write = encode_write(0, &bytes::Bytes::from(vec![0x22; 128 * 1024]), BLOCK_SIZE);
 
     for _ in 0..WRITES {
@@ -227,10 +237,78 @@ async fn a_journal_without_a_store_never_opens(fixture: &Fixture) {
         journal: "acmeCo/disk/storeless".to_string(),
         ..Default::default()
     };
-    let Err(err) = fixture.writer(journal, false).await else {
+    let Err(err) = fixture.opening(journal).await else {
         panic!("a journal with no store must not open");
     };
     assert!(format!("{err:#}").contains("no fragment store"), "{err:#}");
+}
+
+/// Recovery rebuilds the deltas which committed, and discards one whose
+/// acknowledgement never reached the journal.
+async fn recovery_applies_only_committed_deltas(fixture: &Fixture) {
+    let journal = "acmeCo/disk/recovered";
+    let (capture, writer) = fixture.open(journal).await.unwrap();
+
+    for (block, fill) in [(1, 0xaa), (2, 0xbb)] {
+        capture.offer(write(block, fill)).unwrap();
+    }
+    let ack = writer.publish().await.unwrap().unwrap();
+    () = writer.commit(ack).await.unwrap();
+
+    // A second delta which is published but never committed, as a session
+    // which crashed between the two leaves behind.
+    capture.offer(write(2, 0xcc)).unwrap();
+    capture.offer(write(3, 0xdd)).unwrap();
+    _ = writer.publish().await.unwrap().unwrap();
+    drop((capture, writer));
+
+    let (_capture, _writer, blocks) = fixture.recover(journal, Vec::new()).await.unwrap();
+    assert_eq!(blocks, vec![(1, 0xaa), (2, 0xbb)]);
+}
+
+/// An acknowledgement the client made durable but which never reached the
+/// journal is appended verbatim, which commits the delta it acknowledges.
+async fn a_recovered_acknowledgement_is_repaired(fixture: &Fixture) {
+    let journal = "acmeCo/disk/repaired";
+    let (capture, writer) = fixture.open(journal).await.unwrap();
+
+    capture.offer(write(4, 0x11)).unwrap();
+    let ack = writer.publish().await.unwrap().unwrap();
+    drop((capture, writer));
+
+    let (_capture, _writer, blocks) = fixture.recover(journal, vec![ack.clone()]).await.unwrap();
+
+    assert_eq!(blocks, vec![(4, 0x11)]);
+
+    // Repairing again re-appends the same bytes, which Gazette de-duplicates by
+    // UUID, so a session which repeats a repair recovers the same disk.
+    let (_capture, _writer, blocks) = fixture.recover(journal, vec![ack]).await.unwrap();
+    assert_eq!(blocks, vec![(4, 0x11)]);
+}
+
+/// A journal left behind by a first use which failed holds no committed state,
+/// so its disk is fresh.
+async fn an_orphaned_journal_recovers_nothing(fixture: &Fixture) {
+    let journal = "acmeCo/disk/orphaned";
+    let (capture, writer) = fixture.open(journal).await.unwrap();
+
+    capture.offer(write(5, 0x22)).unwrap();
+    _ = writer.publish().await.unwrap().unwrap();
+    drop((capture, writer));
+
+    assert!(fixture.exists(journal).await, "the delta created a journal");
+
+    let (_capture, _writer, blocks) = fixture.recover(journal, Vec::new()).await.unwrap();
+    assert!(blocks.is_empty(), "{blocks:?}");
+}
+
+/// One block of `fill`, as a device write of it encodes.
+fn write(block: u32, fill: u8) -> Vec<proto::Chunk> {
+    encode_write(
+        block,
+        &bytes::Bytes::from(vec![fill; BLOCK_SIZE as usize]),
+        BLOCK_SIZE,
+    )
 }
 
 struct Fixture {
@@ -261,24 +339,47 @@ impl Fixture {
         journal::spec::build(&self.journal_config(journal)).unwrap()
     }
 
-    async fn open(
-        &self,
-        journal: &str,
-        committed_state: bool,
-    ) -> anyhow::Result<(Capture, Writer)> {
-        self.writer(self.journal_config(journal), committed_state)
-            .await
+    async fn open(&self, journal: &str) -> anyhow::Result<(Capture, Writer)> {
+        let opening = self.opening(self.journal_config(journal)).await?;
+        let (capture, captured) = capture::channel(64, Waker::new().unwrap());
+
+        Ok((capture, opening.serve(captured, None)))
     }
 
-    async fn writer(
+    /// Open `journal` as a session with committed state does, and report the
+    /// fill byte of every block the replay left allocated.
+    async fn recover(
         &self,
-        journal: proto::JournalConfig,
-        committed_state: bool,
-    ) -> anyhow::Result<(Capture, Writer)> {
+        journal: &str,
+        acks: Vec<bytes::Bytes>,
+    ) -> anyhow::Result<(Capture, Writer, Vec<(u32, u8)>)> {
+        let mut opening = self.opening(self.journal_config(journal)).await?;
+
+        // The image outlives its directory, having no directory entry of its own.
+        let dir = tempfile::tempdir()?;
+        let mut image = Image::create(dir.path(), BLOCKS, BLOCK_SIZE)?;
+
+        _ = opening.recover(&mut image, FLOOR_LABEL, acks).await?;
+
+        let mut block = vec![0u8; BLOCK_SIZE as usize];
+        let blocks = image
+            .allocated()
+            .iter()
+            .map(|index| {
+                image.read_at(index, &mut block).unwrap();
+                (index, block[0])
+            })
+            .collect();
+
         let (capture, captured) = capture::channel(64, Waker::new().unwrap());
+
+        Ok((capture, opening.serve(captured, None), blocks))
+    }
+
+    async fn opening(&self, journal: proto::JournalConfig) -> anyhow::Result<Opening> {
         let (client, _router) = journal::shared_client();
 
-        let writer = Writer::open(
+        Opening::new(
             &client,
             journal::Open {
                 journal,
@@ -286,14 +387,9 @@ impl Fixture {
                     endpoint: self.endpoint.clone(),
                     credential: self.credential.clone(),
                 },
-                committed_state,
-                retained: Vec::new(),
             },
-            captured,
         )
-        .await?;
-
-        Ok((capture, writer))
+        .await
     }
 
     /// Every record of `journal`, paired with its parsed UUID.

@@ -691,14 +691,26 @@ ack) and session/stream teardown.
   delta is an ordering error); tolerate the range beginning mid-delta;
   explicit zero fills per the codec rules; rebuild the allocated bitmap.
   `opens_horizon` records are rejected in this phase (the writer cannot yet
-  produce them).
+  produce them), and so are rollback acknowledgements: applying as we read
+  leaves nothing to undo, and the append barrier means this daemon, which is a
+  disk journal's only writer, cannot produce one.
 - **Nothing is buffered to hold an uncommitted delta.** The reader applies
-  every delta as it reads it, recording the offset at which each delta's
-  first record appeared. The append barrier means an unacknowledged delta is
-  always the last one, so if the pass reaches `H` with the final delta
-  unacknowledged, the image is discarded and `[O, S)` is replayed into a
-  fresh one, where `S` is that delta's first record. Everything below `S` is
-  acknowledged by construction.
+  every delta as it reads it, and notes for each producer the clock range of a
+  delta still unacknowledged when the pass reaches `H`. If any exist, the image
+  is reset and the range is read again, reading over exactly those records.
+
+  An earlier draft of this plan had the reader stop short instead, on the
+  premise that an unacknowledged delta is always the last one. That holds
+  within a session and not across them. A session which dies mid-delta leaves
+  orphan `CONTINUE_TXN` records, and its replacement fences and appends *after*
+  them, so the unacknowledged records sit mid-range. A reader which applied
+  them and stopped short would keep writes that never committed, and report
+  nothing. Skipping by producer and clock covers the trailing and mid-range
+  cases with one rule.
+
+  One extra pass always suffices. A producer's unacknowledged delta is its
+  last, because the session that would have continued it is gone, and skipping
+  one producer's delta cannot unacknowledge another's.
 
   This costs nothing when a session shut down cleanly, which is the ordinary
   case, and one extra read of the recovery range when it did not. It is
@@ -716,8 +728,15 @@ ack) and session/stream teardown.
   writes append as ordinary mutations belonging to the next delta), and
   return the mount path. A derived floor ahead of the label advances it
   (decision 7).
-- Startup with neither committed state nor recovered acks ignores orphan
-  records and only reads `R` (fresh path).
+- Startup with neither committed state nor recovered acks yields a fresh disk.
+  It cannot skip the read to decide that: whether a journal holds committed
+  state is only knowable by reading it, and the fence must precede the read. So
+  a session claims any journal which *exists* and lets the replay decide
+  fresh-from-recovered. Reading unfenced first to avoid this would cost two
+  full reads on every disk which does hold content, which is the common case.
+  An orphan journal therefore gains a fence record, which is the same record
+  this session would have installed with its own first append. A journal which
+  does not exist is skipped entirely, which is what keeps creation lazy.
 - **Snapshot the image instead of retaining its format output.** Phase 4 holds
   the `mkfs` and `mount` mutations in memory from the mount until the first
   client write, which for an idle disk is the whole session. Measured, that is
@@ -836,6 +855,13 @@ Finishes the daemon as a usable, operable stand-alone service.
   session costs local resources, so a world-traversable directory is a local
   denial of service. Systemd socket activation with `SocketMode` and
   `SocketGroup` is the better answer, and belongs with the unit file.
+
+- Close the SNAPPY coverage gap. `crates/e2e-support` serves fragments from a
+  `file:///` store, which the Rust client cannot fetch directly, so it proxies
+  through the broker and the broker decompresses. Phase 5's decoder is
+  therefore reached only by its own unit tests, never by a broker-backed one,
+  though it sits on the recovery path. Closing this needs a fragment store the
+  client can fetch over HTTP.
 
 **Tests:** soak — many concurrent disks under mixed read/write/discard load
 with periodic publish/commit and randomized kill/recover, asserting content
