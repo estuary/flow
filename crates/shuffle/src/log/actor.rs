@@ -204,7 +204,12 @@ impl LogActor {
                 // Periodic tick ensures tracing fires even when idle.
                 // Guarded like sealed_segments to allow the `else` arm to fire
                 // when all slices have disconnected.
-                _ = ticker.tick(), if connected != 0 => {}
+                _ = ticker.tick(), if connected != 0 => {
+                    // The exporter evicts metrics idle for 10m, and a Log wedged
+                    // by back-pressure neither seals nor reclaims, so without
+                    // this the series vanishes on a stalled task.
+                    self.metrics.disk_backlog_bytes.set(disk_backlog_bytes as f64);
+                }
 
                 // All slices EOF'd, heap drained, IO complete, and flushes sent.
                 // No pending flushes can remain: they imply a non-empty block,
