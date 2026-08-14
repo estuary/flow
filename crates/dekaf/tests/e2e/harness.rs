@@ -526,6 +526,36 @@ impl DekafTestEnv {
         self.publish_catalog(&catalog).await
     }
 
+    /// Republish `collection_name` with a new `read_schema`, leaving its
+    /// `write_schema` untouched. The fixture must already declare separate
+    /// `writeSchema`/`readSchema` (not a single `schema`) for this to apply.
+    pub async fn set_collection_read_schema(
+        &self,
+        collection_name: &str,
+        read_schema: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let collection = models::Collection::new(collection_name);
+        let mut coll_def = self
+            .catalog
+            .collections
+            .get(&collection)
+            .context("collection not in fixture")?
+            .clone();
+
+        coll_def.read_schema = Some(models::Schema::new(models::RawValue::from_value(
+            &read_schema,
+        )));
+
+        tracing::info!(%collection_name, "Updating collection read schema");
+
+        let catalog = models::Catalog {
+            collections: [(collection, coll_def)].into(),
+            ..Default::default()
+        };
+
+        self.publish_catalog(&catalog).await
+    }
+
     /// Cleanup test specs synchronously.
     fn cleanup_sync(&self) {
         let cmd = match flowctl_command() {

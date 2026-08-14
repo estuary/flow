@@ -1,45 +1,13 @@
 use super::DekafTestEnv;
-use super::raw_kafka::TestKafkaClient;
+use super::raw_kafka::{TestKafkaClient, decode_fetch_records};
 use anyhow::Context;
-use bytes::Buf;
-use kafka_protocol::messages;
-use kafka_protocol::records::{Record, RecordBatchDecoder};
+use kafka_protocol::records::Record;
 use serde_json::json;
 use std::time::Duration;
 
 const FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
 const TOPIC: &str = "test_topic";
 const PARTITION: i32 = 0;
-
-/// Decode all records, including control records, from a raw FetchResponse.
-///
-/// Unlike the rdkafka consumer, this surfaces exactly what Dekaf put on the
-/// wire: librdkafka silently filters out control records and records below
-/// the fetch offset, which masks bugs in which documents a fetch serves.
-fn decode_fetch_records(resp: &messages::FetchResponse) -> anyhow::Result<Vec<Record>> {
-    let partition = resp
-        .responses
-        .iter()
-        .find(|t| t.topic.as_str() == TOPIC)
-        .and_then(|t| t.partitions.iter().find(|p| p.partition_index == PARTITION))
-        .context("missing partition in fetch response")?;
-
-    anyhow::ensure!(
-        partition.error_code == 0,
-        "fetch returned error code {}",
-        partition.error_code
-    );
-
-    let Some(mut buf) = partition.records.clone() else {
-        return Ok(Vec::new());
-    };
-
-    let mut records = Vec::new();
-    while buf.has_remaining() {
-        records.extend(RecordBatchDecoder::decode(&mut buf)?.records);
-    }
-    Ok(records)
-}
 
 async fn fetch_records_at(
     client: &mut TestKafkaClient,
@@ -48,7 +16,7 @@ async fn fetch_records_at(
     let resp = client
         .fetch_with_epoch(TOPIC, PARTITION, offset, -1)
         .await?;
-    decode_fetch_records(&resp)
+    decode_fetch_records(&resp, TOPIC, PARTITION)
 }
 
 /// Fetch at `offset`, retrying empty responses (e.g. while the server-side
