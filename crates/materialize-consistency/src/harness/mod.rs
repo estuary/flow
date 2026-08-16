@@ -152,6 +152,14 @@ pub struct Outcome {
     /// Violations an exemption suppressed, kept so a run can report what it chose
     /// not to hold the connector to.
     pub exempted: Vec<Violation>,
+    /// The exemptions that actually applied: the scenario's own, minus those scoped to another
+    /// class, plus the blanket ones a real subject's read earns it.
+    ///
+    /// Reported by the caller, which cannot re-derive it — the caller sees `scenario.exempt` and
+    /// not the blanket monotonicity exemption added here. Printing "held in full" from the
+    /// scenario's list alone said exactly that about a subject whose monotonicity was still
+    /// blanket-exempt.
+    pub exemptions: Vec<Exemption>,
     /// Faults the shim reports having injected. A scenario whose fault never
     /// fired proved nothing, so the runner refuses to pass one.
     pub faults_fired: usize,
@@ -661,7 +669,7 @@ async fn execute(
         .context(Environment::UnsoundWorkload));
     }
 
-    let (violations, exempted) =
+    let (violations, exempted, exemptions) =
         partition_exempt(invariants::check(&bindings), &exempt, subject_class);
 
     // A failure writes down everything it judged, next to the trace.
@@ -680,6 +688,7 @@ async fn execute(
         scenario: scenario.name,
         violations,
         exempted,
+        exemptions,
         faults_fired,
         documents,
         run_dir: run_dir.to_path_buf(),
@@ -738,7 +747,7 @@ fn partition_exempt(
     violations: Vec<Violation>,
     exemptions: &[Exemption],
     subject: crate::reference::Class,
-) -> (Vec<Violation>, Vec<Violation>) {
+) -> (Vec<Violation>, Vec<Violation>, Vec<Exemption>) {
     // `DocumentIntegrity` is not exemptable, and this is where that is enforced rather than left
     // to review. A connector may deliver a document twice or in a surprising order and still be
     // doing its declared job; none has a reason to *alter* one in transit. The check used to be
@@ -831,7 +840,7 @@ fn partition_exempt(
         });
     }
 
-    (held, exempted)
+    (held, exempted, exemptions.into_iter().cloned().collect())
 }
 
 /// The soak capture, reused unmodified as this suite's workload generator.
@@ -1526,7 +1535,7 @@ mod test {
             classes: None,
         }];
 
-        let (held, exempt) = partition_exempt(
+        let (held, exempt, _) = partition_exempt(
             violations,
             &exemptions,
             crate::reference::Class::AtLeastOnce,
@@ -1553,7 +1562,7 @@ mod test {
         }];
 
         // All three revert, plus the violation naming the overrun.
-        let (held, exempt) = partition_exempt(
+        let (held, exempt, _) = partition_exempt(
             violations,
             &exemptions,
             crate::reference::Class::AtLeastOnce,
@@ -1584,11 +1593,12 @@ mod test {
             classes: Some(&[Class::AtLeastOnce]),
         }];
 
-        let (held, exempt) = partition_exempt(vec![duplicated()], &exemptions, Class::AtLeastOnce);
+        let (held, exempt, _) =
+            partition_exempt(vec![duplicated()], &exemptions, Class::AtLeastOnce);
         assert!(held.is_empty(), "the class it was written about is excused");
         assert_eq!(exempt.len(), 1);
 
-        let (held, exempt) =
+        let (held, exempt, _) =
             partition_exempt(vec![duplicated()], &exemptions, Class::DocumentCounter);
         assert_eq!(held.len(), 1, "an exactly-once class is held to it");
         assert!(exempt.is_empty());
@@ -1615,7 +1625,7 @@ mod test {
         }];
 
         // Nothing was duplicated, so the licence does not apply and the subject is held.
-        let (held, exempt) = partition_exempt(
+        let (held, exempt, _) = partition_exempt(
             vec![oracle()],
             &exemptions,
             crate::reference::Class::AtLeastOnce,
@@ -1629,7 +1639,7 @@ mod test {
             invariant: Invariant::NoDuplicates,
             detail: "delivered twice".to_string(),
         };
-        let (held, exempt) = partition_exempt(
+        let (held, exempt, _) = partition_exempt(
             vec![oracle(), duplicated],
             &exemptions,
             crate::reference::Class::AtLeastOnce,
@@ -1666,7 +1676,7 @@ mod test {
             },
         ];
 
-        let (held, exempt) = partition_exempt(
+        let (held, exempt, _) = partition_exempt(
             violations,
             &exemptions,
             crate::reference::Class::AtLeastOnce,

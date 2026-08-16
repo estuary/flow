@@ -166,12 +166,25 @@ async fn both_ways(name: &str) {
         // An exemption written about another class did not apply, and saying so is the point: it
         // means this subject was held to *more* than the scenario's own class is, which a silent
         // omission would leave looking like the exemption simply never fired.
+        //
+        // Whether it is held *in full* is a different question, and is read from the run's
+        // effective exemptions rather than assumed: a real subject also carries the blanket
+        // monotonicity exemption its read earns it, so scoping the scenario's own out leaves that
+        // invariant exempt anyway. Claiming otherwise from this list alone was wrong.
         if let Some(classes) = exempt.classes {
             if !classes.contains(&subject_class) {
+                let covered = clean
+                    .exemptions
+                    .iter()
+                    .any(|e| e.invariant == exempt.invariant);
                 eprintln!(
-                    "held: [{}] is exempt only for {:?}, and the subject is {subject_class:?}, \
-                     so it was held to this invariant in full",
-                    exempt.invariant, classes,
+                    "held: [{}] is exempt only for {:?}, and the subject is {subject_class:?} — {}",
+                    exempt.invariant,
+                    classes,
+                    match covered {
+                        false => "so it was held to this invariant in full".to_string(),
+                        true => "though another exemption still covers this invariant".to_string(),
+                    },
                 );
                 continue;
             }
