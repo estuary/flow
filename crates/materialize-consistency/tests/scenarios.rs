@@ -163,6 +163,20 @@ async fn both_ways(name: &str) {
     // exemption measures zero on most runs and is still load-bearing, while the two removed
     // in 5525ae9c19f were unreachable by construction as well as unmeasured.
     for exempt in &scenario.exempt {
+        // An exemption written about another class did not apply, and saying so is the point: it
+        // means this subject was held to *more* than the scenario's own class is, which a silent
+        // omission would leave looking like the exemption simply never fired.
+        if let Some(classes) = exempt.classes {
+            if !classes.contains(&subject_class) {
+                eprintln!(
+                    "held: [{}] is exempt only for {:?}, and the subject is {subject_class:?}, \
+                     so it was held to this invariant in full",
+                    exempt.invariant, classes,
+                );
+                continue;
+            }
+        }
+
         let suppressed = clean
             .exempted
             .iter()

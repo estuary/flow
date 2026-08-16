@@ -69,6 +69,20 @@ pub struct Exemption {
     /// evaluated over the raw violations, before exemption, because a duplicate that this
     /// scenario exempts is still a duplicate that happened.
     pub conditional_on: Option<Invariant>,
+    /// Classes this exemption applies to; `None` for all of them.
+    ///
+    /// An exemption's justification is usually a statement about *a class* — "at-least-once by
+    /// construction: this class commits during `Store` with no record of what it applied" — and a
+    /// scenario runs against every class that should pass it. Unscoped, that licence reached
+    /// subjects it was never written about: `at-least-once-never-loses` runs for every class, so
+    /// it was excusing up to five hundred duplicates from connectors whose whole contract is that
+    /// they produce none. It passed `materialize-snowflake` with zero duplicates, which was the
+    /// connector being right rather than the suite checking.
+    ///
+    /// Scoped, the same scenario asks a *stronger* question of a stronger class: crash at
+    /// `StartedCommit` and lose nothing — and duplicate nothing either, because nothing licenses
+    /// otherwise.
+    pub classes: Option<&'static [crate::reference::Class]>,
 }
 
 /// Marker in the error chain of a run that failed for a reason that says nothing about the subject.
@@ -607,6 +621,10 @@ async fn execute(
     //
     // The set-based checks — no-loss, no-duplicates, conservation and oracle agreement —
     // carry the exactly-once claim, and none of them depends on arrival order.
+    // The class actually under test: what the subject declared, or what the scenario configures
+    // the reference connector as. Exemptions written about one class do not apply to another.
+    let subject_class = external.map_or(scenario.class, |e| e.class);
+
     let mut exempt = scenario.exempt.clone();
     if external.is_some() {
         exempt.push(Exemption {
@@ -621,6 +639,7 @@ async fn execute(
             // volume of disorder that would mean anything.
             max_suppressed: None,
             conditional_on: None,
+            classes: None,
         });
     }
 
@@ -642,7 +661,8 @@ async fn execute(
         .context(Environment::UnsoundWorkload));
     }
 
-    let (violations, exempted) = partition_exempt(invariants::check(&bindings), &exempt);
+    let (violations, exempted) =
+        partition_exempt(invariants::check(&bindings), &exempt, subject_class);
 
     // A failure writes down everything it judged, next to the trace.
     //
@@ -717,6 +737,7 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
 fn partition_exempt(
     violations: Vec<Violation>,
     exemptions: &[Exemption],
+    subject: crate::reference::Class,
 ) -> (Vec<Violation>, Vec<Violation>) {
     // `DocumentIntegrity` is not exemptable, and this is where that is enforced rather than left
     // to review. A connector may deliver a document twice or in a surprising order and still be
@@ -736,11 +757,13 @@ fn partition_exempt(
         );
     }
 
-    // An exemption whose stated cause did not occur does not apply. See
-    // [`Exemption::conditional_on`]: evaluated over the raw violations, so a duplicate this
-    // scenario also exempts still counts as having happened.
+    // An exemption applies only to the classes it was written about, and only if its stated cause
+    // occurred. See [`Exemption::classes`] and [`Exemption::conditional_on`] — the latter is
+    // evaluated over the raw violations, so a duplicate this scenario also exempts still counts as
+    // having happened.
     let exemptions: Vec<&Exemption> = exemptions
         .iter()
+        .filter(|e| e.classes.is_none_or(|classes| classes.contains(&subject)))
         .filter(|e| match e.conditional_on {
             None => true,
             Some(cause) => violations.iter().any(|v| v.invariant == cause),
@@ -1500,9 +1523,14 @@ mod test {
             justification: "at-least-once by construction".to_string(),
             max_suppressed: None,
             conditional_on: None,
+            classes: None,
         }];
 
-        let (held, exempt) = partition_exempt(violations, &exemptions);
+        let (held, exempt) = partition_exempt(
+            violations,
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].invariant, Invariant::NoLoss);
         assert_eq!(exempt.len(), 1);
@@ -1521,11 +1549,48 @@ mod test {
             justification: "one replayed transaction".to_string(),
             max_suppressed: Some(2),
             conditional_on: None,
+            classes: None,
         }];
 
         // All three revert, plus the violation naming the overrun.
-        let (held, exempt) = partition_exempt(violations, &exemptions);
+        let (held, exempt) = partition_exempt(
+            violations,
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 4);
+        assert!(exempt.is_empty());
+    }
+
+    /// An exemption written about one class does not excuse another.
+    ///
+    /// `at-least-once-never-loses` runs for every class, and its duplication exemption describes
+    /// `AtLeastOnce` alone. Unscoped it excused up to five hundred duplicates from connectors
+    /// whose contract forbids any — which is the whole question the scenario should be asking a
+    /// stronger class.
+    #[test]
+    fn an_exemption_does_not_reach_a_class_it_was_not_written_about() {
+        use crate::reference::Class;
+
+        let duplicated = || Violation {
+            invariant: Invariant::NoDuplicates,
+            detail: "delivered twice".to_string(),
+        };
+        let exemptions = vec![Exemption {
+            invariant: Invariant::NoDuplicates,
+            justification: "at-least-once by construction".to_string(),
+            max_suppressed: None,
+            conditional_on: None,
+            classes: Some(&[Class::AtLeastOnce]),
+        }];
+
+        let (held, exempt) = partition_exempt(vec![duplicated()], &exemptions, Class::AtLeastOnce);
+        assert!(held.is_empty(), "the class it was written about is excused");
+        assert_eq!(exempt.len(), 1);
+
+        let (held, exempt) =
+            partition_exempt(vec![duplicated()], &exemptions, Class::DocumentCounter);
+        assert_eq!(held.len(), 1, "an exactly-once class is held to it");
         assert!(exempt.is_empty());
     }
 
@@ -1546,10 +1611,15 @@ mod test {
             justification: "a duplicated document leaves the balance disagreeing".to_string(),
             max_suppressed: None,
             conditional_on: Some(Invariant::NoDuplicates),
+            classes: None,
         }];
 
         // Nothing was duplicated, so the licence does not apply and the subject is held.
-        let (held, exempt) = partition_exempt(vec![oracle()], &exemptions);
+        let (held, exempt) = partition_exempt(
+            vec![oracle()],
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 1);
         assert!(exempt.is_empty());
 
@@ -1559,7 +1629,11 @@ mod test {
             invariant: Invariant::NoDuplicates,
             detail: "delivered twice".to_string(),
         };
-        let (held, exempt) = partition_exempt(vec![oracle(), duplicated], &exemptions);
+        let (held, exempt) = partition_exempt(
+            vec![oracle(), duplicated],
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 1, "the duplicate itself is not exempt here");
         assert_eq!(held[0].invariant, Invariant::NoDuplicates);
         assert_eq!(exempt.len(), 1);
@@ -1581,16 +1655,22 @@ mod test {
                 justification: "one replayed transaction".to_string(),
                 max_suppressed: Some(2),
                 conditional_on: None,
+                classes: None,
             },
             Exemption {
                 invariant: Invariant::Monotonicity,
                 justification: "this destination is read as an unordered table".to_string(),
                 max_suppressed: None,
                 conditional_on: None,
+                classes: None,
             },
         ];
 
-        let (held, exempt) = partition_exempt(violations, &exemptions);
+        let (held, exempt) = partition_exempt(
+            violations,
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert!(held.is_empty());
         assert_eq!(exempt.len(), 3);
     }

@@ -799,8 +799,18 @@ fn at_least_once_never_loses() -> Scenario {
     .applies_to(EVERY_CLASS)
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocuments)
-    // Every exemption below is licensed by *one* replayed transaction, and all four are therefore
-    // tied to `NoDuplicates` with `caused_by`: a replay that re-delivers documents leaves duplicate
+    // Every exemption below is scoped to `AtLeastOnce` with `only_for`, because every one of them
+    // is a statement about *that* class: it commits during `Store` with no record of what it
+    // applied, so an interrupted transaction is re-applied. Nothing about that describes a
+    // connector whose contract is exactly-once, and unscoped these excused up to five hundred
+    // duplicates from one. The scenario still runs for every class — that is the point of it, the
+    // weakest ask in the suite — but a stronger class now answers a stronger question: crash at
+    // `StartedCommit`, lose nothing, *and* duplicate nothing. `materialize-snowflake` passed it
+    // with zero duplicates before this scoping, so the guarantee was real; it just was not being
+    // checked.
+    //
+    // Every exemption below is also licensed by *one* replayed transaction, and all four are
+    // therefore tied to `NoDuplicates` with `caused_by`: a replay that re-delivers documents leaves duplicate
     // rows, so if no duplicate row appears anywhere in the run then nothing was replayed and a
     // divergence has some other cause. Without that tie, this scenario licensed an oracle
     // disagreement from *any* cause — and a subject whose replay path corrupted merged values
@@ -829,6 +839,7 @@ fn at_least_once_never_loses() -> Scenario {
          the connector offers.",
     )
     .at_most(500)
+    .only_for(&[Class::AtLeastOnce])
     .declaring(
         Invariant::Conservation,
         "Conservation is arithmetic over delivered documents, so a duplicate can break it \
@@ -842,18 +853,21 @@ fn at_least_once_never_loses() -> Scenario {
          not unnecessary: removing it would make this scenario fail intermittently.",
     )
     .caused_by(Invariant::NoDuplicates)
+    .only_for(&[Class::AtLeastOnce])
     .declaring(
         Invariant::OracleAgreement,
         "A duplicated document leaves the reduced balance disagreeing with its own \
          oracle. Same cause as the duplication exemption above.",
     )
     .caused_by(Invariant::NoDuplicates)
+    .only_for(&[Class::AtLeastOnce])
     .declaring(
         Invariant::Monotonicity,
         "Re-applying an interrupted transaction re-delivers sequences the sink has \
          already seen. Same cause as the duplication exemption above.",
     )
     .caused_by(Invariant::NoDuplicates)
+    .only_for(&[Class::AtLeastOnce])
 }
 
 impl Scenario {
@@ -866,7 +880,15 @@ impl Scenario {
             justification: justification.to_string(),
             max_suppressed: None,
             conditional_on: None,
+            classes: None,
         });
+        self
+    }
+
+    /// Restrict the exemption just declared to the classes it was written about; see
+    /// [`Exemption::classes`]. A justification that begins "this class ..." wants this.
+    fn only_for(mut self, classes: &'static [Class]) -> Self {
+        self.last_exemption().classes = Some(classes);
         self
     }
 
