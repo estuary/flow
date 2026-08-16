@@ -309,7 +309,11 @@ pub async fn run(
 
     let outcome = result?;
 
-    if outcome.passed() {
+    // A scenario declaring a runtime gap keeps its directory even when it passes, because *that*
+    // is the case someone has to inspect: the caller fails such a run as an unexpected pass, and
+    // whether the perturbation actually reached the gap's window is a question only the trace can
+    // answer. Removing it here left the one interesting outcome with nothing behind it.
+    if outcome.passed() && scenario.known_limitation.is_none() {
         let _ = std::fs::remove_dir_all(&run_dir);
     } else {
         tracing::warn!(?run_dir, "left the run directory in place for inspection");
