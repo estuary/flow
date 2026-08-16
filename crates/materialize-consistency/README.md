@@ -108,6 +108,18 @@ off by default, and the suite cannot know a given connector's flag names. Withou
 refuses to open a partial-range shard at all and the task crash-loops — a failure that is the
 configuration's doing, not the connector's.
 
+**A subject may need environment its image would have given it.** `FLOW_CONSISTENCY_SUBJECT_ENV`
+takes a JSON object and sets it on the materialization's `local:` endpoint:
+
+```bash
+FLOW_CONSISTENCY_SUBJECT_ENV='{"SNOWPIPE_SIDECAR_PYTHON":"/tmp/snowpipe-venv/bin/python"}'
+```
+
+Optional, unlike the five above. `materialize-snowflake`'s Snowpipe Streaming v2 path is the case
+that needed it: it spawns a Python sidecar from `/opt/venv/bin/python`, which exists only inside
+its image. Do not put credentials here — the value lands in a published catalog spec, which the
+control plane stores and serves back. Endpoint config is where those belong.
+
 **Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
 drives; `testctl` is separate, and is how verification reads the destination back and how a run
 drops the tables it created. `FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the
