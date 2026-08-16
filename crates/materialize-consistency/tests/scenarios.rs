@@ -133,6 +133,7 @@ async fn both_ways(name: &str) {
             Subject {
                 connector: vec![external.connector.to_string_lossy().to_string()],
                 config: external.config.clone(),
+                env: external.env.clone(),
             },
         ),
         None => {

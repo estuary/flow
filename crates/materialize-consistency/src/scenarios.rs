@@ -30,6 +30,9 @@ use crate::reference::{Class, Defect};
 pub struct Subject {
     pub connector: Vec<String>,
     pub config: serde_json::Value,
+    /// Extra environment for the connector's process, from `FLOW_CONSISTENCY_SUBJECT_ENV`.
+    /// Empty for the reference connector, which needs none.
+    pub env: std::collections::BTreeMap<String, String>,
 }
 
 pub struct Scenario {
@@ -322,6 +325,7 @@ impl Scenario {
                 "class": self.class,
                 "defects": defects,
             }),
+            env: Default::default(),
         }
     }
 }

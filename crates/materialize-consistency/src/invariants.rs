@@ -40,7 +40,10 @@ pub struct Event {
     pub seq: i64,
     /// One leg of a matched transfer pair. Absent on a document that moved no
     /// money, and summed by the reduction of the merged collection.
-    #[serde(default, rename = "balanceDelta")]
+    ///
+    /// Aliased because [`Event::from_row`] folds column names to lower case, so the collection's
+    /// own `balanceDelta` and a destination's `BALANCEDELTA` both arrive as `balancedelta`.
+    #[serde(default, rename = "balanceDelta", alias = "balancedelta")]
     pub balance_delta: i64,
     pub oracle: Oracle,
 }
@@ -60,6 +63,12 @@ impl Event {
     /// Unrelated columns — `flow_published_at`, the workload's `set/` and `transfer/`
     /// fields — fold harmlessly and are then ignored, because nothing here is required to
     /// understand every projection a connector chose to materialize.
+    ///
+    /// **Names are folded to lower case, because a destination's identifier casing is its own.**
+    /// Snowflake upper-cases an unquoted identifier, so the same document arrives as `ID`, `SEQ`
+    /// and `BALANCEDELTA` — while its *pointer*-named columns must be quoted to contain a `/` and
+    /// so keep their case, giving one row in two casings at once. Postgres folds the other way.
+    /// Matching case-sensitively meant reading a correct destination as a document with no `id`.
     pub fn from_row(row: &str) -> anyhow::Result<Self> {
         let value: serde_json::Value = serde_json::from_str(row).context("row is not JSON")?;
 
@@ -69,7 +78,7 @@ impl Event {
 
         let mut document = serde_json::Map::new();
         for (name, value) in columns {
-            insert_pointer(&mut document, name, value.clone());
+            insert_pointer(&mut document, &name.to_lowercase(), value.clone());
         }
 
         // A nested field may also arrive as one column holding JSON text, and both shapes
@@ -745,6 +754,44 @@ fn check_standard_delta_agreement(
 #[cfg(test)]
 mod test {
     use super::*;
+
+    /// A Snowflake row, verbatim from a failing run: unquoted identifiers upper-cased by the
+    /// destination, and pointer-named columns keeping their case because they must be quoted to
+    /// contain a `/`. One row in two casings, which a case-sensitive parse read as having no `id`.
+    #[test]
+    fn a_row_parses_whatever_case_the_destination_returns() {
+        let row = r#"{"BALANCEDELTA":-139,"FLOW_PUBLISHED_AT":"2026-08-16T01:55:04Z","ID":0,
+            "SEQ":29,"TS":"2026-08-16T01:55:03Z","oracle/balance":-178,"oracle/seq":29,
+            "oracle/set":["a","f"],"set/remove":["b"],"transfer/amount":22}"#;
+
+        let event = Event::from_row(row).expect("an upper-cased row is still a document");
+        assert_eq!(event.id, 0);
+        assert_eq!(event.seq, 29);
+        assert_eq!(event.balance_delta, -139);
+        assert_eq!(
+            event.oracle,
+            Oracle {
+                seq: 29,
+                balance: -178
+            }
+        );
+    }
+
+    /// The reference connector's shape — a whole document, mixed case — must keep working.
+    #[test]
+    fn a_stored_document_parses_unchanged() {
+        let row = r#"{"id":7,"seq":3,"balanceDelta":42,"oracle":{"seq":3,"balance":100}}"#;
+
+        let event = Event::from_row(row).expect("a stored document parses");
+        assert_eq!((event.id, event.seq, event.balance_delta), (7, 3, 42));
+        assert_eq!(
+            event.oracle,
+            Oracle {
+                seq: 3,
+                balance: 100
+            }
+        );
+    }
 
     fn event(id: i64, seq: i64, delta: i64, balance: i64) -> Event {
         Event {
