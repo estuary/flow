@@ -93,17 +93,6 @@ impl Bitmap {
         })
     }
 
-    /// Replace this bitmap's contents with those of `other`, which must cover
-    /// the same number of blocks. This is the snapshot of allocated blocks
-    /// taken when a horizon opens.
-    pub fn copy_from(&mut self, other: &Bitmap) {
-        assert_eq!(
-            self.blocks, other.blocks,
-            "bitmaps must cover the same number of blocks"
-        );
-        self.words.copy_from_slice(&other.words);
-    }
-
     fn locate(&self, block: u32) -> (usize, u32) {
         assert!(
             block < self.blocks,
@@ -165,24 +154,6 @@ mod test {
         assert_eq!(bits.count_ones(), 6);
         assert_eq!(bits.first_set_at_or_after(2), Some(64));
         assert_eq!(bits.first_set_at_or_after(129), None);
-    }
-
-    #[test]
-    fn test_snapshot_copy() {
-        let mut allocated = Bitmap::new(70);
-        for block in [3, 64, 69] {
-            allocated.set(block);
-        }
-
-        let mut horizon = Bitmap::new(70);
-        horizon.set(7); // Overwritten by the snapshot.
-        horizon.copy_from(&allocated);
-
-        assert_eq!(horizon.iter().collect::<Vec<_>>(), vec![3, 64, 69]);
-
-        // The snapshot is a copy: later allocation does not re-set horizon bits.
-        allocated.set(7);
-        assert!(!horizon.test(7));
     }
 
     #[test]

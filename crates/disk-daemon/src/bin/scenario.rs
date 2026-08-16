@@ -18,6 +18,7 @@ use disk_daemon::bitmap::Bitmap;
 use disk_daemon::capture::Captured;
 use disk_daemon::chunk;
 use disk_daemon::disk::Disk;
+use disk_daemon::horizon::Policy;
 use disk_daemon::image::Image;
 use disk_daemon::proto::Chunk;
 use disk_daemon::ublk::Control;
@@ -27,10 +28,15 @@ use disk_daemon::ublk::Control;
 const BLOCKS: u32 = 32768;
 const BLOCK_SIZE: u32 = 4096;
 
-/// Deep enough that no ordinary scenario meets it. The backpressure scenario
-/// sets its own.
-
 const MOUNT_OPTIONS: &str = "noatime,nodev,nosuid,noexec,discard";
+
+/// Compaction a scenario which does not exercise it would never reach: the
+/// shipped ratios, with a minimum which no scenario's journal range approaches.
+const NO_COMPACTION: Policy = Policy {
+    open_ratio: 2.0,
+    copy_ratio: 0.5,
+    minimum_bytes: 1 << 40,
+};
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -44,6 +50,7 @@ fn main() -> anyhow::Result<()> {
         "ext4" => ext4(),
         "discard" => discard(),
         "backpressure" => backpressure(),
+        "horizon" => horizon(),
         "reap" => reap(),
         other => anyhow::bail!("unknown scenario {other:?}"),
     }?;
@@ -55,7 +62,7 @@ fn main() -> anyhow::Result<()> {
 /// Create a device, serve it, read from it, and tear it down.
 fn lifecycle() -> anyhow::Result<serde_json::Value> {
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH)?;
+    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH, NO_COMPACTION)?;
     let collector = collect(captured);
 
     let dev_id = disk.dev_id();
@@ -96,7 +103,7 @@ fn lifecycle() -> anyhow::Result<serde_json::Value> {
 /// remount, then replay the captured stream into a second image.
 fn ext4() -> anyhow::Result<serde_json::Value> {
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH)?;
+    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH, NO_COMPACTION)?;
     let collector = collect(captured);
 
     let block_path = disk.block_path();
@@ -152,7 +159,7 @@ fn discard() -> anyhow::Result<serde_json::Value> {
     const FILE_BLOCKS: u32 = 4096;
 
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH)?;
+    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH, NO_COMPACTION)?;
     let collector = collect(captured);
 
     let block_path = disk.block_path();
@@ -225,7 +232,7 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
     const STALL: std::time::Duration = std::time::Duration::from_millis(500);
 
     let scenario = Scenario::new()?;
-    let (mut disk, captured) = scenario.disk(QUEUE_DEPTH)?;
+    let (mut disk, captured) = scenario.disk(QUEUE_DEPTH, NO_COMPACTION)?;
 
     let done = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let failed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -246,7 +253,7 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
             for index in 0..WRITES {
                 let offset = index as u64 * BLOCK_SIZE as u64;
 
-                match std::os::unix::fs::FileExt::write_all_at(&device, &block, offset) {
+                match std::os::unix::fs::FileExt::write_all_at(&device, block, offset) {
                     Ok(()) => _ = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                     Err(err) => {
                         tracing::error!(?err, offset, "device write failed");
@@ -282,6 +289,130 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
         "image": describe(image.file(), image.allocated())?,
         "replay": describe(replayed.file(), &allocated)?,
     }))
+}
+
+/// Open a horizon over a disk's cold blocks, discharge it with the budget a hot
+/// region's rewrites earn, and prove the invariant the whole scheme rests on:
+/// the mutations from the horizon onward rebuild the entire disk by themselves.
+fn horizon() -> anyhow::Result<serde_json::Value> {
+    /// Blocks written once, which only a horizon copy publishes again.
+    const COLD_BLOCKS: u32 = 1024;
+    /// Blocks every delta rewrites, which is what earns the copy budget. One
+    /// run of them is also the largest request the device accepts.
+    const HOT_BLOCKS: u32 = 128;
+    /// Generous against the fifteen a discharge of this disk needs.
+    const DELTAS: usize = 40;
+
+    let policy = Policy {
+        open_ratio: 2.0,
+        copy_ratio: 0.5,
+        minimum_bytes: 1 << 20,
+    };
+    let scenario = Scenario::new()?;
+    let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH, policy)?;
+
+    // O_DIRECT so that each write is exactly one device request, which is what
+    // makes the accounting below the disk's own rather than a page cache's.
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true);
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_DIRECT);
+
+    let device = options.open(disk.block_path())?;
+    let buf = aligned_buffer(HOT_BLOCKS);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let compactor = disk.compactor()?;
+    let hot = COLD_BLOCKS - HOT_BLOCKS;
+
+    for run in 0..COLD_BLOCKS / HOT_BLOCKS {
+        buf.fill(0x10 + run as u8);
+        write_blocks(&device, run * HOT_BLOCKS, buf)?;
+    }
+    let (filled, _pending) = runtime.block_on(cut(&disk, &captured, &compactor))?;
+
+    // A range within the minimum opens nothing, whatever the disk holds.
+    let declined = runtime.block_on(compactor.open(policy.minimum_bytes))?;
+    let opened = runtime.block_on(compactor.open(1 << 30))?;
+
+    // Every mutation from here on is what a replay beginning at the horizon
+    // would read, and nothing else is.
+    let mut after_horizon: Vec<Vec<Chunk>> = Vec::new();
+    let mut deltas = Vec::new();
+
+    for delta in 0..DELTAS {
+        // The first delta writes nothing, which is a disk no connector is
+        // using: an open horizon must then publish nothing at all.
+        if delta != 0 {
+            buf.fill(0xa0 + delta as u8);
+            write_blocks(&device, hot, buf)?;
+        }
+        let (mutations, pending) = runtime.block_on(cut(&disk, &captured, &compactor))?;
+        let (mut changed, mut copied) = (0, 0);
+
+        for chunk in mutations.iter().flatten() {
+            let bytes = chunk::data_bytes(std::slice::from_ref(chunk));
+
+            match chunk.block < hot {
+                true => copied += bytes,
+                false => changed += bytes,
+            }
+        }
+        deltas.push(serde_json::json!({
+            "changed": changed,
+            "copied": copied,
+            "pending": pending,
+        }));
+        after_horizon.extend(mutations);
+
+        if pending == 0 {
+            break;
+        }
+    }
+    drop(device);
+
+    let image = disk.stop()?.expect("the disk was live");
+    let (replayed, allocated) = replay(&scenario.dir, &after_horizon)?;
+
+    Ok(serde_json::json!({
+        "dir": scenario.dir,
+        "cold_blocks": COLD_BLOCKS,
+        "hot_blocks": HOT_BLOCKS,
+        "filled": filled.len(),
+        "declined": declined,
+        "opened": opened,
+        "deltas": deltas,
+        "image": describe(image.file(), image.allocated())?,
+        "replay": describe(replayed.file(), &allocated)?,
+    }))
+}
+
+/// Cut the disk as a publication does and take the delta which ends there,
+/// alongside what its open horizon still owes.
+///
+/// Admission is closed for the whole of it, so the mutations taken are exactly
+/// the delta's and the horizon is sampled where a commit would honor it.
+async fn cut(
+    disk: &Disk,
+    captured: &Captured,
+    compactor: &disk_daemon::owner::Compactor,
+) -> anyhow::Result<(Vec<Vec<Chunk>>, u32)> {
+    () = disk.close_admission().await?;
+    let mut mutations = Vec::new();
+
+    while let Some(chunks) = captured.try_recv() {
+        mutations.push(chunks);
+    }
+    let pending = compactor.pending().await?;
+    () = disk.resume_admission()?;
+
+    Ok((mutations, pending))
+}
+
+fn write_blocks(device: &std::fs::File, block: u32, data: &[u8]) -> anyhow::Result<()> {
+    std::os::unix::fs::FileExt::write_all_at(device, data, block as u64 * BLOCK_SIZE as u64)?;
+    Ok(())
 }
 
 /// Delete every device whose block device the kernel has already removed,
@@ -330,10 +461,10 @@ impl Scenario {
         })
     }
 
-    fn disk(&self, queue_depth: u16) -> anyhow::Result<(Disk, Captured)> {
+    fn disk(&self, queue_depth: u16, horizon: Policy) -> anyhow::Result<(Disk, Captured)> {
         let image = Image::create(&self.dir, BLOCKS, BLOCK_SIZE)?;
 
-        Disk::create(&self.control, image, queue_depth)
+        Disk::create(&self.control, image, queue_depth, horizon)
     }
 }
 
@@ -513,8 +644,17 @@ fn pattern(seed: u8, len: usize) -> Vec<u8> {
 
 /// One block of content, aligned as `O_DIRECT` requires.
 fn aligned_block(fill: u8) -> &'static [u8] {
-    let backing = vec![fill; 2 * BLOCK_SIZE as usize].leak();
+    let block = aligned_buffer(1);
+    block.fill(fill);
+
+    block
+}
+
+/// A buffer of `blocks` blocks aligned as `O_DIRECT` requires, which a caller
+/// refills rather than allocating one per write.
+fn aligned_buffer(blocks: u32) -> &'static mut [u8] {
+    let backing = vec![0u8; (blocks as usize + 1) * BLOCK_SIZE as usize].leak();
     let offset = backing.as_ptr().align_offset(BLOCK_SIZE as usize);
 
-    &backing[offset..offset + BLOCK_SIZE as usize]
+    &mut backing[offset..offset + blocks as usize * BLOCK_SIZE as usize]
 }

@@ -24,6 +24,8 @@ pub struct Config {
     /// Label on a disk journal's own spec which holds its recovery floor, and
     /// which every replay reads back as its seek hint.
     pub floor_label: String,
+    /// When a disk opens a recovery horizon, and how fast it discharges one.
+    pub horizon: crate::horizon::Policy,
     /// Shared by every session's journal writer.
     pub client: gazette::journal::Client,
     /// Routing table of `client`, swept periodically to close connections to
@@ -44,6 +46,11 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         image_dir: args.image_dir.clone(),
         mount_dir: args.mount_dir.clone(),
         floor_label: args.floor_label.clone(),
+        horizon: crate::horizon::Policy {
+            open_ratio: args.horizon_open_ratio,
+            copy_ratio: args.horizon_copy_ratio,
+            minimum_bytes: args.horizon_minimum_bytes,
+        },
         client,
         router,
     });
@@ -56,6 +63,7 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         mount_dir = ?args.mount_dir,
         ublks_max = control.ublks_max(),
         floor_label = args.floor_label,
+        horizon = ?config.horizon,
         "disk daemon starting",
     );
 

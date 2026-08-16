@@ -343,7 +343,7 @@ impl Fixture {
         let opening = self.opening(self.journal_config(journal)).await?;
         let (capture, captured) = capture::channel(64, Waker::new().unwrap());
 
-        Ok((capture, opening.serve(captured, None)))
+        Ok((capture, opening.serve(captured, None, None)))
     }
 
     /// Open `journal` as a session with committed state does, and report the
@@ -359,7 +359,7 @@ impl Fixture {
         let dir = tempfile::tempdir()?;
         let mut image = Image::create(dir.path(), BLOCKS, BLOCK_SIZE)?;
 
-        _ = opening.recover(&mut image, FLOOR_LABEL, acks).await?;
+        _ = opening.recover(&mut image, acks).await?;
 
         let mut block = vec![0u8; BLOCK_SIZE as usize];
         let blocks = image
@@ -373,7 +373,7 @@ impl Fixture {
 
         let (capture, captured) = capture::channel(64, Waker::new().unwrap());
 
-        Ok((capture, opening.serve(captured, None), blocks))
+        Ok((capture, opening.serve(captured, None, None), blocks))
     }
 
     async fn opening(&self, journal: proto::JournalConfig) -> anyhow::Result<Opening> {
@@ -387,6 +387,7 @@ impl Fixture {
                     endpoint: self.endpoint.clone(),
                     credential: self.credential.clone(),
                 },
+                floor_label: FLOOR_LABEL.to_string(),
             },
         )
         .await

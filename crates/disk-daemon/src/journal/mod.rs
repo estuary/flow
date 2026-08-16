@@ -13,8 +13,9 @@
 //! anything reads or repairs it.
 
 use crate::capture::Captured;
+use crate::horizon::Position;
 use crate::image::Image;
-use crate::owner::Snapshotter;
+use crate::owner::{Compactor, Snapshotter};
 use crate::proto;
 use anyhow::Context;
 use gazette::journal::framing;
@@ -56,6 +57,9 @@ pub struct Open {
     pub journal: proto::JournalConfig,
     /// Brokers serving the journal.
     pub broker: proto::Broker,
+    /// Label of the journal's own spec which carries its recovery floor. The
+    /// session reads it to seek its replay, and writes it as horizons complete.
+    pub floor_label: String,
 }
 
 /// A session's journal before its disk exists.
@@ -90,7 +94,11 @@ impl Opening {
     ///
     /// Nothing is appended and no journal is created here.
     pub async fn new(client: &gazette::journal::Client, open: Open) -> anyhow::Result<Self> {
-        let Open { journal, broker } = open;
+        let Open {
+            journal,
+            broker,
+            floor_label,
+        } = open;
 
         anyhow::ensure!(
             !broker.endpoint.is_empty(),
@@ -120,14 +128,20 @@ impl Opening {
             spec,
             client,
             set_broker: Box::new(set_broker),
+            floor_label,
             epoch,
-            clock: uuid::Clock::from_time(std::time::SystemTime::now()),
+            clock: uuid::Clock::zero(),
             fence: Fence::Deferred {
                 prior: probe.author,
                 exists: probe.exists,
             },
+            head: probe.head,
+            floor: 0,
+            horizon: None,
+            completes_horizon: false,
             delta_records: 0,
             snapshot: None,
+            compactor: None,
             pending_ack: None,
             abandoned: false,
             drained: false,
@@ -149,7 +163,6 @@ impl Opening {
     pub async fn recover(
         &mut self,
         image: &mut Image,
-        floor_label: &str,
         recovered_acks: Vec<bytes::Bytes>,
     ) -> anyhow::Result<bool> {
         let task = &mut self.0;
@@ -161,7 +174,7 @@ impl Opening {
         () = task.claim().await?;
 
         for ack in recovered_acks {
-            () = task
+            _ = task
                 .append(ack)
                 .await
                 .context("repairing a recovered acknowledgement")?;
@@ -171,18 +184,35 @@ impl Opening {
         // served an append, so its index covers every fragment below it. That
         // is what fixes the end of this recovery and makes its read fresh.
         let head = fence::probe(&task.client, &task.journal).await?.head;
-        let seek = floor::seek(&task.client, &task.journal, floor_label).await?;
+        let seek = floor::seek(&task.client, &task.journal, &task.floor_label).await?;
 
-        let applied = replay::replay(&task.client, &task.journal, seek, head, image).await?;
+        let replayed = replay::replay(&task.client, &task.journal, seek, head, image).await?;
 
         tracing::info!(
             journal = task.journal,
             head,
             seek,
-            applied,
+            applied = replayed.applied,
+            floor = replayed.floor,
+            horizon = ?replayed.horizon,
             "replayed a disk from its journal",
         );
-        Ok(applied != 0)
+
+        task.head = head;
+        task.floor = replayed.floor;
+        task.horizon = replayed.horizon;
+
+        // A floor the label does not hold is one an earlier session derived and
+        // could not record, which this session records for it.
+        if let Some(clock) = replayed.derived {
+            floor::advance(
+                task.client.clone(),
+                task.journal.clone(),
+                task.floor_label.clone(),
+                clock,
+            );
+        }
+        Ok(replayed.applied != 0)
     }
 
     /// Begin appending the mutations of `captured` as they arrive, until the
@@ -192,9 +222,19 @@ impl Opening {
     /// ahead of the mutation which triggered it. A recovered disk has none: its
     /// journal already holds the filesystem, and the writes its mount issues
     /// belong to the next delta like any other mutation.
-    pub fn serve(self, captured: Captured, snapshot: Option<Snapshotter>) -> Writer {
+    ///
+    /// `compactor` is the disk whose horizons this writer opens and completes. A
+    /// writer without one, which this crate's own tests build, appends what it
+    /// is given and compacts nothing.
+    pub fn serve(
+        self,
+        captured: Captured,
+        snapshot: Option<Snapshotter>,
+        compactor: Option<Compactor>,
+    ) -> Writer {
         let Self(mut task) = self;
         task.snapshot = snapshot;
+        task.compactor = compactor;
 
         let epoch = task.epoch;
         let (commands, receiver) = tokio::sync::mpsc::channel(1);
@@ -275,13 +315,25 @@ struct Task {
     spec: broker::JournalSpec,
     client: gazette::journal::Client,
     set_broker: SetBroker,
+    floor_label: String,
     epoch: uuid::Producer,
     clock: uuid::Clock,
     fence: Fence,
+    /// Write head confirmed by the broker, which with `floor` is the range a
+    /// recovery of this disk would have to read.
+    head: i64,
+    floor: i64,
+    /// Horizon this session opened or resumed, which is not yet complete.
+    horizon: Option<Position>,
+    /// Set when the cut of a publication found the open horizon discharged, so
+    /// that the commit of that delta completes it.
+    completes_horizon: bool,
     /// Records appended since the last acknowledgement committed.
     delta_records: usize,
     /// A fresh disk's image, awaiting the mutation it is published ahead of.
     snapshot: Option<Snapshotter>,
+    /// The disk this journal serves, which owns its horizon's bitmap.
+    compactor: Option<Compactor>,
     /// Acknowledgement returned to the client and not yet committed.
     pending_ack: Option<bytes::Bytes>,
     /// Set once the session is ending, so that mutations are discarded.
@@ -359,10 +411,18 @@ impl Task {
         if self.delta_records == 0 {
             return Ok(None);
         }
+        // The horizon is sampled here, at the cut, and not when the delta
+        // commits: mutations admitted between the two belong to the next delta
+        // and must not complete a horizon this one did not.
+        if let Some(compactor) = &self.compactor {
+            self.completes_horizon = self.horizon.is_some() && compactor.pending().await? == 0;
+        }
+
         // Appends are issued one at a time and awaited, so reaching here is
         // every chunk of the delta having been confirmed by the broker.
+        let (record, _clock) = self.stamp(uuid::Flags::ACK_TXN, Vec::new(), false);
         let mut buf = bytes::BytesMut::new();
-        gazette::journal::framing::encode(&self.stamp(uuid::Flags::ACK_TXN, Vec::new()), &mut buf);
+        gazette::journal::framing::encode(&record, &mut buf);
 
         let ack = buf.freeze();
         self.pending_ack = Some(ack.clone());
@@ -382,9 +442,40 @@ impl Task {
             ack == published,
             "commit acknowledgement differs from the published one",
         );
-        () = self.append(ack).await?;
+        _ = self.append(ack).await?;
         self.delta_records = 0;
 
+        if std::mem::take(&mut self.completes_horizon) {
+            () = self.complete_horizon()?;
+        }
+        Ok(())
+    }
+
+    /// Move the recovery floor to the horizon this commit completed.
+    ///
+    /// Its opening record now has a committed copy of every allocated block at
+    /// or after it, which is what a replay may begin from and what the floor
+    /// label records.
+    fn complete_horizon(&mut self) -> anyhow::Result<()> {
+        let Position { offset, clock } = self.horizon.take().expect("a horizon was open");
+        self.floor = offset;
+
+        if let Some(compactor) = &self.compactor {
+            () = compactor.close()?;
+        }
+        tracing::info!(
+            journal = self.journal,
+            offset,
+            head = self.head,
+            "completed a recovery horizon",
+        );
+
+        floor::advance(
+            self.client.clone(),
+            self.journal.clone(),
+            self.floor_label.clone(),
+            clock,
+        );
         Ok(())
     }
 
@@ -427,24 +518,57 @@ impl Task {
             Some(snapshotter) => snapshotter.snapshot().await?,
             None => Vec::new(),
         };
+        let opens = self.delta_records == 0 && self.open_horizon().await?;
+
         let mut buf = bytes::BytesMut::new();
+        let mut opened = None;
 
-        for chunks in snapshot.into_iter().chain(mutations) {
-            let record = self.stamp(uuid::Flags::CONTINUE_TXN, chunks);
+        for (index, chunks) in snapshot.into_iter().chain(mutations).enumerate() {
+            let (record, clock) =
+                self.stamp(uuid::Flags::CONTINUE_TXN, chunks, opens && index == 0);
 
+            if opens && index == 0 {
+                opened = Some(clock);
+            }
             framing::encode(&record, &mut buf);
             self.delta_records += 1;
         }
+        let begin = self.append(buf.freeze()).await?;
 
-        self.append(buf.freeze()).await
+        if let Some(clock) = opened {
+            self.horizon = Some(Position {
+                offset: begin,
+                clock,
+            });
+        }
+        Ok(())
     }
 
-    /// Append `content` under this session's fence.
+    /// Whether this delta's first record opens a recovery horizon.
+    ///
+    /// The decision is taken here, at the record which carries the flag, rather
+    /// than at the cut before it, because both terms it compares have moved
+    /// since: the range is what a replay would read now, and the disk's
+    /// allocated size is what a horizon would have to discharge now.
+    async fn open_horizon(&mut self) -> anyhow::Result<bool> {
+        let Some(compactor) = &self.compactor else {
+            return Ok(false);
+        };
+        if self.horizon.is_some() {
+            return Ok(false);
+        }
+        let range = self.head.saturating_sub(self.floor).max(0) as u64;
+
+        Ok(compactor.open(range).await?.is_some())
+    }
+
+    /// Append `content` under this session's fence, and report the offset it
+    /// begins at.
     ///
     /// A retry re-appends identical bytes, so an append which landed but was
     /// reported as failed duplicates its records, which a reader de-duplicates
     /// by UUID.
-    async fn append(&mut self, content: bytes::Bytes) -> anyhow::Result<()> {
+    async fn append(&mut self, content: bytes::Bytes) -> anyhow::Result<i64> {
         () = self.claim().await?;
 
         let request = broker::AppendRequest {
@@ -460,11 +584,16 @@ impl Task {
             }))
         };
 
-        _ = append(&self.client, request, source)
+        let response = append(&self.client, request, source)
             .await
             .with_context(|| format!("appending to {}", self.journal))?;
 
-        Ok(())
+        let commit = response
+            .commit
+            .context("append response carries no committed fragment")?;
+
+        self.head = commit.end;
+        Ok(commit.begin)
     }
 
     /// Create and claim the journal, unless this session already has.
@@ -492,16 +621,30 @@ impl Task {
         Ok(())
     }
 
-    /// Build the session's next record. Its clock only advances, which orders
-    /// each delta's records ahead of the acknowledgement that commits them and
-    /// ahead of every record of the prior delta.
-    fn stamp(&mut self, flags: uuid::Flags, chunks: Vec<proto::Chunk>) -> proto::DiskRecord {
-        proto::DiskRecord {
-            uuid: uuid_bytes(self.epoch, self.clock.tick(), flags),
+    /// Build the session's next record, and report the clock it carries.
+    ///
+    /// That clock only advances, which orders each delta's records ahead of the
+    /// acknowledgement that commits them and ahead of every record of the prior
+    /// delta. It also follows the wall clock, because the floor label carries
+    /// the clock of a horizon's opening record and a reader turns that back into
+    /// the modification time of the fragments to read from.
+    fn stamp(
+        &mut self,
+        flags: uuid::Flags,
+        chunks: Vec<proto::Chunk>,
+        opens_horizon: bool,
+    ) -> (proto::DiskRecord, uuid::Clock) {
+        self.clock
+            .update(uuid::Clock::from_time(std::time::SystemTime::now()));
+        let clock = self.clock.tick();
+
+        let record = proto::DiskRecord {
+            uuid: uuid_bytes(self.epoch, clock, flags),
             chunks,
-            opens_horizon: false,
+            opens_horizon,
             installs_epoch: bytes::Bytes::new(),
-        }
+        };
+        (record, clock)
     }
 
     /// Remember the failure which ends the session.

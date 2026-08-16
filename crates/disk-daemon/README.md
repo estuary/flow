@@ -16,10 +16,9 @@ Build order: [`plans/block-backed-connector-disks-phases.md`](../../plans/block-
 A `flow-disk-daemon` binary which serves disks end to end: a session creates a
 disk, formats it or rebuilds it from its journal, mounts it, publishes and
 commits its deltas, and destroys it when the session ends. A client which
-recovered an acknowledgement hands it back, and the session repairs it.
-
-Horizons do not exist, so no record opens one, a replay rejects one it finds,
-and the configured floor label is read but never written.
+recovered an acknowledgement hands it back, and the session repairs it. Recovery
+is bounded: a disk opens recovery horizons as its journal outgrows it, and the
+floor label follows each one it completes.
 
 ## Key types and entry points
 
@@ -34,11 +33,13 @@ and the configured floor label is read but never written.
 | [`image::Image`] | The `O_TMPFILE` sparse image and its allocated bitmap |
 | [`ublk::Control`] | `/dev/ublk-control`: add, configure, start, stop, delete |
 | [`owner::spawn`] | The thread which serves one disk, and the ring it drives |
+| [`owner::Compactor`] | What the writer asks of that thread about horizons |
 | [`capture::channel`] | The mutation-capture seam between an owner and the writer |
 | [`journal::Opening`] / [`journal::Writer`] | One session's journal: fence, recovery, append pipeline, publish and commit |
 | [`journal::replay`] | Journal into a rebuilt image, which is the durability guarantee |
 | [`journal::fence`] | The `author` register: probe, claim, and the fence record |
-| [`journal::floor`] | The label a replay seeks from |
+| [`journal::floor`] | The label a replay seeks from, and the advance-only write of it |
+| [`horizon::Horizon`] / [`horizon::Policy`] | What a horizon still owes, and when one opens |
 | [`journal::spec`] | `JournalConfig` into a `JournalSpec`, and insert-only creation |
 | [`inflight::InFlight`] | Serializes overlapping mutations against one image |
 | [`chunk::encode_write`] / [`chunk::encode_punch`] | Device mutation → journal chunks |
@@ -93,6 +94,7 @@ select ──►  request        ──►  publish  ──►  drain, confirm, 
 
        ──►  mutation       ──►  pack into records ──►  fill a batch ──►  append
                                 a fresh disk's first append snapshots its image
+                                a delta's first record may open a horizon
 ```
 
 Requests win that race, so a cut observes every mutation queued before it.
@@ -255,6 +257,33 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   So the rule is by producer and clock rather than by offset, and it covers both
   cases with one mechanism.
 
+- **A horizon is discharged by publication, and copying is only the fallback.**
+  Any delta which publishes a block accounts for it, so a connector rewriting its
+  disk discharges a horizon at no extra cost, and only blocks nothing is writing
+  are ever copied out of the image. The rules are stated in full at the top of
+  `horizon.rs`, including the one which makes an arriving mutation supersede a
+  copy of the same block rather than race it.
+
+- **The writer decides, and the owner does.** A horizon is over a disk's own
+  bitmaps and image, which only its owner may touch, while the journal range a
+  horizon is judged against is the writer's. So the writer asks
+  [`owner::Compactor`] to open one at the record which would carry the flag, and
+  asks again at each cut for what remains. The cut is where that answer must be
+  sampled: mutations admitted between the cut and the commit belong to the next
+  delta, and a horizon they discharged is not one this commit may complete.
+
+- **The floor label is written off the commit path.** A completed horizon spawns
+  an advance-only compare-and-swap of the label and nothing waits for it, because
+  a floor which does not reach the label costs a later replay work and nothing
+  else. It mutates the spec it listed rather than rebuilding one, since the live
+  spec carries fields the daemon does not model.
+
+- **A record's clock follows the wall clock**, and not only its own ticks. The
+  floor label carries the clock of a horizon's opening record, and a reader turns
+  that back into the modification time of the fragments it must read. A clock
+  which only ticked would drift behind a long session's fragments and make its
+  own label useless as a seek.
+
 - **Appends are issued one at a time and awaited**, so "every chunk of this
   delta is confirmed" is the same statement as "the writer has no work".
 
@@ -294,13 +323,18 @@ reaches the root-owned mounts it returns through `sudo` of its own. It replays
 each journal it commits into an image and loop-mounts that to compare content.
 Its crash matrix reopens a disk after committing, after publishing without a
 commit, with a recovered acknowledgement, and after a cut taken mid-writeback.
+Its horizon cases run a daemon of their own, because the shipped thresholds open
+a horizon only after a gigabyte of journal: they are the same flags, set small.
+One of them deletes every fragment below a floor the daemon derived and then
+recovers the disk, which is the horizon invariant stated as an experiment.
 
 `tests/ublk.rs` drives `src/bin/scenario.rs`, which works a disk with no session
 around it, printing observations as JSON the test asserts against. It needs no
 broker. This second binary is not scaffolding: privilege needs a process
 boundary, and using the crate as a library is what lets a scenario set a queue
-depth shallow enough to force backpressure, and report the image digests and
-extent lists which show a replay matching in holes as well as in bytes.
+depth shallow enough to force backpressure, account for a horizon's copies
+against the traffic which paid for them, and report the image digests and extent
+lists which show a replay matching in holes as well as in bytes.
 
 `tests/daemon.rs` and `tests/journal.rs` work against a real broker, which
 `crates/e2e-support` spawns over Unix sockets and which `mise run build:gazette`

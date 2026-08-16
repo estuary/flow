@@ -89,6 +89,17 @@ impl Capture {
         self.0.signal();
         Ok(())
     }
+
+    /// Whether the next offer will be accepted.
+    ///
+    /// The owner is the only offerer, so room it observes is room it still has.
+    /// Horizon copies use this rather than a refusal, because a copy which was
+    /// refused would have to be held while mutations of the same blocks flowed
+    /// past it.
+    pub fn has_room(&self) -> bool {
+        let state = self.0.state.lock().unwrap();
+        state.queue.len() != state.capacity
+    }
 }
 
 impl Drop for Capture {

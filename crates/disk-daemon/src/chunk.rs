@@ -86,6 +86,21 @@ pub fn covered_blocks(chunk: &Chunk, block_size: u32) -> std::ops::Range<u32> {
     chunk.block..chunk.block.saturating_add(covered)
 }
 
+/// Content bytes `chunks` carry, which is what a journal grows by when they are
+/// appended, excluding framing.
+///
+/// It is what compaction rations, so a punch and a zeroed block cost nothing
+/// and copying them is nearly free.
+pub fn data_bytes(chunks: &[Chunk]) -> u64 {
+    chunks
+        .iter()
+        .map(|chunk| match &chunk.content {
+            Some(chunk::Content::Data(data)) => data.len() as u64,
+            _ => 0,
+        })
+        .sum()
+}
+
 /// Apply `chunk` to `file` and to the `allocated` bitmap which tracks it.
 ///
 /// Chunks are applied in journal order and the last chunk covering a block

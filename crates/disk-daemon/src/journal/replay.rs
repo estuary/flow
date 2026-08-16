@@ -13,6 +13,13 @@
 //! - The range may begin within a delta. Records below the floor are
 //!   unnecessary, because a completed horizon puts a copy of every allocated
 //!   block at or after it.
+//! - Horizons are reconstructed by the same rules the writer applies: the
+//!   record which opens one snapshots the blocks allocated before its own
+//!   chunks apply, every chunk from there on discharges the blocks it covers,
+//!   and the acknowledgement of a delta which discharged the last of them puts
+//!   the floor at the opening record. A later horizon replaces an earlier one,
+//!   and a horizon still open at the end of the range is one the next session
+//!   resumes.
 //!
 //! **Nothing is buffered to hold an uncommitted delta.** Every delta is applied
 //! as it is read, and a delta which is never acknowledged is discovered only at
@@ -22,31 +29,50 @@
 //! range in exactly the case where a session did not shut down cleanly, and
 //! nothing at all otherwise.
 
+use crate::horizon::Position;
 use crate::image::Image;
 use crate::proto;
 use anyhow::Context;
 use gazette::journal::framing;
 use proto_gazette::{broker, uuid};
 
+/// What one replay rebuilt, beyond the image itself.
+pub struct Replayed {
+    /// Chunks applied. Zero is a journal holding no committed state at all,
+    /// which is a disk that has never published or one whose first use failed.
+    pub applied: usize,
+    /// Offset at which a replay of this journal may begin from now on, which is
+    /// the last completed horizon or, failing one, where this replay began.
+    pub floor: i64,
+    /// Clock of a floor this pass derived, which is a horizon completed within
+    /// the range and so a label to advance.
+    pub derived: Option<uuid::Clock>,
+    /// A horizon the range left open, which this session resumes rather than
+    /// restarts. Its bitmap is the image's.
+    pub horizon: Option<Position>,
+}
+
 /// Rebuild `image` from the committed deltas of `journal` between
-/// `begin_mod_time` and `head`, and report the chunks applied.
-///
-/// Zero is a journal holding no committed state at all, which is a disk that
-/// has never published or one whose first use failed.
+/// `begin_mod_time` and `head`.
 pub async fn replay(
     client: &gazette::journal::Client,
     journal: &str,
     begin_mod_time: i64,
     head: i64,
     image: &mut Image,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<Replayed> {
     let mut pass = Pass::default();
 
     for _ in 0..2 {
         let applied = read(client, journal, begin_mod_time, head, image, &mut pass).await?;
 
         if !pass.restart() {
-            return Ok(applied);
+            return Ok(Replayed {
+                applied,
+                floor: pass.floor.map_or(pass.begin, |floor| floor.offset),
+                derived: pass.floor.map(|floor| floor.clock),
+                horizon: pass.horizon,
+            });
         }
         tracing::info!(journal, "discarding a replayed image to read it again");
 
@@ -82,6 +108,8 @@ async fn read(
     let mut buf = bytes::BytesMut::new();
     let mut offset = 0;
     let mut applied = 0;
+    // Offset the broker served first, which is where the seek landed.
+    let mut begin = None;
 
     while let Some(response) = futures::StreamExt::next(&mut stream).await {
         let response = match response {
@@ -103,6 +131,7 @@ async fn read(
             buf.clear();
             offset = response.offset;
         }
+        _ = begin.get_or_insert(response.offset);
         buf.extend_from_slice(&response.content);
 
         loop {
@@ -111,7 +140,7 @@ async fn read(
             {
                 framing::Frame::Record { message, consumed } => {
                     applied += pass
-                        .record(&message, image)
+                        .record(&message, offset, image)
                         .with_context(|| format!("replaying {journal} at offset {offset}"))?;
 
                     offset += consumed as i64;
@@ -136,6 +165,8 @@ async fn read(
             "the replayed range ends within a record",
         );
     }
+    pass.begin = begin.unwrap_or(head);
+
     Ok(applied)
 }
 
@@ -150,6 +181,12 @@ struct Pass {
     producers: std::collections::HashMap<uuid::Producer, Sequence>,
     /// Producer whose delta is being applied.
     open: Option<uuid::Producer>,
+    /// Offset the range began at.
+    begin: i64,
+    /// Horizon which has opened and is not yet discharged.
+    horizon: Option<Position>,
+    /// Last horizon a delta of the range completed, which is the floor.
+    floor: Option<Position>,
 }
 
 /// Clocks of a producer's records which belong to a delta that was never
@@ -175,20 +212,23 @@ struct Sequence {
 }
 
 impl Pass {
-    /// Apply `record`, and report the chunks it applied.
-    fn record(&mut self, record: &proto::DiskRecord, image: &mut Image) -> anyhow::Result<usize> {
+    /// Apply `record`, which begins at `offset`, and report the chunks it
+    /// applied.
+    fn record(
+        &mut self,
+        record: &proto::DiskRecord,
+        offset: i64,
+        image: &mut Image,
+    ) -> anyhow::Result<usize> {
         let uuid =
             uuid::Uuid::from_slice(&record.uuid).context("record carries no message UUID")?;
         let (producer, clock, flags) = uuid::parse(uuid)?;
 
-        anyhow::ensure!(
-            !record.opens_horizon,
-            "record of {producer:?} opens a recovery horizon, which this daemon does not implement",
-        );
-        if let Some(abandoned) = self.abandoned.get(&producer) {
-            if clock > abandoned.after && clock <= abandoned.through {
-                return Ok(0);
-            }
+        if let Some(abandoned) = self.abandoned.get(&producer)
+            && clock > abandoned.after
+            && clock <= abandoned.through
+        {
+            return Ok(0);
         }
         let state = self.producers.entry(producer).or_default();
         let began_after = state.last_commit;
@@ -199,6 +239,16 @@ impl Pass {
             &mut state.last_commit,
             &mut state.max_continue,
         )?;
+
+        anyhow::ensure!(
+            !record.opens_horizon
+                || matches!(
+                    outcome,
+                    uuid::SequenceOutcome::ContinueBeginSpan
+                        | uuid::SequenceOutcome::ContinueDuplicate
+                ),
+            "record of {producer:?} at {clock:?} opens a horizon but does not begin a delta",
+        );
 
         match outcome {
             // A fence carries the epoch it installs and changes no disk content.
@@ -214,6 +264,12 @@ impl Pass {
                 state.began_after = began_after;
                 self.open = Some(producer);
 
+                if record.opens_horizon {
+                    let pending = image.open_horizon();
+                    self.horizon = Some(Position { offset, clock });
+
+                    tracing::debug!(?producer, offset, pending, "replay opened a horizon");
+                }
                 return apply(record, image);
             }
             uuid::SequenceOutcome::ContinueExtendSpan => {
@@ -234,6 +290,16 @@ impl Pass {
                 );
                 self.open = None;
                 () = ensure_no_chunks(record, "an acknowledgement")?;
+
+                // A committed delta which discharged the last block of the
+                // horizon puts a copy of every allocated block at or after it,
+                // which is the floor.
+                if self.horizon.is_some() && image.horizon_pending() == 0 {
+                    self.floor = self.horizon.take();
+                    image.close_horizon();
+
+                    tracing::debug!(?producer, floor = ?self.floor, "replay completed a horizon");
+                }
             }
             // A delta whose records are all below the floor, or an
             // acknowledgement which was appended twice.
@@ -259,7 +325,6 @@ impl Pass {
     /// False when there were none, which is a pass whose image is the disk.
     fn restart(&mut self) -> bool {
         let mut again = false;
-        self.open = None;
 
         for (producer, state) in self.producers.drain() {
             if state.max_continue == uuid::Clock::zero() {
@@ -279,6 +344,13 @@ impl Pass {
                 },
             );
             again = true;
+        }
+        if again {
+            // The image is discarded with the pass, so the horizon rebuilt
+            // against it goes too.
+            self.open = None;
+            self.horizon = None;
+            self.floor = None;
         }
         again
     }
@@ -317,26 +389,39 @@ mod test {
         uuid::Producer::from_bytes([seed | 0x01, 0, 0, 0, 0, seed])
     }
 
-    /// A record of `producer` at `clock`, which is a microsecond count so that a
-    /// case reads as a sequence of small numbers.
+    /// A clock `ticks` microseconds after the epoch, so that a case reads as a
+    /// sequence of small numbers.
+    fn clock(ticks: u64) -> uuid::Clock {
+        let mut clock = uuid::Clock::UNIX_EPOCH;
+        for _ in 0..ticks {
+            _ = clock.tick();
+        }
+        clock
+    }
+
     fn record(
         producer: uuid::Producer,
-        clock: u64,
+        ticks: u64,
         flags: uuid::Flags,
         chunks: Vec<proto::Chunk>,
     ) -> proto::DiskRecord {
-        let mut ticked = uuid::Clock::UNIX_EPOCH;
-        for _ in 0..clock {
-            _ = ticked.tick();
-        }
-
         proto::DiskRecord {
             uuid: bytes::Bytes::copy_from_slice(
-                uuid::build(producer, ticked, flags).as_bytes().as_slice(),
+                uuid::build(producer, clock(ticks), flags)
+                    .as_bytes()
+                    .as_slice(),
             ),
             chunks,
             opens_horizon: false,
             installs_epoch: bytes::Bytes::new(),
+        }
+    }
+
+    /// `record` as the first of a delta which opens a horizon.
+    fn opens(record: proto::DiskRecord) -> proto::DiskRecord {
+        proto::DiskRecord {
+            opens_horizon: true,
+            ..record
         }
     }
 
@@ -365,14 +450,19 @@ mod test {
     }
 
     /// Replay `records` as [`super::replay`] does, restarting a pass which found
-    /// an unacknowledged delta, and return each block's fill byte.
-    fn replayed(dir: &tempfile::TempDir, records: &[proto::DiskRecord]) -> Vec<(u32, u8)> {
+    /// an unacknowledged delta, and return the pass alongside each block's fill
+    /// byte. Each record is one byte long as far as offsets are concerned, which
+    /// is enough to tell them apart.
+    fn replay(
+        dir: &tempfile::TempDir,
+        records: &[proto::DiskRecord],
+    ) -> (Pass, Image, Vec<(u32, u8)>) {
         let mut image = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
         let mut pass = Pass::default();
 
         for _ in 0..2 {
-            for record in records {
-                _ = pass.record(record, &mut image).unwrap();
+            for (offset, record) in records.iter().enumerate() {
+                _ = pass.record(record, offset as i64, &mut image).unwrap();
             }
             if !pass.restart() {
                 break;
@@ -381,14 +471,21 @@ mod test {
         }
 
         let mut block = vec![0u8; BLOCK_SIZE as usize];
-        image
+        let blocks = image
             .allocated()
             .iter()
             .map(|index| {
                 image.read_at(index, &mut block).unwrap();
                 (index, block[0])
             })
-            .collect()
+            .collect();
+
+        (pass, image, blocks)
+    }
+
+    /// Blocks a replay of `records` leaves allocated, and their fill bytes.
+    fn replayed(dir: &tempfile::TempDir, records: &[proto::DiskRecord]) -> Vec<(u32, u8)> {
+        replay(dir, records).2
     }
 
     #[test]
@@ -491,6 +588,102 @@ mod test {
         );
     }
 
+    /// A record which opens a horizon snapshots the blocks allocated before its
+    /// own chunks apply, and the acknowledgement of the delta which discharges
+    /// the last of them moves the floor to that record.
+    #[test]
+    fn test_a_discharged_horizon_derives_the_floor() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+
+        let (pass, image, blocks) = replay(
+            &dir,
+            &[
+                write(a, 1, 3, 0xaa),
+                write(a, 2, 4, 0xbb),
+                ack(a, 3),
+                // A delta which opens a horizon over both blocks and rewrites
+                // them, which is what discharges it without copying.
+                opens(write(a, 4, 3, 0xcc)),
+                write(a, 5, 4, 0xdd),
+                ack(a, 6),
+            ],
+        );
+
+        assert_eq!(blocks, vec![(3, 0xcc), (4, 0xdd)]);
+        assert_eq!(image.horizon_pending(), 0);
+        assert!(pass.horizon.is_none());
+
+        let floor = pass.floor.expect("the horizon completed");
+        assert_eq!(floor.offset, 3);
+        assert_eq!(floor.clock, clock(4));
+    }
+
+    /// A horizon the range leaves open is one the next session resumes: what it
+    /// has left to discharge is the image's, and where it opened is the pass's.
+    #[test]
+    fn test_an_open_horizon_outlives_the_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+
+        let (pass, image, _blocks) = replay(
+            &dir,
+            &[
+                write(a, 1, 3, 0xaa),
+                write(a, 2, 4, 0xbb),
+                ack(a, 3),
+                opens(write(a, 4, 3, 0xcc)),
+                ack(a, 5),
+            ],
+        );
+
+        assert_eq!(image.horizon_pending(), 1);
+        assert!(pass.floor.is_none());
+        assert_eq!(pass.horizon.expect("a horizon is open").offset, 3);
+    }
+
+    /// A range may hold several horizons. Each replaces the one before it, so
+    /// the floor is the last which a delta discharged.
+    #[test]
+    fn test_a_later_horizon_replaces_an_earlier_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+
+        let (pass, image, _blocks) = replay(
+            &dir,
+            &[
+                write(a, 1, 3, 0xaa),
+                write(a, 2, 4, 0xbb),
+                ack(a, 3),
+                opens(write(a, 4, 3, 0xcc)),
+                ack(a, 5),
+                opens(write(a, 6, 3, 0xdd)),
+                write(a, 7, 4, 0xee),
+                ack(a, 8),
+            ],
+        );
+
+        assert_eq!(image.horizon_pending(), 0);
+        assert_eq!(pass.floor.expect("the second horizon completed").offset, 5);
+    }
+
+    /// A horizon belongs to its delta, so one whose delta is never acknowledged
+    /// never existed, exactly as its chunks never applied.
+    #[test]
+    fn test_a_horizon_of_an_uncommitted_delta_does_not_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = producer(0x10);
+
+        let (pass, image, blocks) = replay(
+            &dir,
+            &[write(a, 1, 3, 0xaa), ack(a, 2), opens(write(a, 3, 4, 0xbb))],
+        );
+
+        assert_eq!(blocks, vec![(3, 0xaa)]);
+        assert_eq!(image.horizon_pending(), 0);
+        assert!(pass.horizon.is_none() && pass.floor.is_none());
+    }
+
     #[test]
     fn test_malformed_records_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -508,9 +701,9 @@ mod test {
             (
                 proto::DiskRecord {
                     opens_horizon: true,
-                    ..write(a, 1, 0, 0xaa)
+                    ..ack(a, 1)
                 },
-                "recovery horizon",
+                "does not begin a delta",
             ),
             (
                 proto::DiskRecord {
@@ -536,7 +729,7 @@ mod test {
         ];
 
         for (record, expect) in cases {
-            let err = Pass::default().record(&record, &mut image).unwrap_err();
+            let err = Pass::default().record(&record, 0, &mut image).unwrap_err();
             assert!(format!("{err:#}").contains(expect), "{expect}: {err:#}");
         }
     }
@@ -550,10 +743,13 @@ mod test {
         let (a, b) = (producer(0x10), producer(0x30));
         let mut pass = Pass::default();
 
-        for record in [write(a, 1, 2, 0xaa), write(b, 2, 3, 0xbb), ack(b, 3)] {
-            _ = pass.record(&record, &mut image).unwrap();
+        for (offset, record) in [write(a, 1, 2, 0xaa), write(b, 2, 3, 0xbb), ack(b, 3)]
+            .iter()
+            .enumerate()
+        {
+            _ = pass.record(record, offset as i64, &mut image).unwrap();
         }
-        let err = pass.record(&ack(a, 4), &mut image).unwrap_err();
+        let err = pass.record(&ack(a, 4), 3, &mut image).unwrap_err();
 
         assert!(format!("{err:#}").contains("interleaved"), "{err:#}");
     }
@@ -565,10 +761,13 @@ mod test {
         let a = producer(0x10);
         let mut pass = Pass::default();
 
-        for record in [write(a, 5, 2, 0xaa), ack(a, 6), write(a, 7, 3, 0xbb)] {
-            _ = pass.record(&record, &mut image).unwrap();
+        for (offset, record) in [write(a, 5, 2, 0xaa), ack(a, 6), write(a, 7, 3, 0xbb)]
+            .iter()
+            .enumerate()
+        {
+            _ = pass.record(record, offset as i64, &mut image).unwrap();
         }
-        let err = pass.record(&ack(a, 6), &mut image).unwrap_err();
+        let err = pass.record(&ack(a, 6), 3, &mut image).unwrap_err();
 
         assert!(format!("{err:#}").contains("rolls back"), "{err:#}");
     }

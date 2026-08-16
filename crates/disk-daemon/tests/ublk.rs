@@ -117,6 +117,49 @@ fn test_discards_become_punches_which_clear_allocated_bits() {
     assert_replays_identically(&report);
 }
 
+/// The horizon invariant, at the block level: what a delta copies is rationed
+/// by what it changed, blocks the device rewrites cost no copy at all, and the
+/// mutations from the horizon onward rebuild the whole disk by themselves.
+#[test]
+fn test_a_horizon_discharges_and_bounds_recovery() {
+    let report = scenario("horizon");
+
+    let cold = report["cold_blocks"].as_u64().unwrap();
+    let hot = report["hot_blocks"].as_u64().unwrap();
+    let deltas = report["deltas"].as_array().unwrap();
+
+    // A range within the configured minimum opens nothing; one beyond it opens
+    // a horizon over every allocated block. The writes which allocated them are
+    // before the horizon, so none of them is in the replay compared below.
+    assert_eq!(report["declined"], serde_json::Value::Null, "{report}");
+    assert_eq!(report["opened"], serde_json::json!(cold), "{report}");
+    assert_eq!(report["filled"], serde_json::json!(cold / hot), "{report}");
+
+    // The first delta writes nothing at all, which is a disk nobody is using:
+    // an open horizon then publishes nothing and the journal does not grow.
+    assert_eq!(deltas[0]["changed"], 0, "{report}");
+    assert_eq!(deltas[0]["copied"], 0, "{report}");
+    assert_eq!(deltas[0]["pending"], serde_json::json!(cold), "{report}");
+
+    let mut copied = 0;
+    for delta in deltas {
+        // Write amplification is bounded per delta at one plus the copy ratio,
+        // which is a half here.
+        assert!(
+            2 * delta["copied"].as_u64().unwrap() <= delta["changed"].as_u64().unwrap(),
+            "{delta} exceeded its copy budget",
+        );
+        copied += delta["copied"].as_u64().unwrap();
+    }
+
+    // The horizon is discharged, and the hot blocks cost it nothing: the disk's
+    // own rewrites of them are what discharged those.
+    assert_eq!(deltas.last().unwrap()["pending"], 0, "{report}");
+    assert_eq!(copied, (cold - hot) * 4096, "{report}");
+
+    assert_replays_identically(&report);
+}
+
 #[test]
 fn test_backpressure_parks_writes() {
     let report = scenario("backpressure");

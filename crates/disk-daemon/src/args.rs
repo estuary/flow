@@ -47,6 +47,23 @@ pub struct Args {
     /// daemon carries no system's label vocabulary.
     #[arg(long, env = "FLOOR_LABEL")]
     pub floor_label: String,
+
+    /// Journal range above the recovery floor, as a multiple of a disk's live
+    /// allocated size, beyond which it opens a recovery horizon. With the copy
+    /// ratio it bounds the range a recovery reads.
+    #[arg(long, env = "HORIZON_OPEN_RATIO", default_value = "2.0")]
+    pub horizon_open_ratio: f64,
+
+    /// Unchanged bytes a delta may copy for each byte it changed, which is what
+    /// discharges a horizon over blocks nothing is writing. Journal write
+    /// amplification during compaction is at most one plus this.
+    #[arg(long, env = "HORIZON_COPY_RATIO", default_value = "0.5")]
+    pub horizon_copy_ratio: f64,
+
+    /// Journal range below which no horizon opens, whatever the ratio. It keeps
+    /// a small disk from compacting constantly.
+    #[arg(long, env = "HORIZON_MINIMUM_BYTES", default_value_t = 1 << 30)]
+    pub horizon_minimum_bytes: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]

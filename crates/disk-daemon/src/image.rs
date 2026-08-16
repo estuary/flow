@@ -6,6 +6,7 @@
 //! every block a hole. It is disposable: the journal is the disk.
 
 use crate::bitmap::Bitmap;
+use crate::horizon::{Horizon, Policy};
 
 /// An image and the bitmaps which track it.
 ///
@@ -17,7 +18,7 @@ pub struct Image {
     file: std::fs::File,
     block_size: u32,
     allocated: Bitmap,
-    horizon: Option<Bitmap>,
+    horizon: Option<Horizon>,
 }
 
 impl Image {
@@ -66,14 +67,32 @@ impl Image {
         &self.allocated
     }
 
-    /// The horizon bitmap, allocated on first use.
+    /// Open a recovery horizon over the blocks allocated now, replacing any
+    /// horizon which was open, and report what it must discharge.
     ///
-    /// A bitmap is `blocks / 8` bytes and is a disk's fixed memory cost, but a
-    /// horizon exists only while one is active. Deferring the allocation
-    /// therefore halves the steady-state cost of an idle disk.
-    pub fn horizon(&mut self) -> &mut Bitmap {
-        let blocks = self.allocated.blocks();
-        self.horizon.get_or_insert_with(|| Bitmap::new(blocks))
+    /// A horizon's bitmap is `blocks / 8` bytes, the same as the allocated
+    /// bitmap, so it is held only while a horizon is open. That halves the
+    /// steady-state cost of an idle disk.
+    pub fn open_horizon(&mut self) -> u32 {
+        let horizon = Horizon::open(&self.allocated);
+        let pending = horizon.pending();
+        self.horizon = Some(horizon);
+
+        pending
+    }
+
+    pub fn horizon(&mut self) -> Option<&mut Horizon> {
+        self.horizon.as_mut()
+    }
+
+    /// Blocks which still owe the open horizon a copy, and zero when none is
+    /// open, which is a horizon that has nothing left to discharge either way.
+    pub fn horizon_pending(&self) -> u32 {
+        self.horizon.as_ref().map_or(0, Horizon::pending)
+    }
+
+    pub fn close_horizon(&mut self) {
+        self.horizon = None;
     }
 
     pub fn read_at(&self, block: u32, buf: &mut [u8]) -> std::io::Result<()> {
@@ -122,14 +141,56 @@ impl Image {
     }
 
     /// Apply a journal chunk, which is how replay rebuilds an image.
+    ///
+    /// A chunk read from a journal is at or after any horizon a replay has
+    /// opened, since a horizon opens at a record and this is a forward pass, so
+    /// applying one also discharges the blocks it covers.
     pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
-        crate::chunk::apply(chunk, self.block_size, &self.file, &mut self.allocated)
+        crate::chunk::apply(chunk, self.block_size, &self.file, &mut self.allocated)?;
+
+        if let Some(horizon) = &mut self.horizon {
+            horizon.published(crate::chunk::covered_blocks(chunk, self.block_size));
+        }
+        Ok(())
+    }
+
+    /// Read the next run of horizon blocks back as the chunks which publish
+    /// them, which discharges them, or `None` when the delta's copy budget is
+    /// spent or no horizon is open.
+    ///
+    /// A run is at most `run_blocks` long, so one copy is one mutation of the
+    /// same order as a device request.
+    pub fn copy_horizon(
+        &mut self,
+        policy: &Policy,
+        run_blocks: u32,
+    ) -> std::io::Result<Option<Vec<crate::proto::Chunk>>> {
+        let block_size = self.block_size;
+
+        let Some(horizon) = &mut self.horizon else {
+            return Ok(None);
+        };
+        let Some(run) = horizon.next_copy(policy, run_blocks, block_size) else {
+            return Ok(None);
+        };
+        let mut data = vec![0u8; run.len() * block_size as usize];
+
+        () = std::os::unix::fs::FileExt::read_exact_at(
+            &self.file,
+            &mut data,
+            run.start as u64 * block_size as u64,
+        )?;
+        let chunks = crate::chunk::encode_write(run.start, &data.into(), block_size);
+
+        horizon.copied(run, crate::chunk::data_bytes(&chunks));
+        Ok(Some(chunks))
     }
 
     /// Discard everything the image holds, leaving it as it was created.
     pub fn reset(&mut self) -> std::io::Result<()> {
         punch_hole(&self.file, 0, self.blocks() as u64 * self.block_size as u64)?;
         self.allocated = Bitmap::new(self.allocated.blocks());
+        self.horizon = None;
 
         Ok(())
     }
@@ -275,16 +336,57 @@ mod test {
         assert_eq!(image.allocated().iter().collect::<Vec<_>>(), vec![0]);
     }
 
+    /// A horizon opens over what the image holds, and its copies read those
+    /// blocks back until every one is discharged.
     #[test]
-    fn test_horizon_bitmap_is_allocated_lazily() {
+    fn test_a_horizon_copies_the_image_back() {
         let dir = tempfile::tempdir().unwrap();
         let mut image = image(&dir);
 
-        assert!(image.horizon.is_none());
-        image.horizon().set(3);
+        let policy = crate::horizon::Policy {
+            open_ratio: 2.0,
+            copy_ratio: 1.0,
+            minimum_bytes: 0,
+        };
+        assert_eq!(image.horizon_pending(), 0);
+        assert!(image.copy_horizon(&policy, 4).unwrap().is_none());
 
-        assert_eq!(image.horizon().iter().collect::<Vec<_>>(), vec![3]);
-        assert_eq!(image.horizon().blocks(), BLOCKS);
+        image
+            .write_at(2, &vec![0xab; 3 * BLOCK_SIZE as usize])
+            .unwrap();
+        image.write_at(30, &vec![0; BLOCK_SIZE as usize]).unwrap();
+
+        assert_eq!(image.open_horizon(), 4);
+
+        // Copies are rationed by what the delta has changed, and a device write
+        // discharges its own blocks without one.
+        assert!(image.copy_horizon(&policy, 4).unwrap().is_none());
+        image.horizon().unwrap().changed(8 * BLOCK_SIZE as u64);
+        image.horizon().unwrap().published(2..3);
+
+        let mut copied = Vec::new();
+        while let Some(chunks) = image.copy_horizon(&policy, 2).unwrap() {
+            copied.extend(chunks);
+        }
+        assert_eq!(image.horizon_pending(), 0);
+
+        // The zeroed block copies as an empty-data chunk, which is what keeps
+        // it allocated in a replay without carrying its bytes.
+        let mut replayed = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        for chunk in &copied {
+            () = replayed.apply(chunk).unwrap();
+        }
+        assert_eq!(
+            replayed.allocated().iter().collect::<Vec<_>>(),
+            vec![3, 4, 30]
+        );
+
+        let mut buf = vec![0; BLOCK_SIZE as usize];
+        replayed.read_at(3, &mut buf).unwrap();
+        assert!(buf.iter().all(|&b| b == 0xab));
+
+        image.close_horizon();
+        assert!(image.copy_horizon(&policy, 4).unwrap().is_none());
     }
 
     /// A snapshot of an image, replayed into another, reproduces it in bytes and

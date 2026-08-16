@@ -28,10 +28,12 @@ impl Disk {
         control: &std::sync::Arc<Control>,
         image: Image,
         queue_depth: u16,
+        horizon: crate::horizon::Policy,
     ) -> anyhow::Result<(Self, Captured)> {
         let info = control.add_dev(queue_depth, ublk::MAX_IO_BUF_BYTES)?;
 
-        let (disk, captured) = match Self::serve(control, image, queue_depth, info.dev_id) {
+        let (disk, captured) = match Self::serve(control, image, queue_depth, horizon, info.dev_id)
+        {
             Ok(served) => served,
             Err(err) => {
                 // No owner took the device, so nothing else will delete it.
@@ -59,6 +61,7 @@ impl Disk {
         control: &std::sync::Arc<Control>,
         image: Image,
         queue_depth: u16,
+        horizon: crate::horizon::Policy,
         dev_id: u32,
     ) -> anyhow::Result<(Self, Captured)> {
         let cdev = open_char_device(dev_id)?;
@@ -76,6 +79,7 @@ impl Disk {
             capture,
             waker,
             queue_depth,
+            horizon,
         })?;
 
         Ok((
@@ -106,6 +110,12 @@ impl Disk {
     /// [`owner::Snapshotter`].
     pub fn snapshotter(&self) -> anyhow::Result<owner::Snapshotter> {
         Ok(self.handle()?.snapshotter())
+    }
+
+    /// A handle with which the journal writer opens and completes this disk's
+    /// recovery horizons, per [`owner::Compactor`].
+    pub fn compactor(&self) -> anyhow::Result<owner::Compactor> {
+        Ok(self.handle()?.compactor())
     }
 
     /// Path of the block device to format and mount.

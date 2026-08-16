@@ -16,6 +16,7 @@
 //! full parks only the requests which need it.
 
 use crate::capture::Capture;
+use crate::horizon::Policy;
 use crate::image::Image;
 use crate::inflight::InFlight;
 use crate::proto::Chunk;
@@ -54,6 +55,8 @@ pub struct Serve {
     pub waker: Waker,
     /// Requests the device may have outstanding, which is its concurrency.
     pub queue_depth: u16,
+    /// When this disk opens a recovery horizon, and how fast it discharges one.
+    pub horizon: Policy,
 }
 
 /// Cuts and ends one disk's service.
@@ -65,6 +68,15 @@ pub struct Handle(Commands);
 /// of a session, while the session itself holds the [`Handle`].
 #[derive(Clone)]
 pub struct Snapshotter(Commands);
+
+/// Opens and completes one disk's recovery horizon on the journal writer's
+/// behalf.
+///
+/// The owner does the work because a horizon is over the disk's own bitmaps and
+/// image, which nothing else may touch, while the writer is what knows the
+/// journal range a horizon is judged against.
+#[derive(Clone)]
+pub struct Compactor(Commands);
 
 /// Sends a command to a disk's owner, and wakes it to be read.
 #[derive(Clone)]
@@ -78,6 +90,9 @@ enum Command {
     CloseAdmission(tokio::sync::oneshot::Sender<()>),
     ResumeAdmission,
     Snapshot(tokio::sync::oneshot::Sender<std::io::Result<Vec<Vec<Chunk>>>>),
+    OpenHorizon(u64, tokio::sync::oneshot::Sender<Option<u32>>),
+    HorizonPending(tokio::sync::oneshot::Sender<u32>),
+    CloseHorizon,
     Release(std::sync::mpsc::Sender<Image>),
 }
 
@@ -132,9 +147,7 @@ impl Handle {
         let (quiet, quieted) = tokio::sync::oneshot::channel();
         () = self.0.send(Command::CloseAdmission(quiet))?;
 
-        quieted
-            .await
-            .map_err(|_| anyhow::anyhow!("device {} stopped being served", self.0.dev_id))
+        quieted.await.map_err(|_| self.0.stopped())
     }
 
     pub fn resume_admission(&self) -> anyhow::Result<()> {
@@ -143,6 +156,10 @@ impl Handle {
 
     pub fn snapshotter(&self) -> Snapshotter {
         Snapshotter(self.0.clone())
+    }
+
+    pub fn compactor(&self) -> Compactor {
+        Compactor(self.0.clone())
     }
 
     /// Stop serving and take back the image, once the owner has closed the
@@ -172,16 +189,49 @@ impl Snapshotter {
 
         replied
             .await
-            .map_err(|_| anyhow::anyhow!("device {} stopped being served", self.0.dev_id))?
+            .map_err(|_| self.0.stopped())?
             .map_err(|err| anyhow::anyhow!("snapshotting device {}: {err}", self.0.dev_id))
     }
 }
 
+impl Compactor {
+    /// Open a horizon over the disk's allocated blocks if a journal `range` of
+    /// that many bytes above the floor warrants one, and report what it must
+    /// discharge.
+    ///
+    /// The policy is judged here rather than by the caller because the disk's
+    /// live allocated size is the owner's to know.
+    pub async fn open(&self, range: u64) -> anyhow::Result<Option<u32>> {
+        let (reply, replied) = tokio::sync::oneshot::channel();
+        () = self.0.send(Command::OpenHorizon(range, reply))?;
+
+        replied.await.map_err(|_| self.0.stopped())
+    }
+
+    /// Blocks which still owe the open horizon a copy.
+    ///
+    /// The caller must have cut the disk's admission, because a horizon
+    /// completed by mutations after the cut belongs to the next delta.
+    pub async fn pending(&self) -> anyhow::Result<u32> {
+        let (reply, replied) = tokio::sync::oneshot::channel();
+        () = self.0.send(Command::HorizonPending(reply))?;
+
+        replied.await.map_err(|_| self.0.stopped())
+    }
+
+    /// Drop the horizon a commit has completed, and the bitmap with it.
+    pub fn close(&self) -> anyhow::Result<()> {
+        self.0.send(Command::CloseHorizon)
+    }
+}
+
 impl Commands {
+    fn stopped(&self) -> anyhow::Error {
+        anyhow::anyhow!("device {} stopped being served", self.dev_id)
+    }
+
     fn send(&self, command: Command) -> anyhow::Result<()> {
-        self.sender
-            .send(command)
-            .map_err(|_| anyhow::anyhow!("device {} stopped being served", self.dev_id))?;
+        self.sender.send(command).map_err(|_| self.stopped())?;
         self.waker.wake();
 
         Ok(())
@@ -189,15 +239,13 @@ impl Commands {
 }
 
 fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {
-    loop {
-        // A disconnect means every handle is gone, so nothing is left to serve
-        // this disk for and nothing will ask for its image.
-        let Some(()) = owner.drain_commands(&commands) else {
-            break;
-        };
+    // A disconnect means every handle is gone, so nothing is left to serve this
+    // disk for and nothing will ask for its image.
+    while let Some(()) = owner.drain_commands(&commands) {
         if owner.release.is_some() && owner.pending == 0 {
             break;
         }
+        owner.compact();
         owner.flush();
 
         match owner.ring.submit_and_wait(1) {
@@ -239,6 +287,7 @@ struct Owner {
     descs: ublk::IoDescs,
     image: Image,
     capture: Capture,
+    policy: Policy,
     inflight: InFlight,
     slots: Vec<Slot>,
     backlog: Backlog,
@@ -318,6 +367,7 @@ impl Owner {
             capture,
             waker,
             queue_depth,
+            horizon,
         } = serve;
 
         Ok(Self {
@@ -329,6 +379,7 @@ impl Owner {
             cdev,
             image,
             capture,
+            policy: horizon,
             inflight: InFlight::default(),
             slots: (0..queue_depth).map(|_| Slot::default()).collect(),
             backlog: Backlog::new(),
@@ -369,6 +420,10 @@ impl Owner {
                     self.admitting = false;
                     self.quiet = Some(quiet);
                     self.report_quiet();
+
+                    if let Some(horizon) = self.image.horizon() {
+                        horizon.cut();
+                    }
                 }
                 Ok(Command::ResumeAdmission) => {
                     self.admitting = true;
@@ -382,6 +437,28 @@ impl Owner {
                     let run_blocks = ublk::MAX_IO_BUF_BYTES / self.image.block_size();
                     _ = reply.send(self.image.snapshot(run_blocks));
                 }
+                Ok(Command::OpenHorizon(range, reply)) => {
+                    let allocated =
+                        self.image.allocated().count_ones() as u64 * self.image.block_size() as u64;
+
+                    let opened = self
+                        .policy
+                        .opens(range, allocated)
+                        .then(|| self.image.open_horizon());
+
+                    if let Some(pending) = opened {
+                        tracing::info!(
+                            dev_id = self.dev_id,
+                            range,
+                            allocated,
+                            pending,
+                            "opened a recovery horizon"
+                        );
+                    }
+                    _ = reply.send(opened);
+                }
+                Ok(Command::HorizonPending(reply)) => _ = reply.send(self.image.horizon_pending()),
+                Ok(Command::CloseHorizon) => self.image.close_horizon(),
                 Ok(Command::Release(reply)) => {
                     self.release = Some(reply);
 
@@ -529,7 +606,7 @@ impl Owner {
         // The device's logical block size is the tracking block size, so the
         // block layer cannot issue a request which straddles a block.
         assert!(
-            offset % block_size == 0 && bytes % block_size == 0,
+            offset.is_multiple_of(block_size) && bytes.is_multiple_of(block_size),
             "device request of {bytes} bytes at {offset} is not {block_size}-aligned",
         );
         let range = (offset / block_size) as u32..((offset + bytes) / block_size) as u32;
@@ -575,20 +652,64 @@ impl Owner {
     /// A closed admission parks a mutation exactly as a full channel does, which
     /// is what places it after the cut.
     fn offer(&mut self, tag: u16, chunks: Vec<Chunk>) {
+        let changed = crate::chunk::data_bytes(&chunks);
+
         let offered = match self.admitting {
             true => self.capture.offer(chunks),
             false => Err(chunks),
         };
 
         match offered {
-            Ok(()) => {
-                self.admitted += 1;
-                self.begin_mutation(tag);
-            }
+            Ok(()) => self.admit(tag, changed),
             Err(chunks) => {
                 self.slots[tag as usize].chunks = chunks;
                 self.parked.push_back(tag);
             }
+        }
+    }
+
+    /// Take the mutation at `tag`, whose chunks the capture channel has
+    /// accepted.
+    ///
+    /// A mutation is a publication of the blocks it covers, so it discharges
+    /// them from any open horizon, and the `changed` bytes it carries are what
+    /// earn the budget a copy spends.
+    fn admit(&mut self, tag: u16, changed: u64) {
+        let range = self.slots[tag as usize].range.clone();
+
+        if let Some(horizon) = self.image.horizon() {
+            horizon.published(range);
+            horizon.changed(changed);
+        }
+        self.admitted += 1;
+        self.begin_mutation(tag);
+    }
+
+    /// Spend this delta's copy budget on the open horizon, which is what
+    /// interleaves compaction with the traffic paying for it.
+    ///
+    /// A copy is selected, read, and offered without yielding, so no mutation
+    /// can land between its read and its offer. One which arrives first has
+    /// already discharged its blocks, which is how a mutation supersedes a copy
+    /// rather than racing it.
+    fn compact(&mut self) {
+        if !self.admitting || self.image.horizon().is_none() {
+            return;
+        }
+        let run_blocks = ublk::MAX_IO_BUF_BYTES / self.image.block_size();
+
+        while self.capture.has_room() {
+            let chunks = match self.image.copy_horizon(&self.policy, run_blocks) {
+                Ok(Some(chunks)) => chunks,
+                Ok(None) => return,
+                Err(err) => {
+                    tracing::error!(dev_id = self.dev_id, ?err, "failed to copy a horizon run");
+                    return;
+                }
+            };
+            let Ok(()) = self.capture.offer(chunks) else {
+                unreachable!("the capture channel had room for a horizon copy")
+            };
         }
     }
 
@@ -601,12 +722,12 @@ impl Owner {
                 return;
             };
             let chunks = std::mem::take(&mut self.slots[tag as usize].chunks);
+            let changed = crate::chunk::data_bytes(&chunks);
 
             match self.capture.offer(chunks) {
                 Ok(()) => {
                     self.parked.pop_front();
-                    self.admitted += 1;
-                    self.begin_mutation(tag);
+                    self.admit(tag, changed);
                 }
                 Err(chunks) => {
                     self.slots[tag as usize].chunks = chunks;

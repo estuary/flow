@@ -784,10 +784,30 @@ the repair path.
   range from current floor > `r` × live allocated size, 1 GiB minimum);
   allocated→horizon bitmap snapshot taken before that record's chunks apply,
   mirroring replay; `opens_horizon` flag on the first record; `k`-proportional
-  copy budget spent interleaved with ordinary traffic (candidates = horizon
-  bits − blocks already published this delta − blocks with a mutation in
-  flight; an arriving mutation supersedes an in-progress copy); bits cleared
-  only when a delta commits; forward cursor so each horizon is one pass.
+  copy budget spent interleaved with ordinary traffic; forward cursor so each
+  horizon is one pass.
+
+  A bit clears when its chunks are *captured*, not when their delta commits.
+  An earlier draft of this plan said the latter, and subtracted from the
+  candidate set the blocks already published this delta and those with a
+  mutation in flight. Clearing at capture makes the candidate set simply be
+  the bitmap: no subtraction, no second bitmap, and an arriving mutation
+  supersedes an in-progress copy structurally rather than by a check. It is
+  unobservable, because a delta which never commits ends its session and this
+  state does not outlive one. A replacement session rebuilds it from the
+  journal.
+
+  The writer's pending set is a superset of what a replay derives, because its
+  snapshot is of live allocation taken by the owner one command after the
+  writer decided, so it can include blocks the opening delta wrote in that
+  window. This is the safe direction: the writer never completes a horizon
+  earlier than a replay would, so it never writes a floor ahead of the derived
+  one. The cost is bounded redundant copying, once per horizon.
+
+  Record clocks must follow the wall clock, not the tick alone. The floor
+  label carries a record's clock and a reader resolves it to a fragment
+  modification time, so a clock advancing a microsecond per record would drift
+  far behind its own fragments and stop working as a seek.
 - Floor: a committed delta that empties the bitmap completes the horizon;
   the daemon derives the same floor during replay (snapshot at
   `opens_horizon`, clear at-or-after, floor on empty; later horizons replace

@@ -15,6 +15,7 @@ pub mod chunk;
 pub mod daemon;
 pub mod disk;
 pub mod filesystem;
+pub mod horizon;
 pub mod image;
 pub mod inflight;
 pub mod journal;

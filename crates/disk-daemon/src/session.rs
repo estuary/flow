@@ -234,6 +234,7 @@ impl Session {
             journal::Open {
                 journal: journal_config,
                 broker: broker.unwrap_or_default(),
+                floor_label: self.daemon.floor_label.clone(),
             },
         )
         .await?;
@@ -241,21 +242,24 @@ impl Session {
         let mut image = Image::create(&self.daemon.image_dir, blocks, block_size)
             .with_context(|| format!("creating an image in {:?}", self.daemon.image_dir))?;
 
-        let recovered = opening
-            .recover(&mut image, &self.daemon.floor_label, recovered_acks)
-            .await?;
+        // A horizon the replay leaves open is the image's, so the disk resumes
+        // it rather than beginning again from what this session happens to find
+        // allocated.
+        let recovered = opening.recover(&mut image, recovered_acks).await?;
 
         let control = self.control.clone();
+        let horizon = self.daemon.horizon;
 
         // Creating a device is a handshake with the kernel and with the thread
         // which will own it, neither of which is async.
         let (disk, captured) = tokio::task::spawn_blocking(move || {
-            Disk::create(&control, image, crate::ublk::QUEUE_DEPTH)
+            Disk::create(&control, image, crate::ublk::QUEUE_DEPTH, horizon)
         })
         .await??;
 
         self.handler.set_field("dev_id", disk.dev_id());
 
+        let compactor = Some(disk.compactor()?);
         let block_path = disk.block_path();
         let mount_path =
             self.daemon
@@ -268,7 +272,7 @@ impl Session {
         // first append takes, so it begins serving once both are done.
         let (mount, writer) = match recovered {
             true => {
-                let writer = opening.serve(captured, None);
+                let writer = opening.serve(captured, None, compactor);
 
                 let mount = Mount::new(
                     filesystem::Type::Ext4,
@@ -300,7 +304,10 @@ impl Session {
                 })
                 .await?;
 
-                (mount, opening.serve(captured, Some(disk.snapshotter()?)))
+                (
+                    mount,
+                    opening.serve(captured, Some(disk.snapshotter()?), compactor),
+                )
             }
         };
 
@@ -436,7 +443,7 @@ fn blocks(device_size: u64, block_size: u32) -> anyhow::Result<u32> {
         crate::ublk::sys::SECTOR_SIZE,
     );
     anyhow::ensure!(
-        device_size != 0 && device_size % block_size as u64 == 0,
+        device_size != 0 && device_size.is_multiple_of(block_size as u64),
         "device size {device_size} must be a non-zero multiple of the block size {block_size}",
     );
     let blocks = device_size / block_size as u64;

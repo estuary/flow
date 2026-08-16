@@ -40,6 +40,8 @@ async fn disk_daemon_tests() {
         endpoint: data_plane.gazette.brokers[0].endpoint.clone(),
         credential: credential(&data_plane.gazette),
         client: data_plane.journal_client.clone(),
+        fragment_root: data_plane.gazette.fragment_root.clone(),
+        refresh_interval_seconds: 5 * 60,
     };
     let daemon = Daemon::start(&fixture, "shared").await;
 
@@ -67,6 +69,301 @@ async fn disk_daemon_tests() {
         .graceful_stop()
         .await
         .expect("DataPlane graceful_stop");
+}
+
+/// Horizons need a daemon of their own, and a data-plane of its own with it: the
+/// shipped thresholds open a horizon only after a gigabyte of journal, and these
+/// cases are all about what happens once one is open. The thresholds are tiny
+/// but they are the same flags an operator sets.
+///
+/// Its journals are also re-listed by the brokers every second, so that a
+/// fragment deleted from the store is one no broker can still serve from a local
+/// spool file.
+#[tokio::test]
+async fn disk_daemon_horizon_tests() {
+    common::check_prerequisites();
+
+    let data_plane = e2e_support::DataPlane::start(e2e_support::DataPlaneArgs { broker_count: 1 })
+        .await
+        .expect("DataPlane start");
+
+    let fixture = Fixture {
+        dir: tempfile::tempdir().expect("tempdir"),
+        endpoint: data_plane.gazette.brokers[0].endpoint.clone(),
+        credential: credential(&data_plane.gazette),
+        client: data_plane.journal_client.clone(),
+        fragment_root: data_plane.gazette.fragment_root.clone(),
+        refresh_interval_seconds: 1,
+    };
+    let daemon = Daemon::start_with(
+        &fixture,
+        "horizons",
+        &[
+            "--horizon-open-ratio",
+            "0.1",
+            "--horizon-copy-ratio",
+            "1.0",
+            "--horizon-minimum-bytes",
+            "1048576",
+        ],
+    )
+    .await;
+
+    a_horizon_bounds_what_recovery_reads(&fixture, &daemon).await;
+    a_replacement_session_resumes_an_open_horizon(&fixture, &daemon).await;
+    the_floor_label_only_advances(&fixture, &daemon).await;
+
+    daemon.drain().await;
+    fixture.assert_no_leaks();
+
+    data_plane
+        .graceful_stop()
+        .await
+        .expect("DataPlane graceful_stop");
+}
+
+/// Sustained traffic opens and completes horizons, the floor label follows, and
+/// the disk then recovers from journal content at or after that floor alone —
+/// everything below it having been deleted from the fragment store.
+async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/horizons";
+    let source = fixture.dir.path().join("horizons");
+    write_source(&source, 1);
+
+    // A first session, short enough that no horizon of it can complete. Its
+    // fragments are what the recovery at the end must not need.
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    copy_through(&source, &mount);
+    let ack = session.publish().await.unwrap();
+
+    () = session.commit(ack).await.unwrap();
+    () = session.close().await;
+
+    assert_eq!(fixture.floor(journal).await, None, "nothing completed yet");
+
+    // A session stamps its records with the wall clock, so this is what puts
+    // the floor derived below after the fragments written above.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    for _ in 0..CHURN_DELTAS {
+        () = churn(&mut session, &mount).await;
+
+        if fixture.floor(journal).await.is_some() {
+            break;
+        }
+    }
+    let floor = fixture.await_floor(journal).await;
+    () = session.close().await;
+
+    // Long enough that the brokers have re-listed the store, so what is deleted
+    // here is content they no longer hold open locally either.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let deleted = fixture.delete_fragments_before(journal, floor_seconds(&floor));
+
+    assert!(deleted > 0, "no fragment of {journal} was below {floor}");
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // What a replay must read is now bounded by the disk's own size rather than
+    // by its history, and what remains rebuilds the filesystem on its own.
+    let image = fixture.dir.path().join("horizons.img");
+    _ = fixture.replay(journal, &image).await;
+    fixture.assert_content_matches(&image, &source);
+
+    let (allocated, retained) = (
+        allocated_bytes(&image),
+        fixture.retained_range(journal).await,
+    );
+    assert!(
+        retained < 8 * allocated,
+        "{retained} bytes of journal are retained for a disk holding {allocated}",
+    );
+
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    assert_tree_matches(&source, &format!("{mount}/data"));
+    () = session.close().await;
+
+    // The floor only ever advances, across every session of that history.
+    let later = fixture.await_floor(journal).await;
+    assert!(
+        later >= floor,
+        "the floor moved from {floor} back to {later}"
+    );
+}
+
+/// A horizon belongs to its disk rather than to the session which opened it: a
+/// replacement resumes the one it finds open, and the floor it goes on to derive
+/// is the position that earlier session chose.
+async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/resumed";
+    let source = fixture.dir.path().join("resumed");
+    write_source(&source, 1);
+
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    copy_through(&source, &mount);
+    let ack = session.publish().await.unwrap();
+    () = session.commit(ack).await.unwrap();
+
+    // Traffic until a horizon completes, and then one delta more, which opens
+    // the horizon this session is killed in the middle of. One delta cannot
+    // discharge a horizon of this disk, which the floor holding still says.
+    for _ in 0..CHURN_DELTAS {
+        () = churn(&mut session, &mount).await;
+
+        if fixture.floor(journal).await.is_some() {
+            break;
+        }
+    }
+    let completed = fixture.await_floor(journal).await;
+    () = churn(&mut session, &mount).await;
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(
+        fixture.floor(journal).await.as_deref(),
+        Some(completed.as_str()),
+        "the delta before the kill completed its horizon, leaving none open",
+    );
+
+    drop(session);
+    fixture.wait_for_teardown().await;
+
+    // A horizon the replacement restarted rather than resumed would open at a
+    // record appended after this.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let replaced_at = unix_seconds();
+
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    let mut resumed = None;
+    for _ in 0..CHURN_DELTAS {
+        () = churn(&mut session, &mount).await;
+
+        resumed = fixture
+            .floor(journal)
+            .await
+            .filter(|floor| *floor != completed);
+
+        if resumed.is_some() {
+            break;
+        }
+    }
+    let resumed = resumed.expect("the resumed horizon completed");
+
+    assert!(
+        floor_seconds(&resumed) < replaced_at,
+        "the floor {resumed} is a horizon the replacement session opened for itself",
+    );
+    assert_tree_matches(&source, &format!("{mount}/data"));
+    () = session.close().await;
+}
+
+/// The floor label only ever advances, and a session which loses the race to
+/// write it retries until it lands.
+async fn the_floor_label_only_advances(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/labelled";
+    let mut session = daemon.session().await;
+
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+    copy_through(&fixture.source("labelled"), &mount);
+
+    let ack = session.publish().await.unwrap();
+    () = session.commit(ack).await.unwrap();
+
+    // Another writer of the same spec is what makes the daemon lose its
+    // compare-and-swap, which it retries on the next listing its watch reports.
+    let churning = tokio::spawn(churn_labels(fixture.client.clone(), journal.to_string()));
+
+    for _ in 0..CHURN_DELTAS {
+        () = churn(&mut session, &mount).await;
+
+        if fixture.floor(journal).await.is_some() {
+            break;
+        }
+    }
+    churning.abort();
+    let floor = fixture.await_floor(journal).await;
+
+    // A floor the label is already beyond is never written, however many
+    // horizons complete after it.
+    let ahead = "7fffffffffffffff";
+    () = fixture.set_floor(journal, ahead).await;
+
+    for _ in 0..4 {
+        () = churn(&mut session, &mount).await;
+    }
+    assert!(
+        floor.as_str() < ahead,
+        "the floor {floor} is already beyond the label this case sets",
+    );
+    assert_eq!(
+        fixture.floor(journal).await.as_deref(),
+        Some(ahead),
+        "the floor label moved backward",
+    );
+    () = session.close().await;
+}
+
+/// Deltas a horizon case runs before giving up on one completing. Generous
+/// against the handful its thresholds need.
+const CHURN_DELTAS: usize = 20;
+
+/// Rewrite a megabyte of the disk and commit it, which is one delta of ordinary
+/// traffic: it earns copy budget without discharging much of a horizon.
+async fn churn(session: &mut Session, mount: &str) {
+    _ = sudo(&[
+        "dd",
+        "if=/dev/urandom",
+        "bs=1M",
+        "count=1",
+        "conv=fsync",
+        &format!("of={mount}/churn"),
+    ]);
+
+    let ack = session.publish().await.unwrap();
+    assert!(!ack.is_empty(), "the rewrite changed the disk");
+
+    () = session.commit(ack).await.unwrap();
+}
+
+/// Rewrite an unrelated label of `journal`'s spec until cancelled, tolerating
+/// the races it loses itself.
+async fn churn_labels(client: gazette::journal::Client, journal: String) {
+    for round in 0.. {
+        _ = set_label(&client, &journal, "acmeCo/churn", &format!("{round}")).await;
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
+/// Wall-clock second of a floor label, which is what a replay of that journal
+/// seeks its fragments by.
+fn floor_seconds(floor: &str) -> u64 {
+    let clock = u64::from_str_radix(floor, 16).expect("a floor label is hex");
+
+    uuid::Clock::from_u64(clock).to_unix().0
+}
+
+/// Bytes the host filesystem allocated to `image`, which is a disk's true
+/// footprint: `st_blocks` counts what it holds rather than the sparse size it
+/// presents.
+fn allocated_bytes(image: &std::path::Path) -> i64 {
+    std::os::unix::fs::MetadataExt::blocks(&std::fs::metadata(image).expect("an image")) as i64
+        * 512
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 /// Files written through the mount and committed are exactly the files a replay
@@ -182,8 +479,7 @@ async fn the_first_write_publishes_a_snapshot_of_the_formatted_image(
         covered > 512,
         "the first delta covered only {covered} blocks"
     );
-    let allocated =
-        std::os::unix::fs::MetadataExt::blocks(&std::fs::metadata(&image).unwrap()) * 512;
+    let allocated = allocated_bytes(&image) as u64;
 
     assert!(
         allocated < DEVICE_SIZE / 4,
@@ -579,6 +875,12 @@ struct Fixture {
     credential: String,
     /// Client of the test itself, which reads journals back.
     client: gazette::journal::Client,
+    /// Root of the broker's `file:///` fragment store, whose files the horizon
+    /// cases delete to prove a recovery reads nothing below its floor.
+    fragment_root: std::path::PathBuf,
+    /// Interval at which brokers re-list that store, which is what decides
+    /// whether a deleted fragment is one they can still serve locally.
+    refresh_interval_seconds: u32,
 }
 
 impl Fixture {
@@ -592,7 +894,7 @@ impl Fixture {
                 labels: Vec::new(),
                 fragment_length: 1 << 20,
                 flush_interval_seconds: Some(48 * 3600),
-                refresh_interval_seconds: 5 * 60,
+                refresh_interval_seconds: self.refresh_interval_seconds,
                 max_append_rate: Some(1 << 22),
                 // The codec the design specifies for disk journals. Its
                 // fragments live on the broker's own filesystem, which the test
@@ -669,48 +971,92 @@ impl Fixture {
     }
 
     /// Write the daemon's floor label onto `journal`'s spec, which is what
-    /// completing a horizon will do.
+    /// completing a horizon does. A daemon completing one is the other writer
+    /// this loses a race to.
     async fn set_floor(&self, journal: &str, value: &str) {
-        let listing = self
-            .client
-            .list(broker::ListRequest {
-                selector: Some(broker::LabelSelector {
-                    include: Some(broker::LabelSet {
-                        labels: vec![broker::Label {
-                            name: "name".to_string(),
-                            value: journal.to_string(),
-                            prefix: false,
-                        }],
-                    }),
-                    exclude: None,
-                }),
-                ..Default::default()
+        for _ in 0..10 {
+            if set_label(&self.client, journal, FLOOR_LABEL, value)
+                .await
+                .is_ok()
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("never won the race to write a floor label onto {journal}");
+    }
+
+    /// The floor `journal` carries, or `None` while no horizon has completed.
+    async fn floor(&self, journal: &str) -> Option<String> {
+        let listing = list(&self.client, journal).await;
+
+        listing
+            .journals
+            .first()?
+            .spec
+            .as_ref()?
+            .labels
+            .as_ref()?
+            .labels
+            .iter()
+            .find(|label| label.name == FLOOR_LABEL)
+            .map(|label| label.value.clone())
+    }
+
+    /// The floor `journal` carries once its daemon has written one, which is a
+    /// task of its own and so lags the commit which completed the horizon.
+    async fn await_floor(&self, journal: &str) -> String {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+
+        while std::time::Instant::now() < deadline {
+            if let Some(floor) = self.floor(journal).await {
+                return floor;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("no horizon of {journal} completed");
+    }
+
+    /// Journal range a replay would now read: from the earliest fragment still
+    /// in the store through to the write head.
+    async fn retained_range(&self, journal: &str) -> i64 {
+        let begin = std::fs::read_dir(self.fragment_root.join(journal))
+            .expect("a fragment store")
+            .filter_map(|entry| {
+                // A fragment is named for the offsets it covers.
+                let name = entry.ok()?.file_name().to_string_lossy().into_owned();
+                i64::from_str_radix(name.split('-').next()?, 16).ok()
             })
-            .await
-            .expect("listing a journal");
+            .min()
+            .expect("a fragment of the journal survived");
 
-        let listed = &listing.journals[0];
-        let mut spec = listed.spec.clone().expect("a listed journal has a spec");
+        self.head(journal).await - begin
+    }
 
-        let labels = &mut spec.labels.get_or_insert_default().labels;
-        labels.retain(|label| label.name != FLOOR_LABEL);
+    /// Delete every persisted fragment of `journal` written before `seconds`,
+    /// which is exactly the content a replay seeking from that floor skips.
+    fn delete_fragments_before(&self, journal: &str, seconds: u64) -> usize {
+        let mut deleted = 0;
 
-        labels.push(broker::Label {
-            name: FLOOR_LABEL.to_string(),
-            value: value.to_string(),
-            prefix: false,
-        });
+        for entry in std::fs::read_dir(self.fragment_root.join(journal)).expect("a fragment store")
+        {
+            let entry = entry.expect("a fragment");
 
-        self.client
-            .apply(broker::ApplyRequest {
-                changes: vec![broker::apply_request::Change {
-                    expect_mod_revision: listed.mod_revision,
-                    upsert: Some(spec),
-                    delete: String::new(),
-                }],
-            })
-            .await
-            .expect("applying a floor label");
+            let modified = entry
+                .metadata()
+                .expect("fragment metadata")
+                .modified()
+                .expect("a fragment modification time")
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("a modification time after the epoch")
+                .as_secs();
+
+            if modified < seconds {
+                std::fs::remove_file(entry.path()).expect("removing a fragment");
+                deleted += 1;
+            }
+        }
+        deleted
     }
 
     /// Every record of `journal`, paired with the flags of its UUID.
@@ -797,6 +1143,10 @@ struct Daemon {
 
 impl Daemon {
     async fn start(fixture: &Fixture, name: &str) -> Self {
+        Self::start_with(fixture, name, &[]).await
+    }
+
+    async fn start_with(fixture: &Fixture, name: &str, extra: &[&str]) -> Self {
         let dir = fixture.dir.path();
         let uds_path = dir.join(format!("{name}.sock"));
 
@@ -812,7 +1162,8 @@ impl Daemon {
             .arg(dir.join(format!("{name}-images")))
             .arg("--mount-dir")
             .arg(dir.join(format!("{name}-mounts")))
-            .args(["--floor-label", FLOOR_LABEL]);
+            .args(["--floor-label", FLOOR_LABEL])
+            .args(extra);
 
         let child: async_process::Child = command.spawn().expect("spawning the daemon").into();
 
@@ -968,6 +1319,61 @@ impl Session {
         drop(self.requests);
         assert!(matches!(self.responses.message().await, Ok(None) | Err(_)));
     }
+}
+
+/// List `journal`, which every label read and write here begins with.
+async fn list(client: &gazette::journal::Client, journal: &str) -> broker::ListResponse {
+    client
+        .list(broker::ListRequest {
+            selector: Some(broker::LabelSelector {
+                include: Some(broker::LabelSet {
+                    labels: vec![broker::Label {
+                        name: "name".to_string(),
+                        value: journal.to_string(),
+                        prefix: false,
+                    }],
+                }),
+                exclude: None,
+            }),
+            ..Default::default()
+        })
+        .await
+        .expect("listing a journal")
+}
+
+/// Read-modify-write one label of `journal`'s spec, as the daemon does for its
+/// floor. It fails where another writer changed the spec first.
+async fn set_label(
+    client: &gazette::journal::Client,
+    journal: &str,
+    name: &str,
+    value: &str,
+) -> gazette::Result<()> {
+    let listing = list(client, journal).await;
+
+    let listed = &listing.journals[0];
+    let mut spec = listed.spec.clone().expect("a listed journal has a spec");
+
+    let labels = &mut spec.labels.get_or_insert_default().labels;
+    labels.retain(|label| label.name != name);
+
+    labels.push(broker::Label {
+        name: name.to_string(),
+        value: value.to_string(),
+        prefix: false,
+    });
+    labels.sort_by(|l, r| (&l.name, &l.value).cmp(&(&r.name, &r.value)));
+
+    client
+        .apply(broker::ApplyRequest {
+            changes: vec![broker::apply_request::Change {
+                expect_mod_revision: listed.mod_revision,
+                upsert: Some(spec),
+                delete: String::new(),
+            }],
+        })
+        .await
+        .map(|_response| ())
 }
 
 /// Copy a source tree onto the disk mounted at `mount`, replacing what an
