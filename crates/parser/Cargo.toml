@@ -34,7 +34,13 @@ flate2 = { workspace = true }
 itertools = { workspace = true }
 mime = { workspace = true }
 num-bigint = { workspace = true }
-parquet = { workspace = true }
+parquet = { workspace = true, features = ["arrow"] }
+arrow-array = { workspace = true }
+# 256-bit decimals.
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+# 16-bit floats.
+half = { workspace = true }
 protobuf = { workspace = true }
 protobuf-json-mapping = { workspace = true }
 protobuf-parse = { workspace = true }
