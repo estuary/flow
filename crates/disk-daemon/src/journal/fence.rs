@@ -25,38 +25,57 @@ pub struct Probe {
     pub author: Option<String>,
     /// Write head confirmed by the broker.
     pub head: i64,
-    /// False when the journal does not exist. That is the ordinary state of a
-    /// disk which has never published.
-    pub exists: bool,
 }
 
 /// Read a journal's registers and write head with a zero-byte append. Only an
 /// append which carries content may modify registers, so this changes nothing.
+///
+/// The append is still an append, and it resumes a suspended journal as any
+/// append does. A caller uses it once it has decided the journal must be awake,
+/// because the journal holds content a recovery reads, or because this session
+/// has already appended. A journal which is absent here was deleted after the
+/// session listed it, which is a failure and not a fresh disk.
 pub async fn probe(client: &gazette::journal::Client, journal: &str) -> anyhow::Result<Probe> {
+    let probe = probe_with(client, journal, broker::append_request::Suspend::Resume).await?;
+
+    Ok(probe.expect("a resuming probe is never refused as suspended"))
+}
+
+/// [`probe`], refusing to resume a suspended journal. `None` reports one found
+/// suspended and left exactly as it was.
+///
+/// A session probes this way when its listing said the journal was active. A
+/// suspension landing between the two must not be undone by what is only a read.
+/// The caller re-reads the listing, which now carries the suspension record,
+/// and decides deliberately.
+pub async fn probe_unless_suspended(
+    client: &gazette::journal::Client,
+    journal: &str,
+) -> anyhow::Result<Option<Probe>> {
+    probe_with(client, journal, broker::append_request::Suspend::NoResume).await
+}
+
+async fn probe_with(
+    client: &gazette::journal::Client,
+    journal: &str,
+    suspend: broker::append_request::Suspend,
+) -> anyhow::Result<Option<Probe>> {
     let request = broker::AppendRequest {
         journal: journal.to_string(),
+        suspend: suspend as i32,
         ..Default::default()
     };
 
     let source = || futures::stream::empty::<std::io::Result<bytes::Bytes>>();
 
-    let response = match super::append(client, request, source).await {
-        Ok(response) => response,
-        Err(gazette::Error::BrokerStatus(broker::Status::JournalNotFound)) => {
-            return Ok(Probe {
-                author: None,
-                head: 0,
-                exists: false,
-            });
-        }
-        Err(err) => return Err(anyhow::Error::new(err).context(format!("probing {journal}"))),
-    };
-
-    Ok(Probe {
-        author: author_of(&response),
-        head: response.commit.map(|fragment| fragment.end).unwrap_or(0),
-        exists: true,
-    })
+    match super::append(client, request, source).await {
+        Ok(response) => Ok(Some(Probe {
+            author: author_of(&response),
+            head: response.commit.map(|fragment| fragment.end).unwrap_or(0),
+        })),
+        Err(gazette::Error::BrokerStatus(broker::Status::Suspended)) => Ok(None),
+        Err(err) => Err(anyhow::Error::new(err).context(format!("probing {journal}"))),
+    }
 }
 
 /// Append `record` to claim `journal` for `epoch`, replacing the `prior` author.

@@ -11,6 +11,7 @@
 
 mod common;
 
+use disk_daemon::BLOCK_SIZE;
 use disk_daemon::proto;
 use disk_daemon::{bitmap::Bitmap, chunk};
 use gazette::journal::framing;
@@ -19,13 +20,9 @@ use proto_gazette::{broker, uuid};
 /// 128 MiB. `mkfs.ext4` accepts that size comfortably, and it keeps a case to a few
 /// seconds.
 const DEVICE_SIZE: u64 = 128 * 1024 * 1024;
-const BLOCK_SIZE: u32 = 4096;
 
 /// How long a test waits for a teardown it cannot observe over the session.
 const TEARDOWN: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Label the daemon under test derives its recovery floor from.
-const FLOOR_LABEL: &str = "acmeCo/truncated-at";
 
 #[tokio::test]
 async fn disk_daemon_tests() {
@@ -48,16 +45,20 @@ async fn disk_daemon_tests() {
     a_committed_disk_replays_into_an_identical_filesystem(&fixture, &daemon).await;
     an_unchanged_transaction_appends_nothing(&fixture, &daemon).await;
     a_broker_replacement_has_no_reply(&fixture, &daemon).await;
-    a_disk_which_is_never_written_creates_no_journal(&fixture, &daemon).await;
+    a_disk_which_is_never_written_appends_nothing(&fixture, &daemon).await;
+    an_empty_suspended_journal_stays_suspended(&fixture, &daemon).await;
+    a_suspended_journal_with_content_is_resumed_and_recovered(&fixture, &daemon).await;
     the_first_write_publishes_a_snapshot_of_the_formatted_image(&fixture, &daemon).await;
-    a_journal_without_a_store_is_terminal(&fixture, &daemon).await;
-    a_recovered_ack_without_its_journal_is_terminal(&fixture, &daemon).await;
+    an_absent_journal_is_terminal(&fixture, &daemon).await;
+    an_unrecoverable_journal_is_terminal(&fixture, &daemon).await;
+    a_recovered_ack_without_journal_content_is_terminal(&fixture, &daemon).await;
+    a_recovered_ack_whose_records_were_destroyed_is_terminal(&fixture, &daemon).await;
     protocol_violations_are_terminal(&fixture, &daemon).await;
     a_committed_disk_reopens_with_its_contents(&fixture, &daemon).await;
     an_acknowledgement_lost_after_commit_is_repaired(&fixture, &daemon).await;
     an_uncommitted_delta_is_discarded(&fixture, &daemon).await;
     an_orphaned_first_use_yields_a_fresh_disk(&fixture, &daemon).await;
-    the_floor_label_is_only_a_seek_hint(&fixture, &daemon).await;
+    a_floor_hint_only_seeks_a_replay(&fixture, &daemon).await;
     a_cut_during_writeback_recovers_a_consistent_filesystem(&fixture, &daemon).await;
     an_abrupt_disconnect_tears_the_disk_down(&fixture, &daemon).await;
 
@@ -111,7 +112,6 @@ async fn disk_daemon_horizon_tests() {
 
     a_horizon_bounds_what_recovery_reads(&fixture, &daemon).await;
     a_replacement_session_resumes_an_open_horizon(&fixture, &daemon).await;
-    the_floor_label_only_advances(&fixture, &daemon).await;
 
     daemon.drain().await;
     fixture.assert_no_leaks();
@@ -122,9 +122,9 @@ async fn disk_daemon_horizon_tests() {
         .expect("DataPlane graceful_stop");
 }
 
-/// Sustained traffic opens and completes horizons, and the floor label follows.
-/// Everything below that floor is then deleted from the fragment store, and the
-/// disk still recovers from what remains.
+/// Sustained traffic opens and completes horizons, and each commit which completes
+/// one reports its floor. Everything below the floor the client has kept is then
+/// deleted from the fragment store, and the disk still recovers from what remains.
 async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/horizons";
     let source = fixture.dir.path().join("horizons");
@@ -133,37 +133,43 @@ async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon
     // A first session, short enough that no horizon of it can complete. The
     // recovery at the end must not need its fragments.
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     copy_through(&source, &mount);
     let ack = session.publish().await.unwrap();
 
     () = session.commit(ack).await.unwrap();
+    assert_eq!(session.floor(), 0, "nothing completed yet");
     () = session.close().await;
-
-    assert_eq!(fixture.floor(journal).await, None, "nothing completed yet");
 
     // A session stamps its records with the wall clock. This sleep therefore puts
     // the floor derived below after the fragments written above.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     for _ in 0..CHURN_DELTAS {
         () = churn(&mut session, &mount).await;
 
-        if fixture.floor(journal).await.is_some() {
+        if session.floor() != 0 {
             break;
         }
     }
-    let floor = fixture.await_floor(journal).await;
+    let floor = session.floor();
+    assert!(floor != 0, "no horizon of {journal} completed");
     () = session.close().await;
 
     // Long enough that the brokers have re-listed the store. What is deleted here
     // is therefore content they no longer hold open locally either.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    let deleted = fixture.delete_fragments_before(journal, floor_seconds(&floor));
+    let deleted = fixture.delete_fragments_before(journal, floor_seconds(floor));
 
     assert!(deleted > 0, "no fragment of {journal} was below {floor}");
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -183,18 +189,27 @@ async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon
         "{retained} bytes of journal are retained for a disk holding {allocated}",
     );
 
+    // The client hands its floor back, which seeks this recovery past the
+    // fragments which are gone.
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(proto::Open {
+            floor_hint: floor,
+            ..fixture.provisioned(journal).await
+        })
+        .await
+        .unwrap();
 
     assert_tree_matches(&source, &format!("{mount}/data"));
-    () = session.close().await;
 
-    // The floor only ever advances, across every session of that history.
-    let later = fixture.await_floor(journal).await;
+    // The recovery derives the floor again from the journal itself, so the value
+    // the client holds only ever advances across a disk's whole history.
+    let later = session.floor();
     assert!(
         later >= floor,
         "the floor moved from {floor} back to {later}"
     );
+    () = session.close().await;
 }
 
 /// A horizon belongs to its disk rather than to the session which opened it. A
@@ -206,7 +221,10 @@ async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon
     write_source(&source, 1);
 
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     copy_through(&source, &mount);
     let ack = session.publish().await.unwrap();
@@ -218,17 +236,17 @@ async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon
     for _ in 0..CHURN_DELTAS {
         () = churn(&mut session, &mount).await;
 
-        if fixture.floor(journal).await.is_some() {
+        if session.floor() != 0 {
             break;
         }
     }
-    let completed = fixture.await_floor(journal).await;
-    () = churn(&mut session, &mount).await;
+    let completed = session.floor();
+    assert!(completed != 0, "no horizon of {journal} completed");
 
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    () = churn(&mut session, &mount).await;
     assert_eq!(
-        fixture.floor(journal).await.as_deref(),
-        Some(completed.as_str()),
+        session.floor(),
+        completed,
         "the delta before the kill completed its horizon, leaving none open",
     );
 
@@ -241,74 +259,33 @@ async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon
     let replaced_at = unix_seconds();
 
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(proto::Open {
+            floor_hint: completed,
+            ..fixture.provisioned(journal).await
+        })
+        .await
+        .unwrap();
 
-    let mut resumed = None;
+    // The replay of that range derives the floor its predecessor established.
+    assert_eq!(session.floor(), completed, "the recovery derived the floor");
+
+    let mut resumed = 0;
     for _ in 0..CHURN_DELTAS {
         () = churn(&mut session, &mount).await;
 
-        resumed = fixture
-            .floor(journal)
-            .await
-            .filter(|floor| *floor != completed);
-
-        if resumed.is_some() {
+        if session.floor() != completed {
+            resumed = session.floor();
             break;
         }
     }
-    let resumed = resumed.expect("the resumed horizon completed");
+    assert!(resumed != 0, "the resumed horizon never completed");
 
     assert!(
-        floor_seconds(&resumed) < replaced_at,
+        floor_seconds(resumed) < replaced_at,
         "the floor {resumed} is a horizon the replacement session opened for itself",
     );
     assert_tree_matches(&source, &format!("{mount}/data"));
-    () = session.close().await;
-}
-
-/// The floor label only ever advances. A session which loses the race to write it
-/// retries until the write lands.
-async fn the_floor_label_only_advances(fixture: &Fixture, daemon: &Daemon) {
-    let journal = "acmeCo/disk/labelled";
-    let mut session = daemon.session().await;
-
-    let mount = session.open(fixture.open(journal)).await.unwrap();
-    copy_through(&fixture.source("labelled"), &mount);
-
-    let ack = session.publish().await.unwrap();
-    () = session.commit(ack).await.unwrap();
-
-    // Another writer of the same spec makes the daemon lose its compare-and-swap.
-    // The daemon retries on the next listing its watch reports.
-    let churning = tokio::spawn(churn_labels(fixture.client.clone(), journal.to_string()));
-
-    for _ in 0..CHURN_DELTAS {
-        () = churn(&mut session, &mount).await;
-
-        if fixture.floor(journal).await.is_some() {
-            break;
-        }
-    }
-    churning.abort();
-    let floor = fixture.await_floor(journal).await;
-
-    // Nothing writes a floor the label is already beyond, however many horizons
-    // complete after it.
-    let ahead = "7fffffffffffffff";
-    () = fixture.set_floor(journal, ahead).await;
-
-    for _ in 0..4 {
-        () = churn(&mut session, &mount).await;
-    }
-    assert!(
-        floor.as_str() < ahead,
-        "the floor {floor} is already beyond the label this case sets",
-    );
-    assert_eq!(
-        fixture.floor(journal).await.as_deref(),
-        Some(ahead),
-        "the floor label moved backward",
-    );
     () = session.close().await;
 }
 
@@ -356,7 +333,10 @@ async fn disk_daemon_soak_test() {
     for index in 0..SOAK_DISKS {
         let journal = format!("acmeCo/disk/soak-{index}");
         let mut session = daemon.session().await;
-        let mount = session.open(fixture.open(&journal)).await.unwrap();
+        let mount = session
+            .open(fixture.provisioned(&journal).await)
+            .await
+            .unwrap();
 
         copy_through(&generations[0], &mount);
         let ack = session.publish().await.unwrap();
@@ -402,7 +382,10 @@ async fn disk_daemon_soak_test() {
             () = wait_unmounted(&disk.mount).await;
 
             let mut session = daemon.session().await;
-            let mount = session.open(fixture.open(&disk.journal)).await.unwrap();
+            let mount = session
+                .open(fixture.provisioned(&disk.journal).await)
+                .await
+                .unwrap();
 
             assert_tree_matches(&generations[disk.committed], &format!("{mount}/data"));
 
@@ -592,7 +575,10 @@ async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemo
     let journal = "acmeCo/disk/outage";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     let source = fixture.source("outage");
 
     copy_through(&source, &mount);
@@ -650,7 +636,10 @@ async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemo
 
     // What was committed across the outage is what recovers.
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     assert_tree_matches(&source, &format!("{mount}/data"));
     assert_eq!(
@@ -681,7 +670,7 @@ async fn a_credential_is_replaced_before_it_expires(
             endpoint: fixture.endpoint.clone(),
             credential: credential_lasting(&data_plane.gazette, LIFETIME),
         }),
-        ..fixture.open(journal)
+        ..fixture.provisioned(journal).await
     };
     let mut session = daemon.session().await;
     let mount = session.open(open.clone()).await.unwrap();
@@ -737,7 +726,10 @@ async fn a_replacement_session_fences_the_first(fixture: &Fixture, daemon: &Daem
     let source = fixture.source("fenced");
 
     let mut loser = daemon.session().await;
-    let mount = loser.open(fixture.open(journal)).await.unwrap();
+    let mount = loser
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     copy_through(&source, &mount);
     let ack = loser.publish().await.unwrap();
@@ -746,7 +738,10 @@ async fn a_replacement_session_fences_the_first(fixture: &Fixture, daemon: &Daem
     // The journal now holds committed state. This session therefore claims the
     // fence as it opens, rather than deferring it to a first append.
     let mut winner = daemon.session().await;
-    let recovered = winner.open(fixture.open(journal)).await.unwrap();
+    let recovered = winner
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     assert_tree_matches(&source, &format!("{recovered}/data"));
 
@@ -770,18 +765,19 @@ async fn the_client_subcommand_drives_a_session(fixture: &Fixture, daemon: &Daem
     let journal = "acmeCo/disk/by-hand";
     let source = fixture.source("by-hand");
 
+    // The client creates no journal either. Driving a disk by hand means applying
+    // its spec first, which `gazctl journals apply` is for.
+    () = common::create_journal(&fixture.client, fixture.spec(journal))
+        .await
+        .unwrap();
+
     let mut client = std::process::Command::new(env!("CARGO_BIN_EXE_flow-disk-daemon"))
         .args(["client", "--uds-path"])
         .arg(&daemon.uds_path)
         .args(["--journal", journal])
         .args(["--device-size", &DEVICE_SIZE.to_string()])
-        .args(["--block-size", &BLOCK_SIZE.to_string()])
         .args(["--broker-endpoint", &fixture.endpoint])
         .args(["--broker-credential", &fixture.credential])
-        .args(["--fragment-store", "file:///"])
-        .args(["--fragment-length", "1048576"])
-        .args(["--refresh-interval-seconds", "300"])
-        .args(["--max-append-rate", "4194304"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -824,7 +820,10 @@ async fn the_client_subcommand_drives_a_session(fixture: &Fixture, daemon: &Daem
         "the client subcommand exited with an error",
     );
     let mut session = daemon.session().await;
-    let reopened = session.open(fixture.open(journal)).await.unwrap();
+    let reopened = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     assert_tree_matches(&source, &format!("{reopened}/data"));
     () = session.close().await;
@@ -837,7 +836,7 @@ async fn a_sigterm_under_load_tears_every_disk_down(fixture: &Fixture) {
     let mut session = daemon.session().await;
 
     let mount = session
-        .open(fixture.open("acmeCo/disk/sigterm"))
+        .open(fixture.provisioned("acmeCo/disk/sigterm").await)
         .await
         .unwrap();
 
@@ -879,21 +878,10 @@ async fn churn(session: &mut Session, mount: &str) {
     () = session.commit(ack).await.unwrap();
 }
 
-/// Rewrite an unrelated label of `journal`'s spec until cancelled. This tolerates
-/// the races it loses itself.
-async fn churn_labels(client: gazette::journal::Client, journal: String) {
-    for round in 0.. {
-        _ = set_label(&client, &journal, "acmeCo/churn", &format!("{round}")).await;
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-}
-
-/// Wall-clock second of a floor label. A replay of that journal seeks its fragments
-/// by this second.
-fn floor_seconds(floor: &str) -> u64 {
-    let clock = u64::from_str_radix(floor, 16).expect("a floor label is hex");
-
-    uuid::Clock::from_u64(clock).to_unix().0
+/// Wall-clock second of a recovery floor. A replay which begins there seeks its
+/// journal's fragments by this second.
+fn floor_seconds(floor: u64) -> u64 {
+    uuid::Clock::from_u64(floor).to_unix().0
 }
 
 /// Bytes the host filesystem allocated to `image`, which is a disk's true footprint.
@@ -916,7 +904,10 @@ async fn a_committed_disk_replays_into_an_identical_filesystem(fixture: &Fixture
     let journal = "acmeCo/disk/committed";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     let source = fixture.dir.path().join("source");
 
     for generation in 1..=3u8 {
@@ -943,7 +934,10 @@ async fn an_unchanged_transaction_appends_nothing(fixture: &Fixture, daemon: &Da
     let journal = "acmeCo/disk/unchanged";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     copy_through(&fixture.source("once"), &mount);
 
     let ack = session.publish().await.unwrap();
@@ -966,7 +960,10 @@ async fn a_broker_replacement_has_no_reply(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/refreshed";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     copy_through(&fixture.source("once"), &mount);
 
     session
@@ -983,17 +980,109 @@ async fn a_broker_replacement_has_no_reply(fixture: &Fixture, daemon: &Daemon) {
     () = session.close().await;
 }
 
-/// A disk which is formatted and mounted but never written creates no journal. It
-/// carries no information, because formatting it again reproduces it.
-async fn a_disk_which_is_never_written_creates_no_journal(fixture: &Fixture, daemon: &Daemon) {
+/// A disk which is formatted and mounted but never written appends nothing at all.
+/// It carries no information, because formatting it again reproduces it.
+///
+/// Nothing lands, not even a fence, so its journal is exactly as its caller made
+/// it. That is what lets a data plane leave an unused disk suspended.
+async fn a_disk_which_is_never_written_appends_nothing(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/untouched";
+
+    for _ in 0..2 {
+        let mut session = daemon.session().await;
+
+        _ = session
+            .open(fixture.provisioned(journal).await)
+            .await
+            .unwrap();
+        assert!(session.publish().await.unwrap().is_empty());
+
+        () = session.close().await;
+
+        assert_eq!(fixture.head(journal).await, 0, "{journal} was appended to");
+        assert_eq!(fixture.author(journal).await, None, "{journal} was fenced");
+    }
+}
+
+/// An unused journal Gazette has fully suspended is served from its listing alone.
+/// The whole session — open, an empty publication, and close — never touches the
+/// journal's append path, so it stays suspended throughout.
+async fn an_empty_suspended_journal_stays_suspended(fixture: &Fixture, daemon: &Daemon) {
+    use broker::journal_spec::suspend::Level;
+
+    let journal = "acmeCo/disk/suspended-empty";
+    let open = fixture.provisioned(journal).await;
+
+    () = fixture
+        .suspend(journal, broker::append_request::Suspend::IfFlushed)
+        .await;
+
+    let suspend = fixture.suspension(journal).await.expect("suspended");
+    assert_eq!(suspend.level, Level::Full as i32);
+    assert_eq!(suspend.offset, 0);
+
+    let mut session = daemon.session().await;
+    let mount = session.open(open).await.unwrap();
+
+    assert_eq!(sudo(&["ls", "-A", &mount]).trim(), "lost+found");
+    assert!(session.publish().await.unwrap().is_empty());
+    () = session.close().await;
+
+    let suspend = fixture.suspension(journal).await.expect("still suspended");
+    assert_eq!(
+        suspend.level,
+        Level::Full as i32,
+        "the disk woke its journal"
+    );
+}
+
+/// A journal suspended over committed content cannot be proved empty, so the next
+/// open wakes it deliberately and recovers the disk from it.
+async fn a_suspended_journal_with_content_is_resumed_and_recovered(
+    fixture: &Fixture,
+    daemon: &Daemon,
+) {
+    use broker::journal_spec::suspend::Level;
+
+    let journal = "acmeCo/disk/suspended-content";
     let mut session = daemon.session().await;
 
-    _ = session.open(fixture.open(journal)).await.unwrap();
-    assert!(session.publish().await.unwrap().is_empty());
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
+    let source = fixture.source("resumed");
 
+    copy_through(&source, &mount);
+    let ack = session.publish().await.unwrap();
+
+    () = session.commit(ack).await.unwrap();
     () = session.close().await;
-    assert!(!fixture.exists(journal).await);
+
+    // NOW suspends without waiting for an idle flush interval. The journal holds
+    // content, so this is a partial suspension at the committed head.
+    () = fixture
+        .suspend(journal, broker::append_request::Suspend::Now)
+        .await;
+
+    let suspend = fixture.suspension(journal).await.expect("suspended");
+    assert_ne!(suspend.level, Level::None as i32);
+    assert!(suspend.offset > 0);
+
+    let mut session = daemon.session().await;
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
+
+    assert_tree_matches(&source, &format!("{mount}/data"));
+
+    let suspend = fixture
+        .suspension(journal)
+        .await
+        .expect("a suspension record");
+    assert_eq!(suspend.level, Level::None as i32, "the open resumed it");
+    () = session.close().await;
 }
 
 /// The first mutation after mount publishes a snapshot of the image. The first delta
@@ -1006,7 +1095,10 @@ async fn the_first_write_publishes_a_snapshot_of_the_formatted_image(
     let journal = "acmeCo/disk/first-write";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     let source = fixture.source("tiny");
 
     copy_through(&source, &mount);
@@ -1033,43 +1125,115 @@ async fn the_first_write_publishes_a_snapshot_of_the_formatted_image(
     fixture.assert_content_matches(&image, &source);
 }
 
-/// A journal which resolves to no fragment store is terminal, before any device
-/// exists.
-async fn a_journal_without_a_store_is_terminal(fixture: &Fixture, daemon: &Daemon) {
+/// A journal which does not exist is terminal, before any device exists. The
+/// daemon creates none, so its caller must have made one first.
+async fn an_absent_journal_is_terminal(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/absent";
     let mut session = daemon.session().await;
 
-    let open = proto::Open {
-        journal_config: Some(proto::JournalConfig {
-            journal: "acmeCo/disk/storeless".to_string(),
-            ..Default::default()
-        }),
-        ..fixture.open("")
-    };
-    let status = session.open(open).await.unwrap_err();
-
-    assert!(status.message().contains("no fragment store"), "{status}");
-    () = session.ended().await;
-}
-
-/// A recovered acknowledgement names committed state, so a journal which is
-/// absent was deleted out from under it. That is terminal rather than a fresh
-/// disk which hides the loss.
-async fn a_recovered_ack_without_its_journal_is_terminal(fixture: &Fixture, daemon: &Daemon) {
-    let journal = "acmeCo/disk/deleted";
-    let mut session = daemon.session().await;
-
-    let open = proto::Open {
-        recovered_acks: vec![bytes::Bytes::from_static(b"a committed acknowledgement")],
-        ..fixture.open(journal)
-    };
-    let status = session.open(open).await.unwrap_err();
+    let status = session.open(fixture.open(journal)).await.unwrap_err();
 
     assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status}");
     assert!(status.message().contains("does not exist"), "{status}");
     () = session.ended().await;
 
-    // The failure precedes any claim, so it did not create the journal.
+    // The daemon looked, and did not make one of its own.
     assert!(list(&fixture.client, journal).await.journals.is_empty());
+}
+
+/// A journal whose spec a disk could not be recovered from is terminal. The
+/// daemon validates the spec its caller applied, and refuses rather than fixes
+/// one, because the spec belongs to that caller.
+async fn an_unrecoverable_journal_is_terminal(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/unrecoverable";
+
+    // Age-based deletion cannot see the recovery floor, so it can remove records
+    // a live disk still needs.
+    let mut spec = fixture.spec(journal);
+    spec.fragment.as_mut().unwrap().retention = Some(std::time::Duration::from_secs(86400).into());
+
+    () = common::create_journal(&fixture.client, spec).await.unwrap();
+
+    let mut session = daemon.session().await;
+    let status = session.open(fixture.open(journal)).await.unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status}");
+    assert!(status.message().contains("fragment retention"), "{status}");
+    () = session.ended().await;
+}
+
+/// A recovered acknowledgement names committed state, so a journal which holds
+/// no content at all was emptied out from under it. That is terminal rather than
+/// a fresh disk which hides the loss.
+async fn a_recovered_ack_without_journal_content_is_terminal(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/deleted";
+    let mut session = daemon.session().await;
+
+    let open = proto::Open {
+        recovered_acks: vec![bytes::Bytes::from_static(b"a committed acknowledgement")],
+        ..fixture.provisioned(journal).await
+    };
+    let status = session.open(open).await.unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status}");
+    assert!(status.message().contains("is empty"), "{status}");
+    () = session.ended().await;
+
+    // The failure precedes any claim, so nothing reached the journal.
+    assert_eq!(fixture.head(journal).await, 0);
+}
+
+/// A recovered acknowledgement proves a broker confirmed the data appends of its
+/// delta. A journal whose replay applies nothing lost those records even though
+/// its head survived them, exactly as an emptied journal did. It is terminal
+/// rather than a fresh disk which hides the loss.
+async fn a_recovered_ack_whose_records_were_destroyed_is_terminal(
+    fixture: &Fixture,
+    daemon: &Daemon,
+) {
+    // A published-but-uncommitted first use leaves a journal with content and no
+    // committed state, so its replay applies nothing.
+    let journal = "acmeCo/disk/destroyed";
+    let mut session = daemon.session().await;
+
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
+    copy_through(&fixture.source("destroyed"), &mount);
+
+    assert!(!session.publish().await.unwrap().is_empty());
+    drop(session);
+    fixture.wait_for_teardown().await;
+
+    assert!(
+        fixture.head(journal).await > 0,
+        "the delta reached the journal"
+    );
+
+    // A well-formed acknowledgement of records this journal does not hold, which
+    // is what a client's acknowledgement looks like once fragments are destroyed.
+    let mut donor = daemon.session().await;
+    let mount = donor
+        .open(fixture.provisioned("acmeCo/disk/destroyed-donor").await)
+        .await
+        .unwrap();
+    copy_through(&fixture.source("donor"), &mount);
+
+    let foreign_ack = donor.publish().await.unwrap();
+    () = donor.commit(foreign_ack.clone()).await.unwrap();
+    () = donor.close().await;
+
+    let mut session = daemon.session().await;
+    let open = proto::Open {
+        recovered_acks: vec![foreign_ack],
+        ..fixture.provisioned(journal).await
+    };
+    let status = session.open(open).await.unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status}");
+    assert!(status.message().contains("applied nothing"), "{status}");
+    () = session.ended().await;
 }
 
 /// Every protocol violation ends its session, and the disk it held goes with it.
@@ -1077,7 +1241,7 @@ async fn protocol_violations_are_terminal(fixture: &Fixture, daemon: &Daemon) {
     // Publishing twice, when the first delta is still owed a commit.
     let mut session = daemon.session().await;
     let mount = session
-        .open(fixture.open("acmeCo/disk/twice-published"))
+        .open(fixture.provisioned("acmeCo/disk/twice-published").await)
         .await
         .unwrap();
 
@@ -1091,7 +1255,7 @@ async fn protocol_violations_are_terminal(fixture: &Fixture, daemon: &Daemon) {
     // Committing with nothing published.
     let mut session = daemon.session().await;
     _ = session
-        .open(fixture.open("acmeCo/disk/early-commit"))
+        .open(fixture.provisioned("acmeCo/disk/early-commit").await)
         .await
         .unwrap();
 
@@ -1106,7 +1270,7 @@ async fn protocol_violations_are_terminal(fixture: &Fixture, daemon: &Daemon) {
     // Committing bytes which are not the ones published.
     let mut session = daemon.session().await;
     let mount = session
-        .open(fixture.open("acmeCo/disk/wrong-commit"))
+        .open(fixture.provisioned("acmeCo/disk/wrong-commit").await)
         .await
         .unwrap();
 
@@ -1124,12 +1288,12 @@ async fn protocol_violations_are_terminal(fixture: &Fixture, daemon: &Daemon) {
     // Opening a second disk on one session.
     let mut session = daemon.session().await;
     _ = session
-        .open(fixture.open("acmeCo/disk/twice-opened"))
+        .open(fixture.provisioned("acmeCo/disk/twice-opened").await)
         .await
         .unwrap();
 
     let status = session
-        .open(fixture.open("acmeCo/disk/twice-opened"))
+        .open(fixture.provisioned("acmeCo/disk/twice-opened").await)
         .await
         .unwrap_err();
 
@@ -1154,7 +1318,10 @@ async fn a_committed_disk_reopens_with_its_contents(fixture: &Fixture, daemon: &
 
     for generation in 1..=3u8 {
         let mut session = daemon.session().await;
-        let mount = session.open(fixture.open(journal)).await.unwrap();
+        let mount = session
+            .open(fixture.provisioned(journal).await)
+            .await
+            .unwrap();
 
         // Every generation but the first opens a disk rebuilt from the journal.
         // That disk holds what the generation before it committed.
@@ -1175,7 +1342,10 @@ async fn a_committed_disk_reopens_with_its_contents(fixture: &Fixture, daemon: &
     // reproduce the same filesystem both times.
     for _ in 0..2 {
         let mut session = daemon.session().await;
-        let mount = session.open(fixture.open(journal)).await.unwrap();
+        let mount = session
+            .open(fixture.provisioned(journal).await)
+            .await
+            .unwrap();
 
         assert_tree_matches(&source, &format!("{mount}/data"));
         () = session.close().await;
@@ -1188,7 +1358,10 @@ async fn an_acknowledgement_lost_after_commit_is_repaired(fixture: &Fixture, dae
     let journal = "acmeCo/disk/repaired";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     let source = fixture.source("repaired");
 
     copy_through(&source, &mount);
@@ -1201,7 +1374,7 @@ async fn an_acknowledgement_lost_after_commit_is_repaired(fixture: &Fixture, dae
     let mount = session
         .open(proto::Open {
             recovered_acks: vec![ack],
-            ..fixture.open(journal)
+            ..fixture.provisioned(journal).await
         })
         .await
         .unwrap();
@@ -1216,7 +1389,10 @@ async fn an_uncommitted_delta_is_discarded(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/uncommitted";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     let source = fixture.dir.path().join("uncommitted");
 
     write_source(&source, 1);
@@ -1235,7 +1411,10 @@ async fn an_uncommitted_delta_is_discarded(fixture: &Fixture, daemon: &Daemon) {
     fixture.wait_for_teardown().await;
 
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     assert_tree_matches(&source, &format!("{mount}/data"));
     () = session.close().await;
@@ -1247,17 +1426,26 @@ async fn an_orphaned_first_use_yields_a_fresh_disk(fixture: &Fixture, daemon: &D
     let journal = "acmeCo/disk/orphaned";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     copy_through(&fixture.source("orphaned"), &mount);
 
     assert!(!session.publish().await.unwrap().is_empty());
     drop(session);
     fixture.wait_for_teardown().await;
 
-    assert!(fixture.exists(journal).await, "the delta created a journal");
+    assert!(
+        fixture.head(journal).await > 0,
+        "the delta reached the journal"
+    );
 
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     assert_eq!(
         sudo(&["ls", "-A", &mount]).trim(),
@@ -1267,38 +1455,41 @@ async fn an_orphaned_first_use_yields_a_fresh_disk(fixture: &Fixture, daemon: &D
     () = session.close().await;
 }
 
-/// The floor label seeks a replay and does nothing more. A stale label costs replay
-/// work and rebuilds the same disk. A label which cannot be parsed is terminal, and
-/// is not silently ignored.
-async fn the_floor_label_is_only_a_seek_hint(fixture: &Fixture, daemon: &Daemon) {
+/// A floor hint seeks a replay and does nothing more. A hint which is absent, or
+/// behind, costs replay work and rebuilds the same disk.
+async fn a_floor_hint_only_seeks_a_replay(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/floored";
     let mut session = daemon.session().await;
 
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
     let source = fixture.source("floored");
 
     copy_through(&source, &mount);
     let ack = session.publish().await.unwrap();
 
     () = session.commit(ack).await.unwrap();
+    assert_eq!(session.floor(), 0, "no horizon of this disk completed");
     () = session.close().await;
 
-    // A clock long before the disk was written. Every fragment is at or after it.
-    () = fixture.set_floor(journal, "0000000000000001").await;
+    // No hint at all, and a clock long before the disk was written. Every fragment
+    // is at or after both, so each rebuilds exactly what was committed.
+    for floor_hint in [0, 1] {
+        let mut session = daemon.session().await;
+        let mount = session
+            .open(proto::Open {
+                floor_hint,
+                ..fixture.provisioned(journal).await
+            })
+            .await
+            .unwrap();
 
-    let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
-
-    assert_tree_matches(&source, &format!("{mount}/data"));
-    () = session.close().await;
-
-    () = fixture.set_floor(journal, "nonsense").await;
-
-    let mut session = daemon.session().await;
-    let status = session.open(fixture.open(journal)).await.unwrap_err();
-
-    assert!(status.message().contains("malformed"), "{status}");
-    () = session.ended().await;
+        assert_tree_matches(&source, &format!("{mount}/data"));
+        assert_eq!(session.floor(), 0, "no horizon was in the replayed range");
+        () = session.close().await;
+    }
 }
 
 /// A boundary cut taken while the filesystem is writing back rebuilds into a
@@ -1310,7 +1501,10 @@ async fn a_cut_during_writeback_recovers_a_consistent_filesystem(
 ) {
     let journal = "acmeCo/disk/writeback";
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     // There is no `fsync`, so the cut lands amongst ext4's own writeback and
     // journal traffic rather than after it.
@@ -1333,7 +1527,10 @@ async fn a_cut_during_writeback_recovers_a_consistent_filesystem(
     // The daemon mounts what it rebuilds. Opening at all therefore means ext4
     // replayed its journal over the rebuilt image.
     let mut session = daemon.session().await;
-    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let mount = session
+        .open(fixture.provisioned(journal).await)
+        .await
+        .unwrap();
 
     _ = sudo(&["ls", "-A", &mount]);
     () = session.close().await;
@@ -1348,7 +1545,7 @@ async fn a_cut_during_writeback_recovers_a_consistent_filesystem(
 async fn an_abrupt_disconnect_tears_the_disk_down(fixture: &Fixture, daemon: &Daemon) {
     let mut session = daemon.session().await;
     let mount = session
-        .open(fixture.open("acmeCo/disk/disconnected"))
+        .open(fixture.provisioned("acmeCo/disk/disconnected").await)
         .await
         .unwrap();
 
@@ -1387,7 +1584,7 @@ async fn a_killed_daemon_leaves_no_mounts(fixture: &Fixture) {
     let mut session = daemon.session().await;
 
     let mount = session
-        .open(fixture.open("acmeCo/disk/killed"))
+        .open(fixture.provisioned("acmeCo/disk/killed").await)
         .await
         .unwrap();
 
@@ -1445,35 +1642,47 @@ struct Fixture {
     fragment_root: std::path::PathBuf,
     /// Interval at which brokers re-list that store. It decides whether a broker can
     /// still serve a deleted fragment locally.
-    refresh_interval_seconds: u32,
+    refresh_interval_seconds: u64,
 }
 
 impl Fixture {
-    /// Open of a disk stored in the test broker's file root.
+    /// Create `journal` as a disk's caller does, and return the `Open` of it.
+    /// The daemon creates no journal, so every case which opens a disk begins
+    /// here.
+    async fn provisioned(&self, journal: &str) -> proto::Open {
+        common::create_journal(&self.client, self.spec(journal))
+            .await
+            .expect("creating a disk journal");
+
+        self.open(journal)
+    }
+
+    /// Spec of a disk journal in the test broker's file root.
+    ///
+    /// SNAPPY is the codec the design specifies for disk journals. Its fragments
+    /// live on the broker's own filesystem, and the test has no transport to
+    /// fetch them, so the broker decompresses them here.
+    /// `gazette::journal::read` covers its own decoder.
+    fn spec(&self, journal: &str) -> broker::JournalSpec {
+        common::journal_spec(
+            journal,
+            broker::CompressionCodec::Snappy,
+            self.refresh_interval_seconds,
+        )
+    }
+
+    /// Open of a disk, without creating its journal. A case which wants the
+    /// journal absent, or built by hand, uses this.
     fn open(&self, journal: &str) -> proto::Open {
         proto::Open {
-            journal_config: Some(proto::JournalConfig {
-                journal: journal.to_string(),
-                fragment_stores: vec!["file:///".to_string()],
-                replication: 1,
-                labels: Vec::new(),
-                fragment_length: 1 << 20,
-                flush_interval_seconds: Some(48 * 3600),
-                refresh_interval_seconds: self.refresh_interval_seconds,
-                max_append_rate: Some(1 << 22),
-                // The codec the design specifies for disk journals. Its fragments
-                // live on the broker's own filesystem, and the test has no
-                // transport to fetch them, so the broker decompresses them here.
-                // `gazette::journal::read` covers its own decoder.
-                compression_codec: proto_gazette::broker::CompressionCodec::Snappy as i32,
-            }),
+            journal: journal.to_string(),
             device_size: DEVICE_SIZE,
-            block_size: BLOCK_SIZE,
             broker: Some(proto::Broker {
                 endpoint: self.endpoint.clone(),
                 credential: self.credential.clone(),
             }),
             recovered_acks: Vec::new(),
+            floor_hint: 0,
         }
     }
 
@@ -1509,8 +1718,8 @@ impl Fixture {
                 continue;
             }
             for chunk in delta.drain(..) {
-                covered += chunk::covered_blocks(&chunk, BLOCK_SIZE).len();
-                chunk::apply(&chunk, BLOCK_SIZE, &image, &mut allocated).expect("applying a chunk");
+                covered += chunk::covered_blocks(&chunk).len();
+                chunk::apply(&chunk, &image, &mut allocated).expect("applying a chunk");
             }
         }
         image.sync_all().expect("syncing a replay image");
@@ -1533,52 +1742,6 @@ impl Fixture {
         let _ = sudo(&["umount", path(&mount)]);
 
         assert!(diff.is_none(), "{}", diff.unwrap());
-    }
-
-    /// Write the daemon's floor label onto `journal`'s spec, as completing a horizon
-    /// does. A daemon which completes one is the other writer this loses a race to.
-    async fn set_floor(&self, journal: &str, value: &str) {
-        for _ in 0..10 {
-            if set_label(&self.client, journal, FLOOR_LABEL, value)
-                .await
-                .is_ok()
-            {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        panic!("never won the race to write a floor label onto {journal}");
-    }
-
-    /// The floor `journal` carries, or `None` while no horizon has completed.
-    async fn floor(&self, journal: &str) -> Option<String> {
-        let listing = list(&self.client, journal).await;
-
-        listing
-            .journals
-            .first()?
-            .spec
-            .as_ref()?
-            .labels
-            .as_ref()?
-            .labels
-            .iter()
-            .find(|label| label.name == FLOOR_LABEL)
-            .map(|label| label.value.clone())
-    }
-
-    /// The floor `journal` carries once its daemon has written one. A task of its own
-    /// does that write, so it lags the commit which completed the horizon.
-    async fn await_floor(&self, journal: &str) -> String {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-
-        while std::time::Instant::now() < deadline {
-            if let Some(floor) = self.floor(journal).await {
-                return floor;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        panic!("no horizon of {journal} completed");
     }
 
     /// Journal range a replay would now read. It runs from the earliest fragment
@@ -1668,11 +1831,73 @@ impl Fixture {
             .head
     }
 
-    async fn exists(&self, journal: &str) -> bool {
+    /// Ask the broker to suspend `journal`, exactly as its own idle pulse
+    /// eventually would. `IfFlushed` fully suspends an empty journal, and `Now`
+    /// suspends one over content without waiting for a flush.
+    ///
+    /// The broker answers SUSPENDED after re-resolving the journal it just
+    /// suspended, which is how a suspension reports that it took effect.
+    async fn suspend(&self, journal: &str, mode: broker::append_request::Suspend) {
+        let request = broker::AppendRequest {
+            journal: journal.to_string(),
+            suspend: mode as i32,
+            ..Default::default()
+        };
+        let stream = self.client.append(request, || {
+            futures::stream::empty::<std::io::Result<bytes::Bytes>>()
+        });
+        futures::pin_mut!(stream);
+
+        loop {
+            match futures::StreamExt::next(&mut stream).await {
+                Some(Ok(_response)) => return,
+                Some(Err(gazette::RetryError {
+                    inner: gazette::Error::BrokerStatus(broker::Status::Suspended),
+                    ..
+                })) => return,
+                // A just-created journal answers NoJournalPrimaryBroker while
+                // its replica is still being assigned.
+                Some(Err(gazette::RetryError { inner, .. })) if inner.is_transient() => (),
+                other => panic!("suspending {journal}: {other:?}"),
+            }
+        }
+    }
+
+    /// Suspension recorded on `journal`'s spec. Absent while Gazette has never
+    /// suspended it; a resumed journal keeps the record at level NONE.
+    async fn suspension(&self, journal: &str) -> Option<broker::journal_spec::Suspend> {
+        let response = self
+            .client
+            .list(broker::ListRequest {
+                selector: Some(broker::LabelSelector {
+                    include: Some(broker::LabelSet {
+                        labels: vec![broker::Label {
+                            name: "name".to_string(),
+                            value: journal.to_string(),
+                            prefix: false,
+                        }],
+                    }),
+                    exclude: None,
+                }),
+                ..Default::default()
+            })
+            .await
+            .expect("listing a journal");
+
+        response
+            .journals
+            .into_iter()
+            .filter_map(|listed| listed.spec)
+            .find(|spec| spec.name == journal)
+            .and_then(|spec| spec.suspend)
+    }
+
+    /// Value of `journal`'s `author` register, which only a fence installs.
+    async fn author(&self, journal: &str) -> Option<String> {
         disk_daemon::journal::fence::probe(&self.client, journal)
             .await
             .expect("probing a journal")
-            .exists
+            .author
     }
 
     fn assert_no_leaks(&self) {
@@ -1726,7 +1951,6 @@ impl Daemon {
             .arg(dir.join(format!("{name}-images")))
             .arg("--mount-dir")
             .arg(dir.join(format!("{name}-mounts")))
-            .args(["--floor-label", FLOOR_LABEL])
             .args(extra);
 
         let child: async_process::Child = command.spawn().expect("spawning the daemon").into();
@@ -1770,6 +1994,7 @@ impl Daemon {
         Session {
             requests,
             responses,
+            floor: 0,
         }
     }
 
@@ -1899,15 +2124,27 @@ impl Drop for Daemon {
 struct Session {
     requests: tokio::sync::mpsc::Sender<proto::Request>,
     responses: tonic::Streaming<proto::Response>,
+    /// Greatest recovery floor the daemon has reported, which is what a client
+    /// persists and hands back as the next `Open`'s hint.
+    floor: u64,
 }
 
 impl Session {
     /// Create the disk and return its mount path.
     async fn open(&mut self, open: proto::Open) -> tonic::Result<String> {
         match self.request(proto::request::Request::Open(open)).await? {
-            proto::response::Response::Opened(opened) => Ok(opened.mount_path),
+            proto::response::Response::Opened(opened) => {
+                self.floor = std::cmp::max(self.floor, opened.floor);
+                Ok(opened.mount_path)
+            }
             response => panic!("expected Opened, got {response:?}"),
         }
+    }
+
+    /// Recovery floor this session has been told, and zero while it has been told
+    /// none.
+    fn floor(&self) -> u64 {
+        self.floor
     }
 
     /// Cut a delta and return its acknowledgement. It is empty when the disk did
@@ -1927,7 +2164,10 @@ impl Session {
             .request(proto::request::Request::Commit(proto::Commit { ack }))
             .await?
         {
-            proto::response::Response::Committed(proto::Committed {}) => Ok(()),
+            proto::response::Response::Committed(proto::Committed { floor }) => {
+                self.floor = std::cmp::max(self.floor, floor);
+                Ok(())
+            }
             response => panic!("expected Committed, got {response:?}"),
         }
     }
@@ -1986,41 +2226,6 @@ async fn list(client: &gazette::journal::Client, journal: &str) -> broker::ListR
         })
         .await
         .expect("listing a journal")
-}
-
-/// Read-modify-write one label of `journal`'s spec, as the daemon does for its floor.
-/// It fails if another writer changed the spec first.
-async fn set_label(
-    client: &gazette::journal::Client,
-    journal: &str,
-    name: &str,
-    value: &str,
-) -> gazette::Result<()> {
-    let listing = list(client, journal).await;
-
-    let listed = &listing.journals[0];
-    let mut spec = listed.spec.clone().expect("a listed journal has a spec");
-
-    let labels = &mut spec.labels.get_or_insert_default().labels;
-    labels.retain(|label| label.name != name);
-
-    labels.push(broker::Label {
-        name: name.to_string(),
-        value: value.to_string(),
-        prefix: false,
-    });
-    labels.sort_by(|l, r| (&l.name, &l.value).cmp(&(&r.name, &r.value)));
-
-    client
-        .apply(broker::ApplyRequest {
-            changes: vec![broker::apply_request::Change {
-                expect_mod_revision: listed.mod_revision,
-                upsert: Some(spec),
-                delete: String::new(),
-            }],
-        })
-        .await
-        .map(|_response| ())
 }
 
 /// Copy a source tree onto the disk mounted at `mount`, replacing what an

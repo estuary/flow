@@ -67,7 +67,7 @@ impl Disk {
         dev_id: u32,
     ) -> anyhow::Result<(Self, Captured)> {
         let cdev = open_char_device(dev_id)?;
-        () = control.set_params(dev_id, &ublk::params(image.blocks(), image.block_size()))?;
+        () = control.set_params(dev_id, &ublk::params(image.blocks()))?;
 
         // One waker serves both directions. The channel wakes the owner when a
         // mutation it parked may be retried, and a command wakes it to be read.

@@ -20,19 +20,20 @@ use crate::proto::{Chunk, chunk};
 /// which that first chunk does not cover. Neither shape is a hole, so the chunks
 /// reproduce the write's footprint as well as its bytes.
 ///
-/// `data` is a positive multiple of `block_size`. Every write the device accepts
-/// is block-aligned in both offset and length.
-pub fn encode_write(block: u32, data: &bytes::Bytes, block_size: u32) -> Vec<Chunk> {
+/// `data` is a positive multiple of [`crate::BLOCK_SIZE`]. Every write the device
+/// accepts is block-aligned in both offset and length.
+pub fn encode_write(block: u32, data: &bytes::Bytes) -> Vec<Chunk> {
     assert!(!data.is_empty(), "a device write is never empty");
     assert_eq!(
-        data.len() % block_size as usize,
+        data.len() % crate::BLOCK_SIZE as usize,
         0,
-        "a device write is a whole number of {block_size}-byte blocks",
+        "a device write is a whole number of {}-byte blocks",
+        crate::BLOCK_SIZE,
     );
-    let blocks = (data.len() / block_size as usize) as u32;
+    let blocks = (data.len() / crate::BLOCK_SIZE as usize) as u32;
 
     let trimmed = data.len() - data.iter().rev().take_while(|&&b| b == 0).count();
-    let covered = trimmed.div_ceil(block_size as usize) as u32;
+    let covered = trimmed.div_ceil(crate::BLOCK_SIZE as usize) as u32;
 
     let mut out = Vec::with_capacity(1 + (blocks - covered) as usize);
 
@@ -66,13 +67,13 @@ pub fn encode_punch(block: u32, blocks: u32) -> Chunk {
 
 /// Range of block indices which `chunk` covers.
 ///
-/// A data chunk covers `max(1, ceil(len(data) / block_size))` blocks. A chunk
+/// A data chunk covers `max(1, ceil(len(data) / BLOCK_SIZE))` blocks. A chunk
 /// with no content at all is malformed and covers nothing, and [`apply`] rejects
 /// it.
-pub fn covered_blocks(chunk: &Chunk, block_size: u32) -> std::ops::Range<u32> {
+pub fn covered_blocks(chunk: &Chunk) -> std::ops::Range<u32> {
     let covered = match &chunk.content {
         Some(chunk::Content::Data(data)) => {
-            let blocks = std::cmp::max(1, (data.len() as u64).div_ceil(block_size as u64));
+            let blocks = std::cmp::max(1, (data.len() as u64).div_ceil(crate::BLOCK_SIZE as u64));
             u32::try_from(blocks).unwrap_or(u32::MAX)
         }
         Some(chunk::Content::Punch(blocks)) => *blocks,
@@ -103,19 +104,14 @@ pub fn data_bytes(chunks: &[Chunk]) -> u64 {
 /// own. `allocated` supplies the device's block count. A chunk which reaches
 /// beyond that count is rejected, because a chunk read from a journal is
 /// untrusted input.
-pub fn apply(
-    chunk: &Chunk,
-    block_size: u32,
-    file: &std::fs::File,
-    allocated: &mut Bitmap,
-) -> std::io::Result<()> {
+pub fn apply(chunk: &Chunk, file: &std::fs::File, allocated: &mut Bitmap) -> std::io::Result<()> {
     let Some(content) = &chunk.content else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("chunk at block {} has no content", chunk.block),
         ));
     };
-    let range = covered_blocks(chunk, block_size);
+    let range = covered_blocks(chunk);
 
     if range.end > allocated.blocks() || range.start >= range.end {
         return Err(std::io::Error::new(
@@ -126,8 +122,8 @@ pub fn apply(
             ),
         ));
     }
-    let offset = range.start as u64 * block_size as u64;
-    let len = (range.end - range.start) as u64 * block_size as u64;
+    let offset = range.start as u64 * crate::BLOCK_SIZE as u64;
+    let len = (range.end - range.start) as u64 * crate::BLOCK_SIZE as u64;
 
     match content {
         chunk::Content::Data(data) => {
@@ -168,10 +164,7 @@ pub fn apply(
 #[cfg(test)]
 mod test {
     use super::{Chunk, chunk, covered_blocks, encode_punch, encode_write};
-
-    /// A real device block size. It is large enough that a trimmed data run can
-    /// end within a block.
-    const BLOCK_SIZE: u32 = 4096;
+    use crate::BLOCK_SIZE;
 
     /// Render chunks as one line each. Data is run-length encoded, so a whole
     /// block of content is a few characters.
@@ -179,7 +172,7 @@ mod test {
         chunks
             .iter()
             .map(|chunk| {
-                let range = covered_blocks(chunk, BLOCK_SIZE);
+                let range = covered_blocks(chunk);
                 let what = match &chunk.content {
                     Some(chunk::Content::Data(data)) if data.is_empty() => {
                         "empty data (one zeroed block)".to_string()
@@ -223,7 +216,7 @@ mod test {
 
     #[test]
     fn test_encode_write_without_trailing_zeroes() {
-        let chunks = encode_write(0, &write_data(2, 0xaa, 0), BLOCK_SIZE);
+        let chunks = encode_write(0, &write_data(2, 0xaa, 0));
         insta::assert_snapshot!("write_no_trailing_zeroes", render(&chunks));
     }
 
@@ -231,13 +224,13 @@ mod test {
     fn test_encode_write_ending_mid_block_after_trim() {
         // Four bytes into the second block. The chunk still covers both blocks,
         // and replay must zero the remainder of the second.
-        let chunks = encode_write(7, &write_data(2, 0xaa, 4092), BLOCK_SIZE);
+        let chunks = encode_write(7, &write_data(2, 0xaa, 4092));
         insta::assert_snapshot!("write_ends_mid_block", render(&chunks));
     }
 
     #[test]
     fn test_encode_write_trimming_a_single_byte() {
-        let chunks = encode_write(0, &write_data(1, 0xaa, 1), BLOCK_SIZE);
+        let chunks = encode_write(0, &write_data(1, 0xaa, 1));
         insta::assert_snapshot!("write_trims_final_byte", render(&chunks));
     }
 
@@ -245,23 +238,19 @@ mod test {
     fn test_encode_write_with_all_zero_tail_blocks() {
         // Three trailing blocks are entirely zero, and each becomes its own
         // allocated zero block rather than being dropped.
-        let chunks = encode_write(
-            100,
-            &write_data(4, 0xaa, 3 * BLOCK_SIZE as usize),
-            BLOCK_SIZE,
-        );
+        let chunks = encode_write(100, &write_data(4, 0xaa, 3 * BLOCK_SIZE as usize));
         insta::assert_snapshot!("write_zero_tail_blocks", render(&chunks));
     }
 
     #[test]
     fn test_encode_all_zero_write() {
-        let chunks = encode_write(5, &write_data(3, 0x00, 0), BLOCK_SIZE);
+        let chunks = encode_write(5, &write_data(3, 0x00, 0));
         insta::assert_snapshot!("write_all_zero", render(&chunks));
     }
 
     #[test]
     fn test_encode_single_block_zero_write() {
-        let chunks = encode_write(9, &write_data(1, 0x00, 0), BLOCK_SIZE);
+        let chunks = encode_write(9, &write_data(1, 0x00, 0));
         insta::assert_snapshot!("write_single_block_zero", render(&chunks));
     }
 
@@ -277,13 +266,13 @@ mod test {
             block: 3,
             content: None,
         };
-        assert_eq!(covered_blocks(&malformed, BLOCK_SIZE), 3..3);
+        assert_eq!(covered_blocks(&malformed), 3..3);
     }
 
     #[test]
     #[should_panic(expected = "whole number of 4096-byte blocks")]
     fn test_unaligned_write_panics() {
-        _ = encode_write(0, &bytes::Bytes::from_static(&[1, 2, 3]), BLOCK_SIZE);
+        _ = encode_write(0, &bytes::Bytes::from_static(&[1, 2, 3]));
     }
 
     /// Replay and its round-trip against a real sparse file. Hole punching,
@@ -349,12 +338,8 @@ mod test {
 
             // Two blocks of content, then a ten-byte rewrite of the first block.
             // The trimmed tail of the rewrite must not keep the older value.
-            for chunk in encode_write(
-                0,
-                &bytes::Bytes::from(vec![0xaa; 2 * BLOCK_SIZE as usize]),
-                BLOCK_SIZE,
-            ) {
-                apply(&chunk, BLOCK_SIZE, &file, &mut allocated).unwrap();
+            for chunk in encode_write(0, &bytes::Bytes::from(vec![0xaa; 2 * BLOCK_SIZE as usize])) {
+                apply(&chunk, &file, &mut allocated).unwrap();
             }
             apply(
                 &Chunk {
@@ -363,7 +348,6 @@ mod test {
                         b"0123456789",
                     ))),
                 },
-                BLOCK_SIZE,
                 &file,
                 &mut allocated,
             )
@@ -413,7 +397,7 @@ mod test {
                 },
             ];
             for case in cases {
-                let err = apply(&case, BLOCK_SIZE, &file, &mut allocated).unwrap_err();
+                let err = apply(&case, &file, &mut allocated).unwrap_err();
                 assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{case:?}");
             }
             assert_eq!(allocated.count_ones(), 0);
@@ -522,7 +506,7 @@ mod test {
                         write_at(&direct, *block, &data);
                         expected.extend(*block..*block + *blocks);
 
-                        encode_write(*block, &data, BLOCK_SIZE)
+                        encode_write(*block, &data)
                     }
                     // The daemon encodes both requests as a punch, so the direct
                     // image punches too.
@@ -540,7 +524,7 @@ mod test {
                     }
                 };
                 for chunk in &chunks {
-                    apply(chunk, BLOCK_SIZE, &replayed, &mut allocated).unwrap();
+                    apply(chunk, &replayed, &mut allocated).unwrap();
                 }
             }
 

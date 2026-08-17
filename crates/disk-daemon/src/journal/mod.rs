@@ -7,10 +7,15 @@
 //! then returns the acknowledgement's exact bytes. `commit` appends those bytes
 //! and awaits the broker's confirmation.
 //!
-//! The session's first append creates and claims the journal, rather than the
-//! open doing so. A disk which is never written therefore creates no journal.
-//! Recovery is the exception. A disk with committed state claims its journal
-//! before anything reads or repairs it.
+//! The journal itself is the caller's. It must exist before a disk opens, and
+//! the daemon never creates, converges, or deletes one. It does read the listed
+//! spec and refuse one a disk could not be recovered from.
+//!
+//! The session's first append claims the journal, rather than the open doing so.
+//! A disk which is never written therefore appends nothing at all, which leaves
+//! an idle journal Gazette has suspended suspended. Recovery is the exception. A
+//! disk with committed state claims its journal before anything reads or repairs
+//! it.
 
 use crate::capture::Captured;
 use crate::horizon::Position;
@@ -22,9 +27,7 @@ use gazette::journal::framing;
 use proto_gazette::{broker, uuid};
 
 pub mod fence;
-pub mod floor;
 pub mod replay;
-pub mod spec;
 
 /// Bytes of one chunk of an append's byte stream, matching `publisher::Appender`.
 /// An append is a whole drain of the capture channel. That drain can reach the
@@ -53,13 +56,10 @@ pub fn shared_client() -> (gazette::journal::Client, gazette::Router) {
 
 /// Inputs of one session's journal.
 pub struct Open {
-    /// Journal of the disk and how to create it.
-    pub journal: proto::JournalConfig,
+    /// Journal of the disk, which must already exist.
+    pub journal: String,
     /// Brokers serving the journal.
     pub broker: proto::Broker,
-    /// Label of the journal's own spec which carries its recovery floor. The
-    /// session reads it to seek its replay. It writes it as horizons complete.
-    pub floor_label: String,
 }
 
 /// A session's journal before its disk exists.
@@ -72,6 +72,16 @@ pub struct Opening {
     set_broker: SetBroker,
 }
 
+/// What a recovery of a disk found in its journal.
+pub struct Recovered {
+    /// Whether the journal held committed state. False for a disk which is fresh,
+    /// and whose filesystem the caller must format.
+    pub recovered: bool,
+    /// Recovery floor this replay derived, or zero if it derived none. The
+    /// session reports it to its client, which persists it and hands it back.
+    pub floor: u64,
+}
+
 /// Handle to a session's journal writer.
 pub struct Writer {
     commands: tokio::sync::mpsc::Sender<Command>,
@@ -82,7 +92,7 @@ pub struct Writer {
 
 enum Command {
     Publish(Reply<Option<bytes::Bytes>>),
-    Commit(bytes::Bytes, Reply<()>),
+    Commit(bytes::Bytes, Reply<u64>),
 }
 
 type Reply<T> = tokio::sync::oneshot::Sender<Result<T, Failure>>;
@@ -123,26 +133,29 @@ type SetBroker = Box<
 impl Opening {
     /// Open `journal` and read the author register a claim must replace.
     ///
-    /// Nothing is appended and no journal is created here. `ended` is the
-    /// session's own cancellation, which every broker call of this journal
-    /// gives up on: see `until_ended`.
+    /// Nothing is created here, and nothing is appended beyond the zero-byte
+    /// probe. `ended` is the session's own cancellation, which every broker call
+    /// of this journal gives up on: see `until_ended`.
+    ///
+    /// The journal is listed before it is probed, because the listing is where
+    /// the daemon checks that this journal is one a disk could be recovered
+    /// from. The probe then refuses to resume a suspended journal, so an idle
+    /// disk's journal is read without ever being woken. A journal which answers
+    /// the probe is the authority on its own head and author. One which is
+    /// asleep cannot answer, and cannot change either, so its listing supplies
+    /// the head Gazette recorded when it suspended.
     pub async fn new(
         client: &gazette::journal::Client,
         open: Open,
         ended: tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<Self> {
-        let Open {
-            journal,
-            broker,
-            floor_label,
-        } = open;
+        let Open { journal, broker } = open;
 
+        crate::ensure_valid!(!journal.is_empty(), "the session named no journal");
         crate::ensure_valid!(
             !broker.endpoint.is_empty(),
             "the session named no broker endpoint",
         );
-        let spec = spec::build(&journal)?;
-        let metrics = crate::metrics::Journal::new(&spec.name);
 
         let (tokens, set_broker) = tokens::manual::<proto::Broker>();
         _ = set_broker(Ok(broker));
@@ -158,25 +171,82 @@ impl Opening {
             tokens,
         );
 
-        let epoch = fresh_producer();
-        let probe = until_ended(&ended, "probing", fence::probe(&client, &spec.name)).await?;
+        // A listing whose journal answers its probe is only where the spec was
+        // checked. What the journal holds comes from the probe itself, however
+        // stale that listing was. The listing decides only for a journal which
+        // is asleep, because Gazette answers a probe of one with a status and
+        // not a head.
+        //
+        // A second round is one where the broker reported a suspension the
+        // listing had not yet recorded. Its listing carries the record, which
+        // settles the round without a wake. A third would be a journal
+        // suspending faster than its own records reach a listing, so `wake`
+        // resumes deliberately instead. That is always safe: it costs a
+        // resumption of a journal which idles back to sleep.
+        let mut wake = false;
+
+        let (prior, head) = loop {
+            let listing = until_ended(&ended, "listing", async {
+                client
+                    .list(name_selector(&journal))
+                    .await
+                    .with_context(|| format!("listing {journal}"))
+            })
+            .await?;
+            let suspension = suspension(listing, &journal)?;
+
+            // The probe refuses to resume, so it is issued whatever the listing
+            // said. A journal which answers one is awake, and its answer is the
+            // authority on the head and author this session opens against.
+            if !wake && suspension != Suspension::Content {
+                let probed = until_ended(
+                    &ended,
+                    "probing",
+                    fence::probe_unless_suspended(&client, &journal),
+                )
+                .await?;
+
+                if let Some(probe) = probed {
+                    break (probe.author, probe.head);
+                }
+            }
+
+            // The broker refused the probe, so the journal is asleep and cannot
+            // change while it stays that way. Its listing is what says whether
+            // it holds anything.
+            //
+            // An empty journal also cannot have an author: only an append which
+            // carries content sets a register.
+            if suspension == Suspension::Empty {
+                break (None, 0);
+            }
+            if suspension == Suspension::Unrecorded && !wake {
+                wake = true;
+                continue;
+            }
+
+            // Content this session has to read back, or a journal which suspends
+            // faster than its own records reach a listing. Both are resumed, which
+            // a recovery needs anyway and which is never unsafe.
+            let probe = until_ended(&ended, "probing", fence::probe(&client, &journal)).await?;
+            break (probe.author, probe.head);
+        };
+
+        // Registered only once the journal is one this session can serve, so an
+        // `Open` which is refused leaves no series behind under its name.
+        let metrics = crate::metrics::Journal::new(&journal);
 
         Ok(Self {
             set_broker: Box::new(set_broker),
             task: Task {
-                journal: spec.name.clone(),
-                spec,
+                journal,
                 client,
                 metrics,
                 ended,
-                floor_label,
-                epoch,
+                epoch: fresh_producer(),
                 clock: uuid::Clock::zero(),
-                fence: Fence::Deferred {
-                    prior: probe.author,
-                    exists: probe.exists,
-                },
-                head: probe.head,
+                fence: Fence::Deferred { prior },
+                head,
                 floor: 0,
                 horizon: None,
                 completes_horizon: false,
@@ -193,35 +263,46 @@ impl Opening {
     /// Rebuild `image` from every acknowledged delta of the journal. This first
     /// claims the journal, then appends each of `recovered_acks` verbatim.
     ///
-    /// Returns false for a journal with no committed state. That disk is fresh,
-    /// and the caller must format it.
+    /// `floor_hint` is the floor the client persisted, which seeks the replay.
+    /// Zero reads from the first fragment the store still holds. It is a seek and
+    /// never a filter, so a hint which is absent or behind costs work and cannot
+    /// change what is rebuilt.
     ///
-    /// A recovered acknowledgement requires the journal to exist. A client can
-    /// hold one only for a journal which existed, so an absent journal means
-    /// committed disk state was deleted. That is an error, not a fresh disk.
+    /// Fresh and recovered are told apart by content rather than by existence.
+    /// A journal with no content at all cannot hold committed state, and a client
+    /// can hold a recovered acknowledgement only for a journal whose data appends
+    /// a broker confirmed. An empty journal alongside one is therefore committed
+    /// state which was deleted, and a replay which applies nothing alongside one
+    /// is the same loss with its head intact. Both are errors, and not a fresh
+    /// disk which hides them.
     ///
     /// The claim comes first. Everything which follows reads or repairs state, and
     /// the previous writer must no longer be able to change it. The claim is made
-    /// for any journal which exists. Only a read can tell whether a journal's
-    /// records are committed, and an orphan journal's fence is one this session was
-    /// going to install with its own first append anyway.
+    /// for any journal with content. Only a read can tell whether that content is
+    /// committed, and an orphan journal's fence is one this session was going to
+    /// install with its own first append anyway.
     pub async fn recover(
         &mut self,
         image: &mut Image,
         recovered_acks: Vec<bytes::Bytes>,
-    ) -> anyhow::Result<bool> {
+        floor_hint: u64,
+    ) -> anyhow::Result<Recovered> {
         let task = &mut self.task;
 
-        if matches!(task.fence, Fence::Deferred { exists: false, .. }) {
+        if task.head == 0 {
             crate::ensure_valid!(
                 recovered_acks.is_empty(),
-                "the session supplied recovered acknowledgements, but journal {} does not \
-                 exist: its committed state was deleted",
+                "the session supplied recovered acknowledgements, but journal {} is empty: \
+                 its committed state was deleted",
                 task.journal,
             );
-            return Ok(false);
+            return Ok(Recovered {
+                recovered: false,
+                floor: 0,
+            });
         }
         () = task.claim().await?;
+        let repaired = !recovered_acks.is_empty();
 
         for ack in recovered_acks {
             _ = task
@@ -230,16 +311,19 @@ impl Opening {
                 .context("repairing a recovered acknowledgement")?;
         }
 
+        // A fragment is persisted no earlier than the records it holds, so a
+        // fragment modified before the floor's clock holds only records below the
+        // floor and the broker may skip it.
+        let seek = uuid::Clock::from_u64(floor_hint).to_unix().0 as i64;
+
         // The head is read after the repair and from a broker which has just
         // served an append, so its index covers every fragment below it. That
         // fixes the end of this recovery and makes its read fresh.
-        let (head, seek, replayed) = until_ended(&task.ended, "recovering", async {
+        let (head, replayed) = until_ended(&task.ended, "recovering", async {
             let head = fence::probe(&task.client, &task.journal).await?.head;
-            let seek = floor::seek(&task.client, &task.journal, &task.floor_label).await?;
-
             let replayed = replay::replay(&task.client, &task.journal, seek, head, image).await?;
 
-            anyhow::Ok((head, seek, replayed))
+            anyhow::Ok((head, replayed))
         })
         .await?;
 
@@ -253,23 +337,31 @@ impl Opening {
             "replayed a disk from its journal",
         );
 
+        // The acknowledgements repaired above prove a broker confirmed this
+        // disk's data appends. A replay which applied nothing means those
+        // records were destroyed, even though the journal's head outlived them.
+        // The acknowledged records are the newest the disk has, so no legal
+        // floor hint can seek past them.
+        crate::ensure_valid!(
+            !repaired || replayed.applied != 0,
+            "the session supplied recovered acknowledgements, but a replay of journal {} \
+             applied nothing: its committed state was destroyed",
+            task.journal,
+        );
+
         task.head = head;
         task.floor = replayed.floor;
         task.horizon = replayed.horizon;
         task.metrics.floor_seconds.set(seek as f64);
         task.report_range();
 
-        // A floor the label does not hold is one an earlier session derived and
-        // could not record. This session records it on that session's behalf.
-        if let Some(clock) = replayed.derived {
-            floor::advance(
-                task.client.clone(),
-                task.journal.clone(),
-                task.floor_label.clone(),
-                clock,
-            );
-        }
-        Ok(replayed.applied != 0)
+        // A floor this pass derived is one an earlier session completed a horizon
+        // for but could not report, because the client which would have persisted
+        // it was gone. This session reports it on that session's behalf.
+        Ok(Recovered {
+            recovered: replayed.applied != 0,
+            floor: replayed.derived.map_or(0, |clock| clock.as_u64()),
+        })
     }
 
     /// Begin appending the mutations of `captured` as they arrive, until the
@@ -330,7 +422,11 @@ impl Writer {
 
     /// Append the acknowledgement returned by [`Writer::publish`] and await the
     /// broker's confirmation of it.
-    pub async fn commit(&self, ack: bytes::Bytes) -> anyhow::Result<()> {
+    ///
+    /// Reports the recovery floor this commit established, and zero where it
+    /// established none. It is nonzero only when the committed delta completed a
+    /// recovery horizon.
+    pub async fn commit(&self, ack: bytes::Bytes) -> anyhow::Result<u64> {
         self.call(|reply| Command::Commit(ack, reply)).await
     }
 
@@ -380,23 +476,20 @@ impl Writer {
 /// Whether the session has taken the journal's author register.
 enum Fence {
     /// Not yet claimed. `prior` is the author read at open, and the claim must
-    /// still find it. `exists` is false if the journal must be created.
+    /// still find it.
     Deferred {
         prior: Option<String>,
-        exists: bool,
     },
     Claimed,
 }
 
 struct Task {
     journal: String,
-    spec: broker::JournalSpec,
     client: gazette::journal::Client,
     metrics: crate::metrics::Journal,
     /// Cancelled once the session is over, which stops this writer appending and
     /// gives up whatever broker call is in flight.
     ended: tokio_util::sync::CancellationToken,
-    floor_label: String,
     epoch: uuid::Producer,
     clock: uuid::Clock,
     fence: Fence,
@@ -503,7 +596,9 @@ impl Task {
         Ok(Some(ack))
     }
 
-    async fn commit(&mut self, ack: bytes::Bytes) -> Result<(), Failure> {
+    /// Append `ack`, and report the recovery floor the commit established. Zero
+    /// where it established none.
+    async fn commit(&mut self, ack: bytes::Bytes) -> Result<u64, Failure> {
         () = self.check()?;
 
         let published = self
@@ -520,17 +615,19 @@ impl Task {
         self.delta_records = 0;
         self.metrics.commits.increment(1);
 
-        if std::mem::take(&mut self.completes_horizon) {
-            () = self.complete_horizon()?;
+        if !std::mem::take(&mut self.completes_horizon) {
+            return Ok(0);
         }
-        Ok(())
+        Ok(self.complete_horizon()?)
     }
 
-    /// Move the recovery floor to the horizon this commit completed.
+    /// Move the recovery floor to the horizon this commit completed, and report
+    /// the clock which names it.
     ///
     /// Its opening record now has a committed copy of every allocated block at
-    /// or after it, so a replay may begin there and the floor label records it.
-    fn complete_horizon(&mut self) -> anyhow::Result<()> {
+    /// or after it, so a replay may begin there. The client persists the clock
+    /// and hands it back as the seek of a later recovery.
+    fn complete_horizon(&mut self) -> anyhow::Result<u64> {
         let Position { offset, clock } = self.horizon.take().expect("a horizon was open");
         self.floor = offset;
 
@@ -548,13 +645,7 @@ impl Task {
             "completed a recovery horizon",
         );
 
-        floor::advance(
-            self.client.clone(),
-            self.journal.clone(),
-            self.floor_label.clone(),
-            clock,
-        );
-        Ok(())
+        Ok(clock.as_u64())
     }
 
     /// Append every mutation the capture channel holds, beginning with `first`.
@@ -707,19 +798,18 @@ impl Task {
             .set(self.head.saturating_sub(self.floor).max(0) as f64);
     }
 
-    /// Create and claim the journal, unless this session already has.
+    /// Claim the journal, unless this session already has.
+    ///
+    /// The compare-and-swap is also the backstop for every race the open's
+    /// listing and probe could have lost. Whatever the journal was when this
+    /// session looked, only one epoch installs itself over the author it read.
     async fn claim(&mut self) -> anyhow::Result<()> {
-        let (prior, exists) = match &self.fence {
+        let prior = match &self.fence {
             Fence::Claimed => return Ok(()),
-            Fence::Deferred { prior, exists } => (prior.clone(), *exists),
+            Fence::Deferred { prior } => prior.clone(),
         };
 
         () = until_ended(&self.ended, "claiming", async {
-            if !exists {
-                () = spec::create(&self.client, self.spec.clone())
-                    .await
-                    .with_context(|| format!("creating {}", self.journal))?;
-            }
             fence::claim(
                 &self.client,
                 &self.journal,
@@ -739,8 +829,8 @@ impl Task {
     ///
     /// That clock only advances. It therefore orders each delta's records ahead of
     /// the acknowledgement which commits them, and ahead of every record of the
-    /// prior delta. It also follows the wall clock. The floor label carries the
-    /// clock of a horizon's opening record, and a reader turns that clock back into
+    /// prior delta. It also follows the wall clock. A recovery floor is the clock
+    /// of a horizon's opening record, and a recovery turns that clock back into
     /// the modification time of the fragments to read from.
     fn stamp(
         &mut self,
@@ -784,6 +874,118 @@ impl Task {
             Some(err) => Err(err.clone()),
             None => Ok(()),
         }
+    }
+}
+
+/// What a listing says about a journal which a broker has refused to probe.
+///
+/// A suspended journal cannot answer a probe: Gazette reports a status rather
+/// than a head. Its listing is therefore where its head comes from, and Gazette
+/// records the head at suspension as the record's offset.
+#[derive(Debug, PartialEq)]
+enum Suspension {
+    /// The listing records no suspension. A broker which nonetheless reports one
+    /// suspended the journal after this listing was taken, so the listing must be
+    /// taken again to carry the record.
+    Unrecorded,
+    /// Suspended over an empty journal. Its head is zero, and it has no author,
+    /// because only an append which carries content sets a register.
+    Empty,
+    /// Suspended over content, which a recovery has to read back. Waking this
+    /// journal is what the recovery needs, so its probe resumes it.
+    Content,
+}
+
+/// Report what `journal`'s listing says about its suspension, and refuse a spec a
+/// disk could not be recovered from.
+///
+/// The spec is validated rather than converged. It belongs to the caller, which
+/// creates the journal before a disk opens and owns it from then on. A daemon
+/// which quietly fixed a field would be deciding a durable property of a disk it
+/// merely serves.
+///
+/// A journal which is not in the listing does not exist. That is not a fresh disk:
+/// a disk opens against a journal its caller created, so an absent one is either a
+/// name which was never provisioned or committed state which was deleted.
+fn suspension(listing: broker::ListResponse, journal: &str) -> anyhow::Result<Suspension> {
+    let spec = listing
+        .journals
+        .into_iter()
+        .filter_map(|listed| listed.spec)
+        .find(|spec| spec.name == journal);
+
+    crate::ensure_valid!(
+        spec.is_some(),
+        "journal {journal} does not exist. A disk's journal is created by its caller before \
+         a session opens the disk, so an absent one was never provisioned or has been deleted",
+    );
+    let spec = spec.expect("a listing without the journal was refused above");
+    let fragment = spec.fragment.unwrap_or_default();
+
+    let codec = broker::CompressionCodec::try_from(fragment.compression_codec)
+        .unwrap_or(broker::CompressionCodec::Invalid);
+
+    crate::ensure_valid!(
+        gazette::journal::read::supports_codec(codec),
+        "journal {journal} compresses its fragments with {}, which this daemon cannot \
+         decompress, and it must read this journal back to recover the disk",
+        codec.as_str_name(),
+    );
+
+    // Gazette deletes fragments by age, and age cannot see the recovery floor.
+    // Any retention therefore risks deleting records a live disk needs.
+    crate::ensure_valid!(
+        fragment
+            .retention
+            .is_none_or(|retention| retention.seconds == 0 && retention.nanos == 0),
+        "journal {journal} sets a fragment retention, which deletes fragments by age and \
+         cannot see the disk's recovery floor",
+    );
+    // A bucket lifecycle rule keys on date-prefixed paths, which is age-based
+    // deletion by another route.
+    crate::ensure_valid!(
+        fragment.path_postfix_template.is_empty(),
+        "journal {journal} sets a fragment path postfix template, which date-prefixes \
+         fragment paths so a bucket lifecycle rule can delete them by age",
+    );
+    // The daemon both appends to this journal and replays it. NOT_SPECIFIED is
+    // Gazette's own default of read-write.
+    crate::ensure_valid!(
+        spec.flags == broker::journal_spec::Flag::NotSpecified as u32
+            || spec.flags == broker::journal_spec::Flag::ORdwr as u32,
+        "journal {journal} has flags {:#x}, and a disk's journal must be read-write",
+        spec.flags,
+    );
+
+    // Gazette writes the head as the offset of every suspension it records, and
+    // rolls a resumed journal forward to it. The offset of a suspended journal is
+    // therefore its head, whichever level it was suspended at.
+    let suspend = spec.suspend.unwrap_or_default();
+
+    if suspend.level == broker::journal_spec::suspend::Level::None as i32 {
+        return Ok(Suspension::Unrecorded);
+    }
+    Ok(match suspend.offset {
+        0 => Suspension::Empty,
+        _ => Suspension::Content,
+    })
+}
+
+/// A `ListRequest` for exactly one journal, by name.
+fn name_selector(journal: &str) -> broker::ListRequest {
+    broker::ListRequest {
+        selector: Some(broker::LabelSelector {
+            include: Some(broker::LabelSet {
+                labels: vec![broker::Label {
+                    name: "name".to_string(),
+                    value: journal.to_string(),
+                    prefix: false,
+                }],
+            }),
+            exclude: None,
+        }),
+        watch: false,
+        ..Default::default()
     }
 }
 
@@ -856,5 +1058,187 @@ where
             Some(Err(gazette::RetryError { inner, .. })) => return Err(inner),
             None => unreachable!("an append stream does not end without a response"),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{Suspension, suspension};
+    use proto_gazette::broker;
+
+    const JOURNAL: &str = "acmeCo/disk/one";
+
+    /// A listing of one journal whose spec is what a caller must create.
+    fn listing(spec: broker::JournalSpec) -> broker::ListResponse {
+        broker::ListResponse {
+            journals: vec![broker::list_response::Journal {
+                spec: Some(spec),
+                mod_revision: 42,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// A spec a disk can be recovered from, for a case to break one field of.
+    fn recoverable() -> broker::JournalSpec {
+        broker::JournalSpec {
+            name: JOURNAL.to_string(),
+            replication: 1,
+            fragment: Some(broker::journal_spec::Fragment {
+                length: 1 << 26,
+                compression_codec: broker::CompressionCodec::Snappy as i32,
+                stores: vec!["file:///".to_string()],
+                refresh_interval: Some(std::time::Duration::from_secs(300).into()),
+                flush_interval: Some(std::time::Duration::from_secs(3600).into()),
+                retention: None,
+                path_postfix_template: String::new(),
+            }),
+            flags: broker::journal_spec::Flag::ORdwr as u32,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_a_journal_which_does_not_exist_cannot_open() {
+        // An empty listing, and a listing of some other journal.
+        for listed in [
+            broker::ListResponse::default(),
+            listing(broker::JournalSpec {
+                name: "acmeCo/disk/other".to_string(),
+                ..recoverable()
+            }),
+        ] {
+            let err = suspension(listed, JOURNAL).unwrap_err();
+
+            assert!(format!("{err}").contains("does not exist"), "{err}");
+            assert!(err.chain().any(|cause| cause.is::<crate::Invalid>()));
+        }
+    }
+
+    /// NOT_SPECIFIED is Gazette's own read-write default, so a caller which set
+    /// no flag at all is accepted.
+    #[test]
+    fn test_a_recoverable_spec_is_accepted() {
+        for flags in [
+            broker::journal_spec::Flag::NotSpecified as u32,
+            broker::journal_spec::Flag::ORdwr as u32,
+        ] {
+            let spec = broker::JournalSpec {
+                flags,
+                ..recoverable()
+            };
+            assert_eq!(
+                suspension(listing(spec), JOURNAL).unwrap(),
+                Suspension::Unrecorded,
+            );
+        }
+    }
+
+    /// Each of these would let a disk lose records it still needs, or leave the
+    /// daemon unable to read the journal back at all.
+    #[test]
+    fn test_a_spec_a_disk_cannot_recover_from_is_refused() {
+        let fragment = || recoverable().fragment.unwrap();
+
+        // This daemon decodes every codec Gazette names, so INVALID and a number
+        // from some future Gazette are what a codec check can refuse.
+        let cases: [(broker::JournalSpec, &str); 5] = [
+            (
+                broker::JournalSpec {
+                    fragment: Some(broker::journal_spec::Fragment {
+                        compression_codec: broker::CompressionCodec::Invalid as i32,
+                        ..fragment()
+                    }),
+                    ..recoverable()
+                },
+                "cannot decompress",
+            ),
+            (
+                broker::JournalSpec {
+                    fragment: Some(broker::journal_spec::Fragment {
+                        compression_codec: 99,
+                        ..fragment()
+                    }),
+                    ..recoverable()
+                },
+                "cannot decompress",
+            ),
+            (
+                broker::JournalSpec {
+                    fragment: Some(broker::journal_spec::Fragment {
+                        retention: Some(std::time::Duration::from_secs(86400).into()),
+                        ..fragment()
+                    }),
+                    ..recoverable()
+                },
+                "fragment retention",
+            ),
+            (
+                broker::JournalSpec {
+                    fragment: Some(broker::journal_spec::Fragment {
+                        path_postfix_template: "{{.Spool.FirstAppendTime.Format \"2006\"}}"
+                            .to_string(),
+                        ..fragment()
+                    }),
+                    ..recoverable()
+                },
+                "path postfix template",
+            ),
+            (
+                broker::JournalSpec {
+                    flags: broker::journal_spec::Flag::ORdonly as u32,
+                    ..recoverable()
+                },
+                "must be read-write",
+            ),
+        ];
+
+        for (spec, expect) in cases {
+            let err = suspension(listing(spec), JOURNAL).unwrap_err();
+
+            assert!(format!("{err}").contains(expect), "{expect}: {err}");
+            assert!(err.chain().any(|cause| cause.is::<crate::Invalid>()));
+        }
+    }
+
+    /// Gazette records the head of a journal it suspends as that suspension's
+    /// offset, whichever level it suspended at. The offset is therefore what says
+    /// whether a suspended journal holds anything.
+    ///
+    /// A record at level NONE is one Gazette resumed. It keeps the offset it was
+    /// suspended at, and says nothing about a suspension a broker reports now.
+    #[test]
+    fn test_a_suspension_record_supplies_the_head() {
+        use broker::journal_spec::suspend::Level;
+
+        for (level, offset, expect) in [
+            (Level::Full, 0, Suspension::Empty),
+            (Level::Full, 4096, Suspension::Content),
+            (Level::Partial, 0, Suspension::Empty),
+            (Level::Partial, 4096, Suspension::Content),
+            (Level::None, 0, Suspension::Unrecorded),
+            (Level::None, 4096, Suspension::Unrecorded),
+        ] {
+            let spec = broker::JournalSpec {
+                suspend: Some(broker::journal_spec::Suspend {
+                    level: level as i32,
+                    offset,
+                }),
+                ..recoverable()
+            };
+            assert_eq!(
+                suspension(listing(spec), JOURNAL).unwrap(),
+                expect,
+                "{level:?} at {offset}",
+            );
+        }
+
+        // A spec which carries no suspension at all is one Gazette has never
+        // suspended.
+        assert_eq!(
+            suspension(listing(recoverable()), JOURNAL).unwrap(),
+            Suspension::Unrecorded,
+        );
     }
 }

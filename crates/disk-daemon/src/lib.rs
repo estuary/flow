@@ -30,6 +30,17 @@ pub mod wake;
 /// `go/protocols/disk/disk.proto`.
 pub use proto_flow::disk as proto;
 
+/// Block size of every disk, in bytes. It is the granularity of the chunk
+/// encoding, of hole punching, of the daemon's bitmaps, and of the ext4 it
+/// formats.
+///
+/// It is a constant rather than a per-disk input. A block size which varied
+/// would be a durable fact of each disk, one every later `Open` had to present
+/// again or else misplace every chunk a replay applies. 4 KiB is the page size
+/// of the hosts this daemon runs on and the ext4 default, so nothing was buying
+/// that risk.
+pub const BLOCK_SIZE: u32 = 4096;
+
 /// A failure caused by what a session asked for, rather than by this daemon,
 /// its host, or its brokers.
 ///

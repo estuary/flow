@@ -13,6 +13,7 @@
 //! backpressure. They can also report the digests, allocated counts, and extent
 //! lists which show that a replayed image matches in holes as well as in bytes.
 
+use disk_daemon::BLOCK_SIZE;
 use disk_daemon::bitmap::Bitmap;
 use disk_daemon::capture::Captured;
 use disk_daemon::chunk;
@@ -25,7 +26,6 @@ use disk_daemon::ublk::Control;
 /// 128 MiB. `mkfs.ext4` accepts that size comfortably, and it keeps a scenario to a
 /// few seconds.
 const BLOCKS: u32 = 32768;
-const BLOCK_SIZE: u32 = 4096;
 
 const MOUNT_OPTIONS: &str = "noatime,nodev,nosuid,noexec,discard";
 
@@ -191,10 +191,10 @@ fn discard() -> anyhow::Result<serde_json::Value> {
     let (replayed, allocated) = replay(&scenario.dir, &mutations)?;
     let mut peak_allocated = 0;
     let mut peak_bits = Bitmap::new(BLOCKS);
-    let peak_image = Image::create(&scenario.dir, BLOCKS, BLOCK_SIZE)?;
+    let peak_image = Image::create(&scenario.dir, BLOCKS)?;
 
     for chunk in mutations.iter().flatten() {
-        chunk::apply(chunk, BLOCK_SIZE, peak_image.file(), &mut peak_bits)?;
+        chunk::apply(chunk, peak_image.file(), &mut peak_bits)?;
         peak_allocated = std::cmp::max(peak_allocated, peak_bits.count_ones());
     }
     let punches: Vec<&Chunk> = mutations
@@ -214,7 +214,7 @@ fn discard() -> anyhow::Result<serde_json::Value> {
         "punch_chunks": punches.len(),
         "punched_blocks": punches
             .iter()
-            .map(|chunk| chunk::covered_blocks(chunk, BLOCK_SIZE).len())
+            .map(|chunk| chunk::covered_blocks(chunk).len())
             .sum::<usize>(),
         "peak_allocated": peak_allocated,
         "image": describe(image.file(), image.allocated())?,
@@ -484,7 +484,7 @@ impl Scenario {
     }
 
     fn disk(&self, queue_depth: u16, horizon: Policy) -> anyhow::Result<(Disk, Captured)> {
-        let image = Image::create(&self.dir, BLOCKS, BLOCK_SIZE)?;
+        let image = Image::create(&self.dir, BLOCKS)?;
 
         // A scenario reports its observations as JSON rather than as metrics. This
         // disk therefore contributes to a footprint nothing scrapes.
@@ -580,11 +580,11 @@ fn collect(captured: Captured) -> std::thread::JoinHandle<Vec<Vec<Chunk>>> {
 
 /// Apply a captured stream to a fresh image, as a recovering session does.
 fn replay(dir: &std::path::Path, mutations: &[Vec<Chunk>]) -> anyhow::Result<(Image, Bitmap)> {
-    let image = Image::create(dir, BLOCKS, BLOCK_SIZE)?;
+    let image = Image::create(dir, BLOCKS)?;
     let mut allocated = Bitmap::new(BLOCKS);
 
     for chunk in mutations.iter().flatten() {
-        chunk::apply(chunk, BLOCK_SIZE, image.file(), &mut allocated)?;
+        chunk::apply(chunk, image.file(), &mut allocated)?;
     }
     Ok((image, allocated))
 }

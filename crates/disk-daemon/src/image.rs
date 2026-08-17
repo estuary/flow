@@ -16,18 +16,13 @@ use crate::horizon::{Horizon, Policy};
 /// [`Image::deallocate`].
 pub struct Image {
     file: std::fs::File,
-    block_size: u32,
     allocated: Bitmap,
     horizon: Option<Horizon>,
 }
 
 impl Image {
-    /// Create a `blocks` × `block_size` image within `dir`.
-    pub fn create(dir: &std::path::Path, blocks: u32, block_size: u32) -> std::io::Result<Self> {
-        assert!(
-            block_size != 0 && block_size.is_power_of_two(),
-            "block size {block_size} must be a power of two",
-        );
+    /// Create a `blocks` × [`crate::BLOCK_SIZE`] image within `dir`.
+    pub fn create(dir: &std::path::Path, blocks: u32) -> std::io::Result<Self> {
         assert!(blocks != 0, "a device has at least one block");
 
         let mut options = std::fs::OpenOptions::new();
@@ -36,11 +31,10 @@ impl Image {
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
 
         let file = options.open(dir)?;
-        file.set_len(blocks as u64 * block_size as u64)?;
+        file.set_len(blocks as u64 * crate::BLOCK_SIZE as u64)?;
 
         Ok(Self {
             file,
-            block_size,
             allocated: Bitmap::new(blocks),
             horizon: None,
         })
@@ -50,17 +44,13 @@ impl Image {
         &self.file
     }
 
-    pub fn block_size(&self) -> u32 {
-        self.block_size
-    }
-
     pub fn blocks(&self) -> u32 {
         self.allocated.blocks()
     }
 
     /// Byte offset at which `block` begins.
     pub fn offset(&self, block: u32) -> u64 {
-        block as u64 * self.block_size as u64
+        block as u64 * crate::BLOCK_SIZE as u64
     }
 
     pub fn allocated(&self) -> &Bitmap {
@@ -101,12 +91,12 @@ impl Image {
     /// Write whole blocks. A partial block would leave the bitmap describing
     /// less than the image holds.
     pub fn write_at(&mut self, block: u32, data: &[u8]) -> std::io::Result<()> {
-        let blocks = data.len() / self.block_size as usize;
+        let blocks = data.len() / crate::BLOCK_SIZE as usize;
         assert_eq!(
-            data.len() % self.block_size as usize,
+            data.len() % crate::BLOCK_SIZE as usize,
             0,
             "an image write is a whole number of {}-byte blocks",
-            self.block_size,
+            crate::BLOCK_SIZE,
         );
 
         std::os::unix::fs::FileExt::write_all_at(&self.file, data, self.offset(block))?;
@@ -118,7 +108,7 @@ impl Image {
         punch_hole(
             &self.file,
             self.offset(block),
-            blocks as u64 * self.block_size as u64,
+            blocks as u64 * crate::BLOCK_SIZE as u64,
         )?;
         self.deallocate(block..block + blocks);
         Ok(())
@@ -144,10 +134,10 @@ impl Image {
     /// a replay reads is therefore at or after any horizon it has opened.
     /// Applying a chunk also discharges the blocks it covers.
     pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
-        crate::chunk::apply(chunk, self.block_size, &self.file, &mut self.allocated)?;
+        crate::chunk::apply(chunk, &self.file, &mut self.allocated)?;
 
         if let Some(horizon) = &mut self.horizon {
-            horizon.published(crate::chunk::covered_blocks(chunk, self.block_size));
+            horizon.published(crate::chunk::covered_blocks(chunk));
         }
         Ok(())
     }
@@ -163,22 +153,20 @@ impl Image {
         policy: &Policy,
         run_blocks: u32,
     ) -> std::io::Result<Option<Vec<crate::proto::Chunk>>> {
-        let block_size = self.block_size;
-
         let Some(horizon) = &mut self.horizon else {
             return Ok(None);
         };
-        let Some(run) = horizon.next_copy(policy, run_blocks, block_size) else {
+        let Some(run) = horizon.next_copy(policy, run_blocks) else {
             return Ok(None);
         };
-        let mut data = vec![0u8; run.len() * block_size as usize];
+        let mut data = vec![0u8; run.len() * crate::BLOCK_SIZE as usize];
 
         () = std::os::unix::fs::FileExt::read_exact_at(
             &self.file,
             &mut data,
-            run.start as u64 * block_size as u64,
+            run.start as u64 * crate::BLOCK_SIZE as u64,
         )?;
-        let chunks = crate::chunk::encode_write(run.start, &data.into(), block_size);
+        let chunks = crate::chunk::encode_write(run.start, &data.into());
 
         horizon.copied(run, crate::chunk::data_bytes(&chunks));
         Ok(Some(chunks))
@@ -186,7 +174,11 @@ impl Image {
 
     /// Discard everything the image holds, leaving it as it was created.
     pub fn reset(&mut self) -> std::io::Result<()> {
-        punch_hole(&self.file, 0, self.blocks() as u64 * self.block_size as u64)?;
+        punch_hole(
+            &self.file,
+            0,
+            self.blocks() as u64 * crate::BLOCK_SIZE as u64,
+        )?;
         self.allocated = Bitmap::new(self.allocated.blocks());
         self.horizon = None;
 
@@ -224,15 +216,11 @@ impl Image {
             while end < limit && self.allocated.test(end) {
                 end += 1;
             }
-            let mut data = vec![0u8; (end - start) as usize * self.block_size as usize];
+            let mut data = vec![0u8; (end - start) as usize * crate::BLOCK_SIZE as usize];
             () = self.read_at(start, &mut data)?;
             read += data.len();
 
-            runs.push(crate::chunk::encode_write(
-                start,
-                &data.into(),
-                self.block_size,
-            ));
+            runs.push(crate::chunk::encode_write(start, &data.into()));
             cursor = end;
         }
         Ok((runs, None))
@@ -276,12 +264,12 @@ pub(crate) const PUNCH_MODE: i32 = libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_
 #[cfg(test)]
 mod test {
     use super::Image;
+    use crate::BLOCK_SIZE;
 
-    const BLOCK_SIZE: u32 = 4096;
     const BLOCKS: u32 = 64;
 
     fn image(dir: &tempfile::TempDir) -> Image {
-        Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap()
+        Image::create(dir.path(), BLOCKS).unwrap()
     }
 
     #[test]
@@ -384,7 +372,7 @@ mod test {
 
         // The zeroed block copies as an empty-data chunk, so a replay keeps it
         // allocated without carrying its bytes.
-        let mut replayed = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        let mut replayed = Image::create(dir.path(), BLOCKS).unwrap();
         for chunk in &copied {
             () = replayed.apply(chunk).unwrap();
         }
@@ -434,7 +422,7 @@ mod test {
         }
         assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![3, 2]);
 
-        let mut replayed = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        let mut replayed = Image::create(dir.path(), BLOCKS).unwrap();
         for chunk in batches.iter().flatten().flatten() {
             () = replayed.apply(chunk).unwrap();
         }

@@ -43,7 +43,7 @@ pub struct Replayed {
     /// last completed horizon, or where this replay began if there was none.
     pub floor: i64,
     /// Clock of a floor this pass derived. A horizon completed within the range, so
-    /// the caller advances the label to this clock.
+    /// the caller reports this clock to its client as the disk's floor.
     pub derived: Option<uuid::Clock>,
     /// A horizon the range left open. This session resumes it rather than restarts
     /// it. Its bitmap belongs to the image.
@@ -376,12 +376,12 @@ fn ensure_no_chunks(record: &proto::DiskRecord, what: &str) -> anyhow::Result<()
 #[cfg(test)]
 mod test {
     use super::Pass;
+    use crate::BLOCK_SIZE;
     use crate::chunk::{encode_punch, encode_write};
     use crate::image::Image;
     use crate::proto;
     use proto_gazette::uuid;
 
-    const BLOCK_SIZE: u32 = 4096;
     const BLOCKS: u32 = 64;
 
     fn producer(seed: u8) -> uuid::Producer {
@@ -429,11 +429,7 @@ mod test {
             producer,
             clock,
             uuid::Flags::CONTINUE_TXN,
-            encode_write(
-                block,
-                &bytes::Bytes::from(vec![fill; BLOCK_SIZE as usize]),
-                BLOCK_SIZE,
-            ),
+            encode_write(block, &bytes::Bytes::from(vec![fill; BLOCK_SIZE as usize])),
         )
     }
 
@@ -456,7 +452,7 @@ mod test {
         dir: &tempfile::TempDir,
         records: &[proto::DiskRecord],
     ) -> (Pass, Image, Vec<(u32, u8)>) {
-        let mut image = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        let mut image = Image::create(dir.path(), BLOCKS).unwrap();
         let mut pass = Pass::default();
 
         for _ in 0..2 {
@@ -686,7 +682,7 @@ mod test {
     #[test]
     fn test_malformed_records_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let mut image = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        let mut image = Image::create(dir.path(), BLOCKS).unwrap();
         let (a, f) = (producer(0x10), producer(0x20));
 
         let cases: [(proto::DiskRecord, &str); 5] = [
@@ -738,7 +734,7 @@ mod test {
     #[test]
     fn test_an_interleaved_acknowledgement_is_an_ordering_error() {
         let dir = tempfile::tempdir().unwrap();
-        let mut image = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        let mut image = Image::create(dir.path(), BLOCKS).unwrap();
         let (a, b) = (producer(0x10), producer(0x30));
         let mut pass = Pass::default();
 
@@ -756,7 +752,7 @@ mod test {
     #[test]
     fn test_an_acknowledgement_which_rolls_back_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let mut image = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
+        let mut image = Image::create(dir.path(), BLOCKS).unwrap();
         let a = producer(0x10);
         let mut pass = Pass::default();
 

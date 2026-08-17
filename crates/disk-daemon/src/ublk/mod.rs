@@ -35,15 +35,15 @@ pub fn block_path(dev_id: u32) -> std::path::PathBuf {
     format!("/dev/ublkb{dev_id}").into()
 }
 
-/// Queue limits for a device of `blocks` × `block_size`.
+/// Queue limits for a device of `blocks` × [`crate::BLOCK_SIZE`].
 ///
 /// `attrs` leaves `UBLK_ATTR_VOLATILE_CACHE` clear, so the kernel issues no flush
 /// or force-unit-access requests. This crate implements neither. The local image is
 /// disposable, and durability belongs to the journal, so a delta captures exactly
 /// the writes which completed.
-pub fn params(blocks: u32, block_size: u32) -> sys::UblkParams {
-    let sectors = blocks as u64 * block_size as u64 / sys::SECTOR_SIZE;
-    let block_shift = block_size.trailing_zeros() as u8;
+pub fn params(blocks: u32) -> sys::UblkParams {
+    let sectors = blocks as u64 * crate::BLOCK_SIZE as u64 / sys::SECTOR_SIZE;
+    let block_shift = crate::BLOCK_SIZE.trailing_zeros() as u8;
 
     sys::UblkParams {
         len: std::mem::size_of::<sys::UblkParams>() as u32,
@@ -63,7 +63,7 @@ pub fn params(blocks: u32, block_size: u32) -> sys::UblkParams {
             discard_alignment: 0,
             // Aligned to the tracking granularity, so a discard clears whole
             // allocated bits.
-            discard_granularity: block_size,
+            discard_granularity: crate::BLOCK_SIZE,
             max_discard_sectors: sectors.try_into().unwrap_or(u32::MAX),
             max_write_zeroes_sectors: sectors.try_into().unwrap_or(u32::MAX),
             // ublk carries one range per request, and the kernel rejects params

@@ -444,12 +444,12 @@ impl Owner {
                 Ok(Command::Snapshot(from, reply)) => {
                     // Only the owner reads its bitmap, so this runs here rather
                     // than on the task which asked.
-                    let run_blocks = ublk::MAX_IO_BUF_BYTES / self.image.block_size();
+                    let run_blocks = ublk::MAX_IO_BUF_BYTES / crate::BLOCK_SIZE;
                     _ = reply.send(self.image.snapshot(from, run_blocks, SNAPSHOT_BATCH_BYTES));
                 }
                 Ok(Command::OpenHorizon(range, reply)) => {
                     let allocated =
-                        self.image.allocated().count_ones() as u64 * self.image.block_size() as u64;
+                        self.image.allocated().count_ones() as u64 * crate::BLOCK_SIZE as u64;
 
                     let opened = self
                         .policy
@@ -492,10 +492,11 @@ impl Owner {
     /// Report what the disk holds and what its horizon still owes. Both are
     /// counts over a bitmap.
     fn report(&mut self) {
-        let block_size = self.image.block_size() as u64;
         let allocated = self.image.allocated().count_ones() as u64;
 
-        self.metrics.allocated.set(allocated * block_size);
+        self.metrics
+            .allocated
+            .set(allocated * crate::BLOCK_SIZE as u64);
         self.metrics
             .horizon_pending
             .set(self.image.horizon_pending() as f64);
@@ -600,7 +601,6 @@ impl Owner {
             }
             Step::DeviceRead => {
                 let bytes = self.slots[tag as usize].buf.len();
-                let block_size = self.image.block_size();
 
                 match transferred(result, bytes) {
                     Err(err) => self.fail(tag, "taking write data from the device", err),
@@ -610,7 +610,7 @@ impl Owner {
                         let block = slot.range.start;
                         slot.data = data.clone();
 
-                        let chunks = crate::chunk::encode_write(block, &data, block_size);
+                        let chunks = crate::chunk::encode_write(block, &data);
                         self.offer(tag, chunks);
                     }
                 }
@@ -623,7 +623,7 @@ impl Owner {
     /// step.
     fn begin(&mut self, tag: u16) {
         let desc = self.descs.get(tag);
-        let block_size = self.image.block_size() as u64;
+        let block_size = crate::BLOCK_SIZE as u64;
 
         let offset = desc.start_sector * sys::SECTOR_SIZE;
         let bytes = sys::io_desc_sectors(&desc) as u64 * sys::SECTOR_SIZE;
@@ -720,7 +720,7 @@ impl Owner {
         if !self.admitting || self.image.horizon().is_none() {
             return;
         }
-        let run_blocks = ublk::MAX_IO_BUF_BYTES / self.image.block_size();
+        let run_blocks = ublk::MAX_IO_BUF_BYTES / crate::BLOCK_SIZE;
 
         while self.capture.has_room() {
             let chunks = match self.image.copy_horizon(&self.policy, run_blocks) {
@@ -778,7 +778,7 @@ impl Owner {
 
         // A punch is the request which carries no data.
         let entry = if slot.data.is_empty() {
-            let bytes = (slot.range.end - slot.range.start) as u64 * self.image.block_size() as u64;
+            let bytes = (slot.range.end - slot.range.start) as u64 * crate::BLOCK_SIZE as u64;
 
             io_uring::opcode::Fallocate::new(fd, bytes)
                 .offset(offset)

@@ -9,8 +9,13 @@
 //! mounted /var/lib/disks/disk-3
 //! published 220
 //! committed
+//! floor 7565135732483162112
 //! closed
 //! ```
+//!
+//! A `floor` line is a recovery floor the daemon derived or established. A real
+//! client persists the greatest one it has seen and hands it back as the next
+//! session's `--floor-hint`. Nothing here persists it, so a human carries it.
 
 use crate::args;
 use crate::proto;
@@ -36,8 +41,9 @@ pub async fn run(args: args::Client) -> anyhow::Result<()> {
     () = send(&requests, proto::request::Request::Open(open(&args))).await?;
 
     match reply(&mut responses).await? {
-        proto::response::Response::Opened(proto::Opened { mount_path }) => {
-            println!("mounted {mount_path}")
+        proto::response::Response::Opened(proto::Opened { mount_path, floor }) => {
+            println!("mounted {mount_path}");
+            () = report_floor(floor);
         }
         response => anyhow::bail!("expected Opened, got {response:?}"),
     }
@@ -93,8 +99,9 @@ pub async fn run(args: args::Client) -> anyhow::Result<()> {
                 .await?;
 
                 match reply(&mut responses).await? {
-                    proto::response::Response::Committed(proto::Committed {}) => {
-                        println!("committed")
+                    proto::response::Response::Committed(proto::Committed { floor }) => {
+                        println!("committed");
+                        () = report_floor(floor);
                     }
                     response => anyhow::bail!("expected Committed, got {response:?}"),
                 }
@@ -131,26 +138,8 @@ pub async fn run(args: args::Client) -> anyhow::Result<()> {
 
 fn open(args: &args::Client) -> proto::Open {
     proto::Open {
-        journal_config: Some(proto::JournalConfig {
-            journal: args.journal.clone(),
-            fragment_stores: args.fragment_store.clone(),
-            replication: args.replication,
-            labels: args
-                .label
-                .iter()
-                .map(|(name, value)| proto::Label {
-                    name: name.clone(),
-                    value: value.clone(),
-                })
-                .collect(),
-            fragment_length: args.fragment_length,
-            flush_interval_seconds: Some(args.flush_interval_seconds),
-            refresh_interval_seconds: args.refresh_interval_seconds,
-            max_append_rate: Some(args.max_append_rate),
-            compression_codec: args.compression_codec as i32,
-        }),
+        journal: args.journal.clone(),
         device_size: args.device_size,
-        block_size: args.block_size,
         broker: Some(proto::Broker {
             endpoint: args.broker_endpoint.clone(),
             credential: args.broker_credential.clone().unwrap_or_default(),
@@ -158,6 +147,17 @@ fn open(args: &args::Client) -> proto::Open {
         // A disk driven by hand has no durable state of its own to recover an
         // acknowledgement from.
         recovered_acks: Vec::new(),
+        floor_hint: args.floor_hint,
+    }
+}
+
+/// Print a floor the daemon reported, which is one a client would persist.
+///
+/// Zero is not printed. It is what a session reports when it derived and
+/// established no floor, and there is nothing there to carry forward.
+fn report_floor(floor: u64) {
+    if floor != 0 {
+        println!("floor {floor}");
     }
 }
 

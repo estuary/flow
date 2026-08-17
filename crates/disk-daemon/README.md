@@ -26,9 +26,11 @@ The crate includes:
 - the `flow-disk-daemon client` command for manual sessions;
 - a bidirectional gRPC session API over a Unix socket;
 - sparse images, `ublk` devices, ext4 formatting, and mounts;
-- journal creation, writer fencing, delta capture, and acknowledgement repair;
+- writer fencing, delta capture, and acknowledgement repair;
+- validation that a journal is one a disk can be recovered from;
 - recovery from committed deltas;
-- recovery horizons, which keep the required journal range bounded; and
+- recovery horizons, which keep the required journal range bounded, and the
+  floors they derive; and
 - an admin page, metrics, graceful shutdown, and crash cleanup.
 
 The main guarantees are:
@@ -40,6 +42,8 @@ The main guarantees are:
 | Crash recovery | A new sparse image is rebuilt from committed journal state. Uncommitted mutations are discarded. |
 | Filesystem result | Recovery preserves files and their contents at the committed boundary. It does not promise an identical ext4 block image. |
 | Writer ownership | At most one cooperative session may append to a disk journal. Gazette's `author` register fences older sessions. |
+| Journal ownership | The client creates the journal and owns its specification. The daemon never creates, converges, or deletes one. |
+| Unused disks | A disk which is opened and never written appends nothing at all, so an idle journal stays suspended. |
 | Local lifetime | A normal session removes its mount and device. Its image has no directory entry and disappears with the process. |
 | Isolation | The client receives a mounted directory. It does not receive a block device, image descriptor, or daemon privilege. |
 
@@ -47,19 +51,22 @@ Mounting and unmounting can change ext4 bookkeeping such as mount counts,
 timestamps, and journal state. Recovery therefore promises filesystem contents,
 not byte-for-byte filesystem metadata.
 
-The client must keep `device_size` and `block_size` stable for the life of a
-disk. They shape the durable chunk format but are not stored in the journal.
-`block_size` must be a supported power of two of at least 512 bytes. The device
-must contain at least one block and at most `u32::MAX` blocks.
+The client must keep `device_size` stable for the life of a disk. It is the one
+durable per-disk fact, and it is not stored in the journal. Block size is the
+fixed 4 KiB of `disk_daemon::BLOCK_SIZE` rather than a per-disk value. The
+device must contain at least one block and at most `u32::MAX` blocks.
 
 Flow runtime integration is outside this crate. The runtime still needs to:
 
-- provision one disk journal per task shard;
+- create one disk journal per task shard, before its first session, and converge
+  or delete that journal afterwards;
 - place the returned mount in a connector sandbox;
 - store published acknowledgements with Flow checkpoints;
-- choose connector protocol boundaries that keep the disk quiet;
-- define shard splitting; and
-- converge or delete disk journal specifications.
+- persist the recovery floors sessions return, and hand the greatest one back at
+  the next `Open`;
+- delete fragments below a persisted floor;
+- choose connector protocol boundaries that keep the disk quiet; and
+- define shard splitting.
 
 The daemon also has no disk-count limit or local-capacity policy. It reports
 capacity and lets the deployment decide when to add hosts or reject work.
@@ -127,7 +134,7 @@ delta. `Publish` returns it without appending it.
 epoch in the journal's `author` register.
 
 **Recovery floor** is the oldest journal position still needed to rebuild a
-disk.
+disk. The daemon derives it and returns it. The client persists it.
 
 **Horizon** is a candidate recovery floor. It becomes the floor after every
 allocated block has a committed copy at or after that position.
@@ -141,18 +148,19 @@ daemon sends no unsolicited messages.
 
 | Request | Reply | Meaning |
 | --- | --- | --- |
-| `Open` | `Opened` | Create or recover one disk, mount it, and return the absolute mount path. |
+| `Open` | `Opened` | Create or recover one disk, mount it, and return the absolute mount path and any floor this recovery derived. |
 | `Publish` | `Published` | Cut and finish one delta. Return its unappended acknowledgement, or empty bytes when nothing changed. |
-| `Commit` | `Committed` | Append the exact published acknowledgement and wait for broker confirmation. |
+| `Commit` | `Committed` | Append the exact published acknowledgement, wait for broker confirmation, and return any floor the commit established. |
 | `Broker` | none | Replace the session's Gazette endpoint and credential. |
 
 `Open` must be first and may be sent once. It supplies:
 
-- the journal name and all inputs needed to create its `JournalSpec`;
-- device size and block size;
-- a required broker endpoint and an optional bearer credential; and
+- the name of a journal which already exists;
+- device size;
+- a required broker endpoint and an optional bearer credential;
 - acknowledgements that the client committed externally but may not have
-  reached the journal.
+  reached the journal; and
+- the recovery floor the client last persisted, which seeks the replay.
 
 The basic state machine is:
 
@@ -197,12 +205,17 @@ still coherent but may not match the client's checkpoint.
 
 ### 1. Open
 
-The daemon validates the request and builds the possible journal spec before it
-creates a device. Missing creation fields, an unsupported compression codec, or
+The daemon lists the journal and validates its specification before it creates a
+device. An absent journal, a specification a disk could not be recovered from, or
 invalid device geometry therefore fail early.
 
-It probes the journal once for its write head and current `author` register.
-The result chooses one of two paths:
+The daemon then probes once for the write head and the current `author` register.
+That probe refuses to resume a suspended journal, so it is safe to issue whatever
+the listing said. A journal which answers it is awake, and its answer is the
+authority. A journal which refuses is asleep, and a sleeping journal cannot
+change, so its listing supplies the head Gazette recorded when it suspended.
+
+Journal content, not journal existence, then chooses one of two paths:
 
 **Fresh disk**
 
@@ -211,27 +224,31 @@ The result chooses one of two paths:
 3. Format the device as ext4.
 4. Mount it under the configured mount directory.
 5. Drop all format and mount mutations from the capture channel.
-6. Return the mount path.
+6. Return the mount path, and a zero floor.
 
-An absent journal is not created or claimed during this path. A disk that is
-opened and never changed leaves no journal state.
+The journal is not claimed during this path. A disk that is opened and never
+changed appends nothing at all.
 
 **Recovered disk**
 
-1. Claim the existing journal before reading or repairing it.
+1. Claim the journal before reading or repairing it.
 2. Append each recovered acknowledgement exactly as supplied.
 3. Fix a broker-confirmed journal head for this recovery.
-4. Read the recovery-floor label and replay committed records into a new image.
+4. Seek from the client's floor hint and replay committed records into a new
+   image.
 5. Create the `ublk` device over the rebuilt image.
-6. Mount the filesystem and return its path.
+6. Mount the filesystem, and return its path with any floor the replay derived.
 
 A journal that contains only orphan records from a failed first use is claimed
 and replayed, but it still produces a fresh filesystem. The fence is the same
 fence that the session would need for its next first append.
 
-Recovered acknowledgements require an existing journal. A client can hold one
-only for a journal which existed, so an absent journal means committed state
-was deleted. The `Open` fails rather than serve a fresh disk.
+Recovered acknowledgements require journal content that replays. A client can
+hold one only for a journal whose data appends a broker confirmed, so an empty
+journal means committed state was deleted — and a journal whose replay applies
+no records means the same, even when its head outlived them. The acknowledged
+records are the newest the disk has, so no legal floor hint can seek past them.
+Either way the `Open` fails rather than serve a fresh disk over the loss.
 
 ### 2. Serve block I/O
 
@@ -442,7 +459,7 @@ test matrix.
 
 A fresh filesystem uses:
 
-- the disk's block size;
+- the daemon's 4 KiB block size, so no device request can straddle a block;
 - zero reserved blocks;
 - `assume_storage_prezeroed=1`;
 - no whole-device discard during format; and
@@ -468,7 +485,7 @@ arrive. The first mutation after mount causes the owner to snapshot allocated
 image blocks in bounded batches. The writer appends that snapshot before all
 captured mutations. This has three useful properties:
 
-- an unused fresh disk creates no journal;
+- an unused fresh disk appends nothing to its journal;
 - repeated format writes to one block collapse into one final block value; and
 - memory does not scale with device size.
 
@@ -481,32 +498,63 @@ delta.
 
 ## Journal design
 
-### Journal specification and creation
+### Journal ownership and validation
 
-`Open.JournalConfig` supplies typed inputs instead of a raw `JournalSpec`.
-The daemon fixes the fields needed for recovery:
+`Open` names a journal which already exists. The client creates it, converges it,
+and deletes it. The daemon never applies a journal specification, and never
+writes to etcd at all.
 
-- the journal is read-write;
-- the compression codec must be one the daemon can decode;
-- retention is unset; and
-- `path_postfix_template` is empty.
+That division follows from who knows what. Replication, fragment stores, flush
+and refresh intervals, and append ceilings are a deployment's own vocabulary. A
+value the daemon invented for one of them would become a permanent property of
+every disk created by that daemon version.
 
-Every configuration field is required. Two fields use proto3 `optional` so
-zero remains a deliberate value: zero `max_append_rate` means no ceiling, and
-zero `flush_interval_seconds` means close fragments by size only.
+What the daemon does know is what a disk can be recovered from. It reads the
+listed specification at `Open` and refuses one that breaks a recovery rule:
 
-The daemon has no journal defaults. It creates a spec once and does not converge
-it later. A hidden default would become a permanent property of disks created by
-one daemon version. The client remains responsible for later convergence and
-deletion.
+| Rule | Why |
+| --- | --- |
+| `flags` is `NOT_SPECIFIED` or `O_RDWR` | The daemon both appends to this journal and replays it. |
+| The compression codec is one `gazette::journal::read` decodes | The daemon reads the journal back to rebuild the disk. |
+| `fragment.retention` is unset | Gazette deletes fragments by age, and age cannot see the recovery floor, so any retention risks deleting records a live disk needs. |
+| `fragment.path_postfix_template` is empty | Date-prefixed fragment paths are what a bucket lifecycle rule keys on, which is age-based deletion by another route. |
 
-Creation is an insert-only Gazette apply. It happens on the first append, not at
-`Open`. If another writer wins the creation race, the daemon accepts the
-existing spec and lets fencing decide ownership.
+These are refused rather than fixed. The specification belongs to the client, so
+a daemon which quietly corrected one would be deciding a durable property of a
+disk it only serves. Physical fragment deletion follows the recovery floor, and
+belongs to the client too.
 
-Age-based retention is unsafe for a disk journal. It cannot know the recovery
-floor and could remove live state before a horizon completes. Physical fragment
-deletion must follow the floor instead.
+### Journals of unused disks
+
+An idle disk must cost an etcd entry and nothing more. Gazette's `--auto-suspend`
+brokers suspend a journal with an empty fragment index at `FULL`, which scales it
+to zero replicas.
+
+Any append resumes a suspended journal, because `AppendRequest.Suspend` defaults
+to `SUSPEND_RESUME`. The daemon's zero-byte probe therefore carries
+`SUSPEND_NO_RESUME`, which fails with `SUSPENDED` instead of waking one. Reading
+a journal never wakes it.
+
+Gazette answers a suspended journal with a status and not a head, so the head
+comes from the journal's own listing. Every suspension records the head it
+suspended at, and a resumption rolls forward to it, so:
+
+| Probe | Listing | Open |
+| --- | --- | --- |
+| answers | — | Head and author of the probe, whatever the listing said. |
+| `SUSPENDED` | suspended at offset zero | Fresh disk: head zero, and no author, because only an append carrying content sets a register. |
+| `SUSPENDED` | suspended above zero | Content a recovery must read. Probed again with the resuming default, which the recovery needs anyway. |
+| `SUSPENDED` | no suspension recorded | The listing predates the suspension. Listed again, which settles it. |
+
+The probe is issued even where the listing looks empty. It costs one status,
+which Gazette resolves from a broker's own key space without a replica, and it
+is what makes a stale listing harmless: a journal which was resumed and written
+since that listing answers with its real head, and the disk recovers instead of
+serving an empty filesystem over committed state.
+
+A disk which is opened, formatted, mounted, and never written appends nothing
+across any number of sessions. Not even a fence lands, because the fence is
+deferred to the session's first real append.
 
 ### Record format
 
@@ -536,14 +584,15 @@ are not visible in the durable record format.
 Appends are issued one at a time and awaited. A transient retry sends identical
 bytes. Gazette de-duplicates repeated UUIDs during replay.
 
-Record clocks follow wall time as well as record order. A floor label stores the
-opening record's clock and turns it back into a fragment modification-time seek.
-A clock that only ticked per record would drift behind long-running sessions.
+Record clocks follow wall time as well as record order. A recovery floor is the
+opening record's clock, and a recovery turns it back into a fragment
+modification-time seek. A clock that only ticked per record would drift behind
+long-running sessions.
 
-The protocol currently has Rust bindings but no Go bindings. Its two proto3
-`optional` configuration fields are not supported by this repository's
-`protoc-gen-gogo`, and no Go code consumes the API. A future Go client must
-resolve that generator constraint without changing the journal semantics.
+The protocol currently has Rust bindings but no Go bindings. Nothing in Go
+consumes the API yet, so none are generated. The proto3 `optional` fields which
+this repository's `protoc-gen-gogo` could not generate are gone, so adding
+bindings is now a matter of listing the file in `mise/tasks/build/go-protobufs`.
 
 ### Writer fencing
 
@@ -560,8 +609,13 @@ probing for its own epoch. It never chooses a second epoch for the retry.
 
 Fencing happens at different times:
 
-- An absent, unused journal is created and claimed on its first append.
-- An existing journal is claimed before acknowledgement repair or replay.
+- An empty journal is claimed on the session's first append, so an unused disk
+  never claims one at all.
+- A journal with content is claimed before acknowledgement repair or replay.
+
+The compare-and-swap is also the backstop for every race the listing and the
+probe could have lost. Whatever the journal was when the session looked, only
+one epoch installs itself over the author that session read.
 
 The register chooses one cooperative writer. It is not commit authority.
 Committed records and recovered acknowledgements remain authoritative even if
@@ -574,13 +628,13 @@ Recovery runs before a device can read the rebuilt image:
 1. Claim the journal.
 2. Append recovered acknowledgements.
 3. Probe a broker-confirmed head `H`. This fixes the end of the recovery.
-4. Read the configured floor label. Its clock gives a fragment
-   modification-time seek.
+4. Turn `Open.floor_hint` into a fragment modification-time seek. A zero hint
+   seeks zero, and reads from the first fragment still in the store.
 5. Replay the fixed range up to `H` into a new sparse image.
 6. Rebuild the allocated bitmap and any open horizon.
-7. Mount the image.
+7. Mount the image, and return any floor the replay derived in `Opened.floor`.
 
-The floor is a seek hint, not a record filter. A missing or stale label starts
+The floor is a seek hint, not a record filter. A missing or stale hint starts
 the read earlier and costs more work. Filtering by clock could remove a record
 from the middle of a delta and is not valid.
 
@@ -675,23 +729,44 @@ At a publication cut, the writer asks the owner how many horizon blocks remain.
 If none remain, committing that delta completes the horizon. The writer moves
 the floor to the opening record and asks the owner to drop the bitmap.
 
-The daemon writes the opening record's clock to a configured label on the
-journal spec. The value is sixteen lowercase hexadecimal digits. The update is
-advance-only and uses compare-and-swap against the live spec, so unrelated spec
-fields survive.
-
-The label update runs off the commit path. A failed or stale update only makes a
-future replay start earlier. It cannot change recovered content. The daemon
-derives and retries the floor during later recovery. Fragment deletion is a
-separate external operation.
-
-An absent or behind floor label is safe. A label ahead of the derived floor is
-unsafe because it can skip required records. The daemon therefore writes only a
-floor proved by a completed horizon and never moves the label backward.
-
 If a disk stops changing, an open horizon pauses. Its journal also stops growing.
 A replacement session reconstructs and resumes an open horizon from ordinary
 records.
+
+### Who keeps the floor
+
+The daemon derives the floor and returns it. The client persists it. The daemon
+writes nothing durable of its own about a disk, which is what keeps it out of
+etcd and out of the journal specification.
+
+A floor travels as the opening record's message clock, a `fixed64`:
+
+| Reply | When it is nonzero |
+| --- | --- |
+| `Committed.floor` | This commit completed a recovery horizon. |
+| `Opened.floor` | This recovery's replayed range completed one. |
+
+`Opened.floor` is what makes the scheme self-healing. A session which completes a
+horizon and then dies before its client stores the floor loses nothing: the next
+recovery reads the same records and derives the same floor, and reports it on
+that session's behalf.
+
+The client's rule is one line:
+
+> Persist the greatest floor this daemon has returned for this journal, and hand
+> it back as the next `Open.floor_hint`.
+
+The store is best-effort. A floor which is lost, or written late, costs a later
+replay some work and cannot change what that replay produces. Nothing is ever
+held up waiting for one.
+
+The one value which must never be presented is a floor ahead of the true one. A
+hint seeks past fragments, so an inflated one skips records the disk still needs
+and loses data silently. A client must therefore only echo values this daemon
+returned for this journal, and must never invent, round, or advance one itself.
+
+Fragments below a persisted floor are the client's to delete. That deletion is
+what turns a bounded recovery range into bounded storage.
 
 ## Operating the daemon
 
@@ -764,9 +839,6 @@ Required service flags:
 | `--uds-path` | Unix socket for session RPCs. |
 | `--image-dir` | Directory for sparse images. Stripe several drives below this directory instead of exposing host topology to clients. |
 | `--mount-dir` | Directory owned by the daemon for per-session mounts and startup reclaim. |
-| `--floor-label` | Journal-spec label that stores the recovery floor. It has no default because the daemon has no deployment-specific label vocabulary. |
-
-Flow deployments use `estuary.dev/truncated-at` as the floor label.
 
 Optional service flags:
 
@@ -778,13 +850,25 @@ Optional service flags:
 | `--horizon-copy-ratio` | `0.5` | Unchanged bytes copied per changed byte. |
 | `--horizon-minimum-bytes` | 1 GiB | Minimum journal range before a horizon opens. |
 
-Device size, block size, journal configuration, broker endpoint, and credential
-are session inputs. They are not daemon flags. Device and block size are durable
-per-disk facts. Journal fields are creation-time facts. A daemon restart must not
-reinterpret either.
+Device size, journal name, floor hint, broker endpoint, and credential are
+session inputs. They are not daemon flags. Device size is a durable per-disk
+fact, and a daemon restart must not reinterpret it. Block size is neither: it is
+the fixed 4 KiB of `disk_daemon::BLOCK_SIZE`.
 
 Compaction flags are policy. They may change between restarts because replay
 derives horizon state from the journal.
+
+### Data-plane preconditions
+
+The client, not this daemon, provisions journals. Two deployment facts follow:
+
+- **Brokers should run `--auto-suspend`.** A disk which is provisioned and never
+  written appends nothing, so its journal keeps an empty fragment index. Only
+  auto-suspension turns that into zero replicas and an etcd entry. Without it,
+  every provisioned disk costs broker capacity whether it is used or not.
+- **Something must delete fragments below the floor.** The daemon derives floors
+  and returns them, and it deletes nothing. The component which persists a
+  disk's floor is the one which must act on it.
 
 ### Service limits
 
@@ -914,12 +998,27 @@ appear as `UNAUTHENTICATED`.
 
 ### Manual session
 
-`flow-disk-daemon client` drives one session from standard input:
+The journal must exist first, because the daemon creates none:
+
+```console
+$ cat <<'YAML' | gazctl journals apply --specs /dev/stdin
+journals:
+  - name: acmeCo/disk/scratch
+    replication: 1
+    fragment:
+      length: 67108864
+      stores: [s3://example-bucket/disks/]
+      compressionCodec: SNAPPY
+      refreshInterval: 5m
+      flushInterval: 1h
+YAML
+```
+
+`flow-disk-daemon client` then drives one session from standard input:
 
 ```console
 $ flow-disk-daemon client --uds-path /run/disks/daemon.sock \
     --journal acmeCo/disk/scratch \
-    --fragment-store s3://example-bucket/disks/ \
     --broker-endpoint https://broker.example \
     --broker-credential "$TOKEN"
 mounted /var/lib/disks/disk-3
@@ -934,6 +1033,10 @@ closed
 The command holds the acknowledgement itself, so `commit` needs no pasted
 bytes. `quit`, end-of-input, and `SIGINT` close the session and remove its
 disk.
+
+A `floor` line appears whenever the daemon reports a recovery floor. Nothing here
+persists it, so carry the greatest one forward by hand as the next session's
+`--floor-hint`. Omitting it only makes the next recovery read more.
 
 ## Testing
 
@@ -964,7 +1067,13 @@ multi-transaction recovery, lost acknowledgements, uncommitted deltas,
 mid-writeback cuts, horizons, broker outage, credential replacement, fence
 takeover, shutdown under load, and concurrent soak. Recovery cases mount the
 rebuilt image and compare filesystem contents. The horizon test deletes every
-fragment below the derived floor before recovery.
+fragment below the floor the protocol returned, then hands that floor back to
+seek the recovery which follows.
+
+Every broker-backed case creates its journal first, through
+`tests/common/mod.rs`, because the daemon creates none. The cases which do not
+are the ones asserting that an absent journal, or a specification a disk cannot
+be recovered from, fails the `Open`.
 
 `tests/ublk.rs` drives `src/bin/scenario.rs`. It exercises the block-device
 library without a session, including shallow-queue backpressure, sparse extent
@@ -980,6 +1089,7 @@ allocation, bitmaps, and state transitions.
 | Item | Role |
 | --- | --- |
 | [`proto`](../../go/protocols/disk/disk.proto) | Session messages and durable `DiskRecord` / `Chunk` messages, re-exported from `proto_flow::disk`. |
+| [`BLOCK_SIZE`](src/lib.rs) | The 4 KiB every disk uses, for chunks, bitmaps, hole punching, and ext4. |
 | [`args::Args`](src/args.rs) | `serve` and `client` command lines. |
 | [`daemon::run`](src/daemon.rs) | Host validation, process wiring, socket service, startup reclaim, and drain. |
 | [`session::Service`](src/session.rs) | One session state machine per gRPC stream and the client-visible error taxonomy. |
@@ -989,11 +1099,9 @@ allocation, bitmaps, and state transitions.
 | [`owner::Snapshotter`](src/owner.rs) | Bounded first-publication snapshots. |
 | [`owner::Compactor`](src/owner.rs) | Writer-to-owner commands for recovery horizons. |
 | [`capture::channel`](src/capture.rs) | Ordered, bounded handoff from device mutations to the writer. |
-| [`journal::Opening` / `journal::Writer`](src/journal/mod.rs) | Fence, repair, replay, append, publish, and commit for one session. |
+| [`journal::Opening` / `journal::Writer`](src/journal/mod.rs) | Validate the listed spec, fence, repair, replay, append, publish, and commit for one session. |
 | [`journal::replay`](src/journal/replay.rs) | Rebuild a sparse image from committed journal records. |
 | [`journal::fence`](src/journal/fence.rs) | Probe and claim the `author` register. |
-| [`journal::floor`](src/journal/floor.rs) | Read and advance the recovery-floor label. |
-| [`journal::spec`](src/journal/spec.rs) | Validate `JournalConfig`, build a spec, and create it insert-only. |
 | [`image::Image`](src/image.rs) | Sparse image plus allocated and horizon bitmaps. |
 | [`chunk`](src/chunk.rs) | Mutation encoding and replay application. |
 | [`horizon::Horizon`](src/horizon.rs) | Pending-block state and compaction budget. |
@@ -1009,8 +1117,7 @@ allocation, bitmaps, and state transitions.
 - `image.rs`, `bitmap.rs`, `inflight.rs`, and `chunk.rs`: local state and
   durable block encoding.
 - `capture.rs` and `wake.rs`: bounded cross-thread handoff and wakeups.
-- `journal/`: specification, fencing, append state machine, floor labels, and
-  recovery.
+- `journal/`: spec validation, fencing, the append state machine, and recovery.
 - `horizon.rs`: bounded-recovery policy and state.
 - `filesystem.rs`: ext4 format, mount, flush, and unmount.
 - `metrics.rs`: admin and Prometheus observations.

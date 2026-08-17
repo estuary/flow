@@ -59,7 +59,8 @@ impl Policy {
 pub struct Position {
     /// Offset of the record which opened it, which is where a replay may begin.
     pub offset: i64,
-    /// Clock of that record. The floor label carries this clock.
+    /// Clock of that record. This is the floor a session reports to its client,
+    /// and which the client hands back to seek a later replay.
     pub clock: uuid::Clock,
 }
 
@@ -121,14 +122,9 @@ impl Horizon {
 
     /// The next run of at most `limit` blocks to copy, or `None` when this
     /// delta's budget is spent or the horizon is discharged.
-    pub fn next_copy(
-        &mut self,
-        policy: &Policy,
-        limit: u32,
-        block_size: u32,
-    ) -> Option<std::ops::Range<u32>> {
+    pub fn next_copy(&mut self, policy: &Policy, limit: u32) -> Option<std::ops::Range<u32>> {
         let budget = policy.budget(self.changed).saturating_sub(self.copied);
-        let limit = std::cmp::min(limit as u64, budget / block_size as u64) as u32;
+        let limit = std::cmp::min(limit as u64, budget / crate::BLOCK_SIZE as u64) as u32;
 
         if limit == 0 {
             return None;
@@ -159,9 +155,8 @@ impl Horizon {
 #[cfg(test)]
 mod test {
     use super::{Horizon, Policy};
+    use crate::BLOCK_SIZE;
     use crate::bitmap::Bitmap;
-
-    const BLOCK_SIZE: u32 = 4096;
 
     /// The shipped policy, which every case varies from.
     fn policy() -> Policy {
@@ -211,29 +206,29 @@ mod test {
         let mut horizon = Horizon::open(&allocated(&[1, 2, 3, 40]));
 
         assert_eq!(horizon.pending(), 4);
-        assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
+        assert_eq!(horizon.next_copy(&policy, 8), None);
 
         // Half a block of change buys nothing. A whole block buys one copy.
         horizon.changed(BLOCK_SIZE as u64);
-        assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
+        assert_eq!(horizon.next_copy(&policy, 8), None);
 
         horizon.changed(BLOCK_SIZE as u64);
-        assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), Some(1..2));
+        assert_eq!(horizon.next_copy(&policy, 8), Some(1..2));
 
         horizon.copied(1..2, BLOCK_SIZE as u64);
         assert_eq!(horizon.pending(), 3);
-        assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
+        assert_eq!(horizon.next_copy(&policy, 8), None);
 
         // A run stops at the limit, at a hole, and at the budget.
         horizon.changed(16 * BLOCK_SIZE as u64);
-        assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), Some(2..4));
+        assert_eq!(horizon.next_copy(&policy, 8), Some(2..4));
 
         horizon.copied(2..4, 2 * BLOCK_SIZE as u64);
-        assert_eq!(horizon.next_copy(&policy, 1, BLOCK_SIZE), Some(40..41));
+        assert_eq!(horizon.next_copy(&policy, 1), Some(40..41));
 
         // The delta ends. Its unspent budget does not carry into the next one.
         horizon.cut();
-        assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
+        assert_eq!(horizon.next_copy(&policy, 8), None);
     }
 
     /// A block the device writes is published like any other. A delta which
@@ -248,7 +243,7 @@ mod test {
         horizon.published(40..41);
 
         assert_eq!(horizon.pending(), 0);
-        assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
+        assert_eq!(horizon.next_copy(&policy, 8), None);
     }
 
     /// The cursor only moves forward. A horizon therefore costs one pass over
@@ -263,7 +258,7 @@ mod test {
         horizon.changed(1 << 20);
 
         let mut runs = Vec::new();
-        while let Some(run) = horizon.next_copy(&policy, 2, BLOCK_SIZE) {
+        while let Some(run) = horizon.next_copy(&policy, 2) {
             horizon.copied(run.clone(), run.len() as u64 * BLOCK_SIZE as u64);
             runs.push(run);
         }

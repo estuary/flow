@@ -42,22 +42,32 @@ message Response {
   }
 }
 
-// Open creates or recovers a disk and mounts its filesystem.
+// Open recovers or creates a disk and mounts its filesystem.
 message Open {
-  // Journal of the disk, and how to create it.
-  JournalConfig journal_config = 1;
-  // Logical size of the device in bytes, and a multiple of `block_size`. The
-  // image is sparse, so this is a capacity and not an allocation.
-  uint64 device_size = 2;
-  // Block size in bytes, and the granularity of the chunk encoding, hole
-  // punching, and the daemon's bitmaps.
+  // Journal holding the disk's durable state. Required.
   //
-  // It is fixed from the moment a disk first publishes. Every later Open must
-  // present the same value, or replay misplaces every chunk it applies. Blocks
-  // are indexed by uint32, capping `device_size` at 2^32 blocks.
-  uint32 block_size = 3;
+  // The journal must already exist. The daemon never creates, converges, or
+  // deletes one: the client creates it before it opens a disk, and owns its
+  // specification from then on. An Open of a journal which is absent therefore
+  // fails, because that journal was never provisioned or has been deleted, and
+  // serving a fresh disk in either case would hide the mistake.
+  //
+  // The daemon does validate the specification it finds, and refuses one a disk
+  // could not be recovered from. Fragments must use a compression codec the
+  // daemon can decompress, since it reads the journal back to rebuild the disk.
+  // Fragment retention must be unset, and `path_postfix_template` empty, since
+  // both delete fragments by age and age cannot see the recovery floor. Flags
+  // must leave the journal writable.
+  string journal = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+  // Logical size of the device in bytes, and a multiple of the daemon's fixed
+  // 4096-byte block size. The image is sparse, so this is a capacity and not an
+  // allocation. Blocks are indexed by uint32, capping it at 2^32 blocks.
+  //
+  // This is the one durable per-disk fact. It is fixed from the moment a disk
+  // first publishes, and every later Open must present the same value.
+  uint64 device_size = 2;
   // Brokers serving the journal. Required.
-  Broker broker = 4;
+  Broker broker = 3;
   // Acknowledgements which the client committed but which may not have reached
   // the journal, as returned by Published. The daemon appends them verbatim
   // before it uses the journal, and Gazette de-duplicates by UUID.
@@ -65,9 +75,19 @@ message Open {
   // The disk has committed state if the journal holds an acknowledged delta, or
   // if an acknowledgement is recovered here.
   //
-  // When set, the journal must exist. An absent journal means committed state
-  // was deleted, and the Open fails.
-  repeated bytes recovered_acks = 5;
+  // When set, the journal must hold content that replays. An empty journal
+  // means committed state was deleted, a journal whose replay applies no
+  // records means the same, and either way the Open fails.
+  repeated bytes recovered_acks = 4;
+  // Recovery floor the client last persisted, as returned by Opened and
+  // Committed, or zero if it holds none. It seeks the replay which rebuilds the
+  // disk, and nothing more: a floor which is absent or behind costs replay work
+  // and cannot change what the replay produces.
+  //
+  // A client must only echo a value this daemon returned for this journal. A
+  // floor ahead of the true one skips fragments the disk still needs, and the
+  // loss is silent.
+  fixed64 floor_hint = 5;
 }
 
 // Broker addresses and authorizes the Gazette brokers serving a disk's journal.
@@ -79,49 +99,22 @@ message Broker {
   string credential = 2;
 }
 
-// JournalConfig names the disk's journal and configuration to create it.
-//
-// No retention is set. Gazette deletes fragments by age, which cannot see the
-// recovery floor, so any retention risks deleting records a live disk needs.
-message JournalConfig {
-  // Every field is required. The daemon holds no defaults: a value it invented
-  // would be one this journal is stuck with, since the spec is created once and
-  // never converged.
-  //
-  // Two fields are `optional` because Gazette reads zero as a choice for them,
-  // which proto3 cannot otherwise tell from an omission.
-
-  // Journal holding the disk's durable state.
-  string journal = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
-  // Stores of the journal's fragments
-  repeated string fragment_stores = 2 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.FragmentStore"];
-  // Replication factor.
-  uint32 replication = 3;
-  // Labels of the created spec. May be empty.
-  repeated Label labels = 4;
-  // Size a fragment reaches before it is closed and persisted.
-  int64 fragment_length = 5;
-  // Interval at which an open fragment is closed and persisted, regardless of
-  // size. Zero closes one on size alone.
-  optional uint32 flush_interval_seconds = 6;
-  // Interval at which brokers re-list the fragment store.
-  uint32 refresh_interval_seconds = 7;
-  // Ceiling on the journal's sustained append rate, in bytes per second. Zero
-  // is no ceiling.
-  optional int64 max_append_rate = 8;
-  // Codec used to compress fragments. Must be one this daemon can decompress,
-  // because it reads the journal back to rebuild the disk.
-  protocol.CompressionCodec compression_codec = 9;
-}
-
-message Label {
-  string name = 1;
-  string value = 2;
-}
-
 message Opened {
   // Absolute path of the mounted filesystem.
   string mount_path = 1;
+  // Recovery floor this Open derived, or zero if it derived nothing better than
+  // `floor_hint`. A fresh disk derives none, and neither does a recovery whose
+  // replayed range completed no horizon.
+  //
+  // A session records here a floor which an earlier session derived but could
+  // not report, because the client which would have persisted it was gone.
+  //
+  // The client persists the greatest floor this daemon has returned for the
+  // journal, across Opened and Committed alike, and hands it back as the next
+  // Open's `floor_hint`. That store is best-effort: the floor is a seek and
+  // never a filter, so losing one costs replay work and nothing else. It must
+  // never run ahead of what the daemon returned.
+  fixed64 floor = 2;
 }
 
 // Publish cuts a point-in-time boundary of the device and finishes publishing
@@ -152,7 +145,15 @@ message Commit {
 
 // Committed reports that the acknowledgement is appended and confirmed by the
 // broker. The client may begin its next transaction.
-message Committed {}
+message Committed {
+  // Recovery floor this commit established, or zero if it established none.
+  // It is nonzero only when the committed delta completed a recovery horizon,
+  // which puts a copy of every allocated block at or after that floor.
+  //
+  // The client persists the greatest floor this daemon has returned, per
+  // Opened. Fragments below a persisted floor are the client's to delete.
+  fixed64 floor = 1;
+}
 
 // DiskRecord is the only message of a disk journal. Records use Gazette's fixed
 // protobuf framing, and their UUID flags distinguish two kinds:

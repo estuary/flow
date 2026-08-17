@@ -21,9 +21,6 @@ const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub struct Config {
     pub image_dir: std::path::PathBuf,
     pub mount_dir: std::path::PathBuf,
-    /// Label on a disk journal's own spec which holds its recovery floor. Every
-    /// replay reads it back as its seek hint.
-    pub floor_label: String,
     /// When a disk opens a recovery horizon, and how fast it discharges one.
     pub horizon: crate::horizon::Policy,
     /// Shared by every session's journal writer.
@@ -47,7 +44,6 @@ pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result
     let config = std::sync::Arc::new(Config {
         image_dir: args.image_dir.clone(),
         mount_dir: args.mount_dir.clone(),
-        floor_label: args.floor_label.clone(),
         horizon: crate::horizon::Policy {
             open_ratio: args.horizon_open_ratio,
             copy_ratio: args.horizon_copy_ratio,
@@ -64,7 +60,6 @@ pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result
         image_dir = ?args.image_dir,
         mount_dir = ?args.mount_dir,
         ublks_max = control.ublks_max(),
-        floor_label = args.floor_label,
         horizon = ?config.horizon,
         "disk daemon starting",
     );
@@ -334,12 +329,6 @@ fn validate(args: &Serve) -> anyhow::Result<Control> {
         "the ublk_drv kernel module is not loaded, so no block device can be served. \
          Load it with `modprobe ublk_drv`",
     );
-    anyhow::ensure!(
-        !args.floor_label.is_empty(),
-        "--floor-label names the journal-spec label a disk's recovery floor is written to, \
-         and it has no default. Without one every recovery replays from the earliest \
-         fragment and the journal a disk needs grows without bound",
-    );
     let control = Control::open()?;
 
     let features = control.features().context(
@@ -371,10 +360,8 @@ fn validate(args: &Serve) -> anyhow::Result<Control> {
 /// discard frees nothing. The local copy of a 10 GiB disk holding 200 MiB would
 /// then occupy 10 GiB.
 fn punches_holes(dir: &std::path::Path) -> anyhow::Result<()> {
-    const BLOCK_SIZE: u32 = 4096;
-
-    let mut image = crate::image::Image::create(dir, 1, BLOCK_SIZE)?;
-    () = image.write_at(0, &vec![0xff; BLOCK_SIZE as usize])?;
+    let mut image = crate::image::Image::create(dir, 1)?;
+    () = image.write_at(0, &vec![0xff; crate::BLOCK_SIZE as usize])?;
     () = image.punch(0, 1)?;
 
     anyhow::ensure!(

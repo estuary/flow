@@ -190,10 +190,11 @@ impl Session {
                     ));
                 }
                 self.handler.set_phase("opening");
-                let serving = self.open(open).await.map_err(failed)?;
+                let (serving, floor) = self.open(open).await.map_err(failed)?;
 
                 let opened = proto::Opened {
                     mount_path: serving.mount.path().display().to_string(),
+                    floor,
                 };
                 self.state = State::Serving(serving);
                 self.handler.set_phase("serving");
@@ -211,10 +212,10 @@ impl Session {
             }
             Request::Commit(proto::Commit { ack }) => {
                 self.handler.set_phase("committing");
-                () = self.serving()?.writer.commit(ack).await.map_err(failed)?;
+                let floor = self.serving()?.writer.commit(ack).await.map_err(failed)?;
                 self.handler.set_phase("serving");
 
-                Some(Response::Committed(proto::Committed {}))
+                Some(Response::Committed(proto::Committed { floor }))
             }
             // A replaced broker has no reply, so a client which cannot reach
             // its brokers learns of it from its next publication.
@@ -231,47 +232,47 @@ impl Session {
         }))
     }
 
-    /// Create the disk of `open` and mount its filesystem.
+    /// Create the disk of `open`, mount its filesystem, and report the recovery
+    /// floor the open derived.
     ///
     /// A disk with committed state is rebuilt from its journal. The session claims
     /// that journal before it reads. A disk without committed state is formatted
-    /// instead, and its journal is neither created nor claimed. The session only
-    /// reads the author register which a later first append must replace.
-    async fn open(&self, open: proto::Open) -> anyhow::Result<Serving> {
+    /// instead, and its journal is not claimed. The session only reads the author
+    /// register which a later first append must replace.
+    async fn open(&self, open: proto::Open) -> anyhow::Result<(Serving, u64)> {
         let proto::Open {
-            journal_config,
+            journal,
             device_size,
-            block_size,
             broker,
             recovered_acks,
+            floor_hint,
         } = open;
 
-        let journal_config = journal_config.unwrap_or_default();
-        let journal = journal_config.journal.clone();
-
-        let blocks = blocks(device_size, block_size)?;
+        let blocks = blocks(device_size)?;
         self.handler.set_label(journal.clone());
 
-        // This is built before a device exists. A journal which cannot be created
-        // is a disk which can never publish.
+        // This is resolved before a device exists. A journal which does not exist,
+        // or which a disk could not be recovered from, is a disk which can never
+        // publish.
         let mut opening = journal::Opening::new(
             &self.daemon.client,
             journal::Open {
-                journal: journal_config,
+                journal: journal.clone(),
                 broker: broker.unwrap_or_default(),
-                floor_label: self.daemon.floor_label.clone(),
             },
             self.ended.clone(),
         )
         .await?;
 
-        let mut image = Image::create(&self.daemon.image_dir, blocks, block_size)
+        let mut image = Image::create(&self.daemon.image_dir, blocks)
             .with_context(|| format!("creating an image in {:?}", self.daemon.image_dir))?;
 
         // A horizon the replay leaves open belongs to the image. The disk resumes
         // that horizon rather than opening a new one over whatever this session
         // finds allocated.
-        let recovered = opening.recover(&mut image, recovered_acks).await?;
+        let journal::Recovered { recovered, floor } = opening
+            .recover(&mut image, recovered_acks, floor_hint)
+            .await?;
 
         let control = self.control.clone();
         let horizon = self.daemon.horizon;
@@ -317,7 +318,6 @@ impl Session {
                     () = filesystem::format(
                         filesystem::Type::Ext4,
                         &block_path,
-                        block_size,
                         filesystem::MKFS_TIMEOUT,
                     )
                     .await?;
@@ -343,14 +343,18 @@ impl Session {
             dev_id = disk.dev_id(),
             mount = ?mount.path(),
             recovered,
+            floor,
             "opened a disk",
         );
 
-        Ok(Serving {
-            mount,
-            disk,
-            writer,
-        })
+        Ok((
+            Serving {
+                mount,
+                disk,
+                writer,
+            },
+            floor,
+        ))
     }
 
     fn serving(&mut self) -> tonic::Result<&mut Serving> {
@@ -453,22 +457,15 @@ async fn draining<T>(
     }
 }
 
-/// Block count of a device.
-fn blocks(device_size: u64, block_size: u32) -> anyhow::Result<u32> {
+/// Block count of a device. `device_size` is the one durable geometry a session
+/// supplies, because the block size is [`crate::BLOCK_SIZE`] for every disk.
+fn blocks(device_size: u64) -> anyhow::Result<u32> {
     crate::ensure_valid!(
-        block_size != 0 && block_size.is_power_of_two(),
-        "block size {block_size} must be a power of two",
+        device_size != 0 && device_size.is_multiple_of(crate::BLOCK_SIZE as u64),
+        "device size {device_size} must be a non-zero multiple of the {} byte block size",
+        crate::BLOCK_SIZE,
     );
-    crate::ensure_valid!(
-        block_size as u64 >= crate::ublk::sys::SECTOR_SIZE,
-        "block size {block_size} is smaller than the {} bytes a device addresses",
-        crate::ublk::sys::SECTOR_SIZE,
-    );
-    crate::ensure_valid!(
-        device_size != 0 && device_size.is_multiple_of(block_size as u64),
-        "device size {device_size} must be a non-zero multiple of the block size {block_size}",
-    );
-    let blocks = device_size / block_size as u64;
+    let blocks = device_size / crate::BLOCK_SIZE as u64;
 
     crate::ensure_valid!(
         blocks <= u32::MAX as u64,
@@ -531,17 +528,14 @@ mod test {
 
     #[test]
     fn test_a_devices_geometry_is_checked_before_it_exists() {
-        assert_eq!(blocks(1 << 30, 4096).unwrap(), 262144);
+        assert_eq!(blocks(1 << 30).unwrap(), 262144);
 
-        for (device_size, block_size, expect) in [
-            (1 << 30, 0, "power of two"),
-            (1 << 30, 3000, "power of two"),
-            (1 << 30, 256, "smaller than"),
-            (0, 4096, "non-zero multiple"),
-            (4097, 4096, "non-zero multiple"),
-            (1 << 44, 512, "exceeds the 2^32"),
+        for (device_size, expect) in [
+            (0, "non-zero multiple"),
+            (4097, "non-zero multiple"),
+            (1 << 47, "exceeds the 2^32"),
         ] {
-            let err = blocks(device_size, block_size).unwrap_err();
+            let err = blocks(device_size).unwrap_err();
             assert!(format!("{err}").contains(expect), "{err}");
         }
     }
@@ -552,7 +546,7 @@ mod test {
     fn test_a_failure_is_classified_by_its_cause() {
         let cases: Vec<(anyhow::Error, tonic::Code)> = vec![
             (
-                blocks(0, 4096).unwrap_err().context("creating a disk"),
+                blocks(0).unwrap_err().context("creating a disk"),
                 tonic::Code::InvalidArgument,
             ),
             (

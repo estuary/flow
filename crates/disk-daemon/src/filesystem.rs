@@ -26,18 +26,19 @@ pub enum Type {
 /// `assume_storage_prezeroed`.
 const MIN_MKFS_VERSION: (u32, u32) = (1, 47);
 
-/// Invocation which formats a fresh `block_size` device.
+/// Invocation which formats a fresh device.
 ///
-/// Reserved blocks are zero. No privileged user recovers a full disk by spending
-/// them. `nodiscard` keeps the format from discarding a device which is already
-/// entirely holes.
-fn mkfs(fs: Type, device: &Path, block_size: u32) -> async_process::Command {
+/// The filesystem block size is the daemon's own, so a device request never
+/// straddles a block and every mutation covers whole blocks. Reserved blocks are
+/// zero. No privileged user recovers a full disk by spending them. `nodiscard`
+/// keeps the format from discarding a device which is already entirely holes.
+fn mkfs(fs: Type, device: &Path) -> async_process::Command {
     match fs {
         Type::Ext4 => {
             let mut command = async_process::Command::new("mkfs.ext4");
             command
                 .args(["-F", "-b"])
-                .arg(block_size.to_string())
+                .arg(crate::BLOCK_SIZE.to_string())
                 .args(["-m", "0", "-E", "nodiscard,assume_storage_prezeroed=1"])
                 .arg(device);
             command
@@ -94,13 +95,8 @@ pub fn validate(fs: Type) -> anyhow::Result<()> {
 
 /// Format `device`, which must be a fresh disk. Recovery never formats. It
 /// replays filesystem structures as the data they are.
-pub async fn format(
-    fs: Type,
-    device: &Path,
-    block_size: u32,
-    timeout: std::time::Duration,
-) -> anyhow::Result<()> {
-    run(mkfs(fs, device, block_size), timeout).await
+pub async fn format(fs: Type, device: &Path, timeout: std::time::Duration) -> anyhow::Result<()> {
+    run(mkfs(fs, device), timeout).await
 }
 
 /// A mounted filesystem.
@@ -252,7 +248,7 @@ mod test {
 
     #[test]
     fn test_a_fresh_format_keeps_the_image_sparse() {
-        let command = mkfs(Type::Ext4, std::path::Path::new("/dev/ublkb7"), 4096);
+        let command = mkfs(Type::Ext4, std::path::Path::new("/dev/ublkb7"));
         let rendered = format!("{command:?}");
 
         assert!(
