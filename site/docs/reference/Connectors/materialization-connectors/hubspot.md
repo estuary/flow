@@ -49,7 +49,7 @@ characters, and if the field begins with a number it will be prefixed with
 ## Deletions
 
 Hard deletes are not supported. To track deletions, ensure your collection
-documents include the `/_meta/op` field and create a corresponding `meta_op`
+documents include the `/_meta/op` field and create a corresponding `metaop`
 property in HubSpot.
 
 Backfills do not remove existing HubSpot records.
