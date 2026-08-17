@@ -31,11 +31,21 @@ export ROCKSDB_DISABLE_LZ4=1
 export ROCKSDB_DISABLE_ZLIB=1
 export ROCKSDB_DISABLE_ZSTD=1
 
+# PORTABLE=0 means `-march=native`, so librocksdb.a inherited the builder's ISA:
+# an AVX-512 runner once produced binaries that SIGILL everywhere else. haswell
+# pins the AVX2 level we had been shipping. Avoid x86-64-v3 -- RocksDB falls back
+# to a slower software checksum under it, since v3 lacks PCLMUL. aarch64 adds no
+# -march under either setting, so 1 leaves it unchanged.
+case "$(uname -m)" in
+  x86_64) PORTABLE_ARCH=haswell ;;
+  *)      PORTABLE_ARCH=1 ;;
+esac
+
 make static_lib -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) \
   EXTRA_CXXFLAGS="-fPIC -frtti" \
   EXTRA_CFLAGS="-fPIC" \
   DEBUG_LEVEL=0 \
-  PORTABLE=0
+  PORTABLE="${PORTABLE_ARCH}"
 
 strip --strip-unneeded "${SOURCE_DIR}/librocksdb.a"
 
