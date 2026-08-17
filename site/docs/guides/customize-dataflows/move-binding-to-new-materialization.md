@@ -40,9 +40,9 @@ The feature flag and `notBefore` solve two different problems, and you need both
 
 `allow_existing_tables_for_new_bindings` only controls whether the connector will write to a table it did not create. It does not change where the binding starts reading. A binding that is new to a materialization always starts reading its source collection from the beginning, the same as any other backfill.
 
-`notBefore` is what limits the read. Without it, the new binding re-reads the full collection history and re-merges every document into the destination table.
-
 The flag also does not truncate or drop the existing table. A new binding whose destination table already exists is reconciled the same way an existing binding is when its schema changes: new columns are added and existing columns are widened as needed, but no data is removed.
+
+`notBefore` is what limits the read. Without it, the new binding re-reads the full collection history and re-merges every document into the destination table.
 
 ## Related
 
