@@ -7,8 +7,8 @@
 //! session's `Open` parameter instead: a flag would otherwise reinterpret every
 //! disk on the host at once.
 //!
-//! Nothing here is a fallback for something a session may also supply. A value
-//! has one source, so no precedence rule needs explaining and an omission
+//! Nothing in [`Serve`] is a fallback for something a session may also supply. A
+//! value has one source, so no precedence rule needs explaining and an omission
 //! fails rather than silently resolving to a host default.
 //!
 //! Every flag also reads an unprefixed environment variable, as `runtime-sidecar`
@@ -18,7 +18,24 @@
 #[derive(Debug, clap::Parser)]
 #[command(about, version)]
 pub struct Args {
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum Command {
+    /// Serve disks over a Unix socket.
+    Serve(Serve),
+    /// Drive one session from a terminal or a script.
+    Client(Client),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct Serve {
     /// Unix socket the session service listens on.
+    ///
+    /// It is left reachable by any user, so the directory holding it is what
+    /// decides which of them may open a session.
     #[arg(long, env = "UDS_PATH")]
     pub uds_path: std::path::PathBuf,
 
@@ -64,6 +81,87 @@ pub struct Args {
     /// a small disk from compacting constantly.
     #[arg(long, env = "HORIZON_MINIMUM_BYTES", default_value_t = 1 << 30)]
     pub horizon_minimum_bytes: u64,
+}
+
+/// One session, driven from stdin.
+///
+/// This is the daemon's manual-testing and demo surface, so unlike [`Serve`] it
+/// does carry defaults: they are a client's values to live with, and a disk
+/// opened this way is one somebody is exercising by hand.
+#[derive(Debug, clap::Args)]
+pub struct Client {
+    /// Unix socket of the daemon to open the disk on.
+    #[arg(long, env = "UDS_PATH")]
+    pub uds_path: std::path::PathBuf,
+
+    /// Journal holding the disk's durable state, created if it does not exist.
+    #[arg(long)]
+    pub journal: String,
+
+    /// Logical size of the device. The image is sparse, so this is a capacity
+    /// rather than an allocation.
+    #[arg(long, default_value_t = 10 << 30)]
+    pub device_size: u64,
+
+    /// Block size, which is fixed for the life of the disk from its first
+    /// publication.
+    #[arg(long, default_value_t = 4096)]
+    pub block_size: u32,
+
+    /// Address of a broker serving the journal.
+    #[arg(long, env = "BROKER_ENDPOINT")]
+    pub broker_endpoint: String,
+
+    /// Bearer token presented to the broker. Without one the session connects
+    /// anonymously, which is correct only against brokers running without
+    /// authorization.
+    #[arg(long, env = "BROKER_CREDENTIAL")]
+    pub broker_credential: Option<String>,
+
+    /// Store of the journal's fragments. Repeat for several.
+    #[arg(long, required = true)]
+    pub fragment_store: Vec<String>,
+
+    #[arg(long, default_value_t = 1)]
+    pub replication: u32,
+
+    /// `name=value` label of the created spec. Repeat for several.
+    #[arg(long, value_parser = parse_label)]
+    pub label: Vec<(String, String)>,
+
+    #[arg(long, default_value_t = 1 << 26)]
+    pub fragment_length: i64,
+
+    /// Interval at which an open fragment is closed and persisted whatever its
+    /// size. Zero closes one on size alone.
+    #[arg(long, default_value_t = 3600)]
+    pub flush_interval_seconds: u32,
+
+    #[arg(long, default_value_t = 300)]
+    pub refresh_interval_seconds: u32,
+
+    /// Ceiling on the journal's sustained append rate. Zero is no ceiling.
+    #[arg(long, default_value_t = 0)]
+    pub max_append_rate: i64,
+
+    /// Codec fragments are compressed with, named as Gazette's own enum spells
+    /// it, and rejected unless the daemon can decompress it.
+    #[arg(long, default_value = "SNAPPY", value_parser = parse_codec)]
+    pub compression_codec: proto_gazette::broker::CompressionCodec,
+}
+
+fn parse_codec(arg: &str) -> Result<proto_gazette::broker::CompressionCodec, String> {
+    proto_gazette::broker::CompressionCodec::from_str_name(arg)
+        .filter(|codec| gazette::journal::read::supports_codec(*codec))
+        .ok_or_else(|| format!("{arg:?} is not a codec this daemon can decompress"))
+}
+
+fn parse_label(arg: &str) -> Result<(String, String), String> {
+    let (name, value) = arg
+        .split_once('=')
+        .ok_or_else(|| format!("label {arg:?} is not `name=value`"))?;
+
+    Ok((name.to_string(), value.to_string()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]

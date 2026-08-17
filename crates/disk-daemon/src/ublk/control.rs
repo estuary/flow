@@ -57,6 +57,31 @@ impl Control {
         self.ublks_max
     }
 
+    /// Devices this control has added and not deleted.
+    pub fn live(&self) -> u32 {
+        self.live.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Feature bits this kernel's `ublk_drv` implements.
+    ///
+    /// Reading them at startup is what turns a kernel which cannot serve a disk
+    /// into an error naming the version it needs, rather than into a device
+    /// which refuses to add during a client's first session.
+    pub fn features(&self) -> anyhow::Result<u64> {
+        let mut features: u64 = 0;
+
+        let command = sys::UblksrvCtrlCmd {
+            dev_id: u32::MAX,
+            queue_id: u16::MAX,
+            len: std::mem::size_of_val(&features) as u16,
+            addr: std::ptr::from_mut(&mut features) as u64,
+            ..Default::default()
+        };
+        self.issue(sys::UBLK_U_CMD_GET_FEATURES, &command)?;
+
+        Ok(features)
+    }
+
     /// Create a device, letting the kernel choose its number.
     pub fn add_dev(
         &self,

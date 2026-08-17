@@ -10,7 +10,8 @@
 //! Every error is terminal. A device or broker failure is terminal because the
 //! disk's contents can no longer be trusted to reach its journal, and a
 //! protocol violation is terminal because the client has lost track of which
-//! delta it owes a commit.
+//! delta it owes a commit. What differs is the code the stream ends with, which
+//! is the only part of a failure a client can act on: see [`failed`].
 
 use crate::capture::Captured;
 use crate::disk::Disk;
@@ -26,8 +27,9 @@ pub struct Service {
     daemon: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<Control>,
     registry: service_kit::Registry,
-    /// Ends every session, so that a draining daemon leaves no device behind.
-    shutdown: tokio::sync::broadcast::Sender<()>,
+    /// Cancelled when the daemon drains, so that no session outlives it. Each
+    /// session takes a child of it, which its own teardown cancels.
+    draining: tokio_util::sync::CancellationToken,
 }
 
 impl Service {
@@ -35,13 +37,13 @@ impl Service {
         daemon: std::sync::Arc<crate::daemon::Config>,
         control: std::sync::Arc<Control>,
         registry: service_kit::Registry,
-        shutdown: tokio::sync::broadcast::Sender<()>,
+        draining: tokio_util::sync::CancellationToken,
     ) -> Self {
         Self {
             daemon,
             control,
             registry,
-            shutdown,
+            draining,
         }
     }
 
@@ -60,17 +62,29 @@ impl proto_grpc::disk::disk_server::Disk for Service {
     ) -> tonic::Result<tonic::Response<Self::SessionStream>> {
         let (responses, stream) = tokio::sync::mpsc::channel(1);
 
-        let session = Session {
-            daemon: self.daemon.clone(),
-            control: self.control.clone(),
-            handler: self.registry.register("Disk.Session"),
-            shutdown: self.shutdown.subscribe(),
-            state: State::Fresh,
-        };
+        let (daemon, control) = (self.daemon.clone(), self.control.clone());
+        let (registry, ended) = (self.registry.clone(), self.draining.child_token());
+
         // The session owns its disk, so it outlives this call and tears the
         // disk down as it ends. A client which drops the stream both ends
         // `requests` and closes `responses`, either of which ends the session.
-        tokio::spawn(session.run(request.into_inner(), responses));
+        //
+        // It registers here rather than above because a handler span captures
+        // the tracing dispatcher of whoever creates it, which a spawn does not
+        // carry across.
+        tokio::spawn(async move {
+            let session = Session {
+                daemon,
+                control,
+                handler: registry.register("Disk.Session"),
+                ended,
+                state: State::Fresh,
+            };
+            let span = session.handler.span();
+
+            tracing::Instrument::instrument(session.run(request.into_inner(), responses), span)
+                .await
+        });
 
         Ok(tonic::Response::new(
             tokio_stream::wrappers::ReceiverStream::new(stream),
@@ -82,7 +96,10 @@ struct Session {
     daemon: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<Control>,
     handler: service_kit::HandlerGuard,
-    shutdown: tokio::sync::broadcast::Receiver<()>,
+    /// Cancelled when this session is over, whether because the daemon is
+    /// draining or because its own teardown has begun. Every broker call the
+    /// session makes gives up on it, since each retries indefinitely.
+    ended: tokio_util::sync::CancellationToken,
     state: State,
 }
 
@@ -115,6 +132,7 @@ impl Session {
         // reported, so that a client which sees its session end sees a disk
         // which is already gone. It is also what lets a draining daemon wait
         // for its sessions: this stream is open until its disk is destroyed.
+        self.handler.set_phase("closing");
         let state = std::mem::replace(&mut self.state, State::Fresh);
         () = teardown(state).await;
 
@@ -134,8 +152,11 @@ impl Session {
         responses: &tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>,
     ) -> tonic::Result<()> {
         loop {
+            // A request already in flight is not raced here. It is instead the
+            // broker calls within it which give up, because those are the only
+            // waits a session has which are not bounded by a timeout.
             let request = tokio::select! {
-                _ = self.shutdown.recv() => {
+                _ = self.ended.cancelled() => {
                     return Err(tonic::Status::unavailable("the daemon is draining"));
                 }
                 request = requests.message() => request?,
@@ -168,36 +189,38 @@ impl Session {
                         "a session opens exactly one disk",
                     ));
                 }
+                self.handler.set_phase("opening");
                 let serving = self.open(open).await.map_err(failed)?;
 
                 let opened = proto::Opened {
                     mount_path: serving.mount.path().display().to_string(),
                 };
                 self.state = State::Serving(serving);
+                self.handler.set_phase("serving");
 
                 Some(Response::Opened(opened))
             }
             Request::Publish(proto::Publish {}) => {
+                self.handler.set_phase("publishing");
                 let ack = self.serving()?.publish().await.map_err(failed)?;
+                self.handler.set_phase("serving");
 
                 Some(Response::Published(proto::Published {
                     ack: ack.unwrap_or_default(),
                 }))
             }
             Request::Commit(proto::Commit { ack }) => {
+                self.handler.set_phase("committing");
                 () = self.serving()?.writer.commit(ack).await.map_err(failed)?;
+                self.handler.set_phase("serving");
 
                 Some(Response::Committed(proto::Committed {}))
             }
             // A replaced broker has no reply, so a client which cannot reach
             // its brokers learns of it from its next publication.
             Request::Broker(broker) => {
-                () = self
-                    .serving()?
-                    .writer
-                    .set_broker(broker)
-                    .await
-                    .map_err(failed)?;
+                tracing::info!(endpoint = broker.endpoint, "replacing a session's broker");
+                () = self.serving()?.writer.set_broker(broker).map_err(failed)?;
 
                 None
             }
@@ -224,8 +247,10 @@ impl Session {
         } = open;
 
         let journal_config = journal_config.unwrap_or_default();
+        let journal = journal_config.journal.clone();
+
         let blocks = blocks(device_size, block_size)?;
-        self.handler.set_label(journal_config.journal.clone());
+        self.handler.set_label(journal.clone());
 
         // Built before a device exists, because a journal which cannot be
         // created is a disk which can never publish.
@@ -236,6 +261,7 @@ impl Session {
                 broker: broker.unwrap_or_default(),
                 floor_label: self.daemon.floor_label.clone(),
             },
+            self.ended.clone(),
         )
         .await?;
 
@@ -249,11 +275,12 @@ impl Session {
 
         let control = self.control.clone();
         let horizon = self.daemon.horizon;
+        let metrics = crate::metrics::Device::new(&journal, &self.daemon.footprint);
 
         // Creating a device is a handshake with the kernel and with the thread
         // which will own it, neither of which is async.
         let (disk, captured) = tokio::task::spawn_blocking(move || {
-            Disk::create(&control, image, crate::ublk::QUEUE_DEPTH, horizon)
+            Disk::create(&control, image, crate::ublk::QUEUE_DEPTH, horizon, metrics)
         })
         .await??;
 
@@ -348,9 +375,8 @@ async fn teardown(state: State) {
 
     // This session publishes nothing more, so the writer takes what unmounting
     // mutates and discards it.
-    if let Err(err) = writer.abandon().await {
-        tracing::error!(?err, "failed to abandon a journal writer");
-    }
+    () = writer.abandon();
+
     if let Err(err) = mount.unmount(filesystem::MOUNT_TIMEOUT).await {
         tracing::error!(?err, "failed to unmount a disk");
     }
@@ -433,33 +459,76 @@ async fn draining<T>(
 /// host at once: silently for a grown device, and catastrophically for a
 /// changed block size, which misplaces every chunk a replay applies.
 fn blocks(device_size: u64, block_size: u32) -> anyhow::Result<u32> {
-    anyhow::ensure!(
+    crate::ensure_valid!(
         block_size != 0 && block_size.is_power_of_two(),
         "block size {block_size} must be a power of two",
     );
-    anyhow::ensure!(
+    crate::ensure_valid!(
         block_size as u64 >= crate::ublk::sys::SECTOR_SIZE,
         "block size {block_size} is smaller than the {} bytes a device addresses",
         crate::ublk::sys::SECTOR_SIZE,
     );
-    anyhow::ensure!(
+    crate::ensure_valid!(
         device_size != 0 && device_size.is_multiple_of(block_size as u64),
         "device size {device_size} must be a non-zero multiple of the block size {block_size}",
     );
     let blocks = device_size / block_size as u64;
 
-    u32::try_from(blocks).map_err(|_| {
-        anyhow::anyhow!("a device of {blocks} blocks exceeds the 2^32 which a chunk indexes")
-    })
+    crate::ensure_valid!(
+        blocks <= u32::MAX as u64,
+        "a device of {blocks} blocks exceeds the 2^32 which a chunk indexes",
+    );
+    Ok(blocks as u32)
 }
 
+/// gRPC code of a failure which ends a session.
+///
+/// A message is not something a client can act on, so the code is the contract:
+/// `INVALID_ARGUMENT` is what the session asked for and cannot succeed however
+/// often it is retried; `ABORTED` is a lost fence, meaning another session owns
+/// this disk and this one must not take it back; `UNAUTHENTICATED` is a
+/// credential the broker refused, so a client should refresh and open again;
+/// `UNAVAILABLE` is a broker this daemon could not reach, which somewhere else
+/// may; and everything else is the daemon or its host failing, which is
+/// `INTERNAL`. A session's own state is checked here rather than classified, as
+/// `FAILED_PRECONDITION`; the violations the journal writer detects instead
+/// reach this as ordinary failures and so report `INTERNAL`, which they should
+/// not.
 fn failed(err: anyhow::Error) -> tonic::Status {
-    tonic::Status::internal(format!("{err:#}"))
+    let code = if err.chain().any(|cause| cause.is::<crate::Invalid>()) {
+        tonic::Code::InvalidArgument
+    } else {
+        match err
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<gazette::Error>())
+        {
+            Some(gazette::Error::BrokerStatus(proto_gazette::broker::Status::RegisterMismatch)) => {
+                tonic::Code::Aborted
+            }
+            // `UNAUTHENTICATED` is not a promise that every credential problem
+            // arrives this way. A broker is free to refuse whatever it was doing
+            // rather than the credential: gazette answers an expired token on an
+            // append with `DeadlineExceeded`, because what timed out is the
+            // pipeline the append was waiting for.
+            Some(gazette::Error::Grpc(status))
+                if matches!(
+                    status.code(),
+                    tonic::Code::Unauthenticated | tonic::Code::PermissionDenied,
+                ) =>
+            {
+                tonic::Code::Unauthenticated
+            }
+            Some(broker) if broker.is_transient() => tonic::Code::Unavailable,
+            _ => tonic::Code::Internal,
+        }
+    };
+
+    tonic::Status::new(code, format!("{err:#}"))
 }
 
 #[cfg(test)]
 mod test {
-    use super::blocks;
+    use super::{blocks, failed};
 
     #[test]
     fn test_a_devices_geometry_is_checked_before_it_exists() {
@@ -475,6 +544,65 @@ mod test {
         ] {
             let err = blocks(device_size, block_size).unwrap_err();
             assert!(format!("{err}").contains(expect), "{err}");
+        }
+    }
+
+    /// A cause is classified however deeply the context which explains it is
+    /// stacked, because that is how every failure reaches the session stream.
+    #[test]
+    fn test_a_failure_is_classified_by_its_cause() {
+        let cases: Vec<(anyhow::Error, tonic::Code)> = vec![
+            (
+                blocks(0, 4096).unwrap_err().context("creating a disk"),
+                tonic::Code::InvalidArgument,
+            ),
+            (
+                anyhow::Error::new(gazette::Error::BrokerStatus(
+                    proto_gazette::broker::Status::RegisterMismatch,
+                ))
+                .context("appending to acmeCo/disk/one"),
+                tonic::Code::Aborted,
+            ),
+            (
+                anyhow::Error::new(gazette::Error::Grpc(tonic::Status::unauthenticated(
+                    "token has expired",
+                )))
+                .context("appending to acmeCo/disk/one"),
+                tonic::Code::Unauthenticated,
+            ),
+            (
+                anyhow::Error::new(gazette::Error::Grpc(tonic::Status::permission_denied(
+                    "not authorized to append",
+                ))),
+                tonic::Code::Unauthenticated,
+            ),
+            // A credential which runs out under a live append is refused by
+            // whatever the broker was doing at the time, so it is not this code.
+            (
+                anyhow::Error::new(gazette::Error::Grpc(tonic::Status::deadline_exceeded(
+                    "waiting for pipeline",
+                ))),
+                tonic::Code::Internal,
+            ),
+            (
+                anyhow::Error::new(gazette::Error::UnexpectedEof).context("probing"),
+                tonic::Code::Unavailable,
+            ),
+            (
+                anyhow::Error::new(gazette::Error::BrokerStatus(
+                    proto_gazette::broker::Status::JournalNotFound,
+                )),
+                tonic::Code::Internal,
+            ),
+            (
+                anyhow::anyhow!("the image could not be written"),
+                tonic::Code::Internal,
+            ),
+        ];
+
+        for (err, expect) in cases {
+            let status = failed(err);
+            assert_eq!(status.code(), expect, "{status}");
         }
     }
 }

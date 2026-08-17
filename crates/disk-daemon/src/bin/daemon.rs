@@ -6,6 +6,7 @@
 //! which running as root gives and a dedicated UID needs a udev rule for.
 
 use clap::Parser;
+use disk_daemon::args::{Command, LogFormat};
 
 fn main() -> anyhow::Result<()> {
     // Required by the TLS of the broker connections a session may ask for.
@@ -18,13 +19,23 @@ fn main() -> anyhow::Result<()> {
     // Shared between the tracing subscriber, which consults per-handler trace
     // overrides, and the session service, which populates it.
     let registry = service_kit::Registry::new();
-    () = install_tracing(args.log_format, registry.clone());
+
+    let log_format = match &args.command {
+        Command::Serve(serve) => serve.log_format,
+        // The client is a terminal tool, and its own output is stdout.
+        Command::Client(_) => LogFormat::Text,
+    };
+    () = install_tracing(log_format, registry.clone());
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
 
-    let result = runtime.block_on(runtime.spawn(disk_daemon::daemon::run(args, registry)));
+    let served = match args.command {
+        Command::Serve(serve) => runtime.spawn(disk_daemon::daemon::run(serve, registry)),
+        Command::Client(client) => runtime.spawn(disk_daemon::client::run(client)),
+    };
+    let result = runtime.block_on(served);
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
 
     result?
@@ -33,7 +44,7 @@ fn main() -> anyhow::Result<()> {
 /// Write structured logs to stderr. The base `EnvFilter` (`RUST_LOG`, `info` by
 /// default) composes with `service_kit::trace`'s override filter, so an operator
 /// can raise one session's verbosity from the admin surface.
-fn install_tracing(log_format: disk_daemon::args::LogFormat, registry: service_kit::Registry) {
+fn install_tracing(log_format: LogFormat, registry: service_kit::Registry) {
     use tracing_subscriber::Layer;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -42,14 +53,14 @@ fn install_tracing(log_format: disk_daemon::args::LogFormat, registry: service_k
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
     let format: Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync> = match log_format {
-        disk_daemon::args::LogFormat::Json => Box::new(
+        LogFormat::Json => Box::new(
             tracing_subscriber::fmt::layer()
                 .json()
                 .with_writer(std::io::stderr),
         ),
         // Colour only an interactive run, so escape codes never reach a log
         // collector.
-        disk_daemon::args::LogFormat::Text => Box::new(
+        LogFormat::Text => Box::new(
             tracing_subscriber::fmt::layer()
                 .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
                 .with_writer(std::io::stderr),

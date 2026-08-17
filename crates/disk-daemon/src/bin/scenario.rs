@@ -415,12 +415,14 @@ fn write_blocks(device: &std::fs::File, block: u32, data: &[u8]) -> anyhow::Resu
     Ok(())
 }
 
-/// Delete every device whose block device the kernel has already removed,
-/// which is what a server killed outright leaves behind.
+/// Delete every device whose server is gone, which is what a daemon killed
+/// outright leaves behind.
 ///
-/// Reaping is the test suite's to do, not a daemon's: whether a device with no
-/// server may be deleted is a decision about the whole host, and these tests
-/// are the host's only ublk user.
+/// A block device which outlived its server is stopped first, because the
+/// kernel will not delete a device it still holds requests for. Reaping is the
+/// test suite's to do, not a daemon's: whether a device with no server may be
+/// deleted is a decision about the whole host, and these tests are the host's
+/// only ublk user.
 fn reap() -> anyhow::Result<serde_json::Value> {
     let control = Control::open()?;
     let mut deleted = Vec::new();
@@ -433,15 +435,37 @@ fn reap() -> anyhow::Result<serde_json::Value> {
         };
         let dev_id: u32 = dev_id.parse()?;
 
-        anyhow::ensure!(
-            !sys_block_path(dev_id).exists(),
-            "device {dev_id} is still serving a block device",
-        );
+        if let Some(info) = control.dev_info(dev_id)? {
+            anyhow::ensure!(
+                !serving(info.ublksrv_pid),
+                "device {dev_id} is still served by process {}",
+                info.ublksrv_pid,
+            );
+        }
+        if sys_block_path(dev_id).exists() {
+            () = control.stop_dev(dev_id)?;
+        }
         () = control.del_dev(dev_id)?;
         deleted.push(dev_id);
     }
 
     Ok(serde_json::json!({ "deleted": deleted }))
+}
+
+/// Whether `pid` still serves a device.
+///
+/// A zombie does not: it has exited and is only waiting to be reaped, which a
+/// thread of its own stuck in the kernel can prevent indefinitely.
+fn serving(pid: i32) -> bool {
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    // The state follows the command, which is parenthesized and may itself
+    // contain spaces.
+    let Some((_command, rest)) = stat.rsplit_once(')') else {
+        return false;
+    };
+    !rest.trim_start().starts_with('Z')
 }
 
 /// The working directory and control device of one scenario.
@@ -464,7 +488,14 @@ impl Scenario {
     fn disk(&self, queue_depth: u16, horizon: Policy) -> anyhow::Result<(Disk, Captured)> {
         let image = Image::create(&self.dir, BLOCKS, BLOCK_SIZE)?;
 
-        Disk::create(&self.control, image, queue_depth, horizon)
+        // A scenario reports its observations as JSON rather than as metrics,
+        // so this disk contributes to a footprint nothing scrapes.
+        let metrics = disk_daemon::metrics::Device::new(
+            "scenario",
+            &disk_daemon::metrics::Footprint::default(),
+        );
+
+        Disk::create(&self.control, image, queue_depth, horizon, metrics)
     }
 }
 

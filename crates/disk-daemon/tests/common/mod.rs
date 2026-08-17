@@ -30,14 +30,28 @@ pub fn check_prerequisites() {
 
 /// No device node and no `/sys/block` entry outlives the test which made it.
 /// A nextest test group serializes these binaries, so what they see is theirs.
+///
+/// Waited for rather than asserted outright, because `devtmpfs` unlinks a node
+/// slightly after the command which removed its device returns, exactly as it
+/// creates one slightly after the command which added it.
 pub fn assert_no_leaked_devices() {
-    let nodes = entries("/dev", |name| {
-        name.starts_with("ublk") && name != "ublk-control"
-    });
-    assert!(nodes.is_empty(), "leaked device nodes: {nodes:?}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
 
-    let blocks = entries("/sys/block", |name| name.starts_with("ublkb"));
-    assert!(blocks.is_empty(), "leaked block devices: {blocks:?}");
+    loop {
+        let nodes = entries("/dev", |name| {
+            name.starts_with("ublk") && name != "ublk-control"
+        });
+        let blocks = entries("/sys/block", |name| name.starts_with("ublkb"));
+
+        if nodes.is_empty() && blocks.is_empty() {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "leaked device nodes {nodes:?} and block devices {blocks:?}",
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 /// No mount of `dir` or of a served device outlives the test which made it.

@@ -32,34 +32,38 @@ pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpe
         compression_codec,
     } = config;
 
-    anyhow::ensure!(!journal.is_empty(), "no journal name was supplied");
-    anyhow::ensure!(
+    crate::ensure_valid!(!journal.is_empty(), "no journal name was supplied");
+    crate::ensure_valid!(
         !fragment_stores.is_empty(),
         "journal {journal} was given no fragment store",
     );
-    anyhow::ensure!(
+    crate::ensure_valid!(
         *replication != 0,
-        "journal {journal} was given no replication"
+        "journal {journal} was given no replication",
     );
-    anyhow::ensure!(
+    crate::ensure_valid!(
         *fragment_length != 0,
         "journal {journal} was given no fragment length",
     );
-    anyhow::ensure!(
+    crate::ensure_valid!(
         *refresh_interval_seconds != 0,
         "journal {journal} was given no refresh interval",
     );
 
     // Zero is a value for these two, so absence is what is rejected.
-    let flush_interval_seconds = flush_interval_seconds
-        .ok_or_else(|| anyhow::anyhow!("journal {journal} was given no flush interval"))?;
-    let max_append_rate = max_append_rate
-        .ok_or_else(|| anyhow::anyhow!("journal {journal} was given no maximum append rate"))?;
+    crate::ensure_valid!(
+        flush_interval_seconds.is_some(),
+        "journal {journal} was given no flush interval",
+    );
+    crate::ensure_valid!(
+        max_append_rate.is_some(),
+        "journal {journal} was given no maximum append rate",
+    );
 
     let codec = broker::CompressionCodec::try_from(*compression_codec)
         .unwrap_or(broker::CompressionCodec::Invalid);
 
-    anyhow::ensure!(
+    crate::ensure_valid!(
         gazette::journal::read::supports_codec(codec),
         "journal {journal} was given compression codec {}, which this daemon cannot \
          decompress, and it must read this journal back to recover the disk",
@@ -87,7 +91,7 @@ pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpe
             compression_codec: codec as i32,
             stores: fragment_stores.clone(),
             refresh_interval: Some(seconds(*refresh_interval_seconds)),
-            flush_interval: Some(seconds(flush_interval_seconds)),
+            flush_interval: Some(seconds(flush_interval_seconds.unwrap_or_default())),
             // Gazette deletes fragments by age, which cannot see the recovery
             // floor, so any retention risks deleting records a live disk needs.
             retention: None,
@@ -97,7 +101,7 @@ pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpe
         }),
         // The daemon both appends to this journal and replays it.
         flags: broker::journal_spec::Flag::ORdwr as u32,
-        max_append_rate,
+        max_append_rate: max_append_rate.unwrap_or_default(),
         suspend: None,
     })
 }

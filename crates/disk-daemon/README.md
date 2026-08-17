@@ -10,6 +10,7 @@ here knows about Flow, so the Flow runtime is a client like any other.
 
 Design: [`plans/block-backed-connector-disks.md`](../../plans/block-backed-connector-disks.md).
 Build order: [`plans/block-backed-connector-disks-phases.md`](../../plans/block-backed-connector-disks-phases.md).
+Running one: [`OPERATING.md`](OPERATING.md).
 
 ## Scope today
 
@@ -20,14 +21,21 @@ recovered an acknowledgement hands it back, and the session repairs it. Recovery
 is bounded: a disk opens recovery horizons as its journal outgrows it, and the
 floor label follows each one it completes.
 
+It is operable stand-alone: `flow-disk-daemon client` drives one session from a
+terminal, the `service-kit` surface reports each disk and the host's capacity,
+and every way a session can fail carries a gRPC code a client can act on.
+
 ## Key types and entry points
 
 | Item | Role |
 | --- | --- |
 | [`proto`] (`proto_flow::disk`) | Session RPC (`Open`/`Publish`/`Commit`/`Broker`) and journal records (`DiskRecord`, `Chunk`), from `go/protocols/disk/disk.proto` |
-| [`args::Args`] | The command line, which is every knob the daemon has |
+| [`args::Args`] | The command line: `serve`, which is every knob the daemon has, and `client` |
 | [`daemon::run`] | Host validation, wiring, the socket, and the drain |
+| [`client::run`] | One session driven from stdin, which is the manual-testing surface |
 | [`session::Service`] | The session state machine, one stream per disk |
+| [`session`] | Also decides which gRPC code each way of failing carries |
+| [`metrics`] | What a disk reports about itself, and what the host reports about its disks |
 | [`filesystem`] | The one place a filesystem type is decided: how to format, and what to mount with |
 | [`disk::Disk`] | One disk's lifecycle: image, device, and the owner serving it |
 | [`image::Image`] | The `O_TMPFILE` sparse image and its allocated bitmap |
@@ -59,7 +67,10 @@ close   ──►  unmount ──► stop and delete the device ──► drop t
 ```
 
 Everything a session does is terminal on failure, and every way a stream ends
-runs the same teardown.
+runs the same teardown. What differs is the code the stream ends with, which is
+the only part of a failure a client can act on: the taxonomy is stated at the
+foot of `session.rs`, and [`OPERATING.md`](OPERATING.md) says what a client
+should do with each.
 
 ## The serving path
 
@@ -89,8 +100,6 @@ happen to a disk, and never abandons an append part-way:
 ```text
 select ──►  request        ──►  publish  ──►  drain, confirm, return the ack
                                 commit   ──►  append the ack, await it
-                                broker   ──►  replace endpoint and credential
-                                abandon  ──►  take what follows and discard it
 
        ──►  mutation       ──►  pack into records ──►  fill a batch ──►  append
                                 a fresh disk's first append snapshots its image
@@ -100,6 +109,10 @@ select ──►  request        ──►  publish  ──►  drain, confirm, 
 Requests win that race, so a cut observes every mutation queued before it.
 `publish` drains the capture channel itself, which is exact only because the
 caller has already stopped admitting mutations and awaited the ones in flight.
+
+Replacing the broker and abandoning the writer are the two things which
+deliberately do *not* pass through that task, because each must work while it is
+blocked on the broker it is being asked about.
 
 ## Non-obvious details
 
@@ -112,6 +125,15 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   those writes could never be committed by an acknowledgement, so the writer is
   abandoned first: it keeps taking mutations, because a device whose mutations
   nothing takes cannot be unmounted, and discards them.
+
+- **A session which is over gives up whatever broker call is in flight.** Every
+  one of them retries a transient error until it succeeds, which is right while
+  the disk is live and wrong the moment the session is not: a teardown which
+  waited on an unreachable broker would hold that disk's device and mount for as
+  long as the outage lasted, and a draining daemon would leave both behind. One
+  cancellation token per session covers it, a child of the daemon's own, and
+  `abandon` cancels rather than asking so that it cannot itself wait on the
+  writer it is stopping.
 
 - **A killed daemon is cleaned up by the next one.** The kernel frees the image,
   which has no directory entry, and removes the block device when the process
@@ -308,6 +330,24 @@ caller has already stopped admitting mutations and awaited the ones in flight.
   daemon-wide default: an endpoint is required, while a session without a
   credential connects anonymously. The daemon mints nothing.
 
+  The replacement does not go through the writer, which may be retrying an
+  append against the very broker being replaced. Each attempt reads the pair
+  afresh, so a replacement reaches one already in flight, which is what lets a
+  disk ride out a broker moving.
+
+  A credential must arrive *before* the one it replaces expires. Nothing here
+  holds a delta waiting for one, and a client cannot make its disk quiescent, so
+  the writer's next append can fall anywhere — including inside a window where
+  the only credential it has is one the broker has stopped accepting.
+
+- **A fresh disk's image is snapshotted in batches.** It is as large as the
+  device may be, so taking it whole would make one session's memory scale with
+  the disk it serves. Each batch is read, appended, and dropped, which bounds
+  what a session holds at that batch and the capture channel however large the
+  filesystem it is publishing. The horizon flag stays on the first record of the
+  delta across all of them, because a reader starting at the horizon must see
+  every chunk which discharges it.
+
 ## Testing
 
 `cargo nextest run -p disk-daemon` runs everything, privileged tests included.
@@ -327,6 +367,16 @@ Its horizon cases run a daemon of their own, because the shipped thresholds open
 a horizon only after a gigabyte of journal: they are the same flags, set small.
 One of them deletes every fragment below a floor the daemon derived and then
 recovers the disk, which is the horizon invariant stated as an experiment.
+
+Its fault cases inject what an operator will actually meet: a broker which
+cannot be reached, which parks the device and then releases it; a credential
+replaced under a live session before the one it replaces expires; a replacement
+session which takes the journal, leaving the first `ABORTED`; and a `SIGTERM`
+while a disk is being written. Its soak works several disks at once through rounds of mixed traffic,
+losing a share of the deltas each round and recovering them, and then asserts
+that nothing is left: no thread, descriptor, device, or mount outlives the
+session which made it. The soak is also where the thread cost is measured, which
+is what a unit file's `TasksMax` has to cover.
 
 `tests/ublk.rs` drives `src/bin/scenario.rs`, which works a disk with no session
 around it, printing observations as JSON the test asserts against. It needs no

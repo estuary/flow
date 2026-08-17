@@ -389,6 +389,7 @@ impl Fixture {
                 },
                 floor_label: FLOOR_LABEL.to_string(),
             },
+            tokio_util::sync::CancellationToken::new(),
         )
         .await
     }

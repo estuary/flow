@@ -30,6 +30,14 @@ test-group = 'serial-db-tests'
 filter = 'package(automations) and test(test_fibonacci_bench)'
 test-group = 'serial-db-tests'
 
+# Every case here spawns a data plane and privileged children, and they work many
+# disks apiece: the soak, and a fault case which waits out a broker outage and a
+# credential expiry. They routinely run past the default slow-timeout.
+[[profile.default.overrides]]
+filter = 'binary_id(disk-daemon::daemon)'
+test-group = 'serial-ublk-tests'
+slow-timeout = { period = "60s", terminate-after = 6 }
+
 [[profile.default.overrides]]
 filter = 'binary_id(disk-daemon::ublk) + binary_id(disk-daemon::daemon)'
 test-group = 'serial-ublk-tests'

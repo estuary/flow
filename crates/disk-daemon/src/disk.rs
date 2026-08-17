@@ -29,11 +29,13 @@ impl Disk {
         image: Image,
         queue_depth: u16,
         horizon: crate::horizon::Policy,
+        metrics: crate::metrics::Device,
     ) -> anyhow::Result<(Self, Captured)> {
         let info = control.add_dev(queue_depth, ublk::MAX_IO_BUF_BYTES)?;
 
-        let (disk, captured) = match Self::serve(control, image, queue_depth, horizon, info.dev_id)
-        {
+        let served = Self::serve(control, image, queue_depth, horizon, metrics, info.dev_id);
+
+        let (disk, captured) = match served {
             Ok(served) => served,
             Err(err) => {
                 // No owner took the device, so nothing else will delete it.
@@ -62,6 +64,7 @@ impl Disk {
         image: Image,
         queue_depth: u16,
         horizon: crate::horizon::Policy,
+        metrics: crate::metrics::Device,
         dev_id: u32,
     ) -> anyhow::Result<(Self, Captured)> {
         let cdev = open_char_device(dev_id)?;
@@ -80,6 +83,7 @@ impl Disk {
             waker,
             queue_depth,
             horizon,
+            metrics,
         })?;
 
         Ok((

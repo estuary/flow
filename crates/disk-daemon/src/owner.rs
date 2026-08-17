@@ -40,6 +40,11 @@ const STACK_BYTES: usize = 256 * 1024;
 /// they bound the whole process rather than one disk.
 const IOWQ_MAX_WORKERS: [u32; 2] = [128, 128];
 
+/// Image bytes one snapshot batch reads back. A batch is held until it is
+/// appended, so this is what bounds publishing a fresh disk's filesystem
+/// however large that filesystem is.
+const SNAPSHOT_BATCH_BYTES: usize = 8 << 20;
+
 type Backlog = std::collections::VecDeque<io_uring::squeue::Entry>;
 
 /// A disk for an owner to serve. Its device must already have its parameters
@@ -57,6 +62,8 @@ pub struct Serve {
     pub queue_depth: u16,
     /// When this disk opens a recovery horizon, and how fast it discharges one.
     pub horizon: Policy,
+    /// What this disk holds, and whether its journal is holding it back.
+    pub metrics: crate::metrics::Device,
 }
 
 /// Cuts and ends one disk's service.
@@ -86,10 +93,12 @@ struct Commands {
     waker: Waker,
 }
 
+type Batch = (Vec<Vec<Chunk>>, Option<u32>);
+
 enum Command {
     CloseAdmission(tokio::sync::oneshot::Sender<()>),
     ResumeAdmission,
-    Snapshot(tokio::sync::oneshot::Sender<std::io::Result<Vec<Vec<Chunk>>>>),
+    Snapshot(u32, tokio::sync::oneshot::Sender<std::io::Result<Batch>>),
     OpenHorizon(u64, tokio::sync::oneshot::Sender<Option<u32>>),
     HorizonPending(tokio::sync::oneshot::Sender<u32>),
     CloseHorizon,
@@ -176,16 +185,17 @@ impl Handle {
 }
 
 impl Snapshotter {
-    /// Read the disk's image back as the chunks which reproduce it, per
-    /// [`Image::snapshot`].
+    /// Read one batch of the disk's image back as the chunks which reproduce
+    /// it, beginning at block `from`, per [`Image::snapshot`]. Also reports the
+    /// block a following batch resumes at.
     ///
     /// A mutation may be applied between this being asked for and the read, so
     /// the snapshot may already reflect one. That is why it is only ever
     /// appended ahead of every mutation captured since the mount: one already
     /// reflected in it is simply applied again.
-    pub async fn snapshot(&self) -> anyhow::Result<Vec<Vec<Chunk>>> {
+    pub async fn snapshot(&self, from: u32) -> anyhow::Result<Batch> {
         let (reply, replied) = tokio::sync::oneshot::channel();
-        () = self.0.send(Command::Snapshot(reply))?;
+        () = self.0.send(Command::Snapshot(from, reply))?;
 
         replied
             .await
@@ -239,6 +249,9 @@ impl Commands {
 }
 
 fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {
+    // What a recovered disk was rebuilt holding, before it serves anything.
+    owner.report();
+
     // A disconnect means every handle is gone, so nothing is left to serve this
     // disk for and nothing will ask for its image.
     while let Some(()) = owner.drain_commands(&commands) {
@@ -288,6 +301,7 @@ struct Owner {
     image: Image,
     capture: Capture,
     policy: Policy,
+    metrics: crate::metrics::Device,
     inflight: InFlight,
     slots: Vec<Slot>,
     backlog: Backlog,
@@ -368,6 +382,7 @@ impl Owner {
             waker,
             queue_depth,
             horizon,
+            metrics,
         } = serve;
 
         Ok(Self {
@@ -380,6 +395,7 @@ impl Owner {
             image,
             capture,
             policy: horizon,
+            metrics,
             inflight: InFlight::default(),
             slots: (0..queue_depth).map(|_| Slot::default()).collect(),
             backlog: Backlog::new(),
@@ -424,18 +440,20 @@ impl Owner {
                     if let Some(horizon) = self.image.horizon() {
                         horizon.cut();
                     }
+                    // Counting bits is a scan of the bitmap, so the disk's
+                    // footprint is reported at each cut rather than as each
+                    // mutation lands.
+                    self.report();
                 }
                 Ok(Command::ResumeAdmission) => {
                     self.admitting = true;
                     self.retry_parked();
                 }
-                Ok(Command::Snapshot(reply)) => {
+                Ok(Command::Snapshot(from, reply)) => {
                     // The owner is the only reader of its bitmap, so this runs
-                    // here rather than on the asking task. It reads only the
-                    // blocks a formatted filesystem allocated, which is the
-                    // single-digit megabytes a `mkfs` writes.
+                    // here rather than on the asking task.
                     let run_blocks = ublk::MAX_IO_BUF_BYTES / self.image.block_size();
-                    _ = reply.send(self.image.snapshot(run_blocks));
+                    _ = reply.send(self.image.snapshot(from, run_blocks, SNAPSHOT_BATCH_BYTES));
                 }
                 Ok(Command::OpenHorizon(range, reply)) => {
                     let allocated =
@@ -458,7 +476,10 @@ impl Owner {
                     _ = reply.send(opened);
                 }
                 Ok(Command::HorizonPending(reply)) => _ = reply.send(self.image.horizon_pending()),
-                Ok(Command::CloseHorizon) => self.image.close_horizon(),
+                Ok(Command::CloseHorizon) => {
+                    self.image.close_horizon();
+                    self.metrics.horizon_pending.set(0.0);
+                }
                 Ok(Command::Release(reply)) => {
                     self.release = Some(reply);
 
@@ -474,6 +495,18 @@ impl Owner {
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => return None,
             }
         }
+    }
+
+    /// Report what the disk holds and what its horizon still owes, both of
+    /// which are counts over a bitmap.
+    fn report(&mut self) {
+        let block_size = self.image.block_size() as u64;
+        let allocated = self.image.allocated().count_ones() as u64;
+
+        self.metrics.allocated.set(allocated * block_size);
+        self.metrics
+            .horizon_pending
+            .set(self.image.horizon_pending() as f64);
     }
 
     /// Answer the cut once admission is closed and everything admitted has been
@@ -664,6 +697,9 @@ impl Owner {
             Err(chunks) => {
                 self.slots[tag as usize].chunks = chunks;
                 self.parked.push_back(tag);
+
+                self.metrics.stalls.increment(1);
+                self.metrics.parked.set(self.parked.len() as f64);
             }
         }
     }
@@ -727,6 +763,7 @@ impl Owner {
             match self.capture.offer(chunks) {
                 Ok(()) => {
                     self.parked.pop_front();
+                    self.metrics.parked.set(self.parked.len() as f64);
                     self.admit(tag, changed);
                 }
                 Err(chunks) => {

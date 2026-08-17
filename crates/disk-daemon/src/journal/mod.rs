@@ -67,44 +67,82 @@ pub struct Open {
 /// Recovery is a step of its own because a disk with committed state must be
 /// rebuilt before a device can be created over it, while the journal must be
 /// claimed before it is read.
-pub struct Opening(Task);
+pub struct Opening {
+    task: Task,
+    set_broker: SetBroker,
+}
 
 /// Handle to a session's journal writer.
 pub struct Writer {
     commands: tokio::sync::mpsc::Sender<Command>,
+    ended: tokio_util::sync::CancellationToken,
+    set_broker: SetBroker,
     epoch: uuid::Producer,
 }
 
 enum Command {
     Publish(Reply<Option<bytes::Bytes>>),
     Commit(bytes::Bytes, Reply<()>),
-    Broker(proto::Broker, Reply<()>),
-    Abandon(Reply<()>),
 }
 
-type Reply<T> = tokio::sync::oneshot::Sender<anyhow::Result<T>>;
+type Reply<T> = tokio::sync::oneshot::Sender<Result<T, Failure>>;
+
+/// The failure which ended a session. It is shared rather than moved, because
+/// every request after it is answered with the same one, unshaped: [`Writer`] is
+/// the only layer which turns it into something a client reads.
+type Failure = std::sync::Arc<anyhow::Error>;
+
+/// How a session's failure reaches its client, applied exactly once by
+/// [`Writer::call`].
+///
+/// It keeps the original as its cause, because a session stream's error code is
+/// derived from that: a writer fenced by a replacement session must still be
+/// reported as fenced, however many requests later its client asks.
+#[derive(Debug)]
+struct Failed(Failure);
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the session has failed")
+    }
+}
+
+impl std::error::Error for Failed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref().as_ref())
+    }
+}
 
 /// Replaces the endpoint and credential the client dials with.
 type SetBroker = Box<
-    dyn Fn(tonic::Result<proto::Broker>) -> Option<tokens::WaitForCancellationFutureOwned> + Send,
+    dyn Fn(tonic::Result<proto::Broker>) -> Option<tokens::WaitForCancellationFutureOwned>
+        + Send
+        + Sync,
 >;
 
 impl Opening {
     /// Open `journal` and read the author register a claim must replace.
     ///
-    /// Nothing is appended and no journal is created here.
-    pub async fn new(client: &gazette::journal::Client, open: Open) -> anyhow::Result<Self> {
+    /// Nothing is appended and no journal is created here. `ended` is the
+    /// session's own cancellation, which every broker call of this journal
+    /// gives up on: see [`until_ended`].
+    pub async fn new(
+        client: &gazette::journal::Client,
+        open: Open,
+        ended: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<Self> {
         let Open {
             journal,
             broker,
             floor_label,
         } = open;
 
-        anyhow::ensure!(
+        crate::ensure_valid!(
             !broker.endpoint.is_empty(),
             "the session named no broker endpoint",
         );
         let spec = spec::build(&journal)?;
+        let metrics = crate::metrics::Journal::new(&spec.name);
 
         let (tokens, set_broker) = tokens::manual::<proto::Broker>();
         _ = set_broker(Ok(broker));
@@ -121,32 +159,35 @@ impl Opening {
         );
 
         let epoch = fresh_producer();
-        let probe = fence::probe(&client, &spec.name).await?;
+        let probe = until_ended(&ended, "probing", fence::probe(&client, &spec.name)).await?;
 
-        Ok(Self(Task {
-            journal: spec.name.clone(),
-            spec,
-            client,
+        Ok(Self {
             set_broker: Box::new(set_broker),
-            floor_label,
-            epoch,
-            clock: uuid::Clock::zero(),
-            fence: Fence::Deferred {
-                prior: probe.author,
-                exists: probe.exists,
+            task: Task {
+                journal: spec.name.clone(),
+                spec,
+                client,
+                metrics,
+                ended,
+                floor_label,
+                epoch,
+                clock: uuid::Clock::zero(),
+                fence: Fence::Deferred {
+                    prior: probe.author,
+                    exists: probe.exists,
+                },
+                head: probe.head,
+                floor: 0,
+                horizon: None,
+                completes_horizon: false,
+                delta_records: 0,
+                snapshot: None,
+                compactor: None,
+                pending_ack: None,
+                drained: false,
+                terminal: None,
             },
-            head: probe.head,
-            floor: 0,
-            horizon: None,
-            completes_horizon: false,
-            delta_records: 0,
-            snapshot: None,
-            compactor: None,
-            pending_ack: None,
-            abandoned: false,
-            drained: false,
-            terminal: None,
-        }))
+        })
     }
 
     /// Rebuild `image` from every acknowledged delta of the journal, having
@@ -165,7 +206,7 @@ impl Opening {
         image: &mut Image,
         recovered_acks: Vec<bytes::Bytes>,
     ) -> anyhow::Result<bool> {
-        let task = &mut self.0;
+        let task = &mut self.task;
 
         if recovered_acks.is_empty() && matches!(task.fence, Fence::Deferred { exists: false, .. })
         {
@@ -183,10 +224,15 @@ impl Opening {
         // The head is read after the repair and from a broker which has just
         // served an append, so its index covers every fragment below it. That
         // is what fixes the end of this recovery and makes its read fresh.
-        let head = fence::probe(&task.client, &task.journal).await?.head;
-        let seek = floor::seek(&task.client, &task.journal, &task.floor_label).await?;
+        let (head, seek, replayed) = until_ended(&task.ended, "recovering", async {
+            let head = fence::probe(&task.client, &task.journal).await?.head;
+            let seek = floor::seek(&task.client, &task.journal, &task.floor_label).await?;
 
-        let replayed = replay::replay(&task.client, &task.journal, seek, head, image).await?;
+            let replayed = replay::replay(&task.client, &task.journal, seek, head, image).await?;
+
+            anyhow::Ok((head, seek, replayed))
+        })
+        .await?;
 
         tracing::info!(
             journal = task.journal,
@@ -201,6 +247,8 @@ impl Opening {
         task.head = head;
         task.floor = replayed.floor;
         task.horizon = replayed.horizon;
+        task.metrics.floor_seconds.set(seek as f64);
+        task.report_range();
 
         // A floor the label does not hold is one an earlier session derived and
         // could not record, which this session records for it.
@@ -232,15 +280,23 @@ impl Opening {
         snapshot: Option<Snapshotter>,
         compactor: Option<Compactor>,
     ) -> Writer {
-        let Self(mut task) = self;
+        let Self {
+            mut task,
+            set_broker,
+        } = self;
         task.snapshot = snapshot;
         task.compactor = compactor;
 
-        let epoch = task.epoch;
+        let (epoch, ended) = (task.epoch, task.ended.clone());
         let (commands, receiver) = tokio::sync::mpsc::channel(1);
         tokio::spawn(task.run(captured, receiver));
 
-        Writer { commands, epoch }
+        Writer {
+            commands,
+            ended,
+            set_broker,
+            epoch,
+        }
     }
 }
 
@@ -271,8 +327,18 @@ impl Writer {
     }
 
     /// Replace the endpoint and credential of the session's broker connection.
-    pub async fn set_broker(&self, broker: proto::Broker) -> anyhow::Result<()> {
-        self.call(|reply| Command::Broker(broker, reply)).await
+    ///
+    /// It does not go through the writer, which may be retrying an append
+    /// against the very broker being replaced. Each attempt reads the pair
+    /// afresh, so a replacement reaches one already in flight.
+    pub fn set_broker(&self, broker: proto::Broker) -> anyhow::Result<()> {
+        crate::ensure_valid!(
+            !broker.endpoint.is_empty(),
+            "the session named no broker endpoint",
+        );
+        _ = (self.set_broker)(Ok(broker));
+
+        Ok(())
     }
 
     /// Stop appending, and discard every mutation which follows.
@@ -281,8 +347,13 @@ impl Writer {
     /// on the way out cannot be committed and a replay would ignore it. Those
     /// mutations are still taken, because a device whose mutations nothing
     /// takes cannot be unmounted.
-    pub async fn abandon(&self) -> anyhow::Result<()> {
-        self.call(Command::Abandon).await
+    ///
+    /// It cancels rather than asking, and gives up whatever broker call is in
+    /// flight. A writer retrying an append against an unreachable broker would
+    /// otherwise never answer, and the disk under it could not be unmounted for
+    /// as long as the outage lasted.
+    pub fn abandon(&self) {
+        self.ended.cancel();
     }
 
     async fn call<T>(&self, command: impl FnOnce(Reply<T>) -> Command) -> anyhow::Result<T> {
@@ -296,6 +367,7 @@ impl Writer {
         response
             .await
             .map_err(|_| anyhow::anyhow!("the journal writer has stopped"))?
+            .map_err(|err| anyhow::Error::new(Failed(err)))
     }
 }
 
@@ -314,7 +386,10 @@ struct Task {
     journal: String,
     spec: broker::JournalSpec,
     client: gazette::journal::Client,
-    set_broker: SetBroker,
+    metrics: crate::metrics::Journal,
+    /// Cancelled once the session is over, which is what stops this writer
+    /// appending and gives up whatever broker call is in flight.
+    ended: tokio_util::sync::CancellationToken,
     floor_label: String,
     epoch: uuid::Producer,
     clock: uuid::Clock,
@@ -336,12 +411,10 @@ struct Task {
     compactor: Option<Compactor>,
     /// Acknowledgement returned to the client and not yet committed.
     pending_ack: Option<bytes::Bytes>,
-    /// Set once the session is ending, so that mutations are discarded.
-    abandoned: bool,
     /// Set once the owner has released its half of the capture channel.
     drained: bool,
     /// Failure which ended the session, reported to every later request.
-    terminal: Option<String>,
+    terminal: Option<Failure>,
 }
 
 impl Task {
@@ -362,7 +435,7 @@ impl Task {
                 chunks = captured.recv(), if self.taking() => match chunks {
                     Some(chunks) => {
                         if let Err(err) = self.drain(&captured, Some(chunks)).await {
-                            self.fail(err);
+                            self.fail(std::sync::Arc::new(err));
                         }
                     }
                     None => self.drained = true,
@@ -382,30 +455,23 @@ impl Task {
 
     /// Whether mutations are appended rather than discarded.
     fn appending(&self) -> bool {
-        !self.abandoned && self.terminal.is_none()
+        !self.ended.is_cancelled() && self.terminal.is_none()
     }
 
-    async fn command(&mut self, command: Command, captured: &Captured) -> anyhow::Result<()> {
+    async fn command(&mut self, command: Command, captured: &Captured) -> Result<(), Failure> {
         match command {
             Command::Publish(reply) => reply_with(reply, self.publish(captured).await),
             Command::Commit(ack, reply) => reply_with(reply, self.commit(ack).await),
-            Command::Broker(broker, reply) => reply_with(reply, self.broker(broker)),
-            Command::Abandon(reply) => {
-                self.abandoned = true;
-                self.snapshot = None;
-
-                reply_with(reply, Ok(()))
-            }
         }
     }
 
     /// Finish the delta and construct its acknowledgement.
-    async fn publish(&mut self, captured: &Captured) -> anyhow::Result<Option<bytes::Bytes>> {
+    async fn publish(&mut self, captured: &Captured) -> Result<Option<bytes::Bytes>, Failure> {
         () = self.check()?;
-        anyhow::ensure!(
-            self.pending_ack.is_none(),
-            "a published delta is still awaiting its commit",
-        );
+
+        if self.pending_ack.is_some() {
+            return Err(anyhow::anyhow!("a published delta is still awaiting its commit").into());
+        }
         () = self.drain(captured, None).await?;
 
         if self.delta_records == 0 {
@@ -426,11 +492,12 @@ impl Task {
 
         let ack = buf.freeze();
         self.pending_ack = Some(ack.clone());
+        self.metrics.publishes.increment(1);
 
         Ok(Some(ack))
     }
 
-    async fn commit(&mut self, ack: bytes::Bytes) -> anyhow::Result<()> {
+    async fn commit(&mut self, ack: bytes::Bytes) -> Result<(), Failure> {
         () = self.check()?;
 
         let published = self
@@ -438,12 +505,14 @@ impl Task {
             .take()
             .context("no published delta is awaiting a commit")?;
 
-        anyhow::ensure!(
-            ack == published,
-            "commit acknowledgement differs from the published one",
-        );
+        if ack != published {
+            return Err(
+                anyhow::anyhow!("commit acknowledgement differs from the published one").into(),
+            );
+        }
         _ = self.append(ack).await?;
         self.delta_records = 0;
+        self.metrics.commits.increment(1);
 
         if std::mem::take(&mut self.completes_horizon) {
             () = self.complete_horizon()?;
@@ -463,6 +532,10 @@ impl Task {
         if let Some(compactor) = &self.compactor {
             () = compactor.close()?;
         }
+        self.metrics.horizons.increment(1);
+        self.metrics.floor_seconds.set(clock.to_unix().0 as f64);
+        self.report_range();
+
         tracing::info!(
             journal = self.journal,
             offset,
@@ -479,17 +552,6 @@ impl Task {
         Ok(())
     }
 
-    fn broker(&mut self, broker: proto::Broker) -> anyhow::Result<()> {
-        () = self.check()?;
-        anyhow::ensure!(
-            !broker.endpoint.is_empty(),
-            "the session named no broker endpoint",
-        );
-        _ = (self.set_broker)(Ok(broker));
-
-        Ok(())
-    }
-
     /// Append every mutation the capture channel holds, beginning with `first`.
     ///
     /// A fresh disk's image goes ahead of them, and only ever alongside a
@@ -497,6 +559,10 @@ impl Task {
     /// allocated metadata and a disk which is never written creates no journal.
     /// A mutation the snapshot already reflects is simply applied again, which
     /// is why the two need not be taken at the same instant.
+    ///
+    /// That image is as large as the device may be, so it is taken and appended
+    /// a batch at a time. What a session holds is then bounded by the batch and
+    /// by the capture channel, whatever size of disk it serves.
     async fn drain(
         &mut self,
         captured: &Captured,
@@ -514,16 +580,40 @@ impl Task {
         if mutations.is_empty() {
             return Ok(());
         }
-        let snapshot = match self.snapshot.take() {
-            Some(snapshotter) => snapshotter.snapshot().await?,
-            None => Vec::new(),
-        };
+        let snapshot = self.snapshot.take();
         let opens = self.delta_records == 0 && self.open_horizon().await?;
+
+        if let Some(snapshotter) = snapshot {
+            let mut from = 0;
+
+            loop {
+                let (runs, next) = snapshotter.snapshot(from).await?;
+                () = self.append_records(runs, opens).await?;
+
+                let Some(next) = next else { break };
+                from = next;
+            }
+        }
+        self.append_records(mutations, opens).await
+    }
+
+    /// Stamp `mutations` as this delta's next records and append them.
+    ///
+    /// `opens` puts the horizon flag on the first record of the *delta*, which
+    /// only the first call within one can do: a snapshot arrives in several
+    /// batches, and a reader starting at the horizon must see every chunk which
+    /// discharges it.
+    async fn append_records(
+        &mut self,
+        mutations: Vec<Vec<proto::Chunk>>,
+        opens: bool,
+    ) -> anyhow::Result<()> {
+        let opens = opens && self.delta_records == 0;
 
         let mut buf = bytes::BytesMut::new();
         let mut opened = None;
 
-        for (index, chunks) in snapshot.into_iter().chain(mutations).enumerate() {
+        for (index, chunks) in mutations.into_iter().enumerate() {
             let (record, clock) =
                 self.stamp(uuid::Flags::CONTINUE_TXN, chunks, opens && index == 0);
 
@@ -532,6 +622,10 @@ impl Task {
             }
             framing::encode(&record, &mut buf);
             self.delta_records += 1;
+            self.metrics.appended_records.increment(1);
+        }
+        if buf.is_empty() {
+            return Ok(());
         }
         let begin = self.append(buf.freeze()).await?;
 
@@ -584,16 +678,30 @@ impl Task {
             }))
         };
 
-        let response = append(&self.client, request, source)
-            .await
-            .with_context(|| format!("appending to {}", self.journal))?;
+        let response = until_ended(&self.ended, "appending", async {
+            append(&self.client, request, source)
+                .await
+                .with_context(|| format!("appending to {}", self.journal))
+        })
+        .await?;
 
         let commit = response
             .commit
             .context("append response carries no committed fragment")?;
 
         self.head = commit.end;
+        self.metrics.appended_bytes.increment(content.len() as u64);
+        self.report_range();
+
         Ok(commit.begin)
+    }
+
+    /// Report the journal range a recovery of this disk would now read, which
+    /// is what a horizon exists to bound.
+    fn report_range(&self) {
+        self.metrics
+            .recovery_range
+            .set(self.head.saturating_sub(self.floor).max(0) as f64);
     }
 
     /// Create and claim the journal, unless this session already has.
@@ -603,18 +711,21 @@ impl Task {
             Fence::Deferred { prior, exists } => (prior.clone(), *exists),
         };
 
-        if !exists {
-            () = spec::create(&self.client, self.spec.clone())
-                .await
-                .with_context(|| format!("creating {}", self.journal))?;
-        }
-        () = fence::claim(
-            &self.client,
-            &self.journal,
-            prior.as_deref(),
-            self.epoch,
-            fence::record(self.epoch),
-        )
+        () = until_ended(&self.ended, "claiming", async {
+            if !exists {
+                () = spec::create(&self.client, self.spec.clone())
+                    .await
+                    .with_context(|| format!("creating {}", self.journal))?;
+            }
+            fence::claim(
+                &self.client,
+                &self.journal,
+                prior.as_deref(),
+                self.epoch,
+                fence::record(self.epoch),
+            )
+            .await
+        })
         .await?;
 
         self.fence = Fence::Claimed;
@@ -648,24 +759,52 @@ impl Task {
     }
 
     /// Remember the failure which ends the session.
-    fn fail(&mut self, err: anyhow::Error) {
-        if self.terminal.is_none() {
-            tracing::error!(journal = self.journal, ?err, "journal writer failed");
-            self.terminal = Some(format!("{err:#}"));
+    ///
+    /// A session which is already over did not fail: an append cancelled by
+    /// [`Writer::abandon`] is the teardown working.
+    fn fail(&mut self, err: Failure) {
+        if self.terminal.is_some() {
+            return;
         }
+        if self.ended.is_cancelled() {
+            tracing::debug!(journal = self.journal, ?err, "journal writer stopped");
+        } else {
+            tracing::error!(journal = self.journal, ?err, "journal writer failed");
+        }
+        self.terminal = Some(err);
     }
 
-    fn check(&self) -> anyhow::Result<()> {
+    /// Refuse a request because the session has already failed, handing back
+    /// that same failure rather than a description of it.
+    fn check(&self) -> Result<(), Failure> {
         match &self.terminal {
-            Some(err) => Err(anyhow::anyhow!("the session has failed: {err}")),
+            Some(err) => Err(err.clone()),
             None => Ok(()),
         }
     }
 }
 
+/// Run `work`, failing if the session ends before it finishes.
+///
+/// Every broker call a session makes retries a transient error until it
+/// succeeds, which is right while the disk is live and wrong the moment the
+/// session is over: a teardown which waited on an unreachable broker would hold
+/// the disk's device and its mount for as long as the outage lasted, and a
+/// draining daemon would leave both behind.
+async fn until_ended<T>(
+    ended: &tokio_util::sync::CancellationToken,
+    what: &str,
+    work: impl Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    tokio::select! {
+        _ = ended.cancelled() => anyhow::bail!("the session ended while {what}"),
+        result = work => result,
+    }
+}
+
 /// Send a request's outcome, and return its failure so that the session ends.
-fn reply_with<T>(reply: Reply<T>, result: anyhow::Result<T>) -> anyhow::Result<()> {
-    let failure = result.as_ref().err().map(|err| anyhow::anyhow!("{err:#}"));
+fn reply_with<T>(reply: Reply<T>, result: Result<T, Failure>) -> Result<(), Failure> {
+    let failure = result.as_ref().err().cloned();
     _ = reply.send(result);
 
     match failure {

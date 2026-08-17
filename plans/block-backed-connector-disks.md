@@ -1203,6 +1203,81 @@ kernel. Three exposures remain:
 - Every recovered image represents a power-loss point, so ext4 journal replay
   runs on every session recovery rather than only after a machine failure.
 
+## Implementation addendum
+
+What this document says that the daemon does not, recorded as the daemon was
+built. The planned departures are tabulated in
+[the phase plan](block-backed-connector-disks-phases.md#departures-from-the-design-doc);
+this section is what *implementation* changed, and both should be folded into
+the text above before the feature ships.
+
+**Owners are not pooled.** [Disk ownership](#disk-ownership) says one owner
+thread serves many disks. It cannot: `ublk` binds a device's queue to the thread
+which issues its first `FETCH_REQ` and rejects every later command for that queue
+from any other thread with `EINVAL`. So each disk has a thread and an `io_uring`
+of its own. This was tried the other way and the trace is unambiguous. The cost
+is a kernel stack, 256 KiB of reserved address space, and about 12 KiB of ring
+per disk, so a hundred disks cost single-digit megabytes. What does *not* scale
+that way is the kernel's own `io_uring` worker pool, so every disk's ring attaches
+to one anchor ring and that pool's size is registered rather than inherited.
+
+**Nothing is spilled.** [Replay rules](#replay-rules) has the reader spilling a
+delta's chunks until its acknowledgement arrives. The reader applies every delta
+as it reads it instead, and notes the clock range of any delta still
+unacknowledged when the pass reaches `H`. If there are any, the image is reset
+and the range is read again, reading over exactly those records. One extra pass
+always suffices, because a producer's unacknowledged delta is its last. This
+costs one extra read of the range in exactly the case where a session did not
+shut down cleanly, and it removes a spill file along with its memory threshold,
+its disk budget, the `fsync` and validation a spill surviving a crash would need,
+and the shutdown deadlock a spill budget's backpressure invites.
+
+An unacknowledged delta is also not always the last thing in the range: a
+replacement session fences and appends *after* the orphan records of the session
+it displaced. Skipping by producer and clock covers the trailing and mid-range
+cases with one rule.
+
+**Format output is not retained.** [Format and mount](#format-and-mount) has the
+daemon retaining the writes a `mkfs` and mount make. It drops them, and the first
+append instead asks the disk's owner for a snapshot of the image: the allocated
+blocks, read back and encoded as chunks. The image already holds exactly that
+content, so nothing has to be kept; a block written twice while formatting
+collapses to one chunk; and the snapshot is taken in bounded batches, so what a
+session holds does not scale with the size of the disk it serves.
+
+The apparent race is benign. A mutation is captured before it is applied, so the
+owner may already have applied one when the snapshot is taken. Replay starts from
+an empty image and every mutation captured since the mount is appended after the
+snapshot, so one already reflected in it is simply applied again.
+
+**Block size is per disk, not 4 KiB.** [Change tracking](#change-tracking) fixes
+4 KiB throughout. The daemon parameterises on a block size the session supplies
+at `Open`, which is durable for the life of the disk because it shapes chunk
+coverage and bitmap extent. `u32` block indexing caps a device at 2³² blocks
+rather than at 17 TiB.
+
+**`ublks_max` does not bind these devices.** It counts unprivileged devices only,
+and the daemon's are privileged, so no host needs an `/etc/modprobe.d` entry for
+this crate's sake. It is still reported, because it is the first thing an
+operator reaches for when a device will not add.
+
+**"No udev rule or device helper is required"** ([Device isolation](#device-isolation))
+holds only when the daemon runs as root. `CAP_SYS_ADMIN` does not bypass file
+permissions, so a dedicated UID needs a udev rule granting it `/dev/ublk-control`
+and `/dev/ublkc*`.
+
+**A session which is over gives up its broker calls.** [Errors](#errors) says
+broker errors are retried internally. They are, until the session ends: a
+teardown which waited on an unreachable broker would hold that disk's device and
+its mount for as long as the outage lasted, and a draining daemon would leave
+both behind. A `Broker` replacement likewise does not pass through the journal
+writer, which may be retrying against the very broker being replaced.
+
+**Every append is confirmed before the next is issued.** The daemon issues one
+append at a time and awaits it, so "every chunk of this delta is confirmed" is
+the same statement as "the writer has no work". There is therefore nothing for an
+appended-versus-confirmed measure to report, and the metrics surface has none.
+
 ## Remaining work
 
 Two lifecycle areas must be specified before the feature is complete:

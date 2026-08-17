@@ -881,7 +881,18 @@ Finishes the daemon as a usable, operable stand-alone service.
   through the broker and the broker decompresses. Phase 5's decoder is
   therefore reached only by its own unit tests, never by a broker-backed one,
   though it sits on the recovery path. Closing this needs a fragment store the
-  client can fetch over HTTP.
+  client can fetch over HTTP, which means an S3-compatible server in the
+  toolchain for every developer and CI runner. **Deliberately not closed**: the
+  decoder has round-trip and chunk-boundary unit tests, and a fake broker built
+  for one decoder is not worth what it costs everyone.
+
+- **Not done: writer-side protocol violations report `INTERNAL`.** A second
+  `Publish` with one outstanding, a `Commit` with nothing published, and a
+  `Commit` whose bytes differ are all `FAILED_PRECONDITION` in spirit, and the
+  two the session state machine detects do report it. The three the journal
+  writer detects reach `session::failed` as ordinary failures instead. Fixing it
+  wants a marker kind beside `Invalid`. `OPERATING.md` documents what the code
+  does rather than the intent.
 
 **Tests:** soak — many concurrent disks under mixed read/write/discard load
 with periodic publish/commit and randomized kill/recover, asserting content

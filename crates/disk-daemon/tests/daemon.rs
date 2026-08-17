@@ -312,6 +312,561 @@ async fn the_floor_label_only_advances(fixture: &Fixture, daemon: &Daemon) {
     () = session.close().await;
 }
 
+/// Disks a soak works at once, and the rounds of traffic it puts through each.
+const SOAK_DISKS: usize = 6;
+const SOAK_ROUNDS: usize = 4;
+
+/// Many disks at once under mixed traffic, with a share of them losing the delta
+/// they published each round and recovering it.
+///
+/// It asserts what a long run must leave behind, which is nothing: every disk
+/// holds exactly the generation it last committed, and no thread, descriptor,
+/// device or mount outlives the session which made it. It also measures what a
+/// host of disks costs in threads, because a unit file's `TasksMax` must cover
+/// the owner thread each disk runs and the kernel's `io_uring` workers alike.
+#[tokio::test]
+async fn disk_daemon_soak_test() {
+    common::check_prerequisites();
+
+    let data_plane = e2e_support::DataPlane::start(e2e_support::DataPlaneArgs { broker_count: 1 })
+        .await
+        .expect("DataPlane start");
+
+    let fixture = Fixture {
+        dir: tempfile::tempdir().expect("tempdir"),
+        endpoint: data_plane.gazette.brokers[0].endpoint.clone(),
+        credential: credential(&data_plane.gazette),
+        client: data_plane.journal_client.clone(),
+        fragment_root: data_plane.gazette.fragment_root.clone(),
+        refresh_interval_seconds: 5 * 60,
+    };
+    let daemon = Daemon::start(&fixture, "soak").await;
+
+    // One tree per generation, because a disk which lost its delta is compared
+    // against the generation it last committed rather than the newest.
+    let generations: Vec<std::path::PathBuf> = (0..=SOAK_ROUNDS)
+        .map(|generation| {
+            let path = fixture.dir.path().join(format!("soak-{generation}"));
+            write_source(&path, generation as u8 + 1);
+            path
+        })
+        .collect();
+
+    let idle = daemon.cost();
+    let mut disks = Vec::new();
+
+    for index in 0..SOAK_DISKS {
+        let journal = format!("acmeCo/disk/soak-{index}");
+        let mut session = daemon.session().await;
+        let mount = session.open(fixture.open(&journal)).await.unwrap();
+
+        copy_through(&generations[0], &mount);
+        let ack = session.publish().await.unwrap();
+        () = session.commit(ack).await.unwrap();
+
+        disks.push(SoakDisk {
+            journal,
+            mount,
+            session: Some(session),
+            committed: 0,
+        });
+    }
+    let busy = daemon.cost();
+    let mut killed = 0;
+
+    for round in 1..=SOAK_ROUNDS {
+        let load = disks
+            .iter()
+            .map(|disk| soak_load(&disk.mount, &generations[round], round));
+
+        for outcome in futures::future::join_all(load).await {
+            () = outcome.expect("a round of soak traffic");
+        }
+
+        for (index, disk) in disks.iter_mut().enumerate() {
+            let session = disk.session.as_mut().expect("a live session");
+            let ack = session.publish().await.unwrap();
+
+            assert!(!ack.is_empty(), "{} changed in round {round}", disk.journal);
+
+            // A share of the disks lose the delta they just published, which is
+            // the crash this soak varies over.
+            if roll(index, round).is_multiple_of(3) {
+                _ = disk.session.take();
+                killed += 1;
+            } else {
+                () = session.commit(ack).await.unwrap();
+                disk.committed = round;
+            }
+        }
+
+        for disk in disks.iter_mut().filter(|disk| disk.session.is_none()) {
+            () = wait_unmounted(&disk.mount).await;
+
+            let mut session = daemon.session().await;
+            let mount = session.open(fixture.open(&disk.journal)).await.unwrap();
+
+            assert_tree_matches(&generations[disk.committed], &format!("{mount}/data"));
+
+            disk.mount = mount;
+            disk.session = Some(session);
+        }
+    }
+    assert!(killed > 0, "no disk lost a delta over {SOAK_ROUNDS} rounds");
+
+    // Every disk holds what it last committed, whatever happened to it.
+    for disk in disks.iter() {
+        assert_tree_matches(
+            &generations[disk.committed],
+            &format!("{}/data", disk.mount),
+        );
+    }
+    let mounts: Vec<String> = disks.iter().map(|disk| disk.mount.clone()).collect();
+
+    for disk in disks.iter_mut() {
+        () = disk.session.take().expect("a live session").close().await;
+    }
+    for mount in mounts {
+        () = wait_unmounted(&mount).await;
+    }
+    let ended = daemon.cost();
+
+    eprintln!("soak cost: idle {idle:?}, serving {SOAK_DISKS} disks {busy:?}, ended {ended:?}");
+
+    // An owner thread per disk and a shared pool of kernel workers, both of
+    // which a unit file's TasksMax counts.
+    assert_eq!(busy.owners, SOAK_DISKS, "{busy:?}");
+    assert!(
+        busy.workers > 0,
+        "no io_uring worker served the disks: {busy:?}"
+    );
+    assert!(
+        busy.threads >= idle.threads + SOAK_DISKS,
+        "{busy:?} against an idle {idle:?}",
+    );
+
+    // Nothing a disk held outlives it. The descriptors allowed for are the
+    // broker connections the router holds until its next sweep.
+    assert_eq!(ended.owners, 0, "{ended:?}");
+    assert!(
+        ended.files <= idle.files + 8,
+        "{ended:?} against an idle {idle:?}",
+    );
+
+    daemon.drain().await;
+    fixture.assert_no_leaks();
+
+    data_plane
+        .graceful_stop()
+        .await
+        .expect("DataPlane graceful_stop");
+}
+
+/// One disk of a soak run, and the generation it last committed.
+struct SoakDisk {
+    journal: String,
+    mount: String,
+    /// Taken when the disk loses a delta, and replaced by the session which
+    /// recovers it.
+    session: Option<Session>,
+    committed: usize,
+}
+
+/// One round of mixed traffic on a mounted disk: a generation of files copied
+/// in, scratch written and the round before it deleted so the filesystem
+/// discards, and a read back.
+///
+/// It runs without blocking the runtime, which is what lets every disk of the
+/// soak be worked at once.
+async fn soak_load(mount: &str, source: &std::path::Path, round: usize) -> anyhow::Result<()> {
+    () = sudo_async(&["cp", "-rT", path(source), &format!("{mount}/data")]).await?;
+    () = sudo_async(&[
+        "dd",
+        "if=/dev/urandom",
+        "bs=64k",
+        "count=64",
+        "status=none",
+        &format!("of={mount}/scratch-{round}"),
+    ])
+    .await?;
+    () = sudo_async(&["cp", &format!("{mount}/data/large"), "/dev/null"]).await?;
+    () = sudo_async(&["rm", "-f", &format!("{mount}/scratch-{}", round - 1)]).await?;
+
+    Ok(())
+}
+
+/// A deterministic roll, so that a soak run is reproducible while the disks it
+/// kills still vary between rounds.
+fn roll(index: usize, round: usize) -> u64 {
+    let mut state = 0x9e3779b97f4a7c15 ^ ((index as u64) << 32) ^ round as u64;
+
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+
+    state
+}
+
+/// Wait for writes which were parked to complete, without holding the runtime
+/// they must complete on.
+async fn wait_for_exit(writer: &mut std::process::Child) {
+    let deadline = std::time::Instant::now() + TEARDOWN;
+
+    while std::time::Instant::now() < deadline {
+        match writer.try_wait().expect("polling a writer") {
+            Some(status) => return assert!(status.success(), "a parked write failed: {status}"),
+            None => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+        }
+    }
+    _ = writer.kill();
+    panic!("parked writes did not complete once the broker returned");
+}
+
+/// Wait for the disk of a dropped session to be torn down, which its client
+/// cannot observe because its stream is already gone.
+async fn wait_unmounted(mount: &str) {
+    let deadline = std::time::Instant::now() + TEARDOWN;
+
+    while std::time::Instant::now() < deadline {
+        if !is_mounted(mount) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("{mount} was not torn down");
+}
+
+/// Run a privileged command without blocking the runtime.
+async fn sudo_async(args: &[&str]) -> anyhow::Result<()> {
+    let mut command = async_process::Command::new("sudo");
+    command.arg("-n").args(args);
+
+    let output = async_process::output(&mut command).await?;
+
+    anyhow::ensure!(
+        output.status.success(),
+        "sudo {args:?} failed ({}): {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr),
+    );
+    Ok(())
+}
+
+/// Faults a daemon must survive: a broker it cannot reach, a credential which
+/// runs out under it, a session which takes its journal away, and a SIGTERM
+/// while a disk is being written.
+#[tokio::test]
+async fn disk_daemon_fault_tests() {
+    common::check_prerequisites();
+
+    let data_plane = e2e_support::DataPlane::start(e2e_support::DataPlaneArgs { broker_count: 1 })
+        .await
+        .expect("DataPlane start");
+
+    let fixture = Fixture {
+        dir: tempfile::tempdir().expect("tempdir"),
+        endpoint: data_plane.gazette.brokers[0].endpoint.clone(),
+        credential: credential(&data_plane.gazette),
+        client: data_plane.journal_client.clone(),
+        fragment_root: data_plane.gazette.fragment_root.clone(),
+        refresh_interval_seconds: 5 * 60,
+    };
+    let daemon = Daemon::start(&fixture, "faults").await;
+
+    a_broker_outage_stalls_writes_and_then_resumes(&fixture, &daemon).await;
+    a_credential_is_replaced_before_it_expires(&fixture, &data_plane, &daemon).await;
+    a_replacement_session_fences_the_first(&fixture, &daemon).await;
+    the_client_subcommand_drives_a_session(&fixture, &daemon).await;
+
+    daemon.drain().await;
+    fixture.assert_no_leaks();
+
+    a_sigterm_under_load_tears_every_disk_down(&fixture).await;
+
+    data_plane
+        .graceful_stop()
+        .await
+        .expect("DataPlane graceful_stop");
+}
+
+/// A broker which cannot be reached parks the device rather than failing it:
+/// appends retry, the capture channel fills, and writes wait. Naming a reachable
+/// broker again releases them, and the delta commits as though nothing happened.
+async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/outage";
+    let mut session = daemon.session().await;
+
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+    let source = fixture.source("outage");
+
+    copy_through(&source, &mount);
+    let ack = session.publish().await.unwrap();
+    () = session.commit(ack).await.unwrap();
+
+    // A socket nothing is listening on. Dialing it fails transiently, which is
+    // exactly what a broker restart looks like from here.
+    () = session
+        .send(proto::request::Request::Broker(proto::Broker {
+            endpoint: format!(
+                "unix://localhost{}/absent.sock",
+                fixture.dir.path().display()
+            ),
+            credential: fixture.credential.clone(),
+        }))
+        .await;
+
+    // More than the capture channel can hold, so the device parks once the
+    // writer stops taking from it.
+    let mut writer = std::process::Command::new("sudo")
+        .args([
+            "-n",
+            "dd",
+            "if=/dev/urandom",
+            "bs=1M",
+            "count=48",
+            "conv=fsync",
+        ])
+        .arg(format!("of={mount}/stalled"))
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawning dd");
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    assert!(
+        writer.try_wait().expect("polling dd").is_none(),
+        "the disk kept taking writes while its broker was unreachable",
+    );
+
+    // The replacement does not go through the writer, which is retrying against
+    // the broker being replaced.
+    () = session
+        .send(proto::request::Request::Broker(proto::Broker {
+            endpoint: fixture.endpoint.clone(),
+            credential: fixture.credential.clone(),
+        }))
+        .await;
+
+    () = wait_for_exit(&mut writer).await;
+    let ack = session.publish().await.unwrap();
+
+    () = session.commit(ack).await.unwrap();
+    () = session.close().await;
+
+    // What was committed across the outage is what recovers.
+    let mut session = daemon.session().await;
+    let mount = session.open(fixture.open(journal)).await.unwrap();
+
+    assert_tree_matches(&source, &format!("{mount}/data"));
+    assert_eq!(
+        sudo(&["stat", "-c", "%s", &format!("{mount}/stalled")]).trim(),
+        (48 * 1024 * 1024).to_string(),
+    );
+    () = session.close().await;
+}
+
+/// A session outlives the credential it opened with, because its client replaces
+/// that credential while it is still valid.
+///
+/// Replacement *before* expiry is the whole of the contract, and the shape of
+/// this case is why. A client cannot make its disk quiescent: ext4 writes back
+/// and discards on its own schedule, so the writer's next append can fall
+/// anywhere, and the daemon holds no delta waiting for a credential to arrive. A
+/// credential which is always valid is therefore the only kind a session can be
+/// served with, and one replaced in reaction to a failure is already too late.
+///
+/// That the reverse is terminal is not asserted here, because it cannot be made
+/// deterministic from a client: whether an append falls inside the expiry window
+/// is the filesystem's decision, not the test's.
+async fn a_credential_is_replaced_before_it_expires(
+    fixture: &Fixture,
+    data_plane: &e2e_support::DataPlane,
+    daemon: &Daemon,
+) {
+    const LIFETIME: u64 = 8;
+
+    let journal = "acmeCo/disk/refreshed-credential";
+
+    let open = proto::Open {
+        broker: Some(proto::Broker {
+            endpoint: fixture.endpoint.clone(),
+            credential: credential_lasting(&data_plane.gazette, LIFETIME),
+        }),
+        ..fixture.open(journal)
+    };
+    let mut session = daemon.session().await;
+    let mount = session.open(open.clone()).await.unwrap();
+
+    let first = fixture.source("refreshed-credential");
+    copy_through(&first, &mount);
+
+    let ack = session.publish().await.unwrap();
+    () = session.commit(ack).await.unwrap();
+
+    // Replaced while the credential it replaces is still good, which is what a
+    // client holding a short-lived token is required to do.
+    () = session
+        .send(proto::request::Request::Broker(proto::Broker {
+            endpoint: fixture.endpoint.clone(),
+            credential: fixture.credential.clone(),
+        }))
+        .await;
+
+    // Long enough that the credential this session opened with has run out, so
+    // everything below is the replacement's doing.
+    tokio::time::sleep(std::time::Duration::from_secs(LIFETIME + 2)).await;
+
+    let second = fixture.dir.path().join("refreshed-credential-2");
+    write_source(&second, 2);
+    copy_through(&second, &mount);
+
+    let ack = session.publish().await.unwrap();
+    assert!(!ack.is_empty(), "the second generation changed the disk");
+
+    () = session.commit(ack).await.unwrap();
+    () = session.close().await;
+
+    // What the journal holds is what the replacement appended.
+    let image = fixture.dir.path().join("refreshed-credential.img");
+    _ = fixture.replay(journal, &image).await;
+    fixture.assert_content_matches(&image, &second);
+
+    // And the credential it replaced really had expired, so a session which
+    // opens with that one cannot even probe.
+    let mut session = daemon.session().await;
+    let status = session.open(open).await.unwrap_err();
+
+    assert!(status.message().contains("probing"), "{status}");
+    () = session.ended().await;
+}
+
+/// Two sessions of one journal: the second claims the author register, and the
+/// first learns of it on its next append. The loser is terminal and says so with
+/// `ABORTED`, and the winner recovers everything the loser committed.
+async fn a_replacement_session_fences_the_first(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/fenced";
+    let source = fixture.source("fenced");
+
+    let mut loser = daemon.session().await;
+    let mount = loser.open(fixture.open(journal)).await.unwrap();
+
+    copy_through(&source, &mount);
+    let ack = loser.publish().await.unwrap();
+    () = loser.commit(ack).await.unwrap();
+
+    // The journal now holds committed state, so this session claims the fence
+    // as it opens rather than deferring it to a first append.
+    let mut winner = daemon.session().await;
+    let recovered = winner.open(fixture.open(journal)).await.unwrap();
+
+    assert_tree_matches(&source, &format!("{recovered}/data"));
+
+    // The loser's next delta is refused by the broker's register check.
+    let displaced = fixture.dir.path().join("fenced-2");
+    write_source(&displaced, 2);
+    copy_through(&displaced, &mount);
+
+    let status = loser.publish().await.unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::Aborted, "{status}");
+    assert!(status.message().contains("RegisterMismatch"), "{status}");
+
+    () = loser.ended().await;
+    () = winner.close().await;
+}
+
+/// The `client` subcommand drives a session end to end, and what it commits is
+/// what the next session opens.
+async fn the_client_subcommand_drives_a_session(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/by-hand";
+    let source = fixture.source("by-hand");
+
+    let mut client = std::process::Command::new(env!("CARGO_BIN_EXE_flow-disk-daemon"))
+        .args(["client", "--uds-path"])
+        .arg(&daemon.uds_path)
+        .args(["--journal", journal])
+        .args(["--device-size", &DEVICE_SIZE.to_string()])
+        .args(["--block-size", &BLOCK_SIZE.to_string()])
+        .args(["--broker-endpoint", &fixture.endpoint])
+        .args(["--broker-credential", &fixture.credential])
+        .args(["--fragment-store", "file:///"])
+        .args(["--fragment-length", "1048576"])
+        .args(["--refresh-interval-seconds", "300"])
+        .args(["--max-append-rate", "4194304"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawning the client subcommand");
+
+    let mut stdin = client.stdin.take().expect("a piped stdin");
+    let mut stdout = std::io::BufReader::new(client.stdout.take().expect("a piped stdout"));
+
+    let mut line = || {
+        let mut read = String::new();
+        std::io::BufRead::read_line(&mut stdout, &mut read).expect("reading the client");
+        read.trim_end().to_string()
+    };
+    let mounted = line();
+    let mount = mounted
+        .strip_prefix("mounted ")
+        .unwrap_or_else(|| panic!("the client printed {mounted:?}"))
+        .to_string();
+
+    copy_through(&source, &mount);
+
+    for (command, expect) in [
+        ("publish\n", "published "),
+        ("commit\n", "committed"),
+        ("publish\n", "unchanged"),
+        ("quit\n", "closed"),
+    ] {
+        std::io::Write::write_all(&mut stdin, command.as_bytes()).expect("writing to the client");
+        std::io::Write::flush(&mut stdin).expect("flushing the client");
+
+        let read = line();
+        assert!(
+            read.starts_with(expect),
+            "expected {expect:?}, got {read:?}"
+        );
+    }
+
+    assert!(
+        client.wait().expect("waiting for the client").success(),
+        "the client subcommand exited with an error",
+    );
+    let mut session = daemon.session().await;
+    let reopened = session.open(fixture.open(journal)).await.unwrap();
+
+    assert_tree_matches(&source, &format!("{reopened}/data"));
+    () = session.close().await;
+}
+
+/// A daemon signalled while a disk is being written ends its sessions, tears
+/// down what they held, and exits cleanly.
+async fn a_sigterm_under_load_tears_every_disk_down(fixture: &Fixture) {
+    let daemon = Daemon::start(fixture, "sigterm").await;
+    let mut session = daemon.session().await;
+
+    let mount = session
+        .open(fixture.open("acmeCo/disk/sigterm"))
+        .await
+        .unwrap();
+
+    let mut writer = std::process::Command::new("sudo")
+        .args(["-n", "dd", "if=/dev/urandom", "bs=1M", "count=64"])
+        .arg(format!("of={mount}/load"))
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawning dd");
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    () = daemon.drain().await;
+
+    _ = writer.wait().expect("waiting for dd");
+    () = session.ended().await;
+
+    fixture.assert_no_leaks();
+}
+
 /// Deltas a horizon case runs before giving up on one completing. Generous
 /// against the handful its thresholds need.
 const CHURN_DELTAS: usize = 20;
@@ -1155,7 +1710,7 @@ impl Daemon {
         }
         let mut command = async_process::Command::new("sudo");
         command
-            .args(["-n", env!("CARGO_BIN_EXE_flow-disk-daemon")])
+            .args(["-n", env!("CARGO_BIN_EXE_flow-disk-daemon"), "serve"])
             .arg("--uds-path")
             .arg(&uds_path)
             .arg("--image-dir")
@@ -1224,26 +1779,112 @@ impl Daemon {
         _ = self.child.wait().await.expect("waiting for the daemon");
     }
 
+    /// What the daemon's process costs the host right now.
+    fn cost(&self) -> Cost {
+        let pid = self.pid();
+
+        let names: Vec<String> = std::fs::read_dir(format!("/proc/{pid}/task"))
+            .expect("the daemon's threads")
+            .filter_map(|entry| std::fs::read_to_string(entry.ok()?.path().join("comm")).ok())
+            .map(|comm| comm.trim_end().to_string())
+            .collect();
+
+        Cost {
+            threads: names.len(),
+            owners: names
+                .iter()
+                .filter(|name| name.starts_with("disk-"))
+                .count(),
+            workers: names
+                .iter()
+                .filter(|name| name.starts_with("iou-wrk"))
+                .count(),
+            // Only the daemon's own user may list them.
+            files: sudo(&["ls", &format!("/proc/{pid}/fd")]).lines().count(),
+        }
+    }
+
+    /// Process id of the daemon, which is the child of the `sudo` this test
+    /// spawned rather than that `sudo` itself.
+    fn pid(&self) -> u32 {
+        let matched = std::process::Command::new("pgrep")
+            .args(["-f", &self.pattern()])
+            .output()
+            .expect("spawning pgrep");
+
+        String::from_utf8_lossy(&matched.stdout)
+            .trim()
+            .parse()
+            .expect("exactly one daemon serves this socket")
+    }
+
     /// Signal the daemon, which runs as root and so is only reachable through
-    /// `sudo`. The pattern matches the daemon and not the `sudo` which spawned
-    /// it, whose command line holds the same socket path.
+    /// `sudo`.
     fn signal(&self, signal: &str) {
         _ = std::process::Command::new("sudo")
             .args(["-n", "pkill", &format!("-{signal}"), "-f"])
-            .arg(format!(
-                "^{} --uds-path {}",
-                env!("CARGO_BIN_EXE_flow-disk-daemon"),
-                self.uds_path.display(),
-            ))
+            .arg(self.pattern())
             .status()
             .expect("spawning pkill");
     }
+
+    /// Whether this daemon's process is still around, which signal zero asks
+    /// without delivering anything.
+    fn running(&self) -> bool {
+        std::process::Command::new("sudo")
+            .args(["-n", "pkill", "-0", "-f"])
+            .arg(self.pattern())
+            .status()
+            .expect("spawning pkill")
+            .success()
+    }
+
+    /// Command line of this daemon, anchored so that it matches the daemon and
+    /// not the `sudo` which spawned it, whose own line holds the same path.
+    fn pattern(&self) -> String {
+        format!(
+            "^{} serve --uds-path {}",
+            env!("CARGO_BIN_EXE_flow-disk-daemon"),
+            self.uds_path.display(),
+        )
+    }
+}
+
+/// What a daemon's process costs the host, which is what a unit file's
+/// `TasksMax` and `LimitNOFILE` have to cover.
+#[derive(Debug)]
+struct Cost {
+    /// Threads of the process, which is what `TasksMax` counts.
+    threads: usize,
+    /// Of those, the one thread each disk is served by.
+    owners: usize,
+    /// Of those, the kernel's own `io_uring` workers. They are threads of this
+    /// process too, so they count against `TasksMax` alongside the owners.
+    workers: usize,
+    /// Descriptors held, of which a disk's own are its image, its character
+    /// device, its ring, and its wake.
+    files: usize,
 }
 
 impl Drop for Daemon {
     fn drop(&mut self) {
         // A test which failed part way leaves a privileged process behind
         // otherwise, and the next test's leak checks would see its devices.
+        //
+        // `KILL` is the last resort rather than the first, because a daemon
+        // killed outright while a device request is in flight leaves a device
+        // the host cannot remove: the kernel cannot complete that request, so
+        // the process never exits, and every later `ublk` control command
+        // blocks behind it. Only a reboot clears that.
+        self.signal("TERM");
+        let deadline = std::time::Instant::now() + TEARDOWN;
+
+        while std::time::Instant::now() < deadline {
+            if !self.running() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         self.signal("KILL");
     }
 }
@@ -1492,6 +2133,12 @@ fn path(path: &std::path::Path) -> &str {
 
 /// Sign a token carrying the capabilities a disk journal writer needs.
 fn credential(cluster: &e2e_support::GazetteCluster) -> String {
+    credential_lasting(cluster, 3600)
+}
+
+/// The same token, expiring in `seconds`, so that a case can outlive the
+/// credential it opened with.
+fn credential_lasting(cluster: &e2e_support::GazetteCluster, seconds: u64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -1502,7 +2149,7 @@ fn credential(cluster: &e2e_support::GazetteCluster) -> String {
             | proto_gazette::capability::APPLY
             | proto_gazette::capability::READ
             | proto_gazette::capability::APPEND,
-        exp: now + 3600,
+        exp: now + seconds,
         iat: now,
         iss: "disk-daemon-test".to_string(),
         sel: broker::LabelSelector::default(),

@@ -1,10 +1,10 @@
 //! The daemon process: what it validates about its host, what it serves, and
 //! how it stops.
 
-use crate::args::Args;
+use crate::args::Serve;
 use crate::filesystem;
 use crate::journal;
-use crate::ublk::Control;
+use crate::ublk::{Control, sys};
 use anyhow::Context;
 
 /// Interval at which idle broker connections are closed. It is short relative
@@ -31,14 +31,16 @@ pub struct Config {
     /// Routing table of `client`, swept periodically to close connections to
     /// brokers which no longer serve any disk.
     pub router: gazette::Router,
+    /// Bytes every live disk holds, which each adds its own share to.
+    pub footprint: crate::metrics::Footprint,
 }
 
 /// Prefix of a disk's mount point, which carries the device number so that a
 /// later daemon can delete the device a mount it inherits was made from.
 pub const MOUNT_PREFIX: &str = "disk-";
 
-pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<()> {
-    () = validate(&args).context("this host cannot serve disks")?;
+pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result<()> {
+    let control = std::sync::Arc::new(validate(&args).context("this host cannot serve disks")?);
 
     let (client, router) = journal::shared_client();
 
@@ -53,9 +55,9 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         },
         client,
         router,
+        footprint: crate::metrics::Footprint::default(),
     });
 
-    let control = std::sync::Arc::new(Control::open()?);
     () = reclaim(&control, &args.mount_dir, crate::filesystem::MOUNT_TIMEOUT).await?;
 
     tracing::info!(
@@ -67,10 +69,11 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         "disk daemon starting",
     );
 
-    // SIGTERM (systemd) and SIGINT (interactive) both drain the daemon.
-    let (shutdown, mut draining) = tokio::sync::broadcast::channel(1);
+    // SIGTERM (systemd) and SIGINT (interactive) both drain the daemon. One
+    // token ends everything it runs, sessions included.
+    let draining = tokio_util::sync::CancellationToken::new();
     {
-        let shutdown = shutdown.clone();
+        let draining = draining.clone();
 
         tokio::spawn(async move {
             let mut term =
@@ -81,18 +84,18 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
                 _ = term.recv() => tracing::info!("SIGTERM received"),
                 _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
             }
-            _ = shutdown.send(());
+            draining.cancel();
         });
     }
 
     if let Some(admin_port) = args.admin_port {
         let address = std::net::SocketAddr::from(([127, 0, 0, 1], admin_port));
-        let (registry, mut draining) = (registry.clone(), shutdown.subscribe());
+        let (registry, draining) = (registry.clone(), draining.clone());
 
         tokio::spawn(async move {
             let outcome =
                 service_kit::admin::serve("flow-disk-daemon", registry, address, async move {
-                    _ = draining.recv().await;
+                    draining.cancelled().await
                 })
                 .await;
 
@@ -102,20 +105,22 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         });
     }
     {
-        let (router, mut draining) = (config.router.clone(), shutdown.subscribe());
+        let (router, draining) = (config.router.clone(), draining.clone());
 
         tokio::spawn(async move {
-            while tokio::time::timeout(SWEEP_INTERVAL, draining.recv())
-                .await
-                .is_err()
-            {
+            while !ticked(&draining, SWEEP_INTERVAL).await {
                 router.sweep();
             }
         });
     }
-    let mut drained = shutdown.subscribe();
+    tokio::spawn(crate::metrics::host(
+        args.image_dir.clone(),
+        control.clone(),
+        config.footprint.clone(),
+        draining.clone(),
+    ));
 
-    let service = crate::session::Service::new(config, control, registry, shutdown);
+    let service = crate::session::Service::new(config, control, registry.clone(), draining.clone());
     let listener = listen(&args.uds_path)?;
 
     let incoming = futures::stream::try_unfold(listener, |listener| async move {
@@ -126,8 +131,9 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
     let mut serving = tokio::spawn(
         tonic::transport::Server::builder()
             .add_service(service.into_tonic_service())
-            .serve_with_incoming_shutdown(incoming, async move {
-                _ = draining.recv().await;
+            .serve_with_incoming_shutdown(incoming, {
+                let draining = draining.clone();
+                async move { draining.cancelled().await }
             }),
     );
     tracing::info!(socket = ?args.uds_path, "disk daemon is serving sessions");
@@ -138,20 +144,65 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
     let served = tokio::select! {
         served = &mut serving => served?,
 
-        _ = drained.recv() => {
-            tracing::info!(timeout = ?DRAIN_TIMEOUT, "draining sessions");
+        _ = draining.cancelled() => {
+            // Unlinking first stops a client which reconnects from opening a
+            // disk this daemon is about to stop serving.
+            _ = std::fs::remove_file(&args.uds_path);
+
+            tracing::info!(
+                sessions = registry.snapshot().live.len(),
+                timeout = ?DRAIN_TIMEOUT,
+                "draining sessions",
+            );
 
             match tokio::time::timeout(DRAIN_TIMEOUT, serving).await {
                 Ok(served) => served?,
-                Err(_elapsed) => anyhow::bail!(
-                    "sessions did not end within the drain timeout, so devices are left behind",
-                ),
+                Err(_elapsed) => {
+                    let stuck = stuck(&registry);
+
+                    anyhow::ensure!(
+                        stuck.is_empty(),
+                        "these disks did not tear down within the drain timeout, so their \
+                         devices are left behind: {stuck:?}",
+                    );
+                    // No session outlived the drain, so no device was left
+                    // behind and the wait was on a client which had not closed
+                    // its connection. That is the client's to answer for.
+                    tracing::warn!("a client connection outlived the drain timeout");
+                    Ok(())
+                }
             }
         }
     };
     _ = std::fs::remove_file(&args.uds_path);
 
     served.context("serving the session socket")
+}
+
+/// Sleep for `interval`, reporting true if the daemon began draining instead.
+/// It is what makes a periodic task end promptly on a drain.
+pub(crate) async fn ticked(
+    draining: &tokio_util::sync::CancellationToken,
+    interval: std::time::Duration,
+) -> bool {
+    tokio::select! {
+        _ = draining.cancelled() => true,
+        _ = tokio::time::sleep(interval) => false,
+    }
+}
+
+/// The disks of every session which is still live, and what each is doing.
+///
+/// It names the thing an operator must go and look at, which a timeout alone
+/// does not: a drain which does not finish leaves ublk devices and mounts on the
+/// host for the next daemon to reclaim.
+fn stuck(registry: &service_kit::Registry) -> Vec<(String, String)> {
+    registry
+        .snapshot()
+        .live
+        .into_iter()
+        .map(|handler| (handler.label, handler.phase))
+        .collect()
 }
 
 /// Bind `path`, taking over a socket which a previous daemon left behind.
@@ -272,17 +323,34 @@ fn mount_point(line: &str) -> Option<std::path::PathBuf> {
     Some(unescaped.into())
 }
 
-/// Fail unless this host can serve disks, naming what to do about it.
-fn validate(args: &Args) -> anyhow::Result<()> {
+/// Fail unless this host can serve disks, naming what to do about it, and
+/// return the control device that proved it.
+///
+/// Every one of these is otherwise found by a client's first session, at which
+/// point the failure is a device which will not add or an image which quietly
+/// occupies its whole logical size.
+fn validate(args: &Serve) -> anyhow::Result<Control> {
     anyhow::ensure!(
         std::path::Path::new("/sys/module/ublk_drv").exists(),
         "the ublk_drv kernel module is not loaded, so no block device can be served. \
          Load it with `modprobe ublk_drv`",
     );
     anyhow::ensure!(
-        std::path::Path::new("/dev/ublk-control").exists(),
-        "/dev/ublk-control is absent though ublk_drv is loaded, so this kernel's module \
-         was built without the control device",
+        !args.floor_label.is_empty(),
+        "--floor-label names the journal-spec label a disk's recovery floor is written to, \
+         and it has no default. Without one every recovery replays from the earliest \
+         fragment and the journal a disk needs grows without bound",
+    );
+    let control = Control::open()?;
+
+    let features = control.features().context(
+        "this kernel's ublk_drv does not answer UBLK_U_CMD_GET_FEATURES, so it is older \
+         than Linux 6.1",
+    )?;
+    anyhow::ensure!(
+        features & sys::UBLK_F_USER_COPY != 0,
+        "this kernel's ublk_drv implements features {features:#x}, without the \
+         UBLK_F_USER_COPY of Linux 6.2 which is how a disk's request data moves",
     );
     () = filesystem::validate(filesystem::Type::Ext4)?;
 
@@ -294,7 +362,8 @@ fn validate(args: &Args) -> anyhow::Result<()> {
     })?;
     () = std::fs::create_dir_all(&args.mount_dir)
         .with_context(|| format!("creating {:?}", args.mount_dir))?;
-    Ok(())
+
+    Ok(control)
 }
 
 /// Fail unless `dir` is a filesystem which deallocates part of a file.

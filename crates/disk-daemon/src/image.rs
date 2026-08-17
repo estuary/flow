@@ -195,18 +195,31 @@ impl Image {
         Ok(())
     }
 
-    /// Read the image back as the chunks which reproduce it, one mutation per
-    /// run of at most `run_blocks` contiguous allocated blocks.
+    /// Read the image back as the chunks which reproduce it, beginning at block
+    /// `from`, one mutation per run of at most `run_blocks` contiguous allocated
+    /// blocks, and stopping once `max_bytes` have been read. Also reports the
+    /// block to resume at, or `None` where the image is exhausted.
     ///
     /// This is what a fresh disk publishes ahead of its first delta, because its
     /// formatted filesystem is content the journal has never seen and the image
     /// already holds exactly that content. Unallocated blocks are not read, so
     /// the holes a prezeroed format left are holes in a rebuilt image too.
-    pub fn snapshot(&self, run_blocks: u32) -> std::io::Result<Vec<Vec<crate::proto::Chunk>>> {
+    ///
+    /// It is taken in batches because the image is as large as the device, and
+    /// a caller which appends each batch never holds more than one.
+    pub fn snapshot(
+        &self,
+        from: u32,
+        run_blocks: u32,
+        max_bytes: usize,
+    ) -> std::io::Result<(Vec<Vec<crate::proto::Chunk>>, Option<u32>)> {
         assert!(run_blocks != 0, "a snapshot run covers at least one block");
-        let (mut runs, mut cursor) = (Vec::new(), 0);
+        let (mut runs, mut cursor, mut read) = (Vec::new(), from, 0);
 
         while let Some(start) = self.allocated.first_set_at_or_after(cursor) {
+            if read >= max_bytes {
+                return Ok((runs, Some(start)));
+            }
             let limit = std::cmp::min(self.blocks(), start.saturating_add(run_blocks));
             let mut end = start + 1;
 
@@ -215,6 +228,7 @@ impl Image {
             }
             let mut data = vec![0u8; (end - start) as usize * self.block_size as usize];
             () = self.read_at(start, &mut data)?;
+            read += data.len();
 
             runs.push(crate::chunk::encode_write(
                 start,
@@ -223,7 +237,7 @@ impl Image {
             ));
             cursor = end;
         }
-        Ok(runs)
+        Ok((runs, None))
     }
 }
 
@@ -408,12 +422,21 @@ mod test {
             .write_at(63, &vec![0xbb; BLOCK_SIZE as usize])
             .unwrap();
 
-        // Short enough that the first run is split across several mutations.
-        let runs = image.snapshot(8).unwrap();
-        assert_eq!(runs.len(), 5);
+        // A run short enough that the first written range is split across
+        // several mutations, and a batch short enough that those mutations do
+        // not all fit one.
+        let mut batches = Vec::new();
+        let mut from = Some(0);
+
+        while let Some(cursor) = from {
+            let (runs, next) = image.snapshot(cursor, 8, 16 * BLOCK_SIZE as usize).unwrap();
+            batches.push(runs);
+            from = next;
+        }
+        assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![3, 2]);
 
         let mut replayed = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
-        for chunk in runs.iter().flatten() {
+        for chunk in batches.iter().flatten().flatten() {
             () = replayed.apply(chunk).unwrap();
         }
 
