@@ -9,13 +9,13 @@ You may want to move a binding from one materialization to another: to consolida
 
 By default, a binding that is new to a materialization fails if its destination table already exists. This guide covers how to point a new binding at the existing table instead, so you keep the data already in it and avoid replaying history you have already materialized.
 
-## Before you start
+## Prerequisites
 
 You need:
 
 * An existing materialization with the binding you want to move.
 * The target materialization the binding will move to. It can be an existing materialization or a new one.
-* A SQL or warehouse materialization connector (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, and similar). See [`allow_existing_tables_for_new_bindings`](/guides/advanced-usage/feature-flags#allow_existing_tables_for_new_bindings) for connector support.
+* A materialization connector that supports the [`allow_existing_tables_for_new_bindings`](/guides/advanced-usage/feature-flags#allow_existing_tables_for_new_bindings) feature flag. This includes SQL and warehouse connectors (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift) as well as MongoDB, DynamoDB, and Elasticsearch.
 
 :::warning
 The connector cannot verify that the existing table's schema is compatible with the new binding. Confirm the destination table matches the collection you are materializing before you begin.
@@ -25,7 +25,7 @@ The connector cannot verify that the existing table's schema is compatible with 
 
 1. **Pause writes to the source.** Disable the capture, or otherwise stop new documents from arriving in the source collection. Let the original materialization fully drain its backlog for the binding, so everything captured so far is written to the destination table.
 
-2. **Disable the binding on the original materialization.** Do not delete the materialization or the binding while the table still needs to be written to by the new binding.
+2. **Disable the binding on the original materialization.** Disable it rather than deleting it, so you can re-enable it if the move needs to be reverted. Deleting the binding does not drop the destination table, but it does discard the binding's state.
 
 3. **Add the binding to the new materialization.** Configure two settings on it:
 
