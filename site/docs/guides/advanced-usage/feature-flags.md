@@ -122,19 +122,7 @@ Allows materializations to write to tables that already exist in the destination
   - This flag alone does **not** prevent backfill of the source collection. A binding that's new to a materialization always starts reading its source collection from the beginning, the same as any other backfill. To avoid replaying data that's already in the existing table, also configure [`notBefore`](/reference/time-travel) on the binding.
   - This flag does not truncate or drop the existing table. A new binding whose destination table already exists is reconciled the same way an existing binding is when its schema changes: new columns are added and existing columns are widened as needed, but no data is removed.
 - **Applies to:** All SQL and warehouse materialization connectors (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, etc.)
-
-#### Moving a binding to a new materialization
-
-A common use for this flag is moving a binding from one materialization to another, for example when consolidating several materializations into one, or splitting a large one apart, without dropping or reprocessing the destination table's existing data.
-
-To do this without duplicating or losing data:
-
-1. Pause writes to the source (or disable the capture) and let the current materialization fully drain its backlog for that binding.
-2. Disable the binding on the original materialization.
-3. Add the binding to the new materialization:
-   - Set the `allow_existing_tables_for_new_bindings` feature flag under **Endpoint Config → Advanced** on the new materialization.
-   - Set [`notBefore`](/reference/time-travel) under **Binding → Advanced** on the new binding, to a timestamp within the pause window from step 1, or to just after the last `flow_published_at` already written to the destination table.
-4. Resume writes to the source (or re-enable the capture). New data flows through the new binding only; `notBefore` causes the runtime to skip re-reading everything published before it.
+- **Task guide:** [Moving a binding to a new materialization](/guides/move-binding-to-new-materialization)
 
 ### retain_existing_data_on_backfill
 
