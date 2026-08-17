@@ -97,7 +97,7 @@ For a [GCS bucket](https://cloud.google.com/storage/docs/creating-buckets), upda
 * [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) as the **role**
 
 You can configure this through the [Cloud Console](https://console.cloud.google.com/) or
-the `gsutil` CLI.
+the `gcloud storage` CLI.
 
 ### Amazon S3
 
