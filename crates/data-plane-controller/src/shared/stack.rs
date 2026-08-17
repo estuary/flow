@@ -152,6 +152,13 @@ pub struct DataPlane {
     // IP at S3 changes from the NAT EIP to the private-subnet IP.
     #[serde(default, skip_serializing_if = "is_false")]
     pub s3_endpoint_on_private_subnet: bool,
+    // Extra tags applied to every AWS resource of the data-plane, through the
+    // Pulumi AWS provider's `default_tags`. Used for customer cost-allocation
+    // schemes which require a tag on resources we create and replace over
+    // time, such as the `map-migrated` tag of the AWS Migration Acceleration
+    // Program. AWS only; Azure and GCP deployments ignore it.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub aws_resource_tags: std::collections::BTreeMap<String, String>,
     pub deployments: Vec<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_limits: Option<ConnectorLimits>,
@@ -726,6 +733,40 @@ mod test {
             Some(GCPBYOC {
                 project_id: "12345678".to_string(),
             }),
+        );
+    }
+
+    // We deserialize `data_planes.config` and re-serialize it into the Pulumi
+    // stack config, so `aws_resource_tags` reaches est-dry-dock only if it
+    // survives that round trip. An absent map must stay absent, so that
+    // data-planes which set no tags see no change to their stack config.
+    #[test]
+    fn aws_resource_tags_round_trip() {
+        let State { stack, .. } = serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+
+        assert!(stack.config.model.aws_resource_tags.is_empty());
+        assert_eq!(
+            serde_json::to_value(&stack.config.model)
+                .unwrap()
+                .get("aws_resource_tags"),
+            None,
+        );
+
+        let tagged = serde_json::to_value(DataPlane {
+            aws_resource_tags: [("map-migrated".to_string(), "migAQWO5XH8V0".to_string())].into(),
+            ..stack.config.model.clone()
+        })
+        .unwrap();
+
+        assert_eq!(
+            tagged.get("aws_resource_tags").unwrap(),
+            &serde_json::json!({"map-migrated": "migAQWO5XH8V0"}),
+        );
+        assert_eq!(
+            serde_json::from_value::<DataPlane>(tagged)
+                .unwrap()
+                .aws_resource_tags,
+            [("map-migrated".to_string(), "migAQWO5XH8V0".to_string())].into(),
         );
     }
 
