@@ -316,8 +316,9 @@ blocked on the broker it is being asked about.
   wide. Splitting either would only give replay more to reassemble. That is
   larger than a broker's gRPC message limit, so the append's byte stream is cut
   into chunks of `CHUNK_BYTES` as `publisher::Appender` does. That is a
-  transport detail and not a boundary a record or a delta can see. The cost is that a failed append retries its
-  whole content, which is bandwidth under a flaky broker and never correctness.
+  transport detail and not a boundary a record or a delta can see. The cost is
+  that a failed append retries its whole content, which is bandwidth under a
+  flaky broker and never correctness.
 
 - **The acknowledgement is built but not appended.** `publish` returns its exact
   bytes and holds them; `commit` appends those same bytes and awaits the
@@ -351,6 +352,11 @@ blocked on the broker it is being asked about.
 ## Testing
 
 `cargo nextest run -p disk-daemon` runs everything, privileged tests included.
+
+Lint with `cargo clippy -p disk-daemon --all-targets --no-deps`. Without
+`--no-deps` clippy fails compiling a dependency long before it reaches this
+crate, so it reports nothing about this code and looks like it passed. Seven
+diagnostics accumulated behind that before anyone noticed.
 Privilege lives in `sudo -n` child processes rather than in cargo, so the target
 directory stays the user's. A missing prerequisite (`ublk_drv`,
 `/dev/ublk-control`, passwordless sudo) fails those tests with an actionable
@@ -372,8 +378,9 @@ Its fault cases inject what an operator will actually meet: a broker which
 cannot be reached, which parks the device and then releases it; a credential
 replaced under a live session before the one it replaces expires; a replacement
 session which takes the journal, leaving the first `ABORTED`; and a `SIGTERM`
-while a disk is being written. Its soak works several disks at once through rounds of mixed traffic,
-losing a share of the deltas each round and recovering them, and then asserts
+while a disk is being written. Its soak works several disks at once through
+rounds of mixed traffic, losing a share of the deltas each round and recovering
+them, and then asserts
 that nothing is left: no thread, descriptor, device, or mount outlives the
 session which made it. The soak is also where the thread cost is measured, which
 is what a unit file's `TasksMax` has to cover.

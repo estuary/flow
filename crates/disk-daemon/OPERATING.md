@@ -21,6 +21,13 @@ later, and an image directory on a filesystem which punches holes. Each of those
 is checked at startup and refused with the command which fixes it, rather than
 being discovered by a client's first session.
 
+On Debian and Ubuntu `ublk_drv` ships in `linux-modules-extra-$(uname -r)`,
+which is a different package from the kernel image. A kernel upgrade which
+installs the image without the matching modules-extra takes ublk away at the
+next reboot, and `modprobe` then reports the module missing for a kernel which
+is otherwise fine. Pin both packages together, or the daemon will refuse to
+start after a routine upgrade.
+
 ## The socket's directory is the access control
 
 The session socket is created world-writable, deliberately. A client connecting
@@ -97,6 +104,15 @@ reinterpret every disk on the host at once.
   mounts and character devices behind, and the next daemon to take the same
   `--mount-dir` unmounts what it finds and deletes the device each mount point
   names, once the kernel confirms the process which served it is gone.
+
+  That reclaim depends on the process actually dying, which it may not.
+  `SIGKILL` while a device request is in flight leaves the kernel unable to
+  complete that request, so the thread serving it stays in uninterruptible
+  sleep, the process cannot exit, and its device cannot be deleted. Every later
+  ublk control command on the host then blocks behind it, and only a reboot
+  clears that. So stop a daemon with `SIGTERM` and let its drain run. If you
+  must kill one, unmount its disks first: a pinned mount is what makes a
+  request outlive the kill.
 - No `PrivateTmp`, and no `PrivateMounts`: the mounts the daemon returns must be
   visible to whoever places them in a sandbox.
 
