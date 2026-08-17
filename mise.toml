@@ -7,6 +7,11 @@ go = { version = "1.25" }
 # `rust` is required, but installation via mise is incompatible with Swatim/rust-cache
 
 "github:wasm-bindgen/wasm-pack" = { version = "0.13.1" }
+
+# zig is used only as a cross C compiler, so that build:connector-init can
+# produce a linux/amd64 flow-connector-init (the platform connector containers
+# run as) from a non-x86_64 host.
+zig = { version = "0.16.0" }
 "github:etcd-io/etcd" = { version = "3.5.24" }
 "github:getsops/sops" = { version = "3.11.0", bin = "sops" }
 "github:jdx/usage" = { version = "3.5.4" }
