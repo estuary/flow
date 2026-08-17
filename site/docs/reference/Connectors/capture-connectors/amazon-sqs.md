@@ -6,7 +6,7 @@ description: Capture Amazon SQS messages into Estuary, using AWS IAM secret and 
 
 This connector captures data from Amazon Simple Queue Service (SQS) into Estuary collections.
 
-:::warning
+:::deprecated
 This connector is deprecated. For the best experience, we recommend using our native [Amazon SQS connector](./amazon-sqs-native.md) instead.
 :::
 

@@ -6,7 +6,7 @@ description: Sync Mailchimp data with Estuary's connector, including lists, camp
 
 This connector captures data from a Mailchimp account.
 
-:::warning
+:::deprecated
 This connector is deprecated. For the best experience, we recommend using our native [Mailchimp connector](./mailchimp-native.md) instead.
 :::
 

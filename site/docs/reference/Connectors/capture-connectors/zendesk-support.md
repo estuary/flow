@@ -2,6 +2,10 @@
 
 This connector captures data from Zendesk into Estuary collections.
 
+:::deprecated
+This connector is deprecated. For the best experience, we recommend using our native [Zendesk Support connector](./zendesk-support-native.md) instead.
+:::
+
 ## Supported data resources
 
 The following data resources are supported through the Zendesk API:
