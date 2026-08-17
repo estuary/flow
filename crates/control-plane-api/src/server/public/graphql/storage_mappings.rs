@@ -1,7 +1,7 @@
 use super::filters;
 use crate::directives::storage_mappings::{
-    collection_and_recovery_spec_from, insert_storage_mapping, strip_collection_data_suffix,
-    update_storage_mapping, upsert_storage_mapping,
+    collection_and_recovery_spec_from, insert_storage_mapping, update_storage_mapping,
+    upsert_storage_mapping,
 };
 use async_graphql::{
     Context,
@@ -315,7 +315,7 @@ impl StorageMappingsMutation {
             storage_mapping: StorageMapping {
                 catalog_prefix,
                 detail,
-                spec: async_graphql::Json(strip_collection_data_suffix(collection_spec)),
+                spec: async_graphql::Json(collection_spec),
                 user_capability: models::Capability::Admin,
             },
         })
@@ -462,7 +462,7 @@ impl StorageMappingsMutation {
             storage_mapping: StorageMapping {
                 catalog_prefix,
                 detail,
-                spec: async_graphql::Json(strip_collection_data_suffix(collection_spec)),
+                spec: async_graphql::Json(collection_spec),
                 user_capability: models::Capability::Admin,
             },
             republish,
@@ -787,15 +787,12 @@ impl StorageMappingsQuery {
                     ))
                 })?;
 
-                // Strip "collection-data/" suffix from store prefixes before returning to user.
-                let user_facing_spec = strip_collection_data_suffix(row.spec);
-
                 Ok(connection::Edge::new(
                     row.catalog_prefix.clone(),
                     StorageMapping {
                         catalog_prefix: models::Prefix::new(row.catalog_prefix),
                         detail: row.detail,
-                        spec: async_graphql::Json(user_facing_spec),
+                        spec: async_graphql::Json(row.spec),
                         user_capability,
                     },
                 ))
@@ -988,9 +985,11 @@ mod test {
     async fn storage_mappings_are_scoped_to_readable_prefixes(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
+        let mut store = models::Store::example();
+        *store.prefix_mut() = models::Prefix::new("tenant/collection-data/");
         let spec = crate::TextJson(models::StorageDef {
             data_planes: Vec::new(),
-            stores: vec![models::Store::example()],
+            stores: vec![store],
         });
         for prefix in ["aliceCo/", "aliceCo/team/", "otherCo/"] {
             sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
