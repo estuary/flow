@@ -335,7 +335,14 @@ pub async fn run(
     // is the case someone has to inspect: the caller fails such a run as an unexpected pass, and
     // whether the perturbation actually reached the gap's window is a question only the trace can
     // answer. Removing it here left the one interesting outcome with nothing behind it.
-    if outcome.passed() && scenario.known_limitation.is_none() {
+    // `FLOW_CONSISTENCY_KEEP_RUNS` retains the trace of a *passing* run too, which is what an
+    // experiment needs: whether a perturbation reached the state it was aiming at is answerable
+    // only from the trace, and a pass alone cannot tell "the subject survived the hazard" from
+    // "the hazard never landed". Off by default — a suite run that keeps every directory fills a
+    // disk with evidence nobody reads.
+    let keep = std::env::var_os("FLOW_CONSISTENCY_KEEP_RUNS").is_some();
+
+    if outcome.passed() && scenario.known_limitation.is_none() && !keep {
         let _ = std::fs::remove_dir_all(&run_dir);
     } else {
         tracing::warn!(?run_dir, "left the run directory in place for inspection");

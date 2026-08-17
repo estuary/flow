@@ -110,7 +110,21 @@ async fn both_ways(name: &str) {
     // only where its own class is the only one that can succeed, because there the failure
     // would measure the mismatch rather than the connector.
     if let Some(external) = &external {
-        if !scenario.applies_to.contains(&external.class) {
+        let forced = std::env::var_os(harness::subject::ENV_RUN_INAPPLICABLE).is_some();
+
+        if forced && !scenario.applies_to.contains(&external.class) {
+            eprintln!(
+                "EXPLORATORY: {} does not apply to {:?} and is being run anyway because {} is \
+                 set. A pass is weak evidence — the perturbation reaches this class's exposure \
+                 only by race — and a failure may be the runtime gap rather than the subject. \
+                 Do not read either as a verdict.",
+                scenario.name,
+                external.class,
+                harness::subject::ENV_RUN_INAPPLICABLE,
+            );
+        }
+
+        if !forced && !scenario.applies_to.contains(&external.class) {
             eprintln!(
                 "not-applicable: {} can only be upheld by {:?}; the subject named in \
                  {} implements {:?}. Nothing was run.",
@@ -145,9 +159,37 @@ async fn both_ways(name: &str) {
         }
     };
 
-    let clean = harness::run(&scenario, &subject, external.as_ref())
-        .await
-        .expect("the clean run completes");
+    // A gap can manifest as a task that cannot run at all, and that has to count as the gap.
+    //
+    // The marker below asserts on the *invariant verdict*, which presumes the run produced one. A
+    // subject facing state it cannot safely attribute is right to refuse rather than guess, and a
+    // refusing connector never commits again — so the task wedges, no destination is ever compared,
+    // and `harness::run` returns an error before the marker is consulted. That made a gap which
+    // manifests as a stall structurally unreportable while one that corrupts data was reportable,
+    // which is backwards: refusing is the better behaviour of the two.
+    //
+    // An `Environment` failure is still excluded. Those say nothing about the subject, so counting
+    // one as the gap would let a flaky stack manufacture the expected failure.
+    let clean = match harness::run(&scenario, &subject, external.as_ref()).await {
+        Ok(clean) => clean,
+        Err(err) => {
+            let environmental = err.chain().any(|e| e.is::<harness::Environment>());
+
+            match &scenario.known_limitation {
+                Some(gap) if gap.classes.contains(&subject_class) && !environmental => panic!(
+                    "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
+                     The task could not run to a verdict, which is how this gap manifests for a \
+                     subject that refuses rather than guesses:\n  {err:#}\n\n\
+                     Expected to fail for {:?}, of which the subject is {subject_class:?}.\n\n\
+                     {}\n\n\
+                     Remove `blocked_on_runtime` from this scenario once the runtime upholds the \
+                     guarantee above.",
+                    gap.classes, gap.detail,
+                ),
+                _ => panic!("the clean run completes: {err:#}"),
+            }
+        }
+    };
 
     // Printed with the count each one suppressed, because an exemption that never fires is
     // paperwork rather than a weakened guarantee — and until this was reported there was no

@@ -408,20 +408,29 @@ It does **not** reach a class that only stages during `Store`. Nothing of a prep
 transaction is in the destination when the split lands, so the children have nothing to
 append twice; they inherit the staged work and a merge that runs again is a no-op.
 
-**The failure is intermittent, and the reason is worth knowing before reading a result.** The
-hazard needs the runtime to hand the range over *mid*-transaction, and it usually does not — it
-finishes the transaction it is in and hands over at a quiet point, which is a committed
-transaction and no hazard. So the run either lands in the window or does not, and when it lands
-it lands narrowly: a caught run delivered 2072 log rows against 2070 documents — two rows twice,
-both of them documents the expectation holds.
+**Reaching this reliably took getting the perturbation right, and the wrong one looks more obvious
+than the right one.** The scenario used to stall a transaction and let the split race it, which
+cannot produce the state at all: the runtime cancels the term gracefully and lets the in-flight
+transaction finish, so the counters agree at handover and nothing is outstanding. Measured over 60
+runs of the membership scenarios, the key-range guard fired zero times. Two attempts to force the
+overlap — issuing the split once the stall had begun, and lengthening the stall — both made it pass,
+because a runtime handed a shard that will hold still takes the quiet point.
 
-Forcing the overlap does not work, and two attempts to do so are recorded in the scenario because
-both made it *pass*: issuing the split only once the stall had begun, and lengthening the stall.
-Given a shard that will hold still, the runtime takes the quiet point. Asking it to hand over at a
-moment of the harness's choosing is asking for the guarantee under test, so the overlap is left
-unsynchronized on purpose. Read a passing run as evidence about that run and nothing more —
-`split-during-commit` reaches the same destination state deterministically by crashing instead, so
-coverage does not rest on this race.
+What produces it is a crash on the `StartedCommit` *response*. A counted channel awaits the
+destination's commit before checkpointing its counter, so killing as the response is forwarded
+leaves the destination committed and the runtime unaware; the split then changes the key range
+before anything can reconcile, and the child cannot attribute what the destination holds. Against
+`materialize-snowflake`'s Snowpipe Streaming v2 path this trips every run — 56 refusals over the
+first two — where the stall had never tripped it once. The lesson generalises: to reach a hazard
+that needs a shard gone, remove the shard rather than slowing it down.
+
+**A gap may manifest as a task that cannot run, rather than as a violation count.** A subject facing
+state it cannot safely attribute is right to refuse, and a refusing connector never commits again —
+so the task wedges and no destination is ever compared. That counts as the declared failure, which
+it did not used to: the marker asserted on the invariant verdict, so a gap which stalls was
+unreportable while one which corrupted data was reportable. That was backwards, since refusing is
+the better of the two behaviours. Only `Environment` failures are excluded, so a flaky stack cannot
+manufacture the expected failure.
 
 `split-lands-on-prepared-transaction` carries this as a `blocked_on_runtime` gap scoped to
 `DocumentCounter`, and runs for every exactly-once class. For the counted channel it is the

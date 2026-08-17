@@ -237,6 +237,18 @@ pub const ENV_SUBJECT_NAME: &str = "FLOW_CONSISTENCY_SUBJECT_NAME";
 /// is stored in the control plane and readable from it. Endpoint config is the place for those.
 pub const ENV_SUBJECT_ENV: &str = "FLOW_CONSISTENCY_SUBJECT_ENV";
 
+/// Set to anything to run scenarios the subject's class says do not apply to it.
+///
+/// For deliberate experiment, never for a verdict. The four membership-change scenarios are
+/// excluded from the counted-channel class because whether the split lands inside the hazard —
+/// mid-transaction, after rows are already appended — is a race the harness cannot force. Most
+/// runs miss it and pass; the ones that hit it fail, and that failure is the runtime gap of
+/// estuary/flow discussion 2581 rather than anything the connector did wrong.
+///
+/// So a pass here is weak evidence and a failure is ambiguous, which is why applicability is the
+/// default and this is opt-in. What it is good for is *measuring* how often the gap bites.
+pub const ENV_RUN_INAPPLICABLE: &str = "FLOW_CONSISTENCY_RUN_INAPPLICABLE";
+
 /// A real connector to run scenarios against, if one was named.
 #[derive(Debug, Clone)]
 pub struct External {

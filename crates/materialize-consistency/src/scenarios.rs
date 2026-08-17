@@ -546,31 +546,39 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          neither loses nor duplicates its documents",
         Class::DocumentCounter,
     )
-    // The overlap between this stall and the split is *not* synchronized, and cannot usefully be.
+    // Keyed on the `StartedCommit` *response*, and that is the whole of what makes this scenario
+    // work — it was a `Stall` at `StartCommit` for a long time and could not reach the state it
+    // asserts about.
+    //
+    // The guard this exists to trip fires when the destination has committed appends the runtime's
+    // checkpoint does not record *and* the key range has changed. A stall produces neither: the
+    // runtime cancels the term gracefully and lets the in-flight transaction finish, so the
+    // counters agree at handover and nothing is outstanding. Measured, not reasoned — across 60
+    // runs of the membership scenarios the key-range guard fired zero times.
+    //
+    // A crash on the response does produce it. The counted channel awaits the destination's commit
+    // inside `StartCommit` before checkpointing its counter, so killing as the response is
+    // forwarded leaves the destination committed and the runtime unaware. `splitting_after_fault`
+    // then changes the range before anything can reconcile, and the child cannot attribute what
+    // the destination holds. Against `materialize-snowflake`'s Snowpipe Streaming v2 path this
+    // trips it every run — 56 refusals over the first two, where the stall version had never
+    // tripped it once.
+    //
+    // Note how close this is to `destination-ahead-of-checkpoint`: same fault, and deliberately so.
+    // That scenario establishes the destination-ahead state *without* a membership change and
+    // requires the skip to work; this one adds the split, so the skip is refused. The pair is the
+    // difference between "the counter reconciles" and "the counter cannot reconcile across a range
+    // change", which is the gap.
+    //
+    // The overlap between the fault and the split is *not* synchronized, and cannot usefully be.
     // That was reviewed as a flaw and measured instead, and the measurements say the race is the
     // scenario rather than a defect in it.
     //
-    // Two attempts to force the overlap both *closed* the window. Waiting for the stall to begin
-    // before issuing the split, and lengthening the stall to twenty seconds, each made the run
-    // pass — because a runtime handed a shard that will hold still finishes the stalled
-    // transaction and hands over at a quiet point, which is a committed transaction and no hazard
-    // at all. Asking the runtime to hand over at a moment of the harness's choosing is asking for
-    // the very guarantee under test, so this is back to four seconds and an unordered split, the
-    // configuration with observed hits.
-    //
-    // And when it does hit, it hits *narrowly*: a caught run delivered 2072 log rows against 2070
-    // documents — two rows delivered twice, both of them documents the expectation holds, with
-    // nothing ahead of it. So the gap below is intermittent, not per-run, and a passing run is
-    // evidence about that run only. `split-during-commit` reaches the same destination state
-    // deterministically by crashing rather than stalling, so coverage of the
-    // prepared-but-uncommitted state does not rest on winning this race.
-    .fault(FaultRule {
-        on: Trigger::StartCommit,
-        nth: 4,
-        arm_after: 3,
-        shard: ShardTarget::Any,
-        action: Action::Stall { millis: 4_000 },
-    })
+    // Two earlier attempts to force it with a stall both *closed* the window — ordering the split
+    // after the stall began, and lengthening the stall — because a runtime handed a shard that will
+    // hold still takes the quiet point. That is recorded because it reads as the obvious fix and is
+    // the opposite of one: the way to reach the hazard is to remove the shard, not to slow it.
+    .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocumentCounter)
     // This exemption shapes the *report* rather than any verdict, and the reasoning is worth
     // stating exactly because it is easy to get wrong. This scenario does **not** narrow
@@ -589,10 +597,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
     // expected to pass — and this is the scenario that says so.
     .blocked_on_runtime(
         &[Class::DocumentCounter],
-        "Intermittently — the runtime usually completes the transaction it is in before handing \
-         the range over, so this fails on some runs and not others, and a caught run duplicated \
-         two rows of 2070. Read a pass as evidence about that run and nothing more. \
-         The runtime does not yet guarantee that a transaction started under a given shard \
+        "The runtime does not yet guarantee that a transaction started under a given shard \
          split is replayed under that same split before a scale up or down takes effect, a \
          capability named as a requirement in estuary/flow discussion 2581. A counted \
          channel cannot work around it: it writes during Store, so the rows of a prepared \
@@ -601,7 +606,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          mirror image — a survivor reads one departing channel's counter, skips too few, \
          and duplicates.",
     )
-    .splitting(5)
+    .splitting_after_fault(5)
 }
 
 /// Scaling back down. A join is not a split run backwards: one shard absorbs

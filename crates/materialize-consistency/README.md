@@ -155,11 +155,18 @@ exactly-once class even though the counted channel cannot pass it. A gap that st
 is recorded as a `RuntimeGap` naming that class, so the scenario still runs for the others and
 its passing there is the evidence that the gap is the runtime's rather than an impossible ask.
 
-That gap is reached **intermittently**, which matters for reading a result: the hazard needs the
-runtime to hand a range over mid-transaction and it usually does not, so the scenario is red
-either way — it fails with a violation count on a run that hits the gap, and as an *unexpected
-pass* on one that does not. Do not remove the declaration on the strength of a passing run; the
-scenario's own comment records two attempts to force the overlap that both suppressed it.
+That gap is now reached **deterministically**, which was not always so. The scenario used to stall
+a transaction and hope the split landed inside it; a stall cannot produce the state, because the
+runtime cancels the term gracefully and lets the transaction finish. Crashing on the
+`StartedCommit` response does produce it — the destination has committed what the runtime has not
+recorded — and the split then changes the range before anything reconciles. Against
+`materialize-snowflake`'s Snowpipe Streaming v2 path it trips every run.
+
+A gap may also manifest as a task that cannot run rather than as a violation count: a subject
+facing state it cannot safely attribute is right to refuse, and a refusing connector never commits
+again. That is reported as the expected failure too — see the clean-run arm in
+`tests/scenarios.rs`, which excludes only `Environment` failures, so a flaky stack cannot
+manufacture it.
 
 A skipped scenario prints `not-applicable` and still counts as a passing test, so read
 those lines to see what was and was not verified. Declaring the wrong class does not
