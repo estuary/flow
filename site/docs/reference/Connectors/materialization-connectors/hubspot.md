@@ -46,6 +46,9 @@ lowercased, leading underscores are removed as well as other symbols
 characters, and if the field begins with a number it will be prefixed with
 `n`. Names are truncated to 100 characters.
 
+To view the property name for a field in the UI, refresh the field selection
+and hover over the Outcome column.
+
 ## Deletions
 
 Hard deletes are not supported. To track deletions, ensure your collection
