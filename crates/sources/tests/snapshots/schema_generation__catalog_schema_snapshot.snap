@@ -1285,7 +1285,7 @@ expression: "&schema"
         },
         "maxTxnDuration": {
           "title": "Maximum duration of task transactions.",
-          "description": "This duration upper-bounds the amount of time during which a transaction\nmay process documents before it must flush and commit.\nIt may run for less time if there aren't additional ready documents for\nit to process.\nIf not set, the maximum duration defaults to five minutes for materializations,\nand one second for captures and derivations.\nEXPERIMENTAL: this field MAY be removed.",
+          "description": "This duration upper-bounds the amount of time during which a transaction\nmay process documents before it must flush and commit.\nIt may run for less time if there aren't additional ready documents for\nit to process.\nIf not set, the maximum duration defaults to twenty minutes for materializations,\nand one second for captures and derivations.\nEXPERIMENTAL: this field MAY be removed.",
           "type": [
             "string",
             "null"
