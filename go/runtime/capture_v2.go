@@ -7,6 +7,7 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/sirupsen/logrus"
@@ -169,6 +170,10 @@ func (c *captureAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.En
 		case <-termDone:
 			// Spec update: initiate graceful drain. The leader replies with
 			// Stopped, read from `respCh` below.
+			if shard.Context().Err() == nil {
+				ops.PublishLog(c.opsPublisher, ops.Log_info,
+					"task specification changed; draining to restart")
+			}
 			_ = c.client.Send(&pr.Capture{Stop: &pr.Stop{}})
 			termDone = nil
 

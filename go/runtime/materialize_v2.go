@@ -10,6 +10,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/sirupsen/logrus"
@@ -254,6 +255,10 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		case <-termDone:
 			// Spec update: initiate graceful drain. The leader replies with
 			// Stopped, read from `respCh` below.
+			if shard.Context().Err() == nil {
+				ops.PublishLog(m.opsPublisher, ops.Log_info,
+					"task specification changed; draining to restart")
+			}
 			_ = m.client.Send(&pr.Materialize{Stop: &pr.Stop{}})
 			termDone = nil
 
