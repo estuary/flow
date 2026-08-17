@@ -18,12 +18,12 @@ impl Disk {
     /// the consumer half of the disk's capture channel, which the journal
     /// appender takes.
     ///
-    /// The image is the caller's because a recovered disk is rebuilt from its
+    /// The caller supplies the image. A recovered disk is rebuilt from its
     /// journal before any device may read it.
     ///
-    /// The order is forced by the kernel: parameters may only be set before the
-    /// device starts, and starting it blocks until its queue is fetching, which
-    /// only the owner can arrange.
+    /// The kernel forces the order of these steps. Parameters may only be set
+    /// before the device starts. Starting it then blocks until its queue is
+    /// fetching, which only the owner can arrange.
     pub fn create(
         control: &std::sync::Arc<Control>,
         image: Image,
@@ -50,15 +50,14 @@ impl Disk {
             }
         };
 
-        // Every tag has a fetch in flight, which is what this waits for. A
-        // failure here tears the device down by dropping `disk`.
+        // A failure here tears the device down by dropping `disk`.
         () = control.start_dev(info.dev_id)?;
 
         Ok((disk, captured))
     }
 
     /// Hand the device to an owner. Every failure here is before that owner
-    /// exists, which is what lets the caller delete the device.
+    /// exists, so the caller may still delete the device.
     fn serve(
         control: &std::sync::Arc<Control>,
         image: Image,
@@ -70,7 +69,7 @@ impl Disk {
         let cdev = open_char_device(dev_id)?;
         () = control.set_params(dev_id, &ublk::params(image.blocks(), image.block_size()))?;
 
-        // One waker serves both directions: the channel wakes the owner when a
+        // One waker serves both directions. The channel wakes the owner when a
         // mutation it parked may be retried, and a command wakes it to be read.
         let waker = crate::wake::Waker::new()?;
         let (capture, captured) = crate::capture::channel(queue_depth as usize, waker.clone());
@@ -127,14 +126,14 @@ impl Disk {
         ublk::block_path(self.dev_id)
     }
 
-    /// Tear the device down and take back the image. Idempotent, and run by
-    /// `Drop` if it has not been called, so no device node is left behind.
+    /// Tear the device down and take back the image. This is idempotent. `Drop`
+    /// runs it if the caller has not, so no device node is left behind.
     pub fn stop(&mut self) -> anyhow::Result<Option<Image>> {
         let Some(owner) = self.owner.take() else {
             return Ok(None);
         };
         // Stopping aborts the queue's fetches, which is how the owner learns to
-        // quiesce; deleting waits for every reference to the device, so the
+        // quiesce. Deleting then waits for every reference to the device, so the
         // owner must have closed the character device first.
         () = self.control.stop_dev(self.dev_id)?;
         let image = owner.release()?;
@@ -160,9 +159,8 @@ impl Drop for Disk {
 
 /// Open `/dev/ublkcN`, which `devtmpfs` creates as the device is added.
 ///
-/// Nothing here changes the node's ownership: production may run as a dedicated
-/// UID with ambient `CAP_SYS_ADMIN`, in which case a udev rule grants that UID
-/// the node, since `CAP_SYS_ADMIN` does not bypass file permissions.
+/// Nothing here changes the node's ownership. The crate README says how a daemon
+/// which does not run as root is granted it.
 fn open_char_device(dev_id: u32) -> anyhow::Result<std::fs::File> {
     let path = ublk::char_path(dev_id);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -174,8 +172,8 @@ fn open_char_device(dev_id: u32) -> anyhow::Result<std::fs::File> {
             .open(&path)
         {
             Ok(file) => return Ok(file),
-            // Node creation is visible to userspace slightly after the command
-            // which added the device completes.
+            // Userspace sees the node slightly after the command which added the
+            // device completes.
             Err(err)
                 if err.kind() == std::io::ErrorKind::NotFound
                     && std::time::Instant::now() < deadline =>

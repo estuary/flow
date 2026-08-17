@@ -1,29 +1,28 @@
-//! Recovery horizons, which are what keeps a replay bounded.
+//! Recovery horizons, which keep a replay bounded.
 //!
 //! A horizon is a journal position with one property:
 //!
 //! > every allocated block has a committed copy at or after it.
 //!
-//! Once that holds, a replay may begin there and everything below it is dead
-//! weight. A horizon opens when the range a replay would read has outgrown the
-//! disk itself, and it snapshots the blocks allocated at that moment. Each is
-//! then discharged by the first delta which publishes it, whether because the
-//! device changed the block or because the daemon copied it out of the image
-//! for no other reason than this. When the last one is discharged, the delta
-//! which did it moves the floor to where the horizon opened.
+//! Once that property holds, a replay may begin there, and everything below it
+//! is dead weight. A horizon opens when the range a replay would read has
+//! outgrown the disk itself. It then snapshots the blocks allocated at that
+//! moment. The first delta to publish a block discharges it. The device may have
+//! changed that block, or the daemon may have copied it out of the image for this
+//! purpose alone. The delta which discharges the last block moves the floor to
+//! where the horizon opened.
 //!
-//! Copying is the cost, so it is rationed: a delta may copy only in proportion
-//! to what it changed, which bounds journal write amplification during
-//! compaction at `1 + copy_ratio`. A disk nothing writes therefore copies
-//! nothing, and its journal stops growing at the same time, so an open horizon
-//! simply pauses.
+//! Copying is the cost, so it is rationed. A delta may copy only in proportion
+//! to what it changed. This bounds journal write amplification during compaction
+//! at `1 + copy_ratio`. A disk nothing writes therefore copies nothing. Its
+//! journal stops growing at the same time, so an open horizon simply pauses.
 //!
-//! A block is discharged when its chunks are captured, ahead of the image write
-//! which applies them, rather than when the delta carrying them commits. That
-//! is why a copy never races a mutation of the same block: the mutation
-//! supersedes the copy by discharging the block before its own value is even in
-//! the image. The distinction cannot be observed, because a delta which does
-//! not commit ends its session, and this state does not outlive one.
+//! A block is discharged when its chunks are captured. That is ahead of the
+//! image write which applies them, and ahead of the commit of the delta which
+//! carries them. A copy therefore never races a mutation of the same block. The
+//! mutation supersedes the copy, because it discharges the block before its own
+//! value reaches the image. This early discharge cannot be observed. A delta
+//! which does not commit ends its session, and this state does not outlive one.
 
 use crate::bitmap::Bitmap;
 use proto_gazette::uuid;
@@ -36,17 +35,14 @@ pub struct Policy {
     pub open_ratio: f64,
     /// Unchanged bytes a delta may copy per byte it changed.
     pub copy_ratio: f64,
-    /// Range below which no horizon opens, whatever the ratio says.
+    /// Range below which no horizon opens, whatever the ratio says. It keeps a
+    /// small disk from compacting constantly.
     pub minimum_bytes: u64,
 }
 
 impl Policy {
     /// Whether a journal `range` of bytes above the floor opens a horizon over
     /// a disk holding `allocated` bytes.
-    ///
-    /// The minimum is what stops a small disk from compacting constantly: the
-    /// ratio alone would open a horizon on a disk holding a few megabytes as
-    /// soon as it was written at all.
     pub fn opens(&self, range: u64, allocated: u64) -> bool {
         let scaled = (allocated as f64 * self.open_ratio) as u64;
         range > std::cmp::max(self.minimum_bytes, scaled)
@@ -63,23 +59,23 @@ impl Policy {
 pub struct Position {
     /// Offset of the record which opened it, which is where a replay may begin.
     pub offset: i64,
-    /// Clock of that record, which is what the floor label carries.
+    /// Clock of that record. The floor label carries this clock.
     pub clock: uuid::Clock,
 }
 
-/// An open horizon: the blocks which still owe it a copy.
+/// An open horizon, holding the blocks which still owe it a copy.
 ///
-/// Both the writer and a replay hold one, and they agree because they discharge
-/// the same blocks. A writer's snapshot is of live allocation while a replay's
-/// is of committed allocation, which differ only by the mutations of the
-/// opening delta which the writer had already applied. Those are published by
-/// that same delta, so the writer's set is a superset which converges once it
-/// commits, and a writer therefore never completes a horizon before a replay
-/// of the same journal would.
+/// Both the writer and a replay hold one, and the two agree because they
+/// discharge the same blocks. The writer snapshots live allocation, and a replay
+/// snapshots committed allocation. The two differ only by the mutations of the
+/// opening delta which the writer had already applied. That same delta publishes
+/// those mutations. The writer's set is therefore a superset which converges once
+/// the delta commits, and a writer never completes a horizon before a replay of
+/// the same journal would.
 pub struct Horizon {
     pending: Bitmap,
-    /// Blocks below this have been discharged, so a copy scan resumes here and
-    /// each horizon makes one pass.
+    /// Blocks below this are discharged. A copy scan resumes here, so each
+    /// horizon makes one pass.
     cursor: u32,
     /// Chunk bytes this delta has changed and copied, which ration the next
     /// copy. Neither counts its framing.
@@ -110,14 +106,14 @@ impl Horizon {
         }
     }
 
-    /// Account for `bytes` of changed content, which is what earns the budget a
-    /// copy spends.
+    /// Account for `bytes` of changed content, which earns the budget a copy
+    /// spends.
     pub fn changed(&mut self, bytes: u64) {
         self.changed += bytes;
     }
 
-    /// Forget the budget of a delta which has ended, because each delta earns
-    /// its own and an unspent one must not accumulate into a burst.
+    /// Forget the budget of a delta which has ended. Each delta earns its own
+    /// budget, and an unspent one must not accumulate into a burst.
     pub fn cut(&mut self) {
         self.changed = 0;
         self.copied = 0;
@@ -138,9 +134,9 @@ impl Horizon {
             return None;
         }
         let Some(start) = self.pending.first_set_at_or_after(self.cursor) else {
-            // Nothing is ever set again during one horizon, so a scan which
-            // finds no block leaves the cursor exhausted rather than sweeping
-            // the whole bitmap again on the next call.
+            // No bit is ever set again during one horizon. A scan which finds no
+            // block therefore leaves the cursor exhausted, so the next call does
+            // not sweep the whole bitmap again.
             self.cursor = self.pending.blocks();
             return None;
         };
@@ -197,7 +193,7 @@ mod test {
         assert!(!policy.opens(4 << 30, 2 << 30));
         assert!(policy.opens((4 << 30) + 1, 2 << 30));
 
-        // Tiny values reach both terms, which is how tests exercise this.
+        // Tiny values reach both terms, so a test can exercise each of them.
         let tiny = Policy {
             open_ratio: 0.5,
             minimum_bytes: 100,
@@ -217,7 +213,7 @@ mod test {
         assert_eq!(horizon.pending(), 4);
         assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
 
-        // Half of one block of change buys nothing; a whole block buys one.
+        // Half a block of change buys nothing. A whole block buys one copy.
         horizon.changed(BLOCK_SIZE as u64);
         assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
 
@@ -235,13 +231,13 @@ mod test {
         horizon.copied(2..4, 2 * BLOCK_SIZE as u64);
         assert_eq!(horizon.next_copy(&policy, 1, BLOCK_SIZE), Some(40..41));
 
-        // The delta ends, so its unspent budget does not carry into the next.
+        // The delta ends. Its unspent budget does not carry into the next one.
         horizon.cut();
         assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
     }
 
-    /// A block the device writes is published like any other, so a delta which
-    /// rewrites the disk discharges the horizon without copying at all.
+    /// A block the device writes is published like any other. A delta which
+    /// rewrites the disk therefore discharges the horizon without any copy.
     #[test]
     fn test_a_rewrite_discharges_without_copying() {
         let policy = policy();
@@ -255,8 +251,8 @@ mod test {
         assert_eq!(horizon.next_copy(&policy, 8, BLOCK_SIZE), None);
     }
 
-    /// The cursor only moves forward, so a horizon costs one pass over its
-    /// bitmap however many deltas discharge it.
+    /// The cursor only moves forward. A horizon therefore costs one pass over
+    /// its bitmap, however many deltas discharge it.
     #[test]
     fn test_the_copy_scan_makes_one_pass() {
         let policy = Policy {

@@ -1,19 +1,18 @@
 //! Fixed-size bit sets over block indices.
 //!
-//! A disk has two: the *allocated* bitmap, which tracks blocks that currently
-//! occupy space in the local image, and the *horizon* bitmap, which tracks
-//! allocated blocks whose newest durable copy is older than the active
-//! recovery horizon. Both are indexed by block, so they are the same shape.
+//! A disk has two. The allocated bitmap holds the blocks which occupy space in
+//! the local image. The horizon bitmap holds the allocated blocks whose newest
+//! durable copy is older than the active recovery horizon. Both are indexed by
+//! block, so they are the same shape.
 
 /// Bitmap is a set of block indices in `[0, blocks)`, backed by `u64` words.
 ///
-/// Words are plain integers rather than atomics because a disk's owner thread
-/// is the only mutator of its bitmaps.
+/// The words are plain integers rather than atomics. Only a disk's owner thread
+/// mutates its bitmaps.
 ///
-/// Indexing outside `[0, blocks)` panics, because block indices come from the
-/// daemon's own arithmetic over a device size it chose. Chunks decoded from a
-/// journal are range-checked by [`crate::chunk::apply`] before they reach a
-/// bitmap.
+/// An index outside `[0, blocks)` panics. Block indices come from the daemon's
+/// own arithmetic over a device size it chose. [`crate::chunk::apply`]
+/// range-checks a chunk decoded from a journal before it reaches a bitmap.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Bitmap {
     words: Vec<u64>,
@@ -51,7 +50,7 @@ impl Bitmap {
     }
 
     /// Count of set bits. For the allocated bitmap this is the disk's live
-    /// physical size in blocks, which compaction policy compares against the
+    /// physical size in blocks. Compaction policy compares that size against the
     /// journal's recovery range.
     pub fn count_ones(&self) -> u32 {
         self.words.iter().map(|w| w.count_ones()).sum()
@@ -59,9 +58,6 @@ impl Bitmap {
 
     /// Index of the lowest set bit at or after `cursor`, or `None` if there is
     /// none. `cursor` may equal `blocks`, which is the exhausted cursor.
-    ///
-    /// Horizon scans resume from their forward cursor, so each horizon makes at
-    /// most one pass over the bitmap.
     pub fn first_set_at_or_after(&self, cursor: u32) -> Option<u32> {
         assert!(
             cursor <= self.blocks,
@@ -73,9 +69,9 @@ impl Bitmap {
         }
         let (word, bit) = self.locate(cursor);
 
-        // Mask off bits below the cursor within its own word, then scan whole
-        // words. Trailing bits beyond `blocks` are never set, so the final
-        // word needs no masking.
+        // Mask off the bits below the cursor within its own word, then scan
+        // whole words. No bit beyond `blocks` is ever set, so the final word
+        // needs no mask.
         let mut masked = self.words[word] & (u64::MAX << bit);
         for index in word..self.words.len() {
             if masked != 0 {

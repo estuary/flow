@@ -1,8 +1,8 @@
-//! What the privileged test binaries share: the prerequisites they need, and
-//! the leak checks they end with.
+//! What the privileged test binaries share. This covers the prerequisites they
+//! need and the leak checks they end with.
 
-/// Fail with what to do about it, rather than skipping, so that a machine which
-/// cannot serve a device says so.
+/// Fail with what to do about it, rather than skip. A machine which cannot serve a
+/// device then says so.
 pub fn check_prerequisites() {
     assert!(
         std::path::Path::new("/sys/module/ublk_drv").exists(),
@@ -28,12 +28,12 @@ pub fn check_prerequisites() {
     );
 }
 
-/// No device node and no `/sys/block` entry outlives the test which made it.
-/// A nextest test group serializes these binaries, so what they see is theirs.
+/// No device node and no `/sys/block` entry outlives the test which made it. A
+/// nextest test group serializes these binaries, so each one sees only its own.
 ///
-/// Waited for rather than asserted outright, because `devtmpfs` unlinks a node
-/// slightly after the command which removed its device returns, exactly as it
-/// creates one slightly after the command which added it.
+/// This waits rather than asserting outright. `devtmpfs` unlinks a node slightly
+/// after the command which removed its device returns, exactly as it creates one
+/// slightly after the command which added it.
 pub fn assert_no_leaked_devices() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
 

@@ -1,19 +1,13 @@
 //! The daemon's command line.
 //!
-//! Two kinds of knob are here, and they differ in what a change may do. Host
-//! facts and policy are safe to change between restarts, because a disk's
-//! durable state is derived from its journal and never from configuration.
-//! Everything which is durable per disk, notably device and block size, is a
-//! session's `Open` parameter instead: a flag would otherwise reinterpret every
-//! disk on the host at once.
+//! Only host facts and policy are here. Both are safe to change between
+//! restarts, because a disk derives its durable state from its journal and never
+//! from configuration. Everything which is durable per disk is a session's `Open`
+//! parameter instead, notably device and block size. A flag would otherwise
+//! reinterpret every disk on the host at once.
 //!
-//! Nothing in [`Serve`] is a fallback for something a session may also supply. A
-//! value has one source, so no precedence rule needs explaining and an omission
-//! fails rather than silently resolving to a host default.
-//!
-//! Every flag also reads an unprefixed environment variable, as `runtime-sidecar`
-//! and `dekaf` do. The Go reactor namespaces its own with `FLOW_*` and
-//! `CONSUMER_*` because that is gazette `mainboilerplate` convention.
+//! Every flag also reads an unprefixed environment variable, as
+//! `runtime-sidecar` and `dekaf` do.
 
 #[derive(Debug, clap::Parser)]
 #[command(about, version)]
@@ -34,23 +28,23 @@ pub enum Command {
 pub struct Serve {
     /// Unix socket the session service listens on.
     ///
-    /// It is left reachable by any user, so the directory holding it is what
-    /// decides which of them may open a session.
+    /// It is left reachable by any user. The permissions of the directory which
+    /// holds it decide who may open a session.
     #[arg(long, env = "UDS_PATH")]
     pub uds_path: std::path::PathBuf,
 
-    /// Directory a disk's sparse image is created in. A host with several
-    /// drives stripes them beneath it rather than naming each one here.
+    /// Directory a disk's sparse image is created in. A host with several drives
+    /// stripes them beneath it rather than naming each one here.
     #[arg(long, env = "IMAGE_DIR")]
     pub image_dir: std::path::PathBuf,
 
-    /// Directory a disk's filesystem is mounted under. The mount path is
-    /// returned to the session, which places it into its sandbox.
+    /// Directory a disk's filesystem is mounted under. The session receives the
+    /// mount path and places it into its sandbox.
     #[arg(long, env = "MOUNT_DIR")]
     pub mount_dir: std::path::PathBuf,
 
-    /// When set, serve the admin and metrics surface on `127.0.0.1:<port>`.
-    /// Loopback-only: this surface has no authentication, and it can change a
+    /// When set, serve the admin and metrics surface on `127.0.0.1:<port>`. It
+    /// is loopback-only, because it has no authentication and it can change a
     /// handler's logging level.
     #[arg(long, env = "ADMIN_PORT")]
     pub admin_port: Option<u16>,
@@ -59,20 +53,20 @@ pub struct Serve {
     pub log_format: LogFormat,
 
     /// Label on a disk journal's own spec which the daemon advances to the
-    /// recovery floor, and reads back as its replay seek hint. Required, and
-    /// without a default: bounded recovery depends on it, and a general-purpose
-    /// daemon carries no system's label vocabulary.
+    /// recovery floor, and reads back as its replay seek hint. It has no
+    /// default, because a general-purpose daemon carries no system's label
+    /// vocabulary.
     #[arg(long, env = "FLOOR_LABEL")]
     pub floor_label: String,
 
-    /// Journal range above the recovery floor, as a multiple of a disk's live
-    /// allocated size, beyond which it opens a recovery horizon. With the copy
-    /// ratio it bounds the range a recovery reads.
+    /// Journal range above the recovery floor beyond which a disk opens a
+    /// recovery horizon, as a multiple of that disk's live allocated size.
+    /// Together with the copy ratio it bounds the range a recovery reads.
     #[arg(long, env = "HORIZON_OPEN_RATIO", default_value = "2.0")]
     pub horizon_open_ratio: f64,
 
-    /// Unchanged bytes a delta may copy for each byte it changed, which is what
-    /// discharges a horizon over blocks nothing is writing. Journal write
+    /// Unchanged bytes a delta may copy for each byte it changed. These copies
+    /// discharge a horizon over blocks nothing is writing. Journal write
     /// amplification during compaction is at most one plus this.
     #[arg(long, env = "HORIZON_COPY_RATIO", default_value = "0.5")]
     pub horizon_copy_ratio: f64,
@@ -86,8 +80,7 @@ pub struct Serve {
 /// One session, driven from stdin.
 ///
 /// This is the daemon's manual-testing and demo surface, so unlike [`Serve`] it
-/// does carry defaults: they are a client's values to live with, and a disk
-/// opened this way is one somebody is exercising by hand.
+/// carries defaults for what a session must otherwise supply.
 #[derive(Debug, clap::Args)]
 pub struct Client {
     /// Unix socket of the daemon to open the disk on.
@@ -98,8 +91,8 @@ pub struct Client {
     #[arg(long)]
     pub journal: String,
 
-    /// Logical size of the device. The image is sparse, so this is a capacity
-    /// rather than an allocation.
+    /// Logical size of the device. The image is sparse, so this is a capacity and
+    /// not an allocation.
     #[arg(long, default_value_t = 10 << 30)]
     pub device_size: u64,
 
@@ -113,7 +106,7 @@ pub struct Client {
     pub broker_endpoint: String,
 
     /// Bearer token presented to the broker. Without one the session connects
-    /// anonymously, which is correct only against brokers running without
+    /// anonymously. That is correct only against a broker which runs without
     /// authorization.
     #[arg(long, env = "BROKER_CREDENTIAL")]
     pub broker_credential: Option<String>,
@@ -144,8 +137,8 @@ pub struct Client {
     #[arg(long, default_value_t = 0)]
     pub max_append_rate: i64,
 
-    /// Codec fragments are compressed with, named as Gazette's own enum spells
-    /// it, and rejected unless the daemon can decompress it.
+    /// Codec fragments are compressed with, spelled as Gazette's own enum spells
+    /// it. A codec the daemon cannot decompress is rejected.
     #[arg(long, default_value = "SNAPPY", value_parser = parse_codec)]
     pub compression_codec: proto_gazette::broker::CompressionCodec,
 }

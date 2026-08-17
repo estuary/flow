@@ -1,17 +1,17 @@
-//! Generates Rust definitions for the ublk ABI from the vendored
-//! `ublk_cmd.h`, so that nothing in `src/ublk/sys.rs` is transcribed by hand.
+//! Generates Rust definitions for the ublk ABI from the vendored `ublk_cmd.h`, so
+//! that nothing in `src/ublk/sys.rs` is transcribed by hand.
 //!
-//! The header is a copy of `include/uapi/linux/ublk_cmd.h`. Updating it to pick
-//! up a newer kernel's features means replacing the file, not editing Rust.
+//! The header is a copy of `include/uapi/linux/ublk_cmd.h`. To pick up a newer
+//! kernel's features, replace that file. Do not edit the Rust.
 
 fn main() {
     println!("cargo:rerun-if-changed=ublk_cmd.h");
     println!("cargo:rerun-if-changed=build.rs");
 
     // The `UBLK_U_*` opcodes are `_IOWR` macros, which bindgen cannot evaluate.
-    // Assigning each to a constant lets the C compiler fold it into a value
-    // bindgen does emit. The names differ from the macros they wrap because a
-    // macro expands on both sides of its own definition.
+    // Assigning each one to a constant lets the C compiler fold it into a value
+    // bindgen does emit. Each name differs from the macro it wraps, because a macro
+    // expands on both sides of its own definition.
     const SHIM: &str = r#"
 #include <asm/ioctl.h>
 #include "ublk_cmd.h"

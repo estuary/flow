@@ -1,19 +1,19 @@
 //! The sparse local image which backs one disk.
 //!
-//! Byte *N* of the image is byte *N* of the block device. The image is created
-//! with `O_TMPFILE`, so it has no directory entry and cannot outlive the
-//! daemon, and `ftruncate` gives it the device's logical size while leaving
-//! every block a hole. It is disposable: the journal is the disk.
+//! Byte N of the image is byte N of the block device. The image is created with
+//! `O_TMPFILE`, so it has no directory entry and cannot outlive the daemon.
+//! `ftruncate` then gives it the device's logical size, and leaves every block a
+//! hole. The image is disposable. The journal is the disk.
 
 use crate::bitmap::Bitmap;
 use crate::horizon::{Horizon, Policy};
 
 /// An image and the bitmaps which track it.
 ///
-/// The disk's owner is the only mutator, so nothing here is synchronized. Image
-/// I/O on the serving path is submitted to the owner's ring rather than issued
-/// through this type, and the owner then records the effect with
-/// [`Image::allocate`] or [`Image::deallocate`].
+/// Only the disk's owner mutates this, so nothing here is synchronized. On the
+/// serving path the owner submits image I/O to its ring rather than through this
+/// type. It then records the effect with [`Image::allocate`] or
+/// [`Image::deallocate`].
 pub struct Image {
     file: std::fs::File,
     block_size: u32,
@@ -70,9 +70,8 @@ impl Image {
     /// Open a recovery horizon over the blocks allocated now, replacing any
     /// horizon which was open, and report what it must discharge.
     ///
-    /// A horizon's bitmap is `blocks / 8` bytes, the same as the allocated
-    /// bitmap, so it is held only while a horizon is open. That halves the
-    /// steady-state cost of an idle disk.
+    /// A horizon's bitmap is as large as the allocated bitmap, so it is held
+    /// only while a horizon is open.
     pub fn open_horizon(&mut self) -> u32 {
         let horizon = Horizon::open(&self.allocated);
         let pending = horizon.pending();
@@ -86,7 +85,7 @@ impl Image {
     }
 
     /// Blocks which still owe the open horizon a copy, and zero when none is
-    /// open, which is a horizon that has nothing left to discharge either way.
+    /// open.
     pub fn horizon_pending(&self) -> u32 {
         self.horizon.as_ref().map_or(0, Horizon::pending)
     }
@@ -100,8 +99,7 @@ impl Image {
     }
 
     /// Write whole blocks. A partial block would leave the bitmap describing
-    /// less than the image holds, which is why the device's logical block size
-    /// is the tracking block size.
+    /// less than the image holds.
     pub fn write_at(&mut self, block: u32, data: &[u8]) -> std::io::Result<()> {
         let blocks = data.len() / self.block_size as usize;
         assert_eq!(
@@ -140,11 +138,11 @@ impl Image {
         }
     }
 
-    /// Apply a journal chunk, which is how replay rebuilds an image.
+    /// Apply a journal chunk. This is how replay rebuilds an image.
     ///
-    /// A chunk read from a journal is at or after any horizon a replay has
-    /// opened, since a horizon opens at a record and this is a forward pass, so
-    /// applying one also discharges the blocks it covers.
+    /// A horizon opens at a record, and a replay is a forward pass. Every chunk
+    /// a replay reads is therefore at or after any horizon it has opened.
+    /// Applying a chunk also discharges the blocks it covers.
     pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
         crate::chunk::apply(chunk, self.block_size, &self.file, &mut self.allocated)?;
 
@@ -154,9 +152,9 @@ impl Image {
         Ok(())
     }
 
-    /// Read the next run of horizon blocks back as the chunks which publish
-    /// them, which discharges them, or `None` when the delta's copy budget is
-    /// spent or no horizon is open.
+    /// Read the next run of horizon blocks back as the chunks which publish and
+    /// so discharge them, or `None` when the delta's copy budget is spent or no
+    /// horizon is open.
     ///
     /// A run is at most `run_blocks` long, so one copy is one mutation of the
     /// same order as a device request.
@@ -195,18 +193,18 @@ impl Image {
         Ok(())
     }
 
-    /// Read the image back as the chunks which reproduce it, beginning at block
-    /// `from`, one mutation per run of at most `run_blocks` contiguous allocated
-    /// blocks, and stopping once `max_bytes` have been read. Also reports the
-    /// block to resume at, or `None` where the image is exhausted.
+    /// Read the image back as the chunks which reproduce it. The read begins at
+    /// block `from` and stops once `max_bytes` are read. Each run of at most
+    /// `run_blocks` contiguous allocated blocks becomes one mutation. This also
+    /// reports the block to resume at, or `None` where the image is exhausted.
     ///
-    /// This is what a fresh disk publishes ahead of its first delta, because its
-    /// formatted filesystem is content the journal has never seen and the image
-    /// already holds exactly that content. Unallocated blocks are not read, so
-    /// the holes a prezeroed format left are holes in a rebuilt image too.
+    /// A fresh disk publishes this ahead of its first delta. Its formatted
+    /// filesystem is content the journal has never seen, and the image already
+    /// holds exactly that content. Unallocated blocks are not read, so the holes
+    /// a prezeroed format left are holes in a rebuilt image too.
     ///
-    /// It is taken in batches because the image is as large as the device, and
-    /// a caller which appends each batch never holds more than one.
+    /// A caller takes this in batches, because the image is as large as the
+    /// device. A caller which appends each batch never holds more than one.
     pub fn snapshot(
         &self,
         from: u32,
@@ -242,8 +240,8 @@ impl Image {
 }
 
 /// Deallocate `[offset, offset+len)` of `file`, leaving a hole which reads as
-/// zeroes. `FALLOC_FL_KEEP_SIZE` preserves the image's logical size, which is
-/// the device's fixed capacity.
+/// zeroes. `FALLOC_FL_KEEP_SIZE` keeps the image's logical size, which is the
+/// device's fixed capacity.
 #[cfg(target_os = "linux")]
 pub(crate) fn punch_hole(file: &std::fs::File, offset: u64, len: u64) -> std::io::Result<()> {
     // SAFETY: `file` keeps the descriptor open across the call, and fallocate
@@ -270,8 +268,8 @@ pub(crate) fn punch_hole(_file: &std::fs::File, _offset: u64, _len: u64) -> std:
     ))
 }
 
-/// `fallocate` mode which punches a hole, shared with the owner's ring
-/// submissions so both paths deallocate identically.
+/// `fallocate` mode which punches a hole. The owner's ring submissions use it
+/// too, so both paths deallocate identically.
 #[cfg(target_os = "linux")]
 pub(crate) const PUNCH_MODE: i32 = libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE;
 
@@ -324,8 +322,8 @@ mod test {
         image.read_at(5, &mut buf).unwrap();
         assert_eq!(buf, data);
 
-        // A punch of the middle block clears only its bit, and it reads back as
-        // zeroes while its neighbours are untouched.
+        // A punch of the middle block clears only its bit. That block reads back
+        // as zeroes, and its neighbours are untouched.
         image.punch(6, 1).unwrap();
         assert_eq!(image.allocated().iter().collect::<Vec<_>>(), vec![5, 7]);
 
@@ -350,7 +348,7 @@ mod test {
         assert_eq!(image.allocated().iter().collect::<Vec<_>>(), vec![0]);
     }
 
-    /// A horizon opens over what the image holds, and its copies read those
+    /// A horizon opens over what the image holds. Its copies then read those
     /// blocks back until every one is discharged.
     #[test]
     fn test_a_horizon_copies_the_image_back() {
@@ -372,8 +370,8 @@ mod test {
 
         assert_eq!(image.open_horizon(), 4);
 
-        // Copies are rationed by what the delta has changed, and a device write
-        // discharges its own blocks without one.
+        // What the delta changed rations its copies. A device write discharges
+        // its own blocks without a copy.
         assert!(image.copy_horizon(&policy, 4).unwrap().is_none());
         image.horizon().unwrap().changed(8 * BLOCK_SIZE as u64);
         image.horizon().unwrap().published(2..3);
@@ -384,8 +382,8 @@ mod test {
         }
         assert_eq!(image.horizon_pending(), 0);
 
-        // The zeroed block copies as an empty-data chunk, which is what keeps
-        // it allocated in a replay without carrying its bytes.
+        // The zeroed block copies as an empty-data chunk, so a replay keeps it
+        // allocated without carrying its bytes.
         let mut replayed = Image::create(dir.path(), BLOCKS, BLOCK_SIZE).unwrap();
         for chunk in &copied {
             () = replayed.apply(chunk).unwrap();
@@ -404,15 +402,16 @@ mod test {
     }
 
     /// A snapshot of an image, replayed into another, reproduces it in bytes and
-    /// in allocation, which is what lets a fresh disk publish its filesystem
-    /// without having retained the writes which made it.
+    /// in allocation. A fresh disk can therefore publish its filesystem without
+    /// having kept the writes which made it.
     #[test]
     fn test_a_snapshot_replays_into_an_identical_image() {
         let dir = tempfile::tempdir().unwrap();
         let mut image = image(&dir);
 
-        // Runs which cross the split, an isolated block, an all-zero block which
-        // is nonetheless allocated, and a hole punched through a written run.
+        // This covers runs which cross the split, an isolated block, an all-zero
+        // block which is still allocated, and a hole punched through a written
+        // run.
         image
             .write_at(0, &vec![0xaa; 20 * BLOCK_SIZE as usize])
             .unwrap();
@@ -422,9 +421,9 @@ mod test {
             .write_at(63, &vec![0xbb; BLOCK_SIZE as usize])
             .unwrap();
 
-        // A run short enough that the first written range is split across
-        // several mutations, and a batch short enough that those mutations do
-        // not all fit one.
+        // The run is short enough to split the first written range across
+        // several mutations. The batch is short enough that those mutations do
+        // not all fit in one.
         let mut batches = Vec::new();
         let mut from = Some(0);
 

@@ -1,23 +1,23 @@
 //! `flow-disk-daemon`: serves block devices whose durable state lives in
 //! Gazette journals.
 //!
-//! It needs `CAP_SYS_ADMIN` to serve a `ublk` device and to mount a filesystem,
-//! plus ownership of `/dev/ublk-control` and the `/dev/ublkc*` nodes it opens,
-//! which running as root gives and a dedicated UID needs a udev rule for.
+//! It needs `CAP_SYS_ADMIN` to serve a `ublk` device and to mount a filesystem. It
+//! also needs to own `/dev/ublk-control` and the `/dev/ublkc*` nodes it opens.
+//! Running as root grants both. A dedicated UID needs a udev rule instead.
 
 use clap::Parser;
 use disk_daemon::args::{Command, LogFormat};
 
 fn main() -> anyhow::Result<()> {
-    // Required by the TLS of the broker connections a session may ask for.
+    // The TLS of the broker connections a session may ask for needs this.
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("failed to install default crypto provider");
 
     let args = disk_daemon::args::Args::parse();
 
-    // Shared between the tracing subscriber, which consults per-handler trace
-    // overrides, and the session service, which populates it.
+    // Two things share this. The tracing subscriber reads its per-handler trace
+    // overrides, and the session service populates it.
     let registry = service_kit::Registry::new();
 
     let log_format = match &args.command {
@@ -41,9 +41,9 @@ fn main() -> anyhow::Result<()> {
     result?
 }
 
-/// Write structured logs to stderr. The base `EnvFilter` (`RUST_LOG`, `info` by
-/// default) composes with `service_kit::trace`'s override filter, so an operator
-/// can raise one session's verbosity from the admin surface.
+/// Write structured logs to stderr. The base `EnvFilter` reads `RUST_LOG` and
+/// defaults to `info`. It composes with `service_kit::trace`'s override filter, so
+/// an operator can raise one session's verbosity from the admin surface.
 fn install_tracing(log_format: LogFormat, registry: service_kit::Registry) {
     use tracing_subscriber::Layer;
     use tracing_subscriber::layer::SubscriberExt;
@@ -58,7 +58,7 @@ fn install_tracing(log_format: LogFormat, registry: service_kit::Registry) {
                 .json()
                 .with_writer(std::io::stderr),
         ),
-        // Colour only an interactive run, so escape codes never reach a log
+        // Colour an interactive run only, so no escape code reaches a log
         // collector.
         LogFormat::Text => Box::new(
             tracing_subscriber::fmt::layer()

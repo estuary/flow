@@ -25,8 +25,9 @@ message Request {
     Open open = 1;
     Publish publish = 2;
     Commit commit = 3;
-    // Replaces the session's broker connection, and has no reply. Clients
-    // holding short-lived tokens send it before expiry.
+    // Replaces the session's broker endpoint and credential, and has no reply.
+    // The daemon reads requests in order, so the client must send it well
+    // before the credential expires.
     Broker broker = 4;
   }
 }
@@ -55,8 +56,7 @@ message Open {
   // present the same value, or replay misplaces every chunk it applies. Blocks
   // are indexed by uint32, capping `device_size` at 2^32 blocks.
   uint32 block_size = 3;
-  // Brokers serving the journal. If unset, the daemon uses its configured
-  // endpoint with no credential.
+  // Brokers serving the journal. Required.
   Broker broker = 4;
   // Acknowledgements which the client committed but which may not have reached
   // the journal, as returned by Published. The daemon appends them verbatim
@@ -64,12 +64,15 @@ message Open {
   //
   // The disk has committed state if the journal holds an acknowledged delta, or
   // if an acknowledgement is recovered here.
+  //
+  // When set, the journal must exist. An absent journal means committed state
+  // was deleted, and the Open fails.
   repeated bytes recovered_acks = 5;
 }
 
 // Broker addresses and authorizes the Gazette brokers serving a disk's journal.
 message Broker {
-  // Address of a broker. If empty, the daemon uses its configured default.
+  // Address of a broker. Required.
   string endpoint = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Endpoint"];
   // Bearer token presented to the broker. If empty, the daemon attempts to
   // connect anonymously.

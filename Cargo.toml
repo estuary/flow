@@ -58,8 +58,7 @@ apache-avro = { version = "0", default-features = false, features = [
     "bzip",
 ] }
 
-# Held at the version librocksdb-sys resolves to, so that only one bindgen is
-# built.
+# Held at the version librocksdb-sys resolves to, so only one bindgen is built.
 bindgen = "0.72"
 
 # For some reason, the version requirement "0" resulted in cargo downgrading
@@ -192,9 +191,8 @@ sqlx = { version = "0", features = [
 ] }
 
 tokio-rustls = "0"
-# Pinned to the major version every dependent already resolves to. A "0"
-# requirement also matches the 0.21 which transitive dependencies pull in, and
-# a new dependent resolving to it fails to find `aws_lc_rs`.
+# Pinned. A "0" requirement also matches the 0.21 which transitive dependencies
+# pull in, and that version has no `aws_lc_rs` feature.
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 rustls-pemfile = "2"
 webpki = "0"

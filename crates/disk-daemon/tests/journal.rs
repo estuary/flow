@@ -1,8 +1,8 @@
 //! Journal writer tests against a real broker.
 //!
-//! A data-plane is expensive to start, so every case works a journal of its own
-//! and they share one. Each holds its [`Capture`] for the length of the case:
-//! dropping it closes the capture channel, which is how a session ends.
+//! A data-plane is expensive to start, so the cases share one. Each case works a
+//! journal of its own, and holds its [`Capture`] for the length of the case.
+//! Dropping that `Capture` closes the capture channel, which is how a session ends.
 
 use disk_daemon::capture::{self, Capture};
 use disk_daemon::chunk::{covered_blocks, encode_punch, encode_write};
@@ -16,8 +16,8 @@ use proto_gazette::{broker, uuid};
 const BLOCK_SIZE: u32 = 4096;
 const BLOCKS: u32 = 64;
 
-/// Label a replay reads its floor from. No case writes one, so every replay
-/// begins at the first fragment available.
+/// Label a replay reads its floor from. No case writes one, so every replay begins
+/// at the first fragment available.
 const FLOOR_LABEL: &str = "acmeCo/truncated-at";
 
 #[tokio::test]
@@ -49,8 +49,8 @@ async fn journal_writer_tests() {
         .expect("DataPlane graceful_stop");
 }
 
-/// First use creates the journal, claims its author register with a fence
-/// record, and appends its delta under that claim.
+/// First use creates the journal. It claims the author register with a fence
+/// record, then appends its delta under that claim.
 async fn first_use_claims_the_journal(fixture: &Fixture) {
     let journal = "acmeCo/disk/first-use";
     let (capture, writer) = fixture.open(journal).await.unwrap();
@@ -92,8 +92,8 @@ async fn first_use_claims_the_journal(fixture: &Fixture) {
     );
 }
 
-/// A replacement session takes the author register, and the first session then
-/// cannot append.
+/// A replacement session takes the author register. The first session then cannot
+/// append.
 async fn a_replacement_writer_fences_the_first(fixture: &Fixture) {
     let journal = "acmeCo/disk/contended";
     let (first_capture, first) = fixture.open(journal).await.unwrap();
@@ -102,8 +102,8 @@ async fn a_replacement_writer_fences_the_first(fixture: &Fixture) {
     let ack = first.publish().await.unwrap().unwrap();
     () = first.commit(ack).await.unwrap();
 
-    // The journal now holds a committed delta, so a replacement claims as it
-    // recovers.
+    // The journal now holds a committed delta, so a replacement claims it as that
+    // replacement recovers.
     let (_second_capture, second, _blocks) = fixture.recover(journal, Vec::new()).await.unwrap();
     assert_ne!(first.epoch(), second.epoch());
 
@@ -119,8 +119,8 @@ async fn a_replacement_writer_fences_the_first(fixture: &Fixture) {
     assert!(format!("{err:#}").contains("session has failed"), "{err:#}");
 }
 
-/// A claim whose append landed even though its RPC did not report success is
-/// resolved by finding the epoch already installed, not by choosing a new one.
+/// A claim whose append landed, even though its RPC reported no success, is
+/// resolved by finding the epoch already installed. It does not choose a new epoch.
 async fn an_ambiguous_claim_finds_its_own_epoch(fixture: &Fixture) {
     let journal = "acmeCo/disk/ambiguous";
     let (_capture, writer) = fixture.open(journal).await.unwrap();
@@ -135,8 +135,8 @@ async fn an_ambiguous_claim_finds_its_own_epoch(fixture: &Fixture) {
         .await
         .unwrap();
 
-    // Repeating the claim is what a retry of an ambiguous append does: it
-    // re-appends identical content under a check which no longer matches.
+    // A retry of an ambiguous append repeats the claim. It re-appends identical
+    // content under a check which no longer matches.
     () = fence::claim(&fixture.client, journal, None, epoch, fence_record)
         .await
         .unwrap();
@@ -184,14 +184,14 @@ async fn a_committed_delta_reads_back_as_its_chunks(fixture: &Fixture) {
 
     assert_eq!(chunks, mutations.concat());
 
-    // Committing again is a protocol violation, because the delta it
-    // acknowledged is already committed.
+    // A second commit is a protocol violation. The delta it acknowledged is
+    // already committed.
     let err = writer.commit(ack).await.unwrap_err();
     assert!(format!("{err:#}").contains("no published delta"), "{err:#}");
 }
 
-/// A delta of many mutations carries exactly one record each, covering exactly
-/// the blocks those mutations wrote.
+/// A delta of many mutations carries exactly one record per mutation. Those records
+/// cover exactly the blocks the mutations wrote.
 async fn a_large_delta_carries_one_record_per_mutation(fixture: &Fixture) {
     let journal = "acmeCo/disk/bounded";
     const WRITES: usize = 8;
@@ -220,7 +220,7 @@ async fn a_large_delta_carries_one_record_per_mutation(fixture: &Fixture) {
         );
     }
 
-    // A mutation is never split, so each write is exactly one record.
+    // Nothing splits a mutation, so each write is exactly one record.
     assert_eq!(carrying, WRITES);
     assert_eq!(
         blocks,
@@ -243,7 +243,7 @@ async fn a_journal_without_a_store_never_opens(fixture: &Fixture) {
     assert!(format!("{err:#}").contains("no fragment store"), "{err:#}");
 }
 
-/// Recovery rebuilds the deltas which committed, and discards one whose
+/// Recovery rebuilds the deltas which committed. It discards a delta whose
 /// acknowledgement never reached the journal.
 async fn recovery_applies_only_committed_deltas(fixture: &Fixture) {
     let journal = "acmeCo/disk/recovered";
@@ -255,8 +255,8 @@ async fn recovery_applies_only_committed_deltas(fixture: &Fixture) {
     let ack = writer.publish().await.unwrap().unwrap();
     () = writer.commit(ack).await.unwrap();
 
-    // A second delta which is published but never committed, as a session
-    // which crashed between the two leaves behind.
+    // A second delta, published but never committed. A session which crashed
+    // between the two leaves this behind.
     capture.offer(write(2, 0xcc)).unwrap();
     capture.offer(write(3, 0xdd)).unwrap();
     _ = writer.publish().await.unwrap().unwrap();
@@ -266,8 +266,8 @@ async fn recovery_applies_only_committed_deltas(fixture: &Fixture) {
     assert_eq!(blocks, vec![(1, 0xaa), (2, 0xbb)]);
 }
 
-/// An acknowledgement the client made durable but which never reached the
-/// journal is appended verbatim, which commits the delta it acknowledges.
+/// The client made an acknowledgement durable, but it never reached the journal.
+/// Recovery appends it verbatim, which commits the delta it acknowledges.
 async fn a_recovered_acknowledgement_is_repaired(fixture: &Fixture) {
     let journal = "acmeCo/disk/repaired";
     let (capture, writer) = fixture.open(journal).await.unwrap();
@@ -280,14 +280,14 @@ async fn a_recovered_acknowledgement_is_repaired(fixture: &Fixture) {
 
     assert_eq!(blocks, vec![(4, 0x11)]);
 
-    // Repairing again re-appends the same bytes, which Gazette de-duplicates by
-    // UUID, so a session which repeats a repair recovers the same disk.
+    // A second repair re-appends the same bytes, and Gazette de-duplicates those by
+    // UUID. A session which repeats a repair therefore recovers the same disk.
     let (_capture, _writer, blocks) = fixture.recover(journal, vec![ack]).await.unwrap();
     assert_eq!(blocks, vec![(4, 0x11)]);
 }
 
-/// A journal left behind by a first use which failed holds no committed state,
-/// so its disk is fresh.
+/// A journal which a failed first use left behind holds no committed state, so its
+/// disk is fresh.
 async fn an_orphaned_journal_recovers_nothing(fixture: &Fixture) {
     let journal = "acmeCo/disk/orphaned";
     let (capture, writer) = fixture.open(journal).await.unwrap();
@@ -396,9 +396,9 @@ impl Fixture {
 
     /// Every record of `journal`, paired with its parsed UUID.
     async fn read(&self, journal: &str) -> Vec<(UuidParts, proto::DiskRecord)> {
-        // A broker-confirmed head bounds the read, which is what a recovering
-        // session does: without a bound the broker reports the offset beyond
-        // the last record as not yet available, which is an error to a reader.
+        // A broker-confirmed head bounds the read, as a recovering session does.
+        // Without a bound, the broker reports the offset beyond the last record as
+        // not yet available, and a reader treats that as an error.
         let head = fence::probe(&self.client, journal).await.unwrap().head;
 
         let mut content = bytes::BytesMut::new();

@@ -1,9 +1,9 @@
-//! Gazette's fixed framing of protobuf records: a magic word, a little-endian
-//! u32 payload length, and the payload.
+//! Gazette's fixed framing of protobuf records. A frame is a magic word, a
+//! little-endian u32 payload length, and the payload.
 //!
-//! The magic word is what lets a reader which starts mid-frame recover. Journal
-//! content may be read from an arbitrary offset, and without a recognizable
-//! boundary a reader would interpret whatever bytes it landed on as a record.
+//! The magic word lets a reader which starts mid-frame recover. A reader may begin
+//! at an arbitrary journal offset. Without a recognizable boundary it would
+//! interpret whatever bytes it landed on as a record.
 //!
 //! The reference implementation is `message/fixed_framing.go`.
 
@@ -29,18 +29,18 @@ pub enum Frame<M> {
     /// `message` was framed by the first `consumed` bytes of the input.
     Record { message: M, consumed: usize },
     /// The input does not begin on a frame boundary. Its first `skipped` bytes
-    /// belong to no frame this reader can interpret and are discarded. A caller
-    /// tracking a journal offset reports the skipped span against it.
+    /// belong to no frame this reader can interpret, so they are discarded. A caller
+    /// which tracks a journal offset reports the skipped span against that offset.
     Desync { skipped: usize },
-    /// The input holds a partial header or a partial frame, and nothing is
-    /// consumed. The caller extends its input and decodes again.
+    /// The input holds a partial header or a partial frame, and nothing is consumed.
+    /// The caller extends its input and decodes again.
     Incomplete,
 }
 
 /// Decode the frame at the head of `input`.
 ///
-/// A payload which is framed but does not decode is an error rather than
-/// another desync, because a reader cannot skip a record it cannot interpret.
+/// A payload which is framed but does not decode is an error, and not another
+/// desync. A reader must not skip a record it cannot interpret.
 pub fn decode<M: prost::Message + Default>(input: &[u8]) -> crate::Result<Frame<M>> {
     let Some(header) = input.get(..HEADER_LEN) else {
         return Ok(Frame::Incomplete);
@@ -62,12 +62,12 @@ pub fn decode<M: prost::Message + Default>(input: &[u8]) -> crate::Result<Frame<
     })
 }
 
-/// Count of leading bytes to discard from a desynchronized `input` to reach the
-/// next magic word.
+/// Count of leading bytes to discard from a desynchronized `input` to reach the next
+/// magic word.
 ///
-/// When no magic word follows, the final three bytes are retained: a magic word
-/// may straddle the end of the input, and discarding them would destroy the
-/// boundary that recovery depends on.
+/// When no magic word follows, the final three bytes are kept. A magic word may
+/// straddle the end of the input, and discarding those bytes would destroy the
+/// boundary recovery depends on.
 fn desync_span(input: &[u8]) -> usize {
     match input[1..].windows(MAGIC.len()).position(|w| w == MAGIC) {
         Some(index) => 1 + index,
@@ -147,8 +147,8 @@ mod test {
 
     #[test]
     fn test_desync_without_a_following_frame_retains_a_partial_magic_word() {
-        // The final three bytes could begin a magic word which continues in
-        // input the caller has not read yet.
+        // The final three bytes could begin a magic word which continues in input
+        // the caller has not read yet.
         let buf = [&b"garbage"[..], &MAGIC[..3]].concat();
 
         let Ok(Frame::Desync { skipped }) = decode::<broker::Label>(&buf) else {

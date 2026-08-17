@@ -108,7 +108,7 @@ impl Client {
     }
 
     /// Build a Client which draws Metadata and a default endpoint from another
-    /// tokens::Watch, re-using this Client's fragment client and Router.
+    /// tokens::Watch. It re-uses this Client's fragment client and Router.
     pub fn with_tokens<Token, Extract>(
         &self,
         extract: Extract,

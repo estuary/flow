@@ -1,13 +1,13 @@
 //! End-to-end tests of the daemon binary over a real broker.
 //!
-//! Each case drives `flow-disk-daemon` exactly as it ships: the daemon runs in
-//! a `sudo -n` child, because serving a device and mounting a filesystem need
-//! `CAP_SYS_ADMIN` and cargo must not run as root, and the test speaks its
-//! session gRPC over the Unix socket. Its mounts are root-owned, so file I/O
-//! through them is privileged too and runs in `sudo -n` children of its own.
+//! Each case drives `flow-disk-daemon` exactly as it ships. The daemon runs in a
+//! `sudo -n` child, because serving a device and mounting a filesystem need
+//! `CAP_SYS_ADMIN` and cargo must not run as root. The test speaks the session gRPC
+//! over the Unix socket. The mounts the daemon returns are root-owned, so file I/O
+//! through them is privileged too, and it runs in `sudo -n` children of its own.
 //!
-//! A data-plane is expensive to start, so every case works a journal of its own
-//! and they share one, along with the daemon.
+//! A data-plane is expensive to start, so the cases share one, along with the
+//! daemon. Each case works a journal of its own.
 
 mod common;
 
@@ -16,12 +16,12 @@ use disk_daemon::{bitmap::Bitmap, chunk};
 use gazette::journal::framing;
 use proto_gazette::{broker, uuid};
 
-/// 128 MiB, which `mkfs.ext4` accepts comfortably and which keeps a case to a
-/// few seconds.
+/// 128 MiB. `mkfs.ext4` accepts that size comfortably, and it keeps a case to a few
+/// seconds.
 const DEVICE_SIZE: u64 = 128 * 1024 * 1024;
 const BLOCK_SIZE: u32 = 4096;
 
-/// How long a teardown which cannot be observed over the session is waited for.
+/// How long a test waits for a teardown it cannot observe over the session.
 const TEARDOWN: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Label the daemon under test derives its recovery floor from.
@@ -51,6 +51,7 @@ async fn disk_daemon_tests() {
     a_disk_which_is_never_written_creates_no_journal(&fixture, &daemon).await;
     the_first_write_publishes_a_snapshot_of_the_formatted_image(&fixture, &daemon).await;
     a_journal_without_a_store_is_terminal(&fixture, &daemon).await;
+    a_recovered_ack_without_its_journal_is_terminal(&fixture, &daemon).await;
     protocol_violations_are_terminal(&fixture, &daemon).await;
     a_committed_disk_reopens_with_its_contents(&fixture, &daemon).await;
     an_acknowledgement_lost_after_commit_is_repaired(&fixture, &daemon).await;
@@ -71,14 +72,13 @@ async fn disk_daemon_tests() {
         .expect("DataPlane graceful_stop");
 }
 
-/// Horizons need a daemon of their own, and a data-plane of its own with it: the
+/// Horizons need a daemon of their own, and a data-plane of its own with it. The
 /// shipped thresholds open a horizon only after a gigabyte of journal, and these
-/// cases are all about what happens once one is open. The thresholds are tiny
-/// but they are the same flags an operator sets.
+/// cases are all about what happens once one is open. The thresholds set below are
+/// tiny, but they are the same flags an operator sets.
 ///
-/// Its journals are also re-listed by the brokers every second, so that a
-/// fragment deleted from the store is one no broker can still serve from a local
-/// spool file.
+/// The brokers also re-list these journals every second. A fragment deleted from
+/// the store is then one no broker can still serve from a local spool file.
 #[tokio::test]
 async fn disk_daemon_horizon_tests() {
     common::check_prerequisites();
@@ -122,16 +122,16 @@ async fn disk_daemon_horizon_tests() {
         .expect("DataPlane graceful_stop");
 }
 
-/// Sustained traffic opens and completes horizons, the floor label follows, and
-/// the disk then recovers from journal content at or after that floor alone —
-/// everything below it having been deleted from the fragment store.
+/// Sustained traffic opens and completes horizons, and the floor label follows.
+/// Everything below that floor is then deleted from the fragment store, and the
+/// disk still recovers from what remains.
 async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/horizons";
     let source = fixture.dir.path().join("horizons");
     write_source(&source, 1);
 
-    // A first session, short enough that no horizon of it can complete. Its
-    // fragments are what the recovery at the end must not need.
+    // A first session, short enough that no horizon of it can complete. The
+    // recovery at the end must not need its fragments.
     let mut session = daemon.session().await;
     let mount = session.open(fixture.open(journal)).await.unwrap();
 
@@ -143,7 +143,7 @@ async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon
 
     assert_eq!(fixture.floor(journal).await, None, "nothing completed yet");
 
-    // A session stamps its records with the wall clock, so this is what puts
+    // A session stamps its records with the wall clock. This sleep therefore puts
     // the floor derived below after the fragments written above.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -160,8 +160,8 @@ async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon
     let floor = fixture.await_floor(journal).await;
     () = session.close().await;
 
-    // Long enough that the brokers have re-listed the store, so what is deleted
-    // here is content they no longer hold open locally either.
+    // Long enough that the brokers have re-listed the store. What is deleted here
+    // is therefore content they no longer hold open locally either.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let deleted = fixture.delete_fragments_before(journal, floor_seconds(&floor));
 
@@ -197,9 +197,9 @@ async fn a_horizon_bounds_what_recovery_reads(fixture: &Fixture, daemon: &Daemon
     );
 }
 
-/// A horizon belongs to its disk rather than to the session which opened it: a
-/// replacement resumes the one it finds open, and the floor it goes on to derive
-/// is the position that earlier session chose.
+/// A horizon belongs to its disk rather than to the session which opened it. A
+/// replacement resumes the horizon it finds open. The floor it goes on to derive is
+/// the position that earlier session chose.
 async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/resumed";
     let source = fixture.dir.path().join("resumed");
@@ -212,9 +212,9 @@ async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon
     let ack = session.publish().await.unwrap();
     () = session.commit(ack).await.unwrap();
 
-    // Traffic until a horizon completes, and then one delta more, which opens
+    // Run traffic until a horizon completes, then one delta more. That delta opens
     // the horizon this session is killed in the middle of. One delta cannot
-    // discharge a horizon of this disk, which the floor holding still says.
+    // discharge a horizon of this disk, and the floor holding still says so.
     for _ in 0..CHURN_DELTAS {
         () = churn(&mut session, &mount).await;
 
@@ -235,8 +235,8 @@ async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon
     drop(session);
     fixture.wait_for_teardown().await;
 
-    // A horizon the replacement restarted rather than resumed would open at a
-    // record appended after this.
+    // A horizon the replacement restarted, rather than resumed, would open at a
+    // record appended after this moment.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let replaced_at = unix_seconds();
 
@@ -266,8 +266,8 @@ async fn a_replacement_session_resumes_an_open_horizon(fixture: &Fixture, daemon
     () = session.close().await;
 }
 
-/// The floor label only ever advances, and a session which loses the race to
-/// write it retries until it lands.
+/// The floor label only ever advances. A session which loses the race to write it
+/// retries until the write lands.
 async fn the_floor_label_only_advances(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/labelled";
     let mut session = daemon.session().await;
@@ -278,8 +278,8 @@ async fn the_floor_label_only_advances(fixture: &Fixture, daemon: &Daemon) {
     let ack = session.publish().await.unwrap();
     () = session.commit(ack).await.unwrap();
 
-    // Another writer of the same spec is what makes the daemon lose its
-    // compare-and-swap, which it retries on the next listing its watch reports.
+    // Another writer of the same spec makes the daemon lose its compare-and-swap.
+    // The daemon retries on the next listing its watch reports.
     let churning = tokio::spawn(churn_labels(fixture.client.clone(), journal.to_string()));
 
     for _ in 0..CHURN_DELTAS {
@@ -292,8 +292,8 @@ async fn the_floor_label_only_advances(fixture: &Fixture, daemon: &Daemon) {
     churning.abort();
     let floor = fixture.await_floor(journal).await;
 
-    // A floor the label is already beyond is never written, however many
-    // horizons complete after it.
+    // Nothing writes a floor the label is already beyond, however many horizons
+    // complete after it.
     let ahead = "7fffffffffffffff";
     () = fixture.set_floor(journal, ahead).await;
 
@@ -316,14 +316,12 @@ async fn the_floor_label_only_advances(fixture: &Fixture, daemon: &Daemon) {
 const SOAK_DISKS: usize = 6;
 const SOAK_ROUNDS: usize = 4;
 
-/// Many disks at once under mixed traffic, with a share of them losing the delta
-/// they published each round and recovering it.
+/// Many disks at once under mixed traffic. Each round, a share of them lose the
+/// delta they published and then recover it.
 ///
-/// It asserts what a long run must leave behind, which is nothing: every disk
-/// holds exactly the generation it last committed, and no thread, descriptor,
-/// device or mount outlives the session which made it. It also measures what a
-/// host of disks costs in threads, because a unit file's `TasksMax` must cover
-/// the owner thread each disk runs and the kernel's `io_uring` workers alike.
+/// It asserts that a long run leaves nothing behind. Every disk holds exactly the
+/// generation it last committed. No thread, descriptor, device, or mount outlives
+/// the session which made it. It also measures the [`Cost`] of a host of disks.
 #[tokio::test]
 async fn disk_daemon_soak_test() {
     common::check_prerequisites();
@@ -342,8 +340,8 @@ async fn disk_daemon_soak_test() {
     };
     let daemon = Daemon::start(&fixture, "soak").await;
 
-    // One tree per generation, because a disk which lost its delta is compared
-    // against the generation it last committed rather than the newest.
+    // One tree per generation. A disk which lost its delta is compared against the
+    // generation it last committed, and not against the newest one.
     let generations: Vec<std::path::PathBuf> = (0..=SOAK_ROUNDS)
         .map(|generation| {
             let path = fixture.dir.path().join(format!("soak-{generation}"));
@@ -389,8 +387,8 @@ async fn disk_daemon_soak_test() {
 
             assert!(!ack.is_empty(), "{} changed in round {round}", disk.journal);
 
-            // A share of the disks lose the delta they just published, which is
-            // the crash this soak varies over.
+            // A share of the disks lose the delta they just published. That is the
+            // crash this soak varies over.
             if roll(index, round).is_multiple_of(3) {
                 _ = disk.session.take();
                 killed += 1;
@@ -433,8 +431,7 @@ async fn disk_daemon_soak_test() {
 
     eprintln!("soak cost: idle {idle:?}, serving {SOAK_DISKS} disks {busy:?}, ended {ended:?}");
 
-    // An owner thread per disk and a shared pool of kernel workers, both of
-    // which a unit file's TasksMax counts.
+    // An owner thread per disk, and a shared pool of kernel workers.
     assert_eq!(busy.owners, SOAK_DISKS, "{busy:?}");
     assert!(
         busy.workers > 0,
@@ -445,7 +442,7 @@ async fn disk_daemon_soak_test() {
         "{busy:?} against an idle {idle:?}",
     );
 
-    // Nothing a disk held outlives it. The descriptors allowed for are the
+    // Nothing a disk held outlives it. The descriptors allowed for here are the
     // broker connections the router holds until its next sweep.
     assert_eq!(ended.owners, 0, "{ended:?}");
     assert!(
@@ -466,18 +463,17 @@ async fn disk_daemon_soak_test() {
 struct SoakDisk {
     journal: String,
     mount: String,
-    /// Taken when the disk loses a delta, and replaced by the session which
-    /// recovers it.
+    /// Taken when the disk loses a delta. The session which recovers that disk
+    /// replaces it.
     session: Option<Session>,
     committed: usize,
 }
 
-/// One round of mixed traffic on a mounted disk: a generation of files copied
-/// in, scratch written and the round before it deleted so the filesystem
-/// discards, and a read back.
+/// One round of mixed traffic on a mounted disk. It copies a generation of files in,
+/// writes scratch, deletes the scratch of the round before so that the filesystem
+/// discards, and reads a file back.
 ///
-/// It runs without blocking the runtime, which is what lets every disk of the
-/// soak be worked at once.
+/// It never blocks the runtime, so the soak can work every disk at once.
 async fn soak_load(mount: &str, source: &std::path::Path, round: usize) -> anyhow::Result<()> {
     () = sudo_async(&["cp", "-rT", path(source), &format!("{mount}/data")]).await?;
     () = sudo_async(&[
@@ -495,7 +491,7 @@ async fn soak_load(mount: &str, source: &std::path::Path, round: usize) -> anyho
     Ok(())
 }
 
-/// A deterministic roll, so that a soak run is reproducible while the disks it
+/// A deterministic roll. A soak run is therefore reproducible, and the disks it
 /// kills still vary between rounds.
 fn roll(index: usize, round: usize) -> u64 {
     let mut state = 0x9e3779b97f4a7c15 ^ ((index as u64) << 32) ^ round as u64;
@@ -507,8 +503,8 @@ fn roll(index: usize, round: usize) -> u64 {
     state
 }
 
-/// Wait for writes which were parked to complete, without holding the runtime
-/// they must complete on.
+/// Wait for parked writes to complete. This does not hold the runtime they must
+/// complete on.
 async fn wait_for_exit(writer: &mut std::process::Child) {
     let deadline = std::time::Instant::now() + TEARDOWN;
 
@@ -522,8 +518,8 @@ async fn wait_for_exit(writer: &mut std::process::Child) {
     panic!("parked writes did not complete once the broker returned");
 }
 
-/// Wait for the disk of a dropped session to be torn down, which its client
-/// cannot observe because its stream is already gone.
+/// Wait for the disk of a dropped session to be torn down. Its client cannot
+/// observe that teardown, because its stream is already gone.
 async fn wait_unmounted(mount: &str) {
     let deadline = std::time::Instant::now() + TEARDOWN;
 
@@ -552,8 +548,8 @@ async fn sudo_async(args: &[&str]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Faults a daemon must survive: a broker it cannot reach, a credential which
-/// runs out under it, a session which takes its journal away, and a SIGTERM
+/// Faults a daemon must survive. These are a broker it cannot reach, a credential
+/// which runs out under it, a session which takes its journal away, and a SIGTERM
 /// while a disk is being written.
 #[tokio::test]
 async fn disk_daemon_fault_tests() {
@@ -589,9 +585,9 @@ async fn disk_daemon_fault_tests() {
         .expect("DataPlane graceful_stop");
 }
 
-/// A broker which cannot be reached parks the device rather than failing it:
-/// appends retry, the capture channel fills, and writes wait. Naming a reachable
-/// broker again releases them, and the delta commits as though nothing happened.
+/// A broker which cannot be reached parks the device rather than failing it. Appends
+/// retry, the capture channel fills, and writes wait. Naming a reachable broker
+/// again releases those writes, and the delta commits as though nothing happened.
 async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/outage";
     let mut session = daemon.session().await;
@@ -603,8 +599,8 @@ async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemo
     let ack = session.publish().await.unwrap();
     () = session.commit(ack).await.unwrap();
 
-    // A socket nothing is listening on. Dialing it fails transiently, which is
-    // exactly what a broker restart looks like from here.
+    // A socket nothing is listening on. Dialing it fails transiently, exactly as a
+    // broker restart looks from here.
     () = session
         .send(proto::request::Request::Broker(proto::Broker {
             endpoint: format!(
@@ -615,8 +611,8 @@ async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemo
         }))
         .await;
 
-    // More than the capture channel can hold, so the device parks once the
-    // writer stops taking from it.
+    // This is more than the capture channel can hold. The device parks once the
+    // writer stops taking from that channel.
     let mut writer = std::process::Command::new("sudo")
         .args([
             "-n",
@@ -637,8 +633,8 @@ async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemo
         "the disk kept taking writes while its broker was unreachable",
     );
 
-    // The replacement does not go through the writer, which is retrying against
-    // the broker being replaced.
+    // The replacement does not go through the writer. That writer is retrying
+    // against the broker being replaced.
     () = session
         .send(proto::request::Request::Broker(proto::Broker {
             endpoint: fixture.endpoint.clone(),
@@ -667,16 +663,10 @@ async fn a_broker_outage_stalls_writes_and_then_resumes(fixture: &Fixture, daemo
 /// A session outlives the credential it opened with, because its client replaces
 /// that credential while it is still valid.
 ///
-/// Replacement *before* expiry is the whole of the contract, and the shape of
-/// this case is why. A client cannot make its disk quiescent: ext4 writes back
-/// and discards on its own schedule, so the writer's next append can fall
-/// anywhere, and the daemon holds no delta waiting for a credential to arrive. A
-/// credential which is always valid is therefore the only kind a session can be
-/// served with, and one replaced in reaction to a failure is already too late.
-///
-/// That the reverse is terminal is not asserted here, because it cannot be made
-/// deterministic from a client: whether an append falls inside the expiry window
-/// is the filesystem's decision, not the test's.
+/// Replacement before expiry is the contract, per the crate README. This does not
+/// assert the reverse, because the reverse cannot be made deterministic. Whether an
+/// append falls inside the expiry window is the filesystem's decision, not the
+/// test's.
 async fn a_credential_is_replaced_before_it_expires(
     fixture: &Fixture,
     data_plane: &e2e_support::DataPlane,
@@ -702,8 +692,8 @@ async fn a_credential_is_replaced_before_it_expires(
     let ack = session.publish().await.unwrap();
     () = session.commit(ack).await.unwrap();
 
-    // Replaced while the credential it replaces is still good, which is what a
-    // client holding a short-lived token is required to do.
+    // Replaced while the credential it replaces is still good, as a client
+    // holding a short-lived token is required to do.
     () = session
         .send(proto::request::Request::Broker(proto::Broker {
             endpoint: fixture.endpoint.clone(),
@@ -711,8 +701,8 @@ async fn a_credential_is_replaced_before_it_expires(
         }))
         .await;
 
-    // Long enough that the credential this session opened with has run out, so
-    // everything below is the replacement's doing.
+    // Long enough that the credential this session opened with has run out.
+    // Everything below is therefore the replacement's doing.
     tokio::time::sleep(std::time::Duration::from_secs(LIFETIME + 2)).await;
 
     let second = fixture.dir.path().join("refreshed-credential-2");
@@ -730,8 +720,8 @@ async fn a_credential_is_replaced_before_it_expires(
     _ = fixture.replay(journal, &image).await;
     fixture.assert_content_matches(&image, &second);
 
-    // And the credential it replaced really had expired, so a session which
-    // opens with that one cannot even probe.
+    // The credential it replaced really had expired. A session which opens with
+    // that credential cannot even probe.
     let mut session = daemon.session().await;
     let status = session.open(open).await.unwrap_err();
 
@@ -739,9 +729,9 @@ async fn a_credential_is_replaced_before_it_expires(
     () = session.ended().await;
 }
 
-/// Two sessions of one journal: the second claims the author register, and the
-/// first learns of it on its next append. The loser is terminal and says so with
-/// `ABORTED`, and the winner recovers everything the loser committed.
+/// Two sessions of one journal. The second claims the author register, and the first
+/// learns of that on its next append. The loser is terminal and says so with
+/// `ABORTED`. The winner recovers everything the loser committed.
 async fn a_replacement_session_fences_the_first(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/fenced";
     let source = fixture.source("fenced");
@@ -753,8 +743,8 @@ async fn a_replacement_session_fences_the_first(fixture: &Fixture, daemon: &Daem
     let ack = loser.publish().await.unwrap();
     () = loser.commit(ack).await.unwrap();
 
-    // The journal now holds committed state, so this session claims the fence
-    // as it opens rather than deferring it to a first append.
+    // The journal now holds committed state. This session therefore claims the
+    // fence as it opens, rather than deferring it to a first append.
     let mut winner = daemon.session().await;
     let recovered = winner.open(fixture.open(journal)).await.unwrap();
 
@@ -774,8 +764,8 @@ async fn a_replacement_session_fences_the_first(fixture: &Fixture, daemon: &Daem
     () = winner.close().await;
 }
 
-/// The `client` subcommand drives a session end to end, and what it commits is
-/// what the next session opens.
+/// The `client` subcommand drives a session end to end. The next session opens what
+/// that subcommand committed.
 async fn the_client_subcommand_drives_a_session(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/by-hand";
     let source = fixture.source("by-hand");
@@ -840,8 +830,8 @@ async fn the_client_subcommand_drives_a_session(fixture: &Fixture, daemon: &Daem
     () = session.close().await;
 }
 
-/// A daemon signalled while a disk is being written ends its sessions, tears
-/// down what they held, and exits cleanly.
+/// A daemon signalled while a disk is being written ends its sessions. It tears down
+/// what they held, then exits cleanly.
 async fn a_sigterm_under_load_tears_every_disk_down(fixture: &Fixture) {
     let daemon = Daemon::start(fixture, "sigterm").await;
     let mut session = daemon.session().await;
@@ -867,12 +857,12 @@ async fn a_sigterm_under_load_tears_every_disk_down(fixture: &Fixture) {
     fixture.assert_no_leaks();
 }
 
-/// Deltas a horizon case runs before giving up on one completing. Generous
+/// Deltas a horizon case runs before it gives up on one completing. This is generous
 /// against the handful its thresholds need.
 const CHURN_DELTAS: usize = 20;
 
-/// Rewrite a megabyte of the disk and commit it, which is one delta of ordinary
-/// traffic: it earns copy budget without discharging much of a horizon.
+/// Rewrite a megabyte of the disk and commit it. This is one delta of ordinary
+/// traffic. It earns copy budget without discharging much of a horizon.
 async fn churn(session: &mut Session, mount: &str) {
     _ = sudo(&[
         "dd",
@@ -889,7 +879,7 @@ async fn churn(session: &mut Session, mount: &str) {
     () = session.commit(ack).await.unwrap();
 }
 
-/// Rewrite an unrelated label of `journal`'s spec until cancelled, tolerating
+/// Rewrite an unrelated label of `journal`'s spec until cancelled. This tolerates
 /// the races it loses itself.
 async fn churn_labels(client: gazette::journal::Client, journal: String) {
     for round in 0.. {
@@ -898,17 +888,16 @@ async fn churn_labels(client: gazette::journal::Client, journal: String) {
     }
 }
 
-/// Wall-clock second of a floor label, which is what a replay of that journal
-/// seeks its fragments by.
+/// Wall-clock second of a floor label. A replay of that journal seeks its fragments
+/// by this second.
 fn floor_seconds(floor: &str) -> u64 {
     let clock = u64::from_str_radix(floor, 16).expect("a floor label is hex");
 
     uuid::Clock::from_u64(clock).to_unix().0
 }
 
-/// Bytes the host filesystem allocated to `image`, which is a disk's true
-/// footprint: `st_blocks` counts what it holds rather than the sparse size it
-/// presents.
+/// Bytes the host filesystem allocated to `image`, which is a disk's true footprint.
+/// `st_blocks` counts what the image holds, and not the sparse size it presents.
 fn allocated_bytes(image: &std::path::Path) -> i64 {
     std::os::unix::fs::MetadataExt::blocks(&std::fs::metadata(image).expect("an image")) as i64
         * 512
@@ -921,8 +910,8 @@ fn unix_seconds() -> u64 {
         .as_secs()
 }
 
-/// Files written through the mount and committed are exactly the files a replay
-/// of the journal reproduces, over several sequential transactions.
+/// A replay of the journal reproduces exactly the files which were written through
+/// the mount and committed, over several sequential transactions.
 async fn a_committed_disk_replays_into_an_identical_filesystem(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/committed";
     let mut session = daemon.session().await;
@@ -948,8 +937,8 @@ async fn a_committed_disk_replays_into_an_identical_filesystem(fixture: &Fixture
     fixture.assert_content_matches(&image, &source);
 }
 
-/// A transaction which changed nothing publishes no acknowledgement, and
-/// appends nothing to the journal.
+/// A transaction which changed nothing publishes no acknowledgement. It also appends
+/// nothing to the journal.
 async fn an_unchanged_transaction_appends_nothing(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/unchanged";
     let mut session = daemon.session().await;
@@ -963,15 +952,16 @@ async fn an_unchanged_transaction_appends_nothing(fixture: &Fixture, daemon: &Da
 
     let head = fixture.head(journal).await;
 
-    // Nothing touches the disk between the two publications, so the second
-    // finds no delta at all and the journal does not move.
+    // Nothing touches the disk between the two publications. The second therefore
+    // finds no delta at all, and the journal does not move.
     assert!(session.publish().await.unwrap().is_empty());
     assert_eq!(fixture.head(journal).await, head);
 
     () = session.close().await;
 }
 
-/// A broker replacement has no reply, so the next request's reply is its own.
+/// A broker replacement has no reply. The reply to the next request belongs to that
+/// next request.
 async fn a_broker_replacement_has_no_reply(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/refreshed";
     let mut session = daemon.session().await;
@@ -993,8 +983,8 @@ async fn a_broker_replacement_has_no_reply(fixture: &Fixture, daemon: &Daemon) {
     () = session.close().await;
 }
 
-/// A disk which is formatted and mounted but never written creates no journal:
-/// it carries no information, because formatting it again reproduces it.
+/// A disk which is formatted and mounted but never written creates no journal. It
+/// carries no information, because formatting it again reproduces it.
 async fn a_disk_which_is_never_written_creates_no_journal(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/untouched";
     let mut session = daemon.session().await;
@@ -1006,9 +996,9 @@ async fn a_disk_which_is_never_written_creates_no_journal(fixture: &Fixture, dae
     assert!(!fixture.exists(journal).await);
 }
 
-/// The first mutation after mount publishes a snapshot of the image, so the
-/// first delta holds the whole formatted filesystem and nothing more: the ranges
-/// a prezeroed format left as holes are holes in a replay of it too.
+/// The first mutation after mount publishes a snapshot of the image. The first delta
+/// therefore holds the whole formatted filesystem and nothing more. The ranges a
+/// prezeroed format left as holes are holes in a replay of it too.
 async fn the_first_write_publishes_a_snapshot_of_the_formatted_image(
     fixture: &Fixture,
     daemon: &Daemon,
@@ -1028,8 +1018,8 @@ async fn the_first_write_publishes_a_snapshot_of_the_formatted_image(
     let image = fixture.dir.path().join("first-write.img");
     let covered = fixture.replay(journal, &image).await;
 
-    // A few small files could not account for a filesystem's metadata, and the
-    // replay mounts, which only the snapshot makes possible.
+    // A few small files could not account for a filesystem's metadata. The replay
+    // also mounts, which only the snapshot makes possible.
     assert!(
         covered > 512,
         "the first delta covered only {covered} blocks"
@@ -1059,6 +1049,27 @@ async fn a_journal_without_a_store_is_terminal(fixture: &Fixture, daemon: &Daemo
 
     assert!(status.message().contains("no fragment store"), "{status}");
     () = session.ended().await;
+}
+
+/// A recovered acknowledgement names committed state, so a journal which is
+/// absent was deleted out from under it. That is terminal rather than a fresh
+/// disk which hides the loss.
+async fn a_recovered_ack_without_its_journal_is_terminal(fixture: &Fixture, daemon: &Daemon) {
+    let journal = "acmeCo/disk/deleted";
+    let mut session = daemon.session().await;
+
+    let open = proto::Open {
+        recovered_acks: vec![bytes::Bytes::from_static(b"a committed acknowledgement")],
+        ..fixture.open(journal)
+    };
+    let status = session.open(open).await.unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status}");
+    assert!(status.message().contains("does not exist"), "{status}");
+    () = session.ended().await;
+
+    // The failure precedes any claim, so it did not create the journal.
+    assert!(list(&fixture.client, journal).await.journals.is_empty());
 }
 
 /// Every protocol violation ends its session, and the disk it held goes with it.
@@ -1125,7 +1136,7 @@ async fn protocol_violations_are_terminal(fixture: &Fixture, daemon: &Daemon) {
     assert!(status.message().contains("exactly one disk"), "{status}");
     () = session.ended().await;
 
-    // A request before Open, which every session must begin with.
+    // A request before Open. Every session must begin with Open.
     let mut session = daemon.session().await;
     let status = session.publish().await.unwrap_err();
 
@@ -1136,7 +1147,7 @@ async fn protocol_violations_are_terminal(fixture: &Fixture, daemon: &Daemon) {
 }
 
 /// A disk which committed reopens holding the files it committed, over several
-/// sequential transactions, and two recoveries of one journal agree.
+/// sequential transactions. Two recoveries of one journal also agree.
 async fn a_committed_disk_reopens_with_its_contents(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/reopened";
     let source = fixture.dir.path().join("reopened");
@@ -1145,8 +1156,8 @@ async fn a_committed_disk_reopens_with_its_contents(fixture: &Fixture, daemon: &
         let mut session = daemon.session().await;
         let mount = session.open(fixture.open(journal)).await.unwrap();
 
-        // Every generation but the first opens a disk rebuilt from the journal,
-        // which holds what the generation before it committed.
+        // Every generation but the first opens a disk rebuilt from the journal.
+        // That disk holds what the generation before it committed.
         if generation != 1 {
             assert_tree_matches(&source, &format!("{mount}/data"));
         }
@@ -1160,8 +1171,8 @@ async fn a_committed_disk_reopens_with_its_contents(fixture: &Fixture, daemon: &
         () = session.close().await;
     }
 
-    // Recovery is deterministic, so recovering twice more without committing
-    // anything reproduces the same filesystem both times.
+    // Recovery is deterministic. Two more recoveries which commit nothing therefore
+    // reproduce the same filesystem both times.
     for _ in 0..2 {
         let mut session = daemon.session().await;
         let mount = session.open(fixture.open(journal)).await.unwrap();
@@ -1171,8 +1182,8 @@ async fn a_committed_disk_reopens_with_its_contents(fixture: &Fixture, daemon: &
     }
 }
 
-/// A client which made an acknowledgement durable and then failed before it
-/// could commit hands that acknowledgement back, which repairs the delta.
+/// A client made an acknowledgement durable, then failed before it could commit. It
+/// hands that acknowledgement back, which repairs the delta.
 async fn an_acknowledgement_lost_after_commit_is_repaired(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/repaired";
     let mut session = daemon.session().await;
@@ -1199,8 +1210,8 @@ async fn an_acknowledgement_lost_after_commit_is_repaired(fixture: &Fixture, dae
     () = session.close().await;
 }
 
-/// A delta which was published but never committed is not disk state, so it is
-/// discarded and the disk recovers to the transaction before it.
+/// A delta which was published but never committed is not disk state. It is
+/// discarded, and the disk recovers to the transaction before it.
 async fn an_uncommitted_delta_is_discarded(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/uncommitted";
     let mut session = daemon.session().await;
@@ -1214,7 +1225,7 @@ async fn an_uncommitted_delta_is_discarded(fixture: &Fixture, daemon: &Daemon) {
     let ack = session.publish().await.unwrap();
     () = session.commit(ack).await.unwrap();
 
-    // A second generation which is published and never committed.
+    // A second generation, published and never committed.
     let discarded = fixture.dir.path().join("uncommitted-discarded");
     write_source(&discarded, 2);
     copy_through(&discarded, &mount);
@@ -1230,8 +1241,8 @@ async fn an_uncommitted_delta_is_discarded(fixture: &Fixture, daemon: &Daemon) {
     () = session.close().await;
 }
 
-/// A journal holding only the records of a first use which failed holds no
-/// committed state, so its disk is formatted afresh.
+/// A journal which holds only the records of a failed first use holds no committed
+/// state. Its disk is therefore formatted afresh.
 async fn an_orphaned_first_use_yields_a_fresh_disk(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/orphaned";
     let mut session = daemon.session().await;
@@ -1256,9 +1267,9 @@ async fn an_orphaned_first_use_yields_a_fresh_disk(fixture: &Fixture, daemon: &D
     () = session.close().await;
 }
 
-/// The floor label seeks a replay and nothing more: a stale one costs replay
-/// work and rebuilds the same disk, while one which cannot be parsed is
-/// terminal rather than silently ignored.
+/// The floor label seeks a replay and does nothing more. A stale label costs replay
+/// work and rebuilds the same disk. A label which cannot be parsed is terminal, and
+/// is not silently ignored.
 async fn the_floor_label_is_only_a_seek_hint(fixture: &Fixture, daemon: &Daemon) {
     let journal = "acmeCo/disk/floored";
     let mut session = daemon.session().await;
@@ -1272,8 +1283,7 @@ async fn the_floor_label_is_only_a_seek_hint(fixture: &Fixture, daemon: &Daemon)
     () = session.commit(ack).await.unwrap();
     () = session.close().await;
 
-    // A clock long before the disk was written, which every fragment is at or
-    // after.
+    // A clock long before the disk was written. Every fragment is at or after it.
     () = fixture.set_floor(journal, "0000000000000001").await;
 
     let mut session = daemon.session().await;
@@ -1291,9 +1301,9 @@ async fn the_floor_label_is_only_a_seek_hint(fixture: &Fixture, daemon: &Daemon)
     () = session.ended().await;
 }
 
-/// A boundary cut while the filesystem is writing back rebuilds into a
-/// filesystem which mounts and which passes a consistency check, because ext4
-/// replays its own journal over whatever the cut caught mid-flight.
+/// A boundary cut taken while the filesystem is writing back rebuilds into a
+/// filesystem which mounts and passes a consistency check. ext4 replays its own
+/// journal over whatever the cut caught in flight.
 async fn a_cut_during_writeback_recovers_a_consistent_filesystem(
     fixture: &Fixture,
     daemon: &Daemon,
@@ -1302,8 +1312,8 @@ async fn a_cut_during_writeback_recovers_a_consistent_filesystem(
     let mut session = daemon.session().await;
     let mount = session.open(fixture.open(journal)).await.unwrap();
 
-    // No `fsync`, so the cut lands amongst ext4's own writeback and journal
-    // traffic rather than after it.
+    // There is no `fsync`, so the cut lands amongst ext4's own writeback and
+    // journal traffic rather than after it.
     let mut writer = std::process::Command::new("sudo")
         .args(["-n", "dd", "if=/dev/urandom", "bs=1M", "count=48"])
         .arg(format!("of={mount}/churn"))
@@ -1320,7 +1330,7 @@ async fn a_cut_during_writeback_recovers_a_consistent_filesystem(
     drop(session);
     fixture.wait_for_teardown().await;
 
-    // The daemon mounts what it rebuilds, so opening at all is ext4 having
+    // The daemon mounts what it rebuilds. Opening at all therefore means ext4
     // replayed its journal over the rebuilt image.
     let mut session = daemon.session().await;
     let mount = session.open(fixture.open(journal)).await.unwrap();
@@ -1356,7 +1366,7 @@ async fn an_abrupt_disconnect_tears_the_disk_down(fixture: &Fixture, daemon: &Da
         .spawn()
         .expect("spawning dd");
 
-    // Long enough that the write is in flight through the device rather than
+    // Long enough that the write is in flight through the device, rather than
     // still starting up.
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     drop(session);
@@ -1368,10 +1378,10 @@ async fn an_abrupt_disconnect_tears_the_disk_down(fixture: &Fixture, daemon: &Da
 /// A daemon which is killed outright leaves nothing behind once a daemon takes
 /// its directory again.
 ///
-/// The kernel removes the block device when the server it was served by dies,
-/// so nothing can reach the disk. What a killed daemon cannot do is unmount the
-/// filesystem over that device or delete the character device under it, so the
-/// next daemon reclaims both.
+/// The kernel removes the block device when the process serving it dies, so nothing
+/// can reach the disk. A killed daemon cannot unmount the filesystem over that
+/// device, and it cannot delete the character device under it. The next daemon
+/// reclaims both.
 async fn a_killed_daemon_leaves_no_mounts(fixture: &Fixture) {
     let daemon = Daemon::start(fixture, "killed").await;
     let mut session = daemon.session().await;
@@ -1403,8 +1413,8 @@ async fn a_killed_daemon_leaves_no_mounts(fixture: &Fixture) {
 
     () = daemon.drain().await;
 
-    // Nothing is left for a reaper to find, because the daemon deleted the one
-    // device it could prove was its own.
+    // Nothing is left for a reaper to find. The daemon deleted the one device it
+    // could prove was its own.
     assert_eq!(reap_dead_devices(), 0);
     fixture.assert_no_leaks();
 }
@@ -1430,11 +1440,11 @@ struct Fixture {
     credential: String,
     /// Client of the test itself, which reads journals back.
     client: gazette::journal::Client,
-    /// Root of the broker's `file:///` fragment store, whose files the horizon
-    /// cases delete to prove a recovery reads nothing below its floor.
+    /// Root of the broker's `file:///` fragment store. The horizon cases delete
+    /// files from it, to prove a recovery reads nothing below its floor.
     fragment_root: std::path::PathBuf,
-    /// Interval at which brokers re-list that store, which is what decides
-    /// whether a deleted fragment is one they can still serve locally.
+    /// Interval at which brokers re-list that store. It decides whether a broker can
+    /// still serve a deleted fragment locally.
     refresh_interval_seconds: u32,
 }
 
@@ -1451,10 +1461,10 @@ impl Fixture {
                 flush_interval_seconds: Some(48 * 3600),
                 refresh_interval_seconds: self.refresh_interval_seconds,
                 max_append_rate: Some(1 << 22),
-                // The codec the design specifies for disk journals. Its
-                // fragments live on the broker's own filesystem, which the test
-                // has no transport to fetch, so the broker is what decompresses
-                // them here; `gazette::journal::read` covers its own decoder.
+                // The codec the design specifies for disk journals. Its fragments
+                // live on the broker's own filesystem, and the test has no
+                // transport to fetch them, so the broker decompresses them here.
+                // `gazette::journal::read` covers its own decoder.
                 compression_codec: proto_gazette::broker::CompressionCodec::Snappy as i32,
             }),
             device_size: DEVICE_SIZE,
@@ -1467,7 +1477,7 @@ impl Fixture {
         }
     }
 
-    /// A source tree of files, which a case copies through a mount.
+    /// A source tree of files. A case copies it through a mount.
     fn source(&self, name: &str) -> std::path::PathBuf {
         let path = self.dir.path().join(name);
         write_source(&path, 1);
@@ -1477,9 +1487,9 @@ impl Fixture {
     /// Apply every committed delta of `journal` to a fresh image at `path`, and
     /// return the blocks they covered.
     ///
-    /// This is the recovering session of a later phase, in miniature: records
-    /// are grouped by the acknowledgement which commits them, and a delta which
-    /// was never acknowledged is dropped.
+    /// This is a recovering session in miniature. It groups records by the
+    /// acknowledgement which commits them, and it drops a delta which was never
+    /// acknowledged.
     async fn replay(&self, journal: &str, path: &std::path::Path) -> usize {
         let image = std::fs::File::create(path).expect("creating a replay image");
         image.set_len(DEVICE_SIZE).expect("sizing a replay image");
@@ -1514,9 +1524,9 @@ impl Fixture {
         let mount = self.dir.path().join("replay-mnt");
         std::fs::create_dir_all(&mount).unwrap();
 
-        // A loop mount is how an unprivileged test reads a filesystem which
-        // only the kernel can interpret. It replays the ext4 journal, exactly
-        // as a recovered disk's mount does.
+        // A loop mount lets an unprivileged test read a filesystem which only the
+        // kernel can interpret. It replays the ext4 journal, exactly as a recovered
+        // disk's mount does.
         sudo(&["mount", "-o", "loop", path(image), path(&mount)]);
 
         let diff = tree_diff(source, path(&mount.join("data")));
@@ -1525,9 +1535,8 @@ impl Fixture {
         assert!(diff.is_none(), "{}", diff.unwrap());
     }
 
-    /// Write the daemon's floor label onto `journal`'s spec, which is what
-    /// completing a horizon does. A daemon completing one is the other writer
-    /// this loses a race to.
+    /// Write the daemon's floor label onto `journal`'s spec, as completing a horizon
+    /// does. A daemon which completes one is the other writer this loses a race to.
     async fn set_floor(&self, journal: &str, value: &str) {
         for _ in 0..10 {
             if set_label(&self.client, journal, FLOOR_LABEL, value)
@@ -1558,8 +1567,8 @@ impl Fixture {
             .map(|label| label.value.clone())
     }
 
-    /// The floor `journal` carries once its daemon has written one, which is a
-    /// task of its own and so lags the commit which completed the horizon.
+    /// The floor `journal` carries once its daemon has written one. A task of its own
+    /// does that write, so it lags the commit which completed the horizon.
     async fn await_floor(&self, journal: &str) -> String {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
 
@@ -1572,8 +1581,8 @@ impl Fixture {
         panic!("no horizon of {journal} completed");
     }
 
-    /// Journal range a replay would now read: from the earliest fragment still
-    /// in the store through to the write head.
+    /// Journal range a replay would now read. It runs from the earliest fragment
+    /// still in the store through to the write head.
     async fn retained_range(&self, journal: &str) -> i64 {
         let begin = std::fs::read_dir(self.fragment_root.join(journal))
             .expect("a fragment store")
@@ -1588,8 +1597,8 @@ impl Fixture {
         self.head(journal).await - begin
     }
 
-    /// Delete every persisted fragment of `journal` written before `seconds`,
-    /// which is exactly the content a replay seeking from that floor skips.
+    /// Delete every persisted fragment of `journal` written before `seconds`. That is
+    /// exactly the content a replay which seeks from that floor skips.
     fn delete_fragments_before(&self, journal: &str, seconds: u64) -> usize {
         let mut deleted = 0;
 
@@ -1650,8 +1659,8 @@ impl Fixture {
         records
     }
 
-    /// Broker-confirmed write head, which bounds a read and which is unchanged
-    /// by a transaction that appended nothing.
+    /// Broker-confirmed write head. It bounds a read, and a transaction which
+    /// appended nothing leaves it unchanged.
     async fn head(&self, journal: &str) -> i64 {
         disk_daemon::journal::fence::probe(&self.client, journal)
             .await
@@ -1671,8 +1680,8 @@ impl Fixture {
         common::assert_no_mounts_under(path(self.dir.path()));
     }
 
-    /// Wait for a teardown which the session cannot report, because the client
-    /// or the daemon is gone.
+    /// Wait for a teardown which the session cannot report. Either the client or
+    /// the daemon is gone.
     async fn wait_for_teardown(&self) {
         let deadline = std::time::Instant::now() + TEARDOWN;
 
@@ -1764,8 +1773,8 @@ impl Daemon {
         }
     }
 
-    /// End the daemon as systemd does, and wait for it to have torn down every
-    /// disk it served.
+    /// End the daemon as systemd does. Wait for it to tear down every disk it
+    /// served.
     async fn drain(mut self) {
         () = self.signal("TERM");
         let status = self.child.wait().await.expect("waiting for the daemon");
@@ -1804,8 +1813,8 @@ impl Daemon {
         }
     }
 
-    /// Process id of the daemon, which is the child of the `sudo` this test
-    /// spawned rather than that `sudo` itself.
+    /// Process id of the daemon. The daemon is the child of the `sudo` this test
+    /// spawned, and not that `sudo` itself.
     fn pid(&self) -> u32 {
         let matched = std::process::Command::new("pgrep")
             .args(["-f", &self.pattern()])
@@ -1818,8 +1827,7 @@ impl Daemon {
             .expect("exactly one daemon serves this socket")
     }
 
-    /// Signal the daemon, which runs as root and so is only reachable through
-    /// `sudo`.
+    /// Signal the daemon. It runs as root, so only `sudo` can reach it.
     fn signal(&self, signal: &str) {
         _ = std::process::Command::new("sudo")
             .args(["-n", "pkill", &format!("-{signal}"), "-f"])
@@ -1828,8 +1836,8 @@ impl Daemon {
             .expect("spawning pkill");
     }
 
-    /// Whether this daemon's process is still around, which signal zero asks
-    /// without delivering anything.
+    /// Whether this daemon's process is still around. Signal zero asks that without
+    /// delivering anything.
     fn running(&self) -> bool {
         std::process::Command::new("sudo")
             .args(["-n", "pkill", "-0", "-f"])
@@ -1839,8 +1847,8 @@ impl Daemon {
             .success()
     }
 
-    /// Command line of this daemon, anchored so that it matches the daemon and
-    /// not the `sudo` which spawned it, whose own line holds the same path.
+    /// Command line of this daemon. It is anchored, so it matches the daemon and not
+    /// the `sudo` which spawned it. That `sudo` line holds the same path.
     fn pattern(&self) -> String {
         format!(
             "^{} serve --uds-path {}",
@@ -1850,16 +1858,14 @@ impl Daemon {
     }
 }
 
-/// What a daemon's process costs the host, which is what a unit file's
-/// `TasksMax` and `LimitNOFILE` have to cover.
+/// What a daemon's process costs the host. A unit file's `TasksMax` and
+/// `LimitNOFILE` have to cover this.
 #[derive(Debug)]
 struct Cost {
-    /// Threads of the process, which is what `TasksMax` counts.
     threads: usize,
     /// Of those, the one thread each disk is served by.
     owners: usize,
-    /// Of those, the kernel's own `io_uring` workers. They are threads of this
-    /// process too, so they count against `TasksMax` alongside the owners.
+    /// Of those, the kernel's own `io_uring` workers.
     workers: usize,
     /// Descriptors held, of which a disk's own are its image, its character
     /// device, its ring, and its wake.
@@ -1868,14 +1874,14 @@ struct Cost {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        // A test which failed part way leaves a privileged process behind
-        // otherwise, and the next test's leak checks would see its devices.
+        // Without this, a test which failed part way would leave a privileged
+        // process behind, and the next test's leak checks would see its devices.
         //
-        // `KILL` is the last resort rather than the first, because a daemon
-        // killed outright while a device request is in flight leaves a device
-        // the host cannot remove: the kernel cannot complete that request, so
-        // the process never exits, and every later `ublk` control command
-        // blocks behind it. Only a reboot clears that.
+        // `KILL` is the last resort rather than the first. A daemon killed outright
+        // while a device request is in flight leaves a device the host cannot
+        // remove. The kernel cannot complete that request, so the process never
+        // exits, and every later `ublk` control command blocks behind it. Only a
+        // reboot clears that.
         self.signal("TERM");
         let deadline = std::time::Instant::now() + TEARDOWN;
 
@@ -1904,8 +1910,8 @@ impl Session {
         }
     }
 
-    /// Cut a delta and return its acknowledgement, which is empty when the disk
-    /// did not change.
+    /// Cut a delta and return its acknowledgement. It is empty when the disk did
+    /// not change.
     async fn publish(&mut self) -> tonic::Result<bytes::Bytes> {
         match self
             .request(proto::request::Request::Publish(proto::Publish {}))
@@ -1947,15 +1953,15 @@ impl Session {
             .expect("the session is open");
     }
 
-    /// End the session as a client does, and wait for the daemon to finish
-    /// tearing its disk down.
+    /// End the session as a client does. Wait for the daemon to finish tearing its
+    /// disk down.
     async fn close(mut self) {
         drop(self.requests);
         assert_eq!(self.responses.message().await.expect("a clean close"), None,);
     }
 
-    /// Wait for a failed session to end, which the daemon does only once the
-    /// disk is destroyed.
+    /// Wait for a failed session to end. The daemon ends it only once the disk is
+    /// destroyed.
     async fn ended(mut self) {
         drop(self.requests);
         assert!(matches!(self.responses.message().await, Ok(None) | Err(_)));
@@ -1982,8 +1988,8 @@ async fn list(client: &gazette::journal::Client, journal: &str) -> broker::ListR
         .expect("listing a journal")
 }
 
-/// Read-modify-write one label of `journal`'s spec, as the daemon does for its
-/// floor. It fails where another writer changed the spec first.
+/// Read-modify-write one label of `journal`'s spec, as the daemon does for its floor.
+/// It fails if another writer changed the spec first.
 async fn set_label(
     client: &gazette::journal::Client,
     journal: &str,
@@ -2030,8 +2036,8 @@ fn assert_tree_matches(source: &std::path::Path, dir: &str) {
     }
 }
 
-/// How `dir` differs from the `source` tree, or `None` when it does not. The
-/// mounts are root-owned, so comparing them is privileged too.
+/// How `dir` differs from the `source` tree, or `None` when it does not. The mounts
+/// are root-owned, so a comparison of them is privileged too.
 fn tree_diff(source: &std::path::Path, dir: &str) -> Option<String> {
     let diff = std::process::Command::new("sudo")
         .args(["-n", "diff", "-r"])
@@ -2050,11 +2056,11 @@ fn tree_diff(source: &std::path::Path, dir: &str) -> Option<String> {
     ))
 }
 
-/// Require `image` to hold a filesystem which is consistent once its own
-/// journal is replayed, and which needs no repair beyond that.
+/// Require `image` to hold a filesystem which is consistent once its own journal is
+/// replayed, and which needs no repair beyond that.
 fn assert_fsck_clean(image: &std::path::Path) {
-    // The first pass replays the filesystem journal, which modifies the image
-    // and which e2fsck reports as one. The second must find nothing at all.
+    // The first pass replays the filesystem journal. That modifies the image, and
+    // e2fsck reports the modification. The second pass must find nothing at all.
     for (args, may_modify) in [("-fy", true), ("-fn", false)] {
         let output = std::process::Command::new("sudo")
             .args(["-n", "e2fsck", args])
@@ -2072,7 +2078,7 @@ fn assert_fsck_clean(image: &std::path::Path) {
     }
 }
 
-/// Run a privileged command, which is how a test reaches a root-owned mount.
+/// Run a privileged command. This is how a test reaches a root-owned mount.
 fn sudo(args: &[&str]) -> String {
     let output = std::process::Command::new("sudo")
         .arg("-n")
@@ -2090,9 +2096,9 @@ fn sudo(args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// Write a source tree whose content exercises the chunk codec: a file smaller
-/// than a block, a file of whole blocks, an entirely zero file, and one large
-/// enough to span records.
+/// Write a source tree whose content exercises the chunk codec. It holds a file
+/// smaller than a block, a file of whole blocks, an entirely zero file, and one file
+/// large enough to span records.
 fn write_source(dir: &std::path::Path, generation: u8) {
     _ = std::fs::remove_dir_all(dir);
     std::fs::create_dir_all(dir).expect("creating a source tree");
@@ -2113,8 +2119,8 @@ fn write_source(dir: &std::path::Path, generation: u8) {
     }
 }
 
-/// Content in which every third block is entirely zero, so that trailing zero
-/// trimming and empty-data chunks both occur.
+/// Content in which every third block is entirely zero. Both trailing-zero trimming
+/// and empty-data chunks then occur.
 fn pattern(seed: u8, len: usize) -> Vec<u8> {
     (0..len)
         .map(|index| {
@@ -2136,8 +2142,8 @@ fn credential(cluster: &e2e_support::GazetteCluster) -> String {
     credential_lasting(cluster, 3600)
 }
 
-/// The same token, expiring in `seconds`, so that a case can outlive the
-/// credential it opened with.
+/// The same token, expiring in `seconds`. A case can then outlive the credential it
+/// opened with.
 fn credential_lasting(cluster: &e2e_support::GazetteCluster, seconds: u64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

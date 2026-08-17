@@ -1,19 +1,18 @@
-//! One disk's owner: the thread which serves its device, the `io_uring` that
-//! thread drives, and the state of every request in flight.
+//! One disk's owner. This is the thread which serves its device, the `io_uring`
+//! that thread drives, and the state of every request in flight.
 //!
-//! A disk is owned by exactly one thread, which is the only mutator of its image
-//! and bitmaps, so every decision about a block is serialized without a lock.
+//! Exactly one thread owns a disk, and only that thread mutates its image and
+//! bitmaps. Every decision about a block is therefore serialized without a lock.
 //!
-//! The thread is not a style choice. `ublk` binds a device's queue to the thread
-//! which arms its first fetch, and rejects every later command from any other
-//! thread with `EINVAL`, so the ring cannot be driven by a task which moves
-//! between runtime workers. The thread blocks in `submit_and_wait`, and a
-//! [`Waker`] armed on the ring is what interrupts it when a command arrives or
-//! capture capacity frees.
+//! It is a thread rather than a task because `ublk` binds a device's queue to the
+//! thread which arms its first fetch. It rejects every later command from any
+//! other thread with `EINVAL`. The thread blocks in `submit_and_wait`. A
+//! [`Waker`] armed on the ring interrupts it when a command arrives or capture
+//! capacity frees.
 //!
-//! An owner never blocks anywhere else. Image and character-device I/O is
-//! submitted to the ring and reaped later, and a disk whose capture channel is
-//! full parks only the requests which need it.
+//! An owner never blocks anywhere else. It submits image and character-device
+//! I/O to the ring and reaps it later. A disk whose capture channel is full parks
+//! only the requests which need that channel.
 
 use crate::capture::Capture;
 use crate::horizon::Policy;
@@ -23,25 +22,25 @@ use crate::proto::Chunk;
 use crate::ublk::{self, sys};
 use crate::wake::Waker;
 
-/// A disk holds at most one operation per queue tag, plus its wake, and the
-/// backlog absorbs any overflow. This is generous against [`ublk::QUEUE_DEPTH`],
-/// and it is per disk, so generosity is not free.
+/// A disk holds at most one operation per queue tag, plus its wake. The backlog
+/// absorbs any overflow. Each disk has a ring of its own, so this leaves headroom
+/// over [`ublk::QUEUE_DEPTH`] without being lavish about it.
 const RING_ENTRIES: u32 = 128;
 
-/// Stack of an owner thread. Its frames are a reap and a submission, so the
-/// platform default would reserve three orders of magnitude more address space
-/// than one uses, times every disk on the host.
+/// Stack of an owner thread. Its frames are a reap and a submission. The platform
+/// default would reserve far more address space than one uses, for every disk on
+/// the host.
 const STACK_BYTES: usize = 256 * 1024;
 
 /// Kernel workers the shared pool may run, as `[bounded, unbounded]`.
 ///
-/// The kernel derives its own from the CPU count and `RLIMIT_NPROC`, which makes
-/// them differ between hosts of different sizes. These are fixed instead, and
-/// they bound the whole process rather than one disk.
+/// The kernel derives its own values from the CPU count and `RLIMIT_NPROC`, so
+/// they differ between hosts of different sizes. These values are fixed instead.
+/// They bound the whole process rather than one disk.
 const IOWQ_MAX_WORKERS: [u32; 2] = [128, 128];
 
-/// Image bytes one snapshot batch reads back. A batch is held until it is
-/// appended, so this is what bounds publishing a fresh disk's filesystem
+/// Image bytes one snapshot batch reads back. A caller holds a batch until it is
+/// appended, so this bounds what publishing a fresh disk's filesystem costs,
 /// however large that filesystem is.
 const SNAPSHOT_BATCH_BYTES: usize = 8 << 20;
 
@@ -54,15 +53,13 @@ pub struct Serve {
     pub cdev: std::fs::File,
     pub image: Image,
     pub capture: Capture,
-    /// Interrupts this owner's wait on its ring. It is the caller's because
-    /// `capture` is built around it, and taking a mutation is one of the two
-    /// things which must wake an owner.
+    /// Interrupts this owner's wait on its ring. The caller supplies it, because
+    /// `capture` is built around it. Taking a mutation is one of the two events
+    /// which must wake an owner.
     pub waker: Waker,
-    /// Requests the device may have outstanding, which is its concurrency.
+    /// Requests the device may have outstanding.
     pub queue_depth: u16,
-    /// When this disk opens a recovery horizon, and how fast it discharges one.
     pub horizon: Policy,
-    /// What this disk holds, and whether its journal is holding it back.
     pub metrics: crate::metrics::Device,
 }
 
@@ -79,9 +76,9 @@ pub struct Snapshotter(Commands);
 /// Opens and completes one disk's recovery horizon on the journal writer's
 /// behalf.
 ///
-/// The owner does the work because a horizon is over the disk's own bitmaps and
-/// image, which nothing else may touch, while the writer is what knows the
-/// journal range a horizon is judged against.
+/// The owner does the work, because a horizon is over the disk's own bitmaps and
+/// image and nothing else may touch those. Only the writer knows the journal
+/// range a horizon is judged against.
 #[derive(Clone)]
 pub struct Compactor(Commands);
 
@@ -105,16 +102,13 @@ enum Command {
     Release(std::sync::mpsc::Sender<Image>),
 }
 
-/// Serve `serve` from a thread of its own, returning once every tag of its queue
-/// has a fetch in flight. Starting the device is what the kernel waits for next.
+/// Serve `serve` from a thread of its own. This returns once every tag of the
+/// queue has a fetch in flight. The caller then starts the device.
 pub fn spawn(serve: Serve) -> anyhow::Result<Handle> {
     let (dev_id, waker) = (serve.dev_id, serve.waker.clone());
     let (commands, received) = std::sync::mpsc::channel();
     let (armed, is_armed) = std::sync::mpsc::channel();
 
-    // The ring is built and armed on the thread which will serve it, never
-    // here: arming binds the queue to whichever thread issues the first fetch,
-    // and every later command must come from that same thread.
     _ = std::thread::Builder::new()
         .name(format!("disk-{dev_id}"))
         .stack_size(STACK_BYTES)
@@ -131,8 +125,6 @@ pub fn spawn(serve: Serve) -> anyhow::Result<Handle> {
             }
         })?;
 
-    // The caller starts the device as soon as this returns, and the kernel
-    // waits for every tag to be fetching before it does.
     () = is_armed
         .recv()
         .map_err(|_| anyhow::anyhow!("device {dev_id} stopped before it was served"))??;
@@ -145,13 +137,13 @@ pub fn spawn(serve: Serve) -> anyhow::Result<Handle> {
 }
 
 impl Handle {
-    /// Stop admitting mutations, and return once every mutation admitted has
-    /// been applied to the image.
+    /// Stop admitting mutations, and return once the image holds every mutation
+    /// which was admitted.
     ///
-    /// This is the point-in-time cut of a publication: because a mutation is
-    /// captured before it is applied, each one is entirely before or after the
-    /// cut. Reads continue, and a mutation arriving while admission is closed
-    /// waits for [`Handle::resume_admission`] rather than failing.
+    /// This is the point-in-time cut of a publication. A mutation is captured
+    /// before it is applied, so each one falls entirely before or after the cut.
+    /// Reads continue. A mutation which arrives while admission is closed waits
+    /// for [`Handle::resume_admission`] rather than failing.
     pub async fn close_admission(&self) -> anyhow::Result<()> {
         let (quiet, quieted) = tokio::sync::oneshot::channel();
         () = self.0.send(Command::CloseAdmission(quiet))?;
@@ -173,7 +165,7 @@ impl Handle {
 
     /// Stop serving and take back the image, once the owner has closed the
     /// character device. The device must already be stopped, so that the kernel
-    /// has aborted the queue's fetches.
+    /// has aborted the fetches of its queue.
     pub fn release(self) -> anyhow::Result<Image> {
         let (reply, replied) = std::sync::mpsc::channel();
         () = self.0.send(Command::Release(reply))?;
@@ -189,10 +181,10 @@ impl Snapshotter {
     /// it, beginning at block `from`, per [`Image::snapshot`]. Also reports the
     /// block a following batch resumes at.
     ///
-    /// A mutation may be applied between this being asked for and the read, so
-    /// the snapshot may already reflect one. That is why it is only ever
-    /// appended ahead of every mutation captured since the mount: one already
-    /// reflected in it is simply applied again.
+    /// A mutation may be applied between the request and the read, so the
+    /// snapshot may already hold one. A caller therefore appends the snapshot
+    /// ahead of every mutation captured since the mount. A mutation the snapshot
+    /// already holds is simply applied again.
     pub async fn snapshot(&self, from: u32) -> anyhow::Result<Batch> {
         let (reply, replied) = tokio::sync::oneshot::channel();
         () = self.0.send(Command::Snapshot(from, reply))?;
@@ -205,12 +197,12 @@ impl Snapshotter {
 }
 
 impl Compactor {
-    /// Open a horizon over the disk's allocated blocks if a journal `range` of
-    /// that many bytes above the floor warrants one, and report what it must
-    /// discharge.
+    /// Open a horizon over the disk's allocated blocks, if a journal `range` of
+    /// that many bytes above the floor warrants one. Report what that horizon
+    /// must discharge.
     ///
-    /// The policy is judged here rather than by the caller because the disk's
-    /// live allocated size is the owner's to know.
+    /// The owner judges the policy rather than the caller, because only the owner
+    /// knows the disk's live allocated size.
     pub async fn open(&self, range: u64) -> anyhow::Result<Option<u32>> {
         let (reply, replied) = tokio::sync::oneshot::channel();
         () = self.0.send(Command::OpenHorizon(range, reply))?;
@@ -220,8 +212,8 @@ impl Compactor {
 
     /// Blocks which still owe the open horizon a copy.
     ///
-    /// The caller must have cut the disk's admission, because a horizon
-    /// completed by mutations after the cut belongs to the next delta.
+    /// The caller must have cut the disk's admission. A horizon which mutations
+    /// after the cut completed belongs to the next delta.
     pub async fn pending(&self) -> anyhow::Result<u32> {
         let (reply, replied) = tokio::sync::oneshot::channel();
         () = self.0.send(Command::HorizonPending(reply))?;
@@ -252,8 +244,8 @@ fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {
     // What a recovered disk was rebuilt holding, before it serves anything.
     owner.report();
 
-    // A disconnect means every handle is gone, so nothing is left to serve this
-    // disk for and nothing will ask for its image.
+    // A disconnect means every handle is gone. Nothing is left to serve this
+    // disk for, and nothing will ask for its image.
     while let Some(()) = owner.drain_commands(&commands) {
         if owner.release.is_some() && owner.pending == 0 {
             break;
@@ -281,9 +273,9 @@ fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {
         ..
     } = owner;
 
-    // Dropping these closes the character device and unmaps its descriptors,
-    // which is what lets the kernel delete the device. Dropping the capture
-    // channel with them is what tells the journal writer the disk is gone.
+    // Dropping these closes the character device and unmaps its descriptors, so
+    // the kernel may delete the device. Dropping the capture channel with them
+    // tells the journal writer the disk is gone.
     drop((descs, cdev));
 
     if let Some(reply) = release {
@@ -305,18 +297,18 @@ struct Owner {
     inflight: InFlight,
     slots: Vec<Slot>,
     backlog: Backlog,
-    /// Completions of one pass, taken before any are handled because handling
-    /// one submits more.
+    /// Completions of one pass. They are all taken before any is handled, because
+    /// handling one submits more.
     reaped: Vec<(u64, i32)>,
-    /// Ring operations outstanding. Buffers and descriptors stay alive until
-    /// this reaches zero.
+    /// Ring operations outstanding. Buffers and descriptors stay alive until this
+    /// reaches zero.
     pending: usize,
     /// Tags whose chunks the capture channel refused, in arrival order.
     parked: std::collections::VecDeque<u16>,
-    /// Whether mutations may be captured, which a publication's cut closes.
+    /// Whether mutations may be captured. A publication's cut closes this.
     admitting: bool,
     /// Mutations captured but not yet applied to the image. The cut is reached
-    /// when this is zero.
+    /// once this is zero.
     admitted: usize,
     /// Answered once admission is closed and nothing is admitted.
     quiet: Option<tokio::sync::oneshot::Sender<()>>,
@@ -331,10 +323,10 @@ struct Owner {
 struct Slot {
     /// Blocks the request covers.
     range: std::ops::Range<u32>,
-    /// Buffer being filled: image content for a read, incoming data for a
-    /// write.
+    /// Buffer being filled. It holds image content for a read, and incoming data
+    /// for a write.
     buf: Vec<u8>,
-    /// A write's data, once fetched. The chunks are slices of it and the image
+    /// A write's data, once fetched. The chunks are slices of it, and the image
     /// write reads from it.
     data: bytes::Bytes,
     /// Chunks the capture channel has not accepted yet.
@@ -412,8 +404,8 @@ impl Owner {
 
     /// Arm the wake, and put a fetch in flight for every tag.
     ///
-    /// This must run on the thread which will serve the disk: `ublk` binds the
-    /// queue to whoever issues its first fetch.
+    /// This must run on the thread which will serve the disk. `ublk` binds the
+    /// queue to whichever thread issues its first fetch.
     fn arm(&mut self) -> std::io::Result<()> {
         self.arm_wake();
 
@@ -440,8 +432,8 @@ impl Owner {
                     if let Some(horizon) = self.image.horizon() {
                         horizon.cut();
                     }
-                    // Counting bits is a scan of the bitmap, so the disk's
-                    // footprint is reported at each cut rather than as each
+                    // Counting bits scans the whole bitmap. The disk therefore
+                    // reports its footprint at each cut, and not as each
                     // mutation lands.
                     self.report();
                 }
@@ -450,8 +442,8 @@ impl Owner {
                     self.retry_parked();
                 }
                 Ok(Command::Snapshot(from, reply)) => {
-                    // The owner is the only reader of its bitmap, so this runs
-                    // here rather than on the asking task.
+                    // Only the owner reads its bitmap, so this runs here rather
+                    // than on the task which asked.
                     let run_blocks = ublk::MAX_IO_BUF_BYTES / self.image.block_size();
                     _ = reply.send(self.image.snapshot(from, run_blocks, SNAPSHOT_BATCH_BYTES));
                 }
@@ -485,8 +477,8 @@ impl Owner {
 
                     // A request whose chunks the capture channel never accepted
                     // changed nothing, and the stopped device has already
-                    // errored it. One whose chunks were accepted is still
-                    // waiting on the image, and must apply.
+                    // errored it. A request whose chunks were accepted is still
+                    // waiting on the image, and it must still apply.
                     for tag in std::mem::take(&mut self.parked) {
                         self.slots[tag as usize] = Slot::default();
                     }
@@ -497,8 +489,8 @@ impl Owner {
         }
     }
 
-    /// Report what the disk holds and what its horizon still owes, both of
-    /// which are counts over a bitmap.
+    /// Report what the disk holds and what its horizon still owes. Both are
+    /// counts over a bitmap.
     fn report(&mut self) {
         let block_size = self.image.block_size() as u64;
         let allocated = self.image.allocated().count_ones() as u64;
@@ -536,8 +528,8 @@ impl Owner {
         }
     }
 
-    /// Arm a read of the waker's eventfd, which is how a command or freed
-    /// capture capacity interrupts this owner's wait on its ring.
+    /// Arm a read of the waker's eventfd. A command, or freed capture capacity,
+    /// interrupts this owner's wait on its ring through that read.
     fn arm_wake(&mut self) {
         let entry = io_uring::opcode::Read::new(
             io_uring::types::Fd(self.waker.as_raw_fd()),
@@ -582,8 +574,8 @@ impl Owner {
         match step {
             Step::Wake => unreachable!("a wake is handled by the reap"),
 
-            // A negative fetch is how an owner learns the kernel has aborted the
-            // queue, which it does when the device stops.
+            // A negative fetch tells the owner that the kernel has aborted the
+            // queue. The kernel does that when the device stops.
             Step::Fetch if result < 0 => self.stopping = true,
             Step::Fetch => self.begin(tag),
 
@@ -636,8 +628,8 @@ impl Owner {
         let offset = desc.start_sector * sys::SECTOR_SIZE;
         let bytes = sys::io_desc_sectors(&desc) as u64 * sys::SECTOR_SIZE;
 
-        // The device's logical block size is the tracking block size, so the
-        // block layer cannot issue a request which straddles a block.
+        // The device's logical block size is the tracking block size. The block
+        // layer therefore cannot issue a request which straddles a block.
         assert!(
             offset.is_multiple_of(block_size) && bytes.is_multiple_of(block_size),
             "device request of {bytes} bytes at {offset} is not {block_size}-aligned",
@@ -660,8 +652,7 @@ impl Owner {
                 let entry = self.read_device(tag);
                 self.submit(entry);
             }
-            // Both deallocate, because an unallocated block reads as zeroes and
-            // staying sparse is what keeps a rebuilt image small.
+            // Both deallocate, per `chunk::encode_punch`.
             sys::UBLK_IO_OP_DISCARD | sys::UBLK_IO_OP_WRITE_ZEROES => {
                 let chunks = vec![crate::chunk::encode_punch(
                     range.start,
@@ -670,7 +661,7 @@ impl Owner {
                 self.offer(tag, chunks);
             }
             // The device advertises no volatile write cache, so a flush should
-            // never arrive and nothing else is a block request this serves.
+            // never arrive. This daemon serves no other kind of block request.
             op => {
                 tracing::warn!(dev_id = self.dev_id, op, "unsupported device request");
                 self.complete(tag, -libc::EOPNOTSUPP);
@@ -679,11 +670,11 @@ impl Owner {
     }
 
     /// Hand `chunks` to the capture channel. A mutation is captured before it is
-    /// applied, so that journal order is application order, and it waits here
-    /// when the channel is full rather than being dropped or refused.
+    /// applied, so journal order is application order. A mutation waits here when
+    /// the channel is full. It is never dropped or refused.
     ///
     /// A closed admission parks a mutation exactly as a full channel does, which
-    /// is what places it after the cut.
+    /// places it after the cut.
     fn offer(&mut self, tag: u16, chunks: Vec<Chunk>) {
         let changed = crate::chunk::data_bytes(&chunks);
 
@@ -707,9 +698,8 @@ impl Owner {
     /// Take the mutation at `tag`, whose chunks the capture channel has
     /// accepted.
     ///
-    /// A mutation is a publication of the blocks it covers, so it discharges
-    /// them from any open horizon, and the `changed` bytes it carries are what
-    /// earn the budget a copy spends.
+    /// A mutation publishes the blocks it covers, so it discharges them from any
+    /// open horizon. The `changed` bytes it carries earn the budget a copy spends.
     fn admit(&mut self, tag: u16, changed: u64) {
         let range = self.slots[tag as usize].range.clone();
 
@@ -721,13 +711,11 @@ impl Owner {
         self.begin_mutation(tag);
     }
 
-    /// Spend this delta's copy budget on the open horizon, which is what
-    /// interleaves compaction with the traffic paying for it.
+    /// Spend this delta's copy budget on the open horizon, interleaving
+    /// compaction with the traffic paying for it.
     ///
     /// A copy is selected, read, and offered without yielding, so no mutation
-    /// can land between its read and its offer. One which arrives first has
-    /// already discharged its blocks, which is how a mutation supersedes a copy
-    /// rather than racing it.
+    /// can land between its read and its offer.
     fn compact(&mut self) {
         if !self.admitting || self.image.horizon().is_none() {
             return;
@@ -750,8 +738,8 @@ impl Owner {
     }
 
     /// Re-offer the chunks of every request parked on capture capacity or on a
-    /// closed admission. Order is preserved, so neither backpressure nor a cut
-    /// reorders two mutations.
+    /// closed admission. This keeps arrival order, so neither backpressure nor a
+    /// cut reorders two mutations.
     fn retry_parked(&mut self) {
         while self.admitting {
             let Some(&tag) = self.parked.front() else {
@@ -823,9 +811,9 @@ impl Owner {
                 self.image.deallocate(range);
                 0
             }
-            // An image write which fails, which in practice means ENOSPC, errors
-            // only its own request. Ext4's default `errors=remount-ro` then
-            // contains the failure to this one disk.
+            // A failed image write, which in practice means ENOSPC, errors only
+            // its own request. Ext4's default `errors=remount-ro` then contains
+            // the failure to this one disk.
             Err(err) => {
                 tracing::error!(dev_id = self.dev_id, ?err, "image mutation failed");
                 -libc::EIO
@@ -841,8 +829,8 @@ impl Owner {
     }
 
     /// Complete `tag` back to the kernel and re-arm its fetch. `result` is the
-    /// bytes the request transferred, or a negative errno. A read which reports
-    /// zero bytes is an I/O error to the kernel.
+    /// bytes the request transferred, or a negative errno. The kernel reads a
+    /// zero-byte read as an I/O error.
     fn complete(&mut self, tag: u16, result: i32) {
         self.slots[tag as usize] = Slot::default();
 
@@ -872,7 +860,7 @@ impl Owner {
             .user_data(user_data(tag, Step::ImageRead))
     }
 
-    /// Hand a read's image content to the character device, which is how request
+    /// Hand a read's image content to the character device. This is how request
     /// data moves under `UBLK_F_USER_COPY`.
     fn write_device(&mut self, tag: u16) -> io_uring::squeue::Entry {
         let fd = io_uring::types::Fd(std::os::fd::AsRawFd::as_raw_fd(&self.cdev));
@@ -933,7 +921,7 @@ fn transferred(result: i32, expected: usize) -> Result<(), std::io::Error> {
 /// One disk's ring, sharing the process-wide pool of kernel workers.
 ///
 /// A ring which built its own pool would size it from the host's CPU count and
-/// `RLIMIT_NPROC`, so a host serving many disks could back them with thousands
+/// `RLIMIT_NPROC`. A host serving many disks could then back them with thousands
 /// of worker threads. Punches reach those workers in ordinary operation, so this
 /// is not a rare path.
 fn ring() -> anyhow::Result<io_uring::IoUring> {
@@ -946,15 +934,15 @@ fn ring() -> anyhow::Result<io_uring::IoUring> {
 }
 
 /// The ring whose worker pool every disk shares. It is process-wide because the
-/// pool is, and it outlives every ring attached to it by never being dropped.
+/// pool is. Nothing ever drops it, so it outlives every ring attached to it.
 fn workers() -> anyhow::Result<&'static io_uring::IoUring> {
     static WORKERS: std::sync::OnceLock<io_uring::IoUring> = std::sync::OnceLock::new();
 
     if let Some(workers) = WORKERS.get() {
         return Ok(workers);
     }
-    // Two disks starting at once may each build one of these and discard the
-    // loser, which costs a descriptor until the process ends, never an answer.
+    // Two disks which start at once may each build one of these and discard the
+    // loser. That costs one descriptor until the process ends, never an answer.
     let anchor = io_uring::IoUring::new(RING_ENTRIES)?;
     let mut prior = IOWQ_MAX_WORKERS;
     () = anchor.submitter().register_iowq_max_workers(&mut prior)?;
@@ -979,8 +967,8 @@ mod test {
         }
     }
 
-    /// Every disk's ring attaches to the one worker pool, and each is built on
-    /// the thread which will serve it rather than on the one which anchored.
+    /// Every disk's ring attaches to the one worker pool. Each ring is built on
+    /// the thread which will serve it, and not on the thread which anchored.
     #[test]
     fn test_rings_attach_to_the_shared_worker_pool() {
         for _ in 0..2 {

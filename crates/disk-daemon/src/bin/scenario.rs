@@ -2,17 +2,16 @@
 //! crate's tests.
 //!
 //! Serving a `ublk` device and mounting a filesystem both need real
-//! `CAP_SYS_ADMIN`, and cargo must not run as root or the target directory stops
-//! being the user's. So the privilege lives in this child process instead. It
-//! prints one JSON object of observations on stdout, which the test asserts
-//! against, and logs to stderr.
+//! `CAP_SYS_ADMIN`. Cargo must not run as root, or the target directory stops being
+//! the user's. The privilege therefore lives in this child process. It prints one
+//! JSON object of observations on stdout, which the test asserts against, and it
+//! logs to stderr.
 //!
-//! `tests/daemon.rs` drives the daemon binary itself, so what ships is what is
-//! tested there. These scenarios use the crate as a library instead, which is
-//! how they reach what the session protocol does not offer: a queue depth
-//! shallow enough to force backpressure, and the digests, allocated counts and
-//! extent lists which show that a replayed image matches in holes as well as in
-//! bytes.
+//! `tests/daemon.rs` drives the daemon binary itself, so it tests what ships. These
+//! scenarios use the crate as a library instead, which reaches what the session
+//! protocol does not offer. They can set a queue depth shallow enough to force
+//! backpressure. They can also report the digests, allocated counts, and extent
+//! lists which show that a replayed image matches in holes as well as in bytes.
 
 use disk_daemon::bitmap::Bitmap;
 use disk_daemon::capture::Captured;
@@ -23,15 +22,15 @@ use disk_daemon::image::Image;
 use disk_daemon::proto::Chunk;
 use disk_daemon::ublk::Control;
 
-/// 128 MiB, which `mkfs.ext4` accepts comfortably and which keeps a scenario to
-/// a few seconds.
+/// 128 MiB. `mkfs.ext4` accepts that size comfortably, and it keeps a scenario to a
+/// few seconds.
 const BLOCKS: u32 = 32768;
 const BLOCK_SIZE: u32 = 4096;
 
 const MOUNT_OPTIONS: &str = "noatime,nodev,nosuid,noexec,discard";
 
-/// Compaction a scenario which does not exercise it would never reach: the
-/// shipped ratios, with a minimum which no scenario's journal range approaches.
+/// Compaction no scenario reaches unless it exercises compaction on purpose. These
+/// are the shipped ratios, with a minimum no scenario's journal range approaches.
 const NO_COMPACTION: Policy = Policy {
     open_ratio: 2.0,
     copy_ratio: 0.5,
@@ -124,8 +123,8 @@ fn ext4() -> anyhow::Result<serde_json::Value> {
     }
     mount.unmount()?;
 
-    // Remounting is what makes the read-back come from the device rather than
-    // the page cache, and it runs ext4's own journal replay.
+    // A remount makes the read-back come from the device rather than the page
+    // cache. It also runs ext4's own journal replay.
     let mut mount = Mount::new(&block_path, &scenario.dir.join("mnt"))?;
     let mut mismatched = Vec::new();
 
@@ -178,8 +177,8 @@ fn discard() -> anyhow::Result<serde_json::Value> {
     drop(file);
 
     std::fs::remove_file(&path)?;
-    // `-o discard` issues discards as ext4 commits the deletion, and `fstrim`
-    // then covers everything else the filesystem considers free.
+    // `-o discard` issues discards as ext4 commits the deletion. `fstrim` then
+    // covers everything else the filesystem considers free.
     run(&mut std::process::Command::new("sync"))?;
     run(std::process::Command::new("fstrim").arg(&mount.path))?;
 
@@ -187,8 +186,8 @@ fn discard() -> anyhow::Result<serde_json::Value> {
     let image = disk.stop()?.expect("the disk was live");
     let mutations = collector.join().expect("collector panicked");
 
-    // Replay tracks the allocated set as it moves, so the peak is what the
-    // filler occupied and the final value is what the discards left.
+    // Replay tracks the allocated set as it moves. The peak is what the filler
+    // occupied, and the final value is what the discards left.
     let (replayed, allocated) = replay(&scenario.dir, &mutations)?;
     let mut peak_allocated = 0;
     let mut peak_bits = Bitmap::new(BLOCKS);
@@ -225,8 +224,8 @@ fn discard() -> anyhow::Result<serde_json::Value> {
 
 /// Stall the capture sink and observe that writes park rather than fail.
 fn backpressure() -> anyhow::Result<serde_json::Value> {
-    // The capture channel holds one mutation per queue slot, so a shallow
-    // queue is a shallow channel.
+    // The capture channel holds one mutation per queue slot, so a shallow queue
+    // gives a shallow channel.
     const QUEUE_DEPTH: u16 = 2;
     const WRITES: usize = 16;
     const STALL: std::time::Duration = std::time::Duration::from_millis(500);
@@ -240,8 +239,8 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
     let writer = {
         let (block_path, done, failed) = (disk.block_path(), done.clone(), failed.clone());
 
-        // O_DIRECT so each write is one device request which does not return
-        // until the device completes it.
+        // O_DIRECT makes each write one device request. That request does not
+        // return until the device completes it.
         std::thread::spawn(move || -> anyhow::Result<()> {
             let mut options = std::fs::OpenOptions::new();
             options.write(true);
@@ -268,7 +267,7 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
     std::thread::sleep(STALL);
     let during_stall = done.load(std::sync::atomic::Ordering::Relaxed);
 
-    // Taking from the channel is what frees the parked writes.
+    // Taking from the channel frees the parked writes.
     let collector = collect(captured);
     writer.join().expect("writer panicked")?;
 
@@ -297,8 +296,8 @@ fn backpressure() -> anyhow::Result<serde_json::Value> {
 fn horizon() -> anyhow::Result<serde_json::Value> {
     /// Blocks written once, which only a horizon copy publishes again.
     const COLD_BLOCKS: u32 = 1024;
-    /// Blocks every delta rewrites, which is what earns the copy budget. One
-    /// run of them is also the largest request the device accepts.
+    /// Blocks every delta rewrites, earning the copy budget. One run of them is
+    /// also the largest request the device accepts.
     const HOT_BLOCKS: u32 = 128;
     /// Generous against the fifteen a discharge of this disk needs.
     const DELTAS: usize = 40;
@@ -311,8 +310,8 @@ fn horizon() -> anyhow::Result<serde_json::Value> {
     let scenario = Scenario::new()?;
     let (mut disk, captured) = scenario.disk(disk_daemon::ublk::QUEUE_DEPTH, policy)?;
 
-    // O_DIRECT so that each write is exactly one device request, which is what
-    // makes the accounting below the disk's own rather than a page cache's.
+    // O_DIRECT makes each write exactly one device request. The accounting below
+    // is then the disk's own, and not a page cache's.
     let mut options = std::fs::OpenOptions::new();
     options.write(true);
     std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_DIRECT);
@@ -336,14 +335,14 @@ fn horizon() -> anyhow::Result<serde_json::Value> {
     let declined = runtime.block_on(compactor.open(policy.minimum_bytes))?;
     let opened = runtime.block_on(compactor.open(1 << 30))?;
 
-    // Every mutation from here on is what a replay beginning at the horizon
-    // would read, and nothing else is.
+    // A replay which begins at the horizon reads every mutation from here on, and
+    // nothing else.
     let mut after_horizon: Vec<Vec<Chunk>> = Vec::new();
     let mut deltas = Vec::new();
 
     for delta in 0..DELTAS {
-        // The first delta writes nothing, which is a disk no connector is
-        // using: an open horizon must then publish nothing at all.
+        // The first delta writes nothing, as on a disk no connector is using. An
+        // open horizon must then publish nothing at all.
         if delta != 0 {
             buf.fill(0xa0 + delta as u8);
             write_blocks(&device, hot, buf)?;
@@ -388,11 +387,11 @@ fn horizon() -> anyhow::Result<serde_json::Value> {
     }))
 }
 
-/// Cut the disk as a publication does and take the delta which ends there,
-/// alongside what its open horizon still owes.
+/// Cut the disk as a publication does. Take the delta which ends there, alongside
+/// what its open horizon still owes.
 ///
-/// Admission is closed for the whole of it, so the mutations taken are exactly
-/// the delta's and the horizon is sampled where a commit would honor it.
+/// Admission is closed throughout. The mutations taken are therefore exactly the
+/// delta's, and the horizon is sampled where a commit would honor it.
 async fn cut(
     disk: &Disk,
     captured: &Captured,
@@ -415,14 +414,13 @@ fn write_blocks(device: &std::fs::File, block: u32, data: &[u8]) -> anyhow::Resu
     Ok(())
 }
 
-/// Delete every device whose server is gone, which is what a daemon killed
-/// outright leaves behind.
+/// Delete every device whose server is gone. A daemon killed outright leaves those
+/// behind.
 ///
-/// A block device which outlived its server is stopped first, because the
-/// kernel will not delete a device it still holds requests for. Reaping is the
-/// test suite's to do, not a daemon's: whether a device with no server may be
-/// deleted is a decision about the whole host, and these tests are the host's
-/// only ublk user.
+/// A block device which outlived its server is stopped first, because the kernel
+/// will not delete a device it still holds requests for. This reaps
+/// indiscriminately, which only a caller that is the host's sole ublk user may
+/// do, so it is the test suite's and not the daemon's.
 fn reap() -> anyhow::Result<serde_json::Value> {
     let control = Control::open()?;
     let mut deleted = Vec::new();
@@ -454,14 +452,14 @@ fn reap() -> anyhow::Result<serde_json::Value> {
 
 /// Whether `pid` still serves a device.
 ///
-/// A zombie does not: it has exited and is only waiting to be reaped, which a
-/// thread of its own stuck in the kernel can prevent indefinitely.
+/// A zombie does not. It has exited and only waits to be reaped, and one of its own
+/// threads stuck in the kernel can delay that reap indefinitely.
 fn serving(pid: i32) -> bool {
     let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
         return false;
     };
-    // The state follows the command, which is parenthesized and may itself
-    // contain spaces.
+    // The state follows the command. The command is parenthesized, and it may
+    // contain spaces of its own.
     let Some((_command, rest)) = stat.rsplit_once(')') else {
         return false;
     };
@@ -488,8 +486,8 @@ impl Scenario {
     fn disk(&self, queue_depth: u16, horizon: Policy) -> anyhow::Result<(Disk, Captured)> {
         let image = Image::create(&self.dir, BLOCKS, BLOCK_SIZE)?;
 
-        // A scenario reports its observations as JSON rather than as metrics,
-        // so this disk contributes to a footprint nothing scrapes.
+        // A scenario reports its observations as JSON rather than as metrics. This
+        // disk therefore contributes to a footprint nothing scrapes.
         let metrics = disk_daemon::metrics::Device::new(
             "scenario",
             &disk_daemon::metrics::Footprint::default(),
@@ -505,7 +503,7 @@ impl Drop for Scenario {
     }
 }
 
-/// A filesystem this scenario mounted. Unmounted on drop, so a failing scenario
+/// A filesystem this scenario mounted. `Drop` unmounts it, so a failing scenario
 /// leaves no mount behind.
 struct Mount {
     path: std::path::PathBuf,
@@ -544,8 +542,8 @@ impl Drop for Mount {
 }
 
 /// `assume_storage_prezeroed` leaves the unused inode tables and the internal
-/// journal as holes, so they never enter the allocated bitmap. `nodiscard`
-/// keeps the format from discarding the whole device first.
+/// journal as holes, so they never enter the allocated bitmap. `nodiscard` keeps
+/// the format from discarding the whole device first.
 fn format(device: &std::path::Path) -> anyhow::Result<()> {
     run(std::process::Command::new("mkfs.ext4")
         .args(["-F", "-b"])
@@ -580,8 +578,7 @@ fn collect(captured: Captured) -> std::thread::JoinHandle<Vec<Vec<Chunk>>> {
     })
 }
 
-/// Apply a captured stream to a fresh image, which is what a recovering session
-/// does.
+/// Apply a captured stream to a fresh image, as a recovering session does.
 fn replay(dir: &std::path::Path, mutations: &[Vec<Chunk>]) -> anyhow::Result<(Image, Bitmap)> {
     let image = Image::create(dir, BLOCKS, BLOCK_SIZE)?;
     let mut allocated = Bitmap::new(BLOCKS);
@@ -592,10 +589,10 @@ fn replay(dir: &std::path::Path, mutations: &[Vec<Chunk>]) -> anyhow::Result<(Im
     Ok((image, allocated))
 }
 
-/// Content, tracked allocation, and filesystem allocation of an image. Two
-/// images agree on all three when one is a faithful replay of the other.
+/// Content, tracked allocation, and filesystem allocation of an image. Two images
+/// agree on all three when one is a faithful replay of the other.
 fn describe(file: &std::fs::File, allocated: &Bitmap) -> anyhow::Result<serde_json::Value> {
-    // Delayed allocation means the extents are only settled once written back.
+    // Delayed allocation settles the extents only once they are written back.
     file.sync_all()?;
     let extents = data_extents(file)?;
 
@@ -659,8 +656,8 @@ fn sys_block_path(dev_id: u32) -> std::path::PathBuf {
     format!("/sys/block/ublkb{dev_id}").into()
 }
 
-/// File content in which every third block is entirely zero, so that trailing
-/// zero trimming and empty-data chunks both occur.
+/// File content in which every third block is entirely zero. Both trailing-zero
+/// trimming and empty-data chunks then occur.
 fn pattern(seed: u8, len: usize) -> Vec<u8> {
     (0..len)
         .map(|index| {
@@ -681,8 +678,8 @@ fn aligned_block(fill: u8) -> &'static [u8] {
     block
 }
 
-/// A buffer of `blocks` blocks aligned as `O_DIRECT` requires, which a caller
-/// refills rather than allocating one per write.
+/// A buffer of `blocks` blocks, aligned as `O_DIRECT` requires. A caller refills it
+/// rather than allocating one buffer per write.
 fn aligned_buffer(blocks: u32) -> &'static mut [u8] {
     let backing = vec![0u8; (blocks as usize + 1) * BLOCK_SIZE as usize].leak();
     let offset = backing.as_ptr().align_offset(BLOCK_SIZE as usize);

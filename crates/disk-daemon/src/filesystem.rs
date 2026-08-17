@@ -1,38 +1,36 @@
 //! Formatting and mounting the filesystem a disk presents.
 //!
-//! The type is decided here and nowhere else. Nothing about a filesystem
-//! reaches the journal, the chunk codec, or the bitmaps, so the durable format
-//! is already type-agnostic: a type touches only the invocation which formats a
-//! fresh device and the options it is mounted with, plus the assumption that
-//! frees produce discards.
+//! This module decides the type, and nothing else does. No detail of a
+//! filesystem reaches the journal, the chunk codec, or the bitmaps, so the
+//! durable format is already type-agnostic. A type touches only three things: the
+//! invocation which formats a fresh device, the options it is mounted with, and
+//! the assumption that a free produces a discard.
 
 use anyhow::Context;
 use std::path::Path;
 
 /// Filesystem of a disk.
 ///
-/// ext4 is the only implementation and no configuration exposes the choice,
-/// because another type means committing it to the full crash matrix. It is
-/// right for a disk because `assume_storage_prezeroed` lets `mkfs` leave the
-/// unused inode tables and the internal journal as holes, which is what keeps
-/// the first delta small, and because metadata-only journaling keeps the volume
-/// a rewrite costs in journal appends down.
+/// ext4 is the only implementation, and no configuration exposes the choice.
+/// Another type would have to be committed to the full crash matrix. ext4 is
+/// right for a disk for two reasons. `assume_storage_prezeroed` lets `mkfs` leave
+/// the unused inode tables and the internal journal as holes, which keeps the
+/// first delta small. Metadata-only journaling keeps down the journal appends a
+/// rewrite costs.
 #[derive(Clone, Copy, Debug)]
 pub enum Type {
     Ext4,
 }
 
-/// Smallest `mkfs` this daemon formats with. Earlier versions have no
-/// `assume_storage_prezeroed`, so they would write zeroes across the inode
-/// tables and the internal journal, allocating in the image what a fresh disk
-/// keeps as holes.
+/// Smallest `mkfs` this daemon formats with, which is the first to support
+/// `assume_storage_prezeroed`.
 const MIN_MKFS_VERSION: (u32, u32) = (1, 47);
 
 /// Invocation which formats a fresh `block_size` device.
 ///
-/// Reserved blocks are zero because no privileged user recovers a full disk by
-/// spending them, and `nodiscard` keeps the format from discarding a device
-/// which is already entirely holes.
+/// Reserved blocks are zero. No privileged user recovers a full disk by spending
+/// them. `nodiscard` keeps the format from discarding a device which is already
+/// entirely holes.
 fn mkfs(fs: Type, device: &Path, block_size: u32) -> async_process::Command {
     match fs {
         Type::Ext4 => {
@@ -49,17 +47,17 @@ fn mkfs(fs: Type, device: &Path, block_size: u32) -> async_process::Command {
 
 /// Options a disk of `fs` is mounted with, fresh or recovered.
 ///
-/// `noatime` keeps reads from creating deltas and `discard` returns freed
-/// blocks to the image. The sandbox which re-exports the directory applies
-/// `nodev`, `nosuid`, and `noexec` again, because host mount options do not
-/// propagate through a bind or `virtio-fs` mount.
+/// `noatime` keeps reads from creating deltas. `discard` returns freed blocks to
+/// the image. The sandbox which re-exports the directory applies `nodev`,
+/// `nosuid`, and `noexec` again. Host mount options do not propagate through a
+/// bind or `virtio-fs` mount.
 fn mount_options(fs: Type) -> &'static str {
     match fs {
         Type::Ext4 => "noatime,nodev,nosuid,noexec,discard",
     }
 }
 
-/// How long a fresh disk's format may take. Formatting a large device writes
+/// How long a fresh disk's format may take. A format of a large device writes
 /// its metadata, so this bounds a hang rather than a slow disk.
 pub const MKFS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
@@ -75,7 +73,7 @@ pub fn validate(fs: Type) -> anyhow::Result<()> {
         .output()
         .context("running `mkfs.ext4 -V`, which a fresh disk is formatted with")?;
 
-    // mke2fs reports its version on stderr, as `mke2fs 1.47.0 (5-Feb-2023)`.
+    // mke2fs reports its version on stderr, like `mke2fs 1.47.0 (5-Feb-2023)`.
     let reported = String::from_utf8_lossy(&output.stderr);
     let version = reported
         .split_whitespace()
@@ -94,8 +92,8 @@ pub fn validate(fs: Type) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Format `device`, which must be a fresh disk: recovery replays filesystem
-/// structures as the data they are and never formats.
+/// Format `device`, which must be a fresh disk. Recovery never formats. It
+/// replays filesystem structures as the data they are.
 pub async fn format(
     fs: Type,
     device: &Path,
@@ -107,8 +105,8 @@ pub async fn format(
 
 /// A mounted filesystem.
 ///
-/// Unmounted on drop as well as by [`Mount::unmount`], so that no failure path
-/// leaves one behind.
+/// Both `Drop` and [`Mount::unmount`] unmount it, so no failure path leaves one
+/// behind.
 pub struct Mount {
     path: std::path::PathBuf,
     mounted: bool,
@@ -155,8 +153,8 @@ impl Drop for Mount {
         if !std::mem::take(&mut self.mounted) {
             return;
         }
-        // Drop is the path of a session which failed while it was opening, so
-        // this only runs where an unmount is not expected to block.
+        // Only a session which failed while it was opening reaches Drop, so an
+        // unmount here is not expected to block.
         let outcome = std::process::Command::new("umount")
             .arg(&self.path)
             .status();
@@ -170,9 +168,9 @@ impl Drop for Mount {
 
 /// Unmount `path` and remove the mount point.
 ///
-/// A filesystem which will not unmount is detached instead, because the device
-/// under it is stopping or already gone, and a mount over a device which cannot
-/// complete a write would never come off any other way.
+/// A filesystem which will not unmount is detached instead. The device under it
+/// is stopping or already gone. A mount over a device which cannot complete a
+/// write would never come off any other way.
 pub async fn unmount(path: &Path, timeout: std::time::Duration) -> anyhow::Result<()> {
     let mut command = async_process::Command::new("umount");
     command.arg(path);
@@ -195,8 +193,8 @@ pub async fn unmount(path: &Path, timeout: std::time::Duration) -> anyhow::Resul
 
 /// Flush every filesystem write of the mount at `path` to its device.
 ///
-/// The daemon issues this itself, so that a publication does not depend on how
-/// a client's own `fsync` propagates through a bind or `virtio-fs` mount.
+/// The daemon issues this itself. A publication must not depend on how a client's
+/// own `fsync` propagates through a bind or `virtio-fs` mount.
 pub fn sync(path: &Path) -> anyhow::Result<()> {
     let dir = std::fs::File::open(path).with_context(|| format!("opening {path:?}"))?;
 
@@ -218,8 +216,8 @@ fn type_name(fs: Type) -> &'static str {
 
 /// Run `command` to completion, failing if it does not finish within `timeout`.
 ///
-/// A timed-out command is killed, because dropping the child of
-/// `async_process::output` signals it.
+/// A timed-out command is killed. Dropping the child of `async_process::output`
+/// signals it.
 async fn run(
     mut command: async_process::Command,
     timeout: std::time::Duration,

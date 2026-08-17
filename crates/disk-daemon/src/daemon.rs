@@ -1,5 +1,5 @@
-//! The daemon process: what it validates about its host, what it serves, and
-//! how it stops.
+//! The daemon process. This covers what it validates about its host, what it
+//! serves, and how it stops.
 
 use crate::args::Serve;
 use crate::filesystem;
@@ -7,36 +7,36 @@ use crate::journal;
 use crate::ublk::{Control, sys};
 use anyhow::Context;
 
-/// Interval at which idle broker connections are closed. It is short relative
-/// to a session, which holds its connections open by using them.
+/// Interval at which the daemon closes idle broker connections. It is short
+/// relative to a session, which holds its connections open by using them.
 const SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// How long a drain waits for sessions to end. It sizes a healthy teardown
-/// rather than a policy, so it is not configurable, and it sits well under
-/// systemd's default `TimeoutStopSec` so that this daemon's error is what an
-/// operator sees rather than a SIGKILL.
+/// How long a drain waits for sessions to end. It sizes a healthy teardown rather
+/// than a policy, so it is not configurable. It also sits well under systemd's
+/// default `TimeoutStopSec`, so an operator sees this daemon's error rather than a
+/// SIGKILL.
 const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// What every session of a daemon is served with.
 pub struct Config {
     pub image_dir: std::path::PathBuf,
     pub mount_dir: std::path::PathBuf,
-    /// Label on a disk journal's own spec which holds its recovery floor, and
-    /// which every replay reads back as its seek hint.
+    /// Label on a disk journal's own spec which holds its recovery floor. Every
+    /// replay reads it back as its seek hint.
     pub floor_label: String,
     /// When a disk opens a recovery horizon, and how fast it discharges one.
     pub horizon: crate::horizon::Policy,
     /// Shared by every session's journal writer.
     pub client: gazette::journal::Client,
-    /// Routing table of `client`, swept periodically to close connections to
+    /// Routing table of `client`. A periodic sweep closes its connections to
     /// brokers which no longer serve any disk.
     pub router: gazette::Router,
-    /// Bytes every live disk holds, which each adds its own share to.
+    /// Bytes every live disk holds. Each disk adds its own share.
     pub footprint: crate::metrics::Footprint,
 }
 
-/// Prefix of a disk's mount point, which carries the device number so that a
-/// later daemon can delete the device a mount it inherits was made from.
+/// Prefix of a disk's mount point. The rest of the name is the device number, so
+/// a later daemon can delete the device a mount it inherits was made from.
 pub const MOUNT_PREFIX: &str = "disk-";
 
 pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result<()> {
@@ -69,8 +69,8 @@ pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result
         "disk daemon starting",
     );
 
-    // SIGTERM (systemd) and SIGINT (interactive) both drain the daemon. One
-    // token ends everything it runs, sessions included.
+    // SIGTERM from systemd and SIGINT from a terminal both drain the daemon. One
+    // token ends everything the daemon runs, sessions included.
     let draining = tokio_util::sync::CancellationToken::new();
     {
         let draining = draining.clone();
@@ -138,14 +138,14 @@ pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result
     );
     tracing::info!(socket = ?args.uds_path, "disk daemon is serving sessions");
 
-    // Sessions are indefinite, so a drain ends them rather than waiting on
-    // them. Each closes its stream only once its disk is torn down, which is
-    // what the server then waits for and what the timeout bounds.
+    // Sessions are indefinite, so a drain ends them rather than waiting on them.
+    // Each session closes its stream only once its disk is torn down. The server
+    // waits for that, and the timeout bounds the wait.
     let served = tokio::select! {
         served = &mut serving => served?,
 
         _ = draining.cancelled() => {
-            // Unlinking first stops a client which reconnects from opening a
+            // Unlink the socket first. A client which reconnects must not open a
             // disk this daemon is about to stop serving.
             _ = std::fs::remove_file(&args.uds_path);
 
@@ -165,9 +165,9 @@ pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result
                         "these disks did not tear down within the drain timeout, so their \
                          devices are left behind: {stuck:?}",
                     );
-                    // No session outlived the drain, so no device was left
-                    // behind and the wait was on a client which had not closed
-                    // its connection. That is the client's to answer for.
+                    // No session outlived the drain, so nothing was left behind.
+                    // The wait was on a client which had not closed its
+                    // connection, which is the client's to answer for.
                     tracing::warn!("a client connection outlived the drain timeout");
                     Ok(())
                 }
@@ -179,8 +179,8 @@ pub async fn run(args: Serve, registry: service_kit::Registry) -> anyhow::Result
     served.context("serving the session socket")
 }
 
-/// Sleep for `interval`, reporting true if the daemon began draining instead.
-/// It is what makes a periodic task end promptly on a drain.
+/// Sleep for `interval`, reporting true if the daemon began draining instead, so
+/// that a periodic task ends promptly on a drain.
 pub(crate) async fn ticked(
     draining: &tokio_util::sync::CancellationToken,
     interval: std::time::Duration,
@@ -193,9 +193,8 @@ pub(crate) async fn ticked(
 
 /// The disks of every session which is still live, and what each is doing.
 ///
-/// It names the thing an operator must go and look at, which a timeout alone
-/// does not: a drain which does not finish leaves ublk devices and mounts on the
-/// host for the next daemon to reclaim.
+/// A drain which does not finish leaves ublk devices and mounts on the host for
+/// the next daemon to reclaim, so its error names them.
 fn stuck(registry: &service_kit::Registry) -> Vec<(String, String)> {
     registry
         .snapshot()
@@ -207,14 +206,12 @@ fn stuck(registry: &service_kit::Registry) -> Vec<(String, String)> {
 
 /// Bind `path`, taking over a socket which a previous daemon left behind.
 ///
-/// The socket is left reachable by any user, because the daemon's clients are
-/// not the privileged user it runs as and it has no user model of its own.
-/// Which of them may reach it is the socket directory's permissions to decide.
+/// The socket is left reachable by any user, per [`crate::args::Serve`].
 fn listen(path: &std::path::Path) -> anyhow::Result<tokio::net::UnixListener> {
     let listener = match tokio::net::UnixListener::bind(path) {
         Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
-            // A socket file outlives the process which bound it, so its
-            // presence is not proof that a daemon is running. A connection is.
+            // A socket file outlives the process which bound it, so its presence
+            // does not prove that a daemon is running. A connection does.
             if std::os::unix::net::UnixStream::connect(path).is_ok() {
                 anyhow::bail!("another daemon is already listening on {path:?}");
             }
@@ -235,14 +232,16 @@ fn listen(path: &std::path::Path) -> anyhow::Result<tokio::net::UnixListener> {
 
 /// Unmount and delete whatever a previous daemon left behind.
 ///
-/// A daemon which is killed outright cannot unmount, and the kernel removes the
-/// block device under a mount but neither the mount nor the character device.
-/// The mount directory is this daemon's own, so anything under it belongs to a
-/// daemon which is gone, and a mount point names the device it was made from.
+/// A daemon which is killed outright cannot unmount. The kernel removes the block
+/// device under a mount, but it removes neither the mount nor the character
+/// device. The mount directory belongs to this daemon alone, so anything under it
+/// belongs to a daemon which is gone. Each mount point names the device it was
+/// made from.
 ///
-/// Only devices named that way are deleted, and only once the kernel confirms
-/// the process which served them is gone. Another application's abandoned
-/// device may be one it intends to recover, and is not this daemon's to reap.
+/// This deletes only the devices those mount points name, and only once the kernel
+/// confirms the process which served them is gone. Another application's abandoned
+/// device may be one that application intends to recover. It is not this daemon's
+/// to reap.
 async fn reclaim(
     control: &Control,
     dir: &std::path::Path,
@@ -278,8 +277,8 @@ async fn reclaim(
 
 /// Delete `dev_id` if the process which served it is gone.
 ///
-/// A live server means the kernel has already given the number to a device
-/// which is not the one just unmounted.
+/// A live server means the kernel has already given that number to some other
+/// device, and not to the one just unmounted.
 fn delete_abandoned(control: &Control, dev_id: u32) -> anyhow::Result<()> {
     let Some(info) = control.dev_info(dev_id)? else {
         return Ok(());
@@ -304,13 +303,13 @@ fn serving(pid: i32) -> bool {
     if pid <= 0 {
         return false;
     }
-    // SAFETY: signal zero performs the permission and existence checks of a
-    // signal without sending one, and reads no user memory.
+    // SAFETY: signal zero runs the permission and existence checks of a signal
+    // without sending one. It reads no user memory.
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
-/// Mount point of a line of `/proc/mounts`, whose fields are separated by
-/// spaces and escape the characters which would be ambiguous.
+/// Mount point of a line of `/proc/mounts`. Spaces separate its fields, and it
+/// escapes the characters which would otherwise be ambiguous.
 fn mount_point(line: &str) -> Option<std::path::PathBuf> {
     let point = line.split(' ').nth(1)?;
 
@@ -323,12 +322,12 @@ fn mount_point(line: &str) -> Option<std::path::PathBuf> {
     Some(unescaped.into())
 }
 
-/// Fail unless this host can serve disks, naming what to do about it, and
-/// return the control device that proved it.
+/// Fail unless this host can serve disks, and name what to do about it. Returns
+/// the control device which proved it.
 ///
-/// Every one of these is otherwise found by a client's first session, at which
-/// point the failure is a device which will not add or an image which quietly
-/// occupies its whole logical size.
+/// Without these checks, a client's first session finds each problem instead. The
+/// failure is then a device which will not add, or an image which quietly occupies
+/// its whole logical size.
 fn validate(args: &Serve) -> anyhow::Result<Control> {
     anyhow::ensure!(
         std::path::Path::new("/sys/module/ublk_drv").exists(),
@@ -368,9 +367,9 @@ fn validate(args: &Serve) -> anyhow::Result<Control> {
 
 /// Fail unless `dir` is a filesystem which deallocates part of a file.
 ///
-/// Without hole punching a disk's image grows to its whole device size and a
-/// discard frees nothing, so the local copy of a 10 GiB disk holding 200 MiB
-/// would occupy 10 GiB.
+/// Without hole punching, a disk's image grows to its whole device size and a
+/// discard frees nothing. The local copy of a 10 GiB disk holding 200 MiB would
+/// then occupy 10 GiB.
 fn punches_holes(dir: &std::path::Path) -> anyhow::Result<()> {
     const BLOCK_SIZE: u32 = 4096;
 

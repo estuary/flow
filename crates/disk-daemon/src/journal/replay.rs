@@ -1,31 +1,29 @@
 //! Rebuilding a disk from the acknowledged deltas of its journal.
 //!
-//! These rules *are* the durability guarantee, so they are stated here in full:
+//! These rules are the durability guarantee, so they are stated here in full:
 //!
 //! - The range is fixed at `[floor, head)` before the pass begins. `head` is
-//!   broker-confirmed, which is what makes the read fresh: a broker which served
-//!   that append holds an index covering every fragment below it.
-//! - Records are sequenced per producer by [`uuid::sequence`], which drops the
-//!   duplicates at-least-once appends produce and releases only acknowledged
-//!   deltas. Chunks are applied in physical journal order, which the live append
-//!   barrier makes commit order.
+//!   broker-confirmed, which makes the read fresh. A broker which served that
+//!   append holds an index covering every fragment below it.
+//! - [`uuid::sequence`] sequences records per producer. It drops the duplicates
+//!   at-least-once appends produce, and it releases only acknowledged deltas.
+//!   Chunks apply in physical journal order, and the live append barrier makes
+//!   that commit order.
 //! - Fence records change no disk content. They are validated and skipped.
-//! - The range may begin within a delta. Records below the floor are
-//!   unnecessary, because a completed horizon puts a copy of every allocated
-//!   block at or after it.
-//! - Horizons are reconstructed by the same rules the writer applies: the
-//!   record which opens one snapshots the blocks allocated before its own
-//!   chunks apply, every chunk from there on discharges the blocks it covers,
-//!   and the acknowledgement of a delta which discharged the last of them puts
-//!   the floor at the opening record. A later horizon replaces an earlier one,
-//!   and a horizon still open at the end of the range is one the next session
-//!   resumes.
+//! - The range may begin within a delta. Records below the floor are unnecessary,
+//!   because a completed horizon puts a copy of every allocated block at or after
+//!   it.
+//! - Horizons are rebuilt by the same rules the writer applies. The record which
+//!   opens one snapshots the blocks allocated before its own chunks apply. Every
+//!   chunk from there on discharges the blocks it covers. The acknowledgement of
+//!   the delta which discharged the last block puts the floor at the opening
+//!   record. A later horizon replaces an earlier one. A horizon still open at the
+//!   end of the range is one the next session resumes.
 //!
-//! **Nothing is buffered to hold an uncommitted delta.** Every delta is applied
-//! as it is read, and a delta which is never acknowledged is discovered only at
-//! the end of the pass. The image is then discarded and the range read again,
-//! this time reading over that delta's records. The image is disposable, which
-//! is the premise the whole design rests on, so this costs one extra read of the
+//! Nothing is buffered to hold an uncommitted delta. Every delta is applied as
+//! it is read, and a delta which is never acknowledged is discovered only at the
+//! end of the pass. The image is then discarded and the range read again, this
+//! time reading over that delta's records. That costs one extra read of the
 //! range in exactly the case where a session did not shut down cleanly, and
 //! nothing at all otherwise.
 
@@ -38,17 +36,17 @@ use proto_gazette::{broker, uuid};
 
 /// What one replay rebuilt, beyond the image itself.
 pub struct Replayed {
-    /// Chunks applied. Zero is a journal holding no committed state at all,
-    /// which is a disk that has never published or one whose first use failed.
+    /// Chunks applied. Zero means the journal holds no committed state at all. That
+    /// disk has never published, or its first use failed.
     pub applied: usize,
-    /// Offset at which a replay of this journal may begin from now on, which is
-    /// the last completed horizon or, failing one, where this replay began.
+    /// Offset at which a replay of this journal may begin from now on. It is the
+    /// last completed horizon, or where this replay began if there was none.
     pub floor: i64,
-    /// Clock of a floor this pass derived, which is a horizon completed within
-    /// the range and so a label to advance.
+    /// Clock of a floor this pass derived. A horizon completed within the range, so
+    /// the caller advances the label to this clock.
     pub derived: Option<uuid::Clock>,
-    /// A horizon the range left open, which this session resumes rather than
-    /// restarts. Its bitmap is the image's.
+    /// A horizon the range left open. This session resumes it rather than restarts
+    /// it. Its bitmap belongs to the image.
     pub horizon: Option<Position>,
 }
 
@@ -78,8 +76,8 @@ pub async fn replay(
 
         () = image.reset().context("discarding a replayed image")?;
     }
-    // The first pass finds every unacknowledged delta of the range, and reading
-    // over one only removes its own records, so the second finds none.
+    // The first pass finds every unacknowledged delta of the range. Reading over
+    // one removes only its own records, so the second pass finds none.
     unreachable!("a replay discovered an unacknowledged delta it had already read over")
 }
 
@@ -103,8 +101,8 @@ async fn read(
     });
     futures::pin_mut!(stream);
 
-    // Journal offset at which `buf` begins, which is where a record this reader
-    // has not finished decoding starts.
+    // Journal offset at which `buf` begins. A record this reader has not finished
+    // decoding starts there.
     let mut buf = bytes::BytesMut::new();
     let mut offset = 0;
     let mut applied = 0;
@@ -123,8 +121,9 @@ async fn read(
             }
         };
 
-        // Content the broker skipped, either the seek this read began with or a
-        // hole in the offset space, leaves any partial record unfinishable.
+        // The broker skipped some content, either for the seek this read began
+        // with or for a hole in the offset space. No partial record can be
+        // finished across that gap.
         if response.offset != offset + buf.len() as i64 {
             tracing::debug!(journal, from = offset, to = response.offset, "offset jump");
 
@@ -174,8 +173,8 @@ async fn read(
 #[derive(Default)]
 struct Pass {
     /// Clocks of the deltas an earlier pass proved uncommitted, keyed by the
-    /// producer which wrote them. Their records are read over rather than
-    /// sequenced, so the pass sees the journal as if they were never appended.
+    /// producer which wrote them. This pass reads over their records rather than
+    /// sequencing them, so it sees the journal as if they were never appended.
     abandoned: std::collections::HashMap<uuid::Producer, Abandoned>,
     /// Sequencing state of each producer of the range.
     producers: std::collections::HashMap<uuid::Producer, Sequence>,
@@ -185,16 +184,16 @@ struct Pass {
     begin: i64,
     /// Horizon which has opened and is not yet discharged.
     horizon: Option<Position>,
-    /// Last horizon a delta of the range completed, which is the floor.
+    /// Last horizon a delta of the range completed. That position is the floor.
     floor: Option<Position>,
 }
 
 /// Clocks of a producer's records which belong to a delta that was never
 /// acknowledged.
 ///
-/// One range describes them all, because a producer's unacknowledged delta is
-/// always its last: a later record of that producer extends the same delta
-/// rather than beginning another.
+/// One range describes them all. A producer's unacknowledged delta is always its
+/// last, because a later record of that producer extends the same delta rather than
+/// beginning another.
 struct Abandoned {
     /// Clock the producer last committed at before the delta began.
     after: uuid::Clock,
@@ -279,9 +278,9 @@ impl Pass {
             }
             uuid::SequenceOutcome::ContinueDuplicate => (),
 
-            // An acknowledgement of a delta which another producer's records
-            // interleaved cannot be honored: its chunks are already applied, in
-            // an order which does not match the order the two deltas committed.
+            // Another producer's records interleaved this delta, so its
+            // acknowledgement cannot be honored. Its chunks are already applied,
+            // in an order which does not match the order the two deltas committed.
             uuid::SequenceOutcome::AckCommit => {
                 anyhow::ensure!(
                     self.open == Some(producer),
@@ -293,7 +292,7 @@ impl Pass {
 
                 // A committed delta which discharged the last block of the
                 // horizon puts a copy of every allocated block at or after it,
-                // which is the floor.
+                // making it the floor.
                 if self.horizon.is_some() && image.horizon_pending() == 0 {
                     self.floor = self.horizon.take();
                     image.close_horizon();
@@ -307,9 +306,9 @@ impl Pass {
                 () = ensure_no_chunks(record, "an acknowledgement")?;
             }
 
-            // A rollback would have to undo chunks this pass already applied.
-            // The append barrier makes one impossible from this daemon, which
-            // is the only writer a disk journal has.
+            // A rollback would have to undo chunks this pass already applied. The
+            // append barrier makes one impossible from this daemon, and this
+            // daemon is the only writer a disk journal has.
             uuid::SequenceOutcome::AckCleanRollback | uuid::SequenceOutcome::AckDeepRollback => {
                 anyhow::bail!(
                     "acknowledgement of {producer:?} at {clock:?} rolls back records which were applied",
@@ -319,10 +318,10 @@ impl Pass {
         Ok(0)
     }
 
-    /// Ready this pass to run over the same range again, reading over every
-    /// delta which reached the end of it unacknowledged.
+    /// Ready this pass to run over the same range again. The next pass reads over
+    /// every delta which reached the end of the range unacknowledged.
     ///
-    /// False when there were none, which is a pass whose image is the disk.
+    /// False when there were none. The image of that pass is then the disk.
     fn restart(&mut self) -> bool {
         let mut again = false;
 
@@ -346,8 +345,8 @@ impl Pass {
             again = true;
         }
         if again {
-            // The image is discarded with the pass, so the horizon rebuilt
-            // against it goes too.
+            // The pass discards the image, so the horizon rebuilt against it goes
+            // too.
             self.open = None;
             self.horizon = None;
             self.floor = None;
@@ -389,7 +388,7 @@ mod test {
         uuid::Producer::from_bytes([seed | 0x01, 0, 0, 0, 0, seed])
     }
 
-    /// A clock `ticks` microseconds after the epoch, so that a case reads as a
+    /// A clock `ticks` microseconds after the epoch. Each case then reads as a
     /// sequence of small numbers.
     fn clock(ticks: u64) -> uuid::Clock {
         let mut clock = uuid::Clock::UNIX_EPOCH;
@@ -449,10 +448,10 @@ mod test {
         }
     }
 
-    /// Replay `records` as [`super::replay`] does, restarting a pass which found
-    /// an unacknowledged delta, and return the pass alongside each block's fill
-    /// byte. Each record is one byte long as far as offsets are concerned, which
-    /// is enough to tell them apart.
+    /// Replay `records` as [`super::replay`] does, and restart a pass which found
+    /// an unacknowledged delta. Returns the pass alongside each block's fill byte.
+    /// Offsets treat each record as one byte long, which is enough to tell them
+    /// apart.
     fn replay(
         dir: &tempfile::TempDir,
         records: &[proto::DiskRecord],
@@ -493,7 +492,7 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let (a, f) = (producer(0x10), producer(0x20));
 
-        // A committed delta, then one which the session never acknowledged.
+        // One committed delta, then one the session never acknowledged.
         assert_eq!(
             replayed(
                 &dir,
@@ -511,7 +510,7 @@ mod test {
     }
 
     /// A delta which a replacement session's records follow is abandoned in the
-    /// middle of the range, not only at its end.
+    /// middle of the range, and not only at its end.
     #[test]
     fn test_a_delta_a_replacement_session_abandoned_is_not_applied() {
         let dir = tempfile::tempdir().unwrap();
@@ -533,8 +532,8 @@ mod test {
         );
     }
 
-    /// The range may begin within a delta, whose acknowledgement then commits
-    /// only the records which were in range.
+    /// The range may begin within a delta. That delta's acknowledgement then
+    /// commits only the records which were in range.
     #[test]
     fn test_a_delta_which_begins_below_the_range_commits_what_is_in_it() {
         let dir = tempfile::tempdir().unwrap();
@@ -546,8 +545,8 @@ mod test {
         );
     }
 
-    /// At-least-once appends repeat records, which sequencing drops rather than
-    /// applying a second time over a newer value.
+    /// At-least-once appends repeat records. Sequencing drops a repeat rather than
+    /// applying it a second time over a newer value.
     #[test]
     fn test_duplicate_records_are_not_applied_again() {
         let dir = tempfile::tempdir().unwrap();
@@ -588,9 +587,9 @@ mod test {
         );
     }
 
-    /// A record which opens a horizon snapshots the blocks allocated before its
-    /// own chunks apply, and the acknowledgement of the delta which discharges
-    /// the last of them moves the floor to that record.
+    /// A record which opens a horizon snapshots the blocks allocated before its own
+    /// chunks apply. The acknowledgement of the delta which discharges the last of
+    /// those blocks moves the floor to that record.
     #[test]
     fn test_a_discharged_horizon_derives_the_floor() {
         let dir = tempfile::tempdir().unwrap();
@@ -602,8 +601,8 @@ mod test {
                 write(a, 1, 3, 0xaa),
                 write(a, 2, 4, 0xbb),
                 ack(a, 3),
-                // A delta which opens a horizon over both blocks and rewrites
-                // them, which is what discharges it without copying.
+                // This delta opens a horizon over both blocks and rewrites them,
+                // which discharges the horizon without any copy.
                 opens(write(a, 4, 3, 0xcc)),
                 write(a, 5, 4, 0xdd),
                 ack(a, 6),
@@ -619,8 +618,8 @@ mod test {
         assert_eq!(floor.clock, clock(4));
     }
 
-    /// A horizon the range leaves open is one the next session resumes: what it
-    /// has left to discharge is the image's, and where it opened is the pass's.
+    /// The next session resumes a horizon the range leaves open. The image holds
+    /// what that horizon has left to discharge, and the pass holds where it opened.
     #[test]
     fn test_an_open_horizon_outlives_the_pass() {
         let dir = tempfile::tempdir().unwrap();
@@ -642,8 +641,8 @@ mod test {
         assert_eq!(pass.horizon.expect("a horizon is open").offset, 3);
     }
 
-    /// A range may hold several horizons. Each replaces the one before it, so
-    /// the floor is the last which a delta discharged.
+    /// A range may hold several horizons. Each one replaces the one before it, so
+    /// the floor is the last horizon which a delta discharged.
     #[test]
     fn test_a_later_horizon_replaces_an_earlier_one() {
         let dir = tempfile::tempdir().unwrap();
@@ -667,7 +666,7 @@ mod test {
         assert_eq!(pass.floor.expect("the second horizon completed").offset, 5);
     }
 
-    /// A horizon belongs to its delta, so one whose delta is never acknowledged
+    /// A horizon belongs to its delta. A horizon whose delta is never acknowledged
     /// never existed, exactly as its chunks never applied.
     #[test]
     fn test_a_horizon_of_an_uncommitted_delta_does_not_exist() {
@@ -734,8 +733,8 @@ mod test {
         }
     }
 
-    /// An acknowledgement of a delta which another producer's records
-    /// interleaved cannot order the two, so it is rejected.
+    /// An acknowledgement cannot order two deltas whose records interleaved, so it
+    /// is rejected.
     #[test]
     fn test_an_interleaved_acknowledgement_is_an_ordering_error() {
         let dir = tempfile::tempdir().unwrap();

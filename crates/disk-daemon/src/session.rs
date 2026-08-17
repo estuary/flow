@@ -1,17 +1,17 @@
-//! The session service: one bidirectional stream serves exactly one disk.
+//! The session service. One bidirectional stream serves exactly one disk.
 //!
 //! A session is a state machine over its stream. It begins with `Open`, which
-//! creates the image, rebuilds it from the journal or formats it, and then
-//! creates the device and the mount over it; it then serves `Publish` and
-//! `Commit` pairs, which move the disk's durable state forward atomically with
-//! the client's own commit; and it ends when the stream ends, for any reason at
-//! all, by unmounting and destroying everything it made.
+//! creates the image, rebuilds it from the journal or formats it, and then creates
+//! the device and the mount over it. It then serves `Publish` and `Commit` pairs,
+//! which move the disk's durable state forward atomically with the client's own
+//! commit. It ends when the stream ends, for any reason at all, by unmounting and
+//! destroying everything it made.
 //!
 //! Every error is terminal. A device or broker failure is terminal because the
-//! disk's contents can no longer be trusted to reach its journal, and a
-//! protocol violation is terminal because the client has lost track of which
-//! delta it owes a commit. What differs is the code the stream ends with, which
-//! is the only part of a failure a client can act on: see [`failed`].
+//! disk's contents can no longer be trusted to reach its journal. A protocol
+//! violation is terminal because the client has lost track of which delta it owes
+//! a commit. What differs is the code the stream ends with. That code is the only
+//! part of a failure a client can act on. See `failed`.
 
 use crate::capture::Captured;
 use crate::disk::Disk;
@@ -28,7 +28,7 @@ pub struct Service {
     control: std::sync::Arc<Control>,
     registry: service_kit::Registry,
     /// Cancelled when the daemon drains, so that no session outlives it. Each
-    /// session takes a child of it, which its own teardown cancels.
+    /// session takes a child of this token and cancels it during teardown.
     draining: tokio_util::sync::CancellationToken,
 }
 
@@ -65,13 +65,13 @@ impl proto_grpc::disk::disk_server::Disk for Service {
         let (daemon, control) = (self.daemon.clone(), self.control.clone());
         let (registry, ended) = (self.registry.clone(), self.draining.child_token());
 
-        // The session owns its disk, so it outlives this call and tears the
-        // disk down as it ends. A client which drops the stream both ends
-        // `requests` and closes `responses`, either of which ends the session.
+        // The session owns its disk, so it outlives this call and tears the disk
+        // down as it ends. A client which drops the stream both ends `requests`
+        // and closes `responses`. Either of those ends the session.
         //
-        // It registers here rather than above because a handler span captures
-        // the tracing dispatcher of whoever creates it, which a spawn does not
-        // carry across.
+        // The handler registers inside the spawn rather than outside it. A handler
+        // span captures the tracing dispatcher of whichever task creates it, and a
+        // spawn does not carry that dispatcher across.
         tokio::spawn(async move {
             let session = Session {
                 daemon,
@@ -96,9 +96,9 @@ struct Session {
     daemon: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<Control>,
     handler: service_kit::HandlerGuard,
-    /// Cancelled when this session is over, whether because the daemon is
-    /// draining or because its own teardown has begun. Every broker call the
-    /// session makes gives up on it, since each retries indefinitely.
+    /// Cancelled when this session is over. That happens when the daemon drains,
+    /// or when the session's own teardown begins. Every broker call the session
+    /// makes gives up on this token, because each one retries indefinitely.
     ended: tokio_util::sync::CancellationToken,
     state: State,
 }
@@ -111,9 +111,9 @@ enum State {
 
 /// What one open disk consists of.
 ///
-/// The fields are declared in the order [`teardown`] runs, which is also the
-/// order they drop in: the filesystem is unmounted before the device under it
-/// stops, and the writer outlives both, because unmounting writes.
+/// The fields are declared in the order [`teardown`] runs them, which is also
+/// the order they drop in. The filesystem unmounts before the device under it
+/// stops. The writer outlives both, because an unmount writes.
 struct Serving {
     mount: Mount,
     disk: Disk,
@@ -130,8 +130,8 @@ impl Session {
 
         // The disk is torn down before the failure which ended the session is
         // reported, so that a client which sees its session end sees a disk
-        // which is already gone. It is also what lets a draining daemon wait
-        // for its sessions: this stream is open until its disk is destroyed.
+        // which is already gone. It is also how a draining daemon waits for its
+        // sessions. This stream stays open until its disk is destroyed.
         self.handler.set_phase("closing");
         let state = std::mem::replace(&mut self.state, State::Fresh);
         () = teardown(state).await;
@@ -152,9 +152,9 @@ impl Session {
         responses: &tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>,
     ) -> tonic::Result<()> {
         loop {
-            // A request already in flight is not raced here. It is instead the
-            // broker calls within it which give up, because those are the only
-            // waits a session has which are not bounded by a timeout.
+            // This does not race a request which is already in flight. The broker
+            // calls within that request give up instead. They are the only waits
+            // a session has which no timeout bounds.
             let request = tokio::select! {
                 _ = self.ended.cancelled() => {
                     return Err(tonic::Status::unavailable("the daemon is draining"));
@@ -233,10 +233,10 @@ impl Session {
 
     /// Create the disk of `open` and mount its filesystem.
     ///
-    /// A disk with committed state is rebuilt from its journal, which the
-    /// session claims before it reads. One without is formatted, and its
-    /// journal is neither created nor claimed: only the author register that a
-    /// later first append must replace is read.
+    /// A disk with committed state is rebuilt from its journal. The session claims
+    /// that journal before it reads. A disk without committed state is formatted
+    /// instead, and its journal is neither created nor claimed. The session only
+    /// reads the author register which a later first append must replace.
     async fn open(&self, open: proto::Open) -> anyhow::Result<Serving> {
         let proto::Open {
             journal_config,
@@ -252,8 +252,8 @@ impl Session {
         let blocks = blocks(device_size, block_size)?;
         self.handler.set_label(journal.clone());
 
-        // Built before a device exists, because a journal which cannot be
-        // created is a disk which can never publish.
+        // This is built before a device exists. A journal which cannot be created
+        // is a disk which can never publish.
         let mut opening = journal::Opening::new(
             &self.daemon.client,
             journal::Open {
@@ -268,9 +268,9 @@ impl Session {
         let mut image = Image::create(&self.daemon.image_dir, blocks, block_size)
             .with_context(|| format!("creating an image in {:?}", self.daemon.image_dir))?;
 
-        // A horizon the replay leaves open is the image's, so the disk resumes
-        // it rather than beginning again from what this session happens to find
-        // allocated.
+        // A horizon the replay leaves open belongs to the image. The disk resumes
+        // that horizon rather than opening a new one over whatever this session
+        // finds allocated.
         let recovered = opening.recover(&mut image, recovered_acks).await?;
 
         let control = self.control.clone();
@@ -278,7 +278,7 @@ impl Session {
         let metrics = crate::metrics::Device::new(&journal, &self.daemon.footprint);
 
         // Creating a device is a handshake with the kernel and with the thread
-        // which will own it, neither of which is async.
+        // which will own it. Neither handshake is async.
         let (disk, captured) = tokio::task::spawn_blocking(move || {
             Disk::create(&control, image, crate::ublk::QUEUE_DEPTH, horizon, metrics)
         })
@@ -293,10 +293,11 @@ impl Session {
                 .mount_dir
                 .join(format!("{}{}", crate::daemon::MOUNT_PREFIX, disk.dev_id()));
 
-        // A recovered disk is serving before it is mounted, because the writes
-        // its mount issues belong to the next delta. A fresh disk's format and
-        // mount output is instead dropped and reproduced by the snapshot its
-        // first append takes, so it begins serving once both are done.
+        // A recovered disk serves before it is mounted, because the writes its
+        // mount issues belong to the next delta. A fresh disk works the other way
+        // round. Its format and mount output is dropped, and the snapshot its
+        // first append takes reproduces that output, so it begins serving once
+        // both steps are done.
         let (mount, writer) = match recovered {
             true => {
                 let writer = opening.serve(captured, None, compactor);
@@ -373,8 +374,8 @@ async fn teardown(state: State) {
         return;
     };
 
-    // This session publishes nothing more, so the writer takes what unmounting
-    // mutates and discards it.
+    // This session publishes nothing more. The writer takes what the unmount
+    // mutates and then discards it.
     () = writer.abandon();
 
     if let Err(err) = mount.unmount(filesystem::MOUNT_TIMEOUT).await {
@@ -396,13 +397,13 @@ impl Serving {
     /// Cut a point-in-time boundary of the disk and finish publishing the delta
     /// before it.
     ///
-    /// The cut is this order: the mount is flushed, admission closes, and every
-    /// mutation which was admitted lands. Because a mutation is captured before
-    /// it is applied, each is then entirely before or after the boundary, and
-    /// the writer can finish exactly the delta which precedes it.
+    /// The cut runs in this order. The mount flushes, admission closes, and every
+    /// mutation which was admitted lands. A mutation is captured before it is
+    /// applied, so each one then falls entirely before or after the boundary. The
+    /// writer can therefore finish exactly the delta which precedes it.
     ///
-    /// Admission resumes as soon as the acknowledgement exists. The writer is
-    /// what then holds those mutations, until the acknowledgement commits.
+    /// Admission resumes as soon as the acknowledgement exists. The writer then
+    /// holds those mutations until it commits.
     async fn publish(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
         let mount = self.mount.path().to_path_buf();
 
@@ -413,8 +414,8 @@ impl Serving {
         () = self.disk.close_admission().await?;
         let published = self.writer.publish().await;
 
-        // Admission resumes even where the publication failed, because the
-        // unmount which follows a failed session writes.
+        // Admission resumes even where the publication failed. The unmount which
+        // follows a failed session writes.
         if let Err(err) = self.disk.resume_admission() {
             tracing::error!(?err, "failed to resume a disk's admission");
         }
@@ -422,13 +423,13 @@ impl Serving {
     }
 }
 
-/// Run `work`, taking and dropping every mutation the disk makes while it does.
+/// Run `work`, taking and dropping every mutation the disk makes while it runs.
 ///
-/// Formatting and mounting a fresh disk writes to it, and the capture channel
+/// A format and a mount of a fresh disk both write to it, and the capture channel
 /// is bounded, so a mutation nothing takes would park the device. Nothing here
-/// needs keeping: what these writes leave in the image is exactly what the
-/// first append snapshots, and a disk which is never written publishes nothing
-/// at all, because formatting it again reproduces it.
+/// needs keeping. The first append snapshots exactly what these writes leave in
+/// the image. A disk which is never written publishes nothing at all, because
+/// formatting it again reproduces it.
 async fn draining<T>(
     captured: &Captured,
     work: impl Future<Output = anyhow::Result<T>>,
@@ -437,7 +438,7 @@ async fn draining<T>(
 
     loop {
         tokio::select! {
-            // Completion is observed as soon as it happens, however busy the
+            // This observes completion as soon as it happens, however busy the
             // device is.
             biased;
 
@@ -453,11 +454,6 @@ async fn draining<T>(
 }
 
 /// Block count of a device.
-///
-/// Device and block size are durable per-disk facts which a session must
-/// supply, because a configured default would reinterpret every disk on the
-/// host at once: silently for a grown device, and catastrophically for a
-/// changed block size, which misplaces every chunk a replay applies.
 fn blocks(device_size: u64, block_size: u32) -> anyhow::Result<u32> {
     crate::ensure_valid!(
         block_size != 0 && block_size.is_power_of_two(),
@@ -483,17 +479,20 @@ fn blocks(device_size: u64, block_size: u32) -> anyhow::Result<u32> {
 
 /// gRPC code of a failure which ends a session.
 ///
-/// A message is not something a client can act on, so the code is the contract:
-/// `INVALID_ARGUMENT` is what the session asked for and cannot succeed however
-/// often it is retried; `ABORTED` is a lost fence, meaning another session owns
-/// this disk and this one must not take it back; `UNAUTHENTICATED` is a
-/// credential the broker refused, so a client should refresh and open again;
-/// `UNAVAILABLE` is a broker this daemon could not reach, which somewhere else
-/// may; and everything else is the daemon or its host failing, which is
-/// `INTERNAL`. A session's own state is checked here rather than classified, as
-/// `FAILED_PRECONDITION`; the violations the journal writer detects instead
-/// reach this as ordinary failures and so report `INTERNAL`, which they should
-/// not.
+/// A client cannot act on a message, so the code is the contract:
+///
+/// - `INVALID_ARGUMENT` is what the session asked for. A retry cannot succeed.
+/// - `ABORTED` is a lost fence. Another session owns this disk, and this one must
+///   not take it back.
+/// - `UNAUTHENTICATED` is a credential the broker refused. A client should
+///   refresh it and open again.
+/// - `UNAVAILABLE` is a broker this daemon could not reach. Another host may
+///   reach it.
+/// - `INTERNAL` is everything else, which is the daemon or its host failing.
+///
+/// `Session::request` reports a session's own state as `FAILED_PRECONDITION`, and
+/// that never reaches here. The crate README says what a client should do with
+/// each code.
 fn failed(err: anyhow::Error) -> tonic::Status {
     let code = if err.chain().any(|cause| cause.is::<crate::Invalid>()) {
         tonic::Code::InvalidArgument
@@ -506,10 +505,10 @@ fn failed(err: anyhow::Error) -> tonic::Status {
                 tonic::Code::Aborted
             }
             // `UNAUTHENTICATED` is not a promise that every credential problem
-            // arrives this way. A broker is free to refuse whatever it was doing
-            // rather than the credential: gazette answers an expired token on an
-            // append with `DeadlineExceeded`, because what timed out is the
-            // pipeline the append was waiting for.
+            // arrives this way. A broker may refuse whatever it was doing rather
+            // than the credential. Gazette answers an expired token on an append
+            // with `DeadlineExceeded`, because the pipeline the append waited for
+            // is what timed out.
             Some(gazette::Error::Grpc(status))
                 if matches!(
                     status.code(),
@@ -547,8 +546,8 @@ mod test {
         }
     }
 
-    /// A cause is classified however deeply the context which explains it is
-    /// stacked, because that is how every failure reaches the session stream.
+    /// A cause is classified however deeply context is stacked over it. Every
+    /// failure reaches the session stream that way.
     #[test]
     fn test_a_failure_is_classified_by_its_cause() {
         let cases: Vec<(anyhow::Error, tonic::Code)> = vec![
@@ -576,8 +575,8 @@ mod test {
                 ))),
                 tonic::Code::Unauthenticated,
             ),
-            // A credential which runs out under a live append is refused by
-            // whatever the broker was doing at the time, so it is not this code.
+            // Whatever the broker was doing refuses a credential which runs out
+            // under a live append, so it does not report this code.
             (
                 anyhow::Error::new(gazette::Error::Grpc(tonic::Status::deadline_exceeded(
                     "waiting for pipeline",

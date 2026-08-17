@@ -1,14 +1,14 @@
 //! Serialization of overlapping mutations against one disk's image.
 
-/// Block ranges of the mutations one disk currently has in flight, keyed by the
-/// device request tag which owns each.
+/// Block ranges of the mutations one disk has in flight, keyed by the device
+/// request tag which owns each.
 ///
-/// Chunks reach the journal in the order the owner accepted them, so the image
-/// must be modified in that same order or a rebuilt disk would not match what
-/// the client saw. Nothing but overlap can reorder two mutations, and a
-/// filesystem does not issue overlapping concurrent writes, so this holds only
-/// the handful of ranges a device queue has open and is expected never to
-/// refuse one. A linear scan over a `Vec` is therefore the right shape.
+/// Chunks reach the journal in the order the owner accepted them. The image must
+/// be modified in that same order, or a rebuilt disk would not match what the
+/// client saw. Only an overlap can reorder two mutations, and a filesystem does
+/// not issue overlapping concurrent writes. This therefore holds only the handful
+/// of ranges a device queue has open, and it is expected never to refuse one. A
+/// linear scan over a `Vec` is the right shape for that.
 #[derive(Default)]
 pub struct InFlight {
     active: Vec<(u16, std::ops::Range<u32>)>,
@@ -57,8 +57,8 @@ impl InFlight {
     }
 
     /// Whether `range` collides with a mutation in flight, or with one of the
-    /// first `earlier` waiting mutations. The second half is what keeps two
-    /// waiting writes to one block in arrival order.
+    /// first `earlier` waiting mutations. The second test keeps two waiting
+    /// writes to one block in arrival order.
     fn blocked(&self, range: &std::ops::Range<u32>, earlier: usize) -> bool {
         self.active
             .iter()
@@ -96,7 +96,7 @@ mod test {
         let mut flight = InFlight::default();
 
         assert!(flight.begin(0, 8..16));
-        // Abutting ranges do not overlap; a shared block does.
+        // Abutting ranges do not overlap. A shared block does.
         assert!(flight.begin(1, 16..24));
         assert!(!flight.begin(2, 15..17));
 
@@ -145,8 +145,8 @@ mod test {
         assert!(flight.is_empty());
     }
 
-    /// Replay a mixed sequence of begins and ends, asserting the invariant the
-    /// guard exists for after every step.
+    /// Replay a mixed sequence of begins and ends. After every step, assert the
+    /// invariant this guard exists for.
     #[test]
     fn test_no_two_overlapping_mutations_are_ever_active() {
         let mut flight = InFlight::default();

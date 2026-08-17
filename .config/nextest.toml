@@ -2,8 +2,8 @@
 
 serial-db-tests = { max-threads = 1 }
 
-# disk-daemon's privileged tests contend on the host-wide /dev/ublk-control, and
-# assert that a scenario leaves no device node or mount behind, which only holds
+# disk-daemon's privileged tests contend on the host-wide /dev/ublk-control. They
+# also assert that a scenario leaves no device node or mount behind, which holds only
 # when no other scenario is running.
 serial-ublk-tests = { max-threads = 1 }
 
@@ -30,16 +30,15 @@ test-group = 'serial-db-tests'
 filter = 'package(automations) and test(test_fibonacci_bench)'
 test-group = 'serial-db-tests'
 
-# Every case here spawns a data plane and privileged children, and they work many
-# disks apiece: the soak, and a fault case which waits out a broker outage and a
-# credential expiry. They routinely run past the default slow-timeout.
+# Each of these spawns a data plane and privileged children, and works many disks.
+# They routinely run past the default slow-timeout.
 [[profile.default.overrides]]
 filter = 'binary_id(disk-daemon::daemon)'
 test-group = 'serial-ublk-tests'
 slow-timeout = { period = "60s", terminate-after = 6 }
 
 [[profile.default.overrides]]
-filter = 'binary_id(disk-daemon::ublk) + binary_id(disk-daemon::daemon)'
+filter = 'binary_id(disk-daemon::ublk)'
 test-group = 'serial-ublk-tests'
 
 # This `server::` filter is overly broad, as not all the tests there actually

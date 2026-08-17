@@ -1,17 +1,16 @@
 //! The seam between an accepted device mutation and its durable copy.
 //!
-//! An owner offers each mutation's chunks here *before* it issues that
-//! mutation against the image, so the order chunks are queued is the order the
-//! image is modified, which is what makes journal order equal replay order.
+//! An owner offers each mutation's chunks here before it issues that mutation
+//! against the image. Chunks are therefore queued in the order the image is
+//! modified, which makes journal order equal replay order.
 //!
-//! The channel is bounded, and that bound is the device's backpressure: a
-//! mutation whose chunks do not fit parks until the consumer takes some. The
-//! consumer is the journal appender; a test collects instead. Taking a mutation
-//! is not appending it, so a consumer may hold what it takes, which is what
-//! lets a disk's journal be created only once something is written.
+//! The channel is bounded, and that bound is the device's backpressure. A
+//! mutation whose chunks do not fit parks until the consumer takes some. Taking
+//! a mutation is not the same as appending it. A consumer may hold what it takes,
+//! so a disk's journal is created only once something is written.
 //!
-//! There are two ways to wait because there are two kinds of consumer: the
-//! journal appender awaits a mutation alongside its session's requests, and the
+//! There are two ways to wait, because there are two kinds of consumer. The
+//! journal appender awaits a mutation alongside its session's requests. The
 //! privileged test scenario blocks a thread of its own.
 
 use crate::proto::Chunk;
@@ -71,11 +70,11 @@ struct State {
 }
 
 impl Capture {
-    /// Queue `chunks`, which are one mutation and are queued whole so that
+    /// Queue `chunks`, which are one mutation. They are queued whole, so
     /// backpressure never splits a device request across two deltas.
     ///
-    /// Returns them if the channel is full. The caller parks that request and
-    /// retries when its waker fires.
+    /// Returns them if the channel is full. The caller then parks that request
+    /// and retries when its waker fires.
     pub fn offer(&self, chunks: Vec<Chunk>) -> Result<(), Vec<Chunk>> {
         let mut state = self.0.state.lock().unwrap();
 
@@ -92,10 +91,9 @@ impl Capture {
 
     /// Whether the next offer will be accepted.
     ///
-    /// The owner is the only offerer, so room it observes is room it still has.
-    /// Horizon copies use this rather than a refusal, because a copy which was
-    /// refused would have to be held while mutations of the same blocks flowed
-    /// past it.
+    /// Only the owner offers, so room it observes is room it still has. Horizon
+    /// copies ask this rather than risk a refusal. A refused copy would have to
+    /// be held while mutations of the same blocks flowed past it.
     pub fn has_room(&self) -> bool {
         let state = self.0.state.lock().unwrap();
         state.queue.len() != state.capacity
@@ -113,8 +111,8 @@ impl Captured {
     /// Take the next mutation, awaiting one if the queue is empty. `None` once
     /// the owner has dropped its [`Capture`] and the queue is drained.
     ///
-    /// A dropped future has taken nothing, so this may be raced against other
-    /// work in a `select!`.
+    /// A dropped future has taken nothing, so a `select!` may race this against
+    /// other work.
     pub async fn recv(&self) -> Option<Vec<Chunk>> {
         loop {
             {

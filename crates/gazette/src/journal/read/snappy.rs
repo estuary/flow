@@ -1,11 +1,11 @@
-//! Decompression of fragments written with `SNAPPY`, which is Snappy's framing
-//! format rather than its raw block format.
+//! Decompression of fragments written with `SNAPPY`. That codec is Snappy's framing
+//! format, and not its raw block format.
 //!
-//! `snap` decodes that format from a `std::io::Read`, and a fragment arrives
-//! asynchronously, so this reads each chunk's four-byte header to learn how much
-//! to await and then hands the whole chunk to a decoder which only ever sees a
-//! complete one. The decoder is long-lived, so the stream identifier and chunk
-//! ordering are validated across the whole fragment.
+//! `snap` decodes that format from a `std::io::Read`, but a fragment arrives
+//! asynchronously. This therefore reads each chunk's four-byte header to learn how
+//! much to await, then hands the whole chunk to a decoder. The decoder only ever
+//! sees a complete chunk. It is also long-lived, so it validates the stream
+//! identifier and the chunk ordering across the whole fragment.
 
 /// Header of every chunk: a type byte and a 24-bit little-endian body length.
 const HEADER_LEN: usize = 4;
@@ -37,8 +37,8 @@ where
             let body = u32::from_le_bytes([chunk[1], chunk[2], chunk[3], 0]) as usize;
 
             // The header is three bytes wide, so an arbitrary stream can ask for
-            // sixteen megabytes. Nothing this format permits is that large, and
-            // refusing here is what keeps the buffer bounded.
+            // sixteen megabytes. This format permits nothing that large. Refusing
+            // here keeps the buffer bounded.
             if body > max_chunk_len() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -68,8 +68,8 @@ where
     futures::TryStreamExt::into_async_read(Box::pin(chunks))
 }
 
-/// Fill `buf` from `reader`, returning the bytes read. A short return is the end
-/// of the stream, which is a truncation unless it falls on a chunk boundary.
+/// Fill `buf` from `reader`, returning the bytes read. A short return is the end of
+/// the stream. That is a truncation unless it falls on a chunk boundary.
 async fn read_full<R>(reader: &mut R, buf: &mut [u8]) -> std::io::Result<usize>
 where
     R: futures::io::AsyncRead + Unpin,
@@ -85,8 +85,8 @@ where
     Ok(filled)
 }
 
-/// Largest chunk body the format permits, which is a whole block compressed
-/// plus its checksum.
+/// Largest chunk body the format permits. That is a whole block compressed, plus its
+/// checksum.
 fn max_chunk_len() -> usize {
     snap::raw::max_compress_len(MAX_BLOCK_LEN) + 4
 }
@@ -111,8 +111,8 @@ mod test {
         encoder.into_inner().unwrap()
     }
 
-    /// Content which compresses (the repeated run) and content which does not
-    /// (the pseudo-random tail), so that both chunk types occur.
+    /// Content which compresses, in the repeated run, and content which does not, in
+    /// the pseudo-random tail. Both chunk types then occur.
     fn content(len: usize) -> Vec<u8> {
         (0..len)
             .map(|index| match index % 3 {
@@ -133,8 +133,8 @@ mod test {
 
     #[tokio::test]
     async fn test_round_trip_across_chunk_boundaries() {
-        // Empty, part of a block, exactly a block, and several blocks with a
-        // partial one at the end.
+        // These are empty, part of a block, exactly a block, and several blocks
+        // with a partial one at the end.
         for len in [
             0,
             1,
@@ -162,8 +162,8 @@ mod test {
         let err = decoded(b"not a snappy stream at all").await.unwrap_err();
         assert!(format!("{err}").contains("exceeds the format"), "{err}");
 
-        // A well-formed uncompressed chunk, which is still not the stream
-        // identifier every stream must begin with.
+        // A well-formed uncompressed chunk. It is still not the stream identifier
+        // every stream must begin with.
         let err = decoded(&[0x01, 0x06, 0x00, 0x00, 0, 0, 0, 0, b'h', b'i'])
             .await
             .unwrap_err();

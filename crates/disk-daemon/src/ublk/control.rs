@@ -1,10 +1,10 @@
 //! The host-wide `ublk` control plane.
 //!
-//! Every command is a `uring_cmd` against `/dev/ublk-control`, issued one at a
-//! time and awaited: the control plane runs at session boundaries and is not on
-//! any data path. `UBLK_U_CMD_START_DEV` in particular blocks in the kernel
-//! until the queue's fetches are in flight, so it must be issued from a thread
-//! which is not the owner serving that queue.
+//! Every command is a `uring_cmd` against `/dev/ublk-control`. Each is issued one
+//! at a time and awaited. The control plane runs at session boundaries and sits on
+//! no data path. `UBLK_U_CMD_START_DEV` in particular blocks in the kernel until
+//! the queue's fetches are in flight. Some thread other than the owner of that
+//! queue must therefore issue it.
 
 use super::sys;
 
@@ -36,8 +36,8 @@ impl Control {
                 )
             })?;
 
-        // `ublksrv_ctrl_cmd` does not fit the sixteen command bytes of an
-        // ordinary SQE, so the control ring is built with 128-byte entries.
+        // `ublksrv_ctrl_cmd` does not fit the sixteen command bytes of an ordinary
+        // SQE, so the control ring uses 128-byte entries.
         let ring =
             io_uring::IoUring::<io_uring::squeue::Entry128, io_uring::cqueue::Entry>::builder()
                 .build(4)?;
@@ -64,9 +64,9 @@ impl Control {
 
     /// Feature bits this kernel's `ublk_drv` implements.
     ///
-    /// Reading them at startup is what turns a kernel which cannot serve a disk
-    /// into an error naming the version it needs, rather than into a device
-    /// which refuses to add during a client's first session.
+    /// They are read at startup, so a kernel which cannot serve a disk is an
+    /// error naming the version it needs rather than a device which refuses to
+    /// add during a client's first session.
     pub fn features(&self) -> anyhow::Result<u64> {
         let mut features: u64 = 0;
 
@@ -88,7 +88,7 @@ impl Control {
         queue_depth: u16,
         max_io_buf_bytes: u32,
     ) -> anyhow::Result<sys::UblksrvCtrlDevInfo> {
-        // A device number of -1 asks the kernel to pick, and the header must
+        // A device number of -1 asks the kernel to pick one. The header must
         // repeat whatever the payload says.
         let mut info = sys::UblksrvCtrlDevInfo {
             nr_hw_queues: 1,
@@ -109,8 +109,8 @@ impl Control {
         self.issue(sys::UBLK_U_CMD_ADD_DEV, &command)
             .map_err(|err| self.explain_add_dev(err))?;
 
-        // The kernel masks out flags it does not implement, so the values it
-        // copies back are the negotiated feature set.
+        // The kernel masks out flags it does not implement. The values it copies
+        // back are therefore the negotiated feature set.
         anyhow::ensure!(
             info.flags & sys::UBLK_F_USER_COPY != 0,
             "this kernel's ublk_drv does not support UBLK_F_USER_COPY",
@@ -132,9 +132,9 @@ impl Control {
 
     /// Read what the kernel knows about a device, or `None` if it has none.
     ///
-    /// Its `ublksrv_pid` is the process which called [`Control::start_dev`], so
-    /// a caller deciding whether a device is abandoned asks whether that
-    /// process is still alive.
+    /// The `ublksrv_pid` field names the process which called
+    /// [`Control::start_dev`]. A caller decides whether a device is abandoned by
+    /// asking whether that process is still alive.
     pub fn dev_info(&self, dev_id: u32) -> anyhow::Result<Option<sys::UblksrvCtrlDevInfo>> {
         let mut info = sys::UblksrvCtrlDevInfo::default();
         let command = sys::UblksrvCtrlCmd {
@@ -176,8 +176,8 @@ impl Control {
             &sys::UblksrvCtrlCmd {
                 dev_id,
                 queue_id: u16::MAX,
-                // The kernel records this as the serving process, and rejects a
-                // non-positive value.
+                // The kernel records this as the serving process. It rejects a
+                // value which is not positive.
                 data: [std::process::id() as u64],
                 ..Default::default()
             },
@@ -211,8 +211,9 @@ impl Control {
                 ..Default::default()
             },
         )?;
-        // Saturating, because a device this control never added may be deleted:
-        // one whose server is gone outlives it, to be deleted by whoever reaps.
+        // This saturates, because a caller may delete a device this control never
+        // added. A device whose server is gone outlives that server, and whoever
+        // reaps it deletes it here.
         let relaxed = std::sync::atomic::Ordering::Relaxed;
         let live = self
             .live
@@ -229,8 +230,8 @@ impl Control {
         let mut inner = self.inner.lock().unwrap();
         let inner = &mut *inner;
 
-        // SAFETY: `UblksrvCtrlCmd` is `repr(C)` and its 32 bytes are fully
-        // occupied by its fields, so the copy reads no padding.
+        // SAFETY: `UblksrvCtrlCmd` is `repr(C)`, and its fields fully occupy its 32
+        // bytes. The copy therefore reads no padding.
         let bytes = unsafe { sys::cmd_bytes::<_, 80>(command) };
 
         let entry = io_uring::opcode::UringCmd80::new(
@@ -241,8 +242,8 @@ impl Control {
         .build();
 
         {
-            // SAFETY: `command` and whatever it addresses outlive the wait
-            // below, which does not return until the kernel is done with them.
+            // SAFETY: `command` and whatever it addresses outlive the wait below.
+            // That wait does not return until the kernel is done with them.
             unsafe { inner.ring.submission().push(&entry) }
                 .expect("the control ring holds one command at a time");
         }
@@ -261,9 +262,7 @@ impl Control {
         Ok(result)
     }
 
-    /// `ublks_max` counts unprivileged devices only, so it never binds these.
-    /// It is still the first thing an operator reaches for when `ADD_DEV` is
-    /// refused, so the error names it alongside the live device count.
+    /// Name what an operator will reach for when `ADD_DEV` is refused.
     fn explain_add_dev(&self, err: std::io::Error) -> anyhow::Error {
         anyhow::anyhow!(
             "ublk ADD_DEV was refused ({err}) with {} device(s) live. These \

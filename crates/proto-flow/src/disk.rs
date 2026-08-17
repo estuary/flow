@@ -16,8 +16,9 @@ pub mod request {
         Publish(super::Publish),
         #[prost(message, tag = "3")]
         Commit(super::Commit),
-        /// Replaces the session's broker connection, and has no reply. Clients
-        /// holding short-lived tokens send it before expiry.
+        /// Replaces the session's broker endpoint and credential, and has no reply.
+        /// The daemon reads requests in order, so the client must send it well
+        /// before the credential expires.
         #[prost(message, tag = "4")]
         Broker(super::Broker),
     }
@@ -59,8 +60,7 @@ pub struct Open {
     /// are indexed by uint32, capping `device_size` at 2^32 blocks.
     #[prost(uint32, tag = "3")]
     pub block_size: u32,
-    /// Brokers serving the journal. If unset, the daemon uses its configured
-    /// endpoint with no credential.
+    /// Brokers serving the journal. Required.
     #[prost(message, optional, tag = "4")]
     pub broker: ::core::option::Option<Broker>,
     /// Acknowledgements which the client committed but which may not have reached
@@ -69,13 +69,16 @@ pub struct Open {
     ///
     /// The disk has committed state if the journal holds an acknowledged delta, or
     /// if an acknowledgement is recovered here.
+    ///
+    /// When set, the journal must exist. An absent journal means committed state
+    /// was deleted, and the Open fails.
     #[prost(bytes = "bytes", repeated, tag = "5")]
     pub recovered_acks: ::prost::alloc::vec::Vec<::prost::bytes::Bytes>,
 }
 /// Broker addresses and authorizes the Gazette brokers serving a disk's journal.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Broker {
-    /// Address of a broker. If empty, the daemon uses its configured default.
+    /// Address of a broker. Required.
     #[prost(string, tag = "1")]
     pub endpoint: ::prost::alloc::string::String,
     /// Bearer token presented to the broker. If empty, the daemon attempts to

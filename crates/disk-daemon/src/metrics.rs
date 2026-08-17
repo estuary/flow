@@ -1,29 +1,28 @@
 //! What the daemon reports about itself on its `service-kit` surface.
 //!
-//! Two scopes, and they answer different questions. A disk's own metrics are
-//! labelled by its journal and say whether that disk is keeping up: how much it
-//! is appending, how far its recovery range has grown, what its open horizon
-//! still owes, and whether its device is being held back by the journal. The
-//! host's say whether the machine can take another disk.
+//! There are two scopes, and they answer different questions. A disk's own
+//! metrics carry its journal as a label. They say whether that disk is keeping
+//! up: how much it appends, how far its recovery range has grown, what its open
+//! horizon still owes, and whether the journal is holding its device back. The
+//! host's metrics say whether the machine can take another disk.
 //!
-//! The daemon knows its true footprint exactly, because a disk's allocated
-//! bitmap is the set of blocks its image occupies. `st_blocks` cannot give the
-//! same answer: ext4 delays allocation, so a block a disk has already written is
-//! not charged against the image until writeback.
+//! The daemon knows its true footprint exactly. A disk's allocated bitmap is the
+//! set of blocks its image occupies. `st_blocks` cannot give the same answer,
+//! because ext4 delays allocation. It does not charge a block against the image
+//! until writeback, even after the disk has written it.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// How often host capacity is sampled. These are facts about the machine rather
-/// than events, so they are read on a tick rather than reported.
+/// How often the daemon samples host capacity. These are facts about the machine
+/// rather than events, so a tick reads them rather than a handler reporting them.
 const SAMPLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// What one disk's owner reports: what its image holds, what its horizon owes,
-/// and whether the journal is holding its device back.
+/// and whether the journal is holding its device back. Each metric's meaning is
+/// its description in `describe`.
 pub struct Device {
     pub allocated: Contribution,
     pub horizon_pending: metrics::Gauge,
-    /// Device requests waiting on capture capacity or on a closed admission,
-    /// which is what backpressure looks like from the device's side.
     pub parked: metrics::Gauge,
     pub stalls: metrics::Counter,
 }
@@ -37,10 +36,7 @@ pub struct Journal {
     pub publishes: metrics::Counter,
     pub commits: metrics::Counter,
     pub horizons: metrics::Counter,
-    /// Journal bytes above the recovery floor, which is what a recovery of this
-    /// disk would have to read and what a horizon exists to bound.
     pub recovery_range: metrics::Gauge,
-    /// Wall-clock second of the floor, which is the label a replay seeks by.
     pub floor_seconds: metrics::Gauge,
 }
 
@@ -57,9 +53,9 @@ impl Device {
     }
 }
 
-/// A disk which has ended holds nothing and owes nothing, so its gauges say so
-/// rather than standing at whatever they last reported. Counters are cumulative
-/// and are left alone.
+/// A disk which has ended holds nothing and owes nothing. Its gauges must say
+/// so, rather than stand at whatever they last reported. Counters are cumulative,
+/// so this leaves them alone.
 impl Drop for Device {
     fn drop(&mut self) {
         self.horizon_pending.set(0.0);
@@ -83,8 +79,8 @@ impl Journal {
     }
 }
 
-/// Bytes every live disk of the host holds, which each disk adds its own share
-/// to for as long as it exists.
+/// Bytes every live disk of the host holds. Each disk adds its own share for as
+/// long as it exists.
 #[derive(Clone, Default)]
 pub struct Footprint(std::sync::Arc<AtomicU64>);
 
@@ -127,8 +123,8 @@ impl Drop for Contribution {
 
 /// Sample host capacity until `draining` fires.
 ///
-/// A scrape of these against the image filesystem's free space is what says
-/// whether the host can take another disk, which no per-disk metric can.
+/// A scrape of these against the image filesystem's free space says whether the
+/// host can take another disk, which no per-disk metric can.
 pub async fn host(
     image_dir: std::path::PathBuf,
     control: std::sync::Arc<crate::ublk::Control>,
@@ -146,9 +142,6 @@ pub async fn host(
         allocated.set(footprint.0.load(Ordering::Relaxed) as f64);
         devices.set(control.live() as f64);
 
-        // `ublks_max` counts unprivileged devices, which these are not, so it is
-        // reported as the host ceiling an operator will reach for rather than as
-        // one this daemon is bound by.
         if let Some(max) = control.ublks_max() {
             devices_max.set(max as f64);
         }
@@ -260,8 +253,8 @@ fn describe() {
 mod test {
     use super::Footprint;
 
-    /// The host's footprint is the sum of its disks', and a disk which ends
-    /// gives its share back.
+    /// The host's footprint is the sum of its disks'. A disk which ends gives
+    /// its share back.
     #[test]
     fn test_disks_add_and_return_their_share() {
         let footprint = Footprint::default();

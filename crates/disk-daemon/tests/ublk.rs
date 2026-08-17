@@ -1,11 +1,13 @@
 //! End-to-end tests over a real `ublk` device.
 //!
-//! Serving a device and mounting a filesystem need `CAP_SYS_ADMIN`, so each test
-//! runs a scenario in the `disk-daemon-scenario` binary under `sudo -n` and
-//! asserts against the JSON it reports. Cargo itself never runs as root, which
-//! keeps the target directory the user's. These tests are in the default run:
-//! a missing prerequisite fails them rather than skipping them, and a nextest
-//! test group serializes them so their leak checks see only their own devices.
+//! Serving a device and mounting a filesystem need `CAP_SYS_ADMIN`. Each test
+//! therefore runs a scenario in the `disk-daemon-scenario` binary under `sudo -n`,
+//! and asserts against the JSON it reports. Cargo itself never runs as root, which
+//! keeps the target directory the user's.
+//!
+//! These tests are in the default run. A missing prerequisite fails them rather
+//! than skipping them. A nextest test group serializes them, so their leak checks
+//! see only their own devices.
 
 mod common;
 
@@ -46,9 +48,9 @@ fn assert_no_leaks(report: &serde_json::Value) {
     );
 }
 
-/// The captured chunk stream, replayed onto a second image, reproduces the
-/// served image byte for byte and block for block. This is what makes the local
-/// image disposable.
+/// The captured chunk stream, replayed onto a second image, reproduces the served
+/// image byte for byte and block for block. This is why the local image is
+/// disposable.
 fn assert_replays_identically(report: &serde_json::Value) {
     assert_eq!(
         report["image"], report["replay"],
@@ -70,15 +72,13 @@ fn test_device_lifecycle() {
         serde_json::json!({"char": false, "block": false, "sys_block": false}),
     );
 
-    // A fresh image is all holes, and reads and the kernel's partition scan
-    // mutate nothing.
+    // A fresh image is all holes. Neither a read nor the kernel's partition scan
+    // mutates anything.
     assert_eq!(report["reads_zeroes"], true);
     assert_eq!(report["mutations"], 0);
     assert_eq!(report["image"]["allocated"], 0);
     assert_eq!(report["image"]["extents"], 0);
 
-    // The kernel's ceiling is reported rather than enforced here, and it counts
-    // unprivileged devices only, so it does not bind these.
     assert!(report["ublks_max"].is_number(), "{report}");
 }
 
@@ -117,9 +117,9 @@ fn test_discards_become_punches_which_clear_allocated_bits() {
     assert_replays_identically(&report);
 }
 
-/// The horizon invariant, at the block level: what a delta copies is rationed
-/// by what it changed, blocks the device rewrites cost no copy at all, and the
-/// mutations from the horizon onward rebuild the whole disk by themselves.
+/// The horizon invariant, at the block level. What a delta changed rations what it
+/// copies. A block the device rewrites costs no copy at all. The mutations from the
+/// horizon onward rebuild the whole disk by themselves.
 #[test]
 fn test_a_horizon_discharges_and_bounds_recovery() {
     let report = scenario("horizon");
@@ -128,23 +128,23 @@ fn test_a_horizon_discharges_and_bounds_recovery() {
     let hot = report["hot_blocks"].as_u64().unwrap();
     let deltas = report["deltas"].as_array().unwrap();
 
-    // A range within the configured minimum opens nothing; one beyond it opens
-    // a horizon over every allocated block. The writes which allocated them are
-    // before the horizon, so none of them is in the replay compared below.
+    // A range within the configured minimum opens nothing. A range beyond it opens
+    // a horizon over every allocated block. The writes which allocated those blocks
+    // are before the horizon, so none of them is in the replay compared below.
     assert_eq!(report["declined"], serde_json::Value::Null, "{report}");
     assert_eq!(report["opened"], serde_json::json!(cold), "{report}");
     assert_eq!(report["filled"], serde_json::json!(cold / hot), "{report}");
 
-    // The first delta writes nothing at all, which is a disk nobody is using:
-    // an open horizon then publishes nothing and the journal does not grow.
+    // The first delta writes nothing at all, as on a disk nobody is using. An open
+    // horizon then publishes nothing, and the journal does not grow.
     assert_eq!(deltas[0]["changed"], 0, "{report}");
     assert_eq!(deltas[0]["copied"], 0, "{report}");
     assert_eq!(deltas[0]["pending"], serde_json::json!(cold), "{report}");
 
     let mut copied = 0;
     for delta in deltas {
-        // Write amplification is bounded per delta at one plus the copy ratio,
-        // which is a half here.
+        // Write amplification per delta is at most one plus the copy ratio. The
+        // ratio is a half here.
         assert!(
             2 * delta["copied"].as_u64().unwrap() <= delta["changed"].as_u64().unwrap(),
             "{delta} exceeded its copy budget",
@@ -152,8 +152,8 @@ fn test_a_horizon_discharges_and_bounds_recovery() {
         copied += delta["copied"].as_u64().unwrap();
     }
 
-    // The horizon is discharged, and the hot blocks cost it nothing: the disk's
-    // own rewrites of them are what discharged those.
+    // The horizon is discharged, and the hot blocks cost it nothing. The disk's own
+    // rewrites of those blocks discharged them.
     assert_eq!(deltas.last().unwrap()["pending"], 0, "{report}");
     assert_eq!(copied, (cold - hot) * 4096, "{report}");
 
@@ -168,8 +168,8 @@ fn test_backpressure_parks_writes() {
     let writes = report["writes"].as_u64().unwrap();
     let stalled = report["during_stall"].as_u64().unwrap();
 
-    // A stalled sink parks writes: only what fit the channel completed, and
-    // once it drained every write completed, none dropped or errored.
+    // A stalled sink parks writes. Only what fit the channel completed. Once the
+    // channel drained, every write completed, and none was dropped or errored.
     assert!(stalled <= capacity, "{report}");
     assert!(stalled < writes, "{report}");
 

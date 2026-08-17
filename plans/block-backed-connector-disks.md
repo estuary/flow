@@ -1,15 +1,8 @@
 # Block-Backed Connector Disks
 
-![At a glance, in four panels. 1: where the disk lives — a connector's POSIX
-operations reach a host ext4 filesystem over virtio-fs or a bind mount, which
-the privileged disk daemon serves from a sparse local image through a ublk
-block device, appending block deltas to a per-shard Gazette journal. 2: how a
-boundary commits — Publish, the device cut, acknowledgement bytes returned but
-not appended, Persist of the checkpoint and its AI: obligation to the Flow
-recovery log, then Commit to append the acknowledgement. 3: why the journal
-stays bounded — recovery floor, horizon, and write head on a journal offset
-axis, with the r and k compaction constants. 4: which task types get a
-checkpoint-aligned disk.](block-backed-connector-disks.png)
+> This is a historical design proposal. The
+> [disk-daemon README](../crates/disk-daemon/README.md) is the current design
+> and operating record. It includes the changes made during implementation.
 
 ## Solution overview
 
@@ -1205,11 +1198,8 @@ kernel. Three exposures remain:
 
 ## Implementation addendum
 
-What this document says that the daemon does not, recorded as the daemon was
-built. The planned departures are tabulated in
-[the phase plan](block-backed-connector-disks-phases.md#departures-from-the-design-doc);
-this section is what *implementation* changed, and both should be folded into
-the text above before the feature ships.
+These implementation changes were recorded while the daemon was built. They
+are reflected in the crate README. They remain here as planning history.
 
 **Owners are not pooled.** [Disk ownership](#disk-ownership) says one owner
 thread serves many disks. It cannot: `ublk` binds a device's queue to the thread
@@ -1271,7 +1261,8 @@ broker errors are retried internally. They are, until the session ends: a
 teardown which waited on an unreachable broker would hold that disk's device and
 its mount for as long as the outage lasted, and a draining daemon would leave
 both behind. A `Broker` replacement likewise does not pass through the journal
-writer, which may be retrying against the very broker being replaced.
+writer. It applies to later broker calls, so the client must send it well
+before its credential expires.
 
 **Every append is confirmed before the next is issued.** The daemon issues one
 append at a time and awaits it, so "every chunk of this delta is confirmed" is

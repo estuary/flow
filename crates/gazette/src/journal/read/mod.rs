@@ -225,8 +225,8 @@ impl Client {
 
 /// Whether this client can decompress fragments written with `codec`.
 ///
-/// A writer creating a journal validates the codec it chooses, because content
-/// this client cannot decompress is content it cannot recover.
+/// A writer which creates a journal validates the codec it chooses. Content this
+/// client cannot decompress is content it cannot recover.
 pub fn supports_codec(codec: broker::CompressionCodec) -> bool {
     match codec {
         broker::CompressionCodec::None

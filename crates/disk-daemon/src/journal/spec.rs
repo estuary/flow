@@ -1,24 +1,23 @@
-//! A disk journal's `JournalSpec`, built from the typed inputs a session
-//! supplies.
+//! A disk journal's `JournalSpec`, built from the typed inputs a session supplies.
 //!
-//! The daemon builds the spec rather than accepting one, because a disk's
-//! recoverability rests on fields a client must not be able to get wrong: the
-//! journal must be writable and readable, and its fragments must be in a codec
-//! this daemon can decompress, since it replays them to rebuild the disk.
+//! The daemon builds the spec rather than accepting one. A disk's recoverability
+//! rests on fields a client must not be able to get wrong. The journal must be
+//! writable and readable. Its fragments must use a codec this daemon can
+//! decompress, because it replays them to rebuild the disk.
 //!
-//! It also holds no defaults. A journal's spec is created once and never
-//! converged, so a value the daemon invented would be one the disk is stuck
-//! with, and changing the daemon later would not reach it.
+//! The daemon also holds no defaults. A journal's spec is created once and never
+//! converged. A value the daemon invented would be one the disk is stuck with, and
+//! a later change to the daemon would not reach it.
 
 use crate::proto;
 use proto_gazette::broker;
 
 /// Build the spec of `config`, which must supply every field.
 ///
-/// Most are rejected when zero, because Gazette rejects them too and failing
-/// here names the field. The two Gazette accepts as zero are `optional` on the
-/// wire, so absence is what is refused: no append ceiling and no flush on time
-/// alone stay sayable, but only by saying them.
+/// Most are rejected when zero. Gazette rejects them too, and a failure here names
+/// the field. The two which Gazette accepts as zero are `optional` on the wire, so
+/// their absence is refused instead. No append ceiling and no flush on time alone
+/// stay reachable, but only by being asked for.
 pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpec> {
     let proto::JournalConfig {
         journal,
@@ -50,7 +49,6 @@ pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpe
         "journal {journal} was given no refresh interval",
     );
 
-    // Zero is a value for these two, so absence is what is rejected.
     crate::ensure_valid!(
         flush_interval_seconds.is_some(),
         "journal {journal} was given no flush interval",
@@ -92,11 +90,12 @@ pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpe
             stores: fragment_stores.clone(),
             refresh_interval: Some(seconds(*refresh_interval_seconds)),
             flush_interval: Some(seconds(flush_interval_seconds.unwrap_or_default())),
-            // Gazette deletes fragments by age, which cannot see the recovery
-            // floor, so any retention risks deleting records a live disk needs.
+            // Gazette deletes fragments by age, and age cannot see the recovery
+            // floor. Any retention therefore risks deleting records a live disk
+            // needs.
             retention: None,
-            // Date-prefixed paths are what a bucket lifecycle rule keys on,
-            // which is age-based deletion by another route.
+            // A bucket lifecycle rule keys on date-prefixed paths, which is
+            // age-based deletion by another route.
             path_postfix_template: String::new(),
         }),
         // The daemon both appends to this journal and replays it.
@@ -108,9 +107,9 @@ pub fn build(config: &proto::JournalConfig) -> anyhow::Result<broker::JournalSpe
 
 /// Create `spec` if the journal does not exist, and otherwise leave it alone.
 ///
-/// The insert is conditioned on the journal's absence, so a lost race is
-/// another writer having created the journal, which is the outcome intended.
-/// Convergence of an existing spec belongs to the client.
+/// The insert is conditioned on the journal's absence. A lost race means another
+/// writer created the journal, which is the outcome this wanted. The client
+/// converges an existing spec, not the daemon.
 pub async fn create(
     client: &gazette::journal::Client,
     spec: broker::JournalSpec,
@@ -168,7 +167,7 @@ mod test {
         assert_eq!(fragment.refresh_interval.unwrap().seconds, 300);
         assert_eq!(fragment.flush_interval.unwrap().seconds, 3600);
 
-        // Fixed by the daemon, whatever the session asked for.
+        // The daemon fixes these, whatever the session asked for.
         assert_eq!(fragment.retention, None);
         assert_eq!(fragment.path_postfix_template, "");
         assert_eq!(spec.flags, broker::journal_spec::Flag::ORdwr as u32);
@@ -198,8 +197,7 @@ mod test {
     }
 
     /// Gazette reads zero as a choice for these two, so the daemon carries it
-    /// through. Their absence is what it refuses, which is why they are
-    /// `optional` on the wire rather than plain.
+    /// through.
     #[test]
     fn test_zero_is_a_value_for_the_two_optional_fields() {
         let spec = build(&proto::JournalConfig {

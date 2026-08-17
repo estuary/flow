@@ -1,29 +1,27 @@
-//! The chunk codec: how a device mutation becomes durable journal content,
-//! and how journal content becomes a rebuilt image.
+//! The chunk codec. It turns a device mutation into durable journal content, and
+//! journal content into a rebuilt image.
 //!
 //! Two rules carry all of the subtlety:
 //!
-//! - [`encode_write`] trims trailing zero *bytes*, so a data chunk may end
-//!   within its last block. Replay must therefore zero from `len(data)` through
-//!   the end of the covered range, or an older value in that tail would
-//!   survive.
+//! - [`encode_write`] trims trailing zero bytes, so a data chunk may end within
+//!   its last block. Replay must zero the range from `len(data)` to the end of
+//!   the covered blocks. Otherwise an older value survives in that tail.
 //! - A chunk with empty `data` is one allocated block of zeroes, not a hole.
-//!   Only a `punch` deallocates. This is what lets an all-zero write encode to
-//!   a few bytes while still reproducing the allocation the device saw.
+//!   Only a `punch` deallocates. An all-zero write therefore encodes to a few
+//!   bytes and still reproduces the allocation the device saw.
 
 use crate::bitmap::Bitmap;
 use crate::proto::{Chunk, chunk};
 
 /// Encode a device write of `data` beginning at `block`.
 ///
-/// The result is one data chunk holding the write up to its last non-zero
-/// byte, followed by an empty-data chunk for each block of the write which that
-/// chunk does not cover. Neither shape is a hole, so replay allocates every
-/// block the write covered: the chunks reproduce the write's bytes and its
-/// footprint, not just its bytes.
+/// The result begins with one data chunk. It holds the write up to its last
+/// non-zero byte. An empty-data chunk then follows for each block of the write
+/// which that first chunk does not cover. Neither shape is a hole, so the chunks
+/// reproduce the write's footprint as well as its bytes.
 ///
-/// `data` is a positive multiple of `block_size` because every write the device
-/// accepts is block-aligned in both offset and length.
+/// `data` is a positive multiple of `block_size`. Every write the device accepts
+/// is block-aligned in both offset and length.
 pub fn encode_write(block: u32, data: &bytes::Bytes, block_size: u32) -> Vec<Chunk> {
     assert!(!data.is_empty(), "a device write is never empty");
     assert_eq!(
@@ -44,8 +42,6 @@ pub fn encode_write(block: u32, data: &bytes::Bytes, block_size: u32) -> Vec<Chu
             content: Some(chunk::Content::Data(data.slice(..trimmed))),
         });
     }
-    // Blocks past the trimmed run are entirely zero but were still written, so
-    // each is published as its own allocated zero block.
     out.extend((covered..blocks).map(|offset| Chunk {
         block: block + offset,
         content: Some(chunk::Content::Data(bytes::Bytes::new())),
@@ -57,8 +53,8 @@ pub fn encode_write(block: u32, data: &bytes::Bytes, block_size: u32) -> Vec<Chu
 /// Encode a device discard or write-zeroes request of `blocks` blocks
 /// beginning at `block`.
 ///
-/// Both encode identically because an unallocated block reads as zeroes, and
-/// deallocating is what keeps the rebuilt image sparse.
+/// Both encode identically. An unallocated block reads as zeroes, and
+/// deallocation keeps the rebuilt image sparse.
 pub fn encode_punch(block: u32, blocks: u32) -> Chunk {
     assert!(blocks != 0, "a punch is never empty");
 
@@ -70,10 +66,9 @@ pub fn encode_punch(block: u32, blocks: u32) -> Chunk {
 
 /// Range of block indices which `chunk` covers.
 ///
-/// A data chunk covers `max(1, ceil(len(data) / block_size))` blocks. The `max`
-/// is what makes empty data mean one zeroed block rather than none. A chunk
-/// with no content at all is malformed and covers nothing, and [`apply`]
-/// rejects it.
+/// A data chunk covers `max(1, ceil(len(data) / block_size))` blocks. A chunk
+/// with no content at all is malformed and covers nothing, and [`apply`] rejects
+/// it.
 pub fn covered_blocks(chunk: &Chunk, block_size: u32) -> std::ops::Range<u32> {
     let covered = match &chunk.content {
         Some(chunk::Content::Data(data)) => {
@@ -86,11 +81,11 @@ pub fn covered_blocks(chunk: &Chunk, block_size: u32) -> std::ops::Range<u32> {
     chunk.block..chunk.block.saturating_add(covered)
 }
 
-/// Content bytes `chunks` carry, which is what a journal grows by when they are
-/// appended, excluding framing.
+/// Content bytes `chunks` carry, excluding framing. A journal grows by this much
+/// when they are appended.
 ///
-/// It is what compaction rations, so a punch and a zeroed block cost nothing
-/// and copying them is nearly free.
+/// Compaction rations itself by this count, so a punch and a zeroed block are
+/// nearly free to copy.
 pub fn data_bytes(chunks: &[Chunk]) -> u64 {
     chunks
         .iter()
@@ -103,11 +98,11 @@ pub fn data_bytes(chunks: &[Chunk]) -> u64 {
 
 /// Apply `chunk` to `file` and to the `allocated` bitmap which tracks it.
 ///
-/// Chunks are applied in journal order and the last chunk covering a block
-/// wins, so this is a plain forward replay with no ordering state of its own.
-/// `allocated` supplies the device's block count, and a chunk which reaches
-/// beyond it is rejected because chunks come from a journal and are untrusted
-/// input.
+/// A caller applies chunks in journal order, and the last chunk to cover a block
+/// wins. This is therefore a plain forward replay with no ordering state of its
+/// own. `allocated` supplies the device's block count. A chunk which reaches
+/// beyond that count is rejected, because a chunk read from a journal is
+/// untrusted input.
 pub fn apply(
     chunk: &Chunk,
     block_size: u32,
@@ -136,9 +131,8 @@ pub fn apply(
 
     match content {
         chunk::Content::Data(data) => {
-            // Trailing zeroes were trimmed, so the covered range can extend
-            // past `data`. Without zeroing that remainder, the tail of a block
-            // would keep whatever an earlier chunk left there.
+            // Without zeroing the trimmed remainder, the tail of a block would
+            // keep whatever an earlier chunk left there.
             let Some(pad) = len.checked_sub(data.len() as u64) else {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -175,11 +169,11 @@ pub fn apply(
 mod test {
     use super::{Chunk, chunk, covered_blocks, encode_punch, encode_write};
 
-    /// A real device block size, which is large enough that a trimmed data run can
-    /// end mid-block.
+    /// A real device block size. It is large enough that a trimmed data run can
+    /// end within a block.
     const BLOCK_SIZE: u32 = 4096;
 
-    /// Render chunks as one line each, with data run-length encoded so that a whole
+    /// Render chunks as one line each. Data is run-length encoded, so a whole
     /// block of content is a few characters.
     fn render(chunks: &[Chunk]) -> String {
         chunks
@@ -235,7 +229,7 @@ mod test {
 
     #[test]
     fn test_encode_write_ending_mid_block_after_trim() {
-        // Four bytes into the second block, so the chunk still covers both blocks
+        // Four bytes into the second block. The chunk still covers both blocks,
         // and replay must zero the remainder of the second.
         let chunks = encode_write(7, &write_data(2, 0xaa, 4092), BLOCK_SIZE);
         insta::assert_snapshot!("write_ends_mid_block", render(&chunks));
@@ -292,16 +286,16 @@ mod test {
         _ = encode_write(0, &bytes::Bytes::from_static(&[1, 2, 3]), BLOCK_SIZE);
     }
 
-    /// Replay and its round-trip against a real sparse file. Hole punching and
-    /// `SEEK_DATA`/`SEEK_HOLE` are Linux interfaces.
+    /// Replay and its round-trip against a real sparse file. Hole punching,
+    /// `SEEK_DATA`, and `SEEK_HOLE` are Linux interfaces.
     #[cfg(target_os = "linux")]
     mod replay {
         use super::{BLOCK_SIZE, Chunk, chunk, encode_punch, encode_write};
         use crate::bitmap::Bitmap;
         use crate::chunk::apply;
 
-        /// Small enough that a property case runs in microseconds, large enough to
-        /// span several bitmap words and many chunk spans.
+        /// Small enough that a property case runs in microseconds. Large enough
+        /// to span several bitmap words and many chunk spans.
         const DEVICE_BLOCKS: u32 = 64;
         const MAX_OP_BLOCKS: u32 = 8;
 
@@ -322,8 +316,8 @@ mod test {
                 .unwrap();
         }
 
-        /// Byte ranges the filesystem reports as allocated. `sync_all` first, so
-        /// that ext4's delayed allocation has resolved into extents.
+        /// Byte ranges the filesystem reports as allocated. This calls `sync_all`
+        /// first, so that ext4's delayed allocation has resolved into extents.
         fn data_extents(file: &std::fs::File) -> Vec<(u64, u64)> {
             file.sync_all().unwrap();
             let fd = std::os::fd::AsRawFd::as_raw_fd(file);
@@ -354,7 +348,7 @@ mod test {
             let mut allocated = Bitmap::new(DEVICE_BLOCKS);
 
             // Two blocks of content, then a ten-byte rewrite of the first block.
-            // The trimmed tail of the rewrite must not preserve the older value.
+            // The trimmed tail of the rewrite must not keep the older value.
             for chunk in encode_write(
                 0,
                 &bytes::Bytes::from(vec![0xaa; 2 * BLOCK_SIZE as usize]),
@@ -458,8 +452,9 @@ mod test {
                         block,
                         blocks,
                         fill: u8::arbitrary(g),
-                        // Biased towards trim boundaries: none, everything, whole
-                        // trailing blocks, or an arbitrary mid-block cut.
+                        // Biased towards trim boundaries. The cases are no
+                        // trim, a full trim, whole trailing blocks, and an
+                        // arbitrary cut within a block.
                         zero_tail: match u8::arbitrary(g) % 4 {
                             0 => 0,
                             1 => span,
@@ -485,8 +480,8 @@ mod test {
             }
         }
 
-        /// Content of a generated write, patterned so that interior bytes take
-        /// every value (including zero) and the final `zero_tail` bytes are zero.
+        /// Content of a generated write. The interior bytes take every value,
+        /// zero included. The final `zero_tail` bytes are zero.
         fn patterned_data(blocks: u32, fill: u8, zero_tail: u32) -> bytes::Bytes {
             let span = (blocks * BLOCK_SIZE) as usize;
             let body = span - zero_tail as usize;
@@ -505,9 +500,8 @@ mod test {
         }
 
         /// Apply each operation directly to one image, and its chunk encoding to
-        /// another, then require the two images to be indistinguishable in
-        /// content, in tracked allocation, and in what the filesystem itself
-        /// reports as allocated.
+        /// another. The two images must then agree on their content, on their
+        /// tracked allocation, and on what the filesystem reports as allocated.
         fn replays_identically(Ops(ops): Ops) -> bool {
             let dir = tempfile::tempdir().unwrap();
             let direct = sparse_file(&dir, "direct");

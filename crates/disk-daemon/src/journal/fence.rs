@@ -1,18 +1,18 @@
 //! Claiming sole authority to append to a disk journal.
 //!
-//! Every disk journal carries an `author` register naming the epoch which may
-//! append to it. A session reads that value once as `R` when it opens, and
-//! swaps it for its own epoch `E` by appending a fence record. `R` is never
-//! re-read: a session may only replace the value it observed at startup, so a
+//! Every disk journal carries an `author` register. It names the epoch which may
+//! append to that journal. A session reads the value once as `R` when it opens. It
+//! then appends a fence record to swap `R` for its own epoch `E`. Nothing ever
+//! re-reads `R`. A session may only replace the value it observed at startup, so a
 //! session which was itself displaced cannot take the journal back.
 //!
-//! Gazette orders the fence with every other append, so an append issued before
-//! a fence but ordered after it fails its author check.
+//! Gazette orders the fence with every other append. An append issued before a
+//! fence, but ordered after it, therefore fails its author check.
 //!
 //! The register is not commit authority. Etcd can lose register state
 //! independently of journal contents, and an empty register set matches any
-//! selector, so a journal whose registers were lost is writable again while its
-//! committed records remain authoritative.
+//! selector. A journal whose registers were lost is therefore writable again,
+//! while its committed records stay authoritative.
 
 use proto_gazette::{broker, uuid};
 
@@ -25,13 +25,13 @@ pub struct Probe {
     pub author: Option<String>,
     /// Write head confirmed by the broker.
     pub head: i64,
-    /// False when the journal does not exist, which is the ordinary state of a
-    /// disk that has never published.
+    /// False when the journal does not exist. That is the ordinary state of a
+    /// disk which has never published.
     pub exists: bool,
 }
 
 /// Read a journal's registers and write head with a zero-byte append. Only an
-/// append carrying content may modify registers, so this changes nothing.
+/// append which carries content may modify registers, so this changes nothing.
 pub async fn probe(client: &gazette::journal::Client, journal: &str) -> anyhow::Result<Probe> {
     let request = broker::AppendRequest {
         journal: journal.to_string(),
@@ -62,9 +62,9 @@ pub async fn probe(client: &gazette::journal::Client, journal: &str) -> anyhow::
 /// Append `record` to claim `journal` for `epoch`, replacing the `prior` author.
 ///
 /// An append whose RPC failed may still have landed, and a landed fence has
-/// already excluded the previous writer. Such an attempt is therefore resolved
-/// by re-probing for `epoch` rather than by choosing a new one, which would
-/// leave two epochs believing they hold the journal.
+/// already excluded the previous writer. Such an attempt is therefore resolved by
+/// probing again for `epoch`, and not by choosing a new one. A new epoch would
+/// leave two epochs which each believe they hold the journal.
 pub async fn claim(
     client: &gazette::journal::Client,
     journal: &str,
@@ -110,10 +110,10 @@ pub async fn claim(
 
 /// Build the fence record which installs `epoch` as a journal's author.
 ///
-/// Its own producer is distinct from `epoch`, so that a reader attributes the
-/// fence to the session which appended it rather than to the epoch it installs.
-/// A transient retry within one append re-sends these same bytes, which Gazette
-/// de-duplicates by UUID.
+/// Its own producer differs from `epoch`. A reader therefore attributes the fence
+/// to the session which appended it, and not to the epoch it installs. A transient
+/// retry within one append re-sends these same bytes, and Gazette de-duplicates
+/// them by UUID.
 pub fn record(epoch: uuid::Producer) -> bytes::Bytes {
     let record = crate::proto::DiskRecord {
         uuid: super::uuid_bytes(
@@ -131,8 +131,8 @@ pub fn record(epoch: uuid::Producer) -> bytes::Bytes {
     buf.freeze()
 }
 
-/// Selector which every append of a claimed journal carries, so that an append
-/// racing a replacement session fails rather than advancing the disk.
+/// Selector which every append of a claimed journal carries. An append which
+/// races a replacement session then fails rather than advancing the disk.
 pub fn held_by(epoch: uuid::Producer) -> broker::LabelSelector {
     selector(Some(&value(epoch)))
 }
@@ -154,8 +154,8 @@ fn selector(expect: Option<&str>) -> broker::LabelSelector {
             include: Some(label_set(author)),
             exclude: None,
         },
-        // An exclude of any value rejects a journal some other session claimed
-        // between this session's probe and its claim.
+        // An exclude of any value rejects a journal which some other session
+        // claimed between this session's probe and its claim.
         None => broker::LabelSelector {
             include: None,
             exclude: Some(label_set("")),

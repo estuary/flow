@@ -1,5 +1,9 @@
 # Disk Daemon — Implementation Phases
 
+> This is a historical implementation plan. The
+> [disk-daemon README](../crates/disk-daemon/README.md) is the current design
+> and operating record.
+
 Companion to [block-backed-connector-disks.md](block-backed-connector-disks.md)
 (the design). Scope here is **the disk daemon only**: the general-purpose,
 Gazette-backed block-device service. The end state is a stand-alone
@@ -864,11 +868,10 @@ Finishes the daemon as a usable, operable stand-alone service.
   bounded per-session memory;
   defensive limits on concurrent sessions/disks per owner; consistent
   terminal-error taxonomy over the session stream.
-- Docs: crate README (architecture roadmap per repo policy), a short
-  operator doc (privileges required, flags, metrics), and a design-doc
-  addendum recording anything that shifted during implementation.
+- Docs: one crate README covering the architecture, implementation decisions,
+  privileges, flags, metrics, and anything that shifted during implementation.
 
-  The operator doc must state that **the socket's directory is the access
+  The README must state that **the socket's directory is the access
   control**. A client connecting to a Unix socket needs write permission on
   it, and the daemon's clients are not the privileged user it runs as, so the
   socket is world-writable and its directory decides who may reach it. A
@@ -891,7 +894,7 @@ Finishes the daemon as a usable, operable stand-alone service.
   `Commit` whose bytes differ are all `FAILED_PRECONDITION` in spirit, and the
   two the session state machine detects do report it. The three the journal
   writer detects reach `session::failed` as ordinary failures instead. Fixing it
-  wants a marker kind beside `Invalid`. `OPERATING.md` documents what the code
+  wants a marker kind beside `Invalid`. The crate README documents what the code
   does rather than the intent.
 
 **Tests:** soak — many concurrent disks under mixed read/write/discard load

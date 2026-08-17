@@ -1,9 +1,9 @@
 //! One session, driven from stdin. This is how a disk is exercised by hand.
 //!
-//! It speaks the same gRPC a runtime does and holds the acknowledgement a
-//! publication returns, so a commit is a word rather than a paste. Every event
-//! is one line on stdout beginning with what happened, which makes the same
-//! tool the daemon's demo surface and its smoke test:
+//! It speaks the same gRPC a runtime does. It also holds the acknowledgement a
+//! publication returns, so a commit is a word rather than a paste. Every event is
+//! one line on stdout, and each line begins with what happened. The same tool is
+//! therefore both the daemon's demo surface and its smoke test:
 //!
 //! ```text
 //! mounted /var/lib/disks/disk-3
@@ -49,8 +49,8 @@ pub async fn run(args: args::Client) -> anyhow::Result<()> {
         let line = tokio::select! {
             line = lines.recv() => line,
 
-            // Ending the stream is what tears the disk down, so an interrupt
-            // leaves the same state a clean exit does.
+            // Ending the stream tears the disk down, so an interrupt leaves the
+            // same state a clean exit does.
             outcome = tokio::signal::ctrl_c() => {
                 () = outcome.context("awaiting SIGINT")?;
                 None
@@ -99,8 +99,8 @@ pub async fn run(args: args::Client) -> anyhow::Result<()> {
                     response => anyhow::bail!("expected Committed, got {response:?}"),
                 }
             }
-            // A replacement has no reply, so its next publication is where a
-            // broker which cannot be reached surfaces.
+            // A replacement has no reply. A broker which cannot be reached
+            // surfaces at the next publication instead.
             Some("broker") => {
                 let broker = proto::Broker {
                     endpoint: words.next().unwrap_or_default().to_string(),
@@ -120,7 +120,7 @@ pub async fn run(args: args::Client) -> anyhow::Result<()> {
     drop(requests);
 
     // The daemon closes its half only once the disk is unmounted and its device
-    // is deleted, so this is what waits for the teardown.
+    // is deleted. This read therefore waits for the teardown.
     if let Some(response) = responses.message().await.context("ending the session")? {
         anyhow::bail!("session closed with an unexpected {response:?}");
     }
@@ -183,8 +183,8 @@ async fn reply(
     }
 }
 
-/// Stdin as a stream of lines. It is read by a thread of its own because a
-/// blocking read of a terminal must not hold a runtime worker.
+/// Stdin as a stream of lines. A thread of its own reads it, because a blocking
+/// read of a terminal must not hold a runtime worker.
 fn stdin_lines() -> tokio::sync::mpsc::Receiver<String> {
     let (lines, receiver) = tokio::sync::mpsc::channel(1);
 
