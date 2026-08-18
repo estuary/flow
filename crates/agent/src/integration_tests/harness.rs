@@ -427,7 +427,7 @@ impl TestHarness {
 
     /// Ideally, we'd get a whole separate database for each integration test
     /// run, but for now we just clear out all the tables that we need to. Uses
-    /// `delete from` instead of `truncate` becuase some dude on the internet
+    /// `delete from` instead of `truncate` because some dude on the internet
     /// said it's faster, lol.
     async fn truncate_tables(&mut self) {
         tracing::warn!("clearing all data before test");
