@@ -1,5 +1,5 @@
 
-# Shopify
+# Shopify (Deprecated)
 
 :::deprecated
 This connector is deprecated and no longer receives updates, as Shopify is deprecating their REST API
