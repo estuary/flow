@@ -1145,8 +1145,10 @@ impl TestHarness {
     }
 
     /// Refreshes the authorization Snapshot with a caller-controlled `taken`
-    /// stamp, letting tests simulate a Snapshot which predates (is stale for)
-    /// a queued operation.
+    /// stamp, letting tests position the Snapshot relative to a queued
+    /// operation: a past stamp makes it stale for the operation, while a
+    /// slightly-future stamp makes it authoritative despite the temporal-skew
+    /// allowance of `Snapshot::taken_after`.
     pub async fn refresh_snapshot_taken_at(
         &self,
         taken: tokens::DateTime,
@@ -1694,7 +1696,9 @@ impl TestHarness {
 
         // Execute the query using a pretty short timeout. This is necessary because the
         // server will try to wait for a Snapshot refresh when an authZ check fails, but
-        // snapshots are never automatically refreshed during integration tests.
+        // the API app's snapshot is a fixed watch that is never refreshed during
+        // integration tests. (The discovers executor's snapshot is separate, and IS
+        // refreshed by the harness before each discover poll by default.)
         let response =
             tokio::time::timeout(std::time::Duration::from_secs(1), schema.execute(request))
                 .await

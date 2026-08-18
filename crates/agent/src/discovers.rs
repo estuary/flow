@@ -331,7 +331,9 @@ async fn prepare_discover(
         user_id,
         name,
         models::authz::Capability::CatalogRead.into(),
-        snapshot.result().expect("validated in poll"),
+        snapshot
+            .result()
+            .expect("callers pin a ready authorization Snapshot"),
         pool,
     )
     .await?;

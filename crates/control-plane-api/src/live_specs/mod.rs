@@ -107,6 +107,9 @@ pub async fn get_live_specs_authorized(
 
 /// Fetches live specs as a `tables::LiveCatalog` without any authorization
 /// filtering: every requested name that has a live spec is returned.
+///
+/// `user_id` is bound into the query but unused: with both capability flags
+/// disabled, `fetch_live_specs` never evaluates it.
 pub async fn get_live_specs_unfiltered(
     user_id: Uuid,
     names: &[String],
@@ -114,8 +117,10 @@ pub async fn get_live_specs_unfiltered(
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
-    // Limit each individual query to 512 names to avoid statement timeouts
-    // when fetching a large number of specs.
+    // Chunking is inherited from when this query computed authorization
+    // capabilities per name and risked statement timeouts on large fetches.
+    // The plain fetch is much cheaper; chunks are kept to bound statement
+    // size for very large name lists.
     for names_chunk in names.chunks(512) {
         let rows = db::fetch_live_specs(
             user_id,
