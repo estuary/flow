@@ -32,8 +32,6 @@ struct PendingRead {
     // Last time this read was included in a Fetch request. Used to reap reads for
     // partitions the client has stopped fetching.
     last_accessed: std::time::Instant,
-    // Identifies the journal, used to look for entries in cooldown.
-    journal_name: String,
     // The Collection::schema_hash this read was started against, used to
     // detect if the read is still current.
     schema_hash: String,
@@ -125,8 +123,8 @@ pub struct Session {
     read_buffer_size: usize,
     // Total byte budget for a Fetch, divided evenly across partitions to cap per-partition reads.
     combined_partition_fetch_limit: usize,
-    // Journals currently cooling down after a schema-validation error, keyed by journal name.
-    cooldown: HashMap<String, CooldownEntry>,
+    // Partitions currently cooling down after a schema-validation error,
+    cooldown: HashMap<(TopicName, i32), CooldownEntry>,
     // How long a journal can stay in cooldown before this connection gives up and closes.
     schema_error_hard_fail_after: std::time::Duration,
 }
@@ -645,17 +643,11 @@ impl Session {
             tracing::info!(reaped, remaining = self.reads.len(), "reaped stale reads");
         }
 
-        // Drop cooldown entries for journals no client is fetching anymore.
-        // A cooldown otherwise only clears when a partition is fetched again
-        // with an updated schema hash, so an abandoned partition's entry
-        // would persist for the life of the connection.
-        let journals_in_use: std::collections::HashSet<&str> = self
-            .reads
-            .values()
-            .map(|pending| pending.journal_name.as_str())
-            .collect();
-        self.cooldown
-            .retain(|journal_name, _| journals_in_use.contains(journal_name.as_str()));
+        // Drop cooldown entries for (topic, partition) pairs no client is
+        // fetching anymore. A cooldown otherwise only clears when a partition
+        // is fetched again with an updated schema hash, so an abandoned
+        // partition's entry would persist for the life of the connection.
+        self.cooldown.retain(|key, _| self.reads.contains_key(key));
     }
 
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
@@ -963,7 +955,7 @@ impl Session {
 
                 let journal_name = partition.spec.name.clone();
 
-                if let Some(cooled) = self.cooldown.get(&journal_name) {
+                if let Some(cooled) = self.cooldown.get(&key) {
                     // If the schema hasn't changed, no need to retry this partition.
                     if cooled.schema_hash == collection.schema_hash {
                         self.reads.insert(
@@ -973,7 +965,6 @@ impl Session {
                                 last_write_head: fetch_offset,
                                 leader_epoch: collection.binding_backfill_counter as i32,
                                 last_accessed: std::time::Instant::now(),
-                                journal_name,
                                 schema_hash: collection.schema_hash.clone(),
                                 handle: None,
                             },
@@ -986,7 +977,7 @@ impl Session {
                         journal = journal_name,
                         "partition received updated schema, exiting cooldown"
                     );
-                    self.cooldown.remove(&journal_name);
+                    self.cooldown.remove(&key);
                 }
 
                 let (key_schema_id, value_schema_id) =
@@ -996,7 +987,6 @@ impl Session {
                     last_write_head: fetch_offset,
                     leader_epoch: collection.binding_backfill_counter as i32,
                     last_accessed: std::time::Instant::now(),
-                    journal_name,
                     schema_hash: collection.schema_hash.clone(),
                     handle: Some(tokio_util::task::AbortOnDropHandle::new(
                         match data_preview_params {
@@ -1191,13 +1181,14 @@ impl Session {
                     // Still cooling down after a schema-validation error.
                     let cooled = self
                         .cooldown
-                        .get(&pending.journal_name)
+                        .get(&key)
                         .context("cooling-down PendingRead has no cooldown entry")?;
 
                     if cooled.first_failed_at.elapsed() > self.schema_error_hard_fail_after {
                         anyhow::bail!(
-                            "unable to validate schema and no updated schema received for journal: {}",
-                            pending.journal_name,
+                            "unable to validate schema and no updated schema received for topic {} partition {}",
+                            key.0.to_string(),
+                            key.1,
                         );
                     }
 
@@ -1217,17 +1208,16 @@ impl Session {
                         }
 
                         tracing::warn!(
-                            journal = %pending.journal_name,
+                            topic_name = key.0.to_string(),
+                            partition_index = key.1,
                             error = ?err,
                             "partition failed schema validation, entering cooldown"
                         );
 
-                        self.cooldown.entry(pending.journal_name.clone()).or_insert(
-                            CooldownEntry {
-                                first_failed_at: std::time::Instant::now(),
-                                schema_hash: pending.schema_hash.clone(),
-                            },
-                        );
+                        self.cooldown.entry(key.clone()).or_insert(CooldownEntry {
+                            first_failed_at: std::time::Instant::now(),
+                            schema_hash: pending.schema_hash.clone(),
+                        });
                         partition_responses.push(
                             PartitionData::default()
                                 .with_partition_index(partition_request.partition)
