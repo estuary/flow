@@ -345,3 +345,98 @@ fn document_schema(version: usize) -> bytes::Bytes {
     .unwrap()
     .into()
 }
+
+#[tokio::test]
+async fn test_discover_authorization_denials() {
+    let mut harness = TestHarness::init("test_discover_authorization_denials").await;
+    // Snapshot staleness is under explicit test control.
+    harness.snapshot_auto_refresh = false;
+
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    // The user holds no grant to chipmunks/, and no chipmunks/ specs exist.
+    // Denials are computed from the requested names alone, so the two are
+    // indistinguishable by design.
+    let draft_id = harness
+        .create_draft(user_id, "denied discover", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "chipmunks/capture",
+            draft_id,
+            r#"{"denied": 1}"#,
+            false,
+            Ok((
+                spec_fixture(),
+                Discovered {
+                    bindings: Vec::new(),
+                },
+            )),
+        )
+        .await;
+
+    // Stamp the Snapshot slightly ahead of the queued row, so that it is
+    // authoritative for it despite the temporal-skew allowance of
+    // `Snapshot::taken_after`. (Touching the row's `updated_at` instead would
+    // re-fire the discovers task-creation trigger.)
+    let revoke = harness
+        .refresh_snapshot_taken_at(tokens::now() + chrono::Duration::seconds(10))
+        .await;
+
+    let authoritative = harness.run_queued_discover(discover_id).await;
+    assert!(matches!(
+        authoritative.job_status,
+        crate::discovers::JobStatus::DiscoverFailed
+    ));
+    assert!(
+        !revoke.is_cancelled(),
+        "an authoritative denial must not request a Snapshot refresh"
+    );
+
+    // Now a denial under a Snapshot which predates the queued discover.
+    let revoke = harness
+        .refresh_snapshot_taken_at(tokens::now() - chrono::Duration::minutes(5))
+        .await;
+    let draft_id = harness
+        .create_draft(user_id, "denied stale discover", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "chipmunks/capture",
+            draft_id,
+            r#"{"denied": 2}"#,
+            false,
+            Ok((
+                spec_fixture(),
+                Discovered {
+                    bindings: Vec::new(),
+                },
+            )),
+        )
+        .await;
+    let stale = harness.run_queued_discover(discover_id).await;
+    assert!(matches!(
+        stale.job_status,
+        crate::discovers::JobStatus::DiscoverFailed
+    ));
+    assert!(
+        revoke.is_cancelled(),
+        "a denial under a stale Snapshot must request an early refresh"
+    );
+
+    // The denials must render byte-identically: the response never reveals
+    // whether the Snapshot was stale, nor whether the denied specs exist.
+    assert_eq!(authoritative.errors, stale.errors);
+    insta::assert_debug_snapshot!(authoritative.errors, @r###"
+    [
+        (
+            "flow://capture/chipmunks/capture",
+            "not authorized to read: chipmunks/capture",
+        ),
+    ]
+    "###);
+}

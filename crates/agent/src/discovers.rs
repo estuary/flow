@@ -100,6 +100,9 @@ fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
 
 pub struct DiscoverExecutor<C: DiscoverConnectors> {
     pub handler: DiscoverHandler<C>,
+    /// Watch of the authorization Snapshot. Each poll pins one Snapshot for
+    /// the entire discover operation.
+    pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
 }
 
 impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
@@ -127,7 +130,15 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
         let draft_id = row.draft_id;
         assert_eq!(row.id, task_id);
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-        let (status, result) = self.process(row, pool).await?;
+
+        // Pin one authorization Snapshot for the entire operation, so that
+        // authorization decisions cannot flip between discover phases.
+        let snapshot = self.snapshot_watch.token();
+        if let Err(status) = snapshot.result() {
+            anyhow::bail!("authorization snapshot is unavailable: {status}");
+        }
+
+        let (status, result) = self.process(row, snapshot, pool).await?;
         tracing::info!(id=%task_id, %time_queued, ?status, "finished");
         inbox.clear();
         Ok(DiscoverOutcome {
@@ -144,6 +155,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
     async fn process(
         &self,
         row: Row,
+        snapshot: std::sync::Arc<tokens::Refresh<control_plane_api::Snapshot>>,
         pool: &sqlx::PgPool,
     ) -> anyhow::Result<(JobStatus, ProcessResult)> {
         tracing::info!(
@@ -170,6 +182,9 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
+        // Data-plane authorization still evaluates internal.user_roles() in
+        // SQL. A follow-up change moves it onto the pinned authorization
+        // Snapshot, alongside the live-spec authorization below.
         let maybe_data_plane = sqlx::query_as!(
             tables::DataPlane,
             r#"
@@ -215,6 +230,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             row.logs_token,
             image_composed,
             data_plane,
+            snapshot.clone(),
             pool,
         )
         .await;
@@ -242,13 +258,33 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                 Ok((JobStatus::DiscoverFailed, Err(draft_errs)))
             }
             Err(err) => {
+                // An authorization denial is rendered from the error's bare
+                // Display — never the anyhow context chain — so that every
+                // denial is byte-identical regardless of which phase raised
+                // it, or whether the denied specs exist.
+                let detail = if let Some(denied) = err.downcast_ref::<live_specs::NotAuthorized>() {
+                    // The pinned Snapshot may predate this discover, in
+                    // which case the denial may reflect a grant that is
+                    // committed but not yet visible. Request an early
+                    // background refresh so that a user-initiated retry
+                    // can succeed, but report the identical denial either
+                    // way: a distinguishable "stale" response would leak
+                    // what a retry might find.
+                    let snapshot = snapshot.result().expect("validated in poll");
+                    if !snapshot.taken_after(row.updated_at) {
+                        snapshot.revoke.cancel();
+                    }
+                    denied.to_string()
+                } else {
+                    format!("{:#}", err)
+                };
                 let draft_errors = vec![models::draft_error::Error {
                     scope: Some(
                         tables::synthetic_scope(models::CatalogType::Capture, &row.capture_name)
                             .to_string(),
                     ),
                     catalog_name: row.capture_name.clone(),
-                    detail: format!("{:#}", err),
+                    detail,
                 }];
                 Ok((JobStatus::DiscoverFailed, Err(draft_errors)))
             }
@@ -272,6 +308,7 @@ async fn prepare_discover(
     logs_token: uuid::Uuid,
     image_composed: String,
     data_plane: tables::DataPlane,
+    snapshot: std::sync::Arc<tokens::Refresh<control_plane_api::Snapshot>>,
     pool: &sqlx::PgPool,
 ) -> anyhow::Result<Discover> {
     let mut draft = draft::load_draft(draft_id, pool)
@@ -287,11 +324,17 @@ async fn prepare_discover(
     // embedded in its control-plane Id — is carried on the Discover request,
     // so that re-discovers resolve connector feature-flag defaults as the
     // running task does. It's empty for a task which doesn't exist yet.
-    // Filter to only specs that the user can read. If they can't admin, then
-    // wait until they try to publish to surface that error.
+    // The user must hold CatalogRead to the capture name: a denial fails the
+    // discover uniformly, rather than silently treating the capture as new.
     let name = &[capture_name.to_string()];
-    let live =
-        live_specs::get_live_specs(user_id, name, Some(models::Capability::Read), pool).await?;
+    let live = live_specs::get_live_specs_authorized(
+        user_id,
+        name,
+        models::authz::Capability::CatalogRead.into(),
+        snapshot.result().expect("validated in poll"),
+        pool,
+    )
+    .await?;
     let live_capture = live.captures.into_iter().next();
     let created_at = live_capture
         .as_ref()
@@ -362,6 +405,7 @@ async fn prepare_discover(
         reset_on_key_change,
         logs_token,
         created_at,
+        snapshot,
     })
 }
 
@@ -443,6 +487,9 @@ mod test {
             dekaf_registry_address: None,
         };
 
+        // The authorization Snapshot must reflect the grants inserted above.
+        harness.refresh_snapshot().await;
+
         let result = super::prepare_discover(
             user_id,
             draft_id,
@@ -452,6 +499,7 @@ mod test {
             logs_token,
             image_composed.clone(),
             data_plane.clone(),
+            harness.snapshot_watch.token(),
             &harness.pool,
         )
         .await

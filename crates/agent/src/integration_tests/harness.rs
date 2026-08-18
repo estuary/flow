@@ -180,6 +180,15 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
+    /// Watch of the authorization Snapshot used by the discovers executor.
+    pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
+    /// Replaces the Snapshot behind `snapshot_watch`.
+    snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+    /// When true (the default), the Snapshot is refreshed before each
+    /// discovers automation poll, so that grants created by the test are
+    /// visible to authorization. Staleness tests set this to false and drive
+    /// refreshes explicitly.
+    pub snapshot_auto_refresh: bool,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
@@ -259,6 +268,16 @@ impl HarnessBuilder {
         let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
         let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
 
+        // The discovers executor authorizes against a manually-driven watch,
+        // so that tests control exactly when the Snapshot is (re)taken.
+        let (discover_snapshots, replace_discover_snapshot) =
+            tokens::manual::<control_plane_api::Snapshot>();
+        let (discover_snapshot_watch, _ready) = discover_snapshots.into_parts();
+        let snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
+            Box::new(move |snapshot| {
+                let _ = replace_discover_snapshot(Ok(snapshot));
+            });
+
         let control_plane = TestControlPlane::new(PGControlPlane::new(
             pool.clone(),
             system_user_id,
@@ -282,6 +301,9 @@ impl HarnessBuilder {
             publisher,
             builds_root,
             discover_handler,
+            snapshot_watch: discover_snapshot_watch,
+            snapshot_replace,
+            snapshot_auto_refresh: true,
             control_plane,
             controller_exec,
             directive_exec,
@@ -1115,6 +1137,29 @@ impl TestHarness {
         states
     }
 
+    /// Refreshes the authorization Snapshot used by the discovers executor,
+    /// stamped as taken now. Returns the Snapshot's revoke token, which tests
+    /// may inspect to observe an early-refresh request.
+    pub async fn refresh_snapshot(&self) -> tokens::CancellationToken {
+        self.refresh_snapshot_taken_at(tokens::now()).await
+    }
+
+    /// Refreshes the authorization Snapshot with a caller-controlled `taken`
+    /// stamp, letting tests simulate a Snapshot which predates (is stale for)
+    /// a queued operation.
+    pub async fn refresh_snapshot_taken_at(
+        &self,
+        taken: tokens::DateTime,
+    ) -> tokens::CancellationToken {
+        let data = control_plane_api::snapshot::try_fetch(&self.pool, &mut Default::default())
+            .await
+            .expect("failed to fetch authorization snapshot");
+        let snapshot = control_plane_api::Snapshot::new(taken, data);
+        let revoke = snapshot.revoke.clone();
+        (self.snapshot_replace)(snapshot);
+        revoke
+    }
+
     /// Runs at most one automation task of the given type, and returns the id of the task that was run.
     /// Returns None if no eligible task was ready.
     pub async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
@@ -1134,9 +1179,15 @@ impl TestHarness {
                 runtime_v2_new_materializations: self.runtime_v2_new_materializations,
                 runtime_v2_new_derivations: self.runtime_v2_new_derivations,
             }),
-            task_types::DISCOVERS => Server::new().register(DiscoverExecutor {
-                handler: self.discover_handler.clone(),
-            }),
+            task_types::DISCOVERS => {
+                if self.snapshot_auto_refresh {
+                    self.refresh_snapshot().await;
+                }
+                Server::new().register(DiscoverExecutor {
+                    handler: self.discover_handler.clone(),
+                    snapshot_watch: self.snapshot_watch.clone(),
+                })
+            }
             task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
             task_types::TENANT_ALERT_EVALS => Server::new().register(
                 crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
@@ -1188,6 +1239,33 @@ impl TestHarness {
         update_only: bool,
         mock_discover_resp: connectors::MockDiscover,
     ) -> UserDiscoverResult {
+        let disco_id = self
+            .queue_user_discover(
+                image_name,
+                image_tag,
+                capture_name,
+                draft_id,
+                endpoint_config,
+                update_only,
+                mock_discover_resp,
+            )
+            .await;
+        self.run_queued_discover(disco_id).await
+    }
+
+    /// Inserts a queued discover row and registers the mock connector
+    /// response, without running the discover. Use `run_queued_discover` to
+    /// poll it, or `user_discover` for the common queue-and-run case.
+    pub async fn queue_user_discover(
+        &mut self,
+        image_name: &str,
+        image_tag: &str,
+        capture_name: &str,
+        draft_id: Id,
+        endpoint_config: &str,
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> Id {
         let connector_tag = sqlx::query!(
             r##"select ct.id as "id: Id"
             from connectors c
@@ -1227,6 +1305,11 @@ impl TestHarness {
             .connectors
             .mock_discover(capture_name, mock_discover_resp);
 
+        disco_id
+    }
+
+    /// Polls a discover queued by `queue_user_discover` and returns its result.
+    pub async fn run_queued_discover(&mut self, discover_id: Id) -> UserDiscoverResult {
         let Some(task_id) = self
             .run_automation_task(automations::task_types::DISCOVERS)
             .await
@@ -1234,11 +1317,11 @@ impl TestHarness {
             panic!("expected a discover task to have run");
         };
         assert_eq!(
-            task_id, disco_id,
-            "expected discover {disco_id} to have run, but {task_id} got ran instead"
+            task_id, discover_id,
+            "expected discover {discover_id} to have run, but {task_id} got ran instead"
         );
 
-        UserDiscoverResult::load(disco_id, &self.pool).await
+        UserDiscoverResult::load(discover_id, &self.pool).await
     }
 
     pub async fn fail_shard(&mut self, shard: &ShardRef) {

@@ -41,6 +41,11 @@ pub struct Discover {
     /// from the live task's control-plane Id. Empty if the task doesn't exist
     /// yet: the connector assumes a current date for a new task's discover.
     pub created_at: String,
+    /// Authorization Snapshot pinned for the entire discover, so that
+    /// authorization decisions cannot flip mid-operation (for example, during
+    /// a long-running connector RPC). Callers must verify `snapshot.result()`
+    /// is Ok before constructing the Discover.
+    pub snapshot: std::sync::Arc<tokens::Refresh<crate::Snapshot>>,
 }
 
 #[derive(Debug)]
@@ -172,6 +177,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             reset_on_key_change,
             mut draft,
             created_at,
+            snapshot,
         } = req;
 
         let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
@@ -232,6 +238,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             spec.resource_path_pointers,
             db,
             reset_on_key_change,
+            snapshot,
         )
         .await?;
 
@@ -260,6 +267,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         resource_path_pointers: Vec<String>,
         db: &PgPool,
         reset_on_key_change: bool,
+        snapshot: std::sync::Arc<tokens::Refresh<crate::Snapshot>>,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
@@ -308,13 +316,21 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .map(|b| b.target.to_string())
             .collect::<Vec<_>>();
 
-        let live = crate::live_specs::get_live_specs(
-            user_id,
-            &collection_names,
-            filter_user_authz.then_some(models::Capability::Read),
-            db,
-        )
-        .await?;
+        let live = if filter_user_authz {
+            let snapshot = snapshot
+                .result()
+                .expect("Discover callers pin a ready authorization Snapshot");
+            crate::live_specs::get_live_specs_authorized(
+                user_id,
+                &collection_names,
+                models::authz::Capability::CatalogRead.into(),
+                snapshot,
+                db,
+            )
+            .await?
+        } else {
+            crate::live_specs::get_live_specs_unfiltered(user_id, &collection_names, db).await?
+        };
 
         let mut modified_bindings = specs::merge_collections(
             used_bindings,

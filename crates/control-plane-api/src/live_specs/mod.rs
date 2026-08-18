@@ -10,27 +10,92 @@ pub use db::{
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
 
-/// Fetches live specs, returning them as a `tables::LiveCatalog`. Optionally
-/// filters the specs based on user capability. If `filter_capability` is
-/// `None`, then no filtering will be done.
-pub async fn get_live_specs(
+/// NotAuthorized is raised when the user lacks a required capability to one
+/// or more requested catalog names. It's evaluated purely over the requested
+/// names — never over which specs exist — so a denial cannot reveal the
+/// existence of a spec. Callers recognize it by downcasting through `anyhow`
+/// wrapping, and must surface only its bare `Display` (not an accumulated
+/// context chain) so that every denial renders identically.
+#[derive(Debug)]
+pub struct NotAuthorized {
+    /// Requested catalog names which the user is not authorized to.
+    /// Sorted and deduplicated.
+    pub names: Vec<String>,
+}
+
+impl std::fmt::Display for NotAuthorized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "not authorized to read: {}", self.names.join(", "))
+    }
+}
+
+impl std::error::Error for NotAuthorized {}
+
+/// Returns the requested `names` to which the user does NOT hold `capability`,
+/// evaluated against the authorization `snapshot`.
+fn authorization_denials(
     user_id: Uuid,
     names: &[String],
-    filter_capability: Option<Capability>,
+    capability: models::authz::CapabilitySet,
+    snapshot: &crate::Snapshot,
+) -> Vec<String> {
+    let mut denied: Vec<String> = names
+        .iter()
+        .filter(|name| {
+            !tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                name,
+                capability,
+            )
+        })
+        .cloned()
+        .collect();
+
+    denied.sort();
+    denied.dedup();
+    denied
+}
+
+/// Fetches live specs as a `tables::LiveCatalog`, requiring that the user
+/// holds `capability` to every requested name, evaluated against the
+/// authorization `snapshot`.
+///
+/// Authorization is checked before any database access, and over the
+/// requested names rather than over fetched rows: neither the timing nor the
+/// content of a `NotAuthorized` error varies with whether a spec exists.
+pub async fn get_live_specs_authorized(
+    user_id: Uuid,
+    names: &[String],
+    capability: models::authz::CapabilitySet,
+    snapshot: &crate::Snapshot,
+    db: &sqlx::PgPool,
+) -> anyhow::Result<tables::LiveCatalog> {
+    let denied = authorization_denials(user_id, names, capability, snapshot);
+    if !denied.is_empty() {
+        return Err(NotAuthorized { names: denied }.into());
+    }
+    get_live_specs_unfiltered(user_id, names, db).await
+}
+
+/// Fetches live specs as a `tables::LiveCatalog` without any authorization
+/// filtering: every requested name that has a live spec is returned.
+pub async fn get_live_specs_unfiltered(
+    user_id: Uuid,
+    names: &[String],
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
-    // The query that's used by `fetch_live_specs` can be pretty slow because of how
-    // it queries authZ capabilities for each name, even if it doesn't exist.
-    // Limit each individual query to 512 names to avoid statement timeouts when
-    // fetching a large number of specs when `filter_capability` is `Some`.
+    // Limit each individual query to 512 names to avoid statement timeouts
+    // when fetching a large number of specs.
     for names_chunk in names.chunks(512) {
         let rows = db::fetch_live_specs(
             user_id,
             names_chunk,
-            filter_capability.is_some(), // fetch user capabilities only if needed
-            false,                       // we never need spec_capabilities here
+            false, // authorization is not evaluated in SQL
+            false, // we never need spec_capabilities here
             db,
         )
         .await?;
@@ -43,14 +108,6 @@ pub async fn get_live_specs(
             let Some(model_json) = row.spec.as_deref() else {
                 continue;
             };
-            if let Some(min_capability) = filter_capability {
-                if !row
-                    .user_capability
-                    .is_some_and(|actual_capability| actual_capability >= min_capability)
-                {
-                    continue;
-                }
-            }
             let built_spec_json = row.built_spec.as_ref().ok_or_else(|| {
                 tracing::warn!(catalog_name = %row.catalog_name, id = %row.id, "got row with spec but not built_spec");
                 anyhow::anyhow!("missing built_spec for {:?}, but spec is non-null", row.catalog_name)
@@ -121,4 +178,41 @@ pub async fn get_connected_live_specs(
         )?;
     }
     Ok(live)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_authorization_denials() {
+        let snapshot = crate::Snapshot::build_fixture(None);
+        // Bob (from the fixture): `write` on bobCo/, plus `read` to
+        // acmeCo/shared/ via an admin grant to bobCo/tires/.
+        let bob: Uuid = "20202020-2020-2020-2020-202020202020".parse().unwrap();
+        let capability = models::authz::Capability::CatalogRead.into();
+
+        // Names the user is authorized to produce no denials.
+        let names = vec![
+            "acmeCo/shared/collection".to_string(),
+            "bobCo/tires/capture".to_string(),
+        ];
+        assert!(authorization_denials(bob, &names, capability, &snapshot).is_empty());
+
+        // Denials are computed from the requested names alone: a name with no
+        // live spec and a name of an existing-but-unauthorized spec are
+        // indistinguishable in the rendered error.
+        let names = vec![
+            "aliceCo/anvils/pings".to_string(),
+            "bobCo/tires/capture".to_string(),
+            "acmeCo/private/collection".to_string(),
+            "aliceCo/anvils/pings".to_string(),
+        ];
+        let denied = authorization_denials(bob, &names, capability, &snapshot);
+        let error = NotAuthorized { names: denied };
+        insta::assert_snapshot!(
+            error.to_string(),
+            @"not authorized to read: acmeCo/private/collection, aliceCo/anvils/pings"
+        );
+    }
 }
