@@ -702,6 +702,11 @@ A data plane where tasks execute and collections are stored.
 """
 type DataPlane {
 	"""
+	Unique id of this data-plane, as referenced by a `LiveSpec`'s
+	`dataPlaneId`.
+	"""
+	id: Id!
+	"""
 	Name of this data-plane under the catalog namespace.
 	"""
 	name: String!
@@ -820,10 +825,15 @@ type DataPlaneEdge {
 }
 
 """
-Optional filter for the `dataPlanes` query. When omitted, all accessible
-data planes are returned.
+Filter for the `dataPlanes` query. Each field is optional and only
+narrows results. A filter cannot show data planes the caller cannot read.
 """
 input DataPlanesFilter {
+	"""
+	Match data planes by id, such as a `LiveSpec`'s `dataPlaneId`.
+	Unknown or unauthorized ids are silently dropped.
+	"""
+	id: IdFilter
 	"""
 	Filter on the `closed` flag.
 	"""
@@ -896,6 +906,13 @@ input GCPPrivateServiceConnectInput {
 }
 
 scalar Id
+
+input IdFilter {
+	"""
+	Match any id in this non-empty set.
+	"""
+	in: [Id!]
+}
 
 """
 Status of the inferred schema
