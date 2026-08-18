@@ -190,7 +190,7 @@ impl Image {
     /// `run_blocks` contiguous allocated blocks becomes one mutation. This also
     /// reports the block to resume at, or `None` where the image is exhausted.
     ///
-    /// A fresh disk publishes this ahead of its first delta. Its formatted
+    /// A fresh disk sends this ahead of its first delta. Its formatted
     /// filesystem is content the journal has never seen, and the image already
     /// holds exactly that content. Unallocated blocks are not read, so the holes
     /// a prezeroed format left are holes in a rebuilt image too.
@@ -390,7 +390,7 @@ mod test {
     }
 
     /// A snapshot of an image, replayed into another, reproduces it in bytes and
-    /// in allocation. A fresh disk can therefore publish its filesystem without
+    /// in allocation. A fresh disk can therefore append its filesystem without
     /// having kept the writes which made it.
     #[test]
     fn test_a_snapshot_replays_into_an_identical_image() {

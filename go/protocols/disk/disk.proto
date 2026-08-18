@@ -23,7 +23,7 @@ service Disk {
 message Request {
   oneof request {
     Open open = 1;
-    Publish publish = 2;
+    Prepare prepare = 2;
     Commit commit = 3;
     // Replaces the session's broker endpoint and credential, and has no reply.
     // The daemon reads requests in order, so the client must send it well
@@ -37,7 +37,7 @@ message Request {
 message Response {
   oneof response {
     Opened opened = 1;
-    Published published = 2;
+    Prepared prepared = 2;
     Committed committed = 3;
   }
 }
@@ -64,12 +64,12 @@ message Open {
   // allocation. Blocks are indexed by uint32, capping it at 2^32 blocks.
   //
   // This is the one durable per-disk fact. It is fixed from the moment a disk
-  // first publishes, and every later Open must present the same value.
+  // first prepares a delta, and every later Open must present the same value.
   uint64 device_size = 2;
   // Brokers serving the journal. Required.
   Broker broker = 3;
   // Acknowledgements which the client committed but which may not have reached
-  // the journal, as returned by Published. The daemon appends them verbatim
+  // the journal, as returned by Prepared. The daemon appends them verbatim
   // before it uses the journal, and Gazette de-duplicates by UUID.
   //
   // The disk has committed state if the journal holds an acknowledged delta, or
@@ -117,15 +117,18 @@ message Opened {
   fixed64 floor = 2;
 }
 
-// Publish cuts a point-in-time boundary of the device and finishes publishing
-// the delta before it.
+// Prepare cuts a point-in-time boundary of the device and finishes the delta
+// before it. Every data record of that delta is broker-confirmed once Prepared
+// returns, and the record which commits them is withheld, so the delta is
+// durable and uncommitted. That is the prepared state of a two-phase commit,
+// and the daemon is its participant.
 //
-// A session holds at most one uncommitted acknowledgement, so the client must
-// Commit before it may Publish again.
-message Publish {}
+// A session holds at most one prepared delta, so the client must Commit before
+// it may Prepare again.
+message Prepare {}
 
-message Published {
-  // Acknowledgement record which commits the published delta. It is serialized
+message Prepared {
+  // Acknowledgement record which commits the prepared delta. It is serialized
   // but not appended: it becomes durable disk state only when the client
   // returns it in Commit. The client treats it as opaque and records it in the
   // same atomic commit as the state the delta is aligned with. That record
@@ -139,7 +142,7 @@ message Published {
 
 // Commit appends an acknowledgement which the client has made durable.
 message Commit {
-  // Must byte-equal the `ack` of the corresponding Published.
+  // Must byte-equal the `ack` of the corresponding Prepared.
   bytes ack = 1;
 }
 

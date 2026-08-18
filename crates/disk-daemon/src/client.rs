@@ -1,201 +1,242 @@
-//! One session, driven from stdin. This is how a disk is exercised by hand.
+//! A client of the session gRPC, for a program which serves disks.
 //!
-//! It speaks the same gRPC a runtime does. It also holds the acknowledgement a
-//! publication returns, so a commit is a word rather than a paste. Every event is
-//! one line on stdout, and each line begins with what happened. The same tool is
-//! therefore both the daemon's demo surface and its smoke test:
+//! The daemon is one participant of a two-phase commit, and its client is the
+//! coordinator. This client holds no protocol state of its own: the daemon owns the
+//! rules of the exchange, and reports a request out of turn as
+//! `FAILED_PRECONDITION`. [`Error`] separates a request which can never succeed from
+//! a disk whose journal was taken and from one which may work on a retry.
 //!
-//! ```text
-//! mounted /var/lib/disks/disk-3
-//! published 220
-//! committed
-//! floor 7565135732483162112
-//! closed
-//! ```
-//!
-//! A `floor` line is a recovery floor the daemon derived or established. A real
-//! client persists the greatest one it has seen and hands it back as the next
-//! session's `--floor-hint`. Nothing here persists it, so a human carries it.
+//! `examples/basic.rs` is the smallest use of it, and
+//! `examples/two_phase_commit.rs` coordinates four disks. `tests/daemon.rs` speaks
+//! the protocol directly instead, because it asserts what the daemon does with
+//! requests this type cannot express.
 
-use crate::args;
 use crate::proto;
-use anyhow::Context;
 
-/// Open a disk, print its mount path, and serve stdin until it ends.
-pub async fn run(args: args::Client) -> anyhow::Result<()> {
-    let channel =
-        tonic::transport::Endpoint::from_shared(format!("unix://{}", args.uds_path.display()))
-            .context("a socket path is a URI")?
-            .connect()
-            .await
-            .with_context(|| format!("connecting to the daemon on {:?}", args.uds_path))?;
-
-    let (requests, receiver) = tokio::sync::mpsc::channel(1);
-
-    let mut responses = proto_grpc::disk::disk_client::DiskClient::new(channel)
-        .session(tokio_stream::wrappers::ReceiverStream::new(receiver))
-        .await
-        .context("opening a session")?
-        .into_inner();
-
-    () = send(&requests, proto::request::Request::Open(open(&args))).await?;
-
-    match reply(&mut responses).await? {
-        proto::response::Response::Opened(proto::Opened { mount_path, floor }) => {
-            println!("mounted {mount_path}");
-            () = report_floor(floor);
-        }
-        response => anyhow::bail!("expected Opened, got {response:?}"),
-    }
-
-    let mut lines = stdin_lines();
-    let mut ack = bytes::Bytes::new();
-
-    loop {
-        let line = tokio::select! {
-            line = lines.recv() => line,
-
-            // Ending the stream tears the disk down, so an interrupt leaves the
-            // same state a clean exit does.
-            outcome = tokio::signal::ctrl_c() => {
-                () = outcome.context("awaiting SIGINT")?;
-                None
-            }
-        };
-        let Some(line) = line else { break };
-        let mut words = line.split_whitespace();
-
-        match words.next() {
-            None => continue,
-            Some("quit") => break,
-
-            Some("publish") => {
-                () = send(
-                    &requests,
-                    proto::request::Request::Publish(proto::Publish {}),
-                )
-                .await?;
-
-                match reply(&mut responses).await? {
-                    proto::response::Response::Published(published) => {
-                        ack = published.ack;
-
-                        match ack.is_empty() {
-                            true => println!("unchanged"),
-                            false => println!("published {}", ack.len()),
-                        }
-                    }
-                    response => anyhow::bail!("expected Published, got {response:?}"),
-                }
-            }
-            Some("commit") => {
-                let ack = std::mem::take(&mut ack);
-                anyhow::ensure!(!ack.is_empty(), "nothing is published to commit");
-
-                () = send(
-                    &requests,
-                    proto::request::Request::Commit(proto::Commit { ack }),
-                )
-                .await?;
-
-                match reply(&mut responses).await? {
-                    proto::response::Response::Committed(proto::Committed { floor }) => {
-                        println!("committed");
-                        () = report_floor(floor);
-                    }
-                    response => anyhow::bail!("expected Committed, got {response:?}"),
-                }
-            }
-            // A replacement has no reply. A broker which cannot be reached
-            // surfaces at the next publication instead.
-            Some("broker") => {
-                let broker = proto::Broker {
-                    endpoint: words.next().unwrap_or_default().to_string(),
-                    credential: words.next().unwrap_or_default().to_string(),
-                };
-                println!("broker {}", broker.endpoint);
-
-                () = send(&requests, proto::request::Request::Broker(broker)).await?;
-            }
-            Some(other) => {
-                eprintln!(
-                    "{other:?} is not one of: publish, commit, broker <endpoint> [credential], quit"
-                );
-            }
-        }
-    }
-    drop(requests);
-
-    // The daemon closes its half only once the disk is unmounted and its device
-    // is deleted. This read therefore waits for the teardown.
-    if let Some(response) = responses.message().await.context("ending the session")? {
-        anyhow::bail!("session closed with an unexpected {response:?}");
-    }
-    println!("closed");
-
-    Ok(())
+/// Why a session call failed, which decides what its client may do next.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// The daemon could not be reached.
+    #[error("cannot reach the disk daemon")]
+    Connect(#[from] tonic::transport::Error),
+    /// The request broke a rule of the protocol, so no retry of it can succeed.
+    #[error("invalid request: {}", .0.message())]
+    Invalid(tonic::Status),
+    /// Another session claimed this disk's journal. This session is over, and the
+    /// session which displaced it holds the disk.
+    #[error("another session holds this disk: {}", .0.message())]
+    Fenced(tonic::Status),
+    /// A broker refused the session's credential. A new session may succeed with a
+    /// fresh one.
+    #[error("a broker refused the credential: {}", .0.message())]
+    Unauthorized(tonic::Status),
+    /// A broker could not serve the session, for a reason which may not recur.
+    #[error("a broker is unavailable: {}", .0.message())]
+    Unavailable(tonic::Status),
+    /// The session failed for a reason of the daemon or of its host.
+    #[error("the session failed: gRPC code: {:?}, message: {}", .0.code(), .0.message())]
+    Failed(tonic::Status),
+    /// The daemon ended the stream, so this session is over.
+    #[error("the session has ended")]
+    Ended,
+    /// The daemon replied with something the protocol does not allow here.
+    #[error("the daemon replied with {0}")]
+    Unexpected(String),
 }
 
-fn open(args: &args::Client) -> proto::Open {
-    proto::Open {
-        journal: args.journal.clone(),
-        device_size: args.device_size,
-        broker: Some(proto::Broker {
-            endpoint: args.broker_endpoint.clone(),
-            credential: args.broker_credential.clone().unwrap_or_default(),
-        }),
-        // A disk driven by hand has no durable state of its own to recover an
-        // acknowledgement from.
-        recovered_acks: Vec::new(),
-        floor_hint: args.floor_hint,
+impl Error {
+    // `gazette::Error` and `catalog_stats::Error` also carry `with_attempt`, which
+    // stamps an attempt count onto a `RetryError`. This client has none, because it
+    // retries nothing: a failed disk is replaced by opening another, which is its
+    // caller's decision to make.
+
+    /// Whether a new session may succeed where this one failed.
+    ///
+    /// The codes here do not mean what they mean to every client of this workspace.
+    /// `ABORTED` is retryable for BigTable, per `catalog_stats::Error`. Here it is a
+    /// lost fence, which no retry undoes: another session holds the disk, and only
+    /// the writer which should hold it may open the disk again.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Connect(_) | Self::Unavailable(_))
+    }
+
+    /// Sort a status by what its client may do next. The codes are the ones
+    /// `session::failed` produces.
+    fn of(status: tonic::Status) -> Self {
+        match status.code() {
+            tonic::Code::InvalidArgument | tonic::Code::FailedPrecondition => Self::Invalid(status),
+            tonic::Code::Aborted => Self::Fenced(status),
+            tonic::Code::Unauthenticated | tonic::Code::PermissionDenied => {
+                Self::Unauthorized(status)
+            }
+            tonic::Code::Unavailable => Self::Unavailable(status),
+            _ => Self::Failed(status),
+        }
+    }
+
+    fn unexpected(reply: proto::response::Response) -> Self {
+        Self::Unexpected(format!("{reply:?}"))
     }
 }
 
-/// Print a floor the daemon reported, which is one a client would persist.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// A recovery floor the daemon reported, where zero means it reported none.
 ///
-/// Zero is not printed. It is what a session reports when it derived and
-/// established no floor, and there is nothing there to carry forward.
-fn report_floor(floor: u64) {
-    if floor != 0 {
-        println!("floor {floor}");
+/// A client persists the greatest floor it has been given, hands it back as the next
+/// `Open`'s `floor_hint`, and may delete journal fragments below it. That store is
+/// best-effort: a floor is a seek and never a filter, so losing one costs replay work
+/// and nothing else.
+fn floor(reported: u64) -> Option<u64> {
+    (reported != 0).then_some(reported)
+}
+
+/// A connection to one daemon.
+///
+/// Every session of a client shares its connection, which multiplexes them over one
+/// HTTP/2 transport, so a program which serves many disks connects once. A client is
+/// cheap to clone.
+///
+/// One connection is also one identity: the daemon reads the peer credential of the
+/// socket to decide who owns each mount it serves.
+#[derive(Clone)]
+pub struct Client {
+    channel: tonic::transport::Channel,
+}
+
+impl Client {
+    /// Connect to the daemon which listens on `uds_path`.
+    pub async fn connect(uds_path: &std::path::Path) -> Result<Self> {
+        let channel =
+            tonic::transport::Endpoint::from_shared(format!("unix://{}", uds_path.display()))?
+                .connect()
+                .await?;
+
+        Ok(Self { channel })
     }
-}
 
-async fn send(
-    requests: &tokio::sync::mpsc::Sender<proto::Request>,
-    request: proto::request::Request,
-) -> anyhow::Result<()> {
-    requests
-        .send(proto::Request {
-            request: Some(request),
-        })
-        .await
-        .map_err(|_| anyhow::anyhow!("the session has ended"))
-}
+    /// Open the disk of `open`.
+    ///
+    /// Returns the disk, the absolute path of its mounted filesystem, and the
+    /// recovery floor this recovery derived, if it derived one.
+    ///
+    /// The daemon gives that filesystem to the user of this process, so a client
+    /// needs no privilege of its own to read and write the mount.
+    pub async fn open(&self, open: proto::Open) -> Result<(Disk, std::path::PathBuf, Option<u64>)> {
+        let (requests, receiver) = tokio::sync::mpsc::channel(1);
+        let replies = proto_grpc::disk::disk_client::DiskClient::new(self.channel.clone())
+            .session(tokio_stream::wrappers::ReceiverStream::new(receiver))
+            .await
+            .map_err(Error::of)?
+            .into_inner();
 
-async fn reply(
-    responses: &mut tonic::Streaming<proto::Response>,
-) -> anyhow::Result<proto::response::Response> {
-    match responses.message().await {
-        Ok(Some(proto::Response { response })) => response.context("a reply carries no message"),
-        Ok(None) => anyhow::bail!("the session ended without a reply"),
-        Err(status) => Err(anyhow::anyhow!("{status}")),
-    }
-}
+        let mut disk = Disk { requests, replies };
 
-/// Stdin as a stream of lines. A thread of its own reads it, because a blocking
-/// read of a terminal must not hold a runtime worker.
-fn stdin_lines() -> tokio::sync::mpsc::Receiver<String> {
-    let (lines, receiver) = tokio::sync::mpsc::channel(1);
-
-    _ = std::thread::spawn(move || {
-        for line in std::io::BufRead::lines(std::io::stdin().lock()) {
-            let Ok(line) = line else { return };
-
-            if lines.blocking_send(line).is_err() {
-                return;
+        match disk.call(proto::request::Request::Open(open)).await? {
+            proto::response::Response::Opened(opened) => {
+                Ok((disk, opened.mount_path.into(), floor(opened.floor)))
             }
+            reply => Err(Error::unexpected(reply)),
         }
-    });
-    receiver
+    }
+}
+
+/// One disk, held for the life of one bidirectional stream.
+///
+/// This is a client's side of a disk. [`crate::disk::Disk`] is the daemon's side of
+/// the same thing: a sparse image, a `ublk` device, and the thread which owns them.
+/// A client never holds that one.
+///
+/// The disk lasts as long as this value. Dropping it, or [`Disk::close`], has the
+/// daemon unmount the filesystem and delete the device.
+pub struct Disk {
+    requests: tokio::sync::mpsc::Sender<proto::Request>,
+    replies: tonic::Streaming<proto::Response>,
+}
+
+impl Disk {
+    /// Cut a point-in-time boundary of the device, and finish the delta before it.
+    ///
+    /// Every data record of that delta is broker-confirmed when this returns, and
+    /// the acknowledgement which commits them is not appended. The delta is durable
+    /// and uncommitted, which is a prepared state. `None` reports that the disk did
+    /// not change, so there is nothing to commit.
+    ///
+    /// The bytes it returns are opaque, and only these exact bytes commit this delta.
+    /// Store them with the client's own state, in one atomic external commit, and
+    /// then hand them back to [`Disk::commit`] unchanged. A client which stops after
+    /// that external commit hands them instead to the `recovered_acks` of its next
+    /// `Open`, which is what makes the delta durable after all.
+    pub async fn prepare(&mut self) -> Result<Option<bytes::Bytes>> {
+        match self
+            .call(proto::request::Request::Prepare(proto::Prepare {}))
+            .await?
+        {
+            proto::response::Response::Prepared(cut) if cut.ack.is_empty() => Ok(None),
+            proto::response::Response::Prepared(cut) => Ok(Some(cut.ack)),
+            reply => Err(Error::unexpected(reply)),
+        }
+    }
+
+    /// Append `ack`, which [`Disk::prepare`] returned, and wait for the broker to
+    /// confirm it. The delta is durable disk state once this returns.
+    ///
+    /// The client must already have made `ack` durable in its own store, in the same
+    /// atomic commit as the state which that delta belongs to.
+    ///
+    /// Returns the recovery floor this commit established, if it established one.
+    pub async fn commit(&mut self, ack: bytes::Bytes) -> Result<Option<u64>> {
+        match self
+            .call(proto::request::Request::Commit(proto::Commit { ack }))
+            .await?
+        {
+            proto::response::Response::Committed(committed) => Ok(floor(committed.floor)),
+            reply => Err(Error::unexpected(reply)),
+        }
+    }
+
+    /// Replace the broker endpoint and credential of this session.
+    ///
+    /// This has no reply, so a broker which cannot be reached surfaces at the next
+    /// prepare. Send it well before the current credential expires.
+    pub async fn broker(&mut self, broker: proto::Broker) -> Result<()> {
+        self.send(proto::request::Request::Broker(broker)).await
+    }
+
+    /// End the session. The daemon closes its half only once the disk is unmounted
+    /// and its device is deleted, so this waits for that teardown.
+    pub async fn close(mut self) -> Result<()> {
+        drop(self.requests);
+
+        match self.replies.message().await.map_err(Error::of)? {
+            None => Ok(()),
+            Some(proto::Response { response }) => match response {
+                Some(reply) => Err(Error::unexpected(reply)),
+                None => Err(Error::Ended),
+            },
+        }
+    }
+
+    async fn send(&mut self, request: proto::request::Request) -> Result<()> {
+        self.requests
+            .send(proto::Request {
+                request: Some(request),
+            })
+            .await
+            .map_err(|_| Error::Ended)
+    }
+
+    async fn call(
+        &mut self,
+        request: proto::request::Request,
+    ) -> Result<proto::response::Response> {
+        () = self.send(request).await?;
+
+        match self.replies.message().await.map_err(Error::of)? {
+            Some(proto::Response {
+                response: Some(reply),
+            }) => Ok(reply),
+            _ => Err(Error::Ended),
+        }
+    }
 }

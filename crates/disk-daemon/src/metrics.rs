@@ -33,7 +33,7 @@ pub struct Device {
 pub struct Journal {
     pub appended_records: metrics::Counter,
     pub appended_bytes: metrics::Counter,
-    pub publishes: metrics::Counter,
+    pub prepares: metrics::Counter,
     pub commits: metrics::Counter,
     pub horizons: metrics::Counter,
     pub recovery_range: metrics::Gauge,
@@ -70,7 +70,7 @@ impl Journal {
         Self {
             appended_records: metrics::counter!("disk_daemon_appended_records", "journal" => journal.to_string()),
             appended_bytes: metrics::counter!("disk_daemon_appended_bytes", "journal" => journal.to_string()),
-            publishes: metrics::counter!("disk_daemon_publishes", "journal" => journal.to_string()),
+            prepares: metrics::counter!("disk_daemon_prepares", "journal" => journal.to_string()),
             commits: metrics::counter!("disk_daemon_commits", "journal" => journal.to_string()),
             horizons: metrics::counter!("disk_daemon_horizons_completed", "journal" => journal.to_string()),
             recovery_range: metrics::gauge!("disk_daemon_recovery_range_bytes", "journal" => journal.to_string()),
@@ -189,7 +189,7 @@ fn describe() {
         metrics::describe_counter!(
             "disk_daemon_admission_stalls",
             metrics::Unit::Count,
-            "mutations the capture channel or a publication's cut refused",
+            "mutations the capture channel or the cut of a prepare refused",
         );
         metrics::describe_counter!(
             "disk_daemon_appended_records",
@@ -202,7 +202,7 @@ fn describe() {
             "framed record bytes appended by the disk's writer",
         );
         metrics::describe_counter!(
-            "disk_daemon_publishes",
+            "disk_daemon_prepares",
             metrics::Unit::Count,
             "deltas cut and acknowledged, excluding transactions which changed nothing",
         );

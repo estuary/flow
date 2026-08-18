@@ -37,7 +37,7 @@ async fn journal_writer_tests() {
     first_use_claims_the_journal(&fixture).await;
     a_replacement_writer_fences_the_first(&fixture).await;
     an_ambiguous_claim_finds_its_own_epoch(&fixture).await;
-    a_session_which_never_publishes_appends_nothing(&fixture).await;
+    a_session_which_never_prepares_appends_nothing(&fixture).await;
     a_committed_delta_reads_back_as_its_chunks(&fixture).await;
     a_large_delta_carries_one_record_per_mutation(&fixture).await;
     a_journal_which_does_not_exist_never_opens(&fixture).await;
@@ -60,7 +60,7 @@ async fn first_use_claims_the_journal(fixture: &Fixture) {
 
     capture.offer(vec![encode_punch(3, 2)]).unwrap();
     let ack = writer
-        .publish()
+        .prepare()
         .await
         .unwrap()
         .expect("the delta is not empty");
@@ -102,7 +102,7 @@ async fn a_replacement_writer_fences_the_first(fixture: &Fixture) {
     let (first_capture, first) = fixture.open(journal).await.unwrap();
 
     first_capture.offer(vec![encode_punch(0, 1)]).unwrap();
-    let ack = first.publish().await.unwrap().unwrap();
+    let ack = first.prepare().await.unwrap().unwrap();
     _ = first.commit(ack).await.unwrap();
 
     // The journal now holds a committed delta, so a replacement claims it as that
@@ -111,14 +111,14 @@ async fn a_replacement_writer_fences_the_first(fixture: &Fixture) {
     assert_ne!(first.epoch(), second.epoch());
 
     first_capture.offer(vec![encode_punch(1, 1)]).unwrap();
-    let err = first.publish().await.unwrap_err();
+    let err = first.prepare().await.unwrap_err();
 
     assert!(
         format!("{err:#}").contains("RegisterMismatch"),
         "expected a fenced-out append, got: {err:#}",
     );
     // Every later request reports the failure which ended the session.
-    let err = first.publish().await.unwrap_err();
+    let err = first.prepare().await.unwrap_err();
     assert!(format!("{err:#}").contains("session has failed"), "{err:#}");
 }
 
@@ -147,13 +147,13 @@ async fn an_ambiguous_claim_finds_its_own_epoch(fixture: &Fixture) {
     );
 }
 
-/// A session which publishes nothing appends nothing. Its journal is left as its
+/// A session which prepares nothing appends nothing. Its journal is left as its
 /// caller created it, with no fence and no content.
-async fn a_session_which_never_publishes_appends_nothing(fixture: &Fixture) {
+async fn a_session_which_never_prepares_appends_nothing(fixture: &Fixture) {
     let journal = "acmeCo/disk/untouched";
     let (capture, writer) = fixture.open(journal).await.unwrap();
 
-    assert_eq!(writer.publish().await.unwrap(), None);
+    assert_eq!(writer.prepare().await.unwrap(), None);
     drop((capture, writer));
 
     assert_eq!(fixture.head(journal).await, 0);
@@ -174,7 +174,7 @@ async fn a_committed_delta_reads_back_as_its_chunks(fixture: &Fixture) {
         capture.offer(mutation.clone()).unwrap();
     }
 
-    let ack = writer.publish().await.unwrap().unwrap();
+    let ack = writer.prepare().await.unwrap().unwrap();
     _ = writer.commit(ack.clone()).await.unwrap();
 
     let chunks: Vec<_> = fixture
@@ -189,7 +189,7 @@ async fn a_committed_delta_reads_back_as_its_chunks(fixture: &Fixture) {
     // A second commit is a protocol violation. The delta it acknowledged is
     // already committed.
     let err = writer.commit(ack).await.unwrap_err();
-    assert!(format!("{err:#}").contains("no published delta"), "{err:#}");
+    assert!(format!("{err:#}").contains("no prepared delta"), "{err:#}");
 }
 
 /// A delta of many mutations carries exactly one record per mutation. Those records
@@ -205,7 +205,7 @@ async fn a_large_delta_carries_one_record_per_mutation(fixture: &Fixture) {
         capture.offer(write.clone()).unwrap();
     }
 
-    let ack = writer.publish().await.unwrap().unwrap();
+    let ack = writer.prepare().await.unwrap().unwrap();
     _ = writer.commit(ack).await.unwrap();
 
     let records = fixture.read(journal).await;
@@ -264,14 +264,14 @@ async fn recovery_applies_only_committed_deltas(fixture: &Fixture) {
     for (block, fill) in [(1, 0xaa), (2, 0xbb)] {
         capture.offer(write(block, fill)).unwrap();
     }
-    let ack = writer.publish().await.unwrap().unwrap();
+    let ack = writer.prepare().await.unwrap().unwrap();
     _ = writer.commit(ack).await.unwrap();
 
-    // A second delta, published but never committed. A session which crashed
+    // A second delta, prepared but never committed. A session which crashed
     // between the two leaves this behind.
     capture.offer(write(2, 0xcc)).unwrap();
     capture.offer(write(3, 0xdd)).unwrap();
-    _ = writer.publish().await.unwrap().unwrap();
+    _ = writer.prepare().await.unwrap().unwrap();
     drop((capture, writer));
 
     let (_capture, _writer, blocks) = fixture.recover(journal, Vec::new()).await.unwrap();
@@ -285,7 +285,7 @@ async fn a_recovered_acknowledgement_is_repaired(fixture: &Fixture) {
     let (capture, writer) = fixture.open(journal).await.unwrap();
 
     capture.offer(write(4, 0x11)).unwrap();
-    let ack = writer.publish().await.unwrap().unwrap();
+    let ack = writer.prepare().await.unwrap().unwrap();
     drop((capture, writer));
 
     let (_capture, _writer, blocks) = fixture.recover(journal, vec![ack.clone()]).await.unwrap();
@@ -305,7 +305,7 @@ async fn an_orphaned_journal_recovers_nothing(fixture: &Fixture) {
     let (capture, writer) = fixture.open(journal).await.unwrap();
 
     capture.offer(write(5, 0x22)).unwrap();
-    _ = writer.publish().await.unwrap().unwrap();
+    _ = writer.prepare().await.unwrap().unwrap();
     drop((capture, writer));
 
     assert!(

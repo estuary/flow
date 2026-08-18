@@ -387,7 +387,7 @@ fn horizon() -> anyhow::Result<serde_json::Value> {
     }))
 }
 
-/// Cut the disk as a publication does. Take the delta which ends there, alongside
+/// Cut the disk as a prepare does. Take the delta which ends there, alongside
 /// what its open horizon still owes.
 ///
 /// Admission is closed throughout. The mutations taken are therefore exactly the

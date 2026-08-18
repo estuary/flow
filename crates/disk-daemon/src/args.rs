@@ -16,12 +16,12 @@ pub struct Args {
     pub command: Command,
 }
 
+// One variant, so that `serve` stays the verb of this binary and another subcommand
+// can join it later. A doc comment here would become the binary's help text.
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
     /// Serve disks over a Unix socket.
     Serve(Serve),
-    /// Drive one session from a terminal or a script.
-    Client(Client),
 }
 
 #[derive(Debug, clap::Args)]
@@ -68,44 +68,6 @@ pub struct Serve {
     /// a small disk from compacting constantly.
     #[arg(long, env = "HORIZON_MINIMUM_BYTES", default_value_t = 1 << 30)]
     pub horizon_minimum_bytes: u64,
-}
-
-/// One session, driven from stdin.
-///
-/// This is the daemon's manual-testing and demo surface, so unlike [`Serve`] it
-/// carries defaults for what a session must otherwise supply.
-#[derive(Debug, clap::Args)]
-pub struct Client {
-    /// Unix socket of the daemon to open the disk on.
-    #[arg(long, env = "UDS_PATH")]
-    pub uds_path: std::path::PathBuf,
-
-    /// Journal holding the disk's durable state. It must already exist: the
-    /// daemon never creates one. `gazctl journals apply` is how it is made.
-    #[arg(long)]
-    pub journal: String,
-
-    /// Logical size of the device. The image is sparse, so this is a capacity and
-    /// not an allocation.
-    #[arg(long, default_value_t = 10 << 30)]
-    pub device_size: u64,
-
-    /// Address of a broker serving the journal.
-    #[arg(long, env = "BROKER_ENDPOINT")]
-    pub broker_endpoint: String,
-
-    /// Bearer token presented to the broker. Without one the session connects
-    /// anonymously. That is correct only against a broker which runs without
-    /// authorization.
-    #[arg(long, env = "BROKER_CREDENTIAL")]
-    pub broker_credential: Option<String>,
-
-    /// Recovery floor a previous session reported, which seeks the replay this
-    /// one begins with. A real client persists it; driving a disk by hand means
-    /// carrying it forward from the `floor` lines this command prints. Zero
-    /// replays from the first fragment the store still holds.
-    #[arg(long, default_value_t = 0)]
-    pub floor_hint: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]

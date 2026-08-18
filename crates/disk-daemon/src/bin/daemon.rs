@@ -14,27 +14,18 @@ fn main() -> anyhow::Result<()> {
         .install_default()
         .expect("failed to install default crypto provider");
 
-    let args = disk_daemon::args::Args::parse();
+    let Command::Serve(serve) = disk_daemon::args::Args::parse().command;
 
     // Two things share this. The tracing subscriber reads its per-handler trace
     // overrides, and the session service populates it.
     let registry = service_kit::Registry::new();
-
-    let log_format = match &args.command {
-        Command::Serve(serve) => serve.log_format,
-        // The client is a terminal tool, and its own output is stdout.
-        Command::Client(_) => LogFormat::Text,
-    };
-    () = install_tracing(log_format, registry.clone());
+    () = install_tracing(serve.log_format, registry.clone());
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
 
-    let served = match args.command {
-        Command::Serve(serve) => runtime.spawn(disk_daemon::daemon::run(serve, registry)),
-        Command::Client(client) => runtime.spawn(disk_daemon::client::run(client)),
-    };
+    let served = runtime.spawn(disk_daemon::daemon::run(serve, registry));
     let result = runtime.block_on(served);
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
 

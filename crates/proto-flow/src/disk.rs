@@ -13,7 +13,7 @@ pub mod request {
         #[prost(message, tag = "1")]
         Open(super::Open),
         #[prost(message, tag = "2")]
-        Publish(super::Publish),
+        Prepare(super::Prepare),
         #[prost(message, tag = "3")]
         Commit(super::Commit),
         /// Replaces the session's broker endpoint and credential, and has no reply.
@@ -37,7 +37,7 @@ pub mod response {
         #[prost(message, tag = "1")]
         Opened(super::Opened),
         #[prost(message, tag = "2")]
-        Published(super::Published),
+        Prepared(super::Prepared),
         #[prost(message, tag = "3")]
         Committed(super::Committed),
     }
@@ -73,7 +73,7 @@ pub struct Open {
     #[prost(message, optional, tag = "3")]
     pub broker: ::core::option::Option<Broker>,
     /// Acknowledgements which the client committed but which may not have reached
-    /// the journal, as returned by Published. The daemon appends them verbatim
+    /// the journal, as returned by Prepared. The daemon appends them verbatim
     /// before it uses the journal, and Gazette de-duplicates by UUID.
     ///
     /// The disk has committed state if the journal holds an acknowledged delta, or
@@ -126,16 +126,19 @@ pub struct Opened {
     #[prost(fixed64, tag = "2")]
     pub floor: u64,
 }
-/// Publish cuts a point-in-time boundary of the device and finishes publishing
-/// the delta before it.
+/// Prepare cuts a point-in-time boundary of the device and finishes the delta
+/// before it. Every data record of that delta is broker-confirmed once Prepared
+/// returns, and the record which commits them is withheld, so the delta is
+/// durable and uncommitted. That is the prepared state of a two-phase commit,
+/// and the daemon is its participant.
 ///
-/// A session holds at most one uncommitted acknowledgement, so the client must
-/// Commit before it may Publish again.
+/// A session holds at most one prepared delta, so the client must Commit before
+/// it may Prepare again.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct Publish {}
+pub struct Prepare {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct Published {
-    /// Acknowledgement record which commits the published delta. It is serialized
+pub struct Prepared {
+    /// Acknowledgement record which commits the prepared delta. It is serialized
     /// but not appended: it becomes durable disk state only when the client
     /// returns it in Commit. The client treats it as opaque and records it in the
     /// same atomic commit as the state the delta is aligned with. That record
@@ -150,7 +153,7 @@ pub struct Published {
 /// Commit appends an acknowledgement which the client has made durable.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Commit {
-    /// Must byte-equal the `ack` of the corresponding Published.
+    /// Must byte-equal the `ack` of the corresponding Prepared.
     #[prost(bytes = "bytes", tag = "1")]
     pub ack: ::prost::bytes::Bytes,
 }

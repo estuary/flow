@@ -37,7 +37,7 @@ use proto_gazette::{broker, uuid};
 /// What one replay rebuilt, beyond the image itself.
 pub struct Replayed {
     /// Chunks applied. Zero means the journal holds no committed state at all. That
-    /// disk has never published, or its first use failed.
+    /// disk has never committed a delta, or its first use failed.
     pub applied: usize,
     /// Offset at which a replay of this journal may begin from now on. It is the
     /// last completed horizon, or where this replay began if there was none.

@@ -3,7 +3,7 @@
 //! A session appends each mutation as its device accepts it. An acknowledgement
 //! commits the delta, and the client makes that acknowledgement durable elsewhere
 //! before it hands the acknowledgement back. The writer therefore holds the two
-//! halves of a boundary apart. `publish` finishes and confirms every data append,
+//! halves of a boundary apart. `prepare` finishes and confirms every data append,
 //! then returns the acknowledgement's exact bytes. `commit` appends those bytes
 //! and awaits the broker's confirmation.
 //!
@@ -91,7 +91,7 @@ pub struct Writer {
 }
 
 enum Command {
-    Publish(Reply<Option<bytes::Bytes>>),
+    Prepare(Reply<Option<bytes::Bytes>>),
     Commit(bytes::Bytes, Reply<u64>),
 }
 
@@ -367,7 +367,7 @@ impl Opening {
     /// Begin appending the mutations of `captured` as they arrive, until the
     /// returned handle is dropped.
     ///
-    /// `snapshot` is a fresh disk's image. The first append publishes it ahead of
+    /// `snapshot` is a fresh disk's image. The first append carries it ahead of
     /// the mutation which triggered that append. A recovered disk has no snapshot.
     /// Its journal already holds the filesystem, and the writes its mount issues
     /// belong to the next delta like any other mutation.
@@ -416,11 +416,11 @@ impl Writer {
     ///
     /// `None` when the delta is empty. The transaction did not change the disk,
     /// and the client owes no commit.
-    pub async fn publish(&self) -> anyhow::Result<Option<bytes::Bytes>> {
-        self.call(Command::Publish).await
+    pub async fn prepare(&self) -> anyhow::Result<Option<bytes::Bytes>> {
+        self.call(Command::Prepare).await
     }
 
-    /// Append the acknowledgement returned by [`Writer::publish`] and await the
+    /// Append the acknowledgement returned by [`Writer::prepare`] and await the
     /// broker's confirmation of it.
     ///
     /// Reports the recovery floor this commit established, and zero where it
@@ -447,7 +447,7 @@ impl Writer {
 
     /// Stop appending, and discard every mutation which follows.
     ///
-    /// A session which is ending publishes nothing more, so what its disk does
+    /// A session which is ending prepares nothing more, so what its disk does
     /// on the way out cannot be committed and a replay would ignore it. Those
     /// mutations are still taken, per `Task::taking`.
     ///
@@ -499,12 +499,12 @@ struct Task {
     floor: i64,
     /// Horizon this session opened or resumed. It is not yet complete.
     horizon: Option<Position>,
-    /// Set when the cut of a publication found the open horizon discharged. The
+    /// Set when the cut of a prepare found the open horizon discharged. The
     /// commit of that delta then completes it.
     completes_horizon: bool,
     /// Records appended since the last acknowledgement committed.
     delta_records: usize,
-    /// A fresh disk's image. It awaits the mutation it is published ahead of.
+    /// A fresh disk's image. It awaits the mutation it is carried ahead of.
     snapshot: Option<Snapshotter>,
     /// The disk this journal serves. It owns its horizon's bitmap.
     compactor: Option<Compactor>,
@@ -521,7 +521,7 @@ impl Task {
         loop {
             tokio::select! {
                 // Requests come first. A cut must observe every mutation queued
-                // before it rather than race them, and `publish` drains those.
+                // before it rather than race them, and `prepare` drains those.
                 biased;
 
                 command = commands.recv() => {
@@ -544,7 +544,7 @@ impl Task {
     }
 
     /// Whether mutations are taken from the capture channel. Taking stops while
-    /// a published delta awaits its commit, which keeps Gazette from grouping
+    /// a prepared delta awaits its commit, which keeps Gazette from grouping
     /// two deltas into one pending transaction. A session which appends no more
     /// keeps taking, because a device whose mutations nothing takes cannot be
     /// unmounted.
@@ -559,17 +559,20 @@ impl Task {
 
     async fn command(&mut self, command: Command, captured: &Captured) -> Result<(), Failure> {
         match command {
-            Command::Publish(reply) => reply_with(reply, self.publish(captured).await),
+            Command::Prepare(reply) => reply_with(reply, self.prepare(captured).await),
             Command::Commit(ack, reply) => reply_with(reply, self.commit(ack).await),
         }
     }
 
     /// Finish the delta and construct its acknowledgement.
-    async fn publish(&mut self, captured: &Captured) -> Result<Option<bytes::Bytes>, Failure> {
+    async fn prepare(&mut self, captured: &Captured) -> Result<Option<bytes::Bytes>, Failure> {
         () = self.check()?;
 
         if self.pending_ack.is_some() {
-            return Err(anyhow::anyhow!("a published delta is still awaiting its commit").into());
+            return Err(anyhow::Error::new(crate::OutOfOrder(
+                "a prepared delta is still awaiting its commit".to_string(),
+            ))
+            .into());
         }
         () = self.drain(captured, None).await?;
 
@@ -591,7 +594,7 @@ impl Task {
 
         let ack = buf.freeze();
         self.pending_ack = Some(ack.clone());
-        self.metrics.publishes.increment(1);
+        self.metrics.prepares.increment(1);
 
         Ok(Some(ack))
     }
@@ -601,15 +604,18 @@ impl Task {
     async fn commit(&mut self, ack: bytes::Bytes) -> Result<u64, Failure> {
         () = self.check()?;
 
-        let published = self
-            .pending_ack
-            .take()
-            .context("no published delta is awaiting a commit")?;
+        let Some(prepared) = self.pending_ack.take() else {
+            return Err(anyhow::Error::new(crate::OutOfOrder(
+                "no prepared delta is awaiting a commit".to_string(),
+            ))
+            .into());
+        };
 
-        if ack != published {
-            return Err(
-                anyhow::anyhow!("commit acknowledgement differs from the published one").into(),
-            );
+        if ack != prepared {
+            return Err(anyhow::Error::new(crate::OutOfOrder(
+                "commit acknowledgement differs from the prepared one".to_string(),
+            ))
+            .into());
         }
         _ = self.append(ack).await?;
         self.delta_records = 0;

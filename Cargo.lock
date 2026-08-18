@@ -2983,6 +2983,7 @@ dependencies = [
  "service-kit",
  "sha2",
  "tempfile",
+ "thiserror 2.0.17",
  "tokens",
  "tokio",
  "tokio-stream",

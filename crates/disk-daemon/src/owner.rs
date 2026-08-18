@@ -40,7 +40,7 @@ const STACK_BYTES: usize = 256 * 1024;
 const IOWQ_MAX_WORKERS: [u32; 2] = [128, 128];
 
 /// Image bytes one snapshot batch reads back. A caller holds a batch until it is
-/// appended, so this bounds what publishing a fresh disk's filesystem costs,
+/// appended, so this bounds what appending a fresh disk's filesystem costs,
 /// however large that filesystem is.
 const SNAPSHOT_BATCH_BYTES: usize = 8 << 20;
 
@@ -140,7 +140,7 @@ impl Handle {
     /// Stop admitting mutations, and return once the image holds every mutation
     /// which was admitted.
     ///
-    /// This is the point-in-time cut of a publication. A mutation is captured
+    /// This is the point-in-time cut of a prepare. A mutation is captured
     /// before it is applied, so each one falls entirely before or after the cut.
     /// Reads continue. A mutation which arrives while admission is closed waits
     /// for [`Handle::resume_admission`] rather than failing.
@@ -305,7 +305,7 @@ struct Owner {
     pending: usize,
     /// Tags whose chunks the capture channel refused, in arrival order.
     parked: std::collections::VecDeque<u16>,
-    /// Whether mutations may be captured. A publication's cut closes this.
+    /// Whether mutations may be captured. The cut of a prepare closes this.
     admitting: bool,
     /// Mutations captured but not yet applied to the image. The cut is reached
     /// once this is zero.

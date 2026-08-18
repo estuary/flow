@@ -5,7 +5,7 @@ journals. Each live disk is a sparse local image exposed through Linux `ublk`.
 The daemon records every accepted block mutation in a per-disk journal. It can
 later rebuild the image from that journal.
 
-A client controls durable boundaries with a session RPC. The daemon publishes a
+A client controls durable boundaries with a session RPC. The daemon prepares a
 disk delta and returns an opaque acknowledgement. The client records that
 acknowledgement in the same atomic commit as its own state. It then returns the
 acknowledgement to the daemon, which commits the delta. This makes the disk
@@ -23,7 +23,7 @@ or connector protocols.
 The crate includes:
 
 - the `flow-disk-daemon serve` service;
-- the `flow-disk-daemon client` command for manual sessions;
+- `client::Disk`, a client of that API which holds its rules;
 - a bidirectional gRPC session API over a Unix socket;
 - sparse images, `ublk` devices, ext4 formatting, and mounts;
 - writer fencing, delta capture, and acknowledgement repair;
@@ -38,18 +38,27 @@ The main guarantees are:
 | Area | Guarantee |
 | --- | --- |
 | Durable state | Acknowledged journal deltas, plus acknowledgements recovered from the client's external commit, define the disk. |
-| Transaction boundary | `Publish` returns the exact acknowledgement needed to commit one point-in-time device state. |
+| Transaction boundary | `Prepare` returns the exact acknowledgement needed to commit one point-in-time device state. |
 | Crash recovery | A new sparse image is rebuilt from committed journal state. Uncommitted mutations are discarded. |
 | Filesystem result | Recovery preserves files and their contents at the committed boundary. It does not promise an identical ext4 block image. |
 | Writer ownership | At most one cooperative session may append to a disk journal. Gazette's `author` register fences older sessions. |
 | Journal ownership | The client creates the journal and owns its specification. The daemon never creates, converges, or deletes one. |
 | Unused disks | A disk which is opened and never written appends nothing at all, so an idle journal stays suspended. |
 | Local lifetime | A normal session removes its mount and device. Its image has no directory entry and disappears with the process. |
-| Isolation | The client receives a mounted directory. It does not receive a block device, image descriptor, or daemon privilege. |
+| Isolation | The client receives a mounted directory which its own user owns. It does not receive a block device, image descriptor, or daemon privilege, and it needs none of its own. |
 
 Mounting and unmounting can change ext4 bookkeeping such as mount counts,
 timestamps, and journal state. Recovery therefore promises filesystem contents,
 not byte-for-byte filesystem metadata.
+
+The daemon runs privileged, but a client of it does not have to. A session takes
+the peer credential of its Unix socket, which is the one identity a client cannot
+claim falsely, and hands that user the root directory of the filesystem it serves.
+`mkfs` sets the owner through `root_owner` rather than a `chown` after the format,
+because a `chown` is a write and an unwritten disk must append nothing. A recovery
+repairs the owner instead, and only when the replayed root belongs to somebody
+else. The directory holding the mounts must still be one the client can traverse,
+exactly as the directory holding the socket decides who may open a session.
 
 The client must keep `device_size` stable for the life of a disk. It is the one
 durable per-disk fact, and it is not stored in the journal. Block size is the
@@ -61,7 +70,7 @@ Flow runtime integration is outside this crate. The runtime still needs to:
 - create one disk journal per task shard, before its first session, and converge
   or delete that journal afterwards;
 - place the returned mount in a connector sandbox;
-- store published acknowledgements with Flow checkpoints;
+- store prepared acknowledgements with Flow checkpoints;
 - persist the recovery floors sessions return, and hand the greatest one back at
   the next `Open`;
 - delete fragments below a persisted floor;
@@ -105,7 +114,7 @@ The implementation has three long-lived roles:
 - **Owner thread.** One thread serves one `ublk` queue. It is the only code
   that mutates that disk's image and bitmaps.
 - **Journal writer task.** It owns one session's producer and writer epoch. It
-  drains captured mutations, appends records, publishes acknowledgements, and
+  drains captured mutations, appends records, prepares acknowledgements, and
   advances recovery horizons.
 
 A terminal error tears down that session and its disk. It does not stop other
@@ -121,14 +130,14 @@ durable state.
 **Chunk** is the durable encoding of part of a mutation. A data chunk allocates
 blocks. A punch chunk deallocates blocks.
 
-**Delta** is every chunk published since the previous commit. It may also
+**Delta** is every chunk appended since the previous commit. It may also
 contain unchanged blocks copied for compaction.
 
 **Cut** is the point-in-time boundary made by closing mutation admission after a
 `syncfs`.
 
 **Acknowledgement** is the exact serialized Gazette `ACK_TXN` record for a
-delta. `Publish` returns it without appending it.
+delta. `Prepare` returns it without appending it.
 
 **Fence** is an `OUTSIDE_TXN` record that atomically installs a new writer
 epoch in the journal's `author` register.
@@ -149,8 +158,8 @@ daemon sends no unsolicited messages.
 | Request | Reply | Meaning |
 | --- | --- | --- |
 | `Open` | `Opened` | Create or recover one disk, mount it, and return the absolute mount path and any floor this recovery derived. |
-| `Publish` | `Published` | Cut and finish one delta. Return its unappended acknowledgement, or empty bytes when nothing changed. |
-| `Commit` | `Committed` | Append the exact published acknowledgement, wait for broker confirmation, and return any floor the commit established. |
+| `Prepare` | `Prepared` | Cut and finish one delta. Return its unappended acknowledgement, or empty bytes when nothing changed. |
+| `Commit` | `Committed` | Append the exact prepared acknowledgement, wait for broker confirmation, and return any floor the commit established. |
 | `Broker` | none | Replace the session's Gazette endpoint and credential. |
 
 `Open` must be first and may be sent once. It supplies:
@@ -170,7 +179,7 @@ new ── Open ──► opening ── Opened ──► serving
                     ┌─────────────────────┴─────────────────────┐
                     │                                           │
                     ▼                                           ▼
-               Publish(empty)                             Publish(ack)
+               Prepare(empty)                             Prepare(ack)
                     │                                           │
                     └──────────────► serving ◄── Committed ◄── Commit
 
@@ -178,12 +187,38 @@ any state ── EOF, cancellation, or error ──► teardown ──► closed
 ```
 
 Only one acknowledgement may be outstanding. The client must not send another
-`Publish` until it has sent `Commit`. The daemon reads requests in order, so a
+`Prepare` until it has sent `Commit`. The daemon reads requests in order, so a
 `Broker` sent behind another request waits for it. The client must send
 `Broker` well before its credential expires.
 
 The endpoint and credential always change together. An empty credential means
 anonymous access. The daemon does not mint tokens or hold a signing key.
+
+### Using the client
+
+`client::Disk` is the crate's client of this protocol, and both examples are written
+on it. It holds no protocol state of its own, because the daemon is the
+authority on the rules of the exchange:
+
+- `prepare` returns the acknowledgement bytes, and `commit` takes them back. A
+  `Commit` of anything else, or a second `Prepare` before its `Commit`, is refused by
+  the daemon with `FAILED_PRECONDITION`.
+- `Open` and `Commit` each report the recovery floor they established, as
+  `Option<u64>`. The client persists the greatest one it is given; nothing caches it
+  on its behalf.
+- `Error` sorts a failure by what the caller may do next, from the codes
+  `session::failed` produces, and `Error::is_transient` states the retry policy as
+  `gazette::Error` and `catalog_stats::Error` do. The codes do not mean the same
+  thing to every client here: `ABORTED` is retryable for BigTable, and for a disk it
+  is a lost fence which no retry undoes.
+- Every `Disk` of one `Client` shares its connection, so a program which serves many
+  disks connects once. One connection is also one identity, since the daemon reads
+  the peer credential of the socket to decide who owns each mount.
+
+`tests/daemon.rs` speaks the gRPC directly rather than through this type. It has to:
+its cases assert what the daemon does with a second `Prepare`, a `Commit` of bytes
+that were never prepared, and a `Prepare` before `Open` — requests this type cannot
+express.
 
 ### Client boundary contract
 
@@ -192,7 +227,7 @@ the client's external transaction. The client and workload must:
 
 1. Finish and flush application state that belongs to the transaction.
 2. Stop logical disk writes at the external boundary.
-3. Run `Publish`, store the acknowledgement with external state, and run
+3. Run `Prepare`, store the acknowledgement with external state, and run
    `Commit`.
 4. Release the workload for the next transaction.
 
@@ -221,7 +256,7 @@ Journal content, not journal existence, then chooses one of two paths:
 
 1. Create a sparse image with `O_TMPFILE` and `ftruncate`.
 2. Create and start a `ublk` device over the image.
-3. Format the device as ext4.
+3. Format the device as ext4, giving its root directory to the client.
 4. Mount it under the configured mount directory.
 5. Drop all format and mount mutations from the capture channel.
 6. Return the mount path, and a zero floor.
@@ -238,6 +273,7 @@ changed appends nothing at all.
    image.
 5. Create the `ublk` device over the rebuilt image.
 6. Mount the filesystem, and return its path with any floor the replay derived.
+   Give its root directory to the client if the replay left it to somebody else.
 
 A journal that contains only orphan records from a failed first use is claimed
 and replayed, but it still produces a fresh filesystem. The fence is the same
@@ -260,9 +296,9 @@ The owner completes a request when its image operation completes. It does not
 wait for that mutation to become durable in Gazette. The capture bound applies
 backpressure when the writer cannot keep up.
 
-### 3. Publish a boundary
+### 3. Prepare a boundary
 
-`Publish` runs these steps:
+`Prepare` runs these steps:
 
 1. Call `syncfs` on the mounted filesystem.
 2. Stop admitting new mutations. Reads continue.
@@ -270,7 +306,7 @@ backpressure when the writer cannot keep up.
 4. Drain the capture channel and wait for every journal append to finish.
 5. Sample whether this delta completed an open horizon.
 6. Build the acknowledgement, but do not append it.
-7. Resume device admission and return `Published`.
+7. Resume device admission and return `Prepared`.
 
 Closing admission is the exact cut. Each mutation is wholly before or after it
 because capture happens before the image operation.
@@ -280,7 +316,7 @@ This prevents Gazette from joining two deltas into one pending transaction.
 Filesystem writes after the cut may therefore wait for `Commit`. Clients
 should keep this interval short.
 
-If the delta contains no records, `Published.ack` is empty. The client has no
+If the delta contains no records, `Prepared.ack` is empty. The client has no
 disk obligation and sends no `Commit`.
 
 ### 4. Commit with external state
@@ -290,9 +326,9 @@ The client treats the acknowledgement as opaque bytes:
 ```text
 client                         daemon                         Gazette
    │                              │                              │
-   ├──── Publish ────────────────►│                              │
+   ├──── Prepare ────────────────►│                              │
    │                              ├─ finish data appends ───────►│
-   │◄── Published(ack bytes) ─────┤                              │
+   │◄── Prepared(ack bytes) ──────┤                              │
    │                              │                              │
    ├─ atomically store:           │                              │
    │    client state + ack        │                              │
@@ -313,7 +349,7 @@ This split closes every crash window:
 
 The client must store the acknowledgement in the same atomic transaction as the
 state that depends on the disk. It must return the exact bytes. A different
-acknowledgement cannot safely commit the published delta.
+acknowledgement cannot safely commit the prepared delta.
 
 ### 5. Close
 
@@ -402,7 +438,7 @@ which retries requests in arrival order. A mutation is never split across two
 deltas.
 
 A device write is complete after its image write lands. Gazette durability is
-checked later at `Publish`. This keeps normal block I/O asynchronous while the
+checked later at `Prepare`. This keeps normal block I/O asynchronous while the
 bounded channel limits how far it may run ahead.
 
 ## Local image and filesystem
@@ -722,7 +758,7 @@ This early clear cannot escape the session. A failed delta ends the session, and
 the next session rebuilds the bitmap from committed records.
 
 An incoming mutation supersedes an in-progress copy of the same block. The
-mutation itself publishes the newer value, so the copy does not need to block
+mutation itself appends the newer value, so the copy does not need to block
 it.
 
 At a publication cut, the writer asks the owner how many horizon blocks remain.
@@ -938,7 +974,7 @@ With `--admin-port`, the daemon serves
 authentication.
 
 Each live session appears as a `Disk.Session` handler. Its label is the journal
-and its phase is one of `opening`, `serving`, `publishing`, `committing`,
+and its phase is one of `opening`, `serving`, `preparing`, `committing`,
 or `closing`. The admin page can change a handler's logging level at runtime.
 
 Per-journal metrics:
@@ -952,7 +988,7 @@ Per-journal metrics:
 | `disk_daemon_horizons_completed` | Horizons completed. Each advances the floor. |
 | `disk_daemon_appended_records` | Journal records appended. |
 | `disk_daemon_appended_bytes` | Framed record bytes appended. |
-| `disk_daemon_publishes` | Non-empty deltas published. |
+| `disk_daemon_prepares` | Non-empty deltas prepared. |
 | `disk_daemon_commits` | Acknowledgements appended and confirmed. |
 | `disk_daemon_admission_stalls` | Mutations refused by a full capture channel or a closed cut. |
 | `disk_daemon_parked_requests` | Device requests waiting for admission or capture capacity. |
@@ -979,16 +1015,17 @@ act on:
 | Code | Meaning |
 | --- | --- |
 | `INVALID_ARGUMENT` | The request is invalid. Retrying the same request cannot work. |
-| `FAILED_PRECONDITION` | The request is out of order, such as a second `Open` or a request before `Open`. |
+| `FAILED_PRECONDITION` | The request is out of turn, such as a second `Open`, a request before `Open`, or a `Commit` of a delta the session never prepared. |
 | `ABORTED` | Another session took the journal fence. This session must not take it back. |
 | `UNAUTHENTICATED` | A broker directly rejected the credential. Refresh it and open a new session. |
 | `UNAVAILABLE` | The daemon is draining or a broker is unreachable. Another daemon or host may work. |
 | `INTERNAL` | The daemon, device, host, or an otherwise unclassified operation failed. |
 
-Three writer protocol violations currently report `INTERNAL`: a second
-`Publish` while one is outstanding, a `Commit` with nothing published, and a
-`Commit` with different bytes. They are client state errors and should
-eventually report `FAILED_PRECONDITION`.
+`FAILED_PRECONDITION` also covers the three writer protocol violations, which are
+client state errors rather than bad requests: a second `Prepare` while one is
+outstanding, a `Commit` with nothing prepared, and a `Commit` with different bytes.
+`OutOfOrder` in `lib.rs` marks them, as `Invalid` marks a request which was wrong
+in itself.
 
 A client with a short-lived Gazette token must send `Broker` well before the
 token expires. The daemon does not hold a delta while waiting for a
@@ -996,9 +1033,10 @@ replacement, and ext4 can write on its own schedule. An expired token may fail
 the broker operation rather than authentication itself, so it does not always
 appear as `UNAUTHENTICATED`.
 
-### Manual session
+### Provisioning a disk journal
 
-The journal must exist first, because the daemon creates none:
+A disk journal must exist before its first session, because the daemon creates
+none:
 
 ```console
 $ cat <<'YAML' | gazctl journals apply --specs /dev/stdin
@@ -1014,29 +1052,13 @@ journals:
 YAML
 ```
 
-`flow-disk-daemon client` then drives one session from standard input:
+A client then opens that journal as a disk with `client::Disk`, and it owns the
+specification from then on. `examples/basic.rs` is a worked example, and
+`examples/demo-services.sh` starts a daemon and a broker to run it against.
 
-```console
-$ flow-disk-daemon client --uds-path /run/disks/daemon.sock \
-    --journal acmeCo/disk/scratch \
-    --broker-endpoint https://broker.example \
-    --broker-credential "$TOKEN"
-mounted /var/lib/disks/disk-3
-publish
-published 220
-commit
-committed
-quit
-closed
-```
-
-The command holds the acknowledgement itself, so `commit` needs no pasted
-bytes. `quit`, end-of-input, and `SIGINT` close the session and remove its
-disk.
-
-A `floor` line appears whenever the daemon reports a recovery floor. Nothing here
-persists it, so carry the greatest one forward by hand as the next session's
-`--floor-hint`. Omitting it only makes the next recovery read more.
+`Open` and `Commit` each report a recovery floor when they establish one. Persist
+the greatest, hand it back as the next `Open`'s `floor_hint`, and delete fragments
+below it. Losing one only makes the next recovery read more.
 
 ## Testing
 
@@ -1084,22 +1106,86 @@ needs a process boundary and these observations are not part of the session API.
 against a real broker. Unit and property tests cover chunk round trips, sparse
 allocation, bitmaps, and state transitions.
 
+### The examples
+
+Two of them, sharing `examples/common/mod.rs` for the journals a client must create
+and for where the daemon and its brokers are:
+
+- `examples/basic.rs` is the smallest use of a disk. It writes one file, commits it,
+  ends the session, and then opens the same journal again to find the file rebuilt
+  from it. About 60 lines, and it asserts rather than prints.
+- `examples/two_phase_commit.rs` drives the daemon as a two-phase-commit participant
+  over four disks at once. About 150 lines, four lines of output.
+
+Neither starts anything. A broker, an etcd, and a daemon must already run, and the
+program only sends RPCs: it creates its own journals, reads them back, serves its
+disks over sessions, and deletes the journals when it is done. Nothing about it is
+specific to this repository.
+
+`examples/demo-services.sh` brings those services up and takes them down again. It
+runs an etcd, one broker over a `file:///` store, and the daemon, on ports away from
+the defaults so it disturbs neither a local Flow stack nor a system etcd. Everything
+it makes lives under one state directory, and `stop` finds each service by that
+directory in its command line, so a lost pid file strands nothing.
+
+```console
+examples/demo-services.sh start
+cargo run -p disk-daemon --example basic
+cargo run -p disk-daemon --example two_phase_commit
+examples/demo-services.sh stop
+```
+
+Both default to the socket and broker that script starts, so neither needs
+configuring. `UDS_PATH` and `BROKER_ENDPOINT` override them, and the script prints
+whichever of the two it changed.
+
+Both run unprivileged, and read and write their disks with plain `std::fs`: only the
+daemon needs privilege. `BROKER_CREDENTIAL` is optional, because a broker started
+without `--broker.auth-keys` uses gazette's noop authorizer and accepts an empty
+credential.
+
+`Prepare` drives every data record of a delta to broker-confirmed durability and
+withholds the acknowledgement, so the delta is durable and uncommitted — a prepared
+state. The example is the coordinator: it prepares three participant disks, then
+stores its decision by committing a fourth, so a disk is also the coordinator's log.
+It ends every session without committing a participant, leaving three deltas in
+doubt. It then rebuilds the log disk from its journal, reads the decision back out of
+the recovered filesystem, and replays each acknowledgement through
+`Open.recovered_acks`. The decision names two of the three, so two disks recover
+their files and the third discards a delta no decision covers.
+
+Note the ordering rule that recovery depends on. A replay honors an acknowledgement
+only while its producer wrote the newest data records, per `journal/replay.rs`, and
+`Open` appends recovered acknowledgements before it reads the journal or mounts
+anything. A recovered acknowledgement therefore belongs in the next `Open` of that
+journal: a session which mounts and writes first makes it impossible to honor, and
+that `Open` fails rather than applying it out of order.
+
+Journals are named under a per-run prefix, so a run never reuses the disks of an
+earlier one, and the demo deletes them at the end. It asserts every result, so a
+failed run is a real failure, and it takes about a second. `tests/daemon.rs` covers
+what it leaves out, including recovery horizons, broker outage, credential
+replacement, and leak checks across a soak.
+
 ## Key types and entry points
 
 | Item | Role |
 | --- | --- |
 | [`proto`](../../go/protocols/disk/disk.proto) | Session messages and durable `DiskRecord` / `Chunk` messages, re-exported from `proto_flow::disk`. |
 | [`BLOCK_SIZE`](src/lib.rs) | The 4 KiB every disk uses, for chunks, bitmaps, hole punching, and ext4. |
-| [`args::Args`](src/args.rs) | `serve` and `client` command lines. |
+| [`args::Args`](src/args.rs) | The `serve` command line. |
 | [`daemon::run`](src/daemon.rs) | Host validation, process wiring, socket service, startup reclaim, and drain. |
 | [`session::Service`](src/session.rs) | One session state machine per gRPC stream and the client-visible error taxonomy. |
-| [`client::run`](src/client.rs) | Interactive one-session client. |
+| [`client::Client`](src/client.rs) | One connection to a daemon, which every session of it shares. |
+| [`client::Disk`](src/client.rs) | A client's side of one disk: prepare, commit, replace a broker, and close. |
+| [`Invalid`, `OutOfOrder`](src/lib.rs) | Marks a request which was wrong in itself, or one which came out of turn. |
+| [`client::Error`](src/client.rs) | What a client may do next: invalid, fenced, unauthorized, unavailable, or failed. |
 | [`disk::Disk`](src/disk.rs) | One image, `ublk` device, capture channel, and owner lifecycle. |
 | [`owner::spawn`](src/owner.rs) | The dedicated serving thread and its `io_uring`. |
 | [`owner::Snapshotter`](src/owner.rs) | Bounded first-publication snapshots. |
 | [`owner::Compactor`](src/owner.rs) | Writer-to-owner commands for recovery horizons. |
 | [`capture::channel`](src/capture.rs) | Ordered, bounded handoff from device mutations to the writer. |
-| [`journal::Opening` / `journal::Writer`](src/journal/mod.rs) | Validate the listed spec, fence, repair, replay, append, publish, and commit for one session. |
+| [`journal::Opening` / `journal::Writer`](src/journal/mod.rs) | Validate the listed spec, fence, repair, replay, append, prepare, and commit for one session. |
 | [`journal::replay`](src/journal/replay.rs) | Rebuild a sparse image from committed journal records. |
 | [`journal::fence`](src/journal/fence.rs) | Probe and claim the `author` register. |
 | [`image::Image`](src/image.rs) | Sparse image plus allocated and horizon bitmaps. |
@@ -1121,6 +1207,9 @@ allocation, bitmaps, and state transitions.
 - `horizon.rs`: bounded-recovery policy and state.
 - `filesystem.rs`: ext4 format, mount, flush, and unmount.
 - `metrics.rs`: admin and Prometheus observations.
-- `client.rs`: manual session driver.
+- `client.rs`: client of the session API.
 - `src/bin/daemon.rs`: shipped service entry point.
 - `src/bin/scenario.rs`: privileged library-test entry point.
+- `examples/basic.rs`: the smallest use of a disk.
+- `examples/two_phase_commit.rs`: the daemon as a two-phase-commit participant.
+- `examples/common/mod.rs`: what both examples share.

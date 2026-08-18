@@ -59,6 +59,25 @@ impl std::fmt::Display for Invalid {
 
 impl std::error::Error for Invalid {}
 
+/// A request which is well-formed, but out of turn for what the session owes.
+///
+/// A second `Prepare` before its `Commit`, a `Commit` with nothing prepared, or a
+/// `Commit` of bytes no `Prepare` returned, is a client which lost track of the
+/// delta it owes. No retry of it can succeed, but nothing about the request itself
+/// is wrong, so [`session`] reports this as `FAILED_PRECONDITION` rather than
+/// `INVALID_ARGUMENT`. It travels as an error cause so that it survives
+/// `anyhow::Context`.
+#[derive(Debug)]
+pub struct OutOfOrder(pub String);
+
+impl std::fmt::Display for OutOfOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for OutOfOrder {}
+
 /// `anyhow::ensure!` for a rule a session broke. A validator states each rule in
 /// one place, and the session stream reports the right code for it.
 macro_rules! ensure_valid {

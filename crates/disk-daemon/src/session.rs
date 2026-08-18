@@ -2,7 +2,7 @@
 //!
 //! A session is a state machine over its stream. It begins with `Open`, which
 //! creates the image, rebuilds it from the journal or formats it, and then creates
-//! the device and the mount over it. It then serves `Publish` and `Commit` pairs,
+//! the device and the mount over it. It then serves `Prepare` and `Commit` pairs,
 //! which move the disk's durable state forward atomically with the client's own
 //! commit. It ends when the stream ends, for any reason at all, by unmounting and
 //! destroying everything it made.
@@ -65,6 +65,16 @@ impl proto_grpc::disk::disk_server::Disk for Service {
         let (daemon, control) = (self.daemon.clone(), self.control.clone());
         let (registry, ended) = (self.registry.clone(), self.draining.child_token());
 
+        // The mount this session returns belongs to the client rather than to this
+        // daemon, so that a client needs no privilege of its own. A Unix socket
+        // carries the peer's credential, which is the one identity a client cannot
+        // claim falsely.
+        let owner = request
+            .extensions()
+            .get::<tonic::transport::server::UdsConnectInfo>()
+            .and_then(|info| info.peer_cred)
+            .map(|cred| (cred.uid(), cred.gid()));
+
         // The session owns its disk, so it outlives this call and tears the disk
         // down as it ends. A client which drops the stream both ends `requests`
         // and closes `responses`. Either of those ends the session.
@@ -76,6 +86,7 @@ impl proto_grpc::disk::disk_server::Disk for Service {
             let session = Session {
                 daemon,
                 control,
+                owner,
                 handler: registry.register("Disk.Session"),
                 ended,
                 state: State::Fresh,
@@ -95,6 +106,9 @@ impl proto_grpc::disk::disk_server::Disk for Service {
 struct Session {
     daemon: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<Control>,
+    /// User and group which own the mount this session serves, taken from the
+    /// credential of its stream.
+    owner: Option<(u32, u32)>,
     handler: service_kit::HandlerGuard,
     /// Cancelled when this session is over. That happens when the daemon drains,
     /// or when the session's own teardown begins. Every broker call the session
@@ -201,12 +215,12 @@ impl Session {
 
                 Some(Response::Opened(opened))
             }
-            Request::Publish(proto::Publish {}) => {
-                self.handler.set_phase("publishing");
-                let ack = self.serving()?.publish().await.map_err(failed)?;
+            Request::Prepare(proto::Prepare {}) => {
+                self.handler.set_phase("preparing");
+                let ack = self.serving()?.prepare().await.map_err(failed)?;
                 self.handler.set_phase("serving");
 
-                Some(Response::Published(proto::Published {
+                Some(Response::Prepared(proto::Prepared {
                     ack: ack.unwrap_or_default(),
                 }))
             }
@@ -218,7 +232,7 @@ impl Session {
                 Some(Response::Committed(proto::Committed { floor }))
             }
             // A replaced broker has no reply, so a client which cannot reach
-            // its brokers learns of it from its next publication.
+            // its brokers learns of it from its next prepare.
             Request::Broker(broker) => {
                 tracing::info!(endpoint = broker.endpoint, "replacing a session's broker");
                 () = self.serving()?.writer.set_broker(broker).map_err(failed)?;
@@ -253,7 +267,7 @@ impl Session {
 
         // This is resolved before a device exists. A journal which does not exist,
         // or which a disk could not be recovered from, is a disk which can never
-        // publish.
+        // prepare a delta.
         let mut opening = journal::Opening::new(
             &self.daemon.client,
             journal::Open {
@@ -307,6 +321,7 @@ impl Session {
                     filesystem::Type::Ext4,
                     &block_path,
                     mount_path,
+                    self.owner,
                     filesystem::MOUNT_TIMEOUT,
                 )
                 .await?;
@@ -318,6 +333,7 @@ impl Session {
                     () = filesystem::format(
                         filesystem::Type::Ext4,
                         &block_path,
+                        self.owner,
                         filesystem::MKFS_TIMEOUT,
                     )
                     .await?;
@@ -326,6 +342,7 @@ impl Session {
                         filesystem::Type::Ext4,
                         &block_path,
                         mount_path,
+                        self.owner,
                         filesystem::MOUNT_TIMEOUT,
                     )
                     .await
@@ -378,7 +395,7 @@ async fn teardown(state: State) {
         return;
     };
 
-    // This session publishes nothing more. The writer takes what the unmount
+    // This session prepares nothing more. The writer takes what the unmount
     // mutates and then discards it.
     () = writer.abandon();
 
@@ -398,7 +415,7 @@ async fn teardown(state: State) {
 }
 
 impl Serving {
-    /// Cut a point-in-time boundary of the disk and finish publishing the delta
+    /// Cut a point-in-time boundary of the disk and finish the delta
     /// before it.
     ///
     /// The cut runs in this order. The mount flushes, admission closes, and every
@@ -408,7 +425,7 @@ impl Serving {
     ///
     /// Admission resumes as soon as the acknowledgement exists. The writer then
     /// holds those mutations until it commits.
-    async fn publish(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
+    async fn prepare(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
         let mount = self.mount.path().to_path_buf();
 
         tokio::task::spawn_blocking(move || filesystem::sync(&mount))
@@ -416,14 +433,14 @@ impl Serving {
             .context("syncing a disk's filesystem")?;
 
         () = self.disk.close_admission().await?;
-        let published = self.writer.publish().await;
+        let prepared = self.writer.prepare().await;
 
-        // Admission resumes even where the publication failed. The unmount which
+        // Admission resumes even where the prepare failed. The unmount which
         // follows a failed session writes.
         if let Err(err) = self.disk.resume_admission() {
             tracing::error!(?err, "failed to resume a disk's admission");
         }
-        published
+        prepared
     }
 }
 
@@ -432,7 +449,7 @@ impl Serving {
 /// A format and a mount of a fresh disk both write to it, and the capture channel
 /// is bounded, so a mutation nothing takes would park the device. Nothing here
 /// needs keeping. The first append snapshots exactly what these writes leave in
-/// the image. A disk which is never written publishes nothing at all, because
+/// the image. A disk which is never written prepares nothing at all, because
 /// formatting it again reproduces it.
 async fn draining<T>(
     captured: &Captured,
@@ -493,6 +510,8 @@ fn blocks(device_size: u64) -> anyhow::Result<u32> {
 fn failed(err: anyhow::Error) -> tonic::Status {
     let code = if err.chain().any(|cause| cause.is::<crate::Invalid>()) {
         tonic::Code::InvalidArgument
+    } else if err.chain().any(|cause| cause.is::<crate::OutOfOrder>()) {
+        tonic::Code::FailedPrecondition
     } else {
         match err
             .chain()

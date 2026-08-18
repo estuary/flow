@@ -32,14 +32,23 @@ const MIN_MKFS_VERSION: (u32, u32) = (1, 47);
 /// straddles a block and every mutation covers whole blocks. Reserved blocks are
 /// zero. No privileged user recovers a full disk by spending them. `nodiscard`
 /// keeps the format from discarding a device which is already entirely holes.
-fn mkfs(fs: Type, device: &Path) -> async_process::Command {
+fn mkfs(fs: Type, device: &Path, owner: Option<(u32, u32)>) -> async_process::Command {
     match fs {
         Type::Ext4 => {
+            // `root_owner` gives the root directory to the client as the filesystem
+            // is made. A `chown` after the format would be a write, and a disk which
+            // is opened and never written must append nothing at all.
+            let mut extended = String::from("nodiscard,assume_storage_prezeroed=1");
+
+            if let Some((uid, gid)) = owner {
+                extended.push_str(&format!(",root_owner={uid}:{gid}"));
+            }
+
             let mut command = async_process::Command::new("mkfs.ext4");
             command
                 .args(["-F", "-b"])
                 .arg(crate::BLOCK_SIZE.to_string())
-                .args(["-m", "0", "-E", "nodiscard,assume_storage_prezeroed=1"])
+                .args(["-m", "0", "-E", &extended])
                 .arg(device);
             command
         }
@@ -95,8 +104,16 @@ pub fn validate(fs: Type) -> anyhow::Result<()> {
 
 /// Format `device`, which must be a fresh disk. Recovery never formats. It
 /// replays filesystem structures as the data they are.
-pub async fn format(fs: Type, device: &Path, timeout: std::time::Duration) -> anyhow::Result<()> {
-    run(mkfs(fs, device), timeout).await
+///
+/// `owner` receives the root directory of the new filesystem, so that a client needs
+/// no privilege to use the mount it is given.
+pub async fn format(
+    fs: Type,
+    device: &Path,
+    owner: Option<(u32, u32)>,
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    run(mkfs(fs, device, owner), timeout).await
 }
 
 /// A mounted filesystem.
@@ -109,10 +126,22 @@ pub struct Mount {
 }
 
 impl Mount {
+    /// Mount `device` at `path`, and give its root directory to `owner` if it
+    /// belongs to somebody else.
+    ///
+    /// [`format()`] already gives that directory to the client of a fresh disk, so
+    /// this changes nothing there. It repairs a recovered disk whose filesystem was
+    /// formatted for a different client, which would otherwise receive a mount it
+    /// cannot write. `owner` is absent only when the transport carries no peer
+    /// credential.
+    ///
+    /// The change is conditional because it is a write. A recovered disk is already
+    /// serving, so that write joins its next delta.
     pub async fn new(
         fs: Type,
         device: &Path,
         path: std::path::PathBuf,
+        owner: Option<(u32, u32)>,
         timeout: std::time::Duration,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&path).with_context(|| format!("creating {path:?}"))?;
@@ -125,10 +154,27 @@ impl Mount {
 
         () = run(command, timeout).await?;
 
-        Ok(Self {
+        // Built before the change below, so that a failure of it still unmounts.
+        let mount = Self {
             path,
             mounted: true,
-        })
+        };
+
+        if let Some((uid, gid)) = owner {
+            let stat = std::fs::metadata(&mount.path)
+                .with_context(|| format!("reading {:?}", mount.path))?;
+
+            let held = (
+                std::os::unix::fs::MetadataExt::uid(&stat),
+                std::os::unix::fs::MetadataExt::gid(&stat),
+            );
+
+            if held != (uid, gid) {
+                () = std::os::unix::fs::chown(&mount.path, Some(uid), Some(gid))
+                    .with_context(|| format!("giving {:?} to {uid}:{gid}", mount.path))?;
+            }
+        }
+        Ok(mount)
     }
 
     pub fn path(&self) -> &Path {
@@ -189,7 +235,7 @@ pub async fn unmount(path: &Path, timeout: std::time::Duration) -> anyhow::Resul
 
 /// Flush every filesystem write of the mount at `path` to its device.
 ///
-/// The daemon issues this itself. A publication must not depend on how a client's
+/// The daemon issues this itself. A prepare must not depend on how a client's
 /// own `fsync` propagates through a bind or `virtio-fs` mount.
 pub fn sync(path: &Path) -> anyhow::Result<()> {
     let dir = std::fs::File::open(path).with_context(|| format!("opening {path:?}"))?;
@@ -247,8 +293,25 @@ mod test {
     use super::{Type, mkfs, mount_options, parse_version};
 
     #[test]
+    fn test_a_format_gives_the_root_directory_to_its_client() {
+        let owned = mkfs(
+            Type::Ext4,
+            std::path::Path::new("/dev/ublkb7"),
+            Some((1000, 100)),
+        );
+        let rendered = format!("{owned:?}");
+
+        assert!(rendered.contains("root_owner=1000:100"), "{rendered}");
+
+        let unowned = mkfs(Type::Ext4, std::path::Path::new("/dev/ublkb7"), None);
+        let rendered = format!("{unowned:?}");
+
+        assert!(!rendered.contains("root_owner"), "{rendered}");
+    }
+
+    #[test]
     fn test_a_fresh_format_keeps_the_image_sparse() {
-        let command = mkfs(Type::Ext4, std::path::Path::new("/dev/ublkb7"));
+        let command = mkfs(Type::Ext4, std::path::Path::new("/dev/ublkb7"), None);
         let rendered = format!("{command:?}");
 
         assert!(
