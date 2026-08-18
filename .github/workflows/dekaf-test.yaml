@@ -2,9 +2,14 @@ name: Dekaf Test
 permissions:
     contents: read
 
+# DEMO ONLY (this PR is not for merge): `label-deploy-scope` is added to the
+# branch filter and a labeler job is piggybacked below, because a
+# `pull_request_target` workflow cannot trigger until its file reaches the
+# default branch. The `pull_request` event runs this PR's own version of the
+# workflow, which is what lets the demo fire pre-merge.
 on:
     pull_request:
-        branches: [master]
+        branches: [master, label-deploy-scope]
         paths-ignore:
             - "site/**"
 
@@ -16,8 +21,54 @@ env:
     SCCACHE_VERSION: v0.12.0
 
 jobs:
+    label-deploy-scope-demo:
+        name: agent-api label (demo)
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+            pull-requests: write
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            LABEL: "deploy:agent-api"
+            PR: ${{ github.event.pull_request.number }}
+        steps:
+            - uses: actions/checkout@v5
+              with:
+                  persist-credentials: false
+            - name: Collect changed files
+              run: |
+                  gh api --paginate \
+                    "repos/${{ github.repository }}/pulls/${PR}/files" \
+                    --jq '.[].filename' > changed.txt
+                  wc -l < changed.txt
+            - name: Classify
+              id: classify
+              run: |
+                  set +e
+                  python3 .github/scripts/deploy_scope.py --files changed.txt --target agent
+                  status=$?
+                  set -e
+                  if [ "$status" -gt 1 ]; then exit "$status"; fi
+                  echo "ships=$([ "$status" -eq 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            - name: Ensure label exists
+              run: |
+                  gh label create "$LABEL" \
+                    --repo "${{ github.repository }}" \
+                    --color 1D76DB \
+                    --description "Reaches production via the Deploy agent-api workflow" \
+                    || true
+            - name: Apply or remove label
+              run: |
+                  if [ "${{ steps.classify.outputs.ships }}" = "true" ]; then
+                    gh pr edit "$PR" --repo "${{ github.repository }}" --add-label "$LABEL"
+                  else
+                    gh pr edit "$PR" --repo "${{ github.repository }}" --remove-label "$LABEL" || true
+                  fi
+
     dekaf-test:
         name: Dekaf Test
+        # DEMO ONLY: skip the heavy e2e job for the demo PR's non-master base.
+        if: github.base_ref == 'master'
         runs-on: ubuntu-2404-large
         steps:
             - uses: actions/checkout@v5
