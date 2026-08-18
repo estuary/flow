@@ -1,0 +1,57 @@
+name: Label deploy scope
+# `pull_request_target` runs the workflow definition from the base branch with a
+# write-scoped token, which is what lets us label PRs from forks. It is only safe
+# because we never check out or execute PR head code: the base ref supplies the
+# Cargo manifests, and the changed-file list comes from the API as data.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  agent-api:
+    name: agent-api
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LABEL: "deploy:agent-api"
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Checkout base ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Collect changed files
+        run: |
+          gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${PR}/files" \
+            --jq '.[].filename' > changed.txt
+          wc -l < changed.txt
+      - name: Classify
+        id: classify
+        run: |
+          set +e
+          python3 .github/scripts/deploy_scope.py --files changed.txt --target agent
+          status=$?
+          set -e
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
+          echo "ships=$([ "$status" -eq 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Ensure label exists
+        run: |
+          gh label create "$LABEL" \
+            --repo "${{ github.repository }}" \
+            --color 1D76DB \
+            --description "Reaches production via the Deploy agent-api workflow" \
+            || true
+      - name: Apply or remove label
+        run: |
+          if [ "${{ steps.classify.outputs.ships }}" = "true" ]; then
+            gh pr edit "$PR" --repo "${{ github.repository }}" --add-label "$LABEL"
+          else
+            gh pr edit "$PR" --repo "${{ github.repository }}" --remove-label "$LABEL" || true
+          fi
