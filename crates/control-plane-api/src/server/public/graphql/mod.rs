@@ -1,6 +1,7 @@
 //! GraphQL API
 //!
-//! The `QueryRoot`
+//! `QueryRoot` and `MutationRoot` merge each domain module's queries and
+//! mutations into the public schema.
 use async_graphql::{EmptySubscription, Schema, types::connection};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
