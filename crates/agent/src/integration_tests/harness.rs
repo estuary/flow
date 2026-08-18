@@ -1578,6 +1578,7 @@ impl TestHarness {
             exp: (req_start + chrono::Duration::hours(1)).timestamp() as u64,
             role: "authenticated".to_string(),
             email: Some("user@example.com".to_string()),
+            scope_prefix: None,
         };
 
         let token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)

@@ -81,6 +81,16 @@ impl Envelope {
         self.refresh.result().expect("Snapshot refresh never fails")
     }
 
+    /// Returns the caller's [`crate::Authority`]: the grant tables, the
+    /// authenticated user, and the scope their token is confined to.
+    ///
+    /// This is how request handlers ask authorization questions. Reaching into
+    /// `snapshot().role_grants` directly bypasses the token's scope and must be
+    /// justified in place.
+    pub fn authority(&self) -> tonic::Result<crate::Authority<'_>> {
+        Ok(crate::Authority::resolve(self.snapshot(), self.claims()?))
+    }
+
     /// Evaluate an authorization policy result and return its outcome.
     ///
     /// This method handles the complexity of Snapshot refresh, retry logic,

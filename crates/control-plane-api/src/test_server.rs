@@ -162,6 +162,17 @@ impl TestServer {
     /// Create a valid access token for a test user.
     /// The token includes all required claims for the server's JWT validation.
     pub fn make_access_token(&self, user_id: uuid::Uuid, email: Option<&str>) -> String {
+        self.make_scoped_access_token(user_id, email, None)
+    }
+
+    /// Create a valid access token confined to `scope_prefix`, as
+    /// `createScopedApiKey` mints for a real caller.
+    pub fn make_scoped_access_token(
+        &self,
+        user_id: uuid::Uuid,
+        email: Option<&str>,
+        scope_prefix: Option<&str>,
+    ) -> String {
         let now = tokens::now();
         let claims = models::authorizations::ControlClaims {
             iat: now.timestamp() as u64,
@@ -170,6 +181,7 @@ impl TestServer {
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: email.map(String::from),
+            scope_prefix: scope_prefix.map(String::from),
         };
 
         jsonwebtoken::encode(
