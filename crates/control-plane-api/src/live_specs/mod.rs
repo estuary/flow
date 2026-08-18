@@ -21,15 +21,37 @@ pub struct NotAuthorized {
     /// Requested catalog names which the user is not authorized to.
     /// Sorted and deduplicated.
     pub names: Vec<String>,
+    /// The capability the user was required, and failed, to hold.
+    pub capability: models::authz::CapabilitySet,
 }
 
 impl std::fmt::Display for NotAuthorized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "not authorized to read: {}", self.names.join(", "))
+        write!(
+            f,
+            "not authorized to {}: {}",
+            action_phrase(self.capability),
+            self.names.join(", ")
+        )
     }
 }
 
 impl std::error::Error for NotAuthorized {}
+
+/// Renders the required capability as a natural action phrase where one
+/// exists, falling back to the capability names themselves. The phrase is a
+/// constant of the call site's required capability: it never varies with the
+/// request's outcome or with which specs exist.
+fn action_phrase(capability: models::authz::CapabilitySet) -> String {
+    if capability == models::authz::CapabilitySet::only(models::authz::Capability::CatalogRead) {
+        return "read".to_string();
+    }
+    capability
+        .iter()
+        .map(|cap| cap.to_string())
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
 
 /// Returns the requested `names` to which the user does NOT hold `capability`,
 /// evaluated against the authorization `snapshot`.
@@ -74,7 +96,11 @@ pub async fn get_live_specs_authorized(
 ) -> anyhow::Result<tables::LiveCatalog> {
     let denied = authorization_denials(user_id, names, capability, snapshot);
     if !denied.is_empty() {
-        return Err(NotAuthorized { names: denied }.into());
+        return Err(NotAuthorized {
+            names: denied,
+            capability,
+        }
+        .into());
     }
     get_live_specs_unfiltered(user_id, names, db).await
 }
@@ -209,10 +235,24 @@ mod test {
             "aliceCo/anvils/pings".to_string(),
         ];
         let denied = authorization_denials(bob, &names, capability, &snapshot);
-        let error = NotAuthorized { names: denied };
+        let error = NotAuthorized {
+            names: denied,
+            capability,
+        };
         insta::assert_snapshot!(
             error.to_string(),
             @"not authorized to read: acmeCo/private/collection, aliceCo/anvils/pings"
+        );
+
+        // The rendered action derives from the required capability set, so a
+        // future caller requiring a different capability renders truthfully.
+        let error = NotAuthorized {
+            names: vec!["acmeCo/private/collection".to_string()],
+            capability: models::authz::Capability::SpecEdit.into(),
+        };
+        insta::assert_snapshot!(
+            error.to_string(),
+            @"not authorized to SpecEdit: acmeCo/private/collection"
         );
     }
 }

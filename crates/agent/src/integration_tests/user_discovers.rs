@@ -440,3 +440,76 @@ async fn test_discover_authorization_denials() {
     ]
     "###);
 }
+
+#[tokio::test]
+async fn test_discover_merge_phase_denial() {
+    let mut harness = TestHarness::init("test_discover_merge_phase_denial").await;
+    harness.snapshot_auto_refresh = false;
+
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    // The drafted capture is readable by the user, but an existing binding
+    // targets a collection outside their grants. The binding is retained by
+    // the discover merge, so its target is authorized during the merge phase
+    // — where a denial must render exactly like a precheck denial.
+    let draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "squirrels/capture-1": {
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "id": "acorns" }, "target": "chipmunks/stolen" }
+                ]
+            }
+        }
+    }));
+    let draft_id = harness.create_draft(user_id, "merge denial", draft).await;
+
+    let discovered = Discovered {
+        bindings: vec![Binding {
+            recommended_name: "acorns".to_string(),
+            document_schema_json: document_schema(1),
+            resource_config_json: r#"{"id": "acorns"}"#.into(),
+            key: vec!["/id".to_string()],
+            disable: false,
+            resource_path: Vec::new(),
+            is_fallback_key: false,
+        }],
+    };
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture-1",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), discovered)),
+        )
+        .await;
+
+    // Stamp the Snapshot ahead of the queued row: this denial is
+    // authoritative, and must not request a refresh.
+    let revoke = harness
+        .refresh_snapshot_taken_at(tokens::now() + chrono::Duration::seconds(10))
+        .await;
+    let result = harness.run_queued_discover(discover_id).await;
+
+    assert!(matches!(
+        result.job_status,
+        crate::discovers::JobStatus::DiscoverFailed
+    ));
+    assert!(!revoke.is_cancelled());
+
+    // Identical scope and message shape as a precheck denial, naming only the
+    // collection the user's own draft binding targets.
+    insta::assert_debug_snapshot!(result.errors, @r###"
+    [
+        (
+            "flow://capture/squirrels/capture-1",
+            "not authorized to read: chipmunks/stolen",
+        ),
+    ]
+    "###);
+}
