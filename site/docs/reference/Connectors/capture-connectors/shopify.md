@@ -2,7 +2,7 @@
 # Shopify
 
 :::deprecated
-This connector is deprecated and no longer receives updates, as Shopify is deprecating their REST API
+This connector is deprecated and no longer receives updates, as Shopify has deprecated their REST API
 in favor of their GraphQL API. We recommend using our [Shopify GraphQL connector](./shopify-native.md)
 instead.
 :::
