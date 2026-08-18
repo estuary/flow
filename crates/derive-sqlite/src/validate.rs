@@ -19,6 +19,7 @@ pub fn parse_validate(
         last_collection: _,
         last_version: _,
         linked_collections: _,
+        secrets: _,
     } = &validate;
 
     let config: Config = serde_json::from_slice(&config_json)

@@ -251,6 +251,7 @@ async fn walk_derivation<C: Connectors>(
         transforms: transforms_model,
         shuffle_key_types: shuffle_key_types_model,
         redact_salt: model_redact_salt,
+        secrets,
         shards,
     } = model;
 
@@ -310,6 +311,8 @@ async fn walk_derivation<C: Connectors>(
             .into(),
         ),
     };
+    let secrets_spec = assemble::secrets(&secrets);
+
     // Resolve the data-plane for this task. We cannot continue without it.
     let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)
     else {
@@ -540,6 +543,7 @@ async fn walk_derivation<C: Connectors>(
             expect_build_id.to_string()
         },
         linked_collections: Vec::new(),
+        secrets: secrets_spec.clone(),
     };
     linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
@@ -794,6 +798,7 @@ async fn walk_derivation<C: Connectors>(
         inactive_transforms,
         redact_salt,
         linked_collections: Vec::new(),
+        secrets: secrets_spec,
     };
     linked::install_derivation(&mut spec, interner, indirect_specs);
 
@@ -802,6 +807,7 @@ async fn walk_derivation<C: Connectors>(
         transforms: transforms_model,
         shuffle_key_types: shuffle_key_types_model,
         redact_salt: model_redact_salt,
+        secrets,
         shards,
     };
 

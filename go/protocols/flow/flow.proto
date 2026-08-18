@@ -359,6 +359,13 @@ message CollectionSpec {
     // are unique on name.
     repeated CollectionSpec linked_collections = 10
         [ (gogoproto.nullable) = false ];
+    // Secrets of this derivation, mapping a JSON pointer within `config_json`
+    // to the catalog name of a secret which the runtime resolves and merges
+    // into that location, as an RFC 7396 merge patch, before handing the
+    // configuration to the connector. Entries are applied in lexicographic
+    // pointer order. Empty if this derivation uses no secrets, or if
+    // `config_json` is instead sops-encrypted.
+    map<string, string> secrets = 11;
   }
   Derivation derivation = 12;
 }
@@ -461,6 +468,13 @@ message CaptureSpec {
   // are unique on name.
   repeated CollectionSpec linked_collections = 12
       [ (gogoproto.nullable) = false ];
+  // Secrets of this capture, mapping a JSON pointer within `config_json`
+  // to the catalog name of a secret which the runtime resolves and merges
+  // into that location, as an RFC 7396 merge patch, before handing the
+  // configuration to the connector. Entries are applied in lexicographic
+  // pointer order. Empty if this capture uses no secrets, or if
+  // `config_json` is instead sops-encrypted.
+  map<string, string> secrets = 13;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -581,6 +595,13 @@ message MaterializationSpec {
   // `projections[*].is_primary_key` to match, so same name != same spec.
   repeated CollectionSpec linked_collections = 13
       [ (gogoproto.nullable) = false ];
+  // Secrets of this materialization, mapping a JSON pointer within `config_json`
+  // to the catalog name of a secret which the runtime resolves and merges
+  // into that location, as an RFC 7396 merge patch, before handing the
+  // configuration to the connector. Entries are applied in lexicographic
+  // pointer order. Empty if this materialization uses no secrets, or if
+  // `config_json` is instead sops-encrypted.
+  map<string, string> secrets = 14;
 }
 
 // OAuth2 describes an OAuth2 provider

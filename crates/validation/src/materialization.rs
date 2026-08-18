@@ -128,6 +128,7 @@ async fn walk_materialization<C: Connectors>(
         source: sources,
         target_naming,
         endpoint,
+        secrets,
         bindings: bindings_model,
         mut shards,
         expect_pub_id: _,
@@ -175,6 +176,7 @@ async fn walk_materialization<C: Connectors>(
             serde_json::to_string(config).unwrap().into(),
         ),
     };
+    let secrets_spec = assemble::secrets(&secrets);
 
     // Start an RPC with the task's connector.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
@@ -333,6 +335,7 @@ async fn walk_materialization<C: Connectors>(
             expect_build_id.to_string()
         },
         linked_collections: Vec::new(),
+        secrets: secrets_spec.clone(),
     };
     linked::install_materialize_validate(&mut validate_request, interner, indirect_specs);
 
@@ -729,6 +732,7 @@ async fn walk_materialization<C: Connectors>(
         created_at: crate::created_at_date(control_id),
         sync_schedule_json,
         linked_collections: Vec::new(),
+        secrets: secrets_spec,
     };
     linked::install_materialization_spec(&mut spec, interner, indirect_specs);
 
@@ -737,6 +741,7 @@ async fn walk_materialization<C: Connectors>(
         target_naming,
         on_incompatible_schema_change,
         endpoint,
+        secrets,
         bindings: bindings_model,
         shards,
         expect_pub_id: None,

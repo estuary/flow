@@ -270,6 +270,10 @@ expression: json_test(msg)
         "number": 9000
       }
     ],
-    "redactSalt": "dGVzdC1kZXJpdmF0aW9uLXNhbHQ="
+    "redactSalt": "dGVzdC1kZXJpdmF0aW9uLXNhbHQ=",
+    "secrets": {
+      "": "acmeCo/whole-config",
+      "/credentials/password": "acmeCo/password"
+    }
   }
 }

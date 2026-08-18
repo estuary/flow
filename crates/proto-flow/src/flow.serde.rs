@@ -473,6 +473,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.linked_collections.is_empty() {
             len += 1;
         }
+        if !self.secrets.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -516,6 +519,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.linked_collections.is_empty() {
             struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
         }
+        if !self.secrets.is_empty() {
+            struct_ser.serialize_field("secrets", &self.secrets)?;
+        }
         struct_ser.end()
     }
 }
@@ -548,6 +554,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             "createdAt",
             "linked_collections",
             "linkedCollections",
+            "secrets",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -564,6 +571,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             RedactSalt,
             CreatedAt,
             LinkedCollections,
+            Secrets,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -598,6 +606,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             "redactSalt" | "redact_salt" => Ok(GeneratedField::RedactSalt),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
+                            "secrets" => Ok(GeneratedField::Secrets),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -629,6 +638,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                 let mut redact_salt__ = None;
                 let mut created_at__ = None;
                 let mut linked_collections__ = None;
+                let mut secrets__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -709,6 +719,14 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             linked_collections__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Secrets => {
+                            if secrets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("secrets"));
+                            }
+                            secrets__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -727,6 +745,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                     redact_salt: redact_salt__.unwrap_or_default(),
                     created_at: created_at__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
+                    secrets: secrets__.unwrap_or_default(),
                 })
             }
         }
@@ -1303,6 +1322,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.linked_collections.is_empty() {
             len += 1;
         }
+        if !self.secrets.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation", len)?;
         if self.connector_type != 0 {
             let v = collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1344,6 +1366,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.linked_collections.is_empty() {
             struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
         }
+        if !self.secrets.is_empty() {
+            struct_ser.serialize_field("secrets", &self.secrets)?;
+        }
         struct_ser.end()
     }
 }
@@ -1373,6 +1398,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             "redactSalt",
             "linked_collections",
             "linkedCollections",
+            "secrets",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1387,6 +1413,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             InactiveTransforms,
             RedactSalt,
             LinkedCollections,
+            Secrets,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1419,6 +1446,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             "inactiveTransforms" | "inactive_transforms" => Ok(GeneratedField::InactiveTransforms),
                             "redactSalt" | "redact_salt" => Ok(GeneratedField::RedactSalt),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
+                            "secrets" => Ok(GeneratedField::Secrets),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1448,6 +1476,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                 let mut inactive_transforms__ = None;
                 let mut redact_salt__ = None;
                 let mut linked_collections__ = None;
+                let mut secrets__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1514,6 +1543,14 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             }
                             linked_collections__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Secrets => {
+                            if secrets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("secrets"));
+                            }
+                            secrets__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1530,6 +1567,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                     inactive_transforms: inactive_transforms__.unwrap_or_default(),
                     redact_salt: redact_salt__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
+                    secrets: secrets__.unwrap_or_default(),
                 })
             }
         }
@@ -4066,6 +4104,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.linked_collections.is_empty() {
             len += 1;
         }
+        if !self.secrets.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -4111,6 +4152,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.linked_collections.is_empty() {
             struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
         }
+        if !self.secrets.is_empty() {
+            struct_ser.serialize_field("secrets", &self.secrets)?;
+        }
         struct_ser.end()
     }
 }
@@ -4143,6 +4187,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "syncSchedule",
             "linked_collections",
             "linkedCollections",
+            "secrets",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4159,6 +4204,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             CreatedAt,
             SyncScheduleJson,
             LinkedCollections,
+            Secrets,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4193,6 +4239,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
                             "syncSchedule" | "sync_schedule_json" => Ok(GeneratedField::SyncScheduleJson),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
+                            "secrets" => Ok(GeneratedField::Secrets),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4224,6 +4271,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut created_at__ = None;
                 let mut sync_schedule_json__ = None;
                 let mut linked_collections__ = None;
+                let mut secrets__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -4304,6 +4352,14 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             linked_collections__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Secrets => {
+                            if secrets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("secrets"));
+                            }
+                            secrets__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4322,6 +4378,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     created_at: created_at__.unwrap_or_default(),
                     sync_schedule_json: sync_schedule_json__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
+                    secrets: secrets__.unwrap_or_default(),
                 })
             }
         }

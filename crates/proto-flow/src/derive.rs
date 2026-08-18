@@ -106,6 +106,17 @@ pub mod request {
         /// are unique on name.
         #[prost(message, repeated, tag = "10")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
+        /// Secrets of this derivation, mapping a JSON pointer within `config_json`
+        /// to the catalog name of a secret which the runtime resolves and merges
+        /// into that location, as an RFC 7396 merge patch, before handing the
+        /// configuration to the connector. Entries are applied in lexicographic
+        /// pointer order. Empty if this derivation uses no secrets, or if
+        /// `config_json` is instead sops-encrypted.
+        #[prost(btree_map = "string, string", tag = "11")]
+        pub secrets: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::alloc::string::String,
+        >,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {

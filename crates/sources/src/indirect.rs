@@ -319,6 +319,7 @@ fn indirect_derivation(
         shuffle_key_types: _,
         shards: _,
         redact_salt: _,
+        secrets: _,
     } = derivation;
     let mut is_sql = false;
 

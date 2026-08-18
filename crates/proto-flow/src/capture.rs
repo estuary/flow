@@ -37,7 +37,7 @@ pub mod request {
         pub config_json: ::prost::bytes::Bytes,
     }
     /// Discover returns the set of resources available from this connector.
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Discover {
         /// Name of the capture being discovered.
         #[prost(string, tag = "3")]
@@ -57,6 +57,17 @@ pub mod request {
         /// assume a current date.
         #[prost(string, tag = "4")]
         pub created_at: ::prost::alloc::string::String,
+        /// Secrets of this capture, mapping a JSON pointer within `config_json`
+        /// to the catalog name of a secret which the runtime resolves and merges
+        /// into that location, as an RFC 7396 merge patch, before handing the
+        /// configuration to the connector. Entries are applied in lexicographic
+        /// pointer order. Empty if this capture uses no secrets, or if
+        /// `config_json` is instead sops-encrypted.
+        #[prost(btree_map = "string, string", tag = "5")]
+        pub secrets: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::alloc::string::String,
+        >,
     }
     /// Validate a capture configuration and proposed bindings.
     /// Validate is run out-of-band with ongoing capture invocations.
@@ -103,6 +114,17 @@ pub mod request {
         /// are unique on name.
         #[prost(message, repeated, tag = "7")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
+        /// Secrets of this capture, mapping a JSON pointer within `config_json`
+        /// to the catalog name of a secret which the runtime resolves and merges
+        /// into that location, as an RFC 7396 merge patch, before handing the
+        /// configuration to the connector. Entries are applied in lexicographic
+        /// pointer order. Empty if this capture uses no secrets, or if
+        /// `config_json` is instead sops-encrypted.
+        #[prost(btree_map = "string, string", tag = "8")]
+        pub secrets: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::alloc::string::String,
+        >,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
