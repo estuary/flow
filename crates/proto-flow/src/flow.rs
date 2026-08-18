@@ -410,6 +410,17 @@ pub mod collection_spec {
         /// are unique on name.
         #[prost(message, repeated, tag = "10")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::CollectionSpec>,
+        /// Secrets of this derivation, mapping a JSON pointer within `config_json`
+        /// to the catalog name of a secret which the runtime resolves and merges
+        /// into that location, as an RFC 7396 merge patch, before handing the
+        /// configuration to the connector. Entries are applied in lexicographic
+        /// pointer order. Empty if this derivation uses no secrets, or if
+        /// `config_json` is instead sops-encrypted.
+        #[prost(btree_map = "string, string", tag = "11")]
+        pub secrets: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::alloc::string::String,
+        >,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -631,6 +642,17 @@ pub struct CaptureSpec {
     /// are unique on name.
     #[prost(message, repeated, tag = "12")]
     pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
+    /// Secrets of this capture, mapping a JSON pointer within `config_json`
+    /// to the catalog name of a secret which the runtime resolves and merges
+    /// into that location, as an RFC 7396 merge patch, before handing the
+    /// configuration to the connector. Entries are applied in lexicographic
+    /// pointer order. Empty if this capture uses no secrets, or if
+    /// `config_json` is instead sops-encrypted.
+    #[prost(btree_map = "string, string", tag = "13")]
+    pub secrets: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -756,6 +778,17 @@ pub struct MaterializationSpec {
     /// `projections\[*\].is_primary_key` to match, so same name != same spec.
     #[prost(message, repeated, tag = "13")]
     pub linked_collections: ::prost::alloc::vec::Vec<CollectionSpec>,
+    /// Secrets of this materialization, mapping a JSON pointer within `config_json`
+    /// to the catalog name of a secret which the runtime resolves and merges
+    /// into that location, as an RFC 7396 merge patch, before handing the
+    /// configuration to the connector. Entries are applied in lexicographic
+    /// pointer order. Empty if this materialization uses no secrets, or if
+    /// `config_json` is instead sops-encrypted.
+    #[prost(btree_map = "string, string", tag = "14")]
+    pub secrets: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

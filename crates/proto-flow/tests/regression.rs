@@ -113,6 +113,17 @@ fn ex_label_selector() -> broker::LabelSelector {
     }
 }
 
+fn ex_secrets() -> std::collections::BTreeMap<String, String> {
+    [
+        ("".to_string(), "acmeCo/whole-config".to_string()),
+        (
+            "/credentials/password".to_string(),
+            "acmeCo/password".to_string(),
+        ),
+    ]
+    .into()
+}
+
 fn ex_network_ports() -> Vec<flow::NetworkPort> {
     [
         flow::NetworkPort {
@@ -221,6 +232,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         redact_salt: b"test-capture-salt".to_vec().into(),
         created_at: "2025-07-09".to_string(),
         linked_collections: Vec::new(),
+        secrets: ex_secrets(),
     }
 }
 
@@ -263,6 +275,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         inactive_transforms: Vec::new(),
         redact_salt: b"test-derivation-salt".to_vec().into(),
         linked_collections: Vec::new(),
+        secrets: ex_secrets(),
     });
 
     spec
@@ -324,6 +337,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         created_at: "2025-07-09".to_string(),
         sync_schedule_json: json!({"baseInterval": "4h", "timezone": "America/New_York", "windows": [{"interval": "30m", "start": "09:00", "end": "17:00"}]}).to_string().into(),
         linked_collections: Vec::new(),
+        secrets: ex_secrets(),
     }
 }
 
@@ -425,6 +439,7 @@ fn ex_capture_request() -> capture::Request {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: json!({"discover":"config"}).to_string().into(),
             created_at: "2025-07-09".to_string(),
+            secrets: ex_secrets(),
         }),
         validate: Some(capture::request::Validate {
             name: "validate/capture".to_string(),
@@ -439,6 +454,7 @@ fn ex_capture_request() -> capture::Request {
             last_capture: None,
             last_version: "11:22:33:44".to_string(),
             linked_collections: Vec::new(),
+            secrets: ex_secrets(),
         }),
         apply: Some(capture::request::Apply {
             capture: Some(ex_capture_spec()),
@@ -544,6 +560,7 @@ fn ex_derive_request() -> derive::Request {
             last_collection: None,
             last_version: "00:11:22:33".to_string(),
             linked_collections: Vec::new(),
+            secrets: ex_secrets(),
         }),
         open: Some(derive::request::Open {
             collection: Some(ex_collection_spec()),
@@ -633,6 +650,7 @@ fn ex_materialize_request() -> materialize::Request {
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),
             linked_collections: Vec::new(),
+            secrets: ex_secrets(),
         }),
         apply: Some(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),

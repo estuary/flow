@@ -35,6 +35,9 @@ message TaskServiceConfig {
   string uds_path          = 3;
   string container_network = 4;
   Plane  plane             = 6;
+  // Base URL of the config-encryption service, which the runtime calls to
+  // decrypt the secrets of a task.
+  string config_encryption_url = 7;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.

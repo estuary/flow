@@ -47,6 +47,7 @@ impl Task {
             inactive_transforms: _,
             redact_salt,
             linked_collections: _,
+            secrets: _,
         } = derivation;
 
         if key.is_empty() {

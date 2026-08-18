@@ -209,6 +209,11 @@ string_reference_types! {
     /// and a name may not begin or end in a '/'.
     pub struct Test("Test::schema", pattern = CATALOG_NAME_RE, example = "acmeCo/conversions/test");
 
+    /// Secret names are paths of Unicode letters, numbers, '-', '_', or '.'.
+    /// Each path component is separated by a slash '/',
+    /// and a name may not begin or end in a '/'.
+    pub struct Secret("Secret::schema", pattern = CATALOG_NAME_RE, example = "acmeCo/db/password");
+
     /// JSON Pointer which identifies a location in a document.
     pub struct JsonPointer("JsonPointer::schema", pattern = JSON_POINTER_RE, example = "/json/ptr");
 

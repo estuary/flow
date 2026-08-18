@@ -826,6 +826,7 @@ Outcome {
                 created_at: "2025-05-07",
                 sync_schedule_json: b"",
                 linked_collections: [],
+                secrets: {},
             },
             previous_spec: MaterializationSpec {
                 name: "testing/db-views",
@@ -909,6 +910,7 @@ Outcome {
                 created_at: "",
                 sync_schedule_json: b"",
                 linked_collections: [],
+                secrets: {},
             },
             is_touch: 0,
             dependency_hash: f70cb9d1e746ef16,

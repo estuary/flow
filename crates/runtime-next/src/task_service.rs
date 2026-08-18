@@ -20,6 +20,7 @@ impl TaskService {
             uds_path,
             container_network,
             plane,
+            config_encryption_url: _,
         } = config;
 
         if !std::path::Path::new(&uds_path).is_absolute() {

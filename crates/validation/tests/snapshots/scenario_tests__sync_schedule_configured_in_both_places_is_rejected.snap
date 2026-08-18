@@ -163,6 +163,7 @@ Outcome {
                 created_at: "",
                 sync_schedule_json: b"{\"baseInterval\":\"15m\"}",
                 linked_collections: [],
+                secrets: {},
             },
             previous_spec: NULL,
             is_touch: 0,

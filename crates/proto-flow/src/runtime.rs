@@ -11,6 +11,10 @@ pub struct TaskServiceConfig {
     pub container_network: ::prost::alloc::string::String,
     #[prost(enumeration = "Plane", tag = "6")]
     pub plane: i32,
+    /// Base URL of the config-encryption service, which the runtime calls to
+    /// decrypt the secrets of a task.
+    #[prost(string, tag = "7")]
+    pub config_encryption_url: ::prost::alloc::string::String,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,

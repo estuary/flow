@@ -524,6 +524,7 @@ expression: outcome.built_captures
             redact_salt: b"pass-through-capture-salt",
             created_at: "2025-05-07",
             linked_collections: [],
+            secrets: {},
         },
         previous_spec: CaptureSpec {
             name: "the/capture",
@@ -599,6 +600,7 @@ expression: outcome.built_captures
             redact_salt: b"pass-through-capture-salt",
             created_at: "",
             linked_collections: [],
+            secrets: {},
         },
         is_touch: 0,
         dependency_hash: 5b38dc32c776e2b2,

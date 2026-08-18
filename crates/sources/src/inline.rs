@@ -141,6 +141,7 @@ fn inline_derivation(
         shuffle_key_types: _,
         shards: _,
         redact_salt: _,
+        secrets: _,
     } = derivation;
 
     match using {
@@ -259,6 +260,7 @@ fn inline_materialization(
         delete: _,
         reset: _,
         on_incompatible_schema_change: _,
+        secrets: _,
     } = model;
 
     match endpoint {
