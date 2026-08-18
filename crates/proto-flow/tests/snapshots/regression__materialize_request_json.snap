@@ -112,7 +112,11 @@ expression: json_test(msg)
         ]
       }
     ],
-    "lastVersion": "00:11:22:33"
+    "lastVersion": "00:11:22:33",
+    "secrets": {
+      "": "acmeCo/whole-config",
+      "/credentials/password": "acmeCo/password"
+    }
   },
   "apply": {
     "materialization": {
@@ -309,7 +313,11 @@ expression: json_test(msg)
       ],
       "triggers": [{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}],
       "createdAt": "2025-07-09",
-      "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]}
+      "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]},
+      "secrets": {
+        "": "acmeCo/whole-config",
+        "/credentials/password": "acmeCo/password"
+      }
     },
     "version": "11:22:33:44",
     "lastVersion": "00:11:22:33",
@@ -510,7 +518,11 @@ expression: json_test(msg)
       ],
       "triggers": [{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}],
       "createdAt": "2025-07-09",
-      "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]}
+      "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]},
+      "secrets": {
+        "": "acmeCo/whole-config",
+        "/credentials/password": "acmeCo/password"
+      }
     },
     "version": "11:22:33:44",
     "range": {

@@ -28,6 +28,7 @@ impl Task {
             created_at: _,
             sync_schedule_json: _,
             linked_collections: _,
+            secrets: _,
         } = spec;
         let range = range.context("missing range")?;
 

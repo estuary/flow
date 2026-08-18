@@ -3,7 +3,9 @@ use crate::{Collection, Id, connector::DekafConfig, source::OnIncompatibleSchema
 
 use crate::source_capture::SourceType;
 
-use super::{ConnectorConfig, Field, LocalConfig, RawValue, ShardTemplate, Source};
+use super::{
+    ConnectorConfig, Field, JsonPointer, LocalConfig, RawValue, Secret, ShardTemplate, Source,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -106,6 +108,30 @@ pub struct MaterializationDef {
     pub on_incompatible_schema_change: OnIncompatibleSchemaChange,
     /// # Endpoint to materialize into.
     pub endpoint: MaterializationEndpoint,
+    /// # Secrets which are merged into the endpoint configuration.
+    /// Maps a JSON pointer within the endpoint configuration to the name of a
+    /// secret which is resolved and merged into that location as the task
+    /// starts. Secrets are named catalog entities, managed apart from the
+    /// specification, and must be siblings of this task: secret
+    /// `acmeCo/widgets/password` may be used by materialization
+    /// `acmeCo/widgets/materialize-pg`.
+    ///
+    /// Each entry synthesizes a document from its pointer -- pointer `/a/b`
+    /// with resolved value `v` becomes `{"a":{"b":v}}` -- which is applied to
+    /// the configuration as an RFC 7396 merge patch. Entries are applied in
+    /// lexicographic pointer order, so a deeper pointer wins where two entries
+    /// overlap, and a `null` value deletes its location.
+    ///
+    /// Pointer tokens are always object property names: token `2` addresses the
+    /// property `"2"` and never an array index, and `-` is the literal property
+    /// `"-"`. Arrays are therefore atomic values: to change one, point at the
+    /// property holding it and supply the whole array. The empty pointer merges
+    /// at the configuration root, and its secret must resolve to an object.
+    ///
+    /// A configuration using `secrets` must be plaintext: it cannot also be
+    /// encrypted, and its top-level `sops` property is reserved.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secrets: BTreeMap<JsonPointer, Secret>,
     /// # Bound collections to materialize into the endpoint.
     pub bindings: Vec<MaterializationBinding>,
     /// # Template for shards of this materialization task.
@@ -255,6 +281,7 @@ impl MaterializationDef {
             source: None,
             target_naming: None,
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
+            secrets: BTreeMap::new(),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
             expect_pub_id: None,
@@ -342,5 +369,47 @@ impl super::ModelDef for MaterializationDef {
             MaterializationEndpoint::Dekaf(cfg) => Some(cfg.image_name()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn secrets_stanza_round_trips() {
+        let fixture = json!({
+            "endpoint": {"connector": {"image": "an/image", "config": {}}},
+            "secrets": {
+                "": "acmeCo/widgets/whole-config",
+                "/credentials/password": "acmeCo/widgets/password",
+            },
+            "bindings": [],
+        });
+        let model: MaterializationDef = serde_json::from_value(fixture.clone()).unwrap();
+
+        // Pointers order lexicographically, which is the order in which
+        // resolved secrets are merge-patched into the configuration.
+        assert_eq!(
+            model
+                .secrets
+                .keys()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>(),
+            ["", "/credentials/password"],
+        );
+        assert_eq!(serde_json::to_value(&model).unwrap(), fixture);
+
+        // An empty stanza is omitted entirely.
+        let model = MaterializationDef {
+            secrets: BTreeMap::new(),
+            ..model
+        };
+        assert!(
+            serde_json::to_value(&model)
+                .unwrap()
+                .get("secrets")
+                .is_none()
+        );
     }
 }

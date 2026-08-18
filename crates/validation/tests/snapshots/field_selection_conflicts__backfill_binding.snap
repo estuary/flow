@@ -32,6 +32,7 @@ expression: "(selections, errors)"
                             ),
                         },
                     ),
+                    secrets: {},
                     bindings: [
                         MaterializationBinding {
                             resource: RawValue(

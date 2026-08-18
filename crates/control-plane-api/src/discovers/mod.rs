@@ -194,6 +194,15 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         };
         tracing::Span::current().record("image", &connector_cfg.image);
 
+        // A discover runs before any built spec exists, so the drafted model is
+        // the only source of the secrets which the data plane must resolve
+        // before dialing the connector.
+        let secrets = capture_def
+            .model
+            .as_ref()
+            .map(|model| assemble::secrets(&model.secrets))
+            .unwrap_or_default();
+
         // INFO is a good default since these are not shown in the UI, so if we're looking then
         // there's already a problem.
         let log_level = capture_def
@@ -209,6 +218,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
                 connector_type: capture_spec::ConnectorType::Image as i32,
                 config_json: serde_json::to_string(connector_cfg).unwrap().into(),
                 created_at,
+                secrets,
             }),
             ..Default::default()
         }

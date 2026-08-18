@@ -275,6 +275,17 @@ expression: "&schema"
           "description": "Publishing a value of `true` will reset this capture, which is\nequivalent to deleting and then re-creating the capture but\napplied as a single publication.",
           "type": "boolean"
         },
+        "secrets": {
+          "title": "Secrets which are merged into the endpoint configuration.",
+          "description": "Maps a JSON pointer within the endpoint configuration to the name of a\nsecret which is resolved and merged into that location as the task\nstarts. Secrets are named catalog entities, managed apart from the\nspecification, and must be siblings of this task: secret\n`acmeCo/widgets/password` may be used by capture `acmeCo/widgets/source-pg`.\n\nEach entry synthesizes a document from its pointer -- pointer `/a/b`\nwith resolved value `v` becomes `{\"a\":{\"b\":v}}` -- which is applied to\nthe configuration as an RFC 7396 merge patch. Entries are applied in\nlexicographic pointer order, so a deeper pointer wins where two entries\noverlap, and a `null` value deletes its location.\n\nPointer tokens are always object property names: token `2` addresses the\nproperty `\"2\"` and never an array index, and `-` is the literal property\n`\"-\"`. Arrays are therefore atomic values: to change one, point at the\nproperty holding it and supply the whole array. The empty pointer merges\nat the configuration root, and its secret must resolve to an object.\n\nA configuration using `secrets` must be plaintext: it cannot also be\nencrypted, and its top-level `sops` property is reserved.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^(/([^/~]|(~[01]))+)*$": {
+              "$ref": "#/$defs/Secret"
+            }
+          }
+        },
         "shards": {
           "title": "Template for shards of this capture task.",
           "$ref": "#/$defs/ShardTemplate"
@@ -504,6 +515,17 @@ expression: "&schema"
           "title": "Salt used for redacting sensitive fields in derived documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
           "type": "string"
+        },
+        "secrets": {
+          "title": "Secrets which are merged into the `using` configuration.",
+          "description": "Maps a JSON pointer within the configuration of `using` to the name of a\nsecret which is resolved and merged into that location as the task\nstarts. Secrets are named catalog entities, managed apart from the\nspecification, and must be siblings of this task: secret\n`acmeCo/widgets/token` may be used by derivation `acmeCo/widgets/rollups`.\n\nEach entry synthesizes a document from its pointer -- pointer `/a/b`\nwith resolved value `v` becomes `{\"a\":{\"b\":v}}` -- which is applied to\nthe configuration as an RFC 7396 merge patch. Entries are applied in\nlexicographic pointer order, so a deeper pointer wins where two entries\noverlap, and a `null` value deletes its location.\n\nPointer tokens are always object property names: token `2` addresses the\nproperty `\"2\"` and never an array index, and `-` is the literal property\n`\"-\"`. Arrays are therefore atomic values: to change one, point at the\nproperty holding it and supply the whole array. The empty pointer merges\nat the configuration root, and its secret must resolve to an object.\n\nA configuration using `secrets` must be plaintext: it cannot also be\nencrypted, and its top-level `sops` property is reserved.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^(/([^/~]|(~[01]))+)*$": {
+              "$ref": "#/$defs/Secret"
+            }
+          }
         },
         "shards": {
           "title": "Template for shards of this derivation task.",
@@ -972,6 +994,17 @@ expression: "&schema"
           "description": "Publishing a value of `true` will reset this materialization, which is\nequivalent to deleting and then re-creating the materialization but\napplied as a single publication.",
           "type": "boolean"
         },
+        "secrets": {
+          "title": "Secrets which are merged into the endpoint configuration.",
+          "description": "Maps a JSON pointer within the endpoint configuration to the name of a\nsecret which is resolved and merged into that location as the task\nstarts. Secrets are named catalog entities, managed apart from the\nspecification, and must be siblings of this task: secret\n`acmeCo/widgets/password` may be used by materialization\n`acmeCo/widgets/materialize-pg`.\n\nEach entry synthesizes a document from its pointer -- pointer `/a/b`\nwith resolved value `v` becomes `{\"a\":{\"b\":v}}` -- which is applied to\nthe configuration as an RFC 7396 merge patch. Entries are applied in\nlexicographic pointer order, so a deeper pointer wins where two entries\noverlap, and a `null` value deletes its location.\n\nPointer tokens are always object property names: token `2` addresses the\nproperty `\"2\"` and never an array index, and `-` is the literal property\n`\"-\"`. Arrays are therefore atomic values: to change one, point at the\nproperty holding it and supply the whole array. The empty pointer merges\nat the configuration root, and its secret must resolve to an object.\n\nA configuration using `secrets` must be plaintext: it cannot also be\nencrypted, and its top-level `sops` property is reserved.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^(/([^/~]|(~[01]))+)*$": {
+              "$ref": "#/$defs/Secret"
+            }
+          }
+        },
         "shards": {
           "title": "Template for shards of this materialization task.",
           "$ref": "#/$defs/ShardTemplate"
@@ -1251,6 +1284,14 @@ expression: "&schema"
           "type": "object"
         }
       ]
+    },
+    "Secret": {
+      "description": "Secret names are paths of Unicode letters, numbers, '-', '_', or '.'.\nEach path component is separated by a slash '/',\nand a name may not begin or end in a '/'.",
+      "type": "string",
+      "examples": [
+        "acmeCo/db/password"
+      ],
+      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
     },
     "ShardTemplate": {
       "description": "A ShardTemplate configures how shards process a catalog task.",

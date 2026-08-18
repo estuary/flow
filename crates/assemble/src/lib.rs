@@ -587,6 +587,19 @@ pub fn encode_state_key(resource_path: &[impl AsRef<str>], backfill: u32) -> Str
     key
 }
 
+/// secrets maps a task's model `secrets` stanza into the representation carried
+/// by its built spec and by the Validate / Discover requests of its connector:
+/// a JSON pointer into the endpoint configuration, mapped to the catalog name
+/// of the secret which the runtime resolves and merge-patches at that location.
+pub fn secrets(
+    stanza: &std::collections::BTreeMap<models::JsonPointer, models::Secret>,
+) -> std::collections::BTreeMap<String, String> {
+    stanza
+        .iter()
+        .map(|(pointer, secret)| (pointer.to_string(), secret.to_string()))
+        .collect()
+}
+
 pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCodec {
     match t {
         models::CompressionCodec::None => broker::CompressionCodec::None,

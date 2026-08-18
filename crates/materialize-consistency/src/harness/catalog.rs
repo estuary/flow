@@ -303,6 +303,7 @@ fn capture(plan: &Plan<'_>, target: &str, disable: bool) -> anyhow::Result<model
             env: Default::default(),
             protobuf: false,
         }),
+        secrets: Default::default(),
         bindings: vec![models::CaptureBinding {
             resource: models::RawValue::from_value(&serde_json::json!({"name": "events"})),
             disable: false,
@@ -394,6 +395,7 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
             env,
             protobuf,
         }),
+        secrets: Default::default(),
         bindings: plan
             .standard_binding
             .then(|| binding(&plan.names.merged, TABLE_STANDARD, false))
