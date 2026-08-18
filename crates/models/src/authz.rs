@@ -35,6 +35,15 @@ pub enum Capability {
     CreateServiceAccount,
     CreateApiKey,
     RevokeApiKey,
+    // `ViewSecret` permits listing the secrets under a prefix: their catalog
+    // names and lifecycle ids, never their documents or plaintext.
+    ViewSecret,
+    // `EditSecret` permits setting and deleting secrets.
+    EditSecret,
+    // `DecryptSecret` permits a user to decrypt a secret and read its
+    // plaintext value. Task decryption is authorized separately, by the
+    // sibling rule, and does not consult this bit.
+    DecryptSecret,
     Delegate,
     Assume,
 }
@@ -107,7 +116,21 @@ impl CapabilityBundle {
             //   axis from the bits above. Included because editing
             //   without seeing the model is awkward, not because of
             //   functional coupling.
-            Self::Editor => CatalogRead | JournalRead | SpecEdit | Delegate,
+            // - `ViewSecret` / `EditSecret` / `DecryptSecret`: the secrets an
+            //   editor's tasks reference are theirs to manage. Publish
+            //   authority is already disclosure authority — someone who can
+            //   publish a task at a prefix can point a connector at any
+            //   sibling secret and exfiltrate its plaintext — so withholding
+            //   decrypt from an editor buys nothing and only adds friction.
+            Self::Editor => {
+                CatalogRead
+                    | JournalRead
+                    | SpecEdit
+                    | Delegate
+                    | ViewSecret
+                    | EditSecret
+                    | DecryptSecret
+            }
             Self::Admin => {
                 Self::Editor.capabilities()
                     // Because Editor doesn't bundle `JournalAppend`,
