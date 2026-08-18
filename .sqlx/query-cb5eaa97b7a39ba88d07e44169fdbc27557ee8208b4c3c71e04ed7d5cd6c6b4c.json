@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH locked AS (\n                -- Lock the current row so that concurrent sets of this secret\n                -- serialize, and so the outcome classified below is of the same\n                -- row version that the conditional write acts upon.\n                SELECT\n                    id,\n                    document::text AS document_text,\n                    (document->'sops'->>'lastmodified')::timestamptz AS last_modified\n                FROM internal.secrets\n                WHERE catalog_name = $1::text::catalog_name\n                FOR UPDATE\n            ),\n            updated AS (\n                -- An identical document is the same entity, so it must not\n                -- mint an id; a document older than the stored one must not be\n                -- applied at all. Either way this UPDATE matches no row, and\n                -- the two cases are told apart from `locked` below.\n                UPDATE internal.secrets SET\n                    id = internal.id_generator(),\n                    document = $2::text::json\n                WHERE catalog_name = $1::text::catalog_name\n                  AND EXISTS (\n                    SELECT 1 FROM locked\n                    WHERE locked.document_text <> $2::text\n                      AND locked.last_modified <= $3::timestamptz\n                  )\n                RETURNING id\n            ),\n            inserted AS (\n                INSERT INTO internal.secrets (catalog_name, document)\n                SELECT $1::text::catalog_name, $2::text::json\n                WHERE NOT EXISTS (SELECT 1 FROM locked)\n                -- `locked` takes no lock when there is no row to lock, so two\n                -- concurrent first-sets can reach this INSERT. The loser writes\n                -- nothing and is reported as a conflict to retry.\n                ON CONFLICT (catalog_name) DO NOTHING\n                RETURNING id\n            )\n            SELECT\n                (SELECT id FROM locked) AS \"prior_id: models::Id\",\n                (SELECT document_text FROM locked) AS \"prior_document: String\",\n                coalesce(\n                    (SELECT id FROM updated),\n                    (SELECT id FROM inserted)\n                ) AS \"written_id: models::Id\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "prior_id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "prior_document: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "written_id: models::Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cb5eaa97b7a39ba88d07e44169fdbc27557ee8208b4c3c71e04ed7d5cd6c6b4c"
+}
