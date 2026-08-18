@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    DELETE FROM internal.secrets\n                    WHERE catalog_name::text ^@ $1\n                    RETURNING catalog_name AS \"catalog_name!: models::Name\"\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: models::Name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6e70cf1be4cd24e596ec31dc06e8f16283d40780fb35782de09f347c6548b6ee"
+}

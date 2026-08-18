@@ -39,6 +39,7 @@ mod prefixes;
 mod publication_history;
 mod refresh_tokens;
 mod scalars;
+mod secrets;
 mod service_accounts;
 pub mod status;
 mod storage_mappings;
@@ -125,6 +126,7 @@ pub struct QueryRoot(
     tenant::TenantQuery,
     refresh_tokens::RefreshTokensQuery,
     service_accounts::ServiceAccountsQuery,
+    secrets::SecretsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -138,6 +140,7 @@ pub struct MutationRoot(
     data_planes::DataPlanesMutation,
     refresh_tokens::RefreshTokensMutation,
     service_accounts::ServiceAccountsMutation,
+    secrets::SecretsMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {
