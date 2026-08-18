@@ -347,18 +347,17 @@ fn document_schema(version: usize) -> bytes::Bytes {
 }
 
 #[tokio::test]
-async fn test_discover_authorization_denials() {
-    let mut harness = TestHarness::init("test_discover_authorization_denials").await;
-    // Snapshot staleness is under explicit test control.
-    harness.snapshot_auto_refresh = false;
+async fn test_discover_filters_unauthorized_capture() {
+    let mut harness = TestHarness::init("test_discover_filters_unauthorized_capture").await;
 
     let user_id = harness.setup_tenant("squirrels").await;
 
-    // The user holds no grant to chipmunks/, and no chipmunks/ specs exist.
-    // Denials are computed from the requested names alone, so the two are
-    // indistinguishable by design.
+    // The user holds no grant to chipmunks/: the live-capture precheck fetch
+    // silently filters the name, and the discover proceeds treating the
+    // capture as new rather than failing. Any authorization error surfaces
+    // when the user tries to publish.
     let draft_id = harness
-        .create_draft(user_id, "denied discover", Default::default())
+        .create_draft(user_id, "filtered discover", Default::default())
         .await;
     let discover_id = harness
         .queue_user_discover(
@@ -366,7 +365,7 @@ async fn test_discover_authorization_denials() {
             ":test",
             "chipmunks/capture",
             draft_id,
-            r#"{"denied": 1}"#,
+            r#"{"filtered": 1}"#,
             false,
             Ok((
                 spec_fixture(),
@@ -376,96 +375,52 @@ async fn test_discover_authorization_denials() {
             )),
         )
         .await;
+    let result = harness.run_queued_discover(discover_id).await;
 
-    // Stamp the Snapshot slightly ahead of the queued row, so that it is
-    // authoritative for it despite the temporal-skew allowance of
-    // `Snapshot::taken_after`. (Touching the row's `updated_at` instead would
-    // re-fire the discovers task-creation trigger.)
-    let revoke = harness
-        .refresh_snapshot_taken_at(tokens::now() + chrono::Duration::seconds(10))
-        .await;
-
-    let authoritative = harness.run_queued_discover(discover_id).await;
-    assert!(matches!(
-        authoritative.job_status,
-        crate::discovers::JobStatus::DiscoverFailed
-    ));
     assert!(
-        !revoke.is_cancelled(),
-        "an authoritative denial must not request a Snapshot refresh"
+        result.job_status.is_success(),
+        "expected success, got: {:?}",
+        result.job_status
     );
-
-    // Now a denial under a Snapshot which predates the queued discover.
-    let revoke = harness
-        .refresh_snapshot_taken_at(tokens::now() - chrono::Duration::minutes(5))
-        .await;
-    let draft_id = harness
-        .create_draft(user_id, "denied stale discover", Default::default())
-        .await;
-    let discover_id = harness
-        .queue_user_discover(
-            "source/test",
-            ":test",
-            "chipmunks/capture",
-            draft_id,
-            r#"{"denied": 2}"#,
-            false,
-            Ok((
-                spec_fixture(),
-                Discovered {
-                    bindings: Vec::new(),
-                },
-            )),
-        )
-        .await;
-    let stale = harness.run_queued_discover(discover_id).await;
-    assert!(matches!(
-        stale.job_status,
-        crate::discovers::JobStatus::DiscoverFailed
-    ));
-    assert!(
-        revoke.is_cancelled(),
-        "a denial under a stale Snapshot must request an early refresh"
-    );
-
-    // The denials must render byte-identically: the response never reveals
-    // whether the Snapshot was stale, nor whether the denied specs exist.
-    assert_eq!(authoritative.errors, stale.errors);
-    insta::assert_debug_snapshot!(authoritative.errors, @r###"
-    [
-        (
-            "flow://capture/chipmunks/capture",
-            "not authorized to read: chipmunks/capture",
-        ),
-    ]
-    "###);
+    assert!(result.errors.is_empty());
+    // The capture is drafted as a brand-new spec.
+    let drafted = result
+        .draft
+        .captures
+        .get_by_key(&models::Capture::new("chipmunks/capture"))
+        .expect("expected chipmunks/capture to be drafted");
+    assert_eq!(Some(models::Id::zero()), drafted.expect_pub_id);
 }
 
 #[tokio::test]
-async fn test_discover_merge_phase_denial() {
-    let mut harness = TestHarness::init("test_discover_merge_phase_denial").await;
-    harness.snapshot_auto_refresh = false;
+async fn test_discover_merge_filters_unauthorized_collection() {
+    let mut harness =
+        TestHarness::init("test_discover_merge_filters_unauthorized_collection").await;
 
     let user_id = harness.setup_tenant("squirrels").await;
 
     // The drafted capture is readable by the user, but an existing binding
     // targets a collection outside their grants. The binding is retained by
-    // the discover merge, so its target is authorized during the merge phase
-    // — where a denial must render exactly like a precheck denial.
-    let draft_json = serde_json::json!({
-        "captures": {
-            "squirrels/capture-1": {
-                "endpoint": {
-                    "connector": { "image": "source/test:test", "config": {} }
-                },
-                "bindings": [
-                    { "resource": { "id": "acorns" }, "target": "chipmunks/stolen" }
-                ]
-            }
-        }
-    });
+    // the discover merge; its target is silently filtered from the
+    // merge-phase fetch, so the collection is drafted fresh rather than
+    // merged with any live spec the user can't read.
     let draft_id = harness
-        .create_draft(user_id, "merge denial", draft_catalog(draft_json.clone()))
+        .create_draft(
+            user_id,
+            "merge filter",
+            draft_catalog(serde_json::json!({
+                "captures": {
+                    "squirrels/capture-1": {
+                        "endpoint": {
+                            "connector": { "image": "source/test:test", "config": {} }
+                        },
+                        "bindings": [
+                            { "resource": { "id": "acorns" }, "target": "chipmunks/stolen" }
+                        ]
+                    }
+                }
+            })),
+        )
         .await;
 
     let discovered = Discovered {
@@ -487,63 +442,25 @@ async fn test_discover_merge_phase_denial() {
             draft_id,
             r#"{}"#,
             false,
-            Ok((spec_fixture(), discovered.clone())),
-        )
-        .await;
-
-    // Stamp the Snapshot ahead of the queued row: this denial is
-    // authoritative, and must not request a refresh.
-    let revoke = harness
-        .refresh_snapshot_taken_at(tokens::now() + chrono::Duration::seconds(10))
-        .await;
-    let result = harness.run_queued_discover(discover_id).await;
-
-    assert!(matches!(
-        result.job_status,
-        crate::discovers::JobStatus::DiscoverFailed
-    ));
-    assert!(!revoke.is_cancelled());
-
-    // Now the same merge-phase denial under a Snapshot which predates the
-    // queued discover: it must request an early refresh, and render
-    // byte-identically to the authoritative denial.
-    let stale_revoke = harness
-        .refresh_snapshot_taken_at(tokens::now() - chrono::Duration::minutes(5))
-        .await;
-    let draft_id = harness
-        .create_draft(user_id, "stale merge denial", draft_catalog(draft_json))
-        .await;
-    let discover_id = harness
-        .queue_user_discover(
-            "source/test",
-            ":test",
-            "squirrels/capture-1",
-            draft_id,
-            r#"{}"#,
-            false,
             Ok((spec_fixture(), discovered)),
         )
         .await;
-    let stale = harness.run_queued_discover(discover_id).await;
+    let result = harness.run_queued_discover(discover_id).await;
 
-    assert!(matches!(
-        stale.job_status,
-        crate::discovers::JobStatus::DiscoverFailed
-    ));
     assert!(
-        stale_revoke.is_cancelled(),
-        "a merge-phase denial under a stale Snapshot must request an early refresh"
+        result.job_status.is_success(),
+        "expected success, got: {:?}",
+        result.job_status
     );
-    assert_eq!(result.errors, stale.errors);
-
-    // Identical scope and message shape as a precheck denial, naming only the
-    // collection the user's own draft binding targets.
-    insta::assert_debug_snapshot!(result.errors, @r###"
-    [
-        (
-            "flow://capture/squirrels/capture-1",
-            "not authorized to read: chipmunks/stolen",
-        ),
-    ]
-    "###);
+    assert!(result.errors.is_empty());
+    // The filtered target is drafted as a new collection.
+    assert!(
+        result
+            .draft
+            .collections
+            .get_by_key(&models::Collection::new("chipmunks/stolen"))
+            .is_some(),
+        "expected chipmunks/stolen to be drafted fresh: {:?}",
+        result.draft
+    );
 }

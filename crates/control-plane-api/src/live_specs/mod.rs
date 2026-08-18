@@ -10,99 +10,54 @@ pub use db::{
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
 
-/// NotAuthorized is raised when the user lacks a required capability to one
-/// or more requested catalog names. It's evaluated purely over the requested
-/// names — never over which specs exist — so a denial cannot reveal the
-/// existence of a spec. Callers recognize it by downcasting through `anyhow`
-/// wrapping, and must surface only its bare `Display` (not an accumulated
-/// context chain) so that every denial renders identically.
-#[derive(Debug)]
-pub struct NotAuthorized {
-    /// Requested catalog names which the user is not authorized to.
-    /// Sorted and deduplicated.
-    pub names: Vec<String>,
-    /// The capability the user was required, and failed, to hold.
-    pub capability: models::authz::CapabilitySet,
-}
-
-impl std::fmt::Display for NotAuthorized {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "not authorized to {}: {}",
-            action_phrase(self.capability),
-            self.names.join(", ")
-        )
-    }
-}
-
-impl std::error::Error for NotAuthorized {}
-
-/// Renders the required capability as a natural action phrase where one
-/// exists, falling back to the capability names themselves. The phrase is a
-/// constant of the call site's required capability: it never varies with the
-/// request's outcome or with which specs exist.
-fn action_phrase(capability: models::authz::CapabilitySet) -> String {
-    if capability == models::authz::CapabilitySet::only(models::authz::Capability::CatalogRead) {
-        return "read".to_string();
-    }
-    capability
-        .iter()
-        .map(|cap| cap.to_string())
-        .collect::<Vec<_>>()
-        .join(" + ")
-}
-
-/// Returns the requested `names` to which the user does NOT hold `capability`,
-/// evaluated against the authorization `snapshot`.
-fn authorization_denials(
+/// Partitions the requested `names` by whether the user holds `capability`
+/// to them, evaluated against the authorization `snapshot`. Returns
+/// `(authorized, denied)`, each sorted and deduplicated.
+fn partition_by_authorization(
     user_id: Uuid,
     names: &[String],
     capability: models::authz::CapabilitySet,
     snapshot: &crate::Snapshot,
-) -> Vec<String> {
-    let mut denied: Vec<String> = names
-        .iter()
-        .filter(|name| {
-            !tables::UserGrant::is_authorized(
+) -> (Vec<String>, Vec<String>) {
+    let (mut authorized, mut denied): (Vec<String>, Vec<String>) =
+        names.iter().cloned().partition(|name| {
+            tables::UserGrant::is_authorized(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 user_id,
                 name,
                 capability,
             )
-        })
-        .cloned()
-        .collect();
+        });
 
+    authorized.sort();
+    authorized.dedup();
     denied.sort();
     denied.dedup();
-    denied
+    (authorized, denied)
 }
 
-/// Fetches live specs as a `tables::LiveCatalog`, requiring that the user
-/// holds `capability` to every requested name, evaluated against the
-/// authorization `snapshot`.
+/// Fetches live specs as a `tables::LiveCatalog`, silently filtering out
+/// requested names to which the user does not hold `capability`, evaluated
+/// against the authorization `snapshot`. Filtered names are simply absent
+/// from the result — indistinguishable from specs which don't exist — and
+/// never surface as an error.
 ///
-/// Authorization is checked before any database access, and over the
-/// requested names rather than over fetched rows: neither the timing nor the
-/// content of a `NotAuthorized` error varies with whether a spec exists.
-pub async fn get_live_specs_authorized(
+/// The `snapshot` is trusted as-is: a grant committed after it was taken is
+/// invisible until the watch's own background refresh cadence picks it up.
+pub async fn get_live_specs_filtered(
     user_id: Uuid,
     names: &[String],
     capability: models::authz::CapabilitySet,
     snapshot: &crate::Snapshot,
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
-    let denied = authorization_denials(user_id, names, capability, snapshot);
+    let (authorized, denied) = partition_by_authorization(user_id, names, capability, snapshot);
+
     if !denied.is_empty() {
-        return Err(NotAuthorized {
-            names: denied,
-            capability,
-        }
-        .into());
+        tracing::debug!(?denied, %user_id, "filtered unauthorized specs from fetch");
     }
-    get_live_specs_unfiltered(user_id, names, db).await
+    get_live_specs_unfiltered(user_id, &authorized, db).await
 }
 
 /// Fetches live specs as a `tables::LiveCatalog` without any authorization
@@ -216,7 +171,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_authorization_denials() {
+    fn test_partition_by_authorization() {
         let snapshot = crate::Snapshot::build_fixture(None);
         // Bob (from the fixture): `write` on bobCo/, plus `read` to
         // acmeCo/shared/ via an admin grant to bobCo/tires/.
@@ -228,36 +183,27 @@ mod test {
             "acmeCo/shared/collection".to_string(),
             "bobCo/tires/capture".to_string(),
         ];
-        assert!(authorization_denials(bob, &names, capability, &snapshot).is_empty());
+        let (authorized, denied) = partition_by_authorization(bob, &names, capability, &snapshot);
+        assert_eq!(authorized, names);
+        assert!(denied.is_empty());
 
         // Denials are computed from the requested names alone: a name with no
-        // live spec and a name of an existing-but-unauthorized spec are
-        // indistinguishable in the rendered error.
+        // live spec and a name of an existing-but-unauthorized spec partition
+        // identically. Duplicates collapse and both sides come back sorted.
         let names = vec![
             "aliceCo/anvils/pings".to_string(),
             "bobCo/tires/capture".to_string(),
             "acmeCo/private/collection".to_string(),
             "aliceCo/anvils/pings".to_string(),
         ];
-        let denied = authorization_denials(bob, &names, capability, &snapshot);
-        let error = NotAuthorized {
-            names: denied,
-            capability,
-        };
-        insta::assert_snapshot!(
-            error.to_string(),
-            @"not authorized to read: acmeCo/private/collection, aliceCo/anvils/pings"
-        );
-
-        // The rendered action derives from the required capability set, so a
-        // future caller requiring a different capability renders truthfully.
-        let error = NotAuthorized {
-            names: vec!["acmeCo/private/collection".to_string()],
-            capability: models::authz::Capability::SpecEdit.into(),
-        };
-        insta::assert_snapshot!(
-            error.to_string(),
-            @"not authorized to SpecEdit: acmeCo/private/collection"
+        let (authorized, denied) = partition_by_authorization(bob, &names, capability, &snapshot);
+        assert_eq!(authorized, vec!["bobCo/tires/capture".to_string()]);
+        assert_eq!(
+            denied,
+            vec![
+                "acmeCo/private/collection".to_string(),
+                "aliceCo/anvils/pings".to_string(),
+            ]
         );
     }
 }

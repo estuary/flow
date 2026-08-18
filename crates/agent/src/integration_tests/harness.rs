@@ -181,14 +181,11 @@ pub struct TestHarness {
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
     /// Watch of the authorization Snapshot used by the discovers executor.
+    /// It is refreshed before each discovers automation poll, so that grants
+    /// created by the test are visible to authorization.
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     /// Replaces the Snapshot behind `snapshot_watch`.
     snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
-    /// When true (the default), the Snapshot is refreshed before each
-    /// discovers automation poll, so that grants created by the test are
-    /// visible to authorization. Staleness tests set this to false and drive
-    /// refreshes explicitly.
-    pub snapshot_auto_refresh: bool,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
@@ -303,7 +300,6 @@ impl HarnessBuilder {
             discover_handler,
             snapshot_watch: discover_snapshot_watch,
             snapshot_replace,
-            snapshot_auto_refresh: true,
             control_plane,
             controller_exec,
             directive_exec,
@@ -1137,29 +1133,13 @@ impl TestHarness {
         states
     }
 
-    /// Refreshes the authorization Snapshot used by the discovers executor,
-    /// stamped as taken now. Returns the Snapshot's revoke token, which tests
-    /// may inspect to observe an early-refresh request.
-    pub async fn refresh_snapshot(&self) -> tokens::CancellationToken {
-        self.refresh_snapshot_taken_at(tokens::now()).await
-    }
-
-    /// Refreshes the authorization Snapshot with a caller-controlled `taken`
-    /// stamp, letting tests position the Snapshot relative to a queued
-    /// operation: a past stamp makes it stale for the operation, while a
-    /// slightly-future stamp makes it authoritative despite the temporal-skew
-    /// allowance of `Snapshot::taken_after`.
-    pub async fn refresh_snapshot_taken_at(
-        &self,
-        taken: tokens::DateTime,
-    ) -> tokens::CancellationToken {
+    /// Refreshes the authorization Snapshot used by the discovers executor.
+    pub async fn refresh_snapshot(&self) {
         let data = control_plane_api::snapshot::try_fetch(&self.pool, &mut Default::default())
             .await
             .expect("failed to fetch authorization snapshot");
-        let snapshot = control_plane_api::Snapshot::new(taken, data);
-        let revoke = snapshot.revoke.clone();
+        let snapshot = control_plane_api::Snapshot::new(tokens::now(), data);
         (self.snapshot_replace)(snapshot);
-        revoke
     }
 
     /// Runs at most one automation task of the given type, and returns the id of the task that was run.
@@ -1182,9 +1162,10 @@ impl TestHarness {
                 runtime_v2_new_derivations: self.runtime_v2_new_derivations,
             }),
             task_types::DISCOVERS => {
-                if self.snapshot_auto_refresh {
-                    self.refresh_snapshot().await;
-                }
+                // Discover authorization is evaluated against the executor's
+                // pinned Snapshot; refresh it so grants created by the test
+                // are visible.
+                self.refresh_snapshot().await;
                 Server::new().register(DiscoverExecutor {
                     handler: self.discover_handler.clone(),
                     snapshot_watch: self.snapshot_watch.clone(),

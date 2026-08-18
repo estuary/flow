@@ -320,7 +320,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             let snapshot = snapshot
                 .result()
                 .expect("Discover callers pin a ready authorization Snapshot");
-            crate::live_specs::get_live_specs_authorized(
+            crate::live_specs::get_live_specs_filtered(
                 user_id,
                 &collection_names,
                 models::authz::Capability::CatalogRead.into(),

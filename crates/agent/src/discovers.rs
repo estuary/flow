@@ -230,7 +230,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             row.logs_token,
             image_composed,
             data_plane,
-            snapshot.clone(),
+            snapshot,
             pool,
         )
         .await;
@@ -258,33 +258,13 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                 Ok((JobStatus::DiscoverFailed, Err(draft_errs)))
             }
             Err(err) => {
-                // An authorization denial is rendered from the error's bare
-                // Display — never the anyhow context chain — so that every
-                // denial is byte-identical regardless of which phase raised
-                // it, or whether the denied specs exist.
-                let detail = if let Some(denied) = err.downcast_ref::<live_specs::NotAuthorized>() {
-                    // The pinned Snapshot may predate this discover, in
-                    // which case the denial may reflect a grant that is
-                    // committed but not yet visible. Request an early
-                    // background refresh so that a user-initiated retry
-                    // can succeed, but report the identical denial either
-                    // way: a distinguishable "stale" response would leak
-                    // what a retry might find.
-                    let snapshot = snapshot.result().expect("validated in poll");
-                    if !snapshot.taken_after(row.updated_at) {
-                        snapshot.revoke.cancel();
-                    }
-                    denied.to_string()
-                } else {
-                    format!("{:#}", err)
-                };
                 let draft_errors = vec![models::draft_error::Error {
                     scope: Some(
                         tables::synthetic_scope(models::CatalogType::Capture, &row.capture_name)
                             .to_string(),
                     ),
                     catalog_name: row.capture_name.clone(),
-                    detail,
+                    detail: format!("{:#}", err),
                 }];
                 Ok((JobStatus::DiscoverFailed, Err(draft_errors)))
             }
@@ -324,10 +304,11 @@ async fn prepare_discover(
     // embedded in its control-plane Id — is carried on the Discover request,
     // so that re-discovers resolve connector feature-flag defaults as the
     // running task does. It's empty for a task which doesn't exist yet.
-    // The user must hold CatalogRead to the capture name: a denial fails the
-    // discover uniformly, rather than silently treating the capture as new.
+    // Filter to only specs the user holds CatalogRead to: a capture they
+    // can't read is treated as absent, and any error surfaces when they
+    // try to publish.
     let name = &[capture_name.to_string()];
-    let live = live_specs::get_live_specs_authorized(
+    let live = live_specs::get_live_specs_filtered(
         user_id,
         name,
         models::authz::Capability::CatalogRead.into(),
