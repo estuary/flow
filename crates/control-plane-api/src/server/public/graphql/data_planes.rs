@@ -7,14 +7,12 @@ use std::collections::HashMap;
 
 const DEFAULT_PAGE_SIZE: usize = 50;
 
-/// Composable filter for the `dataPlanes` query. Every field is optional and
-/// only narrows the result set; the caller's read-capability scope is enforced
-/// independently, so a filter can never widen what a caller may see.
+/// Filter for the `dataPlanes` query. Each field is optional and only
+/// narrows results. A filter cannot show data planes the caller cannot read.
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct DataPlanesFilter {
-    /// Resolve specific data planes by their id, e.g. a `LiveSpec`'s
-    /// `dataPlaneId`. Ids the caller cannot read, and ids that match no data
-    /// plane, are omitted rather than erroring.
+    /// Match data planes by id, such as a `LiveSpec`'s `dataPlaneId`.
+    /// Unknown or unauthorized ids are silently dropped.
     pub id: Option<filters::IdFilter>,
     /// Filter on the `closed` flag.
     pub closed: Option<filters::BoolFilter>,
@@ -133,9 +131,8 @@ impl async_graphql::dataloader::Loader<DataPlanePrivateLinksKey> for super::PgDa
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
 pub struct DataPlane {
-    /// Stable identifier of this data-plane. This is the same value carried by
-    /// a `LiveSpec`'s `dataPlaneId`, so a spec's data plane can be resolved with
-    /// `dataPlanes(filter: { id: { in: [dataPlaneId] } })`.
+    /// Unique id of this data-plane, as referenced by a `LiveSpec`'s
+    /// `dataPlaneId`.
     pub id: models::Id,
     /// Name of this data-plane under the catalog namespace.
     pub name: String,
@@ -166,13 +163,9 @@ pub struct DataPlane {
     pub azure_application_name: Option<String>,
     /// Azure application client ID for this data-plane.
     pub azure_application_client_id: Option<String>,
-    // The private-networking fields below are gated behind
-    // `ViewDataPlanePrivateNetworking`. A `ComplexObject` resolver computes each
-    // one on demand and runs the capability check itself, so the check sits with
-    // the field it protects and not at the construction site; see the resolvers
-    // below. The `private_links` resolver keys off `id` to query the
-    // `data_plane_private_links` table. The endpoint arrays below hold raw JSON
-    // written by the data-plane controller, which those resolvers parse.
+    // Private-networking fields, hidden here and served by resolvers below
+    // which check the `ViewDataPlanePrivateNetworking` capability. Each holds
+    // raw JSON written by the data-plane controller.
     #[graphql(skip)]
     raw_aws_link_endpoints: Vec<serde_json::Value>,
     #[graphql(skip)]
@@ -493,10 +486,8 @@ impl DataPlanesQuery {
         let id_in = id.and_then(|f| f.r#in);
         let closed_eq = closed.and_then(|f| f.eq);
 
-        // Filter to only data planes the user can read and that have valid
-        // names, sorted by data_plane_name for consistent pagination. Optional
-        // filter predicates only narrow this set; the read-capability check is
-        // applied regardless, so unknown or unauthorized ids simply fall out.
+        // Keep data planes that match the filter, that the user can read, and
+        // that have valid names. Sort by name for stable pagination.
         let mut accessible_data_planes: Vec<&tables::DataPlane> = snapshot
             .data_planes
             .iter()
@@ -924,8 +915,7 @@ mod tests {
 
         insta::assert_json_snapshot!(response);
 
-        // Exercise the filters against the same server and fixture as the
-        // unfiltered field snapshot above.
+        // Query with `filter` and return matched (id, name) pairs.
         async fn ids_and_names(
             server: &test_server::TestServer,
             token: &str,
@@ -976,8 +966,7 @@ mod tests {
         };
         let aws_id = id_for("ops/dp/public/aws-us-west-2-c1");
 
-        // A multi-id filter returns known matches and omits unknown ids without
-        // erroring.
+        // A filter with a known and an unknown id returns only the known match.
         let known_and_unknown = ids_and_names(
             &server,
             &token,
@@ -989,9 +978,8 @@ mod tests {
             vec![(aws_id, "ops/dp/public/aws-us-west-2-c1".to_string())]
         );
 
-        // Acceptance criterion: a LiveSpec's `dataPlaneId` resolves to the
-        // matching `DataPlane` via `filter: { id }`. All fixture specs live on
-        // data plane one (`ops/dp/public/aws-us-west-2-c1`).
+        // A `LiveSpec`'s `dataPlaneId` resolves to its data plane via the
+        // id filter.
         let spec: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
