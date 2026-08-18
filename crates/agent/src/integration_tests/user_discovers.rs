@@ -452,7 +452,7 @@ async fn test_discover_merge_phase_denial() {
     // targets a collection outside their grants. The binding is retained by
     // the discover merge, so its target is authorized during the merge phase
     // — where a denial must render exactly like a precheck denial.
-    let draft = draft_catalog(serde_json::json!({
+    let draft_json = serde_json::json!({
         "captures": {
             "squirrels/capture-1": {
                 "endpoint": {
@@ -463,8 +463,10 @@ async fn test_discover_merge_phase_denial() {
                 ]
             }
         }
-    }));
-    let draft_id = harness.create_draft(user_id, "merge denial", draft).await;
+    });
+    let draft_id = harness
+        .create_draft(user_id, "merge denial", draft_catalog(draft_json.clone()))
+        .await;
 
     let discovered = Discovered {
         bindings: vec![Binding {
@@ -485,7 +487,7 @@ async fn test_discover_merge_phase_denial() {
             draft_id,
             r#"{}"#,
             false,
-            Ok((spec_fixture(), discovered)),
+            Ok((spec_fixture(), discovered.clone())),
         )
         .await;
 
@@ -501,6 +503,38 @@ async fn test_discover_merge_phase_denial() {
         crate::discovers::JobStatus::DiscoverFailed
     ));
     assert!(!revoke.is_cancelled());
+
+    // Now the same merge-phase denial under a Snapshot which predates the
+    // queued discover: it must request an early refresh, and render
+    // byte-identically to the authoritative denial.
+    let stale_revoke = harness
+        .refresh_snapshot_taken_at(tokens::now() - chrono::Duration::minutes(5))
+        .await;
+    let draft_id = harness
+        .create_draft(user_id, "stale merge denial", draft_catalog(draft_json))
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture-1",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), discovered)),
+        )
+        .await;
+    let stale = harness.run_queued_discover(discover_id).await;
+
+    assert!(matches!(
+        stale.job_status,
+        crate::discovers::JobStatus::DiscoverFailed
+    ));
+    assert!(
+        stale_revoke.is_cancelled(),
+        "a merge-phase denial under a stale Snapshot must request an early refresh"
+    );
+    assert_eq!(result.errors, stale.errors);
 
     // Identical scope and message shape as a precheck denial, naming only the
     // collection the user's own draft binding targets.
