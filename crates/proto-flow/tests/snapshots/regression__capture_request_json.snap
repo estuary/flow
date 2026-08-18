@@ -11,7 +11,11 @@ expression: json_test(msg)
     "name": "discover/capture",
     "connectorType": "IMAGE",
     "config": {"discover":"config"},
-    "createdAt": "2025-07-09"
+    "createdAt": "2025-07-09",
+    "secrets": {
+      "": "acmeCo/whole-config",
+      "/credentials/password": "acmeCo/password"
+    }
   },
   "validate": {
     "name": "validate/capture",
@@ -111,7 +115,11 @@ expression: json_test(msg)
         "backfill": 1
       }
     ],
-    "lastVersion": "11:22:33:44"
+    "lastVersion": "11:22:33:44",
+    "secrets": {
+      "": "acmeCo/whole-config",
+      "/credentials/password": "acmeCo/password"
+    }
   },
   "apply": {
     "capture": {
@@ -263,7 +271,11 @@ expression: json_test(msg)
         }
       ],
       "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ=",
-      "createdAt": "2025-07-09"
+      "createdAt": "2025-07-09",
+      "secrets": {
+        "": "acmeCo/whole-config",
+        "/credentials/password": "acmeCo/password"
+      }
     },
     "version": "11:22:33:44",
     "lastVersion": "00:11:22:33",
@@ -419,7 +431,11 @@ expression: json_test(msg)
         }
       ],
       "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ=",
-      "createdAt": "2025-07-09"
+      "createdAt": "2025-07-09",
+      "secrets": {
+        "": "acmeCo/whole-config",
+        "/credentials/password": "acmeCo/password"
+      }
     },
     "version": "11:22:33:44",
     "range": {

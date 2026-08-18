@@ -1088,6 +1088,9 @@ impl serde::Serialize for request::Validate {
         if !self.linked_collections.is_empty() {
             len += 1;
         }
+        if !self.secrets.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("derive.Request.Validate", len)?;
         if self.connector_type != 0 {
             let v = super::flow::collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1127,6 +1130,9 @@ impl serde::Serialize for request::Validate {
         if !self.linked_collections.is_empty() {
             struct_ser.serialize_field("linkedCollections", &self.linked_collections)?;
         }
+        if !self.secrets.is_empty() {
+            struct_ser.serialize_field("secrets", &self.secrets)?;
+        }
         struct_ser.end()
     }
 }
@@ -1155,6 +1161,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             "lastVersion",
             "linked_collections",
             "linkedCollections",
+            "secrets",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1169,6 +1176,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             LastCollection,
             LastVersion,
             LinkedCollections,
+            Secrets,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1201,6 +1209,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             "lastCollection" | "last_collection" => Ok(GeneratedField::LastCollection),
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
+                            "secrets" => Ok(GeneratedField::Secrets),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1230,6 +1239,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 let mut last_collection__ = None;
                 let mut last_version__ = None;
                 let mut linked_collections__ = None;
+                let mut secrets__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1296,6 +1306,14 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             }
                             linked_collections__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Secrets => {
+                            if secrets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("secrets"));
+                            }
+                            secrets__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1312,6 +1330,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                     last_collection: last_collection__,
                     last_version: last_version__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
+                    secrets: secrets__.unwrap_or_default(),
                 })
             }
         }

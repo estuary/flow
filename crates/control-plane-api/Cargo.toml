@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 activate = { path = "../activate" }
 allocator = { path = "../allocator" }
+assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
 async-stripe = { workspace = true }
 billing-types = { path = "../billing-types", features = ["async-graphql"] }
@@ -79,7 +80,6 @@ xxhash-rust = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
-assemble = { path = "../assemble" }
 flow-client-next = { path = "../flow-client-next" }
 
 hex = { workspace = true }

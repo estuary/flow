@@ -16,6 +16,7 @@ expression: "(&outcome.built_materializations[0].model,\n&outcome.built_material
                     ),
                 },
             ),
+            secrets: {},
             bindings: [
                 MaterializationBinding {
                     resource: RawValue(

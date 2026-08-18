@@ -358,6 +358,7 @@ async fn prepare_discover<'a>(
                 }),
                 interval: models::CaptureDef::default_interval(),
                 redact_salt: None,
+                secrets: Default::default(),
                 shards: models::ShardTemplate::default(),
                 expect_pub_id: None,
                 bindings: Vec::new(),

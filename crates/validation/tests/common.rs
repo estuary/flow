@@ -171,6 +171,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             endpoint: models::CaptureEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
             interval: std::time::Duration::from_secs(32),
+            secrets: Default::default(),
             shards: models::ShardTemplate::default(),
             delete: false,
             reset: false,
@@ -218,6 +219,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             redact_salt: b"pass-through-capture-salt".as_slice().into(),
             created_at: String::new(),
             linked_collections: Vec::new(),
+            secrets: Default::default(),
         };
         if mock.indirect_specs {
             indirect_capture(&mut built_spec);
@@ -298,6 +300,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 inactive_transforms: Vec::new(),
                 redact_salt: b"pass-through-derivation-salt".as_slice().into(),
                 linked_collections: Vec::new(),
+                secrets: Default::default(),
             })
         } else {
             None
@@ -332,6 +335,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             bindings: mock.bindings.clone(),
             endpoint: models::MaterializationEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
+            secrets: Default::default(),
             shards: models::ShardTemplate::default(),
             source: None,
             target_naming: None,
@@ -389,6 +393,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             created_at: String::new(),
             sync_schedule_json: bytes::Bytes::new(),
             linked_collections: Vec::new(),
+            secrets: Default::default(),
         };
         if mock.indirect_specs {
             indirect_materialization(&mut built_spec);
