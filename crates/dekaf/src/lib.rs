@@ -346,7 +346,7 @@ impl App {
 /// Dispatch a read request `frame` of the current session, writing its response into `out`.
 /// `raw_sasl_auth` is the state of SASL "raw" mode authentication,
 /// and conditions the interpretation of request frames.
-#[tracing::instrument(level = "trace", err(level = "warn"), skip_all)]
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn dispatch_request_frame(
     session: &mut Session,
     raw_sasl_auth: &mut bool,

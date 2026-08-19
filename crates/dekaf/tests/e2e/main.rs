@@ -12,6 +12,7 @@ mod list_offsets;
 mod migration;
 mod not_ready;
 mod partition_eofs;
+mod schema_cooldown;
 
 pub use harness::{
     ConnectionInfo, DekafTestEnv, cluster_name, cluster_name_2, connection_info_for_dataplane,

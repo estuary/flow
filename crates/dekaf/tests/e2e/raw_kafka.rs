@@ -1,7 +1,10 @@
+use anyhow::Context;
+use bytes::Buf;
 use dekaf::{KafkaApiClient, KafkaClientAuth};
 use kafka_protocol::{
     messages::{self, offset_fetch_response::OffsetFetchResponsePartition},
     protocol::StrBytes,
+    records::{Record, RecordBatchDecoder},
 };
 
 /// Protocol versions to use for test requests.
@@ -58,6 +61,40 @@ impl TestKafkaClient {
                             .with_partition_max_bytes(1024 * 1024),
                     ]),
             ]);
+
+        let header = messages::RequestHeader::default()
+            .with_request_api_key(messages::ApiKey::Fetch as i16)
+            .with_request_api_version(protocol_versions::FETCH);
+
+        self.inner.send_request(req, Some(header)).await
+    }
+
+    /// Fetch several `(topic, partition, fetch_offset)` requests in a single
+    /// call, on one connection — for asserting that a broken partition's
+    /// error doesn't affect a sibling partition's Fetch response.
+    pub async fn fetch_multi(
+        &mut self,
+        requests: &[(&str, i32, i64)],
+    ) -> anyhow::Result<messages::FetchResponse> {
+        let req = messages::FetchRequest::default()
+            .with_max_wait_ms(1000)
+            .with_min_bytes(1)
+            .with_max_bytes(1024 * 1024)
+            .with_topics(
+                requests
+                    .iter()
+                    .map(|&(topic, partition, offset)| {
+                        messages::fetch_request::FetchTopic::default()
+                            .with_topic(topic_name(topic))
+                            .with_partitions(vec![
+                                messages::fetch_request::FetchPartition::default()
+                                    .with_partition(partition)
+                                    .with_fetch_offset(offset)
+                                    .with_partition_max_bytes(1024 * 1024),
+                            ])
+                    })
+                    .collect(),
+            );
 
         let header = messages::RequestHeader::default()
             .with_request_api_key(messages::ApiKey::Fetch as i16)
@@ -193,6 +230,40 @@ impl TestKafkaClient {
 
         self.inner.send_request(req, Some(header)).await
     }
+}
+
+/// Decode all records, including control records, from a raw FetchResponse.
+///
+/// Unlike the rdkafka consumer, this surfaces exactly what Dekaf put on the
+/// wire: librdkafka silently filters out control records and records below
+/// the fetch offset, which masks bugs in which documents a fetch serves.
+pub fn decode_fetch_records(
+    resp: &messages::FetchResponse,
+    topic: &str,
+    partition: i32,
+) -> anyhow::Result<Vec<Record>> {
+    let partition_data = resp
+        .responses
+        .iter()
+        .find(|t| t.topic.as_str() == topic)
+        .and_then(|t| t.partitions.iter().find(|p| p.partition_index == partition))
+        .context("missing partition in fetch response")?;
+
+    anyhow::ensure!(
+        partition_data.error_code == 0,
+        "fetch returned error code {}",
+        partition_data.error_code
+    );
+
+    let Some(mut buf) = partition_data.records.clone() else {
+        return Ok(Vec::new());
+    };
+
+    let mut records = Vec::new();
+    while buf.has_remaining() {
+        records.extend(RecordBatchDecoder::decode(&mut buf)?.records);
+    }
+    Ok(records)
 }
 
 /// Extract the error code from a FetchResponse for a specific topic/partition.
