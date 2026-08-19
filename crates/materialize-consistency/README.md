@@ -1,31 +1,31 @@
 # materialize-consistency
 
-A consistency test suite for materialization connectors. It runs a connector as a
-real task on a real Flow runtime, deliberately breaks it at precise points, and
-checks that the destination still holds exactly the right data.
+A test suite that answers one question: **when a materialization connector is
+crashed, stalled, raced, or re-sharded at the worst possible moment, does the
+destination still hold exactly the right data?**
 
-Companion design document: `docs/materialize/consistency-testing.md` — the
-reasoning, the rejected alternatives, and the deviations from the spec that
-implementation forced.
+It tests against a real Flow runtime, not a mock: each scenario publishes a real
+capture and materialization to your local stack, injects a fault at a precise
+point in the protocol, and then verifies what the destination actually holds.
 
 ```bash
+mise run local:stack                         # once: a running local stack
 mise run ci:consistency                      # the whole suite
-mise run ci:consistency --filter zombie      # one scenario (a nextest filter,
-                                             #   so `/a|b/` for a regex)
-mise run ci:consistency --debug              # debug logging, output uncaptured
+mise run ci:consistency --filter zombie      # one scenario
+mise run ci:consistency --debug              # connector logs, uncaptured
 ```
 
-Needs a running local stack (`mise run local:stack`) and nothing else: the
-reference connector materializes into SQLite, so scenario development costs no
-credentials and no cloud spend.
+By default it tests a built-in reference connector that writes to SQLite, so it
+needs no credentials and no cloud. Any real connector can be tested instead —
+see [Testing a real connector](#testing-a-real-connector).
 
-## The shape of it
+## How it works
 
 ```
                   publishes                    ┌──────────────┐
-   scenario  ──────────────────►  local stack  │ two captures │  the soak
-   runner                                      │ two          │  workload,
-      │                                        │ collections  │  unmodified
+   scenario  ──────────────────►  local stack  │ two captures │
+   runner                                      │ two          │
+      │                                        │ collections  │
       │  reads the collections                 └──────┬───────┘
       │  (the expectation)                            │
       │                                        ┌──────▼───────┐
@@ -42,257 +42,109 @@ credentials and no cloud spend.
    invariant checkers ◄──── destination
 ```
 
-## Key types and entry points
+- A **shim** sits between the runtime and the connector, posing as the
+  connector. It sees every protocol message and can crash the connector, stall
+  it, or race it against a frozen stale copy (a "zombie") at an exact protocol
+  event — "the 4th `Acknowledge`", never "the document for account 7". Neither
+  Flow nor the connector is modified.
+- The workload carries an **oracle** in every document, so the correct final
+  state is computed, not asserted from a snapshot. **Invariant checkers** then
+  verify the destination: nothing lost, nothing duplicated, every value right.
+- Every scenario runs twice against the reference connector: **clean**, where it
+  must pass, and against a **paired defect** (a deliberately broken mode of the
+  reference connector), where it must fail. A checker that stops catching its
+  defect is itself a test failure.
 
-| Where | What |
+## The scenarios
+
+Each scenario is one fault and one question. In plain terms:
+
+| Scenario | What it checks |
 | --- | --- |
-| `scenarios.rs` | The scenario table: what each verifies, its faults, and the defect it must catch. Start here. |
-| `protocol.rs` | The shim↔harness contract: `Trigger`, `Action`, `FaultRule`, `TraceEvent`, and the run-directory layout. |
-| `shim.rs` | The interposer. Decodes the protocol stream in flight, traces it, injects faults, drives the zombie. |
-| `reference/mod.rs` | The reference materialization: four connector classes and seven switchable defects. |
-| `reference/store.rs` | Its destination — SQLite, with a real fence table and real staging. |
-| `invariants.rs` | The checkers, as pure functions over documents. Unit-tested here. |
-| `harness/mod.rs` | The runner: publish, perturb, quiesce, verify, clean up. |
-| `harness/catalog.rs` | The catalog a run publishes, and why the workload is shaped as it is. |
-| `harness/stack.rs` | Everything needed from the stack: `flowctl`, plus `gazctl` via `scripts/` for shard surgery. |
-| `tests/scenarios.rs` | The suite's one seam: every scenario, run clean and then defective. |
+| `baseline` | No fault at all. Catches a miswired harness before it can bless anything else. |
+| `crash-between-commits` | Crash just after a transaction is applied. The replay must not apply it twice. |
+| `crash-mid-store` | Crash while documents are being written, before commit. Half-done work must never be applied. |
+| `crash-at-flush` | Crash between the load and store phases. No documents lost, no merged values corrupted. |
+| `split-during-store` | Split the task's shards mid-transaction. Every document still lands exactly once. |
+| `split-during-commit` | Crash before the commit, then split. Staged work that never committed is never applied. |
+| `split-after-commit-before-apply` | Crash after the commit but before the work is applied, then split. The new shards apply it exactly once. |
+| `split-lands-on-prepared-transaction` | A split lands on a transaction already written but not committed. *Expected failure* for one class — it measures a known runtime gap ([discussion 2581](https://github.com/estuary/flow/discussions/2581)). |
+| `join-after-split` | Scale back down. The surviving shard picks up the departed shard's work exactly once. |
+| `zombie-at-start-commit` | A stale instance thaws and tries to commit superseded work. Fencing must refuse it. |
+| `destination-ahead-of-checkpoint` | Crash leaves the destination holding rows the checkpoint doesn't know about. Recovery skips exactly those, no more. |
+| `recovery-reconciles-with-destination` | Recovery must check what the destination actually holds, not trust its own checkpoint. |
+| `crash-in-split-leader` | Crash the split child that holds the recovery log. Exactly-once still holds. |
+| `crash-in-split-non-leader` | Crash a stateless split child, taking the whole task down. It comes back, and exactly-once still holds. |
+| `at-least-once-never-loses` | A connector claiming only at-least-once may duplicate — but must never lose data. |
 
-`FaultRule` carries a `ShardTarget` — `Any`, `SplitLeader` or `SplitNonLeader` —
-because occurrence counts cannot express "after the membership change": a split child's
-count starts at zero, so any threshold it can reach the pre-split parent reaches first,
-and the fault lands mid-split instead. A `Scenario` may also carry a `RuntimeGap`, which
-makes it an *expected failure for the classes the gap exposes*: it runs and fails with its
-violation count, which is the measurement of the gap, while a class the gap does not reach
-must pass it normally. The marker is removed when the gap closes.
+`src/scenarios.rs` is the authority, with the full reasoning on each.
 
-## Running it against a real connector
+## Connector classes
 
-The reference connector exists to prove the harness. Any connector can be the subject
-instead, named through the environment:
+Connectors achieve exactly-once in different ways, and the subject declares
+which way it uses. Most scenarios run for every class; a few only make sense
+for some.
+
+| Class | How it stays consistent | Modeled on |
+| --- | --- | --- |
+| `remoteAuthoritative` | Keeps its checkpoint in the destination, fenced against stale writers | `materialize-postgres` |
+| `postCommitApply` | Stages work, applies it only after the runtime commits | `materialize-databricks` |
+| `documentCounter` | Counts rows accepted by a streaming channel, skips that many on recovery | Snowflake Snowpipe Streaming v2 |
+| `atLeastOnce` | No exactly-once claim; replays may duplicate | — |
+
+## Testing a real connector
+
+Point the suite at a connector binary, its endpoint config, and its class:
 
 ```bash
-# In the connectors repository, once:
-go build -o /tmp/testctl ./tests/materialize/testctl
-
 FLOW_CONSISTENCY_SUBJECT=/path/to/materialize-yourthing \
 FLOW_CONSISTENCY_SUBJECT_CONFIG=/path/to/config.json \
 FLOW_CONSISTENCY_SUBJECT_CLASS=postCommitApply \
-FLOW_CONSISTENCY_SUBJECT_TOOL=/tmp/testctl \
-FLOW_CONSISTENCY_SUBJECT_NAME=materialize-databricks \
+FLOW_CONSISTENCY_SUBJECT_TOOL=/path/to/testctl \
+FLOW_CONSISTENCY_SUBJECT_NAME=materialize-yourthing \
   mise run ci:consistency
 ```
 
-All five are required together; setting some alone is an error rather than a silent fall back
-to the reference connector.
+The essentials:
 
-**The config has to be plain JSON with `_sops` suffixes stripped.** A connector's checked-in
-`testdata/config.local.yaml` is sops-encrypted, and `sops -d` alone is not enough: Estuary's
-convention marks an encrypted field by suffixing its *name*, so a decrypted config still carries
-`personal_access_token_sops`, which the connector rejects as an unknown field — a `buildFailed`
-publication with `json: unknown field "..._sops"` in the build log. Strip the suffix from every
-key recursively, and convert to JSON:
+- **The subject is a built binary**, not an image, plus `testctl` (from the
+  connectors repository's `tests/materialize/testctl`), which reads the
+  destination back and drops the tables a run creates.
+- **The config is the connector's own endpoint config**, decrypted from its
+  checked-in `config.local.yaml` — with `_sops` key suffixes stripped.
+- **Multi-shard operation must be enabled** if the connector gates it behind a
+  feature flag (`scale_out` for databricks), or the split scenarios fail for
+  configuration reasons, not connector reasons.
+- Expect **a few minutes per scenario** against a remote destination, and each
+  run cleans up the tables it created.
 
-```bash
-sops -d materialize-yourthing/testdata/config.local.yaml \
-  | python3 -c 'import sys,json,yaml
-def strip(n):
-    if isinstance(n, dict): return {k.removesuffix("_sops"): strip(v) for k, v in n.items()}
-    if isinstance(n, list): return [strip(v) for v in n]
-    return n
-json.dump(strip(yaml.safe_load(sys.stdin)), sys.stdout)' > /tmp/subject-config.json
-```
+This documentation is deliberately agent-ready: to run the suite against your
+connector, point an agent at [`AGENT_README.md`](AGENT_README.md) — the complete
+operating guide, with every requirement and gotcha spelled out (config
+decryption, feature flags, which scenarios apply to which class, and how to read
+each kind of failure).
 
-**A subject driven through a shard split also needs multi-shard operation enabled**, which for
-`materialize-databricks` means adding `scale_out` to `advanced.feature_flags` in that config —
-off by default, and the suite cannot know a given connector's flag names. Without it the connector
-refuses to open a partial-range shard at all and the task crash-loops — a failure that is the
-configuration's doing, not the connector's.
+## When a scenario fails
 
-**A subject may need environment its image would have given it.** `FLOW_CONSISTENCY_SUBJECT_ENV`
-takes a JSON object and sets it on the materialization's `local:` endpoint:
+A failing scenario is not automatically a failing connector. The run tells you
+which it is:
 
-```bash
-FLOW_CONSISTENCY_SUBJECT_ENV='{"SNOWPIPE_SIDECAR_PYTHON":"/tmp/snowpipe-venv/bin/python"}'
-```
+- A **violation list** is a verdict about the connector; the evidence
+  (`evidence.json`, the protocol trace) is kept under
+  `${FLOW_STACK_DIR}/consistency/`.
+- A **shortfall** ("the destination stopped short") or a **fault that never
+  fired** means the run proved nothing — usually stack environment or subject
+  configuration.
+- `split-lands-on-prepared-transaction` is *expected* to fail for the
+  `documentCounter` class: it measures a known runtime gap and turns red the
+  other way (an "unexpected pass") if the gap ever silently closes.
 
-Optional, unlike the five above. `materialize-snowflake`'s Snowpipe Streaming v2 path is the case
-that needed it: it spawns a Python sidecar from `/opt/venv/bin/python`, which exists only inside
-its image. Do not put credentials here — the value lands in a published catalog spec, which the
-control plane stores and serves back. Endpoint config is where those belong.
+The "Reading a failure" section of [`AGENT_README.md`](AGENT_README.md) has the
+full triage guide.
 
-**Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
-drives; `testctl` is separate, and is how verification reads the destination back and how a run
-drops the tables it created. `FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the
-connector by, which is not derivable from the binary's file name. Why it is a separate program
-rather than a connector subcommand is in the design document.
+## More
 
-**Tables are named to be sweepable.** Each carries the run id *and*
-`_flow_test_<unix>`, the connectors repository's convention, so `testctl -mode sweep` can
-clear what a killed run left behind. Dropping by name only removes what the caller knows it
-created; sweeping enumerates what is actually there.
-
-**The class is declared rather than discovered**, because how a connector divides
-durability with the runtime is a property of its implementation that `spec` does not report.
-
-It decides which scenarios run. Most scenarios run for most classes — a fault a connector
-must survive is rarely a property of its class — but three exclusions are worth knowing, and
-`Scenario::applies_to` is the authority:
-
-- an at-least-once subject skips every exactly-once scenario, which it never claimed to uphold;
-- `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the shim orders the
-  two racing instances by their `Open` fences and a class that does not fence gives it nothing
-  to order them by;
-- `split-during-store`, `split-during-commit`, `split-after-commit-before-apply` and
-  `join-after-split` skip `documentCounter`, because each lands a membership change on a live
-  transaction and whether that reaches the counted channel's exposure is a race — see
-  `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
-
-So a `documentCounter` subject skips **five** scenarios, not one. Read the run's
-`not-applicable` lines rather than counting on this list to stay current.
-
-Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every
-exactly-once class even though the counted channel cannot pass it. A gap that stops one class
-is recorded as a `RuntimeGap` naming that class, so the scenario still runs for the others and
-its passing there is the evidence that the gap is the runtime's rather than an impossible ask.
-
-That gap is now reached **deterministically**, which was not always so. The scenario used to stall
-a transaction and hope the split landed inside it; a stall cannot produce the state, because the
-runtime cancels the term gracefully and lets the transaction finish. Crashing on the
-`StartedCommit` response does produce it — the destination has committed what the runtime has not
-recorded — and the split then changes the range before anything reconciles. Against
-`materialize-snowflake`'s Snowpipe Streaming v2 path it trips every run.
-
-A gap may also manifest as a task that cannot run rather than as a violation count: a subject
-facing state it cannot safely attribute is right to refuse, and a refusing connector never commits
-again. That is reported as the expected failure too — see the clean-run arm in
-`tests/scenarios.rs`, which excludes only `Environment` failures, so a flaky stack cannot
-manufacture it.
-
-A skipped scenario prints `not-applicable` and still counts as a passing test, so read
-those lines to see what was and was not verified. Declaring the wrong class does not
-produce a false pass: the scenarios that run then measure guarantees the subject never
-made, and fail.
-
-**The subject must be a built binary**, not a container image — the shim `exec`s it. Cross
-compiling is often blocked by cgo dependencies, so build it where the stack runs.
-
-**The config is the connector's own endpoint configuration**, JSON or YAML. Every connector
-in the connectors repository keeps one for its integration tests, usually
-`materialize-$name/testdata/config.local.yaml`. Those are sops-encrypted, and decrypting
-them is two steps, not one: `sops -d` recovers the values, and the `encrypted_suffix`
-declared in the file's own sops block has to be stripped from every key — the same thing
-Flow's `unseal` crate does (`crates/unseal/src/lib.rs`). A config still carrying
-`personal_access_token_sops` will be rejected by the connector's strict parse.
-
-**The resource configuration is discovered, not written.** The harness calls `spec` on the
-subject and reads which property names the table (`x-collection-name`) and which flags
-delta updates (`x-delta-updates`), so it works for a connector spelling them `table` and
-`delta_updates` as well as one spelling them anything else.
-
-**It runs once, not twice.** The clean/defective pairing exists to show the harness can tell
-a good subject from a bad one, which needs a subject whose defects are switchable. A real
-connector has no defective build to compare against, so the second pass is skipped.
-
-**The subject must declare a delta-updates option.** A connector whose resource schema has no
-`x-delta-updates` property is refused, rather than quietly given merge bindings in place of
-its delta ones: a duplicate applied to a merge binding is an idempotent upsert and therefore
-invisible, so accepting one would leave every scenario passing with the suite's sharpest check
-disabled and nothing saying so.
-
-**Which connectors can be a subject** is whatever `testctl` can drive, which is a connector
-whose package is importable — `package connector` with `func main` under `cmd/connector`. See
-`tests/materialize/testctl/README.md` in the connectors repository for the current list and for
-how to add one; a connector still in `package main` needs converting first.
-
-**A scenario that splits or joins shards needs the subject configured for multi-shard
-operation.** Where that is behind a feature flag the harness cannot know its name, and a
-connector run multi-shard without it will fail in ways that look like defects but are not:
-`materialize-databricks` gates its coordinator behaviour on `advanced.feature_flags:
-scale_out`, off by default, and its `validateShardRange` now *refuses* to open a shard covering
-less than the whole keyspace without the flag — so the task crash-loops rather than corrupting
-anything. (It contended over one table and lost documents silently before that check existed,
-which is how two invalid issues came to be filed against it; see the design document.) Set
-whatever the connector requires in the config you pass.
-
-**Timing scales with the subject.** A remote destination commits in tens of seconds where
-the reference connector commits in milliseconds, so a named subject gets longer
-transactions and proportionately longer gates (`Workload::remote`). Expect a few minutes
-per scenario rather than tens of seconds.
-
-**Monotonicity is exempted** for such a subject: the order rows come back from a table is
-not guaranteed to be the order they were stored in, so there is no delivery order to check.
-The set-based invariants carry the exactly-once claim.
-
-## Reading a failure
-
-A failing scenario is not necessarily a failing connector. These are the gates a run
-passes through, and what each one's failure means.
-
-**Recovery.** `harness::recover` is the gate after a perturbation: it unassigns the
-task's shards — every one of them, not only those marked FAILED — until it commits again, and after a third of its budget escalates to
-republishing the task disabled-then-enabled. Nothing in a run waits on shard *status* —
-progress over the shim's trace is the measure instead, because a crashed shard is what most
-scenarios inject and a shard reported primary may still be doing nothing.
-
-**Completion.** The two collections need different measures, because they are keyed
-differently. `log` is keyed `[/id, /seq]`, so every document is its own row and a row count
-is exact. `merged` is keyed `[/id]` and reduced, so the runtime delivers one row per key per
-*transaction* and its row count is always below the document count; completion there is
-per-account — every account must reach its highest expected `seq`.
-
-**A short drain is a shortfall, not a violation.** If the destination stops short, whether
-the connector lost those documents or the runner stopped waiting cannot be told apart, so
-`drain` fails naming the shortfall rather than handing an incomplete destination to the
-checkers. `log 610/610, merged accounts behind 3 of 40` is a shortfall; a violation list is
-a verdict.
-
-**Faults arm after the warmup.** The warmup gate has no recovery step, so a crash landing inside
-it would wedge the run. A unit test enforces this, with two exemptions rather than one: a stall or
-a zombie leaves the shard running, so the warmup still completes; and a rule aimed at a *split*
-shard cannot fire before the warmup anyway, because the shard it names does not exist until the
-split, which happens afterwards.
-
-**The environment.** Two symptoms present as connector faults and are not. `etcdserver:
-mvcc: database space exceeded` in the reactor's log means etcd has hit its quota and can no
-longer accept shard-status writes, so tasks publish and then never reach primary with
-nothing in their own logs to explain it — compact, and defrag to reclaim the disk. And a
-crash-looping systemd unit recompiles in `ExecStartPre`, so a restart loop is a compile loop
-and can drive load high enough to expire etcd leases.
-
-**Where to look.** A failing run keeps its directory under `${FLOW_STACK_DIR}/consistency/`,
-holding the shim's protocol trace (`trace.jsonl`), the evidence it compared, and — for the
-reference connector — the destination itself. Passing runs delete it. Debris from a killed run
-shows up as `flowctl catalog list --prefix test/consistency/`, and `mise run ci:consistency`
-purges the gazette state such runs leave behind before it starts.
-
-Three messages are worth recognising on sight. `timed out waiting for N committed
-transactions` means the task published but is not progressing — usually the environment.
-`timed out waiting for K fault(s) to fire; 0 did` means the scenario never reached the point
-it exists to perturb, so it proved nothing and is never a pass. `the destination stopped short
-of the collections` is the interesting one: the task went quiet with rows missing.
-
-For the failure *signatures* — which symptom means the runtime gap, which means a connector
-reading its destination before `Flush` — see `docs/materialize/consistency-testing.md`.
-
-## What is not here
-
-- **Captures.** Their invariants are a different set and belong in a sibling suite.
-- **CI gating.** Connectors CI has no flow checkout and no control plane, so this runs on
-  demand on a dev VM until per-connector runtime is known.
-- **Connector catalogs.** The subject is an input — a binary, a config, a class — so
-  onboarding one is configuration, not a change to the harness.
-
-## Where the reasoning lives
-
-This file is a roadmap. `docs/materialize/consistency-testing.md` is the design record, and
-the place to look before changing anything here:
-
-- why verification runs against a real runtime rather than a model, and what the shim may and
-  may not do
-- the workload's shape, and why an exactly-once violation is only detectable when destination
-  state depends on how many times a document was applied
-- the four connector classes, the counted channel, and where the reference diverges from the
-  connectors it models
-- the four rules every scenario obeys, two of which nothing can enforce mechanically
-- the compliance model: default-strict, with exemptions that must carry a justification
-- the runtime gap the suite currently measures, and the failure signatures that identify it
+- [`AGENT_README.md`](AGENT_README.md) — the complete operating guide, written
+  for agents (and thorough humans) driving the suite.
+- `docs/materialize/consistency-testing.md` — the design record: why it is
+  built this way, the rejected alternatives, and the runtime gap it measures.
