@@ -1238,6 +1238,23 @@ input LiveSpecsBy {
 }
 
 """
+Composable filter for the `liveSpecs` query. Every field is optional and
+only narrows the result set; the caller's catalog-read scope is enforced
+independently, so a filter can never widen what a caller may see.
+"""
+input LiveSpecsFilter {
+	"""
+	Narrow by catalog name. `startsWith` matches a whole subtree — specs
+	under `acmeCo/`, `acmeCo/team/`, etc. — like the deprecated
+	`by: { prefix }`. `in` matches an exact set of names, like
+	`by: { names }`. The two are alternative query modes and are mutually
+	exclusive. Either way, results compose with (never widen past) the
+	caller's authorized read prefixes.
+	"""
+	catalogName: PrefixFilter
+}
+
+"""
 Represents an optimistic lock failure when trying to update a specification.
 This typically means that an expectPubId was not matched, implying that
 another publication has applied a conflicting update to this specification
@@ -1819,8 +1836,13 @@ type PublicationStatus {
 
 type QueryRoot {
 	"""
-	Returns a paginated list of live specs under the given prefix and
-	matching the given type.
+	Returns a paginated list of live specs accessible to the current user.
+	
+	Omitting both `by` and `filter` returns every live spec under every
+	prefix where the caller has catalog-read capability, and the optional
+	`filter` narrows those authorized results. The deprecated `by` instead
+	requires an explicit `names` or `prefix` selection, and fails the
+	entire request if any part of that selection is unauthorized.
 	
 	Note that the `user_capability` that's returned as part of the reference
 	represents the user's capability to the whole prefix, and it is possible
@@ -1828,7 +1850,7 @@ type QueryRoot {
 	words, this capability represents the _minimum_ capability that the user
 	has for the given spec.
 	"""
-	liveSpecs(by: LiveSpecsBy!, after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
+	liveSpecs(by: LiveSpecsBy @deprecated(reason: "Prefer `filter: { catalogName }`: `startsWith` replaces `prefix` and `in` replaces `names`. `by` is retained only for existing clients."), filter: LiveSpecsFilter, after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
 	"""
 	Returns a list of alerts that are currently active for the given catalog
 	prefixes.
