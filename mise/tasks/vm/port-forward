@@ -111,7 +111,15 @@ echo "    brokers ${PB}-$((PB + 3)), reactors $((PB + 98))/$((PB + 99)), sidecar
 echo "    cockpit 9090"
 echo "    (broker-${CLUSTER}.flow.localhost:$((PB + 0)) / reactor-${CLUSTER}.flow.localhost:$((PB + 99)))"
 
-SSH_ARGS=(-N)
+# Lima's generated ssh.config sets `ControlMaster auto` + `ControlPersist yes`
+# on a shared socket (~/.lima/<vm>/ssh.sock). Multiplexing over it would push
+# these -L forwards into that persistent master, where they OUTLIVE this
+# process: the master keeps listening after we exit, so the next run collides
+# with its own leftovers ("Address already in use" on every port) and forwards
+# accumulate across stacks. Force a dedicated connection that owns its
+# forwards and releases them on exit. ExitOnForwardFailure makes a genuine
+# conflict fail loudly instead of yielding a half-wired tunnel.
+SSH_ARGS=(-N -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes)
 for spec in "${FORWARDS[@]}"; do
     SSH_ARGS+=(-L "${spec}")
 done

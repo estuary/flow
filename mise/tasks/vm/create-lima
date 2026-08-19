@@ -132,10 +132,24 @@ hostResolver:
 
 cpus: ${CPU}
 memory: ${MEMORY}GiB
-disk: 128GiB
+disk: 256GiB
 
 ssh:
   forwardAgent: true
+
+# Disable Lima's automatic port forwarding. It is a separate subsystem from
+# `networks:` above: lima-guestagent reports every listening socket in the VM,
+# and limactl hostagent binds a matching listener on the host's 127.0.0.1. That
+# fights `mise run vm:port-forward`, which is what actually owns these ports --
+# it maps them per-stack and is the only thing that knows the classic-port
+# remaps. Reach services at the VM's IP, or through that tunnel.
+#
+# Rules match sequentially and any port not matched by a rule is not forwarded,
+# so this catch-all turns the whole mechanism off. Forwarding between guest 22
+# and ssh.localPort is exempt and keeps working.
+portForwards:
+  - guestPortRange: [1, 65535]
+    ignore: true
 
 upgradePackages: true
 
