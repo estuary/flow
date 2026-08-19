@@ -45,8 +45,7 @@ see [Testing a real connector](#testing-a-real-connector).
 - A **shim** sits between the runtime and the connector, posing as the
   connector. It sees every protocol message and can crash the connector, stall
   it, or race it against a frozen stale copy (a "zombie") at an exact protocol
-  event — "the 4th `Acknowledge`", never "the document for account 7". Neither
-  Flow nor the connector is modified.
+  event — "the 4th `Acknowledge`". Neither Flow nor the connector is modified.
 - The workload carries an **oracle** in every document, so the correct final
   state is computed, not asserted from a snapshot. **Invariant checkers** then
   verify the destination: nothing lost, nothing duplicated, every value right.
@@ -57,25 +56,29 @@ see [Testing a real connector](#testing-a-real-connector).
 
 ## The scenarios
 
-Each scenario is one fault and one question. In plain terms:
+Each scenario is one fault and one question. Faults are keyed on exact protocol
+events: a crash on a *request* trigger (`Store`, `Flush`, `StartCommit`,
+`Acknowledge`) fires before the connector receives that message; a crash on a
+*response* trigger (`StartedCommit`, `Acknowledged`) fires as the connector
+emits it, before the runtime sees it.
 
-| Scenario | What it checks |
-| --- | --- |
-| `baseline` | No fault at all. Catches a miswired harness before it can bless anything else. |
-| `crash-between-commits` | Crash just after a transaction is applied. The replay must not apply it twice. |
-| `crash-mid-store` | Crash while documents are being written, before commit. Half-done work must never be applied. |
-| `crash-at-flush` | Crash between the load and store phases. No documents lost, no merged values corrupted. |
-| `split-during-store` | Split the task's shards mid-transaction. Every document still lands exactly once. |
-| `split-during-commit` | Crash before the commit, then split. Staged work that never committed is never applied. |
-| `split-after-commit-before-apply` | Crash after the commit but before the work is applied, then split. The new shards apply it exactly once. |
-| `split-lands-on-prepared-transaction` | A split lands on a transaction already written but not committed. *Expected failure* for one class — it measures a known runtime gap ([discussion 2581](https://github.com/estuary/flow/discussions/2581)). |
-| `join-after-split` | Scale back down. The surviving shard picks up the departed shard's work exactly once. |
-| `zombie-at-start-commit` | A stale instance thaws and tries to commit superseded work. Fencing must refuse it. |
-| `destination-ahead-of-checkpoint` | Crash leaves the destination holding rows the checkpoint doesn't know about. Recovery skips exactly those, no more. |
-| `recovery-reconciles-with-destination` | Recovery must check what the destination actually holds, not trust its own checkpoint. |
-| `crash-in-split-leader` | Crash the split child that holds the recovery log. Exactly-once still holds. |
-| `crash-in-split-non-leader` | Crash a stateless split child, taking the whole task down. It comes back, and exactly-once still holds. |
-| `at-least-once-never-loses` | A connector claiming only at-least-once may duplicate — but must never lose data. |
+| Scenario | Perturbation | What it checks |
+| --- | --- | --- |
+| `baseline` | none | Catches a miswired harness before it can bless anything else. |
+| `crash-between-commits` | crash on `Acknowledged` #5 — just after the connector finished applying a committed transaction | The replayed `Acknowledge` must not apply that transaction twice. |
+| `crash-mid-store` | crash before `Store` request #25 (armed after 3 commits) — mid-store, before any `StartCommit` | Half-done work must never be applied on replay. |
+| `crash-at-flush` | crash before `Flush` request #4 — loads done, stores not yet begun | No documents lost, no merged values corrupted. |
+| `split-during-store` | split the task's shards mid-run, unsynchronized with transaction boundaries; no crash | Every document still lands exactly once across the membership change. |
+| `split-during-commit` | crash before `StartCommit` request #4 — so that transaction never commits — then split while the task is down | Staged work that never committed is never applied, and the replay lands exactly once on the new shards. |
+| `split-after-commit-before-apply` | crash before `Acknowledge` request #4 — leaving the previous transaction committed but not yet applied — then split while the task is down | The committed staged work is applied exactly once by the new shards. |
+| `split-lands-on-prepared-transaction` | crash on `StartedCommit` #4 — the destination has committed what the runtime has not recorded — then split | *Expected failure* for `documentCounter`: measures a known runtime gap ([discussion 2581](https://github.com/estuary/flow/discussions/2581)). |
+| `join-after-split` | split the shards, let them settle, then join them back together; no crash | The surviving shard picks up the departed shard's work exactly once. |
+| `zombie-at-start-commit` | freeze a second instance at its `Open` (fence taken, nothing more); thaw it after the live one commits twice, so it replays through to `StartCommit` | The stale commit must be refused by the fence. |
+| `destination-ahead-of-checkpoint` | crash on `StartedCommit` #4 — rows appended, recovery log not yet committed | Recovery skips exactly what the destination already holds, no more. |
+| `recovery-reconciles-with-destination` | crash on `StartedCommit` #5 — same destination-ahead state | Recovery must check what the destination actually holds, not trust its own checkpoint. |
+| `crash-in-split-leader` | split, then crash the child holding the recovery log on its `StartedCommit` #2 | The rebuilt shard inherits neither its parent's resume point nor a blank one — each document lands exactly once. |
+| `crash-in-split-non-leader` | split, then crash a stateless non-leader child on its `StartedCommit` #2, taking the whole task down | The task comes back, and exactly-once still holds. |
+| `at-least-once-never-loses` | crash on `StartedCommit` #4 — before the recovery log commits, forcing a replay | The replay may duplicate, but must never lose data. |
 
 `src/scenarios.rs` is the authority, with the full reasoning on each.
 
