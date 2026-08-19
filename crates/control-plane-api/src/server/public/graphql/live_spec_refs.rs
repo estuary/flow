@@ -311,11 +311,9 @@ impl LiveSpecsQuery {
         // entire request on an unauthorized name or prefix, while `filter`
         // only narrows the caller's authorized prefixes and can never widen
         // them. Both resolve into the parameters of one shared SQL query.
-        let (names, prefix, catalog_type, data_plane, exact, read_prefixes) = match (
-            by,
-            filter.and_then(|f| f.catalog_name),
-        ) {
-            (Some(by), filter_catalog_name) => {
+        let filter_catalog_name = filter.and_then(|f| f.catalog_name);
+        let (names, prefix, catalog_type, data_plane, exact, read_prefixes) = match by {
+            Some(by) => {
                 if filter_catalog_name
                     .is_some_and(|cn| cn.starts_with.is_some() || cn.r#in.is_some())
                 {
@@ -359,7 +357,7 @@ impl LiveSpecsQuery {
                     Vec::new(),
                 )
             }
-            (None, filter_catalog_name) => {
+            None => {
                 let snapshot = env.snapshot();
                 let (read_prefixes, starts_with, exact) =
                     super::authorized_prefixes::filtered_authorized_prefixes(
