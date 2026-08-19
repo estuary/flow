@@ -98,6 +98,37 @@ class TestClassify(unittest.TestCase):
         self.assertTrue(v.ships)
         self.assertEqual(v.payload, ["mise.toml"])
 
+    def test_go_module_files_ship(self):
+        # go.mod / go.sum pin the module graph of the flowctl-go and gazette
+        # binaries copied into the image.
+        for path in ("go.mod", "go.sum"):
+            self.assertTrue(self.verdict(path).ships)
+
+    def test_release_build_task_ships(self):
+        # mise/tasks/ci/gnu-opt is the cargo invocation that produces the
+        # `agent` binary; its flags and env are build inputs.
+        self.assertTrue(self.verdict("mise/tasks/ci/gnu-opt").ships)
+
+    def test_embedded_ops_catalog_bundles_ship(self):
+        # Both are include_str!'d by control-plane-api, in the closure.
+        for path in (
+            "ops-catalog/data-plane-template.bundle.json",
+            "ops-catalog/reporting-L2-template.bundle.json",
+        ):
+            self.assertTrue(self.verdict(path).ships)
+
+    def test_flowctl_ops_bundle_does_not_ship(self):
+        # flowctl embeds this bundle, and the Rust flowctl binary is not in
+        # the image. Other ops-catalog sources do not ship either.
+        for path in (
+            "ops-catalog/ops-task-template.bundle.json",
+            "ops-catalog/catalog-stats.ts",
+            "ops-catalog/data-plane-template.flow.yaml",
+        ):
+            v = self.verdict(path)
+            self.assertFalse(v.ships)
+            self.assertEqual(len(v.excluded), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

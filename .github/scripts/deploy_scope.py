@@ -33,22 +33,32 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 
-# Files outside any crate that still change how the binary is built.
+# Files outside any crate that still change what is built into the image.
+# go.mod / go.sum pin the Go module graph for the flowctl-go and gazette
+# binaries the image carries.
 WORKSPACE_BUILD_FILES = {
     "Cargo.toml",
     "Cargo.lock",
     "rust-toolchain.toml",
     "mise.toml",
     ".cargo/config.toml",
+    "go.mod",
+    "go.sum",
 }
 
 # Prefixes outside `crates/` that are baked into the image itself.
+# The two ops-catalog bundles are include_str!'d by control-plane-api, which
+# links into the agent binary. ops-task-template.bundle.json is deliberately
+# absent: flowctl embeds it, and the Rust flowctl binary is not in this image.
 IMAGE_INPUT_PREFIXES = (
     "docker/control-plane-agent.Dockerfile",
     "mise/tasks/ci/package",
     "mise/tasks/ci/docker-images",
+    "mise/tasks/ci/gnu-opt",  # the `cargo build --release` that produces `agent`
     "mise/tasks/build/",
     "go/",  # flowctl-go and gazette are copied into the image
+    "ops-catalog/data-plane-template.bundle.json",
+    "ops-catalog/reporting-L2-template.bundle.json",
 )
 
 # Within a shipping crate, these paths are compiled but cannot change behavior.
