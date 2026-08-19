@@ -151,6 +151,11 @@ mise run ci:platform-test
 
 This runs format checks, builds, and all test suites in the same order as CI.
 
+Individual `ci:` tasks are self-sufficient: each declares the prerequisites it
+needs (`bootstrap:submodules`, `local:supabase`, `build:gazette`,
+`local:bigtable`, ...), so `mise run ci:nextest-run` brings up its own
+dependencies.
+
 ### Stop Everything
 
 ```bash

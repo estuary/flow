@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#MISE description="Build gnu targets (debug): bindings, flowctl"
+
 cargo build \
     --locked \
     -p bindings \

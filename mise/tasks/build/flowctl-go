@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 
+#MISE description="Build the flowctl-go CLI (links the Rust bindings staticlib)"
 #USAGE flag "--release" help="Link a release build of libbindings.a"
 
+# flowctl-go links the `bindings` crate's libbindings.a via cgo; CGO_LDFLAGS
+# (from stack-env) resolves it out of ${CARGO_TARGET_DIR}/debug. Ensure it is
+# present and current rather than failing in the Go linker with an undefined
+# symbol, which reads as a Go problem but is a missing Rust build.
 if [ "${usage_release:-false}" = "true" ]; then
     # Link the release library into place of the debug one.
     # This is a little janky, but allows CGO_LDFLAGS to remain unchanged.
+    if [ ! -f "${CARGO_TARGET_DIR}/release/libbindings.a" ]; then
+        echo "error: ${CARGO_TARGET_DIR}/release/libbindings.a not found; run 'mise run ci:gnu-opt' first" >&2
+        exit 1
+    fi
     mkdir -p ${CARGO_TARGET_DIR}/debug
     ln -f ${CARGO_TARGET_DIR}/release/libbindings.a ${CARGO_TARGET_DIR}/debug/libbindings.a
+else
+    mise run ci:gnu-dev
 fi
 
 # Variables which are injected into the flowctl-go binary via -ldflags.

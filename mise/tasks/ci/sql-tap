@@ -3,7 +3,7 @@
 set -o pipefail
 set -o nounset
 
-#MISE description="Run all SQL tests"
+#MISE description="Run all SQL tests (requires a reset db)"
 #MISE depends=["local:supabase"]
 
 # Run all SQL tests in parallel using GNU parallel.
