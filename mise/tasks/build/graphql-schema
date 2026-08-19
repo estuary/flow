@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+
 #MISE description="Generate Rust flow-client GraphQL schema"
+#MISE depends=["local:supabase"]
 
 cargo build -p flow-client --all-features

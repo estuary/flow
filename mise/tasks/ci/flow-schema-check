@@ -3,12 +3,22 @@
 
 set -euo pipefail
 
+# Compare against the working-tree copy rather than `git diff` against HEAD:
+# a developer mid-change has an uncommitted crates/models edit *and* an equally
+# uncommitted flow.schema.json, and diffing against HEAD reports that correct
+# pairing as drift. Snapshotting first asks the question we actually mean --
+# does the checked-out schema match what the checked-out models produce? -- and
+# is equivalent on CI's clean tree.
+BEFORE="$(mktemp)"
+trap 'rm -f "${BEFORE}"' EXIT
+cp flow.schema.json "${BEFORE}"
+
 # Regenerate the schema from crates/models via flowctl; see `build:flow-schema`.
 mise run build:flow-schema
 
-# Fail if the committed copy drifted from what the models now produce.
-if ! git diff --exit-code -- flow.schema.json; then
+# The regenerated file is left in place, so a failing check is fixed by committing it.
+if ! diff -u "${BEFORE}" flow.schema.json; then
   echo >&2 "error: committed flow.schema.json is out of date."
-  echo >&2 "run 'mise run build:flow-schema' and commit flow.schema.json"
+  echo >&2 "it has been regenerated in place -- review and commit flow.schema.json"
   exit 1
 fi

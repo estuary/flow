@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+
 #MISE description="Generate Rust sqlx prepared PostgreSQL queries"
+#MISE depends=["local:supabase"]
 
 # Pin to the version CI uses (see ci/sqlx-check). An unpinned install pulls
 # the latest release: sqlx-cli 0.9 requires DATABASE_URL in its own process

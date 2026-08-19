@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
 #MISE description="Verify the committed flow-client GraphQL SDL is up-to-date"
+#MISE depends=["local:supabase"]
 
 set -euo pipefail
+
+SDL=crates/flow-client/control-plane-api.graphql
+
+# Compare against the working-tree copy rather than `git diff` against HEAD; see
+# ci/flow-schema-check for why diffing against HEAD misreports uncommitted work.
+BEFORE="$(mktemp)"
+trap 'rm -f "${BEFORE}"' EXIT
+cp "${SDL}" "${BEFORE}"
 
 # Regenerate the SDL from the current schema. flow-client's build script writes
 # crates/flow-client/control-plane-api.graphql when the `generate` feature is
 # enabled (pulled in by --all-features); see `build:graphql-schema`.
 cargo build -p flow-client --all-features
 
-# Fail if the committed copy drifted from what the schema now produces.
-if ! git diff --exit-code -- crates/flow-client/control-plane-api.graphql; then
+# The regenerated file is left in place, so a failing check is fixed by committing it.
+if ! diff -u "${BEFORE}" "${SDL}"; then
   echo >&2 "error: committed GraphQL SDL is out of date."
-  echo >&2 "run 'mise run build:graphql-schema' and commit crates/flow-client/control-plane-api.graphql"
+  echo >&2 "it has been regenerated in place -- review and commit ${SDL}"
   exit 1
 fi

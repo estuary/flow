@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#MISE description="Build musl targets (debug): flow-connector-init"
+
 rustup target add $(uname -m)-unknown-linux-musl
 
 cargo build \

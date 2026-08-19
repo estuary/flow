@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#MISE description="Run the Go test suite"
+#MISE depends=["ci:gnu-dev", "ci:musl-dev"]
+
 # CARGO_TARGET_DIR is per-checkout (see mise/tasks/local/stack-env); go tests
 # locate flow-connector-init (musl) and other Rust binaries on PATH. mise's
 # _.path already covers ${CARGO_TARGET_DIR}/debug, but not the musl target dir.

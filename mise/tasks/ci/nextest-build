@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#MISE description="Compile the Rust test binaries (without running them)"
+#MISE depends=["bootstrap:submodules", "local:supabase"]
+
+# Depends on Supabase because sqlx's compile-time macros connect to DATABASE_URL
+# (exported per-stack by local/stack-env). The checked-in .sqlx offline cache is
+# built by `cargo sqlx prepare`, which runs a plain `cargo check` and so covers
+# only lib/bin targets -- test targets such as crates/automations/tests are not
+# in it, and compiling them requires a live database.
+
 cargo nextest run --locked --no-run
