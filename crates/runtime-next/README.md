@@ -66,9 +66,10 @@ src/
 │                       #   crate is preview-agnostic)
 ├── logger.rs          # Logger / LoggerFactory traits: the task's log + event stream
 │                       #   (connector log sink + structured Events — persist / applied /
-│                       #   inferred-schema / container lifecycle — which flatten to logs
-│                       #   via LogEvent::to_log). Production shards install FnLoggerFactory
-│                       #   (→ task-log file); leaders & tests install TracingLogger
+│                       #   spec-update / inferred-schema / container lifecycle — which
+│                       #   flatten to logs via LogEvent::to_log). Production shards install
+│                       #   FnLoggerFactory (→ task-log file); leaders & tests install
+│                       #   TracingLogger
 ├── patches.rs         # wire format for connector-state patch streams
 │
 ├── leader/            # sidecar Leader service
