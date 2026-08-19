@@ -62,7 +62,8 @@ IMAGE_INPUT_PREFIXES = (
 )
 
 # Within a shipping crate, these paths are compiled but cannot change behavior.
-INERT_SUFFIXES = (".snap", ".md")
+# _test.go files are excluded from production Go binaries by the toolchain.
+INERT_SUFFIXES = (".snap", ".md", "_test.go")
 INERT_PATH_PARTS = (
     "/tests/",
     "/benches/",

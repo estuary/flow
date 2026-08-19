@@ -98,6 +98,17 @@ class TestClassify(unittest.TestCase):
         self.assertTrue(v.ships)
         self.assertEqual(v.payload, ["mise.toml"])
 
+    def test_go_test_files_are_inert(self):
+        # The Go toolchain excludes _test.go files from production binaries,
+        # so a test-only Go PR does not ship.
+        v = self.verdict("go/flow/converge_test.go")
+        self.assertFalse(v.ships)
+        self.assertEqual(len(v.inert), 1)
+
+    def test_non_test_go_files_ship(self):
+        v = self.verdict("go/flow/converge.go")
+        self.assertTrue(v.ships)
+
     def test_go_module_files_ship(self):
         # go.mod / go.sum pin the module graph of the flowctl-go and gazette
         # binaries copied into the image.
