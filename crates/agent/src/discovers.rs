@@ -133,10 +133,10 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
 
         // Pin one authorization Snapshot for the entire operation, so that
         // authorization decisions cannot flip between discover phases.
+        // Snapshot refreshes are infallible -- a failed refresh only delays
+        // the next one -- so its `result()` is Ok once the watch is ready,
+        // which is awaited at startup.
         let snapshot = self.snapshot_watch.token();
-        if let Err(status) = snapshot.result() {
-            anyhow::bail!("authorization snapshot is unavailable: {status}");
-        }
 
         let (status, result) = self.process(row, snapshot, pool).await?;
         tracing::info!(id=%task_id, %time_queued, ?status, "finished");
@@ -314,7 +314,7 @@ async fn prepare_discover(
         models::authz::Capability::CatalogRead.into(),
         snapshot
             .result()
-            .expect("callers pin a ready authorization Snapshot"),
+            .expect("Snapshot refreshes are infallible once the watch is ready"),
         pool,
     )
     .await?;

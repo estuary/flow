@@ -44,7 +44,7 @@ pub struct LiveSpec {
 /// name, even if no live spec exists in the database.
 pub async fn fetch_live_specs(
     user_id: Uuid,
-    names: &[String],
+    names: &[&str],
     fetch_user_capabilities: bool,
     fetch_spec_capabilities: bool,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
@@ -86,7 +86,7 @@ pub async fn fetch_live_specs(
         left outer join live_specs ls on ls.catalog_name = names
         "#,
         user_id,
-        names,
+        names as &[&str],
         fetch_user_capabilities,
         fetch_spec_capabilities,
     )

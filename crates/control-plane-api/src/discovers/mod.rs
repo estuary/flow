@@ -43,8 +43,9 @@ pub struct Discover {
     pub created_at: String,
     /// Authorization Snapshot pinned for the entire discover, so that
     /// authorization decisions cannot flip mid-operation (for example, during
-    /// a long-running connector RPC). Callers must verify `snapshot.result()`
-    /// is Ok before constructing the Discover.
+    /// a long-running connector RPC). Snapshot refreshes are infallible --
+    /// a failed refresh only delays the next one -- so `snapshot.result()`
+    /// is always Ok once the watch has become ready.
     pub snapshot: std::sync::Arc<tokens::Refresh<crate::Snapshot>>,
 }
 
@@ -319,7 +320,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         let live = if filter_user_authz {
             let snapshot = snapshot
                 .result()
-                .expect("Discover callers pin a ready authorization Snapshot");
+                .expect("Snapshot refreshes are infallible once the watch is ready");
             crate::live_specs::get_live_specs_filtered(
                 user_id,
                 &collection_names,

@@ -12,15 +12,16 @@ pub use db::{
 
 /// Partitions the requested `names` by whether the user holds `capability`
 /// to them, evaluated against the authorization `snapshot`. Returns
-/// `(authorized, denied)`, each sorted and deduplicated.
-fn partition_by_authorization(
+/// `(authorized, denied)` as references into `names`, each sorted and
+/// deduplicated.
+fn partition_by_authorization<'n>(
     user_id: Uuid,
-    names: &[String],
+    names: &'n [String],
     capability: models::authz::CapabilitySet,
     snapshot: &crate::Snapshot,
-) -> (Vec<String>, Vec<String>) {
-    let (mut authorized, mut denied): (Vec<String>, Vec<String>) =
-        names.iter().cloned().partition(|name| {
+) -> (Vec<&'n str>, Vec<&'n str>) {
+    let (mut authorized, mut denied): (Vec<&str>, Vec<&str>) =
+        names.iter().map(String::as_str).partition(|name| {
             tables::UserGrant::is_authorized(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
@@ -67,7 +68,7 @@ pub async fn get_live_specs_filtered(
 /// disabled, `fetch_live_specs` never evaluates it.
 pub async fn get_live_specs_unfiltered(
     user_id: Uuid,
-    names: &[String],
+    names: &[impl AsRef<str>],
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
@@ -77,9 +78,10 @@ pub async fn get_live_specs_unfiltered(
     // The plain fetch is much cheaper; chunks are kept to bound statement
     // size for very large name lists.
     for names_chunk in names.chunks(512) {
+        let names_chunk: Vec<&str> = names_chunk.iter().map(AsRef::as_ref).collect();
         let rows = db::fetch_live_specs(
             user_id,
-            names_chunk,
+            &names_chunk,
             false, // authorization is not evaluated in SQL
             false, // we never need spec_capabilities here
             db,
@@ -197,13 +199,10 @@ mod test {
             "aliceCo/anvils/pings".to_string(),
         ];
         let (authorized, denied) = partition_by_authorization(bob, &names, capability, &snapshot);
-        assert_eq!(authorized, vec!["bobCo/tires/capture".to_string()]);
+        assert_eq!(authorized, vec!["bobCo/tires/capture"]);
         assert_eq!(
             denied,
-            vec![
-                "acmeCo/private/collection".to_string(),
-                "aliceCo/anvils/pings".to_string(),
-            ]
+            vec!["acmeCo/private/collection", "aliceCo/anvils/pings"]
         );
     }
 }
