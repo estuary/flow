@@ -1,0 +1,20 @@
+[Unit]
+Description=Flow MCP Adapter (%i)
+Documentation=https://github.com/estuary/flow/blob/master/mcp/README.md
+After=flow-control-agent@%i.service
+Requires=flow-control-agent@%i.service
+PartOf=flow-control-plane@%i.target
+
+[Service]
+Type=simple
+TimeoutStartSec=300
+
+EnvironmentFile=%h/flow-local/env/mcp-%i.env
+
+# `uv sync --frozen` installs exactly what mcp/uv.lock pins,
+# so a stack start never silently upgrades the adapter's dependency
+ExecStartPre=sh -c 'cd ${FLOW_ROOT}/mcp && ${UV_BIN} sync --frozen --quiet'
+ExecStart=sh -c 'cd ${FLOW_ROOT}/mcp && exec ${UV_BIN} run --frozen --quiet estuary-mcp'
+
+Restart=on-failure
+RestartSec=5s

@@ -55,6 +55,7 @@ port_for_unit() {
     flow-supabase) echo "${FLOW_PORT_SUPABASE_DB}" ;;
     flow-control-agent) echo "${FLOW_PORT_AGENT}" ;;
     flow-config-encryption) echo "${FLOW_PORT_CONFIG_ENC}" ;;
+    flow-mcp) echo "${FLOW_PORT_MCP}" ;;
     flow-bigtable) echo "${FLOW_PORT_BIGTABLE}" ;;
     flow-dekaf-kafka) echo "${FLOW_PORT_KAFKA}" ;;
     flow-gazette | flow-reactor) echo "${inst##*-}" ;;

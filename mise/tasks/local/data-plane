@@ -123,8 +123,7 @@ EOF
     link_unit flow-dekaf@.service
     systemctl --user daemon-reload
 
-    # Always restart to apply current configuration from env file
-    if ! systemctl --user restart "flow-dekaf@${DATA_PLANE}.service"; then
+    if ! systemctl --user start "flow-dekaf@${DATA_PLANE}.service"; then
         echo "flow-dekaf@${DATA_PLANE} failed to start. Logs:"
         journalctl --user -u "flow-dekaf@${DATA_PLANE}.service" --no-pager
         exit 1

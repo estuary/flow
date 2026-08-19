@@ -62,6 +62,6 @@ link_unit flow-plane@.target
 link_unit flow-runtime-sidecar@.service
 
 systemctl --user daemon-reload
-systemctl --user restart "flow-runtime-sidecar@${DATA_PLANE}.service"
+systemctl --user start "flow-runtime-sidecar@${DATA_PLANE}.service"
 
 echo "Created flow-runtime-sidecar@${DATA_PLANE} on port ${SIDECAR_PORT} (admin: http://127.0.0.1:${ADMIN_PORT}/)"

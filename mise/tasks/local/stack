@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start a local stack (control plane and '<stack>-cluster' data plane)"
-#MISE depends=["build:connector-init", "build:rocksdb", "local:control-plane"]
+#MISE depends=["build:connector-init", "build:rocksdb", "local:control-plane", "local:mcp"]
 #USAGE flag "--dekaf" help="Also start Dekaf for the default data plane"
 
 source "$(dirname "$0")/lib.sh"

@@ -26,6 +26,7 @@ printf '  %-22s %s\n' "supabase studio" "${FLOW_PORT_SUPABASE_STUDIO}"
 printf '  %-22s %s\n' "supabase mailpit" "${FLOW_PORT_SUPABASE_MAILPIT}"
 printf '  %-22s %s\n' "agent" "${FLOW_PORT_AGENT}"
 printf '  %-22s %s\n' "config-encryption" "${FLOW_PORT_CONFIG_ENC}"
+printf '  %-22s %s\n' "mcp adapter" "${FLOW_PORT_MCP}"
 printf '  %-22s %s\n' "bigtable emulator" "${FLOW_PORT_BIGTABLE}"
 printf '  %-22s %s\n' "dekaf kafka / ctrl" "${FLOW_PORT_KAFKA} / ${FLOW_PORT_KAFKA_CTRL}"
 printf '  %-22s %s\n' "plane 0 base" "${PB} (brokers ${PB}+, reactors ${PB}+99 down, dekaf +50/51/52, sidecar +60/61)"
@@ -65,6 +66,7 @@ echo "  mise run local:stack-wait                  # block until all services ac
 echo "  export SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt   # per-command; needed for broker/reactor TLS calls"
 echo "  journalctl --user -u flow-reactor@${FLOW_CLUSTER}-${REACTOR_PORT} -f"
 echo "  mise run local:test-tenant && source ${FLOW_STACK_DIR}/test-tenant-test.env"
+echo "  claude mcp add --transport http estuary http://localhost:${FLOW_PORT_MCP}/mcp   # from the HOST, once forwarded"
 echo ""
 
 print_stack_card

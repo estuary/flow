@@ -94,6 +94,7 @@ Offsets within a stack's 1000-wide block:
 | +05 | *reserved* — optional per-stack UI origin (see below); the primary UI origin is `http://localhost:3000` |
 | +10 / +11 / +12 / +13 | Supabase api / db / studio / mailpit |
 | +20 / +21 | agent / config-encryption |
+| +22 | MCP adapter (`mcp/`) |
 | +25 | bigtable emulator |
 | +30 / +31 | dekaf upstream Kafka / KRaft controller |
 | +40 | data-plane-controller (dev-facing) |
@@ -151,6 +152,7 @@ flow-control-plane@<stack>.target
   ├─ flow-supabase@<stack>.service        (db/api/studio/mailpit, edge functions)
   ├─ flow-config-encryption@<stack>.service
   ├─ flow-control-agent@<stack>.service   (agent + config-encryption)
+  ├─ flow-mcp@<stack>.service             (MCP adapter; see mcp/README.md)
   └─ (bigtable, etcd are their own @<stack> services)
 
 flow-etcd@<stack>.service                 (single-node, per-stack data dir + ports)
@@ -459,7 +461,7 @@ With a single stack on the host you can omit `[stack]`. It:
   `8675→agent`, `8765→config-enc`. This is the only place classic ports survive,
   and belongs to one stack at a time.
 - **identity-forwards** this stack's real ports (api, db, agent, config-enc,
-  plane-0 brokers/reactors/sidecar-admin/dekaf, cockpit 9090) for
+  mcp, plane-0 brokers/reactors/sidecar-admin/dekaf, cockpit 9090) for
   advertisement-following clients (`flowctl --profile <stack>` doing data-plane
   work over `*.flow.localhost`).
 

@@ -50,6 +50,7 @@ STUDIO=$((BASE + 12))
 MAILPIT=$((BASE + 13))
 AGENT=$((BASE + 20))
 CONFIG_ENC=$((BASE + 21))
+MCP=$((BASE + 22))
 
 # SSH -L specs are "listen:host:dst". We build two sets:
 #
@@ -82,6 +83,7 @@ IDENTITY=(
     "${DB}"                 # Postgres DB
     "${AGENT}"              # Control-plane agent
     "${CONFIG_ENC}"         # Config-encryption
+    "${MCP}"                # MCP adapter
     "$((PB + 0))"           # gazette broker 1
     "$((PB + 1))"           # gazette broker 2
     "$((PB + 2))"           # gazette broker 3
@@ -106,7 +108,7 @@ if [ "${NO_REMAP}" != "true" ]; then
     echo "    localhost:8675 -> agent (:${AGENT})  localhost:8765 -> config-enc (:${CONFIG_ENC})"
 fi
 echo "  Identity forwards (real ports, for flowctl --profile ${STACK}):"
-echo "    API ${API}, DB ${DB}, agent ${AGENT}, config-enc ${CONFIG_ENC}"
+echo "    API ${API}, DB ${DB}, agent ${AGENT}, config-enc ${CONFIG_ENC}, mcp ${MCP}"
 echo "    brokers ${PB}-$((PB + 3)), reactors $((PB + 98))/$((PB + 99)), sidecar-admin $((PB + 61)), dekaf $((PB + 50))/$((PB + 51))/$((PB + 52))"
 echo "    cockpit 9090"
 echo "    (broker-${CLUSTER}.flow.localhost:$((PB + 0)) / reactor-${CLUSTER}.flow.localhost:$((PB + 99)))"

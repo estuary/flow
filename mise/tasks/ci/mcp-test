@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run the MCP adapter's Python test suite"
+
+# `--frozen` installs exactly what mcp/uv.lock pins rather than re-resolving, so
+# a green CI run means the dependency set a deployment would actually get.
+#
+# The live-stack acceptance tests (tests/test_live_stack.py) skip themselves here:
+# they need a running stack, a provisioned tenant, and outbound internet to fetch
+# a real client-metadata document. See mcp/README.md for running them by hand.
+cd "$(git rev-parse --show-toplevel)/mcp"
+
+uv sync --frozen
+uv run --frozen pytest -q
+# Pinned so a new ruff release's rules cannot break CI unrelated to any change.
+uv run --frozen --with 'ruff==0.16.3' ruff check --select F,E9 .

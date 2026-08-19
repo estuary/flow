@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start the MCP adapter via systemd (for this stack)"
+#MISE depends=["local:control-plane"]
+
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+prepare_dirs
+
+NAME="${FLOW_STACK_NAME}"
+
+# The adapter is a uv project, not a cargo one, so its interpreter and lockfile
+# come from uv rather than from CARGO_TARGET_DIR. systemd units get no login
+# shell and therefore no mise shims: resolve uv here, while we still have the
+# mise environment, and hand the unit an absolute path.
+UV_BIN="$(command -v uv || true)"
+if [ -z "${UV_BIN}" ]; then
+    echo "error: uv is not on PATH; install it with 'mise use -g uv@latest'" >&2
+    exit 1
+fi
+
+# Every URL below is the *host's* view, not the VM's, because the browser leg of
+# the OAuth dance runs on the developer's machine: the adapter redirects to the
+# dashboard and the dashboard redirects back, and both hops are the host's
+# browser following Location headers. `mise run vm:port-forward` maps the
+# adapter's port identity (12022 -> 12022, etc.), so the two views coincide —
+# which is exactly why it is identity-forwarded rather than remapped like the
+# classic Supabase/agent ports.
+#
+# The agent URL is the exception: the adapter itself calls it, in-process,
+# inside the VM.
+{
+    emit_common_vars
+    cat <<EOF
+
+# MCP adapter environment for stack ${NAME}.
+ESTUARY_MCP_PUBLIC_URL=http://localhost:${FLOW_PORT_MCP}
+ESTUARY_MCP_AGENT_URL=http://localhost:${FLOW_PORT_AGENT}
+ESTUARY_MCP_DASHBOARD_URL=${FLOW_DASHBOARD_ORIGIN}
+ESTUARY_MCP_BIND_HOST=127.0.0.1
+ESTUARY_MCP_BIND_PORT=${FLOW_PORT_MCP}
+ESTUARY_MCP_LOG_LEVEL=INFO
+
+# Client-metadata documents must be fetched over https from a public host. Local
+# MCP clients (Claude Code, Codex) publish theirs on the real internet, so this
+# stays off even locally; the integration tests flip it in-process instead.
+ESTUARY_MCP_ALLOW_INSECURE_CIMD=false
+
+# ESTUARY_MCP_SEALING_KEYS is deliberately unset: a single local replica uses an
+# ephemeral per-boot key, and a restart merely drops authorization dances in
+# flight (a re-click). Multi-replica deployments must configure shared keys.
+
+# Absolute, because the unit's PATH is inherited from a generated env file rather
+# than from a mise-aware shell.
+UV_BIN=${UV_BIN}
+EOF
+} > "${FLOW_ENV_DIR}/mcp-${NAME}.env"
+
+link_unit flow-mcp@.service
+systemctl --user daemon-reload
+systemctl --user start "flow-mcp@${NAME}.service"
+
+echo "MCP adapter starting on http://localhost:${FLOW_PORT_MCP}"
+echo "  status: systemctl --user status flow-mcp@${NAME}"
+echo "  logs  : journalctl --user -u flow-mcp@${NAME} -f"
+echo ""
+echo "From the host (after 'mise run vm:port-forward <host> ${NAME}'):"
+echo "  claude mcp add --transport http estuary http://localhost:${FLOW_PORT_MCP}/mcp"

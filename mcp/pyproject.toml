@@ -1,0 +1,48 @@
+[project]
+name = "estuary-mcp"
+version = "0.1.0"
+description = "Estuary MCP server: a stateless, untrusted protocol translator between MCP clients and the Estuary control plane."
+readme = "README.md"
+requires-python = ">=3.11"
+
+# Deliberately small. This process is UNTRUSTED (see README "Trust model"), so
+# every dependency it takes on is a dependency of the OAuth authorization dance
+# a customer must be willing to self-host. `mcp` brings Starlette and pydantic;
+# `httpx` is the only outbound-IO library; `uvicorn` is the ASGI server;
+# `cryptography` provides the AEAD that seals in-flight authorization state
+# (auth/sealed.py) — the one primitive the stdlib lacks.
+dependencies = [
+    "mcp>=2.0.0,<3",
+    "httpx>=0.28",
+    "uvicorn>=0.34",
+    "cryptography>=43",
+]
+
+[project.scripts]
+estuary-mcp = "estuary_mcp.__main__:main"
+
+[dependency-groups]
+dev = [
+    # FastMCP's *client* has CIMD + OAuth support, so it can drive the whole
+    # authorization dance headlessly against this adapter. We use it only as a
+    # test client; its server-side OAuthProxy architecture is explicitly not
+    # what this adapter does (see README).
+    #
+    # A prerelease on purpose: fastmcp 3.x pins `mcp<2.0`, and this project is
+    # built on the 2.x SDK. 4.0.0b3 is the first release that tracks it.
+    "fastmcp>=4.0.0b3",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "asgi-lifespan>=2.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/estuary_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
