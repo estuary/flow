@@ -312,9 +312,7 @@ async fn prepare_discover(
         user_id,
         name,
         models::authz::Capability::CatalogRead.into(),
-        snapshot
-            .result()
-            .expect("Snapshot refreshes are infallible once the watch is ready"),
+        snapshot.result().unwrap(),
         pool,
     )
     .await?;
