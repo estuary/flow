@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PATH=${PATH}:${HOME}/cargo-target/$(uname -m)-unknown-linux-musl/debug/ \
+#MISE description="Run the Rust test suite under nextest"
+#MISE depends=["bootstrap:submodules", "ci:musl-dev", "build:gazette", "local:supabase", "local:bigtable"]
+
+# Prerequisites, all declared above:
+#  * musl-dev     -- flow-connector-init, found on PATH by runtime container tests
+#  * build:gazette -- crates/e2e-support spawns a real broker from ${GOBIN}
+#                     (shuffle, runtime-next split_e2e)
+#  * supabase     -- the agent / control-plane-api / automations DB tests
+#  * bigtable     -- crates/catalog-stats emulator tests
+#
+# Use `cargo nextest run`, never `cargo test`: .config/nextest.toml serializes
+# the DB-backed tests into the `serial-db-tests` group, and `cargo test` ignores
+# that config.
+
+PATH=${PATH}:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/ \
 cargo nextest run --frozen --no-fail-fast

@@ -21,9 +21,18 @@ Estuary is built with:
 
 ### Build & Test
 
-Use regular `cargo` and `go` tools to build and test crates.
+Use regular `cargo` and `go` tools to build crates. Run tests via the `mise`
+tasks below, which declare their own prerequisites (submodules, Supabase,
+gazette, BigTable).
 
 ```bash
+# Rust tests. NOT `cargo test`, which ignores the `serial-db-tests` group in
+# .config/nextest.toml and lets DB-backed tests truncate each other's rows.
+mise run ci:nextest-run                  # full suite
+mise exec -- cargo nextest run -p agent  # one crate
+
+mise run ci:platform-test  # whole CI suite, in CI's order
+
 # libsqlite3 tag is required for `bindings` and `flowctl-go` packages.
 go build -tags libsqlite3 ./go/bindings
 
@@ -32,8 +41,8 @@ mise run build:go-protobufs
 mise run build:rust-protobufs
 cargo fmt --all  # remove format-only churn from codegen
 
-# Run pgTAP SQL Tests
-mise run ci:sql-tap
+# pgTAP tests, which pass only against a freshly reset database.
+supabase db reset && mise run ci:sql-tap
 
 # E2E tests over derivation examples (SLOW)
 mise run ci:catalog-test

@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Regenerate the committed flow.schema.json from crates/models"
+#MISE depends=["build:flowctl"]
 
 ${CARGO_TARGET_DIR}/debug/flowctl raw json-schema > flow.schema.json

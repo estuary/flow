@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#MISE description="Run Rust documentation tests"
+#MISE depends=["local:supabase"]
+
 cargo test --doc

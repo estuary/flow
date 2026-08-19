@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Check out git submodules required by the test suites"
+
+# crates/json/tests/official is the upstream JSON-Schema-Test-Suite, read at
+# runtime by the draft2019/draft2020 test targets. A plain `git clone` (or a
+# `git worktree add`) leaves it empty, and the resulting failures look like
+# hundreds of unrelated validation bugs rather than a missing checkout.
+# CI gets this via `submodules: true` on actions/checkout.
+git submodule update --init --recursive

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#MISE description="Run flowctl-go catalog tests over the derivation examples"
+#MISE depends=["build:flowctl-go", "ci:musl-dev"]
+
 # CARGO_TARGET_DIR and GOBIN are per-checkout (see mise/tasks/local/stack-env).
 # flowctl-go spawns flow-connector-init (musl) and other Rust binaries found on
 # PATH; mise's _.path covers ${CARGO_TARGET_DIR}/debug but not the musl dir.
