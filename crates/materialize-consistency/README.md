@@ -115,9 +115,6 @@ The essentials:
   destination back and drops the tables a run creates.
 - **The config is the connector's own endpoint config**, decrypted from its
   checked-in `config.local.yaml` — with `_sops` key suffixes stripped.
-- **Multi-shard operation must be enabled** if the connector gates it behind a
-  feature flag (`scale_out` for databricks), or the split scenarios fail for
-  configuration reasons, not connector reasons.
 - Expect **a few minutes per scenario** against a remote destination, and each
   run cleans up the tables it created.
 
