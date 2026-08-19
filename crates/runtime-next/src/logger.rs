@@ -96,6 +96,13 @@ pub enum LogEvent<'a> {
     #[non_exhaustive]
     Applied { action_description: &'a str },
 
+    /// This session's spec differs from the last applied.
+    #[non_exhaustive]
+    SpecUpdated {
+        last_version: &'a str,
+        next_version: &'a str,
+    },
+
     /// A collection's inferred write-schema widened this transaction.
     /// `binding` is the most-recently-updated binding index for captures
     /// (multiple bindings may target the same collection, and only the
@@ -133,7 +140,21 @@ pub enum LogEvent<'a> {
     },
 }
 
-impl LogEvent<'_> {
+impl<'a> LogEvent<'a> {
+    /// Build a [`LogEvent::SpecUpdated`] if this session's Apply is a genuine
+    /// spec update: a prior spec must have been applied (`last_version` is
+    /// empty on a task's first Apply, which is not an update), and its version
+    /// must differ.
+    pub fn spec_update(last_version: &'a str, next_version: &'a str) -> Option<Self> {
+        if last_version.is_empty() || last_version == next_version {
+            return None;
+        }
+        Some(LogEvent::SpecUpdated {
+            last_version,
+            next_version,
+        })
+    }
+
     /// Flatten this event into its canonical [`ops::Log`] — the single place
     /// events render as task-log lines.
     /// Returns `None` when the event surfaces nothing (a [`LogEvent::Persist`]
@@ -163,6 +184,20 @@ impl LogEvent<'_> {
                 };
                 fields.push(("actionDescription", json_field(&action)));
                 (ops::LogLevel::Info, "connector applied")
+            }
+            LogEvent::SpecUpdated {
+                last_version,
+                next_version,
+                ..
+            } => {
+                // These field names are snake_case, against this file's
+                // camelCase convention, and the message is verbatim: V1 logs
+                // this same line from `runtime::materialize::protocol`, and
+                // operator queries over the ops journal must keep working
+                // across the V1 -> V2 migration.
+                fields.push(("last_version", json_field(last_version)));
+                fields.push(("next_version", json_field(next_version)));
+                (ops::LogLevel::Info, "applying updated task specification")
             }
             LogEvent::InferredSchema {
                 collection_name,
@@ -397,6 +432,10 @@ mod test {
             LogEvent::Applied {
                 action_description: "create table \"foo\"",
             },
+            LogEvent::SpecUpdated {
+                last_version: "0000aaaa11112222",
+                next_version: "0000bbbb33334444",
+            },
             LogEvent::InferredSchema {
                 collection_name: "acmeCo/collection",
                 binding: Some(2),
@@ -448,6 +487,14 @@ mod test {
             },
             "level": "info",
             "message": "connector applied"
+          },
+          {
+            "fields": {
+              "last_version": "0000aaaa11112222",
+              "next_version": "0000bbbb33334444"
+            },
+            "level": "info",
+            "message": "applying updated task specification"
           },
           {
             "fields": {

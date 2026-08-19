@@ -1,4 +1,5 @@
 use super::Task;
+use crate::Logger as _;
 use crate::proto;
 use anyhow::Context;
 use futures::StreamExt;
@@ -142,6 +143,9 @@ where
     });
 
     // Read and execute L:Apply and L:Persist from the leader until L:Open.
+    // The leader re-sends L:Apply once per Apply iteration, so latch the
+    // spec-update event to report it at most once per session.
+    let mut reported_spec_update = false;
     let open = loop {
         let verify = crate::verify("Materialize", "Apply, Persist, or Open", "leader");
         match verify.not_eof(leader_rx.next().await)? {
@@ -156,6 +160,13 @@ where
                     }),
                 ..
             } => {
+                if !reported_spec_update
+                    && let Some(event) = crate::LogEvent::spec_update(&last_version, &version)
+                {
+                    reported_spec_update = true;
+                    logger.event(event);
+                }
+
                 let last_spec = if last_spec.is_empty() {
                     None
                 } else {

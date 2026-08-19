@@ -482,6 +482,10 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     let next_spec = flow::CaptureSpec::decode(next_applied.as_ref())
         .context("invalid current CaptureSpec for Apply")?;
 
+    if let Some(event) = crate::LogEvent::spec_update(&last_version, next_version) {
+        logger.event(event);
+    }
+
     const MAX_APPLY_ITERATIONS: u64 = 3;
 
     for iteration in 1..=MAX_APPLY_ITERATIONS {
