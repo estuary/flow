@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Verify SQLx query cache is up-to-date"
+#MISE depends=["local:supabase"]
 
 set -euo pipefail
 
