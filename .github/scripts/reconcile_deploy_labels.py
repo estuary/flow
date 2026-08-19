@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""Reconcile `pending:agent-api` labels against what is actually deployed.
+"""Reconcile pending-deploy labels against what is actually deployed.
 
-Desired state: a merged PR carries the label exactly when its changes are
-compiled into the deployed image (see deploy_scope.py) and the most recently
-deployed image does not include its merge commit. This script recomputes that
-full set and applies the difference — adding and removing labels — so missed
-events, rollbacks, and manual label edits all converge on the next run.
+Desired state, per label: a merged PR carries the label exactly when its
+changes are compiled into the control-plane-agent image (see deploy_scope.py)
+and the named deployment does not include its merge commit yet.
 
-The deployed commit is read from the logs of a successful `Deploy agent-api`
-run: the image tag ends in the git-describe suffix g<short-sha> of the commit
-the image was built from (bare, e.g. g71fbcda6, or a full describe string,
-e.g. v0.6.12-24-gc8fbf5ce5ce).
+  pending:agent-api  the `agent-api` Cloud Run service. Its baseline is read
+                     from the logs of the newest successful `Deploy agent-api`
+                     run: the deployed image tag ends in the git-describe
+                     suffix g<short-sha> of the commit it was built from.
+  pending:agent      the `flow-agent` Kubernetes Deployment (the worker tier).
+                     Its baseline is the image tag pinned in estuary/ops
+                     env/estuary/combustable-cronut/main.jsonnet. Reading that
+                     private repo from CI requires a token with contents:read
+                     on estuary/ops in the GH_TOKEN_OPS environment variable.
+
+The script recomputes each full label set and applies the difference — adding
+and removing labels — so missed events, rollbacks, and manual label edits all
+converge on the next run.
 
 Requires: a full-history checkout (git log <deployed>..HEAD), the `gh` CLI
 with a token holding actions:read and pull-requests:write, and Python 3.11+.
@@ -22,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import pathlib
@@ -34,39 +42,72 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from deploy_scope import classify, closure
 
-LABEL = "pending:agent-api"
 LABEL_COLOR = "1D76DB"
-LABEL_DESCRIPTION = "Merged, ships via Deploy agent-api, and not yet deployed"
 DEPLOY_WORKFLOW = "deploy-agent-api.yaml"
 IMAGE_NAME = "control-plane-agent"
+OPS_REPO = "estuary/ops"
+OPS_PIN_PATH = "env/estuary/combustable-cronut/main.jsonnet"
 
 
-def run(*argv: str) -> str:
-    return subprocess.run(argv, check=True, capture_output=True, text=True).stdout
+def run(*argv: str, env: dict | None = None) -> str:
+    merged_env = {**os.environ, **env} if env else None
+    return subprocess.run(
+        argv, check=True, capture_output=True, text=True, env=merged_env
+    ).stdout
 
 
-def deployed_commit(repo: str, run_id: str | None) -> str:
-    """Full sha of the commit the deployed image was built from."""
+def tag_to_commit(repo: str, tag: str) -> str:
+    """Full sha of the commit an image tag was built from."""
+    suffix = re.search(r"(?:^|-)g([0-9a-f]{7,40})$", tag)
+    ref = suffix.group(1) if suffix else tag
+    return run("gh", "api", f"repos/{repo}/commits/{ref}", "--jq", ".sha").strip()
+
+
+def agent_api_commit(repo: str, run_id: str | None) -> str:
+    """Baseline of the agent-api Cloud Run service, from deploy run logs."""
     if not run_id:
-        # `gh run list` does not return a guaranteed order, so sort here.
-        runs = json.loads(run(
-            "gh", "run", "list", "--repo", repo,
-            "--workflow", DEPLOY_WORKFLOW, "--status", "success", "--limit", "50",
-            "--json", "databaseId,createdAt",
-        ))
-        if not runs:
+        # The runs listing does not reliably return newest-first (observed
+        # windows anchored months back), so page through every successful run
+        # and select the newest ourselves. This is a low-volume, manually
+        # dispatched workflow; the full listing is a few pages.
+        lines = run(
+            "gh", "api", "--paginate",
+            f"repos/{repo}/actions/workflows/{DEPLOY_WORKFLOW}/runs"
+            "?status=success&per_page=100",
+            "--jq", r'.workflow_runs[] | "\(.created_at) \(.id)"',
+        ).splitlines()
+        if not lines:
             raise SystemExit(f"error: no successful {DEPLOY_WORKFLOW} run found")
-        run_id = str(max(runs, key=lambda r: r["createdAt"])["databaseId"])
+        run_id = max(lines).split()[1]
 
     log = run("gh", "run", "view", run_id, "--repo", repo, "--log")
     m = re.search(rf"{IMAGE_NAME}:([A-Za-z0-9._-]+)", log)
     if not m:
         raise SystemExit(f"error: no {IMAGE_NAME} image tag in logs of run {run_id}")
-    tag = m.group(1)
+    return tag_to_commit(repo, m.group(1))
 
-    suffix = re.search(r"(?:^|-)g([0-9a-f]{7,40})$", tag)
-    ref = suffix.group(1) if suffix else tag
-    return run("gh", "api", f"repos/{repo}/commits/{ref}", "--jq", ".sha").strip()
+
+def worker_commit(repo: str) -> str:
+    """Baseline of the flow-agent k8s Deployment, from the estuary/ops pin."""
+    env = None
+    if token := os.environ.get("GH_TOKEN_OPS"):
+        env = {"GH_TOKEN": token}
+    try:
+        content = run(
+            "gh", "api", f"repos/{OPS_REPO}/contents/{OPS_PIN_PATH}",
+            "--jq", ".content", env=env,
+        )
+    except subprocess.CalledProcessError as err:
+        raise SystemExit(
+            f"error: cannot read {OPS_REPO}/{OPS_PIN_PATH}: {err.stderr.strip()}\n"
+            "In CI this needs GH_TOKEN_OPS, a token with contents:read on "
+            f"{OPS_REPO}."
+        )
+    jsonnet = base64.b64decode(content).decode()
+    m = re.search(rf"{IMAGE_NAME}:([A-Za-z0-9._-]+)'", jsonnet)
+    if not m:
+        raise SystemExit(f"error: no {IMAGE_NAME} image pin in {OPS_PIN_PATH}")
+    return tag_to_commit(repo, m.group(1))
 
 
 def merged_prs_since(repo: str, repo_dir: str, deployed: str) -> dict[int, list[str]]:
@@ -117,13 +158,44 @@ def merged_prs_since(repo: str, repo_dir: str, deployed: str) -> dict[int, list[
     return out
 
 
-def currently_labeled(repo: str) -> set[int]:
+def currently_labeled(repo: str, label: str) -> set[int]:
     out = run(
         "gh", "pr", "list", "--repo", repo,
-        "--state", "merged", "--label", LABEL, "--limit", "100",
+        "--state", "merged", "--label", label, "--limit", "100",
         "--json", "number", "--jq", ".[].number",
     )
     return {int(n) for n in out.split()}
+
+
+def reconcile(
+    repo: str, repo_dir: str, shipping_dirs: set[str],
+    label: str, description: str, deployed: str, apply: bool,
+) -> None:
+    print(f"{label}: deployed commit {deployed}")
+    desired = {
+        number
+        for number, files in merged_prs_since(repo, repo_dir, deployed).items()
+        if classify(files, shipping_dirs).ships
+    }
+    current = currently_labeled(repo, label)
+
+    to_add = sorted(desired - current)
+    to_remove = sorted(current - desired)
+    print(f"{label}: desired {sorted(desired)}; add {to_add}; remove {to_remove}")
+
+    if not apply:
+        return
+
+    if to_add:
+        subprocess.run(
+            ["gh", "label", "create", label, "--repo", repo,
+             "--color", LABEL_COLOR, "--description", description],
+            check=False, capture_output=True,
+        )
+    for number in to_add:
+        run("gh", "pr", "edit", str(number), "--repo", repo, "--add-label", label)
+    for number in to_remove:
+        run("gh", "pr", "edit", str(number), "--repo", repo, "--remove-label", label)
 
 
 def main() -> None:
@@ -134,34 +206,22 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    deployed = deployed_commit(args.repo, args.deploy_run)
-    print(f"deployed commit: {deployed}")
-
     shipping_dirs = closure(pathlib.Path(args.repo_dir).resolve(), "agent")
-    desired = {
-        number
-        for number, files in merged_prs_since(args.repo, args.repo_dir, deployed).items()
-        if classify(files, shipping_dirs).ships
-    }
-    current = currently_labeled(args.repo)
 
-    to_add = sorted(desired - current)
-    to_remove = sorted(current - desired)
-    print(f"desired {sorted(desired)}; add {to_add}; remove {to_remove}")
-
-    if args.dry_run:
-        return
-
-    if to_add:
-        subprocess.run(
-            ["gh", "label", "create", LABEL, "--repo", args.repo,
-             "--color", LABEL_COLOR, "--description", LABEL_DESCRIPTION],
-            check=False, capture_output=True,
-        )
-    for number in to_add:
-        run("gh", "pr", "edit", str(number), "--repo", args.repo, "--add-label", LABEL)
-    for number in to_remove:
-        run("gh", "pr", "edit", str(number), "--repo", args.repo, "--remove-label", LABEL)
+    reconcile(
+        args.repo, args.repo_dir, shipping_dirs,
+        "pending:agent-api",
+        "Merged, ships via Deploy agent-api, and not yet deployed",
+        agent_api_commit(args.repo, args.deploy_run),
+        apply=not args.dry_run,
+    )
+    reconcile(
+        args.repo, args.repo_dir, shipping_dirs,
+        "pending:agent",
+        "Merged, in the control-plane-agent image, and not yet rolled to flow-agent",
+        worker_commit(args.repo),
+        apply=not args.dry_run,
+    )
 
 
 if __name__ == "__main__":

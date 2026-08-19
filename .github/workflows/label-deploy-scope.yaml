@@ -1,12 +1,16 @@
 name: Label deploy scope
-# A merged PR carries `pending:agent-api` exactly when its changes are compiled
-# into the deployed image and the deployed image does not include them yet, so
-# filtering merged PRs by the label yields the deploy queue. The reconciler
-# recomputes the full label set on every master push and after every
-# successful deploy: missed events, rollbacks, and manual label edits all
-# converge on the next run. It never executes PR code — the deployed commit
-# comes from the deploy run's logs, changed files from the API, and manifests
-# from the master checkout.
+# A merged PR carries `pending:agent-api` / `pending:agent` exactly when its
+# changes are compiled into the control-plane-agent image and that deployment
+# does not include them yet, so filtering merged PRs by a label yields that
+# deployment's queue. The reconciler recomputes the full label sets on every
+# master push and after every successful deploy: missed events, rollbacks, and
+# manual label edits all converge on the next run. It never executes PR code —
+# deployed commits come from the deploy run's logs and the estuary/ops image
+# pin, changed files from the API, and manifests from the master checkout.
+#
+# OPS_READ_TOKEN must hold contents:read on estuary/ops: the `pending:agent`
+# baseline is that repo's pinned flow-agent image, and GITHUB_TOKEN cannot
+# read across repositories.
 on:
   push:
     branches: [master]
@@ -28,6 +32,7 @@ jobs:
       pull-requests: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN_OPS: ${{ secrets.OPS_READ_TOKEN }}
       DEPLOY_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
       - uses: actions/checkout@v5
