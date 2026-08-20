@@ -324,6 +324,14 @@ of what Snowflake already holds does not survive a switch of write path, and a l
 rows silently. [Backfilling](/reference/backfilling-data/#materialization-backfill) the binding is the way off, and it
 starts the binding on the new path with no such record to lose.
 
+Moving a binding *onto* this write path is allowed at any time, and needs no backfill: the existing table is adopted,
+and the rows already in it are left alone. There is one condition. If the task's checkpoint still holds work that the
+previous write path staged and did not finish — rows it had written but not yet registered with Snowflake — the
+publication succeeds and the task then refuses to start, naming the table and what is outstanding. Restore the write
+path the task was running, let it commit one transaction to finish that work, then move the binding onto this path
+again. Nothing is lost, and no backfill is needed. Backfilling the binding also clears it, at the cost of
+materializing it again.
+
 #### Delivery semantics
 
 Because rows are sent as they are materialized instead of being staged and applied at the end of a transaction,
