@@ -156,6 +156,7 @@ Streams rows to Snowflake with Snowflake's high-performance Snowpipe Streaming S
   - The task runs on Estuary's V2 materialization runtime, selected with the `enable-runtime-v2` shard flag (`shards.flags`). A task that sets this feature flag without the runtime flag is rejected when published and refuses to start.
   - Cannot be combined with the `snowpipe_streaming` flag, which selects the older write path.
 - **Caveats:**
+  - Enabling this flag for a binding is one-way. Once the binding has materialized rows through this path, a publication that would move it off — removing the flag, changing the binding away from delta updates, or changing the endpoint's authentication — is rejected. Backfilling the binding is the way off.
   - Rows can become visible in the destination table slightly before the Estuary transaction that produced them commits.
   - Rows of a transaction that is interrupted before it commits remain in the table. Retrying the transaction does not duplicate them, and every transaction that commits is delivered exactly once.
   - If the connector cannot establish which rows Snowflake already holds, it fails; backfilling the affected binding is the remedy. See [High-performance Snowpipe Streaming](/reference/Connectors/materialization-connectors/Snowflake/#high-performance-snowpipe-streaming) for details.
