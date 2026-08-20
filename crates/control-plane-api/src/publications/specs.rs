@@ -945,29 +945,34 @@ pub async fn resolve_live_specs(
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
-    // The `data_plane_names` authorization below still evaluates
-    // internal.user_roles() in SQL. Discovers now make the identical
-    // decision in-process against the authorization Snapshot
-    // (see agent's DiscoverExecutor); this SQL variant duplicates it
-    // and is to be strangled out in following commits.
+    // Data-plane name read authorization is evaluated in-process against the
+    // pinned Snapshot, as discovers do. A denied name is excluded exactly as
+    // a missing one, so that authorization does not leak the existence of
+    // unauthorized planes. Note this applies to the system user's controller
+    // publications identically: the SQL filter this replaces was likewise
+    // unconditional. Planes referenced by id require no check, as they come
+    // from live specs which were themselves authorized above.
+    let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) =
+        data_plane_names.into_iter().partition(|name| {
+            tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                name,
+                models::Capability::Read,
+            )
+        });
+    if !denied_names.is_empty() {
+        // The needed grant may have been created after this Snapshot was
+        // taken: request an early background refresh to narrow the staleness
+        // window for a manual retry.
+        snapshot.revoke.cancel();
+        tracing::warn!(?denied_names, "excluding unauthorized data-plane names");
+    }
+
     live.data_planes = sqlx::query_as!(
         tables::DataPlane,
         r#"
-        WITH
-        data_plane_ids AS (
-            SELECT id
-            FROM UNNEST($1::flowid[]) AS t(id)
-        ),
-        data_plane_names AS (
-            SELECT name
-            FROM UNNEST($2::text[]) AS t(name)
-            -- User must be read-authorized to data-plane.
-            WHERE EXISTS (
-                SELECT 1
-                FROM internal.user_roles($3, 'read') AS r
-                WHERE starts_with(t.name, r.role_prefix)
-            )
-        )
         SELECT
             d.id AS "control_id: Id",
             d.data_plane_name,
@@ -983,12 +988,11 @@ pub async fn resolve_live_specs(
             d.ops_stats_name AS "ops_stats_name: models::Collection"
         FROM data_planes d
         WHERE
-            d.id IN (select id from data_plane_ids) OR
-            d.data_plane_name in (select name from data_plane_names)
+            d.id IN (SELECT id FROM UNNEST($1::flowid[]) AS t(id)) OR
+            d.data_plane_name IN (SELECT name FROM UNNEST($2::text[]) AS t(name))
         "#,
         &data_plane_ids as &[Id],
-        &data_plane_names as &[&str],
-        user_id as Uuid,
+        &authorized_names as &[&str],
     )
     .fetch_all(db)
     .await?
