@@ -16,13 +16,6 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     /// Read every row of a materialized resource as newline-delimited JSON.
-    ///
-    /// The harness reads destinations through connector code rather than reaching into them,
-    /// because it has no client for an arbitrary endpoint and should not grow one. This
-    /// subcommand serves *this* connector only: a real subject is read through
-    /// `tests/materialize/testctl` in the connectors repository, so there are deliberately two
-    /// paths — see `harness::stack::ReadVia`. A subcommand is fine here because this binary
-    /// lives in the flow repository and nothing but this suite runs it.
     Read {
         /// Path to the endpoint configuration, as JSON or YAML.
         #[arg(long)]
@@ -57,14 +50,7 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-/// Report a panic as one structured line, for the same reason errors are: the default hook's
-/// multi-line output arrives as a series of unattributed warnings rather than one failure with
-/// a cause.
-///
-/// Note "connector exited with no log output" is a *different* symptom, and not this: it fires
-/// only when stderr carried nothing at all, which is what a SIGKILL produces — so a scenario
-/// reporting it was killed, most likely by this suite's own crash fault, rather than having
-/// logged something the reactor threw away.
+/// Report a panic as one structured line, for the same reason errors are.
 fn install_panic_hook() {
     let default = std::panic::take_hook();
 
@@ -90,8 +76,7 @@ fn run() -> anyhow::Result<()> {
             let resource: reference::ResourceConfig = load_json(&resource)?;
             reference::read(&config, &resource.table, resource.delta)
         }
-        // No subcommand: serve the materialization protocol on stdio, which is
-        // how the runtime invokes a `local:` connector.
+        // No subcommand: serve the materialization protocol on stdio.
         None => reference::serve(connector_init::Codec::Json),
     }
 }

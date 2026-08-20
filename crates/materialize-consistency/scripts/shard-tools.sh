@@ -56,10 +56,6 @@ authorize() {
 case "${COMMAND}" in
 unassign)
     authorize
-    # Every shard, deliberately not `--failed`. Gazette does remove a FAILED assignment
-    # under that filter; what it skips is a shard whose primary is merely *wedged* and has
-    # not been marked FAILED, which is precisely the state the harness's stall detection
-    # fires on. Filtering would report zero shards unassigned and leave the task down.
     "${GAZCTL}" shards unassign --selector "${SELECTOR}"
     ;;
 
@@ -70,7 +66,7 @@ join)
 
     "${GAZCTL}" shards list --selector "${SELECTOR}" -o yaml >"${SPECS}.orig"
 
-    # No dry-run flag: nothing calls it, and a human wanting to see the plan can run
+    # to see the plan, run
     # `join-shards.py <listing> /dev/stdout` directly.
     python3 "$(dirname "$0")/join-shards.py" "${SPECS}.orig" "${SPECS}"
     rm -f "${SPECS}.orig"

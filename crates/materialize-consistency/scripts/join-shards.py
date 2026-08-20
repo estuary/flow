@@ -14,9 +14,6 @@ live there rather than on the shard. This flattens them onto each shard before e
 otherwise widening one shard's range would silently rewrite the hoisted value for all of
 them.
 
-The merge must be on a single axis. A key split leaves the pair differing in
-`key-begin`/`key-end` with identical r-clocks, and an r-clock split the reverse. Anything
-else is not a split's output and is refused rather than guessed at.
 """
 
 import copy

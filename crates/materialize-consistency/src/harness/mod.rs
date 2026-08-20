@@ -250,10 +250,14 @@ pub async fn run(
         subject_config.config["path"] =
             serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
     }
-    let workload = match external {
-        Some(_) => catalog::Workload::remote(),
-        None => catalog::Workload::default(),
+    let capture_load = match external {
+        Some(_) => catalog::Capture::remote(),
+        None => catalog::Capture::default(),
     };
+
+    // The reference connector's shape is as fixed as its spec; a real subject's was discovered.
+    // Held here so the plan can borrow it either way.
+    let reference_shape = subject::ResourceShape::reference();
 
     let plan = catalog::Plan {
         names: &names,
@@ -262,7 +266,7 @@ pub async fn run(
         capture: &capture,
         run_dir: &run_dir,
         faults: &scenario.faults,
-        workload: &workload,
+        capture_load: &capture_load,
         // A scenario's own class decides this for the reference connector. For a real subject the
         // *subject's* class decides it: a counted channel is delta-only by definition, so handing
         // one a merge binding would test a shape it never claimed to support.
@@ -270,7 +274,9 @@ pub async fn run(
             && external.map_or(true, |e| {
                 e.class != crate::reference::Class::DocumentCounter
             }),
-        resource_shape: external.map(|e| &e.shape),
+        resource_shape: external.map_or(&reference_shape, |e| &e.shape),
+        // JSON is available only to the reference connector; see `catalog::materialization`.
+        protobuf: external.is_some(),
     };
 
     tracing::info!(scenario = scenario.name, %run_id, verifies = scenario.verifies, "publishing");
@@ -316,7 +322,7 @@ pub async fn run(
             if table == catalog::TABLE_STANDARD && !plan.standard_binding {
                 continue; // Never materialized, so never created.
             }
-            let resource = catalog::resource_config(Some(&external.shape), &names, table, delta);
+            let resource = catalog::resource_config(&external.shape, &names, table, delta);
             if let Err(err) = stack.drop_resource(external, &resource).await {
                 tracing::warn!(%err, table = %names.table(table), "could not drop the run's table");
             }
@@ -1021,7 +1027,9 @@ async fn restart_task(
 ) -> anyhow::Result<()> {
     tracing::info!(%task, "restarting the task after its fault");
 
-    stack.publish(&catalog::sink_disabled(plan)?).await?;
+    stack
+        .publish(&catalog::disable_materialization(plan)?)
+        .await?;
     stack.publish(&catalog::build(plan)?).await?;
 
     Ok(())
@@ -1063,7 +1071,7 @@ async fn recover(
     // A fixed threshold cannot do both: 20s is ample for a subject committing in
     // milliseconds and less than one commit for a subject committing to a warehouse, which
     // is why `materialize-databricks` was being yanked every 20s while working correctly.
-    let pace = plan.workload.max_txn;
+    let pace = plan.capture_load.max_txn;
     let stalled_after = pace * 3;
     let poll = std::cmp::max(std::time::Duration::from_secs(5), pace / 3);
 
