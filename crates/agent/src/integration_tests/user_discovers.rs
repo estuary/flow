@@ -393,6 +393,174 @@ async fn test_discover_filters_unauthorized_capture() {
 }
 
 #[tokio::test]
+async fn test_discover_unauthorized_data_plane() {
+    let mut harness = TestHarness::init("test_discover_unauthorized_data_plane").await;
+
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    // A plane outside the tenant's `ops/dp/public/` read grant. Distinct from
+    // the missing-plane case: this one exists but is not readable.
+    harness
+        .add_data_plane("ops/dp/private/other", vec!["c2VjcmV0".to_string()])
+        .await;
+
+    let draft_id = harness
+        .create_draft(user_id, "unauthorized plane", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover_in_plane(
+            "source/test",
+            ":test",
+            "squirrels/capture-1",
+            "ops/dp/private/other",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((
+                spec_fixture(),
+                Discovered {
+                    bindings: Vec::new(),
+                },
+            )),
+        )
+        .await;
+    let result = harness.run_queued_discover(discover_id).await;
+
+    assert!(
+        matches!(result.job_status, crate::discovers::JobStatus::NoDataPlane),
+        "expected NoDataPlane, got: {:?}",
+        result.job_status
+    );
+}
+
+#[tokio::test]
+async fn test_discover_missing_data_plane() {
+    let mut harness = TestHarness::init("test_discover_missing_data_plane").await;
+
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    // The name falls under the tenant's `ops/dp/public/` read grant, but no
+    // such plane exists.
+    let draft_id = harness
+        .create_draft(user_id, "missing plane", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover_in_plane(
+            "source/test",
+            ":test",
+            "squirrels/capture-1",
+            "ops/dp/public/missing",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((
+                spec_fixture(),
+                Discovered {
+                    bindings: Vec::new(),
+                },
+            )),
+        )
+        .await;
+    let result = harness.run_queued_discover(discover_id).await;
+
+    assert!(
+        matches!(result.job_status, crate::discovers::JobStatus::NoDataPlane),
+        "expected NoDataPlane, got: {:?}",
+        result.job_status
+    );
+}
+
+#[tokio::test]
+async fn test_discover_keyless_data_plane() {
+    let mut harness = TestHarness::init("test_discover_keyless_data_plane").await;
+
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    // A readable plane with no HMAC keys at all is excluded from the
+    // authorization Snapshot by construction, and cannot sign anything a
+    // discover would need. It is treated the same as a missing plane.
+    harness
+        .add_data_plane("ops/dp/public/keyless", Vec::new())
+        .await;
+
+    let draft_id = harness
+        .create_draft(user_id, "keyless plane", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover_in_plane(
+            "source/test",
+            ":test",
+            "squirrels/capture-1",
+            "ops/dp/public/keyless",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((
+                spec_fixture(),
+                Discovered {
+                    bindings: Vec::new(),
+                },
+            )),
+        )
+        .await;
+    let result = harness.run_queued_discover(discover_id).await;
+
+    assert!(
+        matches!(result.job_status, crate::discovers::JobStatus::NoDataPlane),
+        "expected NoDataPlane, got: {:?}",
+        result.job_status
+    );
+}
+
+#[tokio::test]
+async fn test_discover_no_data_plane_requests_snapshot_refresh() {
+    let mut harness =
+        TestHarness::init("test_discover_no_data_plane_requests_snapshot_refresh").await;
+
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    // A NoDataPlane outcome cancels the pinned Snapshot's revoke token to
+    // request an early background refresh: the plane (or its grant) may have
+    // been created after the Snapshot was taken, and cancelling narrows the
+    // staleness window for the user's manual retry.
+    let draft_id = harness
+        .create_draft(user_id, "refresh request", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover_in_plane(
+            "source/test",
+            ":test",
+            "squirrels/capture-1",
+            "ops/dp/public/missing",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((
+                spec_fixture(),
+                Discovered {
+                    bindings: Vec::new(),
+                },
+            )),
+        )
+        .await;
+    let result = harness.run_queued_discover(discover_id).await;
+
+    assert!(
+        matches!(result.job_status, crate::discovers::JobStatus::NoDataPlane),
+        "expected NoDataPlane, got: {:?}",
+        result.job_status
+    );
+
+    // No refresh has happened since the executor's poll, so this is the same
+    // Snapshot the discover pinned.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the NoDataPlane outcome to cancel the Snapshot's revoke token"
+    );
+}
+
+#[tokio::test]
 async fn test_discover_merge_filters_unauthorized_collection() {
     let mut harness =
         TestHarness::init("test_discover_merge_filters_unauthorized_collection").await;
