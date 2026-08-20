@@ -47,13 +47,18 @@ where
 /// An `Initialize` that expands the draft to touch live specs that read from or write to
 /// any drafted collections. This may optionally filter the specs based on whether the user
 /// has `admin` capability to them.
-pub struct ExpandDraft {
+pub struct ExpandDraft<'a> {
     /// Whether to filter specs based on the user's capability. If true, then only specs for which
     /// the user has `admin` capability will be added to the draft.
     pub filter_user_has_admin: bool,
+    /// Authorization Snapshot pinned for the publication, against which the
+    /// user-capability filter is evaluated. Held as a field — rather than
+    /// threaded through `Initialize::initialize` — because this is the only
+    /// `Initialize` which evaluates authorization.
+    pub snapshot: &'a crate::Snapshot,
 }
 
-impl Initialize for ExpandDraft {
+impl Initialize for ExpandDraft<'_> {
     #[tracing::instrument(
         level = "debug",
         skip_all,

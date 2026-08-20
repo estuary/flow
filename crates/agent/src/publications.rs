@@ -15,6 +15,9 @@ use control_plane_api::{
 pub struct PublicationsExecutor {
     pub publisher: Publisher,
     pub pg_pool: sqlx::PgPool,
+    /// Watch of the authorization Snapshot. Each poll pins one Snapshot for
+    /// the entire publication operation.
+    pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     /// When true, newly-created captures are published onto runtime v2; see [`RuntimeV2Rollout`].
     pub runtime_v2_new_captures: bool,
     /// When true, newly-created materializations are published onto runtime v2; see [`RuntimeV2Rollout`].
@@ -61,7 +64,14 @@ impl automations::Executor for PublicationsExecutor {
     ) -> anyhow::Result<Self::Outcome> {
         tracing::debug!(?inbox, "starting publication task");
         let row = fetch_publication(task_id, pool).await?;
-        self.handle_task(row).await?;
+
+        // Pin one authorization Snapshot for the entire operation, so that
+        // authorization decisions cannot flip between publication phases.
+        // Snapshot refreshes are infallible -- a failed refresh only delays
+        // the next one -- so its `result()` is Ok once the watch is ready,
+        // which is awaited at startup.
+        let snapshot = self.snapshot_watch.token();
+        self.handle_task(row, snapshot.result().unwrap()).await?;
 
         // Always clear inbox, or else we'll get re-polled.
         inbox.clear();
@@ -72,7 +82,11 @@ impl automations::Executor for PublicationsExecutor {
 }
 
 impl PublicationsExecutor {
-    async fn handle_task(&self, row: Row) -> anyhow::Result<()> {
+    async fn handle_task(
+        &self,
+        row: Row,
+        snapshot: &control_plane_api::Snapshot,
+    ) -> anyhow::Result<()> {
         let id = row.id;
 
         // First ensure that the publication status is queued. Otherwise,
@@ -98,7 +112,7 @@ impl PublicationsExecutor {
 
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
 
-        let (status, draft_errors, final_pub_id) = match self.process(row).await {
+        let (status, draft_errors, final_pub_id) = match self.process(row, snapshot).await {
             Ok(result) => {
                 if dry_run {
                     specs::add_built_specs_to_draft_specs(draft_id, &result.built, &self.pg_pool)
@@ -155,7 +169,11 @@ impl PublicationsExecutor {
         %row.dry_run,
         %row.user_id,
     ))]
-    async fn process(&self, row: Row) -> anyhow::Result<PublicationResult> {
+    async fn process(
+        &self,
+        row: Row,
+        snapshot: &control_plane_api::Snapshot,
+    ) -> anyhow::Result<PublicationResult> {
         info!(
             %row.logs_token,
             %row.created_at,
@@ -193,6 +211,7 @@ impl PublicationsExecutor {
             detail: row.detail.clone(),
             draft,
             verify_user_authz: true,
+            snapshot,
             default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
             initialize: (
                 RuntimeV2Rollout {
@@ -202,6 +221,7 @@ impl PublicationsExecutor {
                 },
                 ExpandDraft {
                     filter_user_has_admin: true,
+                    snapshot,
                 },
             ),
             finalize: PruneUnboundCollections,
