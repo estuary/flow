@@ -241,6 +241,7 @@ pub async fn create_data_plane(
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,
+        snapshot: env.snapshot(),
         default_data_plane_name: Some(data_plane_name.clone()),
         initialize: NoopInitialize,
         finalize: PruneUnboundCollections,

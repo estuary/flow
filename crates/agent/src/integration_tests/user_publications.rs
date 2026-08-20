@@ -1153,10 +1153,6 @@ async fn test_publication_no_data_plane_requests_snapshot_refresh() {
         )
         .await;
 
-    // The Snapshot watch is otherwise refreshed only when running discovers;
-    // refresh before the publication so a pinned Snapshot exists to inspect.
-    harness.refresh_snapshot().await;
-
     let result = harness
         .user_publication_in_plane(
             user_id,

@@ -180,9 +180,9 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
-    /// Watch of the authorization Snapshot used by the discovers executor.
-    /// It is refreshed before each discovers automation poll, so that grants
-    /// created by the test are visible to authorization.
+    /// Watch of the authorization Snapshot used by the discovers and
+    /// publications executors. It is refreshed before each such automation
+    /// poll, so that grants created by the test are visible to authorization.
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     /// Replaces the Snapshot behind `snapshot_watch`.
     snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
@@ -1102,7 +1102,8 @@ impl TestHarness {
         states
     }
 
-    /// Refreshes the authorization Snapshot used by the discovers executor.
+    /// Refreshes the authorization Snapshot used by the discovers and
+    /// publications executors.
     pub async fn refresh_snapshot(&self) {
         let data = control_plane_api::snapshot::try_fetch(&self.pool, &mut Default::default())
             .await
@@ -1123,13 +1124,20 @@ impl TestHarness {
             task_types::LIVE_SPEC_CONTROLLER => {
                 Server::new().register(self.controller_exec.clone())
             }
-            task_types::PUBLICATIONS => Server::new().register(PublicationsExecutor {
-                publisher: self.publisher.clone(),
-                pg_pool: self.pool.clone(),
-                runtime_v2_new_captures: self.runtime_v2_new_captures,
-                runtime_v2_new_materializations: self.runtime_v2_new_materializations,
-                runtime_v2_new_derivations: self.runtime_v2_new_derivations,
-            }),
+            task_types::PUBLICATIONS => {
+                // Publication authorization is evaluated against the
+                // executor's pinned Snapshot; refresh it so grants created
+                // by the test are visible.
+                self.refresh_snapshot().await;
+                Server::new().register(PublicationsExecutor {
+                    publisher: self.publisher.clone(),
+                    pg_pool: self.pool.clone(),
+                    snapshot_watch: self.snapshot_watch.clone(),
+                    runtime_v2_new_captures: self.runtime_v2_new_captures,
+                    runtime_v2_new_materializations: self.runtime_v2_new_materializations,
+                    runtime_v2_new_derivations: self.runtime_v2_new_derivations,
+                })
+            }
             task_types::DISCOVERS => {
                 // Discover authorization is evaluated against the executor's
                 // pinned Snapshot; refresh it so grants created by the test
@@ -2261,6 +2269,9 @@ impl ControlPlane for TestControlPlane {
             let mocks = self.mocks.lock().unwrap();
             mocks.build_failures.clone()
         };
+        let refresh = self.inner.snapshot_watch.token();
+        let snapshot = refresh.result().unwrap();
+
         let publication = DraftPublication {
             user_id: self.inner.system_user_id,
             detail,
@@ -2269,6 +2280,7 @@ impl ControlPlane for TestControlPlane {
             dry_run: false,
             default_data_plane_name: data_plane_name,
             verify_user_authz: false,
+            snapshot,
             initialize: NoopInitialize,
             finalize,
             retry: DefaultRetryPolicy,

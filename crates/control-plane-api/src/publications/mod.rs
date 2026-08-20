@@ -29,7 +29,13 @@ use models::draft_error;
 
 /// Represents a desire to publish the given `draft`, along with associated metadata and behavior
 /// for handling draft initialization, build finalizing, and retrying failures.
-pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit> {
+pub struct DraftPublication<
+    'a,
+    Init: Initialize,
+    Fin: FinalizeBuild,
+    Ret: RetryPolicy,
+    C: WithCommit,
+> {
     /// The id of the user that is publishing the draft.
     pub user_id: Uuid,
     /// Write logs to `internal.log_lines` using this token.
@@ -45,6 +51,10 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
     /// Whether to check user permissions when publishing specs. If this is false, then all
     /// permission checks will be skipped, and the publication may modify any specs.
     pub verify_user_authz: bool,
+    /// Authorization Snapshot pinned for the entire publication, so that
+    /// authorization decisions cannot flip between initialization, build,
+    /// and retry attempts.
+    pub snapshot: &'a crate::Snapshot,
     /// Default data plane to use for publishing new specs. This is optional only when the
     /// publication _only_ updates and/or deletes existing live specs.
     pub default_data_plane_name: Option<String>,
@@ -270,7 +280,7 @@ impl Publisher {
     ))]
     pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
         &self,
-        publication: DraftPublication<Ini, Fin, Ret, C>,
+        publication: DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut retry_count = 0u32;
         loop {
@@ -302,13 +312,14 @@ impl Publisher {
             dry_run,
             draft: raw_draft,
             verify_user_authz,
+            snapshot: _,
             detail,
             default_data_plane_name,
             initialize,
             finalize,
             retry: _,
             with_commit,
-        }: &DraftPublication<Ini, Fin, Ret, C>,
+        }: &DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
         initialize
