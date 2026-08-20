@@ -131,6 +131,7 @@ Skips truncating destination tables when a backfill is triggered.
 - **Caveats:**
   - May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
   - When this flag is enabled, backfilled rows are matched against existing rows and updated in place, rather than inserted as duplicates (this flag disables the load key optimization).
+  - Has no effect on a Snowflake binding using the [`snowpipe_streaming_v2`](#snowpipe_streaming_v2) write path, which always drops and recreates its table on backfill.
   - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materialization connectors.
 
@@ -144,6 +145,26 @@ Forces destination tables to be dropped and recreated on every backfill instead 
   - Removes any custom partitioning, clustering, indexes, or other DDL applied to the destination table outside of Estuary. You will need to re-apply that DDL after the backfill.
   - See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full picture of when tables are dropped versus truncated.
 - **Applies to:** Relational SQL and warehouse materialization connectors (for example, PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, Databricks). Connectors whose destinations don't support an in-place truncate — such as MongoDB, DynamoDB, Elasticsearch, and Iceberg — always drop and recreate on backfill regardless of this flag.
+
+### snowpipe_streaming_v2
+
+Streams rows to Snowflake with Snowflake's high-performance Snowpipe Streaming SDK, sending each row as it is materialized instead of staging it first.
+
+- **Default:** Disabled. Delta updates bindings use the older Snowpipe Streaming write path.
+- **Use case:** Higher throughput and lower latency for high-volume delta updates bindings.
+- **Requirements:**
+  - The binding uses delta updates, and the endpoint configuration uses key-pair (JWT) authentication.
+  - The task runs on Estuary's V2 materialization runtime, selected with the `enable-runtime-v2` shard flag (`shards.flags`). A task that sets this feature flag without the runtime flag refuses to start. The publication succeeds with a warning rather than failing.
+  - Cannot be combined with the `snowpipe_streaming` flag, which selects the older write path.
+- **Caveats:**
+  - Enabling this flag for a binding is one-way. Once the binding has materialized rows through this path, a change that would move it off — removing the flag, changing the binding away from delta updates, or changing the endpoint's authentication — publishes successfully but leaves the task unable to start. Backfilling the binding is the way off.
+  - A backfill drops the destination table and creates it again, rather than truncating it, so grants on the old table do not survive it. `retain_existing_data_on_backfill` has no effect on a binding using this write path.
+  - Enabling the flag on a binding that already materializes into a table adopts that table and its rows, with no backfill. If the task's checkpoint still holds unfinished work from the previous write path, the task refuses to start until that work is drained — restore the previous path for one transaction, then enable the flag again.
+  - Rows can become visible in the destination table slightly before the Estuary transaction that produced them commits.
+  - Rows of a transaction that is interrupted before it commits remain in the table. Retrying the transaction does not duplicate them, and every transaction that commits is delivered exactly once.
+  - If the connector cannot establish which rows Snowflake already holds, it fails; backfilling the affected binding is the remedy. See [High-performance Snowpipe Streaming](/reference/Connectors/materialization-connectors/Snowflake/#high-performance-snowpipe-streaming) for details.
+  - A row Snowflake rejects outright — a null for a `NOT NULL` column, for instance — is discarded by Snowflake rather than failing the write. The connector detects this and fails the transaction, and because a discarded row cannot be re-sent, that failure also holds until the binding is backfilled.
+- **Applies to:** Snowflake
 
 ### datetime_keys_as_string
 
