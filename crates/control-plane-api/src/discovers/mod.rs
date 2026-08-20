@@ -43,8 +43,7 @@ pub struct Discover<'a> {
     pub created_at: String,
     /// Authorization Snapshot pinned for the entire discover, so that
     /// authorization decisions cannot flip mid-operation (for example, during
-    /// a long-running connector RPC). The caller holds the Snapshot's Refresh
-    /// alive for the duration of the discover.
+    /// a long-running connector RPC).
     pub snapshot: &'a crate::Snapshot,
 }
 

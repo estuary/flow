@@ -185,22 +185,17 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         }
         // Data-plane authorization is evaluated against the pinned Snapshot,
         // like the live-spec authorization below. An unauthorized plane and a
-        // missing one are deliberately indistinguishable, matching the SQL
-        // query this replaced.
-        let authorized = tables::UserGrant::is_authorized(
+        // missing one are deliberately indistinguishable.
+        let Some(data_plane) = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
             row.user_id,
             &row.data_plane_name,
             models::Capability::Read,
-        );
-        let maybe_data_plane = if authorized {
-            snapshot.data_plane_by_catalog_name(&row.data_plane_name)
-        } else {
-            None
-        };
-
-        let Some(data_plane) = maybe_data_plane.cloned() else {
+        )
+        .then(|| snapshot.data_plane_by_catalog_name(&row.data_plane_name))
+        .flatten()
+        .cloned() else {
             // Request an early background refresh: the plane or its grant may
             // have been created after this Snapshot was taken, and cancelling
             // narrows the staleness window for a manual retry.
