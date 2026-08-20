@@ -313,12 +313,14 @@ To use it, all of the following must be true:
           enable-runtime-v2: "true"
   ```
 
-A task that sets the feature flag without the runtime flag is rejected when you publish it, and refuses to start.
+A task that sets the feature flag without the runtime flag refuses to start. The publication itself succeeds — it
+reports a warning rather than an error — so check the task after you publish.
 Contact [Estuary support](mailto:support@estuary.dev) before enabling this write path.
 
-Opting a binding into this write path is one-way. Once the binding has materialized rows through it, a publication
-that would move it back — removing the feature flag, changing the binding away from delta updates, or changing the
-endpoint's authentication — is rejected, and names the binding it rejects. This is deliberate: the connector's record
+Opting a binding into this write path is one-way. Once the binding has materialized rows through it, a change that
+would move it back — removing the feature flag, changing the binding away from delta updates, or changing the
+endpoint's authentication — publishes successfully but leaves the task unable to start, with an error naming the
+binding. This is deliberate: the connector's record
 of what Snowflake already holds does not survive a switch of write path, and a later return to this one would drop
 rows silently. [Backfilling](/reference/backfilling-data/#materialization-backfill) the binding is the way off, and it
 starts the binding on the new path with no such record to lose.
