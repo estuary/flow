@@ -232,6 +232,21 @@ per scenario rather than tens of seconds.
 not guaranteed to be the order they were stored in, so there is no delivery order to check.
 The set-based invariants carry the exactly-once claim.
 
+## Why a zombie fault must be keyed at `Open`
+
+The zombie is spawned when a session opens and is handed every request from then on, so a freeze
+keyed any later leaves it running — and a fenced instance does not survive being run: its first
+`StartCommit` is refused by the destination and the process exits. The freeze would then suspend a
+corpse, the thaw would resume nothing, and the scenario would report a pass for a race that never
+happened. Keyed at `Open`, the zombie has taken its fence and done nothing else, which is the one
+point where it is guaranteed alive. `Shim::new` rejects any zombie rule keyed elsewhere.
+
+The race therefore carries whichever transaction is the session's first. Sessions are per term
+rather than per assignment — a spec update restarts one in place, an expiring credential can
+request a graceful restart, and `max_transactions` rotates them — so a run may offer more than one
+`Open`. That does no harm: the fired marker makes the zombie one-shot, which is what
+`zombie_action` consults.
+
 ## Reading a failure
 
 A failing scenario is not necessarily a failing connector. These are the gates a run
