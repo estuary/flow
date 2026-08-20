@@ -77,10 +77,7 @@ fn scenario(name: &str) -> Scenario {
 
 /// Run one scenario clean, then against its paired defect, asserting the outcome
 /// flips.
-///
-/// The negative case runs in the same test rather than a separate one on purpose:
-/// a checker that goes blind through refactoring then fails a test instead of
-/// quietly passing everything.
+
 async fn both_ways(name: &str) {
     init_tracing();
 
@@ -89,26 +86,20 @@ async fn both_ways(name: &str) {
 
     // A real connector named in the environment is run *once*. The second pass exists to
     // prove the harness can tell a good subject from a bad one, and it can only do that
-    // against the reference connector, whose defects are switchable. Running a real
-    // connector twice would double the cost of every scenario to learn nothing: there is
-    // no defective build of it to compare against.
+    // against the reference connector, whose defects are switchable.
     let external = harness::subject::external()
         .await
         .expect("resolving the subject named in the environment");
 
     // Scenarios run against every class expected to pass them, which is nearly all of
-    // them against nearly every class — see `Scenario::applies_to`. A scenario is skipped
-    // only where its own class is the only one that can succeed, because there the failure
-    // would measure the mismatch rather than the connector.
+    // them against nearly every class — see `Scenario::applies_to`.
     if let Some(external) = &external {
         let forced = std::env::var_os(harness::subject::ENV_RUN_INAPPLICABLE).is_some();
 
         if forced && !scenario.applies_to.contains(&external.class) {
             eprintln!(
                 "EXPLORATORY: {} does not apply to {:?} and is being run anyway because {} is \
-                 set. A pass is weak evidence — the perturbation reaches this class's exposure \
-                 only by race — and a failure may be the runtime gap rather than the subject. \
-                 Do not read either as a verdict.",
+                 set.",
                 scenario.name,
                 external.class,
                 harness::subject::ENV_RUN_INAPPLICABLE,
@@ -118,7 +109,7 @@ async fn both_ways(name: &str) {
         if !forced && !scenario.applies_to.contains(&external.class) {
             eprintln!(
                 "not-applicable: {} can only be upheld by {:?}; the subject named in \
-                 {} implements {:?}. Nothing was run.",
+                 {} implements {:?}.",
                 scenario.name,
                 scenario.applies_to,
                 harness::subject::ENV_SUBJECT_CLASS,
@@ -150,14 +141,11 @@ async fn both_ways(name: &str) {
         }
     };
 
-    // A gap can manifest as a task that cannot run at all, and that has to count as the gap.
-    //
-    // The marker below asserts on the *invariant verdict*, which presumes the run produced one. A
-    // subject facing state it cannot safely attribute is right to refuse rather than guess, and a
-    // refusing connector never commits again — so the task wedges, no destination is ever compared,
-    // and `harness::run` returns an error before the marker is consulted. That made a gap which
-    // manifests as a stall structurally unreportable while one that corrupts data was reportable,
-    // which is backwards: refusing is the better behaviour of the two.
+    // A gap can manifest as a task that cannot run at all rather than as a violation count: a
+    // subject facing state it cannot safely attribute refuses rather than guesses, and a refusing
+    // connector never commits again, so no destination is ever compared. That counts as the gap,
+    // which is why the error is examined here and not left to the marker below — the marker reads
+    // an invariant verdict, and this run produced none.
     //
     // An `Environment` failure is still excluded. Those say nothing about the subject, so counting
     // one as the gap would let a flaky stack manufacture the expected failure.
@@ -169,8 +157,7 @@ async fn both_ways(name: &str) {
             match &scenario.known_limitation {
                 // Reached only by race, so the failure is *attributed* to the runtime rather
                 // than the connector — and still fails the run. An observation nobody is forced
-                // to read is one nobody reads: the gap is real when it lands, and a green build
-                // over it would be the silence excluding these scenarios used to buy.
+                // to read is one nobody reads: the gap is real when it lands.
                 //
                 // The cost is accepted deliberately: a `documentCounter` subject will fail this
                 // scenario on the runs where the window is hit, and the message says why so the
@@ -202,12 +189,7 @@ async fn both_ways(name: &str) {
     };
 
     // Printed with the count each one suppressed, because an exemption that never fires is
-    // paperwork rather than a weakened guarantee — and until this was reported there was no
-    // way to tell the two apart.
-    //
-    // Trust these counts on a *reference* run only. A real subject also gets the blanket
-    // monotonicity exemption, which matches the same violations, so a scenario-level
-    // monotonicity exemption is credited for work the blanket one would have done anyway.
+    // paperwork rather than a weakened guarantee
     //
     // And a zero is not on its own grounds to delete an exemption: it may mean the violation
     // is *rare* rather than impossible. Deleting needs an argument that the violation cannot
@@ -222,7 +204,7 @@ async fn both_ways(name: &str) {
         // Whether it is held *in full* is a different question, and is read from the run's
         // effective exemptions rather than assumed: a real subject also carries the blanket
         // monotonicity exemption its read earns it, so scoping the scenario's own out leaves that
-        // invariant exempt anyway. Claiming otherwise from this list alone was wrong.
+        // invariant exempt anyway.
         if let Some(classes) = exempt.classes {
             if !classes.contains(&subject_class) {
                 let covered = clean
@@ -249,9 +231,7 @@ async fn both_ways(name: &str) {
             .count();
         // A ceiling is reported only when it is actually enforced. Ceilings are per invariant and
         // the broadest claim governs, so an unbounded exemption for the same invariant lifts this
-        // one's — which is exactly what a real subject does, carrying the blanket monotonicity
-        // exemption alongside a scenario's capped one. Printing "295 of at most 500" there
-        // described a limit nothing was applying, and read as a near miss.
+        // one's.
         let lifted_by_broader = scenario
             .exempt
             .iter()
