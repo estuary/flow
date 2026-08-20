@@ -607,6 +607,26 @@ mod tests {
     }
 
     #[test]
+    fn test_taken_after_allows_for_temporal_skew() {
+        let taken: tokens::DateTime = "2024-04-02T02:00:00Z".parse().unwrap();
+        let snapshot = Snapshot::build_fixture(Some(taken));
+
+        // The Snapshot is authoritative for operations which started more
+        // than TEMPORAL_SKEW before it was taken.
+        assert!(snapshot.taken_after(taken - chrono::TimeDelta::seconds(1)));
+        assert!(
+            snapshot
+                .taken_after(taken - Snapshot::TEMPORAL_SKEW - chrono::TimeDelta::milliseconds(1))
+        );
+
+        // Within the skew allowance the clock ordering is ambiguous, so the
+        // Snapshot is not authoritative — including at the exact boundary.
+        assert!(!snapshot.taken_after(taken - Snapshot::TEMPORAL_SKEW));
+        assert!(!snapshot.taken_after(taken));
+        assert!(!snapshot.taken_after(taken + chrono::TimeDelta::seconds(1)));
+    }
+
+    #[test]
     fn test_task_lookups() {
         let snapshot = Snapshot::build_fixture(None);
 

@@ -761,7 +761,10 @@ pub async fn resolve_live_specs(
 
     let rows = crate::live_specs::fetch_live_specs(
         user_id,
-        &all_spec_names,
+        &all_spec_names
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
         verify_user_authz,
         true, // always fetch spec capabilities
         db,
