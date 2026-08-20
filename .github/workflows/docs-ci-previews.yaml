@@ -83,9 +83,8 @@ jobs:
             page.
 
             If this is a code PR that happens to include a doc file, the code
-            part is fine. One thing to know: `site/` PRs now need review from
-            the docs owners before they can merge, so the fastest way through is
-            to move the doc edit to the repo above, or drop it from this PR.
+            part is fine and this notice does not block it. Move the doc edit to
+            the repo above, or drop it from this PR.
 
             There are no PR previews for `site/` any more. The old
             `docs.estuary.dev/pr-preview/pr-N/` links all return 404.
