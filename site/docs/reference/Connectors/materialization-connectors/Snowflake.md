@@ -315,6 +315,13 @@ To use it, all of the following must be true:
 A task that sets the feature flag without the runtime flag is rejected when you publish it, and refuses to start.
 Contact [Estuary support](mailto:support@estuary.dev) before enabling this write path.
 
+Opting a binding into this write path is one-way. Once the binding has materialized rows through it, a publication
+that would move it back — removing the feature flag, changing the binding away from delta updates, or changing the
+endpoint's authentication — is rejected, and names the binding it rejects. This is deliberate: the connector's record
+of what Snowflake already holds does not survive a switch of write path, and a later return to this one would drop
+rows silently. [Backfilling](/reference/backfilling-data/#materialization-backfill) the binding is the way off, and it
+starts the binding on the new path with no such record to lose.
+
 #### Delivery semantics
 
 Because rows are sent as they are materialized instead of being staged and applied at the end of a transaction,
