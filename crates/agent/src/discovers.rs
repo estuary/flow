@@ -182,40 +182,29 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
-        // Data-plane authorization still evaluates internal.user_roles() in
-        // SQL. A follow-up change moves it onto the pinned authorization
-        // Snapshot, alongside the live-spec authorization below.
-        let maybe_data_plane = sqlx::query_as!(
-            tables::DataPlane,
-            r#"
-            SELECT
-                d.id AS "control_id: Id",
-                d.data_plane_name,
-                d.closed,
-                d.hmac_keys,
-                d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
-                d.data_plane_fqdn,
-                d.broker_address,
-                d.reactor_address,
-                d.dekaf_address,
-                d.dekaf_registry_address,
-                d.ops_logs_name AS "ops_logs_name: models::Collection",
-                d.ops_stats_name AS "ops_stats_name: models::Collection"
-            FROM data_planes d
-            WHERE data_plane_name = $1
-            AND EXISTS (
-                SELECT 1 FROM internal.user_roles($2, 'read') r
-                WHERE starts_with($1, r.role_prefix)
-            )
-            "#,
-            row.data_plane_name,
+        // Data-plane authorization is evaluated against the pinned Snapshot,
+        // like the live-spec authorization below. An unauthorized plane and a
+        // missing one are deliberately indistinguishable, matching the SQL
+        // query this replaced.
+        let pinned = snapshot.result().unwrap();
+        let authorized = tables::UserGrant::is_authorized(
+            &pinned.role_grants,
+            &pinned.user_grants,
             row.user_id,
-        )
-        .fetch_optional(pool)
-        .await
-        .context("fetching data-plane")?;
+            &row.data_plane_name,
+            models::Capability::Read,
+        );
+        let maybe_data_plane = if authorized {
+            pinned.data_plane_by_catalog_name(&row.data_plane_name)
+        } else {
+            None
+        };
 
-        let Some(data_plane) = maybe_data_plane else {
+        let Some(data_plane) = maybe_data_plane.cloned() else {
+            // Request an early background refresh: the plane or its grant may
+            // have been created after this Snapshot was taken, and cancelling
+            // narrows the staleness window for a manual retry.
+            pinned.revoke.cancel();
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
             return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
