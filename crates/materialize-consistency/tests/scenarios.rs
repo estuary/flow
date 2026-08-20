@@ -358,15 +358,9 @@ async fn both_ways(name: &str) {
             let _ = std::fs::remove_dir_all(&defective.run_dir);
         }
         // A run that *failed* can still be the defect being caught — `ignore-key-range` leaves
-        // two shards fencing each other so neither commits, and insisting on a violation list
-        // would turn a detected defect into a harness error. But that only holds once the fault
+        // two shards fencing each other so neither commits. But that only holds once the fault
         // has fired. Before it, a failure is the environment: a publish the stack refused, a
         // warmup gate that timed out, a split that never landed, a fault that never fired.
-        //
-        // Both are typed, so this asks for evidence rather than accepting the absence of a
-        // clean result as evidence. That default was the wrong way round: a stack degrading
-        // between the clean and defective halves silently vacated the pairing, which is the
-        // exact regression the pairing exists to detect.
         Err(err) => {
             let unexercised = err
                 .chain()
@@ -387,14 +381,7 @@ async fn both_ways(name: &str) {
 /// One test per scenario, and the covered-names list, from a single declaration.
 ///
 /// Each scenario needs its own test function so that it gets its own pass/fail line and can be
-/// run alone by name — but written out by hand, that was one identical body per scenario beside a
-/// separately-maintained list of the same names. The list could then claim a scenario was
-/// covered while no test existed to run it, which `every_scenario_is_reached_by_a_test` could
-/// not detect: it compared the list against the scenario table, and the test functions were
-/// nowhere in the comparison.
-///
-/// Emitting both from one place makes that unrepresentable. A name cannot appear in `COVERED`
-/// without the test that runs it, because the same macro invocation produces both.
+/// run alone by name.
 macro_rules! scenario_tests {
     ($($name:literal => $test:ident,)*) => {
         const COVERED: &[&str] = &[$($name),*];
