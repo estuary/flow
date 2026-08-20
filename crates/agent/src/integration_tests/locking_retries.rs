@@ -15,6 +15,11 @@ async fn test_publication_concurrent_commits() {
 
     let user_id = harness.setup_tenant("beavers").await;
 
+    // Direct `Publisher::build` calls bypass the publications executor, so pin
+    // a Snapshot here, refreshed to see the grants created by the setup above.
+    harness.refresh_snapshot().await;
+    let snapshot = harness.snapshot_watch.token();
+
     let draft = draft_catalog(serde_json::json!({
         "collections": {
             "beavers/dens": minimal_collection(None),
@@ -39,6 +44,7 @@ async fn test_publication_concurrent_commits() {
                 draft.clone_specs(),
                 Uuid::new_v4(),
                 None,
+                snapshot.result().unwrap(),
                 true,
                 0,
             )
@@ -53,6 +59,7 @@ async fn test_publication_concurrent_commits() {
                 draft.clone_specs(),
                 Uuid::new_v4(),
                 None,
+                snapshot.result().unwrap(),
                 true,
                 0,
             )
@@ -66,6 +73,7 @@ async fn test_publication_concurrent_commits() {
                 draft.clone_specs(),
                 Uuid::new_v4(),
                 None,
+                snapshot.result().unwrap(),
                 true,
                 0,
             )
@@ -101,6 +109,11 @@ async fn test_publication_optimistic_locking_failures() {
 
     let user_id = harness.setup_tenant("mice").await;
 
+    // Direct `Publisher::build` calls bypass the publications executor, so pin
+    // a Snapshot here, refreshed to see the grants created by the setup above.
+    harness.refresh_snapshot().await;
+    let snapshot = harness.snapshot_watch.token();
+
     // If expect_pub_id is anything but `0` for a new spec, the publication should fail
     let wrong_expect_pub_ids = draft_catalog(serde_json::json!({
         "collections": {
@@ -122,6 +135,7 @@ async fn test_publication_optimistic_locking_failures() {
             wrong_expect_pub_ids,
             Uuid::new_v4(),
             None,
+            snapshot.result().unwrap(),
             true,
             0,
         )
@@ -168,6 +182,7 @@ async fn test_publication_optimistic_locking_failures() {
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
             None,
+            snapshot.result().unwrap(),
             true,
             0,
         )
@@ -184,6 +199,7 @@ async fn test_publication_optimistic_locking_failures() {
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
             None,
+            snapshot.result().unwrap(),
             true,
             0,
         )
@@ -237,6 +253,7 @@ async fn test_publication_optimistic_locking_failures() {
             cheese_draft,
             Uuid::new_v4(),
             None,
+            snapshot.result().unwrap(),
             true,
             0,
         )
@@ -262,6 +279,7 @@ async fn test_publication_optimistic_locking_failures() {
             will_commit_draft,
             Uuid::new_v4(),
             None,
+            snapshot.result().unwrap(),
             true,
             0,
         )
@@ -394,6 +412,12 @@ async fn test_injected_ops_collections_are_not_locked() {
     let initial_ops_pub = ops_last_pub_id(&mut harness, &ops_names).await;
 
     let user_id = harness.setup_tenant("owls").await;
+
+    // Direct `Publisher::build` calls bypass the publications executor, so pin
+    // a Snapshot here, refreshed to see the grants created by the setup above.
+    harness.refresh_snapshot().await;
+    let snapshot = harness.snapshot_watch.token();
+
     let draft = draft_catalog(serde_json::json!({
         "collections": {
             "owls/hoots": minimal_collection(None),
@@ -411,6 +435,7 @@ async fn test_injected_ops_collections_are_not_locked() {
             draft,
             Uuid::new_v4(),
             None,
+            snapshot.result().unwrap(),
             true,
             0,
         )
@@ -507,6 +532,7 @@ async fn test_injected_ops_collections_are_not_locked() {
             reader_draft,
             Uuid::new_v4(),
             None,
+            snapshot.result().unwrap(),
             true,
             0,
         )
