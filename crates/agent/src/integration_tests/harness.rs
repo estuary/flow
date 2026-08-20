@@ -403,44 +403,18 @@ impl TestHarness {
                     '{"type": "success"}'
                 ) on conflict do nothing
             ),
-            default_data_plane as (
-                insert into data_planes (
-                    data_plane_name,
-                    data_plane_fqdn,
-                    ops_logs_name,
-                    ops_stats_name,
-                    ops_l1_inferred_name,
-                    ops_l1_stats_name,
-                    ops_l1_events_name,
-                    ops_l2_inferred_transform,
-                    ops_l2_stats_transform,
-                    ops_l2_events_transform,
-                    broker_address,
-                    reactor_address,
-                    hmac_keys,
-                    enable_l2
-                ) values (
-                    'ops/dp/public/test',
-                    'test.dp.estuary-data.com',
-                    'ops/logs',
-                    'ops/stats',
-                    'ops/L1/inferred',
-                    'ops/L1/stats',
-                    'ops/L1/events',
-                    'from-L1-inferred',
-                    'from-L1-stats',
-                    'from-L1-events',
-                    'broker:address',
-                    'reactor:address',
-                    '{secret-key}',
-                    false
-                ) on conflict do nothing
-            ),
             add_alert_tasks as (
                 insert into internal.tasks (task_type, wake_at) values (10, now()), (11, now())
             )
             select 1 as "something: bool";
             "##).fetch_one(&self.pool).await.expect("failed to setup test connectors");
+
+        self.add_data_plane(
+            "ops/dp/public/test",
+            "test.dp.estuary-data.com",
+            vec!["secret-key".to_string()],
+        )
+        .await;
     }
 
     /// Ideally, we'd get a whole separate database for each integration test
@@ -1231,6 +1205,49 @@ impl TestHarness {
         self.run_queued_discover(disco_id).await
     }
 
+    /// Inserts a data plane. Test setup uses this for the default
+    /// `ops/dp/public/test` plane, and tests use it to exercise discovers
+    /// against other planes — for example one outside the tenant's grants,
+    /// or one without HMAC keys.
+    pub async fn add_data_plane(
+        &mut self,
+        data_plane_name: &str,
+        data_plane_fqdn: &str,
+        hmac_keys: Vec<String>,
+    ) {
+        sqlx::query!(
+            r#"insert into data_planes (
+                data_plane_name,
+                data_plane_fqdn,
+                ops_logs_name,
+                ops_stats_name,
+                ops_l1_inferred_name,
+                ops_l1_stats_name,
+                ops_l1_events_name,
+                ops_l2_inferred_transform,
+                ops_l2_stats_transform,
+                ops_l2_events_transform,
+                broker_address,
+                reactor_address,
+                hmac_keys,
+                enable_l2
+            ) values (
+                $1, $2,
+                'ops/logs', 'ops/stats',
+                'ops/L1/inferred', 'ops/L1/stats', 'ops/L1/events',
+                'from-L1-inferred', 'from-L1-stats', 'from-L1-events',
+                'broker:address', 'reactor:address',
+                $3, false
+            ) on conflict do nothing"#,
+            data_plane_name as &str,
+            data_plane_fqdn as &str,
+            &hmac_keys as &[String],
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to insert data plane");
+    }
+
     /// Inserts a queued discover row and registers the mock connector
     /// response, without running the discover. Use `run_queued_discover` to
     /// poll it, or `user_discover` for the common queue-and-run case.
@@ -1239,6 +1256,32 @@ impl TestHarness {
         image_name: &str,
         image_tag: &str,
         capture_name: &str,
+        draft_id: Id,
+        endpoint_config: &str,
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> Id {
+        self.queue_user_discover_in_plane(
+            image_name,
+            image_tag,
+            capture_name,
+            "ops/dp/public/test",
+            draft_id,
+            endpoint_config,
+            update_only,
+            mock_discover_resp,
+        )
+        .await
+    }
+
+    /// Like `queue_user_discover`, but queues the discover against a
+    /// caller-chosen `data_plane_name` instead of the default test plane.
+    pub async fn queue_user_discover_in_plane(
+        &mut self,
+        image_name: &str,
+        image_tag: &str,
+        capture_name: &str,
+        data_plane_name: &str,
         draft_id: Id,
         endpoint_config: &str,
         update_only: bool,
@@ -1266,13 +1309,14 @@ impl TestHarness {
                 endpoint_config,
                 update_only,
                 data_plane_name
-            ) values ($1, $2, $3, $4, $5, 'ops/dp/public/test')
+            ) values ($1, $2, $3, $4, $5, $6)
             returning id as "id: Id";"##,
             capture_name as &str,
             connector_tag.id as Id,
             draft_id as Id,
             config_json as TextJson<models::RawValue>,
-            update_only
+            update_only,
+            data_plane_name as &str
         )
         .fetch_one(&self.pool)
         .await

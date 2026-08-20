@@ -14,7 +14,7 @@ pub use db::{Row, fetch_discover, resolve};
 
 /// Represents the desire to discover an endpoint. The discovered bindings will be merged with
 /// those in the `base_model`.
-pub struct Discover {
+pub struct Discover<'a> {
     /// The name of the capture, which _must_ exist within the `draft`.
     pub capture_name: models::Capture,
     /// The data plane to use for the discover. For an existing capture, this
@@ -43,10 +43,8 @@ pub struct Discover {
     pub created_at: String,
     /// Authorization Snapshot pinned for the entire discover, so that
     /// authorization decisions cannot flip mid-operation (for example, during
-    /// a long-running connector RPC). Snapshot refreshes are infallible --
-    /// a failed refresh only delays the next one -- so `snapshot.result()`
-    /// is always Ok once the watch has become ready.
-    pub snapshot: std::sync::Arc<tokens::Refresh<crate::Snapshot>>,
+    /// a long-running connector RPC).
+    pub snapshot: &'a crate::Snapshot,
 }
 
 #[derive(Debug)]
@@ -167,7 +165,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         update_only = %req.update_only,
         image
     ))]
-    pub async fn discover(&self, db: &PgPool, req: Discover) -> anyhow::Result<DiscoverOutput> {
+    pub async fn discover(&self, db: &PgPool, req: Discover<'_>) -> anyhow::Result<DiscoverOutput> {
         let Discover {
             capture_name,
             data_plane,
@@ -268,7 +266,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         resource_path_pointers: Vec<String>,
         db: &PgPool,
         reset_on_key_change: bool,
-        snapshot: std::sync::Arc<tokens::Refresh<crate::Snapshot>>,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
@@ -318,9 +316,6 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .collect::<Vec<_>>();
 
         let live = if filter_user_authz {
-            let snapshot = snapshot
-                .result()
-                .expect("Snapshot refreshes are infallible once the watch is ready");
             crate::live_specs::get_live_specs_filtered(
                 user_id,
                 &collection_names,

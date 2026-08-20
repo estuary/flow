@@ -650,7 +650,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             logs_token,
             data_plane: data_plane.clone(),
             created_at,
-            snapshot: refresh,
+            snapshot,
         };
         discovers_handler.discover(pool, req).await
     }
