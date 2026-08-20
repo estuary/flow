@@ -5,11 +5,6 @@
 //! beneath this seam is covered transitively: shim framing, trace parsing, the
 //! invariant checkers, split driving, task publication, destination reads.
 //!
-//! Unit seams below this one exist only where something can be wrong in a way that makes a
-//! scenario *pass* — the invariant checkers above all. What is deliberately absent is a seam
-//! that would let a scenario be replaced by unit coverage, which is how a suite ends up with
-//! green units and a blind end-to-end result.
-//!
 //! These tests need a running local stack and are excluded from the default
 //! nextest profile. Run them with `mise run ci:consistency`.
 
@@ -27,12 +22,8 @@ fn init_tracing() {
         .try_init();
 }
 
-/// A scenario nobody runs is worse than a missing scenario: the table says it is covered. This
-/// is how an earlier split scenario was caught having no test at all.
-///
-/// `COVERED` comes from `scenario_tests!` at the foot of this file, so it names exactly the
-/// scenarios that have a test. What remains for this guard is the other direction: a scenario
-/// added to `scenarios::all()` and never given a test.
+// Verify that every scenario actually has tests and that every test is part of a scenario, i.e.
+// there are no orphan scenarios or tests.
 #[test]
 fn every_scenario_is_reached_by_a_test() {
     for scenario in scenarios::all() {
@@ -54,15 +45,15 @@ fn every_scenario_is_reached_by_a_test() {
     //
     // - the *harness* cannot stage the perturbation for another class — `zombie-at-start-commit`
     //   orders its racing instances by their `Open` fences, which a non-fencing class lacks;
-    // - the perturbation reaches a class's exposure only by *race*, so asking would report the
-    //   runtime's gap as the connector's defect on some runs — `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+    // - a class the perturbation only sometimes exposes is not excluded at all: it runs, and a
+    //   failure is attributed to the runtime gap rather than to the connector. See
+    //   `RuntimeGap::raced`.
     //
     // Where a class provably cannot pass, `blocked_on_runtime` is used instead: it excuses that
     // class while still running the scenario against every other.
     //
-    // This pin covers single-class narrowings only. A two-class narrowing like
-    // `MEMBERSHIP_CHANGE_FAIRLY_ASKED` is invisible to it, which is why the README lists the
-    // exclusions and a run prints its own `not-applicable` lines.
+    // This pin only catches a scenario narrowed to *one* class. A narrowing to two, as the split
+    // scenarios use, passes it — so read a run's `not-applicable` lines to see what was skipped.
     const SINGLE_CLASS: &[&str] = &["zombie-at-start-commit"];
     for scenario in scenarios::all() {
         assert_eq!(
@@ -176,6 +167,25 @@ async fn both_ways(name: &str) {
             let environmental = err.chain().any(|e| e.is::<harness::Environment>());
 
             match &scenario.known_limitation {
+                // Reached only by race, so the failure is *attributed* to the runtime rather
+                // than the connector — and still fails the run. An observation nobody is forced
+                // to read is one nobody reads: the gap is real when it lands, and a green build
+                // over it would be the silence excluding these scenarios used to buy.
+                //
+                // The cost is accepted deliberately: a `documentCounter` subject will fail this
+                // scenario on the runs where the window is hit, and the message says why so the
+                // failure is not mistaken for a connector defect. See `RuntimeGap::raced`.
+                Some(gap)
+                    if gap.raced && gap.classes.contains(&subject_class) && !environmental =>
+                {
+                    panic!(
+                        "RUNTIME GAP OBSERVED — not a connector defect, and not this scenario's \
+                         fault either. The task could not run to a verdict:\n  {err:#}\n\n\
+                         This scenario reaches the gap only by race, and this run reached it. \
+                         Declared for {:?}, of which the subject is {subject_class:?}.\n\n{}",
+                        gap.classes, gap.detail,
+                    );
+                }
                 Some(gap) if gap.classes.contains(&subject_class) && !environmental => panic!(
                     "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
                      The task could not run to a verdict, which is how this gap manifests for a \
@@ -280,6 +290,28 @@ async fn both_ways(name: &str) {
     // suite would keep printing the old diagnosis of a run that no longer matches it, and the
     // declaration would never be removed. So a pass here fails too, with the opposite message.
     if let Some(gap) = &scenario.known_limitation {
+        if gap.raced && gap.classes.contains(&subject_class) {
+            // A raced gap is not asserted in the *pass* direction — missing the window is the
+            // common case and says nothing — but violations mean the window was hit, and that
+            // fails the run with the gap named as the cause.
+            assert!(
+                clean.passed(),
+                "RUNTIME GAP OBSERVED — not a connector defect, and not this scenario's fault \
+                 either. This scenario reaches the gap only by race, and this run reached it.\n\
+                 {}\n\n\
+                 Declared for {:?}, of which the subject is {subject_class:?}.\n\n{}",
+                clean.summary(),
+                gap.classes,
+                gap.detail,
+            );
+            eprintln!(
+                "gap not reached this run: {} declares a raced runtime gap for \
+                 {subject_class:?} and this run missed the window, so the pass is evidence \
+                 about this run only.",
+                scenario.name,
+            );
+            return;
+        }
         if gap.classes.contains(&subject_class) {
             assert!(
                 !clean.passed(),

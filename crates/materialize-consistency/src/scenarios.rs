@@ -104,6 +104,20 @@ pub struct Scenario {
 
 /// A runtime guarantee that is missing, and the classes it leaves exposed.
 pub struct RuntimeGap {
+    /// Whether the gap is reached only by *race*, so an exposed class may pass or fail.
+    ///
+    /// A gap the perturbation reaches every run is asserted: the exposed class must fail, and a
+    /// pass is itself a failure, because a declaration nothing can contradict is one nobody
+    /// removes. A gap reached by race cannot be asserted either way — insisting on failure would
+    /// fail a correct connector on a coin flip, and insisting on a pass would hide the gap.
+    ///
+    /// So a raced gap is asserted in one direction only. A pass is accepted and noted — missing
+    /// the window is the common case and says nothing about the subject. A failure fails the run,
+    /// with the gap named as its cause rather than the connector: the occurrence is real, and a
+    /// green build over it would restore exactly the silence that excluding these scenarios from
+    /// the class used to buy. An exposed class will therefore fail on the runs that hit the
+    /// window, which is the intended cost.
+    pub raced: bool,
     /// Classes for which this scenario is an expected failure. A class absent from this
     /// list must pass the scenario normally.
     pub classes: &'static [Class],
@@ -167,32 +181,6 @@ const APPENDS_DURING_STORE_REORDERS: &str = "This class appends during Store, so
          understood: a re-opened channel re-appending the same row would be a duplicate, \
          and duplicates are not exempt. The set-based checks carry the exactly-once claim \
          and are NOT exempt, so what the scenario proves does not rest on this.";
-
-/// The exactly-once classes a membership change can be *fairly* asked of.
-///
-/// Excludes the counted channel, which writes during `Store`: when a membership change lands
-/// on a transaction whose rows are already in the destination, the children open channels at
-/// offset zero and append the replay a second time. That is the runtime gap discussion 2581
-/// names, and `split-lands-on-prepared-transaction` is where it is measured.
-///
-/// The four scenarios excluded here reach that state only by race — a split lands
-/// mid-transaction nearly always rather than always, and only once a batch has been appended.
-/// Asking a counted channel a question whose answer is a coin flip would report the runtime's
-/// gap as the connector's defect on some runs and pass it on others, which is worse than not
-/// asking. Two of them — `split-during-commit` and `split-after-commit-before-apply` — split
-/// while the task is *down* after a crash, which is deterministic in when the split lands but
-/// not in what the counted channel had already appended before dying, so the coin flip is the
-/// same one.
-///
-/// And `split-lands-on-prepared-transaction` is no more deterministic; it simply carries the
-/// gap declaration instead. Its own comment records the two attempts to force the overlap that
-/// both suppressed it.
-///
-/// Note this is *not* true of `crash-in-split-leader` and `crash-in-split-non-leader`: they
-/// crash after the split has settled, so the replay happens under stable membership, and a
-/// counted channel handles it — which is why those two hold it to a clean pass.
-const MEMBERSHIP_CHANGE_FAIRLY_ASKED: &[Class] =
-    &[Class::RemoteAuthoritative, Class::PostCommitApply];
 
 /// The classes claiming exactly-once, which is the default applicability set.
 const EXACTLY_ONCE: &[Class] = &[
@@ -291,13 +279,27 @@ impl Scenario {
     /// See [`Scenario::known_limitation`]. Takes the same shape as an exemption —
     /// a justification long enough to have said something — because the cost of a
     /// scenario that cannot fail is that someone must be able to audit why.
+    /// As [`Scenario::blocked_on_runtime`], but for a gap the perturbation only sometimes
+    /// reaches. See [`RuntimeGap::raced`].
+    fn gap_reached_by_race(mut self, classes: &'static [Class], detail: &'static str) -> Self {
+        self = self.blocked_on_runtime(classes, detail);
+        if let Some(gap) = &mut self.known_limitation {
+            gap.raced = true;
+        }
+        self
+    }
+
     fn blocked_on_runtime(mut self, classes: &'static [Class], detail: &'static str) -> Self {
         assert!(
             detail.len() >= 40,
             "state which runtime guarantee is missing, not just that one is",
         );
         assert!(!classes.is_empty(), "name the classes the gap exposes");
-        self.known_limitation = Some(RuntimeGap { classes, detail });
+        self.known_limitation = Some(RuntimeGap {
+            classes,
+            detail,
+            raced: false,
+        });
         self
     }
 
@@ -445,7 +447,16 @@ fn split_during_store() -> Scenario {
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
     .at_most(REORDERING_CEILING)
-    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .gap_reached_by_race(
+        &[Class::DocumentCounter],
+        "Splitting or joining a task reaches a counted channel's exposure only by race: it \
+         writes during Store, so whether the membership change lands while rows of an \
+         uncommitted transaction are already in the destination is decided by timing the \
+         harness cannot force. When it does land, the channel cannot attribute what the \
+         destination holds across the new key ranges — the gap named in estuary/flow \
+         discussion 2581 — and the failure belongs to the runtime rather than to the \
+         connector. Most runs miss the window and pass.",
+    )
     .splitting(5)
 }
 
@@ -491,7 +502,16 @@ fn split_during_commit() -> Scenario {
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
     .at_most(REORDERING_CEILING)
-    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .gap_reached_by_race(
+        &[Class::DocumentCounter],
+        "Splitting or joining a task reaches a counted channel's exposure only by race: it \
+         writes during Store, so whether the membership change lands while rows of an \
+         uncommitted transaction are already in the destination is decided by timing the \
+         harness cannot force. When it does land, the channel cannot attribute what the \
+         destination holds across the new key ranges — the gap named in estuary/flow \
+         discussion 2581 — and the failure belongs to the runtime rather than to the \
+         connector. Most runs miss the window and pass.",
+    )
     .splitting_after_fault(5)
 }
 
@@ -554,7 +574,16 @@ fn split_after_commit_before_apply() -> Scenario {
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
     .at_most(REORDERING_CEILING)
-    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .gap_reached_by_race(
+        &[Class::DocumentCounter],
+        "Splitting or joining a task reaches a counted channel's exposure only by race: it \
+         writes during Store, so whether the membership change lands while rows of an \
+         uncommitted transaction are already in the destination is decided by timing the \
+         harness cannot force. When it does land, the channel cannot attribute what the \
+         destination holds across the new key ranges — the gap named in estuary/flow \
+         discussion 2581 — and the failure belongs to the runtime rather than to the \
+         connector. Most runs miss the window and pass.",
+    )
     .splitting_after_fault(5)
 }
 
@@ -657,7 +686,16 @@ fn join_after_split() -> Scenario {
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
     .at_most(REORDERING_CEILING)
-    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .gap_reached_by_race(
+        &[Class::DocumentCounter],
+        "Splitting or joining a task reaches a counted channel's exposure only by race: it \
+         writes during Store, so whether the membership change lands while rows of an \
+         uncommitted transaction are already in the destination is decided by timing the \
+         harness cannot force. When it does land, the channel cannot attribute what the \
+         destination holds across the new key ranges — the gap named in estuary/flow \
+         discussion 2581 — and the failure belongs to the runtime rather than to the \
+         connector. Most runs miss the window and pass.",
+    )
     // Settles longer than a split alone: this waits out a split, then a join, and each
     // membership change costs the task a recovery.
     .splitting_then_joining(8)
@@ -1099,6 +1137,47 @@ mod test {
                     );
                 }
             }
+        }
+    }
+
+    /// The membership-change scenarios must reach `documentCounter`, and must attribute a
+    /// failure there to the runtime rather than the connector.
+    ///
+    /// Pinned because nothing else can check it: these scenarios are written against
+    /// `remoteAuthoritative` and `postCommitApply`, so a reference run never takes the raced
+    /// branch — only an external `documentCounter` subject does. Re-adding an `applies_to` that
+    /// excludes the class, or dropping the gap, would silently restore the old silence.
+    #[test]
+    fn membership_scenarios_reach_the_counted_channel_with_the_gap_attributed() {
+        const MEMBERSHIP: &[&str] = &[
+            "split-during-store",
+            "split-during-commit",
+            "split-after-commit-before-apply",
+            "join-after-split",
+        ];
+
+        for name in MEMBERSHIP {
+            let scenario = all()
+                .into_iter()
+                .find(|s| &s.name == name)
+                .unwrap_or_else(|| panic!("no scenario named {name}"));
+
+            assert!(
+                scenario.applies_to.contains(&Class::DocumentCounter),
+                "{name} no longer runs for documentCounter",
+            );
+            let gap = scenario
+                .known_limitation
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name} runs for documentCounter with no gap declared"));
+            assert!(
+                gap.raced,
+                "{name}'s gap must be raced, not asserted every run",
+            );
+            assert!(
+                gap.classes.contains(&Class::DocumentCounter),
+                "{name}'s gap must name documentCounter",
+            );
         }
     }
 

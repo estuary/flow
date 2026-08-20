@@ -140,20 +140,24 @@ created; sweeping enumerates what is actually there.
 durability with the runtime is a property of its implementation that `spec` does not report.
 
 It decides which scenarios run. Most scenarios run for most classes — a fault a connector
-must survive is rarely a property of its class — but three exclusions are worth knowing, and
-`Scenario::applies_to` is the authority:
+must survive is rarely a property of its class — and only two exclusions remain, with
+`Scenario::applies_to` the authority:
 
 - an at-least-once subject skips every exactly-once scenario, which it never claimed to uphold;
 - `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the shim orders the
   two racing instances by their `Open` fences and a class that does not fence gives it nothing
-  to order them by;
-- `split-during-store`, `split-during-commit`, `split-after-commit-before-apply` and
-  `join-after-split` skip `documentCounter`, because each lands a membership change on a live
-  transaction and whether that reaches the counted channel's exposure is a race — see
-  `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+  to order them by.
 
-So a `documentCounter` subject skips **five** scenarios, not one. Read the run's
-`not-applicable` lines rather than counting on this list to stay current.
+So a `documentCounter` subject skips **one** scenario. Read the run's `not-applicable` lines
+rather than counting on this list to stay current.
+
+The four split and join scenarios used to be excluded from `documentCounter` as well, because a
+membership change reaches a counted channel's exposure only by race. They now run for it, asserted in one
+direction only: a pass is accepted and noted, because missing the window is the common case and
+says nothing, while a failure fails the run as `RUNTIME GAP OBSERVED` with the runtime named as the
+cause rather than the connector. So a `documentCounter` subject will fail one of these on the runs
+that hit the window — deliberately, since a green build over a real occurrence is the silence
+excluding them used to buy. See `RuntimeGap::raced`.
 
 Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every
 exactly-once class even though the counted channel cannot pass it. A gap that stops one class
