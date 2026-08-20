@@ -106,11 +106,11 @@ pub struct FaultRule {
     /// This is why `Store` and `Load` count per transaction rather than per
     /// session: `nth` only ever rises, so a rule not yet armed when occurrence
     /// `nth` went past could never fire at all. Counting them per transaction makes
-    /// the occurrence recur, and `arm_after` then chooses *which* transaction — so a
+    /// the occurrence recur, and `arm_after_nth_commits` then chooses *which* transaction — so a
     /// fault lands in a task that has established a rhythm rather than in its
     /// startup, without the rule needing to know how large a transaction is.
     #[serde(default)]
-    pub arm_after: u64,
+    pub arm_after_nth_commits: u64,
     /// Which shard of the task this rule may fire in.
     #[serde(default)]
     pub shard: ShardTarget,
@@ -124,7 +124,7 @@ fn one() -> u64 {
 
 /// Which shard a rule is allowed to fire in.
 ///
-/// `arm_after` cannot express any of this. It counts a session's own committed
+/// `arm_after_nth_commits` cannot express any of this. It counts a session's own committed
 /// transactions, and a split child starts at zero, so any threshold low enough for a
 /// child to reach is one the pre-split parent reaches first — the fault lands while
 /// the split is still being applied, kills the shard, and the split never lands.
@@ -153,12 +153,8 @@ pub enum ShardTarget {
 impl ShardTarget {
     /// Whether a session over this range may fire a rule aimed at `self`.
     ///
-    /// A split is detected on the *key* axis alone, which is narrower than the type reads: a
-    /// shard split on its r-clock while keeping the whole keyspace would classify here as
-    /// unsplit. Every split this suite drives is a key split, so the two agree today — but a
-    /// future scenario that splits on the clock needs this widened rather than trusted.
-    ///
-    /// Shard zero is the origin of both axes. A split has happened when the range is
+    /// A split is detected on the *key* axis. Shard zero is the origin of both axes, and a
+    /// split has happened when the range is
     /// narrower than the whole keyspace — which has to be tested on *both* bounds:
     /// the upper child of a split owns `[mid, MAX]`, so its `key_end` alone is
     /// indistinguishable from an unsplit shard's.
@@ -181,12 +177,12 @@ impl FaultRule {
     /// current transaction, everything else within the session. So an `Acknowledged` with `nth`
     /// of 5 fires in the fifth transaction, while a `Store` with `nth` of 25 fires at the 25th
     /// store of whichever transaction is running — which is what `crash-mid-store` relies on.
-    /// Callers needing the fault to land after some committed work add `arm_after`.
+    /// Callers needing the fault to land after some committed work add `arm_after_nth_commits`.
     pub fn crash_at(on: Trigger, nth: u64) -> Self {
         Self {
             on,
             nth,
-            arm_after: 0,
+            arm_after_nth_commits: 0,
             shard: ShardTarget::Any,
             action: Action::Crash,
         }
@@ -194,7 +190,7 @@ impl FaultRule {
 
     /// Arm this rule only once the session has committed `commits` transactions.
     pub fn armed_after(mut self, commits: u64) -> Self {
-        self.arm_after = commits;
+        self.arm_after_nth_commits = commits;
         self
     }
 

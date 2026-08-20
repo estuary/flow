@@ -188,8 +188,9 @@ impl Shim {
 
         // A zombie rule is only meaningful in one shape, and this refuses every other rather than
         // degrading quietly. `zombie_action` consults the fired marker alone — not `nth`,
-        // `arm_after` or `shard` — so a rule keyed anywhere else would spawn a second *live*
-        // instance at every session open and never freeze it, and one keyed on a response trigger
+        // `arm_after_nth_commits` or `shard` — so a rule keyed anywhere else would spawn a second
+        // *live* instance at every session open and never freeze it, and one keyed on a response
+        // trigger
         // would be matched, marked fired and traced as a fault before being discarded, leaving the
         // scenario to pass having raced no one. The scenario table is guarded by a unit test, but
         // `FLOW_CONSISTENCY_FAULTS` is arbitrary JSON, and nothing else validated it.
@@ -198,14 +199,15 @@ impl Shim {
                 continue;
             }
             anyhow::ensure!(
-                (rule.on, rule.nth, rule.arm_after, rule.shard)
+                (rule.on, rule.nth, rule.arm_after_nth_commits, rule.shard)
                     == (Trigger::Open, 1, 0, crate::protocol::ShardTarget::Any),
-                "fault rule {idx} is a zombie keyed on {:?} #{} (arm_after {}, shard {:?}); a \
-                 zombie must be keyed on Open #1 with no arming and no shard restriction, which \
-                 is the only point a fenced instance is certainly still alive — see Action::Zombie",
+                "fault rule {idx} is a zombie keyed on {:?} #{} (arm_after_nth_commits {}, \
+                 shard {:?}); a zombie must be keyed on Open #1 with no arming and no shard \
+                 restriction, which is the only point a fenced instance is certainly still \
+                 alive — see Action::Zombie",
                 rule.on,
                 rule.nth,
-                rule.arm_after,
+                rule.arm_after_nth_commits,
                 rule.shard,
             );
         }
@@ -242,7 +244,7 @@ impl Shim {
             .unwrap_or(0);
 
         for (idx, rule) in self.faults.iter().enumerate() {
-            if rule.on != trigger || rule.nth != nth || committed < rule.arm_after {
+            if rule.on != trigger || rule.nth != nth || committed < rule.arm_after_nth_commits {
                 continue;
             }
             let (key_begin, key_end, r_clock_begin) = *self.range.lock().unwrap();
@@ -797,7 +799,7 @@ mod test {
         let (shim, _dir) = shim(vec![FaultRule {
             on: Trigger::Store,
             nth: 2,
-            arm_after: 1,
+            arm_after_nth_commits: 1,
             shard: ShardTarget::Any,
             action: Action::Stall { millis: 0 },
         }]);

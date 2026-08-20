@@ -724,7 +724,7 @@ fn zombie_at_start_commit() -> Scenario {
     .fault(FaultRule {
         on: Trigger::Open,
         nth: 1,
-        arm_after: 0,
+        arm_after_nth_commits: 0,
         shard: ShardTarget::Any,
         action: Action::Zombie {
             thaw_after_commits: 2,
@@ -1054,15 +1054,15 @@ mod test {
                 if rule.shard != ShardTarget::Any {
                     continue;
                 }
-                // `arm_after: N` arms the rule once N transactions have committed, so
+                // `arm_after_nth_commits: N` arms the rule once N transactions have committed, so
                 // the earliest it can fire is transaction N+1.
                 let armed_at = match rule.on {
                     // Counted per transaction: the occurrence recurs every transaction,
                     // so arming alone decides where it lands.
-                    Trigger::Store | Trigger::Load => rule.arm_after + 1,
+                    Trigger::Store | Trigger::Load => rule.arm_after_nth_commits + 1,
                     // Counted per session, once per transaction, so occurrence `nth`
                     // falls in transaction `nth`.
-                    _ => rule.nth.max(rule.arm_after + 1),
+                    _ => rule.nth.max(rule.arm_after_nth_commits + 1),
                 };
                 assert!(
                     armed_at > scenario.warmup_commits,
