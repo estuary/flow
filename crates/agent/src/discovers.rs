@@ -137,6 +137,7 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
         // the next one -- so its `result()` is Ok once the watch is ready,
         // which is awaited at startup.
         let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
 
         let (status, result) = self.process(row, snapshot, pool).await?;
         tracing::info!(id=%task_id, %time_queued, ?status, "finished");
@@ -155,7 +156,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
     async fn process(
         &self,
         row: Row,
-        snapshot: std::sync::Arc<tokens::Refresh<control_plane_api::Snapshot>>,
+        snapshot: &control_plane_api::Snapshot,
         pool: &sqlx::PgPool,
     ) -> anyhow::Result<(JobStatus, ProcessResult)> {
         tracing::info!(
@@ -186,16 +187,15 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         // like the live-spec authorization below. An unauthorized plane and a
         // missing one are deliberately indistinguishable, matching the SQL
         // query this replaced.
-        let pinned = snapshot.result().unwrap();
         let authorized = tables::UserGrant::is_authorized(
-            &pinned.role_grants,
-            &pinned.user_grants,
+            &snapshot.role_grants,
+            &snapshot.user_grants,
             row.user_id,
             &row.data_plane_name,
             models::Capability::Read,
         );
         let maybe_data_plane = if authorized {
-            pinned.data_plane_by_catalog_name(&row.data_plane_name)
+            snapshot.data_plane_by_catalog_name(&row.data_plane_name)
         } else {
             None
         };
@@ -204,7 +204,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             // Request an early background refresh: the plane or its grant may
             // have been created after this Snapshot was taken, and cancelling
             // narrows the staleness window for a manual retry.
-            pinned.revoke.cancel();
+            snapshot.revoke.cancel();
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
             return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
@@ -268,7 +268,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 /// row, even if it differs from the endpoint on the drafted or live spec. All
 /// other specs in the given draft will be loaded as they are and used as the
 /// base for the merge after the discover completes.
-async fn prepare_discover(
+async fn prepare_discover<'a>(
     user_id: uuid::Uuid,
     draft_id: Id,
     capture_name: models::Capture,
@@ -277,9 +277,9 @@ async fn prepare_discover(
     logs_token: uuid::Uuid,
     image_composed: String,
     data_plane: tables::DataPlane,
-    snapshot: std::sync::Arc<tokens::Refresh<control_plane_api::Snapshot>>,
+    snapshot: &'a control_plane_api::Snapshot,
     pool: &sqlx::PgPool,
-) -> anyhow::Result<Discover> {
+) -> anyhow::Result<Discover<'a>> {
     let mut draft = draft::load_draft(draft_id, pool)
         .await
         .context("loading draft")?;
@@ -301,7 +301,7 @@ async fn prepare_discover(
         user_id,
         name,
         models::authz::Capability::CatalogRead.into(),
-        snapshot.result().unwrap(),
+        snapshot,
         pool,
     )
     .await?;
@@ -459,6 +459,7 @@ mod test {
 
         // The authorization Snapshot must reflect the grants inserted above.
         harness.refresh_snapshot().await;
+        let snapshot = harness.snapshot_watch.token();
 
         let result = super::prepare_discover(
             user_id,
@@ -469,7 +470,7 @@ mod test {
             logs_token,
             image_composed.clone(),
             data_plane.clone(),
-            harness.snapshot_watch.token(),
+            snapshot.result().unwrap(),
             &harness.pool,
         )
         .await
