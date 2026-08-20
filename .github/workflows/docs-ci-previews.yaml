@@ -1,5 +1,35 @@
-# .github/workflows/preview.yml
-name: "docs.estuary.dev: Deploy PR previews"
+# DEPRECATED. `site/` is the old docs location.
+#
+# Estuary's docs now live in two other repos:
+#   - estuary/docs        platform docs: guides, concepts, reference
+#   - estuary/connectors  connector pages, under docs/reference/Connectors/
+#
+# This workflow used to publish a PR preview to
+# https://docs.estuary.dev/pr-preview/pr-N/. That host is now a Cloudflare
+# Worker serving estuary/docs, which holds no pr-preview content, so every one
+# of those URLs returns 404. The workflow was handing contributors a green check
+# and a dead link, which reads as confirmation that a change shipped somewhere.
+#
+# What it does now:
+#   - Builds `site/`. Kept on purpose: this is the only check that the gh-pages
+#     rollback artifact still compiles. See docs-ci-prod.yaml.
+#   - Tells the PR author that `site/` is deprecated and where to send the
+#     change instead.
+#
+# The removed `Compute changed pages` step is not lost, and is worth recovering
+# if PR previews are ever rebuilt. It resolved each changed file to its
+# Docusaurus URL, handling frontmatter slugs, relative slug resolution against
+# the file's directory, and the category-index convention where
+# PostgreSQL/PostgreSQL.md serves at /PostgreSQL/ rather than
+# /PostgreSQL/PostgreSQL/. A naive path-to-URL version of this is wrong. Get it
+# from git history rather than rewriting it:
+#   git log -p --follow -- .github/workflows/docs-ci-previews.yaml
+#
+# Removal target: 2026-09-30, tentative, together with site/ and
+# docs-ci-prod.yaml. The date moves if the site has an incident that needs the
+# rollback, or if the open `site/` PR backlog has not cleared. It does not move
+# for convenience.
+name: "DEPRECATED site/: build check and redirect notice"
 
 on:
   pull_request:
@@ -9,116 +39,57 @@ on:
       - opened
       - reopened
       - synchronize
-      - closed
 
 concurrency: preview-${{ github.ref }}
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 jobs:
-  deploy-preview:
+  # Job id is the check name contributors see on the PR. "deploy-preview" was
+  # both wrong and reassuring, which was the problem.
+  deprecated-site-build-check:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
-        if: github.event.action != 'closed'
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: ./site/package-lock.json
       - name: Install dependencies
-        if: github.event.action != 'closed'
         working-directory: ./site
         run: npm ci
       - name: Build `docs.estuary.dev`
-        if: github.event.action != 'closed'
         working-directory: ./site
-        env:
-          BASE_URL: /pr-preview/pr-${{ github.event.number }}
         run: npm run build
-      - name: Deploy preview
-        id: preview
-        uses: rossjrw/pr-preview-action@v1
-        with:
-          source-dir: ./site/build/
-          comment: false
-      - name: Compute changed pages
-        if: github.event.action != 'closed'
-        id: pages
-        uses: actions/github-script@v7
-        with:
-          result-encoding: string
-          script: |
-            const { execSync } = require('child_process');
-            const fs = require('fs');
-            const base = `https://docs.estuary.dev/pr-preview/pr-${context.issue.number}`;
-
-            // Shallow checkout won't have master — fetch it for the diff
-            try {
-              execSync('git fetch origin master --depth=1');
-            } catch (e) {
-              core.warning(`Failed to fetch origin/master: ${e.message}`);
-              return '';
-            }
-
-            // Get all changed docs files, filter to md, exclude deleted files
-            const allFiles = execSync('git diff --name-only origin/master -- site/docs/')
-              .toString().trim().split('\n')
-              .filter(f => /\.md$/.test(f))
-              .filter(f => fs.existsSync(f));
-
-            if (allFiles.length === 0) return '';
-
-            const total = allFiles.length;
-            const files = allFiles.slice(0, 5);
-
-            // Resolve each file to its preview URL.
-            // Uses frontmatter slug if present, otherwise derives from file path.
-            const links = files.map(f => {
-              let slug;
-              const content = fs.readFileSync(f, 'utf8');
-              const match = content.match(/^slug:\s*(.+)$/m);
-              if (match) {
-                slug = match[1].trim().replace(/['"]/g, '');
-                // Relative slugs (no leading /) are resolved from the file's directory,
-                // matching Docusaurus behaviour. e.g. slug: installation in
-                // getting-started/installation.md → /getting-started/installation
-                if (!slug.startsWith('/')) {
-                  const parts = f.replace('site/docs/', '').split('/');
-                  parts.pop();
-                  const dir = parts.join('/');
-                  slug = dir ? `/${dir}/${slug}` : `/${slug}`;
-                }
-              }
-              if (!slug) {
-                // Docusaurus category index convention: README.md, index.md, or
-                // <folder_name>.md (case-insensitive) become the category's URL,
-                // served at the folder path rather than folder/filename.
-                // e.g. PostgreSQL/PostgreSQL.md → /PostgreSQL/, not /PostgreSQL/PostgreSQL/
-                const parts = f.replace('site/docs/', '').split('/');
-                const fileName = parts[parts.length - 1].replace(/\.md$/, '');
-                const parentDir = parts.length > 1 ? parts[parts.length - 2] : '';
-                const isCategoryIndex =
-                  /^(readme|index)$/i.test(fileName) ||
-                  (parentDir && fileName.toLowerCase() === parentDir.toLowerCase());
-                if (isCategoryIndex) {
-                  parts.pop();
-                  slug = '/' + (parts.length ? parts.join('/') + '/' : '');
-                } else {
-                  slug = '/' + parts.join('/').replace(/\.md$/, '/');
-                }
-              }
-              return `- [${slug}](${base}${slug})`;
-            });
-
-            const suffix = total > 5 ? `\n- ... and ${total - 5} more` : '';
-            return `\n\n📄 **Changed pages:**\n${links.join('\n')}${suffix}`;
       - name: Comment on PR
-        if: github.event.action != 'closed'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           message: |
-            🚀 **Preview deployed** to https://docs.estuary.dev/pr-preview/pr-${{ github.event.number }}/
-            ${{ steps.pages.outputs.result }}
+            ### `site/` is the deprecated docs location
+
+            This PR touches `site/`, which is no longer the source for
+            `docs.estuary.dev`. The site is now built from two other repos:
+
+            - [estuary/docs](https://github.com/estuary/docs) for platform docs:
+              guides, concepts, reference, getting started.
+            - [estuary/connectors](https://github.com/estuary/connectors) for
+              connector pages, under `docs/reference/Connectors/`.
+
+            If you meant to change the docs, the change will not reach the site
+            from here. Please move it to whichever of those two repos owns the
+            page.
+
+            If this is a code PR that happens to include a doc file, the code
+            part is fine. One thing to know: `site/` PRs now need review from
+            the docs owners before they can merge, so the fastest way through is
+            to move the doc edit to the repo above, or drop it from this PR.
+
+            There are no PR previews for `site/` any more. The old
+            `docs.estuary.dev/pr-preview/pr-N/` links all return 404.
+
+            `site/` is kept until 2026-09-30 (tentative) so it can serve as a
+            rollback path for the new site, then it is removed. The build check
+            on this PR only confirms that rollback target still compiles.

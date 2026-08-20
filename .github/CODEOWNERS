@@ -1,0 +1,13 @@
+# site/ is the deprecated docs location. Docs now live in estuary/docs and
+# estuary/connectors. This entry exists so every remaining site/ PR gets seen
+# and redirected during the transition. Remove it together with site/.
+#
+# Note: the estuary-org-default ruleset sets require_code_owner_review on the
+# default branch, so this entry makes code-owner approval required for site/
+# PRs, not merely requested. That includes code PRs that only incidentally
+# touch a site/ doc file. Two owners are listed so neither can be blocked on
+# their own review.
+#
+# Scoped to /site/ on purpose. Review routing for the rest of the repo is
+# unchanged. Do not add a catch-all entry here.
+/site/ @jwhartley @aeluce

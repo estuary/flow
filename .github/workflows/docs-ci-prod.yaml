@@ -1,5 +1,31 @@
-# .github/workflows/preview.yml
-name: "docs.estuary.dev: Deploy"
+# DEPRECATED. `site/` is the old docs location.
+#
+# Estuary's docs now live in two other repos:
+#   - estuary/docs        platform docs: guides, concepts, reference
+#   - estuary/connectors  connector pages, under docs/reference/Connectors/
+#
+# docs.estuary.dev is served by a Cloudflare Worker from estuary/docs. Nothing
+# this workflow builds is on the live site.
+#
+# It still runs for one reason: it keeps the rollback path current. It builds
+# `site/` on every push to master and deploys it to the `gh-pages` branch, and
+# this repo's GitHub Pages config still publishes that branch with
+# `cname: docs.estuary.dev`. If the new site has to be rolled back, that config
+# is what gets pointed back at it. Do not disable this workflow before the
+# removal date below.
+#
+# Removal target: 2026-09-30, tentative. The date moves if the site has an
+# incident that needs the rollback, or if the open `site/` PR backlog has not
+# cleared. It does not move for convenience.
+#
+# On that date there are two things to remove, not one:
+#   1. This file, docs-ci-previews.yaml, and site/.
+#   2. This repo's GitHub Pages config, which still carries
+#      `cname: docs.estuary.dev`. That setting is not in any file in this repo,
+#      so nothing here will remind you. It is the rollback path today and a
+#      landmine afterwards, because it keeps claiming a hostname Cloudflare
+#      serves. Release it when site/ goes.
+name: "DEPRECATED site/: deploy gh-pages rollback artifact"
 
 on:
   push:
@@ -29,10 +55,14 @@ jobs:
       - name: Build `docs.estuary.dev`
         working-directory: ./site
         run: npm run build
-      - name: Deploy preview
+      - name: Deploy to gh-pages (rollback artifact)
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          # Don't delete preview deploys
+          # Kept deliberately, though PR previews are gone. gh-pages still
+          # carries 574 stale pr-preview/ directories (counted 2026-08-20).
+          # Dropping this line would delete them on the next deploy, which
+          # rewrites the rollback artifact, so it stays while rollback is live.
+          # Open question for whoever removes site/: clean them up then.
           clean-exclude: pr-preview/
           force: false
           folder: ./site/build/
