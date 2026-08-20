@@ -403,44 +403,18 @@ impl TestHarness {
                     '{"type": "success"}'
                 ) on conflict do nothing
             ),
-            default_data_plane as (
-                insert into data_planes (
-                    data_plane_name,
-                    data_plane_fqdn,
-                    ops_logs_name,
-                    ops_stats_name,
-                    ops_l1_inferred_name,
-                    ops_l1_stats_name,
-                    ops_l1_events_name,
-                    ops_l2_inferred_transform,
-                    ops_l2_stats_transform,
-                    ops_l2_events_transform,
-                    broker_address,
-                    reactor_address,
-                    hmac_keys,
-                    enable_l2
-                ) values (
-                    'ops/dp/public/test',
-                    'test.dp.estuary-data.com',
-                    'ops/logs',
-                    'ops/stats',
-                    'ops/L1/inferred',
-                    'ops/L1/stats',
-                    'ops/L1/events',
-                    'from-L1-inferred',
-                    'from-L1-stats',
-                    'from-L1-events',
-                    'broker:address',
-                    'reactor:address',
-                    '{secret-key}',
-                    false
-                ) on conflict do nothing
-            ),
             add_alert_tasks as (
                 insert into internal.tasks (task_type, wake_at) values (10, now()), (11, now())
             )
             select 1 as "something: bool";
             "##).fetch_one(&self.pool).await.expect("failed to setup test connectors");
+
+        self.add_data_plane(
+            "ops/dp/public/test",
+            "test.dp.estuary-data.com",
+            vec!["secret-key".to_string()],
+        )
+        .await;
     }
 
     /// Ideally, we'd get a whole separate database for each integration test
@@ -1231,10 +1205,16 @@ impl TestHarness {
         self.run_queued_discover(disco_id).await
     }
 
-    /// Inserts an additional data plane, so that tests can exercise discovers
-    /// against a plane other than the default `ops/dp/public/test` — for
-    /// example one outside the tenant's grants, or one without HMAC keys.
-    pub async fn add_data_plane(&mut self, data_plane_name: &str, hmac_keys: Vec<String>) {
+    /// Inserts a data plane. Test setup uses this for the default
+    /// `ops/dp/public/test` plane, and tests use it to exercise discovers
+    /// against other planes — for example one outside the tenant's grants,
+    /// or one without HMAC keys.
+    pub async fn add_data_plane(
+        &mut self,
+        data_plane_name: &str,
+        data_plane_fqdn: &str,
+        hmac_keys: Vec<String>,
+    ) {
         sqlx::query!(
             r#"insert into data_planes (
                 data_plane_name,
@@ -1260,7 +1240,7 @@ impl TestHarness {
                 $3, false
             ) on conflict do nothing"#,
             data_plane_name as &str,
-            format!("{}.dp.test", data_plane_name.replace('/', "-")),
+            data_plane_fqdn as &str,
             &hmac_keys as &[String],
         )
         .execute(&self.pool)
