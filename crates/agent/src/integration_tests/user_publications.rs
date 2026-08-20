@@ -973,6 +973,15 @@ async fn test_publication_drafted_name_requires_admin() {
     ]
     "#);
 
+    // A denied user capability requests an early background Snapshot refresh:
+    // the needed grant may have been created after the Snapshot was taken, and
+    // cancelling narrows the staleness window for a manual retry.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the denied drafted name to cancel the Snapshot's revoke token"
+    );
+
     harness
         .add_user_grant(dogs_user, "cats/", Capability::Admin)
         .await;
@@ -988,6 +997,12 @@ async fn test_publication_drafted_name_requires_admin() {
         "pub failed with status {:?}: {:?}",
         result.status,
         result.errors
+    );
+
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        !snapshot.result().unwrap().revoke.is_cancelled(),
+        "a successful publication must not cancel the Snapshot's revoke token"
     );
 }
 

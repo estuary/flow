@@ -731,6 +731,7 @@ pub async fn resolve_live_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<tables::LiveCatalog> {
@@ -765,8 +766,8 @@ pub async fn resolve_live_specs(
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        verify_user_authz,
-        true, // always fetch spec capabilities
+        false, // user capabilities are evaluated in-process against `snapshot`
+        true,  // always fetch spec capabilities
         db,
     )
     .await
@@ -792,7 +793,21 @@ pub async fn resolve_live_specs(
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
             // If the spec is included in the draft, then the user must have admin capability to it.
-            if verify_user_authz && !matches!(spec_row.user_capability, Some(Capability::Admin)) {
+            if verify_user_authz
+                && !matches!(
+                    tables::UserGrant::get_user_capability(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        user_id,
+                        catalog_name,
+                    ),
+                    Some(Capability::Admin)
+                )
+            {
+                // The needed grant may have been created after this Snapshot
+                // was taken: request an early background refresh to narrow the
+                // staleness window for a manual retry.
+                snapshot.revoke.cancel();
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -840,11 +855,15 @@ pub async fn resolve_live_specs(
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !spec_row
-                    .user_capability
-                    .map(|c| c >= Capability::Read)
-                    .unwrap_or(false)
+                && !tables::UserGrant::get_user_capability(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    &spec_row.catalog_name,
+                )
+                .is_some_and(|c| c >= Capability::Read)
             {
+                snapshot.revoke.cancel();
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
                     scope,

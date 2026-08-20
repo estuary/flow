@@ -312,7 +312,7 @@ impl Publisher {
             dry_run,
             draft: raw_draft,
             verify_user_authz,
-            snapshot: _,
+            snapshot,
             detail,
             default_data_plane_name,
             initialize,
@@ -336,6 +336,7 @@ impl Publisher {
                 draft,
                 *logs_token,
                 default_data_plane_name.as_deref(),
+                snapshot,
                 *verify_user_authz,
                 retry_count,
             )
@@ -361,7 +362,7 @@ impl Publisher {
 
     /// Build and verify the given draft. This is `pub` only because we have existing tests that
     /// use it. If you want to publish something, use the `Publisher::publish` function instead.
-    #[tracing::instrument(level = "info", skip(self, draft))]
+    #[tracing::instrument(level = "info", skip(self, draft, snapshot))]
     pub async fn build(
         &self,
         user_id: Uuid,
@@ -370,6 +371,7 @@ impl Publisher {
         draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
         explicit_plane_name: Option<&str>,
+        snapshot: &crate::Snapshot,
         verify_user_authz: bool,
         retry_count: u32,
     ) -> anyhow::Result<UncommittedBuild> {
@@ -415,6 +417,7 @@ impl Publisher {
             user_id,
             &draft,
             &self.db,
+            snapshot,
             verify_user_authz,
             explicit_plane_name,
         )
