@@ -141,11 +141,9 @@ async fn both_ways(name: &str) {
         }
     };
 
-    // A gap can manifest as a task that cannot run at all rather than as a violation count: a
-    // subject facing state it cannot safely attribute refuses rather than guesses, and a refusing
-    // connector never commits again, so no destination is ever compared. That counts as the gap,
-    // which is why the error is examined here and not left to the marker below — the marker reads
-    // an invariant verdict, and this run produced none.
+    // A gap can manifest as a task that cannot run at all, so it produces no invariant
+    // violations. This still counts as a gap, which is why the error is examined here rather than
+    // left to the marker below: that marker reads an invariant verdict, and this run has none.
     //
     // An `Environment` failure is still excluded. Those say nothing about the subject, so counting
     // one as the gap would let a flaky stack manufacture the expected failure.
