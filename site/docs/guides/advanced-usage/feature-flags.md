@@ -131,6 +131,7 @@ Skips truncating destination tables when a backfill is triggered.
 - **Caveats:**
   - May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
   - When this flag is enabled, backfilled rows are matched against existing rows and updated in place, rather than inserted as duplicates (this flag disables the load key optimization).
+  - Has no effect on a Snowflake binding using the [`snowpipe_streaming_v2`](#snowpipe_streaming_v2) write path, which always drops and recreates its table on backfill.
   - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materialization connectors.
 
@@ -157,6 +158,7 @@ Streams rows to Snowflake with Snowflake's high-performance Snowpipe Streaming S
   - Cannot be combined with the `snowpipe_streaming` flag, which selects the older write path.
 - **Caveats:**
   - Enabling this flag for a binding is one-way. Once the binding has materialized rows through this path, a publication that would move it off — removing the flag, changing the binding away from delta updates, or changing the endpoint's authentication — is rejected. Backfilling the binding is the way off.
+  - A backfill drops the destination table and creates it again, rather than truncating it, so grants on the old table do not survive it. `retain_existing_data_on_backfill` has no effect on a binding using this write path.
   - Rows can become visible in the destination table slightly before the Estuary transaction that produced them commits.
   - Rows of a transaction that is interrupted before it commits remain in the table. Retrying the transaction does not duplicate them, and every transaction that commits is delivered exactly once.
   - If the connector cannot establish which rows Snowflake already holds, it fails; backfilling the affected binding is the remedy. See [High-performance Snowpipe Streaming](/reference/Connectors/materialization-connectors/Snowflake/#high-performance-snowpipe-streaming) for details.

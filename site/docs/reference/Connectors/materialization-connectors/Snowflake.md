@@ -341,6 +341,16 @@ different number of shards while an interrupted transaction's rows were outstand
 [backfill](/reference/backfilling-data/#materialization-backfill) the affected binding to recover: this materializes the
 binding from the beginning and resets the connector's streaming state along with it.
 
+A backfill on this write path drops the destination table and creates it again, rather than truncating it. Snowflake
+binds a stream to the table it writes into, and a truncate would leave the outgoing streams valid and pointed at the
+emptied table, so their next rows would survive the truncate and be materialized twice. Dropping the table is what
+ends those streams with it. Two consequences follow:
+
+* Grants and other object-level settings on the old table do not survive the backfill. Grant them to a role that
+  Snowflake re-applies, or re-apply them afterwards.
+* [`retain_existing_data_on_backfill`](/guides/advanced-usage/feature-flags#retain_existing_data_on_backfill) has no
+  effect on a binding using this write path, because the table it would preserve data in no longer exists.
+
 The connector also fails if Snowflake rejects a row outright — for example, a null value for a column the table
 declares `NOT NULL`. Snowflake discards such a row without failing the write, and reports it only in a count of
 rejected rows, which the connector checks as each transaction commits and again whenever it resumes writing to a
