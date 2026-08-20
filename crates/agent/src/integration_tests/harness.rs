@@ -1386,7 +1386,21 @@ impl TestHarness {
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::L(draft))
+        self.async_publication(user_id, detail, Either::L(draft), "ops/dp/public/test")
+            .await
+    }
+
+    /// Runs a publication of `draft` against a caller-chosen data-plane, for
+    /// exercising data-plane authorization. `user_publication` delegates here
+    /// with the default test plane.
+    pub async fn user_publication_in_plane(
+        &mut self,
+        user_id: Uuid,
+        detail: impl Into<String>,
+        draft: tables::DraftCatalog,
+        data_plane_name: &str,
+    ) -> ScenarioResult {
+        self.async_publication(user_id, detail, Either::L(draft), data_plane_name)
             .await
     }
 
@@ -1396,7 +1410,7 @@ impl TestHarness {
         draft_id: Id,
         detail: impl Into<String>,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::R(draft_id))
+        self.async_publication(user_id, detail, Either::R(draft_id), "ops/dp/public/test")
             .await
     }
 
@@ -1409,6 +1423,7 @@ impl TestHarness {
         user_id: Uuid,
         detail: impl Into<String>,
         draft: Either<tables::DraftCatalog, Id>,
+        data_plane_name: &str,
     ) -> ScenarioResult {
         let detail = detail.into();
         let draft_id = match draft {
@@ -1425,7 +1440,7 @@ impl TestHarness {
             user_id,
             draft_id,
             detail.clone(),
-            "ops/dp/public/test".to_string(),
+            data_plane_name.to_string(),
         )
         .await
         .expect("failed to create publication");
