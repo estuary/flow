@@ -411,6 +411,7 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
         },
         expect_pub_id: None,
         triggers: None,
+        sync_schedule: None,
         delete: false,
         reset: false,
     })
