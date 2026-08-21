@@ -417,6 +417,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(agent::publications::PublicationsExecutor {
                 publisher,
                 pg_pool: pg_pool.clone(),
+                snapshot_watch: snapshot_watch.clone(),
                 runtime_v2_new_captures: args.runtime_v2_new_captures,
                 runtime_v2_new_materializations: args.runtime_v2_new_materializations,
                 runtime_v2_new_derivations: args.runtime_v2_new_derivations,

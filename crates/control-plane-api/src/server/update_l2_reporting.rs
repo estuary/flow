@@ -309,6 +309,7 @@ export class Derivation extends Types.IDerivation {"#
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,
+        snapshot: env.snapshot(),
         initialize: NoopInitialize,
         finalize: NoopFinalize,
         retry: DoNotRetry,

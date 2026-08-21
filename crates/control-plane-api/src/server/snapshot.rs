@@ -89,6 +89,46 @@ pub struct SnapshotMigration {
 }
 
 impl Snapshot {
+    /// Returns the user's maximum capability to `object_role_or_name`,
+    /// evaluated against this Snapshot's grants.
+    pub fn user_capability(
+        &self,
+        user_id: uuid::Uuid,
+        object_role_or_name: &str,
+    ) -> Option<models::Capability> {
+        tables::UserGrant::get_user_capability(
+            &self.role_grants,
+            &self.user_grants,
+            user_id,
+            object_role_or_name,
+        )
+    }
+
+    /// Returns whether the user holds `capability` to `object_role_or_name`,
+    /// evaluated against this Snapshot's grants.
+    pub fn is_user_authorized(
+        &self,
+        user_id: uuid::Uuid,
+        object_role_or_name: &str,
+        capability: impl Into<models::authz::CapabilitySet>,
+    ) -> bool {
+        tables::UserGrant::is_authorized(
+            &self.role_grants,
+            &self.user_grants,
+            user_id,
+            object_role_or_name,
+            capability,
+        )
+    }
+
+    /// Requests an early background refresh of this Snapshot by cancelling
+    /// its `revoke` token. Call this upon denying an authorization: the
+    /// needed grant may have been created after this Snapshot was taken,
+    /// and an early refresh narrows the staleness window for a manual retry.
+    pub fn request_refresh(&self) {
+        self.revoke.cancel();
+    }
+
     /// Construct a new, empty Snapshot.
     pub fn empty() -> Self {
         Self {

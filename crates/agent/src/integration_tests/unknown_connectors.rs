@@ -8,6 +8,8 @@ async fn test_forbidden_connector() {
     let harness = TestHarness::init("test_forbidden_connector").await;
     let user_id = harness.setup_tenant("sheep").await;
 
+    let snapshot = harness.pinned_snapshot().await;
+
     let draft = draft_catalog(serde_json::json!({
         "collections": {
             "sheep/wool": {
@@ -44,7 +46,17 @@ async fn test_forbidden_connector() {
     let pub_id = Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
     let built = harness
         .publisher
-        .build(user_id, pub_id, None, draft, Uuid::new_v4(), None, true, 0)
+        .build(
+            user_id,
+            pub_id,
+            None,
+            draft,
+            Uuid::new_v4(),
+            None,
+            snapshot.result().unwrap(),
+            true,
+            0,
+        )
         .await
         .expect("build failed");
     assert!(built.has_errors());
