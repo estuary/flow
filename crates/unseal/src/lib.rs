@@ -2,6 +2,7 @@ use anyhow::Context;
 use zeroize::Zeroizing;
 
 pub mod overlay;
+pub mod secrets;
 
 /// Decrypt a `sops`-protected document using `sops` and application default credentials.
 pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::RawValue> {

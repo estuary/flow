@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 gazette = { path = "../gazette" }
+labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
@@ -27,3 +28,6 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
