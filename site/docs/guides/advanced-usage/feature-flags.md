@@ -119,8 +119,10 @@ Allows materializations to write to tables that already exist in the destination
 - **Caveats:**
   - Enabling this flag makes the connector load existing keys from the destination before merging, instead of skipping that lookup for keys it expects to be new. It is slightly slower but ensures merges and updates work correctly against rows that already exist in the table.
   - The connector cannot verify that existing table schemas are compatible.
-  - This flag alone does **not** prevent backfill of the source collection. To avoid backfilling data into the existing table, also configure [`notBefore`](/reference/time-travel) or use "Only Changes" mode on the binding.
+  - This flag alone does **not** prevent backfill of the source collection. A binding that's new to a materialization always starts reading its source collection from the beginning, the same as any other backfill. To avoid replaying data that's already in the existing table, also configure [`notBefore`](/reference/time-travel) on the binding.
+  - This flag does not truncate or drop the existing table. A new binding whose destination table already exists is reconciled the same way an existing binding is when its schema changes: new columns are added and existing columns are widened as needed, but no data is removed.
 - **Applies to:** All SQL and warehouse materialization connectors (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, etc.)
+- **Task guide:** [Moving a binding to a new materialization](/guides/move-binding-to-new-materialization)
 
 ### retain_existing_data_on_backfill
 
