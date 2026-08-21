@@ -793,12 +793,7 @@ pub async fn resolve_live_specs(
             // If the spec is included in the draft, then the user must have admin capability to it.
             if verify_user_authz
                 && !matches!(
-                    tables::UserGrant::get_user_capability(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        user_id,
-                        catalog_name,
-                    ),
+                    snapshot.user_capability(user_id, catalog_name),
                     Some(Capability::Admin)
                 )
             {
@@ -853,13 +848,9 @@ pub async fn resolve_live_specs(
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !tables::UserGrant::get_user_capability(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    user_id,
-                    &spec_row.catalog_name,
-                )
-                .is_some_and(|c| c >= Capability::Read)
+                && !snapshot
+                    .user_capability(user_id, &spec_row.catalog_name)
+                    .is_some_and(|c| c >= Capability::Read)
             {
                 snapshot.revoke.cancel();
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
@@ -952,16 +943,9 @@ pub async fn resolve_live_specs(
     // live-spec rows which resolution above already admitted — user-authorized,
     // or deliberately exempt (injected ops collections, and publications with
     // `verify_user_authz: false`).
-    let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) =
-        data_plane_names.into_iter().partition(|name| {
-            tables::UserGrant::is_authorized(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                user_id,
-                name,
-                models::Capability::Read,
-            )
-        });
+    let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) = data_plane_names
+        .into_iter()
+        .partition(|name| snapshot.is_user_authorized(user_id, name, models::Capability::Read));
     if !denied_names.is_empty() {
         // The needed grant may have been created after this Snapshot was
         // taken: request an early background refresh to narrow the staleness
