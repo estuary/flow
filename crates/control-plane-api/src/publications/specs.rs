@@ -737,7 +737,7 @@ pub async fn resolve_live_specs(
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
-    // still contain information on the user and spec capabilities.
+    // still contain information on the spec capabilities.
     // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
     let mut all_spec_names = draft
         .all_catalog_names()
@@ -761,13 +761,11 @@ pub async fn resolve_live_specs(
     }
 
     let rows = crate::live_specs::fetch_live_specs(
-        user_id,
         &all_spec_names
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        false, // user capabilities are evaluated in-process against `snapshot`
-        true,  // always fetch spec capabilities
+        true, // always fetch spec capabilities
         db,
     )
     .await

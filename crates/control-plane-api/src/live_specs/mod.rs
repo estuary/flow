@@ -58,16 +58,12 @@ pub async fn get_live_specs_filtered(
     if !denied.is_empty() {
         tracing::debug!(?denied, %user_id, "filtered unauthorized specs from fetch");
     }
-    get_live_specs_unfiltered(user_id, &authorized, db).await
+    get_live_specs_unfiltered(&authorized, db).await
 }
 
 /// Fetches live specs as a `tables::LiveCatalog` without any authorization
 /// filtering: every requested name that has a live spec is returned.
-///
-/// `user_id` is bound into the query but unused: with both capability flags
-/// disabled, `fetch_live_specs` never evaluates it.
 pub async fn get_live_specs_unfiltered(
-    user_id: Uuid,
     names: &[impl AsRef<str>],
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
@@ -80,9 +76,7 @@ pub async fn get_live_specs_unfiltered(
     for names_chunk in names.chunks(512) {
         let names_chunk: Vec<&str> = names_chunk.iter().map(AsRef::as_ref).collect();
         let rows = db::fetch_live_specs(
-            user_id,
             &names_chunk,
-            false, // authorization is not evaluated in SQL
             false, // we never need spec_capabilities here
             db,
         )
