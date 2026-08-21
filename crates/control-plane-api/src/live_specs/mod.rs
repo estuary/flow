@@ -131,13 +131,9 @@ pub async fn get_connected_live_specs(
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !tables::UserGrant::get_user_capability(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                user_id,
-                &exp.catalog_name,
-            )
-            .is_some_and(|c| c >= minimum_capability)
+            if !snapshot
+                .user_capability(user_id, &exp.catalog_name)
+                .is_some_and(|c| c >= minimum_capability)
             {
                 continue;
             }
