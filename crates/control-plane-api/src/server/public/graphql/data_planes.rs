@@ -7,10 +7,13 @@ use std::collections::HashMap;
 
 const DEFAULT_PAGE_SIZE: usize = 50;
 
-/// Optional filter for the `dataPlanes` query. When omitted, all accessible
-/// data planes are returned.
+/// Filter for the `dataPlanes` query. Each field is optional and only
+/// narrows results. A filter cannot show data planes the caller cannot read.
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct DataPlanesFilter {
+    /// Match data planes by id, such as a `LiveSpec`'s `dataPlaneId`.
+    /// Unknown or unauthorized ids are silently dropped.
+    pub id: Option<filters::IdFilter>,
     /// Filter on the `closed` flag.
     pub closed: Option<filters::BoolFilter>,
 }
@@ -128,6 +131,9 @@ impl async_graphql::dataloader::Loader<DataPlanePrivateLinksKey> for super::PgDa
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
 pub struct DataPlane {
+    /// Unique id of this data-plane, as referenced by a `LiveSpec`'s
+    /// `dataPlaneId`.
+    pub id: models::Id,
     /// Name of this data-plane under the catalog namespace.
     pub name: String,
     /// Fully-qualified domain name of this data-plane.
@@ -157,14 +163,9 @@ pub struct DataPlane {
     pub azure_application_name: Option<String>,
     /// Azure application client ID for this data-plane.
     pub azure_application_client_id: Option<String>,
-    // The private-networking fields below are gated behind
-    // `ViewDataPlanePrivateNetworking` and resolved by `ComplexObject` methods,
-    // so the capability check lives with the field rather than the construction
-    // site; see the resolvers below. `control_id` lets the `private_links`
-    // resolver query the `data_plane_private_links` table; the endpoint arrays
-    // are raw JSON exported by the controller.
-    #[graphql(skip)]
-    control_id: models::Id,
+    // Private-networking fields, hidden here and served by resolvers below
+    // which check the `ViewDataPlanePrivateNetworking` capability. Each holds
+    // raw JSON written by the data-plane controller.
     #[graphql(skip)]
     raw_aws_link_endpoints: Vec<serde_json::Value>,
     #[graphql(skip)]
@@ -193,7 +194,7 @@ impl DataPlane {
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<super::PgDataLoader>>()?;
         Ok(loader
-            .load_one(DataPlanePrivateLinksKey(self.control_id))
+            .load_one(DataPlanePrivateLinksKey(self.id))
             .await?
             .unwrap_or_default())
     }
@@ -481,13 +482,12 @@ impl DataPlanesQuery {
         let claims = env.claims()?;
         let snapshot = env.snapshot();
 
-        let closed_eq = filter
-            .as_ref()
-            .and_then(|f| f.closed.as_ref())
-            .and_then(|f| f.eq);
+        let DataPlanesFilter { id, closed } = filter.unwrap_or_default();
+        let id_in = id.and_then(|f| f.r#in);
+        let closed_eq = closed.and_then(|f| f.eq);
 
-        // Filter to only data planes the user can read and that have valid
-        // names, sorted by data_plane_name for consistent pagination.
+        // Keep data planes that match the filter, that the user can read, and
+        // that have valid names. Sort by name for stable pagination.
         let mut accessible_data_planes: Vec<&tables::DataPlane> = snapshot
             .data_planes
             .iter()
@@ -495,6 +495,11 @@ impl DataPlanesQuery {
                 if parse_data_plane_name(&dp.data_plane_name).is_none() {
                     tracing::warn!(data_plane_name = %dp.data_plane_name, "skipping data plane with unparseable name");
                     return false;
+                }
+                if let Some(ids) = id_in.as_ref() {
+                    if !ids.contains(&dp.control_id) {
+                        return false;
+                    }
                 }
                 tables::UserGrant::is_authorized(
                         &snapshot.role_grants,
@@ -556,6 +561,7 @@ impl DataPlanesQuery {
                 let (cloud_provider, region, tag, is_public) =
                     parse_data_plane_name(&data_plane_name).expect("name validated by pre-filter");
                 let node = DataPlane {
+                    id: dp.control_id,
                     name: data_plane_name.clone(),
                     fqdn: dp.data_plane_fqdn.clone(),
                     reactor_address: dp.reactor_address.clone(),
@@ -572,7 +578,6 @@ impl DataPlanesQuery {
                     azure_application_name: details.and_then(|d| d.azure_application_name.clone()),
                     azure_application_client_id: details
                         .and_then(|d| d.azure_application_client_id.clone()),
-                    control_id: dp.control_id,
                     raw_aws_link_endpoints: details
                         .map(|d| d.aws_link_endpoints.clone())
                         .unwrap_or_default(),
@@ -884,6 +889,7 @@ mod tests {
                         dataPlanes {
                             edges {
                                 node {
+                                    id
                                     name
                                     fqdn
                                     reactorAddress
@@ -908,6 +914,107 @@ mod tests {
             .await;
 
         insta::assert_json_snapshot!(response);
+
+        // Query with `filter` and return matched (id, name) pairs.
+        async fn ids_and_names(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Vec<(String, String)> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                            query($filter: DataPlanesFilter) {
+                                dataPlanes(filter: $filter) {
+                                    edges { node { id name } }
+                                }
+                            }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response.get("errors").is_none(),
+                "unexpected errors: {response}"
+            );
+            response["data"]["dataPlanes"]["edges"]
+                .as_array()
+                .expect("edges array")
+                .iter()
+                .map(|edge| {
+                    (
+                        edge["node"]["id"].as_str().unwrap().to_string(),
+                        edge["node"]["name"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect()
+        }
+
+        let edges = response["data"]["dataPlanes"]["edges"]
+            .as_array()
+            .expect("edges array");
+        let id_for = |name: &str| {
+            edges
+                .iter()
+                .find(|edge| edge["node"]["name"] == name)
+                .and_then(|edge| edge["node"]["id"].as_str())
+                .unwrap_or_else(|| panic!("missing id for data plane {name}"))
+                .to_string()
+        };
+        let aws_id = id_for("ops/dp/public/aws-us-west-2-c1");
+
+        // A filter with a known and an unknown id returns only the known match.
+        let known_and_unknown = ids_and_names(
+            &server,
+            &token,
+            serde_json::json!({ "id": { "in": [aws_id, "ffffffffffffffff"] } }),
+        )
+        .await;
+        assert_eq!(
+            known_and_unknown,
+            vec![(aws_id, "ops/dp/public/aws-us-west-2-c1".to_string())]
+        );
+
+        // A `LiveSpec`'s `dataPlaneId` resolves to its data plane via the
+        // id filter.
+        let spec: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/data/foo"] }) {
+                            edges { node { liveSpec { dataPlaneId } } } }
+                    }
+                    "#
+                }),
+                Some(&token),
+            )
+            .await;
+        assert!(
+            spec.get("errors").is_none(),
+            "unexpected errors resolving live spec: {spec}"
+        );
+        let data_plane_id =
+            spec["data"]["liveSpecs"]["edges"][0]["node"]["liveSpec"]["dataPlaneId"]
+                .as_str()
+                .expect("live spec dataPlaneId");
+
+        let resolved = ids_and_names(
+            &server,
+            &token,
+            serde_json::json!({ "id": { "in": [data_plane_id] } }),
+        )
+        .await;
+        assert_eq!(
+            resolved,
+            vec![(
+                data_plane_id.to_string(),
+                "ops/dp/public/aws-us-west-2-c1".to_string()
+            )],
+        );
     }
 
     // `publicDataPlanes` serves the pre-signup account-creation flow, so it

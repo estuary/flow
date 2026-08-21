@@ -89,10 +89,14 @@ EOF
 # when nothing is running; callers announce state themselves.
 print_stack_card() {
     echo "Stack '${FLOW_STACK_NAME}' — index ${FLOW_STACK_INDEX}, ports ${FLOW_STACK_BASE}-$((FLOW_STACK_BASE + 999))."
-    echo "  flowctl catalog list          # FLOWCTL_PROFILE=${FLOW_STACK_NAME} is ambient in this checkout"
-    echo "  psql \"\$FLOW_PG_URL\"           # Supabase Postgres  localhost:${FLOW_PORT_SUPABASE_DB}"
-    echo "  mise run local:stack-info     # full port map, units, and commands"
-    echo "  mise run local:test-tenant    # provision tenant credentials"
+    # `mise exec --` is not decoration: FLOWCTL_PROFILE comes from stack-env,
+    # which applies only under mise (see local/README.md). psql's URL is printed
+    # literally because $FLOW_PG_URL would be expanded — to empty — by the
+    # reader's own shell before mise could set it.
+    echo "  mise exec -- flowctl catalog list   # FLOWCTL_PROFILE=${FLOW_STACK_NAME} is ambient under mise"
+    echo "  psql ${FLOW_PG_URL}"
+    echo "  mise run local:stack-info          # full port map, units, and commands"
+    echo "  mise run local:test-tenant         # provision tenant credentials"
 }
 
 # Force the agent to refresh its authorization snapshot, and block until it has.

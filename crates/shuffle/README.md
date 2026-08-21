@@ -245,8 +245,10 @@ materialization, or collection partitions), the shard topology, and a
 resume checkpoint frontier. The Session:
 
 1. Parses the task into `Binding` structs — one per transform/binding —
-   capturing the shuffle key, partition selector, priority, read delay,
-   UUID pointer, and schema validator.
+   capturing the shuffle key, partition selector, priority, and read delay,
+   plus `Source` structs — one per distinct source collection, following the
+   spec's declared indirection. Schema validators and journal clients are built
+   per Source, so bindings fanning in on one collection share them.
 2. Opens a Slice RPC to every shard (shard 0 is in-process; others are
    remote gRPC calls).
 3. Sends `Opened` to the coordinator, then reads the resume checkpoint
@@ -476,7 +478,9 @@ producer's `last_commit` advancing — since the last emission.
 
 The same "did `unresolved` make progress?" signal disarms the `on_tick`
 stall timeout: it fires only when no progress at all occurs between
-two consecutive ticks.
+two consecutive ticks, and only while a coordinator request is
+outstanding — with nobody waiting on a checkpoint, zero progress is
+routine.
 
 A peek also carries `latest_backfill_begin` eagerly (cloned from
 `unresolved`, which retains it for the eventual resolved `ready`), as
@@ -504,9 +508,10 @@ next one.
 
 ## Key Types
 
-- `Binding` (`binding.rs`): Per-binding shuffle configuration extracted
-  from the task spec. Captures key extractors, partition selectors,
-  priority, read delay, and schema.
+- `Binding` / `Source` (`binding.rs`): Shuffle configuration extracted from
+  the task spec. `Binding` captures per-binding key extractors, partition
+  selectors, priority, and read delay; `Source` captures the per-collection
+  schema, UUID pointer, and partition metadata.
 
 - `Frontier` / `JournalFrontier` / `ProducerFrontier` (`frontier.rs`):
   Sorted, reducible representation of per-journal, per-producer progress.
@@ -537,4 +542,4 @@ next one.
   - `log/block/`: Zero-copy types for working with segmented log blocks.
 - `frontier.rs`: Frontier types, reduction, causal hint resolution,
   chunked encode/decode, and drain.
-- `binding.rs`: Binding configuration, partition filtering.
+- `binding.rs`: Binding and Source configuration, partition filtering.

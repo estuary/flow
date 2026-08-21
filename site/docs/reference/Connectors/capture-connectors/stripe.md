@@ -2,7 +2,7 @@
 
 This connector captures data from Stripe into Estuary collections.
 
-:::warning
+:::deprecated
 This connector is deprecated. See the [Stripe Real-time](./stripe-realtime.md) connector for the latest Stripe integration.
 :::
 

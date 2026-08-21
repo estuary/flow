@@ -14,7 +14,6 @@ mod derive_sqlite;
 mod derive_typescript;
 pub mod discovers;
 pub mod draft_error;
-pub mod evolutions;
 mod id;
 mod journals;
 mod labels;
@@ -29,6 +28,7 @@ mod source;
 mod source_capture;
 pub(crate) mod sqlx_json;
 pub mod status;
+pub mod sync_schedule;
 mod tests;
 pub mod triggers;
 
@@ -67,9 +67,10 @@ pub use references::{
     tenant_from,
 };
 pub use schemas::Schema;
-pub use shards::{ENABLE_RUNTIME_V2, ShardTemplate};
+pub use shards::{ENABLE_RUNTIME_V2, INDIRECT_SPECS, ShardTemplate};
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
+pub use sync_schedule::SyncSchedule;
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 pub use triggers::{
     HttpMethod, TriggerConfig, TriggerVariables, Triggers, build_template_context,

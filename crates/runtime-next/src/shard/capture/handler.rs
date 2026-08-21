@@ -155,8 +155,9 @@ where
     let verify = crate::verify("Capture", "Join", "controller");
 
     // Inferred document shapes are held only in memory and accumulate across
-    // every session of this Shard stream. They're keyed by stable binding
-    // identity so a spec update that reorders bindings still resumes inference.
+    // every session of this Shard stream. They're keyed by stable collection
+    // identity (`partition_template_name`) so a spec update that reorders or
+    // re-fans bindings still resumes inference of each collection.
     let mut shapes_by_key: BTreeMap<String, doc::Shape> = BTreeMap::new();
 
     // Producer identity for this shard's Publisher, selected once and held
@@ -168,6 +169,12 @@ where
             proto::Capture {
                 join: Some(join), ..
             } => join,
+
+            // A Stop addressed to a session which has already returned here;
+            // see the materialize session loop for how the controller comes to
+            // send one, and why failing the stream over it strands the shard.
+            proto::Capture { stop: Some(_), .. } => continue,
+
             request => return Err(verify.fail_msg(request)),
         };
 
@@ -354,11 +361,24 @@ where
         max_transactions,
     )?);
 
-    let collection_specs: Vec<&flow::CollectionSpec> = spec
-        .bindings
+    // Publisher targets follow the Task's targets, so a fan-in capture opens one
+    // journal client and one partitions watch per collection rather than per
+    // binding, and the combiner validator and publisher target of a binding are
+    // grouped identically.
+    let collection_specs: Vec<&flow::CollectionSpec> = task
+        .targets
         .iter()
-        .filter_map(|b| b.collection.as_ref())
-        .collect();
+        .map(|target| {
+            let index = target.first_binding as usize;
+            Ok(spec
+                .binding_collection(&spec.bindings[index])
+                .context("missing collection")
+                .context(index)?
+                .0)
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let binding_targets: Vec<u32> = task.bindings.iter().map(|binding| binding.target).collect();
+
     let publisher = service
         .publisher_factory
         .open(
@@ -366,6 +386,7 @@ where
             producer,
             &labeling.stats_journal,
             &collection_specs,
+            &binding_targets,
         )
         .context("opening publisher")?;
 
@@ -387,8 +408,8 @@ where
     });
 
     // Restore inferred shapes accumulated by prior sessions into this session's
-    // binding layout, and stow the session's final shapes back when it ends.
-    let shapes = task.binding_shapes_by_index(std::mem::take(shapes_by_key));
+    // inference-slot layout, and stow the session's final shapes back when it ends.
+    let shapes = task.shapes_by_target(std::mem::take(shapes_by_key));
 
     // Only shard zero drives backfill truncation: it owns the origin of the key
     // and r-clock ranges, so it sees each backfill's full lifecycle even when split.
@@ -410,7 +431,7 @@ where
     .serve(connector_rx, controller_rx, head, tail)
     .await?;
 
-    *shapes_by_key = task.binding_shapes_by_key(shapes);
+    *shapes_by_key = task.shapes_by_key(shapes);
 
     _ = controller_tx.send(Ok(proto::Capture {
         stopped: Some(proto::Stopped {}),
@@ -460,6 +481,10 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     let last_version = last_spec.as_ref().map(labels_build_for).unwrap_or_default();
     let next_spec = flow::CaptureSpec::decode(next_applied.as_ref())
         .context("invalid current CaptureSpec for Apply")?;
+
+    if let Some(event) = crate::LogEvent::spec_update(&last_version, next_version) {
+        logger.event(event);
+    }
 
     const MAX_APPLY_ITERATIONS: u64 = 3;
 
@@ -565,4 +590,53 @@ fn labels_build_for(spec: &flow::CaptureSpec) -> String {
     labels::expect_one(set, labels::BUILD)
         .unwrap_or_default()
         .to_string()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let service = crate::shard::Service::new(
+            crate::Plane::Local,
+            String::new(),
+            None,
+            "test/task".to_string(),
+            crate::publish::RecordingPublisherFactory,
+            crate::TracingLoggerFactory,
+            service_kit::Registry::new(),
+            None,
+        );
+
+        let (controller_tx, controller_rx) = mpsc::unbounded_channel();
+        let mut responses = service.spawn_capture(
+            tokio_stream::wrappers::UnboundedReceiverStream::new(controller_rx),
+        );
+
+        controller_tx
+            .send(Ok(proto::Capture {
+                session_loop: Some(proto::SessionLoop {
+                    rocksdb_descriptor: None,
+                }),
+                ..Default::default()
+            }))
+            .unwrap();
+        controller_tx
+            .send(Ok(proto::Capture {
+                stop: Some(proto::Stop {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        std::mem::drop(controller_tx);
+
+        let mut collected = Vec::new();
+        while let Some(response) = responses.recv().await {
+            collected.push(response);
+        }
+        assert!(
+            collected.is_empty(),
+            "session loop must absorb the Stop and close cleanly, got {collected:?}",
+        );
+    }
 }

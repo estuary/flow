@@ -46,7 +46,7 @@ const config = {
   tagline: 'Fast, configurable ETL your way',
   url: URL,
   baseUrl: BASE_URL,
-  onBrokenAnchors: 'warn', // TODO(johnny): Fix broken links and make this 'throw'.
+  onBrokenAnchors: 'throw',
   onBrokenLinks: 'throw',
   favicon: 'img/favicon-2.ico',
   organizationName: 'estuary',
@@ -194,6 +194,12 @@ const config = {
           editUrl: 'https://github.com/estuary/flow/edit/master/site/',
           routeBasePath: '/',
           remarkPlugins: [codeImport],
+          admonitions: {
+            // 'deprecated' renders like `:::warning` (see src/theme/Admonition)
+            // but carries its own `theme-admonition-deprecated` CSS class, so
+            // Kapa's crawler can exclude deprecated connector pages from search.
+            keywords: ['deprecated'],
+          },
           async sidebarItemsGenerator({ defaultSidebarItemsGenerator, ...args }) {
             const sidebarItems = await defaultSidebarItemsGenerator(args);
             return sortSidebarAlphabetically(sidebarItems);

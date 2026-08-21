@@ -44,6 +44,72 @@ fn connector_validation_is_skipped_when_shards_are_disabled() {
 }
 
 #[test]
+fn sync_schedule_configured_in_both_places_is_rejected() {
+    // A model-level sync schedule alongside a connector-config `syncSchedule`
+    // is an error: the two would fight over commit cadence.
+    let fixture = r##"
+test://example/catalog.yaml:
+  materializations:
+    testing/materialization:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: { syncFrequency: 30m }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true }
+      bindings: []
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+"##;
+    let outcome = common::run(fixture, "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn sync_schedule_conflict_ignores_a_cleared_connector_schedule() {
+    // A UI that removes a connector-side sync schedule may leave behind an
+    // empty `syncSchedule: {}`, or one whose values are cleared to empty or
+    // null. The connector treats those identically to an absent key, so they
+    // must not conflict with a model-level schedule.
+    let fixture = r##"
+test://example/catalog.yaml:
+  materializations:
+    testing/empty-object:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: {}
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true }
+      bindings: []
+    testing/cleared-values:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            syncSchedule: { syncFrequency: "", timezone: null }
+      syncSchedule: { baseInterval: 15m }
+      shards: { disable: true }
+      bindings: []
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+"##;
+    let outcome = common::run(fixture, "{}");
+    assert!(
+        outcome.errors.is_empty() && outcome.errors_draft.is_empty(),
+        "expected no errors, got: {:?} {:?}",
+        outcome.errors,
+        outcome.errors_draft,
+    );
+}
+
+#[test]
 fn test_collection_schema_contains_flow_document() {
     let fixture = r##"
 test://example/catalog.yaml:
@@ -1903,6 +1969,51 @@ test://example/int-string-captures:
 
     let errors = common::run_errors(MODEL_YAML, &patch);
     insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_capture_indirect_specs_raises_binding_ceiling() {
+    // One binding past the unflagged ceiling, which the `indirect-specs` flag lifts
+    // to MAX_BINDINGS_INDIRECT_SPECS. Asserting here rather than at the flagged
+    // ceiling keeps the fixture small; the flag either gates the check or it
+    // doesn't, and the raised constant is checked by the runtime format guards.
+    let bindings_count = validation::MAX_BINDINGS + 1;
+
+    let mut patch = r##"
+test://example/int-string-captures:
+  captures:
+    testing/s3-source:
+      shards:
+        flags: { indirect-specs: "true" }
+      bindings:
+"##
+    .to_string();
+
+    for i in 0..bindings_count {
+        patch.push_str(&format!(
+            r##"        - target: testing/int-string
+          resource:
+            stream: "binding{}"
+"##,
+            i
+        ));
+    }
+
+    // The mock connector must respond with a matching binding count.
+    patch.push_str(
+        r##"
+driver:
+  captures:
+    testing/s3-source:
+      bindings:
+"##,
+    );
+    for i in 0..bindings_count {
+        patch.push_str(&format!("        - resourcePath: [binding{}]\n", i));
+    }
+
+    let errors = common::run_errors(MODEL_YAML, &patch);
+    insta::assert_debug_snapshot!(errors, @"[]");
 }
 
 #[test]

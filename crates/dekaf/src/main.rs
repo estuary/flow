@@ -115,6 +115,11 @@ pub struct Cli {
     #[arg(long, env = "SPEC_TTL", value_parser = humantime::parse_duration, default_value = "2m")]
     spec_ttl: std::time::Duration,
 
+    /// How long a connection will keep returning LeaderNotAvailable for a partition
+    /// stuck failing schema validation before giving up and closing the connection.
+    #[arg(long, env = "SCHEMA_ERROR_COOLDOWN_TIMEOUT", value_parser = humantime::parse_duration, default_value = "4m")]
+    schema_error_cooldown_timeout: std::time::Duration,
+
     /// Timeout for TLS handshake completion
     #[arg(long, env = "TLS_HANDSHAKE_TIMEOUT", value_parser = humantime::parse_duration, default_value = "10s")]
     tls_handshake_timeout: std::time::Duration,
@@ -434,6 +439,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                                 upstream_auth.clone(),
                                 cli.read_buffer_chunk_limit,
                                 cli.combined_partition_fetch_limit,
+                                cli.schema_error_cooldown_timeout,
                             ),
                             socket,
                             tls_acceptor.clone(),

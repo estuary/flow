@@ -32,7 +32,30 @@ struct PendingRead {
     // Last time this read was included in a Fetch request. Used to reap reads for
     // partitions the client has stopped fetching.
     last_accessed: std::time::Instant,
-    handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
+    // The Collection::schema_hash this read was started against, used to
+    // detect if the read is still current.
+    schema_hash: String,
+    // None while the partition is cooling down after a schema error.
+    handle: Option<tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>>,
+}
+
+/// Tracks a journal that's been cooling down since a schema-validation
+/// error, so repeated Fetch requests don't pay for rebuilding a Read against
+/// a binding that's known to still be broken.
+struct CooldownEntry {
+    // When this journal first started failing schema validation.
+    first_failed_at: std::time::Instant,
+    // The Collection::schema_hash in effect when the failure occurred.
+    schema_hash: String,
+}
+
+fn is_schema_validation_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|e| {
+        matches!(
+            e.downcast_ref::<avro::Error>(),
+            Some(avro::Error::NotMatched { .. } | avro::Error::ParseFloat(..))
+        )
+    })
 }
 
 /// Resolve a current, non-regressing high watermark for a Fetch response.
@@ -100,6 +123,10 @@ pub struct Session {
     read_buffer_size: usize,
     // Total byte budget for a Fetch, divided evenly across partitions to cap per-partition reads.
     combined_partition_fetch_limit: usize,
+    // Partitions currently cooling down after a schema-validation error,
+    cooldown: HashMap<(TopicName, i32), CooldownEntry>,
+    // How long a journal can stay in cooldown before this connection gives up and closes.
+    schema_error_hard_fail_after: std::time::Duration,
 }
 
 impl Session {
@@ -110,6 +137,7 @@ impl Session {
         upstream_auth: KafkaClientAuth,
         read_buffer_size: usize,
         combined_partition_fetch_limit: usize,
+        schema_error_hard_fail_after: std::time::Duration,
     ) -> Self {
         Self {
             app,
@@ -119,6 +147,8 @@ impl Session {
             read_buffer_size,
             combined_partition_fetch_limit,
             reads: HashMap::new(),
+            cooldown: HashMap::new(),
+            schema_error_hard_fail_after,
             auth: None,
             secret,
             data_preview_state: SessionDataPreviewState::Unknown,
@@ -612,6 +642,12 @@ impl Session {
         if reaped > 0 {
             tracing::info!(reaped, remaining = self.reads.len(), "reaped stale reads");
         }
+
+        // Drop cooldown entries for (topic, partition) pairs no client is
+        // fetching anymore. A cooldown otherwise only clears when a partition
+        // is fetched again with an updated schema hash, so an abandoned
+        // partition's entry would persist for the life of the connection.
+        self.cooldown.retain(|key, _| self.reads.contains_key(key));
     }
 
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
@@ -739,10 +775,15 @@ impl Session {
                     }
                 };
 
-                let pending_info = self.reads.get(&key).map(|p| (p.offset, p.leader_epoch));
+                let pending_info = self
+                    .reads
+                    .get(&key)
+                    .map(|p| (p.offset, p.leader_epoch, p.handle.is_some()));
 
                 match pending_info {
-                    Some((pending_offset, pending_epoch)) if pending_offset == fetch_offset => {
+                    Some((pending_offset, pending_epoch, has_handle))
+                        if pending_offset == fetch_offset && has_handle =>
+                    {
                         // Validate pending read's epoch is still current
                         let auth = self.auth.as_ref().unwrap();
                         let current_epoch = Collection::new(&auth, &key.0)
@@ -911,6 +952,34 @@ impl Session {
                     tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
+
+                let journal_name = partition.spec.name.clone();
+
+                if let Some(cooled) = self.cooldown.get(&key) {
+                    // If the schema hasn't changed, no need to retry this partition.
+                    if cooled.schema_hash == collection.schema_hash {
+                        self.reads.insert(
+                            key.clone(),
+                            PendingRead {
+                                offset: fetch_offset,
+                                last_write_head: fetch_offset,
+                                leader_epoch: collection.binding_backfill_counter as i32,
+                                last_accessed: std::time::Instant::now(),
+                                schema_hash: collection.schema_hash.clone(),
+                                handle: None,
+                            },
+                        );
+                        continue;
+                    }
+
+                    // Otherwise since we have a new schema remove it from cooldown.
+                    tracing::info!(
+                        journal = journal_name,
+                        "partition received updated schema, exiting cooldown"
+                    );
+                    self.cooldown.remove(&key);
+                }
+
                 let (key_schema_id, value_schema_id) =
                     collection.registered_schema_ids(&pg_client).await?;
                 let pending = PendingRead {
@@ -918,76 +987,79 @@ impl Session {
                     last_write_head: fetch_offset,
                     leader_epoch: collection.binding_backfill_counter as i32,
                     last_accessed: std::time::Instant::now(),
-                    handle: tokio_util::task::AbortOnDropHandle::new(match data_preview_params {
-                        // Startree: 0, Tinybird: 12
-                        Some(PartitionOffset {
-                            fragment_start,
-                            offset: latest_offset,
-                            ..
-                        }) if latest_offset - fetch_offset <= 12 => {
-                            let diff = latest_offset - fetch_offset;
-                            metrics::counter!(
-                                "dekaf_fetch_requests",
-                                "topic_name" => key.0.to_string(),
-                                "partition_index" => key.1.to_string(),
-                                "task_name" => task_name.to_string(),
-                                "state" => "new_data_preview_read"
-                            )
-                            .increment(1);
-                            tokio::spawn(propagate_task_forwarder(
-                                Read::new(
-                                    self.app.task_manager.get_listener(task_name.as_str()),
-                                    &collection,
-                                    partition,
-                                    fragment_start,
-                                    key_schema_id,
-                                    value_schema_id,
-                                    Some(partition_request.fetch_offset - 1),
-                                    &auth,
-                                    self.read_buffer_size,
+                    schema_hash: collection.schema_hash.clone(),
+                    handle: Some(tokio_util::task::AbortOnDropHandle::new(
+                        match data_preview_params {
+                            // Startree: 0, Tinybird: 12
+                            Some(PartitionOffset {
+                                fragment_start,
+                                offset: latest_offset,
+                                ..
+                            }) if latest_offset - fetch_offset <= 12 => {
+                                let diff = latest_offset - fetch_offset;
+                                metrics::counter!(
+                                    "dekaf_fetch_requests",
+                                    "topic_name" => key.0.to_string(),
+                                    "partition_index" => key.1.to_string(),
+                                    "task_name" => task_name.to_string(),
+                                    "state" => "new_data_preview_read"
                                 )
-                                .await?
-                                .next_batch(
-                                    // Have to read at least 2 docs, as the very last doc
-                                    // will probably be a control document and will be
-                                    // ignored by the consumer, looking like 0 docs were read
-                                    crate::read::ReadTarget::Docs(max(diff as usize, 2)),
-                                    timeout,
-                                ),
-                            ))
-                        }
-                        _ => {
-                            metrics::counter!(
-                                "dekaf_fetch_requests",
-                                "topic_name" => key.0.to_string(),
-                                "partition_index" => key.1.to_string(),
-                                "task_name" => task_name.to_string(),
-                                "state" => "new_regular_read"
-                            )
-                            .increment(1);
-                            tokio::spawn(propagate_task_forwarder(
-                                Read::new(
-                                    self.app.task_manager.get_listener(task_name.as_str()),
-                                    &collection,
-                                    partition,
-                                    fetch_offset,
-                                    key_schema_id,
-                                    value_schema_id,
-                                    None,
-                                    &auth,
-                                    self.read_buffer_size,
-                                )
-                                .await?
-                                .next_batch(
-                                    crate::read::ReadTarget::Bytes(
-                                        (partition_request.partition_max_bytes as usize)
-                                            .min(per_partition_limit),
+                                .increment(1);
+                                tokio::spawn(propagate_task_forwarder(
+                                    Read::new(
+                                        self.app.task_manager.get_listener(task_name.as_str()),
+                                        &collection,
+                                        partition,
+                                        fragment_start,
+                                        key_schema_id,
+                                        value_schema_id,
+                                        Some(partition_request.fetch_offset - 1),
+                                        &auth,
+                                        self.read_buffer_size,
+                                    )
+                                    .await?
+                                    .next_batch(
+                                        // Have to read at least 2 docs, as the very last doc
+                                        // will probably be a control document and will be
+                                        // ignored by the consumer, looking like 0 docs were read
+                                        crate::read::ReadTarget::Docs(max(diff as usize, 2)),
+                                        timeout,
                                     ),
-                                    timeout,
-                                ),
-                            ))
-                        }
-                    }),
+                                ))
+                            }
+                            _ => {
+                                metrics::counter!(
+                                    "dekaf_fetch_requests",
+                                    "topic_name" => key.0.to_string(),
+                                    "partition_index" => key.1.to_string(),
+                                    "task_name" => task_name.to_string(),
+                                    "state" => "new_regular_read"
+                                )
+                                .increment(1);
+                                tokio::spawn(propagate_task_forwarder(
+                                    Read::new(
+                                        self.app.task_manager.get_listener(task_name.as_str()),
+                                        &collection,
+                                        partition,
+                                        fetch_offset,
+                                        key_schema_id,
+                                        value_schema_id,
+                                        None,
+                                        &auth,
+                                        self.read_buffer_size,
+                                    )
+                                    .await?
+                                    .next_batch(
+                                        crate::read::ReadTarget::Bytes(
+                                            (partition_request.partition_max_bytes as usize)
+                                                .min(per_partition_limit),
+                                        ),
+                                        timeout,
+                                    ),
+                                ))
+                            }
+                        },
+                    )),
                 };
 
                 tracing::info!(
@@ -999,14 +1071,16 @@ impl Session {
                 );
 
                 if let Some(old) = self.reads.insert(key.clone(), pending) {
-                    tracing::warn!(
-                        topic = topic_request.topic.as_str(),
-                        partition = partition_request.partition,
-                        old_offset = old.offset,
-                        new_offset = fetch_offset,
-                        read_lifetime = ?old.last_accessed.elapsed(),
-                        "discarding pending read due to offset jump",
-                    );
+                    if old.offset != fetch_offset {
+                        tracing::warn!(
+                            topic = topic_request.topic.as_str(),
+                            partition = partition_request.partition,
+                            old_offset = old.offset,
+                            new_offset = fetch_offset,
+                            read_lifetime = ?old.last_accessed.elapsed(),
+                            "discarding pending read due to offset jump",
+                        );
+                    }
                 }
             }
         }
@@ -1103,7 +1177,56 @@ impl Session {
                     continue;
                 }
 
-                let (read, batch) = (&mut pending.handle).await??;
+                let Some(handle) = &mut pending.handle else {
+                    // Still cooling down after a schema-validation error.
+                    let cooled = self
+                        .cooldown
+                        .get(&key)
+                        .context("cooling-down PendingRead has no cooldown entry")?;
+
+                    if cooled.first_failed_at.elapsed() > self.schema_error_hard_fail_after {
+                        anyhow::bail!(
+                            "unable to validate schema and no updated schema received for topic {} partition {}",
+                            key.0.to_string(),
+                            key.1,
+                        );
+                    }
+
+                    partition_responses.push(
+                        PartitionData::default()
+                            .with_partition_index(partition_request.partition)
+                            .with_error_code(ResponseError::LeaderNotAvailable.code()),
+                    );
+                    continue;
+                };
+
+                let (read, batch) = match handle.await? {
+                    Ok(ok) => ok,
+                    Err(err) => {
+                        if !is_schema_validation_error(&err) {
+                            return Err(err);
+                        }
+
+                        tracing::warn!(
+                            topic_name = key.0.to_string(),
+                            partition_index = key.1,
+                            error = ?err,
+                            "partition failed schema validation, entering cooldown"
+                        );
+
+                        self.cooldown.entry(key.clone()).or_insert(CooldownEntry {
+                            first_failed_at: std::time::Instant::now(),
+                            schema_hash: pending.schema_hash.clone(),
+                        });
+                        partition_responses.push(
+                            PartitionData::default()
+                                .with_partition_index(partition_request.partition)
+                                .with_error_code(ResponseError::LeaderNotAvailable.code()),
+                        );
+                        self.reads.remove(&key);
+                        continue;
+                    }
+                };
 
                 let batch = match batch {
                     BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
@@ -1144,8 +1267,8 @@ impl Session {
                         pending.offset = read.offset;
                         pending.last_write_head = read.last_write_head;
                         pending.last_accessed = std::time::Instant::now();
-                        pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                            propagate_task_forwarder(
+                        pending.handle = Some(tokio_util::task::AbortOnDropHandle::new(
+                            tokio::spawn(propagate_task_forwarder(
                                 read.next_batch(
                                     crate::read::ReadTarget::Bytes(
                                         (partition_request.partition_max_bytes as usize)
@@ -1153,7 +1276,7 @@ impl Session {
                                     ),
                                     timeout,
                                 ),
-                            ),
+                            )),
                         ));
 
                         let response_high_watermark = match resolve_high_watermark(

@@ -17,6 +17,7 @@ impl Task {
             triggers_json,
             connector_type,
             config_json,
+            sync_schedule_json,
             ..
         } = spec;
 
@@ -29,19 +30,15 @@ impl Task {
         let mut binding_collection_names = Vec::with_capacity(bindings.len());
         let mut binding_journal_read_suffixes = Vec::with_capacity(bindings.len());
 
-        for binding in bindings {
+        for (binding, resolved) in spec.resolved_bindings() {
             let flow::materialization_spec::Binding {
-                collection,
                 journal_read_suffix,
                 ..
             } = binding;
 
-            let flow::CollectionSpec {
-                name: collection_name,
-                ..
-            } = collection.as_ref().context("missing collection")?;
+            let (collection, _identity) = resolved.context("missing collection")?;
 
-            binding_collection_names.push(collection_name.clone());
+            binding_collection_names.push(collection.name.clone());
             binding_journal_read_suffixes.push(journal_read_suffix.clone());
         }
 
@@ -63,6 +60,27 @@ impl Task {
             ))
         };
 
+        // Sync schedule (materialization-only, no secrets, so no decryption).
+        // Compilation re-runs full validation, so a malformed spec that
+        // somehow slipped past the build fails the task cleanly here.
+        let sync_schedule = if sync_schedule_json.is_empty() {
+            None
+        } else {
+            let model: models::SyncSchedule = serde_json::from_slice(&sync_schedule_json)
+                .context("parsing sync_schedule_json")?;
+            Some(
+                super::sync_schedule::CompiledSchedule::new(model)
+                    .map_err(anyhow::Error::msg)
+                    .context("invalid sync schedule")?,
+            )
+        };
+        // Deterministic jitter seed, derived from the task's tenant.
+        let sync_seed = if sync_schedule.is_some() {
+            xxhash_rust::xxh3::xxh3_64(models::tenant_from(name).as_bytes())
+        } else {
+            0
+        };
+
         let min_txn_duration = min_txn_duration
             .context("missing min_txn_duration")?
             .try_into()?;
@@ -78,6 +96,9 @@ impl Task {
             build,
         };
 
+        // When a sync schedule is configured, the FSM modulates this policy's
+        // open-duration band per evaluation (see `compute_open_duration`), so
+        // the schedule governs commit timing in place of min/max_txn_duration.
         let close_policy = close_policy::Policy::new(min_txn_duration, max_txn_duration);
 
         Ok(Self {
@@ -90,6 +111,8 @@ impl Task {
             peers,
             shard_ref,
             triggers,
+            sync_schedule,
+            sync_seed,
         })
     }
 }

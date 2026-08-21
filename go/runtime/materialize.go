@@ -224,6 +224,7 @@ func (m *materializeApp) Destroy() {
 		_ = m.client.CloseSend()
 	}
 	m.taskReader.drop()
+	m.taskBase.removeRecoveryDir()
 	m.taskBase.opsCancel()
 }
 

@@ -7,6 +7,50 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
+// A spec-carrying message is in *indirect* form when its LinkedCollections table
+// is non-empty: every binding or transform of that message then leaves
+// Collection zero-valued and names its collection through CollectionIndex.
+// An empty table means every binding inlines its own Collection, as it always
+// has. The form is a property of the message as a whole, so validation and
+// resolution branch on the table, never on a per-binding presence check
+// (gogoproto.nullable=false means "unset" is indistinguishable from a
+// zero-valued Collection).
+
+// ValidateLinkedCollections validates each entry of a LinkedCollections table.
+// Entries need not be unique or ordered: the control-plane builder emits them
+// unique-by-value and ordered on name, but that's a convention rather than an
+// invariant of the message.
+func ValidateLinkedCollections(linked []CollectionSpec) error {
+	for i := range linked {
+		if err := linked[i].Validate(); err != nil {
+			return pb.ExtendContext(err, "LinkedCollections[%d]", i)
+		}
+	}
+	return nil
+}
+
+// ValidateBindingCollection checks that one binding or transform agrees with the
+// form of its parent message: in indirect form it must index the table and leave
+// its inlined collection zero-valued, and in inline form it must leave
+// CollectionIndex unset.
+func ValidateBindingCollection(numLinked int, inlinedSize int, index uint32) error {
+	if numLinked == 0 {
+		if index != 0 {
+			return pb.NewValidationError(
+				"CollectionIndex is %d but the spec has no LinkedCollections", index)
+		}
+		return nil
+	}
+	if inlinedSize != 0 {
+		return pb.NewValidationError(
+			"Collection is set but the spec is indirected (use CollectionIndex)")
+	} else if int(index) >= numLinked {
+		return pb.NewValidationError(
+			"CollectionIndex %d is out of range (%d LinkedCollections)", index, numLinked)
+	}
+	return nil
+}
+
 // GetProjection finds the projection with the given field name, or nil if one does not exist
 func (m *CollectionSpec) GetProjection(field string) *Projection {
 	var index = sort.Search(len(m.Projections), func(index int) bool {
@@ -80,11 +124,38 @@ func (m *CollectionSpec) Validate() error {
 	return nil
 }
 
+// TransformCollection returns the source CollectionSpec of a transform of this
+// Derivation, resolving it through LinkedCollections if this Derivation is in
+// indirect form. It returns nil if the transform cannot be resolved, which
+// Validate() rejects. Only transform *sources* are ever indirected; the
+// derived collection which owns this Derivation is not.
+func (m *CollectionSpec_Derivation) TransformCollection(t *CollectionSpec_Derivation_Transform) *CollectionSpec {
+	if len(m.LinkedCollections) == 0 {
+		return &t.Collection
+	} else if int(t.CollectionIndex) >= len(m.LinkedCollections) {
+		return nil
+	}
+	return &m.LinkedCollections[t.CollectionIndex]
+}
+
 // Validate returns an error if the Derivation is invalid.
 func (m *CollectionSpec_Derivation) Validate() error {
-	for i, tf := range m.Transforms {
-		if err := tf.Validate(); err != nil {
+	if err := ValidateLinkedCollections(m.LinkedCollections); err != nil {
+		return err
+	}
+	for i := range m.Transforms {
+		if err := m.Transforms[i].validate(m); err != nil {
 			return pb.ExtendContext(err, "Transform[%d]", i)
+		}
+	}
+	// Inactive transforms index the same table as their active peers, so their
+	// encoding form must agree. Their other fields are not validated, matching
+	// the long-standing behavior of this method.
+	for i, tf := range m.InactiveTransforms {
+		if err := ValidateBindingCollection(
+			len(m.LinkedCollections), tf.Collection.ProtoSize(), tf.CollectionIndex,
+		); err != nil {
+			return pb.ExtendContext(err, "InactiveTransform[%d]", i)
 		}
 	}
 	if err := m.ShardTemplate.Validate(); err != nil {
@@ -96,15 +167,39 @@ func (m *CollectionSpec_Derivation) Validate() error {
 }
 
 // Validate returns an error if the Transform is invalid.
+// It validates the transform's inlined Collection, and so is meaningful only
+// for a transform of an inline-form Derivation. An indirect-form transform must
+// instead be validated through its parent, which resolves its collection.
 func (m *CollectionSpec_Derivation_Transform) Validate() error {
+	if err := m.Collection.Validate(); err != nil {
+		return pb.ExtendContext(err, "Collection")
+	}
+	return m.validateSelf()
+}
+
+// validate checks this transform within the context of its parent Derivation,
+// which determines whether the transform inlines its source collection or
+// indexes the parent's LinkedCollections.
+func (m *CollectionSpec_Derivation_Transform) validate(parent *CollectionSpec_Derivation) error {
+	if err := ValidateBindingCollection(
+		len(parent.LinkedCollections), m.Collection.ProtoSize(), m.CollectionIndex,
+	); err != nil {
+		return err
+	} else if len(parent.LinkedCollections) == 0 {
+		if err := m.Collection.Validate(); err != nil {
+			return pb.ExtendContext(err, "Collection")
+		}
+	}
+	return m.validateSelf()
+}
+
+func (m *CollectionSpec_Derivation_Transform) validateSelf() error {
 	if err := m.Name.Validate(); err != nil {
 		return pb.ExtendContext(err, "Name")
-	} else if err := m.Collection.Validate(); err != nil {
-		return pb.ExtendContext(err, "Collection")
 	} else if err := m.PartitionSelector.Validate(); err != nil {
 		return pb.ExtendContext(err, "PartitionSelector")
 	} else if len(m.LambdaConfigJson) == 0 {
-		return pb.ExtendContext(err, "missing LambdaConfigJson")
+		return pb.NewValidationError("missing LambdaConfigJson")
 	}
 	return nil
 }

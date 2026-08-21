@@ -59,7 +59,6 @@ pub fn start_due_split<P: crate::Publisher>(
             policy.ignore(&journal);
             continue;
         };
-        tracing::info!(journal, "starting automatic journal split");
         return Some(async move { (journal, split.await) }.boxed());
     }
     None
@@ -92,7 +91,7 @@ pub fn finish_split(
         // Too narrow to split, and a journal's width never grows: terminally
         // stop observing it.
         Ok(publisher::SplitOutcome::AtFloor) => {
-            tracing::debug!(
+            tracing::info!(
                 journal,
                 "journal is at the minimum split width; will not auto-split"
             );
@@ -304,7 +303,7 @@ mod tests {
     /// re-evaluated forever.
     #[test]
     fn start_due_split_terminally_ignores_unsplittable_journals() {
-        let publisher = crate::publish::NoopPublisher;
+        let publisher = crate::publish::RecordingPublisher::default();
         let (mut policy, now) = due_policy();
 
         assert!(start_due_split(&mut policy, &publisher, now).is_none());

@@ -66,7 +66,7 @@ where
 
     let metrics = super::Metrics::new(shard_zero);
     let task = task.context("Open must include task")?;
-    let (bindings, _validators) = crate::Binding::from_task(&task)?;
+    let (bindings, _ /* sources */, _ /* validators */) = crate::Binding::from_task(&task)?;
 
     service_kit::event!(
         tracing::Level::INFO,

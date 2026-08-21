@@ -96,9 +96,17 @@ pub enum LogEvent<'a> {
     #[non_exhaustive]
     Applied { action_description: &'a str },
 
+    /// This session's spec differs from the last applied.
+    #[non_exhaustive]
+    SpecUpdated {
+        last_version: &'a str,
+        next_version: &'a str,
+    },
+
     /// A collection's inferred write-schema widened this transaction.
-    /// `binding` is the source binding index for captures (multiple bindings
-    /// per task) and `None` for derivations (a single derived collection).
+    /// `binding` is the most-recently-updated binding index for captures
+    /// (multiple bindings may target the same collection, and only the
+    /// latest is retained as a diagnostic). For derivations, it's `None`.
     /// `schema` is the representative JSON Schema of the widened write-shape,
     /// as produced by [`doc::shape::schema::to_schema`].
     #[non_exhaustive]
@@ -132,7 +140,21 @@ pub enum LogEvent<'a> {
     },
 }
 
-impl LogEvent<'_> {
+impl<'a> LogEvent<'a> {
+    /// Build a [`LogEvent::SpecUpdated`] if this session's Apply is a genuine
+    /// spec update: a prior spec must have been applied (`last_version` is
+    /// empty on a task's first Apply, which is not an update), and its version
+    /// must differ.
+    pub fn spec_update(last_version: &'a str, next_version: &'a str) -> Option<Self> {
+        if last_version.is_empty() || last_version == next_version {
+            return None;
+        }
+        Some(LogEvent::SpecUpdated {
+            last_version,
+            next_version,
+        })
+    }
+
     /// Flatten this event into its canonical [`ops::Log`] — the single place
     /// events render as task-log lines.
     /// Returns `None` when the event surfaces nothing (a [`LogEvent::Persist`]
@@ -162,6 +184,20 @@ impl LogEvent<'_> {
                 };
                 fields.push(("actionDescription", json_field(&action)));
                 (ops::LogLevel::Info, "connector applied")
+            }
+            LogEvent::SpecUpdated {
+                last_version,
+                next_version,
+                ..
+            } => {
+                // These field names are snake_case, against this file's
+                // camelCase convention, and the message is verbatim: V1 logs
+                // this same line from `runtime::materialize::protocol`, and
+                // operator queries over the ops journal must keep working
+                // across the V1 -> V2 migration.
+                fields.push(("last_version", json_field(last_version)));
+                fields.push(("next_version", json_field(next_version)));
+                (ops::LogLevel::Info, "applying updated task specification")
             }
             LogEvent::InferredSchema {
                 collection_name,
@@ -318,6 +354,50 @@ impl LoggerFactory for TracingLoggerFactory {
     }
 }
 
+/// Test [`Logger`] recording the task's stream at both of its layers, so a test
+/// may assert at whichever one it means: every [`ops::Log`] sunk, and each
+/// [`LogEvent::InferredSchema`] intercepted structurally as a widened
+/// collection's `(name, most-recently-updated binding, rendered JSON Schema)`.
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct RecordingLogger {
+    pub logs: Arc<std::sync::Mutex<Vec<ops::Log>>>,
+    pub inferences: Arc<std::sync::Mutex<Vec<(String, Option<usize>, String)>>>,
+}
+
+#[cfg(test)]
+impl RecordingLogger {
+    pub fn take_inferences(&self) -> Vec<(String, Option<usize>, String)> {
+        std::mem::take(&mut *self.inferences.lock().unwrap())
+    }
+}
+
+#[cfg(test)]
+impl Logger for RecordingLogger {
+    fn log(&self, log: &ops::Log) {
+        self.logs.lock().unwrap().push(log.clone());
+    }
+
+    fn event(&self, event: LogEvent<'_>) {
+        if let LogEvent::InferredSchema {
+            collection_name,
+            binding,
+            schema,
+            ..
+        } = &event
+        {
+            self.inferences.lock().unwrap().push((
+                collection_name.to_string(),
+                *binding,
+                serde_json::to_string(schema).unwrap(),
+            ));
+        }
+        if let Some(log) = event.to_log() {
+            self.log(&log);
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -351,6 +431,10 @@ mod test {
             LogEvent::Persist { persist: &persist },
             LogEvent::Applied {
                 action_description: "create table \"foo\"",
+            },
+            LogEvent::SpecUpdated {
+                last_version: "0000aaaa11112222",
+                next_version: "0000bbbb33334444",
             },
             LogEvent::InferredSchema {
                 collection_name: "acmeCo/collection",
@@ -403,6 +487,14 @@ mod test {
             },
             "level": "info",
             "message": "connector applied"
+          },
+          {
+            "fields": {
+              "last_version": "0000aaaa11112222",
+              "next_version": "0000bbbb33334444"
+            },
+            "level": "info",
+            "message": "applying updated task specification"
           },
           {
             "fields": {

@@ -61,7 +61,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // RocksDB is parked with its per-binding state keys.
     db: Option<(crate::shard::RocksDB, Vec<String>)>,
     publisher: Option<P>,
-    // Inferred per-binding write-shapes. Seeded from prior sessions at
+    // Inferred per-target write-shapes. Seeded from prior sessions at
     // construction, parked into the drain future, handed back at session end.
     shapes: Option<Vec<doc::Shape>>,
     // Long-lived per-journal throttle policy, fed once per transaction once the
@@ -442,16 +442,17 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     .bindings
                     .get(binding as usize)
                     .with_context(|| format!("invalid captured binding {binding}"))?;
+                let target = &self.task.targets[binding_spec.target as usize];
 
                 let (memtable, alloc, mut doc) =
                     accumulator.parse_json_doc(&doc_json).with_context(|| {
                         format!(
                             "couldn't parse captured document as JSON (target {})",
-                            binding_spec.collection_name
+                            target.collection_name
                         )
                     })?;
 
-                let uuid_ptr = &binding_spec.document_uuid_ptr;
+                let uuid_ptr = &target.document_uuid_ptr;
                 if !uuid_ptr.0.is_empty() {
                     let Ok(_) = doc.try_set(
                         uuid_ptr,
@@ -833,11 +834,11 @@ fn parse_sourced_schema(
         schema_json,
     } = sourced;
 
-    let collection_name = &task
+    let binding_spec = task
         .bindings
         .get(binding as usize)
-        .with_context(|| format!("invalid sourced schema binding {binding}"))?
-        .collection_name;
+        .with_context(|| format!("invalid sourced schema binding {binding}"))?;
+    let collection_name = &task.targets[binding_spec.target as usize].collection_name;
 
     let built_schema = doc::validation::build_bundle(&schema_json).with_context(|| {
         format!("couldn't parse sourced schema as JSON Schema (target {collection_name})")
@@ -873,40 +874,164 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::leader::capture::task::Binding;
+    use crate::leader::capture::task::fixture;
+    use crate::logger::RecordingLogger;
+    use crate::publish::RecordingPublisher;
     use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
-    fn mk_binding(collection_name: &str, state_key: &str, uuid_ptr: &str) -> Binding {
-        Binding {
-            collection_name: collection_name.to_string(),
-            collection_generation_id: models::Id::zero(),
-            document_uuid_ptr: json::Pointer::from(uuid_ptr),
-            key_extractors: Vec::new(),
-            partition_template_name: collection_name.to_string(),
-            state_key: state_key.to_string(),
-            write_schema_json: Bytes::from_static(b"{}"),
-            write_shape: doc::Shape::nothing(),
+    // --- Harness: task fixtures, actor and session drivers, responses. ---
+
+    /// The default Task: two bindings on distinct collections, of which binding
+    /// 0 carries a UUID pointer (exercising placeholder injection).
+    fn mk_task(explicit_acknowledgements: bool) -> Task {
+        fixture::task(
+            &[
+                ("test/collectionA", "stateA", "/_meta/uuid"),
+                ("test/collectionB", "stateB", ""),
+            ],
+            b"{}",
+            explicit_acknowledgements,
+        )
+    }
+
+    /// State keys of `task`'s bindings, under which a shard scans and persists.
+    fn state_keys(task: &Task) -> Vec<String> {
+        task.bindings
+            .iter()
+            .map(|binding| binding.state_key.clone())
+            .collect()
+    }
+
+    /// An [`Actor`] over `task`, with an mpsc channel standing in for the
+    /// connector. Its returned receiver is the mock connector's end: hold it
+    /// even when unread, since dropping it closes the actor's request channel.
+    fn mk_actor<P: crate::Publisher, L: crate::Logger>(
+        task: &std::sync::Arc<Task>,
+        active_backfills: BTreeMap<u32, u64>,
+        db: crate::shard::RocksDB,
+        is_shard_zero: bool,
+        logger: L,
+        publisher: P,
+    ) -> (Actor<P, L>, mpsc::Receiver<Request>) {
+        let (connector_tx, connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+
+        let actor = Actor::new(
+            active_backfills,
+            state_keys(task),
+            connector_tx,
+            db,
+            is_shard_zero,
+            super::super::Metrics::new("test/shard"),
+            logger,
+            publisher,
+            task.shapes_by_target(Default::default()),
+            task.clone(),
+            None, // token_restart_at
+        );
+        (actor, connector_rx)
+    }
+
+    /// What one driven capture session left behind.
+    struct Session {
+        db: crate::shard::RocksDB,
+        /// Inferred write-shapes handed back at session end, one per Target.
+        shapes: Vec<doc::Shape>,
+        acks: Vec<request::Acknowledge>,
+        publisher: RecordingPublisher,
+        task: std::sync::Arc<Task>,
+    }
+
+    impl Session {
+        /// Scan this session's RocksDB, as a next session's recovery does.
+        async fn recover(self) -> (crate::shard::RocksDB, proto::Recover) {
+            self.db.scan(state_keys(&self.task)).await.unwrap()
         }
     }
 
-    fn mk_task(explicit_acknowledgements: bool) -> Task {
-        Task {
-            // Binding 0 carries a UUID pointer (exercising placeholder injection),
-            // binding 1 does not.
-            bindings: vec![
-                mk_binding("test/collectionA", "stateA", "/_meta/uuid"),
-                mk_binding("test/collectionB", "stateB", ""),
-            ],
-            // Wide thresholds: a transaction closes as soon as the connector
-            // idles (its checkpoint sequence completes and no further input is
-            // ready), free of policy-driven close timing.
-            close_policy: crate::leader::close_policy::Policy::new(Duration::ZERO, Duration::MAX),
-            explicit_acknowledgements,
-            max_transactions: 0,
-            redact_salt: Bytes::new(),
-            restart: uuid::Clock::zero(),
-            sequence_bytes_limit: 1 << 20,
-            shard_ref: ops::ShardRef::default(),
+    /// Drive `Actor::serve` end to end over mpsc channels standing in for the
+    /// connector and controller, with a real RocksDB: feed `responses`, drain
+    /// `expect_acks` Acknowledges (one per committed transaction, so each
+    /// commits before Stop), then Stop.
+    ///
+    /// The actor owns its publisher and logger for the session's duration, so
+    /// both record through `Arc` handles: `logger` is the caller's to read back
+    /// once this returns, as is [`Session::publisher`].
+    async fn run_capture_session(
+        task: Task,
+        db: crate::shard::RocksDB,
+        active_backfills: BTreeMap<u32, u64>,
+        logger: impl crate::Logger,
+        responses: Vec<tonic::Result<Response>>,
+        expect_acks: usize,
+    ) -> Session {
+        let (conn_resp_tx, conn_resp_rx) =
+            mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
+        let (controller_tx, controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
+
+        let task = std::sync::Arc::new(task);
+        let publisher = RecordingPublisher::default();
+        let (actor, mut actor_to_conn_rx) = mk_actor(
+            &task,
+            active_backfills,
+            db,
+            true, // is_shard_zero
+            logger,
+            publisher.clone(),
+        );
+
+        let serve = tokio::spawn(async move {
+            let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
+            actor
+                .serve(
+                    ReceiverStream::new(conn_resp_rx),
+                    &mut controller_rx,
+                    fsm::Head::Idle(fsm::HeadIdle::default()),
+                    fsm::Tail::Recover(fsm::TailRecover {
+                        checkpoints: 0,
+                        ack_intents: BTreeMap::new(),
+                    }),
+                )
+                .await
+        });
+
+        // An actor which errors drops its channels, so unwrapping a send or
+        // receive here would report a closed channel in place of the failure that
+        // actually happened. Break out instead and let the join below re-raise
+        // the actor's own error.
+        for response in responses {
+            if conn_resp_tx.send(response).await.is_err() {
+                break;
+            }
+        }
+        let mut acks = Vec::new();
+        while acks.len() < expect_acks {
+            let Some(request) = actor_to_conn_rx.recv().await else {
+                break;
+            };
+            acks.push(request.acknowledge.expect("actor sent a non-Acknowledge"));
+        }
+        _ = controller_tx.send(Ok(proto::Capture {
+            stop: Some(proto::Stop {}),
+            ..Default::default()
+        }));
+
+        let (db, shapes) = serve
+            .await
+            .unwrap()
+            .unwrap_or_else(|err| panic!("capture session failed: {err:?}"));
+        assert_eq!(
+            acks.len(),
+            expect_acks,
+            "session stopped before acknowledging"
+        );
+
+        Session {
+            db,
+            shapes,
+            acks,
+            publisher,
+            task,
         }
     }
 
@@ -932,98 +1057,375 @@ mod tests {
         })
     }
 
-    /// Drive `Actor::serve` end-to-end over mpsc channels standing in for the
-    /// connector and controller, with a real RocksDB.
+    fn backfill_begin(binding: u32) -> tonic::Result<Response> {
+        Ok(Response {
+            backfill_begin: Some(response::BackfillBegin { binding }),
+            ..Default::default()
+        })
+    }
+
+    fn backfill_complete(binding: u32) -> tonic::Result<Response> {
+        Ok(Response {
+            backfill_complete: Some(response::BackfillComplete { binding }),
+            ..Default::default()
+        })
+    }
+
+    /// Distinct target collections of the fan-in fixture.
+    const M: usize = 3;
+    /// Bindings of the fan-in fixture, fanning evenly onto the M collections:
+    /// binding `i` writes collection `i % M`, so each collection has `N / M`.
+    const N: usize = 12;
+    /// Documents the mock connector captures under one key, per collection.
+    /// Well above the memtable's 32-queued-document compaction threshold, so the
+    /// documents genuinely reduce in memory rather than only at drain.
+    const RUN: i64 = 64;
+
+    /// Everything one fan-in session published and inferred, rendered as strings
+    /// so a mismatch reads as a diff rather than as two proto Debug dumps.
+    type Recording = (
+        Vec<(usize, String)>,
+        Vec<String>,
+        Vec<(String, Option<usize>, String)>,
+    );
+
+    /// Drive one capture session over `spec` with the shared connector script,
+    /// and return what it published and inferred.
     ///
-    /// The connector emits two Captured documents (into distinct bindings) and a
-    /// Checkpoint carrying connector state. The actor accumulates them, closes
-    /// the transaction once the connector idles, and runs the full Tail commit:
-    /// drain+publish, stats, the committing Persist, Acknowledge, and
-    /// WriteIntents. Receiving the connector Acknowledge proves the commit
-    /// reached its post-Persist handoff; a controller Stop then drains the Tail
-    /// and steps Head to Stop. Asserts the connector saw one acknowledged
-    /// checkpoint and that the persisted connector state round-trips from RocksDB.
+    /// The script exercises both hazards of per-collection derived state:
+    /// several bindings of one collection publish documents under the *same*
+    /// key (so a shared validator or a mis-mapped target would cross-contaminate
+    /// rather than merely miscount), repeats within one binding reduce, and a
+    /// `SourcedSchema` folds into the collection's inference alongside the
+    /// documents' widening.
+    async fn run_fan_in_session(spec: flow::CaptureSpec) -> Recording {
+        let (open, opened) = fixture::open(spec);
+        let task = Task::new(&open, &opened, 0).unwrap();
+
+        // Every document uses key "shared", so each collection's documents
+        // collide with the others' on key as well as within a binding.
+        let capture_doc = |binding: usize, value: i64| {
+            Ok(Response {
+                captured: Some(response::Captured {
+                    binding: binding as u32,
+                    doc_json: Bytes::from(format!(
+                        r#"{{"id":"shared","from_collection_{}":true,"value":{value}}}"#,
+                        binding % M,
+                    )),
+                }),
+                ..Default::default()
+            })
+        };
+
+        // One `RUN` per collection, through bindings 0, 1 and 2, so each shared
+        // validator is exercised for its *reduce* annotations and not only for
+        // validation. Then single documents on bindings 3, 6 and 9 -- collection-0
+        // again -- whose outputs must stay separate from binding 0's however much
+        // machinery the four of them share.
+        let responses = (0..RUN)
+            .flat_map(|_| [capture_doc(0, 1), capture_doc(1, 2), capture_doc(2, 3)])
+            .chain([capture_doc(3, 10), capture_doc(6, 100), capture_doc(9, 1000)])
+            .chain([
+                Ok(Response {
+                    sourced_schema: Some(response::SourcedSchema {
+                        binding: 5, // Collection-2, which binding 2 also writes.
+                        schema_json: Bytes::from_static(
+                            br#"{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"from_collection_2":{"const":true},"sourced_only":{"type":"boolean"}},"required":["id","from_collection_2"]}"#,
+                        ),
+                    }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"lsn-1"}"#),
+            ])
+            .collect();
+
+        let logger = RecordingLogger::default();
+        let session = run_capture_session(
+            task,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            BTreeMap::new(),
+            logger.clone(),
+            responses,
+            1,
+        )
+        .await;
+
+        let stats = session
+            .publisher
+            .take_stats()
+            .into_iter()
+            .map(normalize_stats)
+            .collect();
+
+        (
+            session.publisher.take_docs(),
+            stats,
+            logger.take_inferences(),
+        )
+    }
+
+    /// Render `stats` for comparison, dropping the fields which are a function of
+    /// when the transaction ran rather than of what it did.
+    fn normalize_stats(mut stats: ops::proto::Stats) -> String {
+        stats.meta = None; // UUID is stamped by the publisher.
+        stats.timestamp = None;
+        stats.open_seconds_total = 0.0;
+
+        for binding in stats.capture.values_mut() {
+            binding.last_published_at = None;
+        }
+        serde_json::to_string_pretty(&stats).unwrap()
+    }
+
+    // --- Tests. ---
+
+    /// One checkpoint sequence end to end: the connector emits two Captured
+    /// documents (into distinct bindings) and a Checkpoint carrying connector
+    /// state. The actor accumulates them, closes the transaction once the
+    /// connector idles, and runs the full Tail commit: drain+publish, stats, the
+    /// committing Persist, Acknowledge, and WriteIntents. Receiving the connector
+    /// Acknowledge proves the commit reached its post-Persist handoff; a
+    /// controller Stop then drains the Tail and steps Head to Stop.
     #[tokio::test]
     async fn serve_transaction_then_stop() {
-        // Actor → connector requests; the test reads as the mock connector.
-        let (connector_tx, mut actor_to_conn_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
-        // Mock connector → actor responses.
-        let (conn_resp_tx, conn_resp_rx) =
-            mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
-        // Controller → actor signals.
-        let (controller_tx, controller_rx) =
-            mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
-
-        let task = std::sync::Arc::new(mk_task(true));
-        let shapes = task.binding_shapes_by_index(Default::default());
-
-        let actor = Actor::new(
-            BTreeMap::new(),
-            vec!["stateA".to_string(), "stateB".to_string()],
-            connector_tx,
+        let session = run_capture_session(
+            mk_task(true),
             crate::shard::RocksDB::open(None).await.unwrap(),
-            true,
-            super::super::Metrics::new("test/shard"),
+            BTreeMap::new(),
             crate::TracingLogger,
-            crate::publish::NoopPublisher,
-            shapes,
-            task,
-            None,
+            vec![
+                captured(0, br#"{"id":"a0"}"#),
+                captured(1, br#"{"id":"b0"}"#),
+                checkpoint(br#"{"cursor":"lsn-9"}"#),
+            ],
+            1,
+        )
+        .await;
+
+        assert_eq!(session.acks[0].checkpoints, 1);
+        assert_eq!(session.shapes.len(), 2); // One inferred shape per Target.
+
+        // The drain published each document to the binding which captured it.
+        assert_eq!(
+            session
+                .publisher
+                .take_docs()
+                .into_iter()
+                .map(|(binding, _doc)| binding)
+                .collect::<Vec<_>>(),
+            [0, 1],
         );
 
-        let serve = tokio::spawn(async move {
-            let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
-            actor
-                .serve(
-                    ReceiverStream::new(conn_resp_rx),
-                    &mut controller_rx,
-                    fsm::Head::Idle(fsm::HeadIdle::default()),
-                    fsm::Tail::Recover(fsm::TailRecover {
-                        checkpoints: 0,
-                        ack_intents: BTreeMap::new(),
-                    }),
-                )
-                .await
-        });
-
-        // One checkpoint sequence: two documents, then a connector-state checkpoint.
-        conn_resp_tx
-            .send(captured(0, br#"{"id":"a0"}"#))
-            .await
-            .unwrap();
-        conn_resp_tx
-            .send(captured(1, br#"{"id":"b0"}"#))
-            .await
-            .unwrap();
-        conn_resp_tx
-            .send(checkpoint(br#"{"cursor":"lsn-9"}"#))
-            .await
-            .unwrap();
-
-        // The Acknowledge follows Drain → WriteStats → Persist, so its receipt
-        // proves the transaction committed.
-        let ack = actor_to_conn_rx.recv().await.unwrap();
-        assert_eq!(ack.acknowledge.unwrap().checkpoints, 1);
-
-        // Gracefully stop: the Tail finishes and Head steps to Stop. The connector
-        // response channel stays open (`conn_resp_tx` is held) so the connector
-        // never EOFs out from under the still-running session.
-        controller_tx
-            .send(Ok(proto::Capture {
-                stop: Some(proto::Stop {}),
-                ..Default::default()
-            }))
-            .unwrap();
-
-        let (db, shapes) = serve.await.unwrap().unwrap();
-        assert_eq!(shapes.len(), 2); // One inferred shape handed back per binding.
-
         // The committing Persist durably recorded the connector state.
-        let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();
+        let (_db, recover) = session.recover().await;
         assert_eq!(
             recover.connector_state_json.as_ref(),
             br#"{"cursor":"lsn-9"}"#
         );
+    }
+
+    /// A capture fanning N bindings onto M collections publishes each binding's
+    /// own combined documents and infers one schema per collection -- and does so
+    /// identically whether the spec names its collections indirectly or inline.
+    ///
+    /// Bindings which share a collection share its derived state: one combiner
+    /// validator, one publisher target, one inferred shape. That sharing is the
+    /// point (a task pays per collection, not per binding), and this is the
+    /// strongest statement it can make from outside. If it leaked -- a document
+    /// reduced against the wrong binding's accumulation, a target pointed at the
+    /// wrong collection, a widened shape attributed to the wrong target -- either
+    /// the documents below would be wrong, or the two spec forms would diverge.
+    #[tokio::test]
+    async fn fan_in_capture_publishes_per_binding_and_infers_per_collection() {
+        let indirect = fixture::capture_spec(M, &(0..N).map(|index| index % M).collect::<Vec<_>>());
+        let mut inline = indirect.clone();
+        fixture::into_inline(&mut inline);
+
+        // Targets key on the collection's journal identity, which both forms
+        // carry, so the forms are indistinguishable from outside.
+        let indirect = run_fan_in_session(indirect).await;
+        assert_eq!(indirect, run_fan_in_session(inline).await);
+
+        let (docs, stats, inferences) = indirect;
+
+        // Guard against the recordings agreeing because both are empty, and pin
+        // what each binding published as `(documents, summed value)`.
+        let mut published = BTreeMap::<usize, (usize, i64)>::new();
+
+        for (binding, doc) in &docs {
+            let doc: serde_json::Value = serde_json::from_str(doc).unwrap();
+            let entry = published.entry(*binding).or_default();
+
+            entry.0 += 1;
+            entry.1 += doc["value"].as_i64().unwrap();
+
+            assert_eq!(
+                doc[format!("from_collection_{}", binding % M)],
+                serde_json::json!(true),
+                "binding {binding} published a document of another collection: {doc}",
+            );
+        }
+        assert_eq!(
+            published,
+            BTreeMap::from([
+                // Bindings 0, 1 and 2 each captured `RUN` documents of one key,
+                // valued 1, 2 and 3. A capture combines *associatively*
+                // (`doc::combine`'s `is_full == false`), so a key group drains as
+                // its first document plus the reduction of the rest: two out for
+                // `RUN` in, summing to the binding's own value times the run.
+                (0, (2, RUN)),
+                (1, (2, 2 * RUN)),
+                (2, (2, 3 * RUN)),
+                // Collection-0's other bindings each captured one document, which
+                // stays its own however much machinery the four of them share.
+                (3, (1, 10)),
+                (6, (1, 100)),
+                (9, (1, 1000)),
+            ]),
+        );
+        assert_eq!(stats.len(), 1);
+
+        // One inference event per collection, each naming the last binding to
+        // update it -- including collection-2, whose shape merges binding 5's
+        // sourced schema with binding 2's document, applied in that order.
+        assert_eq!(
+            inferences
+                .iter()
+                .map(|(collection, binding, _schema)| (collection.as_str(), *binding))
+                .collect::<Vec<_>>(),
+            [
+                ("acmeCo/collection-0", Some(9)),
+                ("acmeCo/collection-1", Some(1)),
+                ("acmeCo/collection-2", Some(2)),
+            ],
+        );
+        assert!(
+            inferences[2].2.contains("sourced_only"),
+            "collection-2's inference merged the sourced schema: {}",
+            inferences[2].2,
+        );
+    }
+
+    /// Backfill lifecycle across a restart, for a target written by one binding
+    /// and for one written by two:
+    ///
+    /// - A Begin persists the active backfill -- unless its target is fan-in,
+    ///   where the Begin is suppressed and absence from `active_backfills` *is*
+    ///   the suppression decision, so recovery replays nothing and no
+    ///   `truncated-at` label or marker intent is ever built.
+    /// - A fresh session recovers what was persisted, a Complete removes it, and
+    ///   a Complete for a never-begun binding is an orphaned no-op. A suppressed
+    ///   backfill converges by that same orphaned path.
+    ///
+    /// `truncated_at` is 0 -- the recording publisher's no-op marker clock -- and
+    /// each backfill message is sealed by its own terminating Checkpoint.
+    #[tokio::test]
+    async fn serve_backfill_lifecycle() {
+        // The fan-in task's two bindings target one collection; the default
+        // task's target two, so neither of its targets is fan-in.
+        let mk_fan_in_task = || {
+            fixture::task(
+                &[
+                    ("test/collectionA", "stateA", "/_meta/uuid"),
+                    ("test/collectionA", "stateB", ""),
+                ],
+                b"{}",
+                true,
+            )
+        };
+        let cases: [(&str, fn() -> Task, BTreeMap<u32, u64>); 2] = [
+            (
+                "distinct targets",
+                || mk_task(true),
+                BTreeMap::from([(0, 0)]),
+            ),
+            ("fan-in target", mk_fan_in_task, BTreeMap::new()),
+        ];
+
+        for (case, mk_task, after_begin) in cases {
+            // A Begin persists nothing exactly when its target is fan-in.
+            assert_eq!(
+                mk_task().targets.iter().any(|target| target.fan_in),
+                after_begin.is_empty(),
+                "{case}: fixture",
+            );
+
+            let (db, recover) = run_capture_session(
+                mk_task(),
+                crate::shard::RocksDB::open(None).await.unwrap(),
+                BTreeMap::new(),
+                crate::TracingLogger,
+                vec![backfill_begin(0), checkpoint(br#"{"cursor":"1"}"#)],
+                1,
+            )
+            .await
+            .recover()
+            .await;
+
+            assert_eq!(recover.active_backfills, after_begin, "{case}: after begin");
+
+            // Binding 0's Complete removes what its Begin persisted (or takes the
+            // orphaned path, when the Begin was suppressed). Binding 1 never began
+            // either way, so its Complete is always orphaned.
+            let (_db, recover) = run_capture_session(
+                mk_task(),
+                db,
+                recover.active_backfills,
+                crate::TracingLogger,
+                vec![
+                    backfill_complete(0),
+                    checkpoint(br#"{"cursor":"2"}"#),
+                    backfill_complete(1),
+                    checkpoint(br#"{"cursor":"3"}"#),
+                ],
+                2,
+            )
+            .await
+            .recover()
+            .await;
+
+            assert_eq!(
+                recover.active_backfills,
+                BTreeMap::new(),
+                "{case}: after complete",
+            );
+            assert_eq!(recover.connector_state_json.as_ref(), br#"{"cursor":"3"}"#);
+        }
+    }
+
+    /// Truncated-at labels belong to shard zero alone, and the two shards which
+    /// start a session already holding `active_backfills` part ways on that:
+    ///
+    /// - Shard zero recovered mid-backfill, and must re-apply its labels on the
+    ///   first `ApplyTruncatedLabels` rather than skip -- the restart case a
+    ///   false `labels_dirty` seed would silently break.
+    /// - A non-zero shard inherited the same backfills through a mid-backfill
+    ///   split, and must not apply them at all: it never sees the
+    ///   BackfillComplete which would clear them.
+    #[tokio::test]
+    async fn recovered_backfills_apply_labels_on_shard_zero_only() {
+        for is_shard_zero in [true, false] {
+            let task = std::sync::Arc::new(mk_task(true));
+            let (mut actor, _connector_rx) = mk_actor(
+                &task,
+                BTreeMap::from([(0u32, 5u64)]), // recovered, or split-inherited
+                crate::shard::RocksDB::open(None).await.unwrap(),
+                is_shard_zero,
+                crate::TracingLogger,
+                RecordingPublisher::default(),
+            );
+
+            let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+            actor
+                .dispatch(fsm::Action::ApplyTruncatedLabels, &mut accumulator)
+                .unwrap();
+
+            assert_eq!(
+                actor.labels_apply_fut.is_some(),
+                is_shard_zero,
+                "labels applied by a shard with is_shard_zero={is_shard_zero}",
+            );
+        }
     }
 
     /// `observe_throttle` parks at most one split for a due journal, never
@@ -1031,9 +1433,6 @@ mod tests {
     /// terminal `ignore` set.
     #[tokio::test]
     async fn observe_throttle_split_dispatch() {
-        let (connector_tx, _actor_to_conn_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
-        let task = std::sync::Arc::new(mk_task(true));
-
         let spec = flow::CollectionSpec {
             name: "test/collectionA".to_string(),
             partition_template: Some(proto_gazette::broker::JournalSpec {
@@ -1042,21 +1441,13 @@ mod tests {
             }),
             ..Default::default()
         };
-        let publisher = crate::JournalPublisher::new_test_real([&spec]);
-        let shapes = task.binding_shapes_by_index(Default::default());
-
-        let mut actor = Actor::new(
+        let (mut actor, _connector_rx) = mk_actor(
+            &std::sync::Arc::new(mk_task(true)),
             BTreeMap::new(),
-            vec!["stateA".to_string()],
-            connector_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
-            true,
-            super::super::Metrics::new("test/shard"),
+            true, // is_shard_zero
             crate::TracingLogger,
-            publisher,
-            shapes,
-            task,
-            None,
+            crate::JournalPublisher::new_test_real([&spec]),
         );
 
         // Seed a policy under which the observed journal is immediately due.
@@ -1115,234 +1506,25 @@ mod tests {
         // `mk_task(true)` has two bindings (indices 0 and 1); index 2 is out of
         // range. An out-of-range binding from the connector must surface as a
         // clean error rather than panicking downstream in publisher indexing.
-        let (connector_tx, _conn_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
-        let db = crate::shard::RocksDB::open(None).await.unwrap();
-        let task = std::sync::Arc::new(mk_task(true));
-        let publisher = crate::publish::NoopPublisher;
-        let shapes = task.binding_shapes_by_index(Default::default());
-
-        let actor = Actor::new(
+        let (actor, _connector_rx) = mk_actor(
+            &std::sync::Arc::new(mk_task(true)),
             BTreeMap::new(),
-            vec!["stateA".to_string(), "stateB".to_string()],
-            connector_tx,
-            db,
+            crate::shard::RocksDB::open(None).await.unwrap(),
             true, // is_shard_zero
-            super::super::Metrics::new("test/shard"),
             crate::TracingLogger,
-            publisher,
-            shapes,
-            task,
-            None, // token_restart_at
+            RecordingPublisher::default(),
         );
 
         let mut ready = fsm::ConnectorRx::Eof;
-        for response in [
-            Response {
-                backfill_begin: Some(response::BackfillBegin { binding: 2 }),
-                ..Default::default()
-            },
-            Response {
-                backfill_complete: Some(response::BackfillComplete { binding: 2 }),
-                ..Default::default()
-            },
-        ] {
+        for response in [backfill_begin(2), backfill_complete(2)] {
             let err = actor
-                .on_connector_rx(&mut ready, Some(Ok(response)))
+                .on_connector_rx(&mut ready, Some(response))
                 .unwrap_err();
             assert!(
                 err.to_string().contains("out-of-range binding 2"),
                 "unexpected error: {err}",
             );
         }
-    }
-
-    /// Backfill lifecycle across a restart: a Begin persists the active backfill, a
-    /// fresh session recovers it, a Complete removes it, and an orphaned Complete
-    /// (never-begun binding) is a no-op. `truncated_at` is 0 — the preview
-    /// publisher's no-op marker clock. Each backfill message is sealed by its own
-    /// terminating Checkpoint.
-    #[tokio::test]
-    async fn serve_backfill_lifecycle() {
-        // One capture session over `db`: feed `responses`, drain `expect_acks`
-        // Acknowledges (one per committed marker transaction, so each commits
-        // before Stop), then Stop and return the db.
-        async fn run_capture_session(
-            db: crate::shard::RocksDB,
-            active_backfills: BTreeMap<u32, u64>,
-            responses: Vec<tonic::Result<Response>>,
-            expect_acks: usize,
-        ) -> crate::shard::RocksDB {
-            let (connector_tx, mut actor_to_conn_rx) =
-                mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
-            let (conn_resp_tx, conn_resp_rx) =
-                mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
-            let (controller_tx, controller_rx) =
-                mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
-
-            let task = std::sync::Arc::new(mk_task(true));
-            let publisher = crate::publish::NoopPublisher;
-            let shapes = task.binding_shapes_by_index(Default::default());
-
-            let actor = Actor::new(
-                active_backfills,
-                vec!["stateA".to_string(), "stateB".to_string()],
-                connector_tx,
-                db,
-                true,
-                super::super::Metrics::new("test/shard"),
-                crate::TracingLogger,
-                publisher,
-                shapes,
-                task,
-                None, // token_restart_at
-            );
-
-            let serve = tokio::spawn(async move {
-                let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
-                actor
-                    .serve(
-                        ReceiverStream::new(conn_resp_rx),
-                        &mut controller_rx,
-                        fsm::Head::Idle(fsm::HeadIdle::default()),
-                        fsm::Tail::Recover(fsm::TailRecover {
-                            checkpoints: 0,
-                            ack_intents: BTreeMap::new(),
-                        }),
-                    )
-                    .await
-            });
-
-            for response in responses {
-                conn_resp_tx.send(response).await.unwrap();
-            }
-            for _ in 0..expect_acks {
-                assert!(actor_to_conn_rx.recv().await.unwrap().acknowledge.is_some());
-            }
-
-            controller_tx
-                .send(Ok(proto::Capture {
-                    stop: Some(proto::Stop {}),
-                    ..Default::default()
-                }))
-                .unwrap();
-            let (db, _shapes) = serve.await.unwrap().unwrap();
-            db
-        }
-
-        let state_keys = || vec!["stateA".to_string(), "stateB".to_string()];
-
-        let db = run_capture_session(
-            crate::shard::RocksDB::open(None).await.unwrap(),
-            BTreeMap::new(),
-            vec![
-                Ok(Response {
-                    backfill_begin: Some(response::BackfillBegin { binding: 0 }),
-                    ..Default::default()
-                }),
-                checkpoint(br#"{"cursor":"1"}"#),
-            ],
-            1,
-        )
-        .await;
-        let (db, recover) = db.scan(state_keys()).await.unwrap();
-        assert_eq!(
-            recover.active_backfills,
-            BTreeMap::from([(0u32, 0u64)]),
-            "begin persisted the active backfill",
-        );
-
-        let db = run_capture_session(
-            db,
-            recover.active_backfills,
-            vec![
-                Ok(Response {
-                    backfill_complete: Some(response::BackfillComplete { binding: 0 }),
-                    ..Default::default()
-                }),
-                checkpoint(br#"{"cursor":"2"}"#),
-                Ok(Response {
-                    backfill_complete: Some(response::BackfillComplete { binding: 1 }),
-                    ..Default::default()
-                }),
-                checkpoint(br#"{"cursor":"3"}"#),
-            ],
-            2,
-        )
-        .await;
-        let (_db, recover) = db.scan(state_keys()).await.unwrap();
-        assert_eq!(
-            recover.active_backfills,
-            BTreeMap::new(),
-            "complete removed binding 0; orphaned complete for binding 1 was a no-op",
-        );
-    }
-
-    /// A shard recovered mid-backfill (non-empty `active_backfills`) re-applies its
-    /// truncated-at labels on the first `ApplyTruncatedLabels` rather than skipping
-    /// — the restart case a false `labels_dirty` seed would silently break.
-    #[tokio::test]
-    async fn recovered_active_backfills_reapply_labels() {
-        let (connector_tx, _connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
-        let task = std::sync::Arc::new(mk_task(true));
-        let publisher = crate::publish::NoopPublisher;
-        let shapes = task.binding_shapes_by_index(Default::default());
-
-        let mut actor = Actor::new(
-            BTreeMap::from([(0u32, 5u64)]), // recovered mid-backfill
-            vec!["stateA".to_string(), "stateB".to_string()],
-            connector_tx,
-            crate::shard::RocksDB::open(None).await.unwrap(),
-            true,
-            super::super::Metrics::new("test/shard"),
-            crate::TracingLogger,
-            publisher,
-            shapes,
-            task.clone(),
-            None, // token_restart_at
-        );
-
-        let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
-        actor
-            .dispatch(fsm::Action::ApplyTruncatedLabels, &mut accumulator)
-            .unwrap();
-        assert!(
-            actor.labels_apply_fut.is_some(),
-            "recovered active backfills must re-apply labels, not skip",
-        );
-    }
-
-    /// A non-shard-zero shard that inherited `active_backfills` via a mid-backfill
-    /// split must NOT apply truncated-at labels: it never sees the BackfillComplete
-    /// that would clear them.
-    #[tokio::test]
-    async fn non_shard_zero_skips_label_apply() {
-        let (connector_tx, _connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
-        let task = std::sync::Arc::new(mk_task(true));
-        let publisher = crate::publish::NoopPublisher;
-        let shapes = task.binding_shapes_by_index(Default::default());
-
-        let mut actor = Actor::new(
-            BTreeMap::from([(0u32, 5u64)]), // inherited mid-backfill via a split
-            vec!["stateA".to_string(), "stateB".to_string()],
-            connector_tx,
-            crate::shard::RocksDB::open(None).await.unwrap(),
-            false, // not shard zero
-            super::super::Metrics::new("test/shard"),
-            crate::TracingLogger,
-            publisher,
-            shapes,
-            task.clone(),
-            None, // token_restart_at
-        );
-
-        let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
-        actor
-            .dispatch(fsm::Action::ApplyTruncatedLabels, &mut accumulator)
-            .unwrap();
-        assert!(
-            actor.labels_apply_fut.is_none(),
-            "a non-shard-zero shard must not apply truncated-at labels",
-        );
     }
 
     /// `parse_sourced_schema` resolves a valid closed schema to its binding and

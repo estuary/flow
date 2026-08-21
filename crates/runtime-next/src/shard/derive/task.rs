@@ -16,9 +16,10 @@ pub(super) struct Task {
     pub key_extractors: Vec<doc::Extractor>,
     /// Salt used for redacting sensitive fields when combining.
     pub redact_salt: bytes::Bytes,
-    /// Source metadata of each transform (input binding), indexed by transform
-    /// index. Used to bound `C:Read` indices and to re-validate source documents.
+    /// Transforms of the derivation.
     pub transforms: Vec<Transform>,
+    /// Source collections read by the task's transforms.
+    pub sources: Vec<Source>,
     /// Stable RocksDB `state_key` of each transform, indexed by binding index.
     /// Used to map the leader's frontier binding indices to the `FC:`/`FH:`
     /// key layout.
@@ -33,37 +34,35 @@ pub(super) struct Task {
 pub(super) struct Transform {
     /// Name of this transform.
     pub transform: String,
-    /// Source collection name.
-    pub collection: String,
-    /// Schema the shuffle read pipeline validates source documents against:
-    /// the source collection's read schema, or its write schema when no read
-    /// schema is defined (mirroring `shuffle::binding::build_schema`).
-    pub schema_json: bytes::Bytes,
+    /// Index of this transform's source collection within [`Task::sources`].
+    pub source: u32,
     /// Extractors of this transform's shuffle key, applied to source documents
     /// to populate `Read.shuffle.key_json` for JSON connectors. Empty for a
     /// lambda-computed key.
     pub shuffle_key_extractors: Vec<doc::Extractor>,
 }
 
+/// A source collection, read by one or more transforms of the derivation.
+///
+/// Sources follow the spec's declared indirection: transforms sharing a
+/// `collection_index` share one Source, while a transform of an inline-form
+/// spec carries no index and is its own Source.
+pub(super) struct Source {
+    /// Source collection name.
+    pub collection_name: String,
+    /// Schema the shuffle read pipeline validates source documents against:
+    /// the source collection's read schema, or its write schema when no read
+    /// schema is defined (mirroring `shuffle::Source::new`).
+    pub read_schema_json: bytes::Bytes,
+}
+
 /// Build the runtime [`Transform`] for a single derivation transform (input binding).
 fn build_transform(
     t: &flow::collection_spec::derivation::Transform,
+    collection: &flow::CollectionSpec,
+    source: u32,
     ser_policy: &doc::SerPolicy,
 ) -> anyhow::Result<Transform> {
-    let collection = t
-        .collection
-        .as_ref()
-        .context("transform missing source collection")?;
-
-    // Prefer the read schema, falling back to the write schema, so
-    // re-validation uses the same schema the shuffle read pipeline
-    // validated against when it set `FLAGS_SCHEMA_VALID`.
-    let schema_json = if collection.read_schema_json.is_empty() {
-        collection.write_schema_json.clone()
-    } else {
-        collection.read_schema_json.clone()
-    };
-
     // Resolve the extractors of a transform's shuffle key, applied to source
     // documents to populate `Read.shuffle.key_json` for JSON connectors.
     //
@@ -80,10 +79,26 @@ fn build_transform(
 
     Ok(Transform {
         transform: t.name.clone(),
-        collection: collection.name.clone(),
-        schema_json,
+        source,
         shuffle_key_extractors,
     })
+}
+
+/// Build the runtime [`Source`] for a source collection.
+fn build_source(collection: &flow::CollectionSpec) -> Source {
+    // Prefer the read schema, falling back to the write schema, so
+    // re-validation uses the same schema the shuffle read pipeline
+    // validated against when it set `FLAGS_SCHEMA_VALID`.
+    let read_schema_json = if collection.read_schema_json.is_empty() {
+        collection.write_schema_json.clone()
+    } else {
+        collection.read_schema_json.clone()
+    };
+
+    Source {
+        collection_name: collection.name.clone(),
+        read_schema_json,
+    }
 }
 
 impl Task {
@@ -103,11 +118,13 @@ impl Task {
             anyhow::bail!("derived collection key cannot be empty");
         }
 
+        let derivation = derivation.as_ref().context("missing derivation")?;
+
         let flow::collection_spec::Derivation {
             transforms,
             redact_salt,
             ..
-        } = derivation.as_ref().context("missing derivation")?;
+        } = derivation;
 
         // The built `Transform.state_key` is intentionally left unpopulated until the
         // V2 derivation migration completes (the frozen V1 derive connectors reject the
@@ -121,10 +138,27 @@ impl Task {
 
         let ser_policy = doc::SerPolicy::noop();
 
-        let sources = transforms
-            .iter()
-            .map(|t| build_transform(t, &ser_policy))
-            .collect::<anyhow::Result<Vec<Transform>>>()?;
+        let mut transforms = Vec::new();
+        let mut sources = Vec::<Source>::new();
+        let mut sources_by_identity = std::collections::BTreeMap::<u32, u32>::new();
+
+        for (t, resolved) in derivation.resolved_transforms() {
+            let (collection, identity) = resolved.context("transform missing source collection")?;
+
+            let source = match identity.and_then(|i| sources_by_identity.get(&i)) {
+                Some(&source) => source,
+                None => {
+                    let source = sources.len() as u32;
+                    sources.push(build_source(collection));
+
+                    if let Some(identity) = identity {
+                        sources_by_identity.insert(identity, source);
+                    }
+                    source
+                }
+            };
+            transforms.push(build_transform(t, collection, source, &ser_policy)?);
+        }
 
         let partition_template = partition_template
             .as_ref()
@@ -141,7 +175,7 @@ impl Task {
             .context("could not build a derived collection schema validator")?;
         let mut write_shape = doc::Shape::infer(validator.schema(), validator.schema_index());
         // Stamp the generation id so inferred-schema updates carry it (mirrors
-        // capture `Task::binding_shapes_by_index`).
+        // capture `Task::shapes_by_target`).
         write_shape.annotations.insert(
             crate::X_GENERATION_ID.to_string(),
             serde_json::Value::String(collection_generation_id.to_string()),
@@ -152,33 +186,33 @@ impl Task {
             document_uuid_ptr,
             key_extractors,
             redact_salt: redact_salt.clone(),
-            transforms: sources,
+            transforms,
+            sources,
             binding_state_keys,
             write_schema_json: write_schema_json.clone(),
             write_shape,
         })
     }
 
-    /// Build a source-document validator per transform.
+    /// Build a source-document validator per Source.
     pub fn source_validators(&self) -> anyhow::Result<Vec<doc::Validator>> {
-        self.transforms
+        self.sources
             .iter()
             .map(
-                |Transform {
-                     collection: collection_name,
-                     transform: transform_name,
-                     schema_json,
-                     shuffle_key_extractors: _,
+                |Source {
+                     collection_name,
+                     read_schema_json,
+                     ..
                  }| {
-                    let built_schema =
-                        doc::validation::build_bundle(schema_json).with_context(|| {
+                    let built_schema = doc::validation::build_bundle(read_schema_json)
+                        .with_context(|| {
                             format!(
                                 "source collection {collection_name} schema is not a JSON schema",
                             )
                         })?;
                     doc::Validator::new(built_schema).with_context(|| {
                         format!(
-                            "could not build a schema validator for transform {transform_name}",
+                            "could not build a schema validator for collection {collection_name}",
                         )
                     })
                 },

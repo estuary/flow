@@ -158,6 +158,17 @@ where
                 )
                 .await?;
             }
+
+            // A Stop addressed to a session which has already returned here.
+            // The controller's teardown select observes its term cancellation
+            // and our Stopped concurrently — a publish cancels every shard's
+            // term at once, and also ends every session, so both are ready
+            // together and either can win. The session it asked us to stop is
+            // over, so the Stop is already satisfied; failing the stream over
+            // it instead strands the shard, because every later session on
+            // this stream then fails its Join.
+            proto::Materialize { stop: Some(_), .. } => continue,
+
             request => return Err(verify.fail_msg(request)),
         };
     }
@@ -263,8 +274,6 @@ where
 
     let startup::Startup {
         accumulator,
-        bindings,
-        binding_state_keys,
         mut connector_rx,
         connector_tx,
         db,
@@ -274,6 +283,7 @@ where
         leader_tx,
         max_keys,
         shuffle_reader,
+        task,
         token_restart_at,
     } = startup::run(
         controller_rx,
@@ -294,15 +304,14 @@ where
     handler.set_phase("running");
 
     let result = super::actor::Actor::new(
-        bindings,
-        binding_state_keys,
+        codec,
         connector_tx,
         db,
         disable_load_optimization,
-        codec,
         leader_tx,
         max_keys,
         metrics,
+        std::sync::Arc::new(task),
         token_restart_at,
     )
     .serve(
@@ -331,4 +340,59 @@ where
     }));
 
     Ok(db)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let service = crate::shard::Service::new(
+            crate::Plane::Local,
+            String::new(),
+            None,
+            "test/task".to_string(),
+            crate::publish::RecordingPublisherFactory,
+            crate::TracingLoggerFactory,
+            service_kit::Registry::new(),
+            None,
+        );
+
+        let (controller_tx, controller_rx) = mpsc::unbounded_channel();
+        let mut responses = service.spawn_materialize(
+            tokio_stream::wrappers::UnboundedReceiverStream::new(controller_rx),
+        );
+
+        controller_tx
+            .send(Ok(proto::Materialize {
+                session_loop: Some(proto::SessionLoop {
+                    rocksdb_descriptor: None,
+                }),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        // A Stop can reach the session loop after the session it addressed has
+        // already ended: the controller's teardown select observes its term
+        // cancellation and our Stopped concurrently, and a publish makes both
+        // happen at once, so either can win. The session is over either way,
+        // and the Stop is satisfied by that.
+        controller_tx
+            .send(Ok(proto::Materialize {
+                stop: Some(proto::Stop {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        std::mem::drop(controller_tx);
+
+        let mut collected = Vec::new();
+        while let Some(response) = responses.recv().await {
+            collected.push(response);
+        }
+        assert!(
+            collected.is_empty(),
+            "session loop must absorb the Stop and close cleanly, got {collected:?}",
+        );
+    }
 }

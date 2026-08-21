@@ -9,7 +9,7 @@ pub(crate) use handler::serve;
 pub(crate) struct Metrics {
     /// Transactions completed by this shard session.
     pub(super) transactions: metrics::Counter,
-    /// Per-binding inferred schema updates logged by drain.
+    /// Per-collection inferred schema updates logged by drain.
     pub(super) inferred_schema_updates: metrics::Counter,
 }
 
@@ -25,7 +25,7 @@ impl Metrics {
             metrics::describe_counter!(
                 "runtime_shard_capture_inferred_schema_updates",
                 metrics::Unit::Count,
-                "per-binding inferred schema updates logged by drain",
+                "per-collection inferred schema updates logged by drain",
             );
         });
 

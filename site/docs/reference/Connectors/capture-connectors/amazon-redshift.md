@@ -2,7 +2,7 @@
 
 This connector captures data from your Amazon Redshift cluster into Estuary collections.
 
-:::warning
+:::deprecated
 This connector is deprecated. For the best experience, we recommend using our native [Redshift batch connector](./redshift-batch.md) instead.
 :::
 

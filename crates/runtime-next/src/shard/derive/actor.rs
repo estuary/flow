@@ -1,4 +1,4 @@
-use super::{drain, scan, task::Task};
+use super::{Task, drain, scan};
 use crate::{patches, proto};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, future::BoxFuture};
@@ -156,6 +156,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             } else if let Phase::Scanning(mut scanner) = phase {
                 if scanner.step(
                     &self.task.transforms,
+                    &self.task.sources,
                     &mut source_validators,
                     self.codec,
                     &mut self.connector_pending,
@@ -586,7 +587,7 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
 
 #[cfg(test)]
 mod tests {
-    use super::super::task::Transform;
+    use super::super::{Source, Transform};
     use super::*;
     use proto_flow::derive::response;
     use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -599,9 +600,12 @@ mod tests {
             redact_salt: bytes::Bytes::new(),
             transforms: vec![Transform {
                 transform: "fromSrc".to_string(),
-                collection: "test/source".to_string(),
-                schema_json: bytes::Bytes::from_static(b"{}"),
+                source: 0,
                 shuffle_key_extractors: Vec::new(),
+            }],
+            sources: vec![Source {
+                collection_name: "test/source".to_string(),
+                read_schema_json: bytes::Bytes::from_static(b"{}"),
             }],
             binding_state_keys: vec!["fromSrc".to_string()],
             write_schema_json: bytes::Bytes::from_static(b"{}"),
@@ -727,7 +731,7 @@ mod tests {
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
             crate::TracingLogger,
-            crate::publish::NoopPublisher,
+            crate::publish::RecordingPublisher::default(),
             task,
             write_shape,
         );

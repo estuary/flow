@@ -32,7 +32,7 @@ pub struct ShardTemplate {
     /// may process documents before it must flush and commit.
     /// It may run for less time if there aren't additional ready documents for
     /// it to process.
-    /// If not set, the maximum duration defaults to five minutes for materializations,
+    /// If not set, the maximum duration defaults to twenty minutes for materializations,
     /// and one second for captures and derivations.
     /// EXPERIMENTAL: this field MAY be removed.
     #[serde(
@@ -101,6 +101,17 @@ pub struct ShardTemplate {
 /// task runtime. It's emitted as the `estuary.dev/flag/enable-runtime-v2` shard
 /// label (`labels::RUNTIME_V2_FLAG`) at build time.
 pub const ENABLE_RUNTIME_V2: &str = "enable-runtime-v2";
+
+/// The `indirect-specs` [`ShardTemplate::flags`] key, which asserts that the
+/// task's built spec, its Validate and Apply requests, every hop within the
+/// data plane, *and its connector* all handle indirected collections: a
+/// per-message `linked_collections` table which bindings name by index,
+/// instead of a full `CollectionSpec` inlined in every binding.
+///
+/// The assertion is end-to-end and its only valid value is `"true"`. A
+/// connector which hasn't been updated simply doesn't work with a task that
+/// truly needs this flag -- such tasks don't function today in any case.
+pub const INDIRECT_SPECS: &str = "indirect-specs";
 
 impl ShardTemplate {
     pub fn example() -> Self {

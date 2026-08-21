@@ -1,8 +1,10 @@
 
 # Shopify
 
-:::warning
-Shopify is deprecating their REST API in favor of their GraphQL API. We recommend using our [Shopify GraphQL connector](./shopify-native.md) whenever possible.
+:::deprecated
+This connector is deprecated and no longer receives updates, as Shopify has deprecated their REST API
+in favor of their GraphQL API. We recommend using our [Shopify GraphQL connector](./shopify-native.md)
+instead.
 :::
 
 This connector captures data from [Shopify's REST Admin API](https://shopify.dev/docs/api/admin-rest).

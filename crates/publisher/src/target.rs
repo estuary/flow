@@ -2,18 +2,18 @@ use anyhow::Context;
 use proto_flow::flow;
 use proto_gazette::broker;
 
-/// Metadata for routing publications to a specific journal.
-pub enum Binding {
-    /// `Mapped` bindings dynamically resolve documents to one of a collection's
+/// Metadata for routing publications to a journal destination.
+pub enum Target {
+    /// `Mapped` targets dynamically resolve documents to one of a collection's
     /// physical partitions, creating partitions on-demand.
-    Mapped(MappedBinding),
-    /// `Fixed` bindings target a single, pre-existing journal by name.
-    Fixed(FixedBinding),
+    Mapped(MappedTarget),
+    /// `Fixed` targets publish to a single, pre-existing journal by name.
+    Fixed(FixedTarget),
 }
 
 /// Routes documents to a collection's physical partitions via key hashing
 /// and partition-field extraction.
-pub struct MappedBinding {
+pub struct MappedTarget {
     /// Target collection name (for logging/debugging).
     pub collection: models::Collection,
     /// Pre-built key extractors for the collection key pointers.
@@ -24,40 +24,22 @@ pub struct MappedBinding {
     pub partition_extractors: Vec<doc::Extractor>,
     /// Template for partitions of this collection.
     pub partitions_template: broker::JournalSpec,
-    /// Maximum number of allowed partitions for this binding.
+    /// Maximum number of allowed partitions for this target.
     pub partitions_limit: usize,
     /// Collection partitions prefix ("{partitions_template.name}/").
     pub partitions_prefix: String,
 }
 
 /// Routes documents to a single named journal that already exists.
-pub struct FixedBinding {
-    /// Journal to which the binding publishes.
+pub struct FixedTarget {
+    /// Journal to which the target publishes.
     pub journal: String,
 }
 
-impl Binding {
-    /// Build Bindings for a CaptureSpec, one per active capture binding.
-    pub fn from_capture_spec(spec: &flow::CaptureSpec) -> anyhow::Result<Vec<Self>> {
-        spec.bindings
-            .iter()
-            .enumerate()
-            .map(|(index, binding)| {
-                let collection_spec = binding
-                    .collection
-                    .as_ref()
-                    .with_context(|| format!("capture binding {index} missing collection"))?;
-
-                Self::from_collection_spec(collection_spec).with_context(|| {
-                    format!("building binding for collection {}", collection_spec.name)
-                })
-            })
-            .collect()
-    }
-
-    /// Build a Mapped Binding from a built CollectionSpec.
+impl Target {
+    /// Build a Mapped Target from a built CollectionSpec.
     ///
-    /// The Binding authorizes to and watches all partitions of the collection.
+    /// The Target authorizes to and watches all partitions of the collection.
     pub fn from_collection_spec(spec: &flow::CollectionSpec) -> anyhow::Result<Self> {
         let flow::CollectionSpec {
             name,
@@ -90,7 +72,7 @@ impl Binding {
             100
         };
 
-        Ok(Self::Mapped(MappedBinding {
+        Ok(Self::Mapped(MappedTarget {
             collection: models::Collection::new(name),
             key_extractors,
             partition_fields: partition_fields.clone(),
@@ -101,20 +83,20 @@ impl Binding {
         }))
     }
 
-    /// Build a Fixed Binding that publishes to a single named journal.
-    /// The binding skips the partitions watch and partition-mapping machinery.
+    /// Build a Fixed Target that publishes to a single named journal.
+    /// The target skips the partitions watch and partition-mapping machinery.
     pub fn for_fixed_journal(journal: impl Into<String>) -> Self {
-        Self::Fixed(FixedBinding {
+        Self::Fixed(FixedTarget {
             journal: journal.into(),
         })
     }
 
-    /// AuthZ object string for this binding's lazy journal Client. For Mapped
-    /// bindings this is the partitions prefix; for Fixed it's the journal name.
+    /// AuthZ object string for this target's lazy journal Client. For Mapped
+    /// targets this is the partitions prefix; for Fixed it's the journal name.
     pub(crate) fn authz_object(&self) -> &str {
         match self {
-            Self::Mapped(b) => &b.partitions_prefix,
-            Self::Fixed(b) => &b.journal,
+            Self::Mapped(t) => &t.partitions_prefix,
+            Self::Fixed(t) => &t.journal,
         }
     }
 }

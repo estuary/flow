@@ -48,9 +48,18 @@ pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Bindi
         });
     }
 
+    let (spec_bindings, spec_validators): (Vec<_>, Vec<_>) = specs
+        .into_iter()
+        .enumerate()
+        .map(|(index, (is_full, key, name, validator))| {
+            ((is_full, key, index as u32), (name, validator))
+        })
+        .unzip();
+
     Ok((
         Accumulator::new(doc::combine::Spec::with_bindings(
-            specs.into_iter(),
+            spec_bindings,
+            spec_validators,
             Vec::new(),
         ))?,
         bindings,

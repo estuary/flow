@@ -65,6 +65,7 @@ impl gazette::journal::list::Subscriber for Subscriber {
 
 pub fn spawn_listing(
     binding: &crate::Binding,
+    source: &crate::Source,
     client: gazette::journal::Client,
     tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
     cancel: tokens::CancellationToken,
@@ -83,7 +84,7 @@ pub fn spawn_listing(
         gazette::journal::list::SubscriberFold::new_filtering_suspended(subscriber),
     );
 
-    let collection = binding.collection.clone();
+    let collection = source.collection.clone();
     let binding = binding.index;
 
     let list_watch = async move {

@@ -382,10 +382,116 @@ To configure this option:
 
 4. Fill out the "Minimum Backfill XID" or "Maximum Backfill XID" field with the `xmin` value you retrieved.
 
-5. Click "Backfill" and make sure that "incremental" is selected in the drop down.
+5. Click "Backfill" and make sure that "Incremental backfill (advanced)" is selected in the drop-down.
 
 6. Save and publish your changes.
 
 7. After the backfill completes, edit the capture again and clear the "Minimum Backfill XID" / "Maximum Backfill XID" field, then save and publish. The XID is only applied when a backfill is triggered, so it has no effect during normal CDC operation — but leaving it in place means that any future backfill (intentional or otherwise) will be silently limited to rows above/below the old transaction ID, potentially missing data. Clearing it ensures future backfills start from a clean state.
 
 In rare cases, this method may not work as expected, as in situations where a database has already filled up its entire `xmin` space. In such cases of `xmin` wrapping, using both Minimum and Maximum Backfill XID fields can help narrow down a specific range to backfill.
+
+### Additional Backfill Filters
+
+The PostgreSQL, MySQL, MariaDB, SQL Server, and Oracle CDC captures support an
+**Additional Backfill Filter** option on each binding, under the binding's
+Advanced Options. The filter is a SQL expression which is ANDed in the `WHERE`
+clause of every backfill query for that table. Rows which the filter excludes
+are never backfilled. Replication of ongoing changes is unaffected.
+
+This is useful when a table must be re-backfilled but application knowledge can
+identify which rows are worth capturing. For example, if a database became
+unreachable for long enough that it deleted replication data the capture still
+needed, recovery would normally require a full backfill of all tables. But if
+some large table is known to be append-only or have useful change timestamps,
+a filter like `id > 123456` or `created_at > '2026-08-01' OR updated_at > '2026-08-01'`
+can avoid backfilling rows which are already correct downstream.
+
+:::warning
+This is an expert-level option. The filter expression is used in queries
+verbatim and is not validated by Estuary: an invalid expression will cause
+backfill queries to fail, and an incorrect one may cause rows to be silently
+missing from the backfill. Contact [Estuary support](mailto:support@estuary.dev)
+for assistance.
+:::
+
+To configure this option:
+
+1. In the Estuary dashboard, edit the capture and open the configuration of the
+   relevant binding.
+2. Expand **Advanced Options** and fill out the "Additional Backfill Filter"
+   field.
+3. Trigger a backfill of that binding, making sure "Incremental backfill" is
+   selected in the backfill drop-down, and publish.
+
+   Selecting a [Dataflow Reset](#dataflow-reset) instead would drop the
+   filter-excluded rows from destination tables entirely, so only choose that
+   if a filtered subset is the intended end state.
+
+   A publication which sets or changes the filter must also trigger a backfill
+   of that binding, and will otherwise fail validation.
+4. After the backfill completes, clear the field and publish again. Clearing it
+   does not require another backfill. This prevents a stale filter from being
+   applied to future backfills by mistake.
+
+#### Performance Considerations
+
+Backfill progress is tracked using the rows each query actually returns, so a
+backfill's cursor only advances when rows come back from the database. A filter
+which excludes a large span of the table without letting the database skip past
+it (typically because it filters on non-indexed columns) can spend a long time
+scanning over excluded regions without returning anything. If such a query is
+repeatedly interrupted by a statement timeout or task restart before any rows
+come back, that backfill makes no progress.
+
+Which mitigation is appropriate depends on your goal:
+
+- If you only need to reduce the volume of captured data and a full-table scan
+  is acceptable, add a random-sampling term to the filter.
+
+  For instance, in PostgreSQL a timestamp clause `updated_at > '2026-08-01'`
+  could be modified to `(updated_at > '2026-08-01') OR (RANDOM() < 0.001)`.
+  This samples roughly 0.1% of all rows in the table, which provides a steady
+  trickle of results so progress is maintained even across fully-excluded spans
+  of the table. Note that these sampled rows will be captured into collections
+  and pushed to destinations just like any other backfill row.
+
+- If you need the backfill to run faster or more efficiently than a full-table
+  scan, write the filter so the database can serve it with an index, and don't
+  add a sampling term, since sampling itself forces the database to scan every
+  row.
+
+  You should verify that the resulting backfill query actually uses the indexes
+  as intended, it is possible that the query planner may still decide to perform
+  a full-table scan.
+
+The random-sampling expression is database-specific:
+- **PostgreSQL:** `RANDOM() < 0.001`
+- **MySQL / MariaDB:** `RAND() < 0.001`
+- **SQL Server:** `RAND(CHECKSUM(NEWID())) < 0.001`
+- **Oracle:** `DBMS_RANDOM.VALUE < 0.001`
+
+Random sampling must not be used for tables which backfill in the
+`Without Primary Key` mode on MySQL or SQL Server. Those backfills paginate by
+row offset, and a sampling term changes which rows match from one query to the
+next, which shifts every row's offset and can skip rows entirely. Keyed
+backfills on all systems, and `Without Primary Key` backfills on PostgreSQL and
+Oracle (which paginate by physical location ranges instead), are unaffected.
+
+#### Edge Cases
+
+- A binding with a backfill filter always backfills in the normal (unfiltered
+  replication) mode, and combining a filter with an explicit `Precise`
+  [backfill mode](#resource-configuration-backfill-modes) setting fails
+  validation. Precise backfills drop replication events for rows beyond the
+  backfill cursor, on the assumption that the backfill will observe those rows
+  later. A filter could violate that assumption for the rows it excludes, in
+  which case changes to those rows during the backfill would be lost entirely,
+  rather than merely not re-captured.
+- A filter on a binding in the `Only Changes` backfill mode has no effect,
+  since that mode performs no backfill queries.
+- A filter value which is non-empty but contains only whitespace fails
+  validation, since it's usually a failed attempt to clear the field. If it
+  counted as a set filter, the resulting errors would guide the user into an
+  unnecessary and irreversible backfill.
+- In PostgreSQL captures, the filter combines with the XID-filtered backfill
+  settings described above when both are set.

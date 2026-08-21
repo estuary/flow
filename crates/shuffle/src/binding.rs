@@ -11,8 +11,8 @@ use proto_gazette::{broker, uuid};
 pub struct Binding {
     /// Index of this Binding within the task.
     pub index: u16,
-    /// Source collection name (for logging/debugging).
-    pub collection: models::Collection,
+    /// Index of this Binding's source collection within the task's Sources.
+    pub source: u32,
     /// Should documents be filtered on their r-clocks?
     ///
     /// Intuitively, the purpose of r-clock filtering is to enable scale-out of
@@ -49,8 +49,6 @@ pub struct Binding {
     pub shuffle_key_partition_fields: Option<Vec<String>>,
     /// Partition selector for filtering source collection journals.
     pub partition_selector: broker::LabelSelector,
-    /// JSON pointer for extracting document UUIDs.
-    pub source_uuid_ptr: json::Pointer,
     /// True if shuffle key is dynamically computed via a lambda function.
     pub uses_lambda: bool,
     /// True if shuffle key equals the source collection key.
@@ -66,48 +64,157 @@ pub struct Binding {
     /// Assigned as ascending integers by walking bindings in index order
     /// and identifying unique (priority, read_delay) tuples.
     pub cohort: u32,
-    /// Sorted partition field names for this binding's source collection.
+}
+
+/// Source is a source collection read by one or more Bindings of a task.
+///
+/// Sources follow the spec's declared indirection: bindings sharing a
+/// `collection_index` share one Source, while a binding of an inline-form spec
+/// carries no index and is its own Source.
+#[derive(Debug)]
+pub struct Source {
+    /// Source collection name (for logging/debugging).
+    pub collection: models::Collection,
+    /// JSON pointer for extracting document UUIDs.
+    pub uuid_ptr: json::Pointer,
+    /// Sorted partition field names of the collection.
     /// Used to build partition filters for hint projection.
     pub partition_fields: Vec<String>,
-    /// Prefix of journal partition names for this binding's source collection,
-    /// including a trailing '/'. Used to build the hint index and gazette clients.
+    /// Prefix of journal partition names of the collection, including a
+    /// trailing '/'. Used to build the hint index and gazette clients.
     pub partition_prefix: Box<str>,
 }
 
+impl Source {
+    /// Build the Source for `collection`, returning it with the Validator and
+    /// inferred Shape of its schema.
+    fn new(
+        collection: &flow::CollectionSpec,
+    ) -> anyhow::Result<(Self, doc::Validator, doc::Shape)> {
+        let partition_template_name = collection
+            .partition_template
+            .as_ref()
+            .context("missing partition template")?
+            .name
+            .as_str();
+
+        // Read documents are validated against the read schema,
+        // or the write schema when no read schema is defined.
+        let bundle = if !collection.read_schema_json.is_empty() {
+            &collection.read_schema_json
+        } else {
+            &collection.write_schema_json
+        };
+        let schema = doc::validation::build_bundle(bundle)
+            .with_context(|| format!("parsing schema of collection {}", collection.name))?;
+        let validator = doc::validation::Validator::new(schema)
+            .with_context(|| format!("indexing schema of collection {}", collection.name))?;
+        let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
+
+        Ok((
+            Self {
+                collection: models::Collection::new(&collection.name),
+                uuid_ptr: json::Pointer::from_str(&collection.uuid_ptr),
+                partition_fields: collection.partition_fields.clone(),
+                partition_prefix: format!("{partition_template_name}/").into(),
+            },
+            validator,
+            shape,
+        ))
+    }
+}
+
+/// Resolve `collection` to its Source, building one when it's first referenced.
+/// `validators` and `shapes` parallel `sources`, holding each schema's
+/// Validator and inferred Shape.
+fn resolve_source(
+    sources: &mut Vec<Source>,
+    validators: &mut Vec<doc::Validator>,
+    shapes: &mut Vec<doc::Shape>,
+    by_identity: &mut std::collections::BTreeMap<u32, u32>,
+    collection: &flow::CollectionSpec,
+    identity: Option<u32>,
+) -> anyhow::Result<u32> {
+    if let Some(&source) = identity.and_then(|i| by_identity.get(&i)) {
+        return Ok(source);
+    }
+    let (source, validator, shape) = Source::new(collection)?;
+    sources.push(source);
+    validators.push(validator);
+    shapes.push(shape);
+
+    let index = sources.len() as u32 - 1;
+    if let Some(identity) = identity {
+        by_identity.insert(identity, index);
+    }
+    Ok(index)
+}
+
 impl Binding {
-    /// Extract the bindings and per-binding validators of a shuffle::Task.
-    /// Validators are returned separately so that callers can store them independently
-    /// (e.g. on SliceActor) or discard them (e.g. SessionActor).
-    pub fn from_task(task: &shuffle::Task) -> anyhow::Result<(Vec<Self>, Vec<doc::Validator>)> {
-        let pairs = match &task.task {
+    /// Extract the Bindings, Sources, and per-Source document Validators of a
+    /// shuffle::Task. Validators parallel `sources` and are indexed by
+    /// `Binding::source`. Callers which don't validate read documents (the
+    /// Session handler) simply drop them: building a Validator is not extra
+    /// work, because inferring each source's Shape requires one regardless.
+    pub fn from_task(
+        task: &shuffle::Task,
+    ) -> anyhow::Result<(Vec<Self>, Vec<Source>, Vec<doc::Validator>)> {
+        let mut bindings = Vec::new();
+        let mut sources = Vec::<Source>::new();
+        let mut validators = Vec::<doc::Validator>::new();
+        let mut shapes = Vec::<doc::Shape>::new();
+        let mut by_identity = std::collections::BTreeMap::<u32, u32>::new();
+
+        match &task.task {
             Some(shuffle::task::Task::Derivation(collection_spec)) => {
                 let derivation = collection_spec
                     .derivation
                     .as_ref()
                     .context("CollectionSpec missing derivation")?;
 
-                let pairs = derivation
-                    .transforms
-                    .iter()
-                    .enumerate()
-                    .map(|(index, transform)| {
-                        Self::from_derivation_transform(index as u16, transform)
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
+                guard_index_width("derivation", derivation.transforms.len())?;
 
-                pairs
+                for (index, (transform, resolved)) in derivation.resolved_transforms().enumerate() {
+                    let (collection, identity) = resolved.context("missing source collection")?;
+                    let source = resolve_source(
+                        &mut sources,
+                        &mut validators,
+                        &mut shapes,
+                        &mut by_identity,
+                        collection,
+                        identity,
+                    )?;
+                    bindings.push(Self::from_derivation_transform(
+                        index as u16,
+                        transform,
+                        collection,
+                        source,
+                        &shapes[source as usize],
+                    )?);
+                }
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
-                let pairs = materialization
-                    .bindings
-                    .iter()
-                    .enumerate()
-                    .map(|(index, binding)| {
-                        Self::from_materialization_binding(index as u16, binding)
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
+                guard_index_width("materialization", materialization.bindings.len())?;
 
-                pairs
+                for (index, (binding, resolved)) in materialization.resolved_bindings().enumerate()
+                {
+                    let (collection, identity) = resolved.context("missing source collection")?;
+                    let source = resolve_source(
+                        &mut sources,
+                        &mut validators,
+                        &mut shapes,
+                        &mut by_identity,
+                        collection,
+                        identity,
+                    )?;
+                    bindings.push(Self::from_materialization_binding(
+                        index as u16,
+                        binding,
+                        collection,
+                        source,
+                        &shapes[source as usize],
+                    )?);
+                }
             }
             Some(shuffle::task::Task::CollectionPartitions(collection_partitions)) => {
                 let shuffle::CollectionPartitions {
@@ -125,33 +232,42 @@ impl Binding {
                     .as_ref()
                     .context("CollectionPartitions missing partition selector")?;
 
-                let pairs = vec![Self::from_collection_partitions(
+                let source = resolve_source(
+                    &mut sources,
+                    &mut validators,
+                    &mut shapes,
+                    &mut by_identity,
+                    collection_spec,
+                    None,
+                )?;
+                bindings.push(Self::from_collection_partitions(
                     collection_spec,
                     partition_selector,
                     not_before.as_ref(),
                     not_after.as_ref(),
-                )?];
-
-                pairs
+                    source,
+                    &shapes[source as usize],
+                )?);
             }
             None => anyhow::bail!("missing task variant"),
         };
 
-        let (mut bindings, validators): (Vec<Self>, Vec<doc::Validator>) =
-            pairs.into_iter().unzip();
-
         assign_cohorts(&mut bindings);
 
-        Ok((bindings, validators))
+        Ok((bindings, sources, validators))
     }
 
     fn from_derivation_transform(
         index: u16,
         spec: &flow::collection_spec::derivation::Transform,
-    ) -> anyhow::Result<(Self, doc::Validator)> {
+        collection: &flow::CollectionSpec,
+        source: u32,
+        shape: &doc::Shape,
+    ) -> anyhow::Result<Self> {
         let flow::collection_spec::derivation::Transform {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             journal_read_suffix,
             lambda_config_json: _,
             name: _,
@@ -167,23 +283,8 @@ impl Binding {
         } = spec;
 
         let flow::CollectionSpec {
-            ack_template_json: _,
-            derivation: _,
-            key,
-            name: collection_name,
-            partition_fields,
-            partition_template,
-            projections,
-            read_schema_json,
-            uuid_ptr,
-            write_schema_json,
-        } = collection.as_ref().context("missing source collection")?;
-
-        let partition_template_name = partition_template
-            .as_ref()
-            .context("missing partition template")?
-            .name
-            .as_str();
+            key, projections, ..
+        } = collection;
 
         // read_delay is a duration, not an absolute timestamp.
         // Clock's internal representation is (100ns_ticks << 4 | sequence_counter),
@@ -195,8 +296,6 @@ impl Binding {
             .as_ref()
             .context("missing partition selector")?;
 
-        let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
-
         // Determine shuffle key configuration.
         let (key_extractors, uses_lambda, uses_source_key, shuffle_key_partition_fields) =
             if !shuffle_key.is_empty() {
@@ -204,7 +303,7 @@ impl Binding {
                 let uses_source_key = shuffle_key == key;
                 let partition_fields = compute_partition_fields(shuffle_key, projections);
                 (
-                    build_key_extractors(shuffle_key, &shape),
+                    build_key_extractors(shuffle_key, shape),
                     false,
                     uses_source_key,
                     partition_fields,
@@ -214,11 +313,12 @@ impl Binding {
                 (Vec::new(), true, false, None)
             } else {
                 // Default: use source collection key.
-                (build_key_extractors(key, &shape), false, true, None)
+                (build_key_extractors(key, shape), false, true, None)
             };
 
-        let binding = Self {
+        Ok(Self {
             index,
+            source,
             filter_r_clocks: *read_only,
             journal_read_suffix: journal_read_suffix.clone(),
             priority: *priority,
@@ -226,27 +326,25 @@ impl Binding {
             key_extractors,
             shuffle_key_partition_fields,
             partition_selector: partition_selector.clone(),
-            collection: models::Collection::new(collection_name),
-            source_uuid_ptr: json::Pointer::from_str(uuid_ptr),
             uses_lambda,
             uses_source_key,
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
-            partition_fields: partition_fields.clone(),
-            partition_prefix: format!("{partition_template_name}/").into(),
-        };
-
-        Ok((binding, validator))
+        })
     }
 
     fn from_materialization_binding(
         index: u16,
         spec: &flow::materialization_spec::Binding,
-    ) -> anyhow::Result<(Self, doc::Validator)> {
+        collection: &flow::CollectionSpec,
+        source: u32,
+        shape: &doc::Shape,
+    ) -> anyhow::Result<Self> {
         let flow::materialization_spec::Binding {
             backfill: _,
-            collection,
+            collection: _,
+            collection_index: _,
             delta_updates: _,
             deprecated_shuffle: _,
             field_selection: _,
@@ -261,54 +359,28 @@ impl Binding {
             state_key: _,
         } = spec;
 
-        let flow::CollectionSpec {
-            ack_template_json: _,
-            derivation: _,
-            key,
-            name: collection_name,
-            partition_fields,
-            partition_template,
-            projections: _,
-            read_schema_json,
-            uuid_ptr,
-            write_schema_json,
-        } = collection.as_ref().context("missing source collection")?;
-
-        let partition_template_name = partition_template
-            .as_ref()
-            .context("missing partition template")?
-            .name
-            .as_str();
-
         let (not_before, not_after) = not_before_after(not_before.as_ref(), not_after.as_ref());
 
         let partition_selector = partition_selector
             .as_ref()
             .context("missing partition selector")?;
 
-        let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
-
-        let binding = Self {
+        Ok(Self {
             index,
+            source,
             filter_r_clocks: false, // Always false for materializations.
             journal_read_suffix: journal_read_suffix.clone(),
             priority: *priority,
             read_delay: uuid::Clock::from_u64(0), // Always zero for materializations.
-            key_extractors: build_key_extractors(key, &shape),
+            key_extractors: build_key_extractors(&collection.key, shape),
             shuffle_key_partition_fields: None, // Not computed for materializations.
             partition_selector: partition_selector.clone(),
-            collection: models::Collection::new(collection_name),
-            source_uuid_ptr: json::Pointer::from_str(uuid_ptr),
             uses_lambda: false,    // Always false for materializations.
             uses_source_key: true, // Always true for materializations.
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
-            partition_fields: partition_fields.clone(),
-            partition_prefix: format!("{partition_template_name}/").into(),
-        };
-
-        Ok((binding, validator))
+        })
     }
 
     fn from_collection_partitions(
@@ -316,56 +388,47 @@ impl Binding {
         source_partitions: &broker::LabelSelector,
         not_before: Option<&pbjson_types::Timestamp>,
         not_after: Option<&pbjson_types::Timestamp>,
-    ) -> anyhow::Result<(Self, doc::Validator)> {
-        let flow::CollectionSpec {
-            ack_template_json: _,
-            derivation: _,
-            key,
-            name: collection_name,
-            partition_fields,
-            partition_template,
-            projections: _,
-            read_schema_json,
-            uuid_ptr,
-            write_schema_json,
-        } = spec;
-
-        let partition_template_name = partition_template
-            .as_ref()
-            .context("missing partition template")?
-            .name
-            .as_str();
-
-        let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
-
+        source: u32,
+        shape: &doc::Shape,
+    ) -> anyhow::Result<Self> {
         let (not_before, not_after) = not_before_after(not_before, not_after);
 
-        let binding = Self {
+        Ok(Self {
             index: 0,
+            source,
             filter_r_clocks: false,
             journal_read_suffix: "ad-hoc".to_string(),
             priority: 0,
             read_delay: uuid::Clock::from_u64(0),
-            key_extractors: build_key_extractors(key, &shape),
+            key_extractors: build_key_extractors(&spec.key, shape),
             shuffle_key_partition_fields: None,
             partition_selector: source_partitions.clone(),
-            collection: models::Collection::new(collection_name),
-            source_uuid_ptr: json::Pointer::from_str(uuid_ptr),
             uses_lambda: false,
             uses_source_key: true,
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
-            partition_fields: partition_fields.clone(),
-            partition_prefix: format!("{partition_template_name}/").into(),
-        };
-
-        Ok((binding, validator))
+        })
     }
 
     pub fn state_key(&self) -> &str {
         self.journal_read_suffix.rsplit("/").next().unwrap()
     }
+}
+
+/// Guard [`Binding::index`]'s u16 width, which is also the width of
+/// `doc::combine`'s binding index. This is a *format* limit and deliberately
+/// shares no constant with `validation::MAX_BINDINGS`, which gates published
+/// tasks far below it: tripping this means an unvalidated spec reached the
+/// runtime.
+fn guard_index_width(entity: &str, count: usize) -> anyhow::Result<()> {
+    if count > u16::MAX as usize {
+        anyhow::bail!(
+            "{entity} has {count} bindings, which exceeds the shuffle limit of {}",
+            u16::MAX,
+        );
+    }
+    Ok(())
 }
 
 /// Assign cohort indices to bindings. Bindings sharing the same
@@ -386,24 +449,6 @@ fn assign_cohorts(bindings: &mut [Binding]) {
         };
         binding.cohort = cohort as u32;
     }
-}
-
-/// Parse a collection schema bundle into a Validator and inferred Shape.
-/// Prefers the read schema; falls back to the write schema.
-pub fn build_schema(
-    read_schema_json: &bytes::Bytes,
-    write_schema_json: &bytes::Bytes,
-) -> anyhow::Result<(doc::validation::Validator, doc::Shape)> {
-    let bundle = if !read_schema_json.is_empty() {
-        read_schema_json
-    } else {
-        write_schema_json
-    };
-    let schema = doc::validation::build_bundle(bundle).context("failed to parse schema bundle")?;
-    let validator =
-        doc::validation::Validator::new(schema).context("failed to index schema bundle")?;
-    let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
-    Ok((validator, shape))
 }
 
 /// Build key extractors from string-encoded JSON pointers,
@@ -638,6 +683,35 @@ mod test {
 
     fn fields(names: &[&str]) -> Vec<String> {
         names.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `Binding::index` is a u16, so a task past the format limit must error
+    /// early -- before any per-binding work, and independently of
+    /// `validation::MAX_BINDINGS`, which gates published tasks far below it.
+    #[test]
+    fn from_task_guards_the_index_width() {
+        let over = u16::MAX as usize + 1;
+
+        for task in [
+            shuffle::task::Task::Materialization(flow::MaterializationSpec {
+                bindings: vec![Default::default(); over],
+                ..Default::default()
+            }),
+            shuffle::task::Task::Derivation(flow::CollectionSpec {
+                derivation: Some(flow::collection_spec::Derivation {
+                    transforms: vec![Default::default(); over],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        ] {
+            let err = Binding::from_task(&shuffle::Task { task: Some(task) }).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("65536 bindings, which exceeds the shuffle limit of 65535"),
+                "unexpected error: {err}",
+            );
+        }
     }
 
     #[test]

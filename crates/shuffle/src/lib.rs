@@ -66,7 +66,7 @@ pub(crate) mod testing;
 /// round-trip (for example, in an actual document) is impossible.
 pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
 
-pub use binding::Binding;
+pub use binding::{Binding, Source};
 pub use client::SessionClient;
 pub use frontier::{Completed, Frontier, JournalFrontier, ProducerFrontier};
 pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};

@@ -66,44 +66,76 @@ src/
 │                       #   crate is preview-agnostic)
 ├── logger.rs          # Logger / LoggerFactory traits: the task's log + event stream
 │                       #   (connector log sink + structured Events — persist / applied /
-│                       #   inferred-schema / container lifecycle — which flatten to logs
-│                       #   via LogEvent::to_log). Production shards install FnLoggerFactory
-│                       #   (→ task-log file); leaders & tests install TracingLogger
+│                       #   spec-update / inferred-schema / container lifecycle — which
+│                       #   flatten to logs via LogEvent::to_log). Production shards install
+│                       #   FnLoggerFactory (→ task-log file); leaders & tests install
+│                       #   TracingLogger
 ├── patches.rs         # wire format for connector-state patch streams
 │
 ├── leader/            # sidecar Leader service
 │   ├── service.rs       # gRPC entry, per-task Join rendezvous
 │   ├── join.rs          # protocol primitives for joining shards into a session
+│   ├── close_policy.rs  # when a transaction closes (min / max txn duration)
+│   ├── frontier_mapping.rs  # consumer.Checkpoint <-> shuffle::Frontier
 │   ├── shuffle.rs       # ShuffleSession / ShuffleSessionFactory traits + ShuffleServiceFactory
 │   │                     #   (journal-reading Session) impl; leader is monomorphized over the
 │   │                     #   factory (preview installs its own fixture replay from flowctl)
+│   ├── capture/
+│   │   ├── fsm.rs           # head/tail state machines for capture transactions
+│   │   └── task.rs          # Task + Binding + Target: the leader's data model
+│   ├── derive/
+│   │   ├── handler.rs       # gRPC stream handler, dispatches to startup/actor
+│   │   ├── startup.rs       # Recover / Open / Apply / Recovered phase
+│   │   ├── fsm.rs           # pipelined HeadFSM / TailFSM state machines
+│   │   ├── actor.rs         # event loop driving open / commit / acknowledge
+│   │   └── task.rs          # Task: the leader's data model
 │   └── materialize/
 │       ├── handler.rs       # gRPC stream handler, dispatches to startup/actor
 │       ├── startup.rs       # Recover / Open / Apply / Recovered phase
 │       ├── fsm.rs           # pipelined HeadFSM / TailFSM state machines
 │       ├── actor.rs         # event loop driving open / commit / acknowledge / trigger
-│       ├── frontier_mapping.rs  # consumer.Checkpoint <-> shuffle::Frontier
 │       ├── triggers.rs      # webhook trigger delivery
-│       └── task.rs          # per-task state held by the leader actor
+│       ├── sync_schedule.rs # compiled sync-schedule evaluator (commit pacing)
+│       └── task.rs          # Task: the leader's data model
 │
 └── shard/             # per-shard controller-facing service
     ├── service.rs       # gRPC entry, dispatches by task type
     ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan-time FC: pruning
     ├── rocksdb.rs       # single Persist application path
+    ├── split_policy.rs  # append-rate throttling which drives partition splits
     ├── capture/
-    │   ├── handler.rs       # startup, apply/open, recovery scan, publisher setup
+    │   ├── handler.rs       # startup, apply/open, recovery scan, publisher setup;
+    │   │                     #   stows inferred shapes by collection across sessions
     │   ├── connector.rs     # capture connector RPC bridging
     │   ├── actor.rs         # independent per-shard capture transaction loop
-    │   ├── fsm.rs           # head/tail state machines for capture transactions
-    │   └── task.rs          # per-capture task and binding shape
+    │   └── drain.rs         # combiner drain: publish documents, widen inference
+    ├── derive/
+    │   ├── handler.rs       # gRPC stream handler
+    │   ├── startup.rs       # join leader, scan RocksDB, open connector
+    │   ├── scan.rs          # frontier scan: source documents out as C:Read
+    │   ├── connector.rs     # connector RPC bridging
+    │   ├── actor.rs         # per-shard transaction loop
+    │   ├── drain.rs         # output combiner drain: publish derived documents
+    │   └── task.rs          # Task + Transform + Source: the shard's data model
     └── materialize/
         ├── handler.rs       # gRPC stream handler
         ├── startup.rs       # join leader, scan RocksDB, open connector
-        ├── scan.rs          # in-memory state recovery from RocksDB
+        ├── scan.rs          # frontier scan: source documents into the combiner,
+        │                     #   unseen keys out as C:Load
         ├── connector.rs     # connector RPC bridging
         ├── actor.rs         # per-shard transaction loop
-        └── drain.rs         # graceful drain on Stop / CloseNow
+        ├── drain.rs         # combiner drain: C:Store to the connector
+        ├── boundaries.rs    # per-binding backfill-truncation boundaries
+        └── task.rs          # Task + Binding + Source: the shard's data model
 ```
+
+Within a task type, `mod.rs` declares submodules and the session's `Metrics`,
+and `task.rs` owns the task's data model: a `Task`, its per-binding struct
+(`Transform` for a derivation, `Binding` otherwise), and the per-collection
+`Source` / `Target` those bindings group onto. Derive and materialize are
+deliberately parallel at every one of these paths, so a difference between the
+two files at the same path is meant to be a real difference between the task
+types.
 
 ## Key entry points
 
@@ -150,6 +182,17 @@ documented inline in the proto.
 - **`shard/rocksdb.rs` is the single Persist application path.** Capture
   reuses it by synthesizing `Persist` messages locally rather than receiving
   them from a leader.
+- **A `Stop` may outrun the session it addresses.** The controller sends
+  `Stop` when it observes its task term cancelled, and it selects over that
+  cancellation and our `Stopped` concurrently — so the two cross on the wire
+  whenever a session ends at the same moment the term does. A publish does
+  exactly that to every shard at once, and an idempotent-replay session that
+  stops itself can coincide with one. Each session loop therefore absorbs a
+  `Stop` received while awaiting a `Join`: the session it addressed is over,
+  and its `Stopped` is already on its way to the controller.
+  Failing the stream instead strands the shard, since the stream is created
+  once per replica (`NewStore`) and reused by every later session — each of
+  which would then fail its `Join`, recoverable only by unassigning.
 
 ## Coexistence with `runtime`
 
@@ -206,6 +249,51 @@ with differing priorities. The shuffle Session mirrors this split, stopping
 journal reads once they read through hinted spans. This prevents over-read
 from consuming disk quota, and prevents starving lower-priority bindings.
 See `crates/shuffle/README.md` and issue #3246.
+
+## Targets and Sources
+
+Bindings don't carry collection-derived state; they *reference* a per-collection
+struct which does. A capture binding references a `Target` it writes, and a
+materialize binding or derive transform references a `Source` it reads. Schema
+validators, publisher targets, and inferred write-shapes are built once per
+Target / Source, so a task fanning many bindings onto few collections pays
+per collection.
+
+The two key differently:
+
+- **Capture `Target`s key on `partition_template_name`** — journal identity — in
+  both spec forms. `Task::new` requires that bindings sharing a name also carry
+  equal `CollectionSpec` values.
+- **Materialize / derive / shuffle `Source`s key on the declared
+  `collection_index`** — value identity — never on collection name, because a
+  materialization's `group_by` can give two bindings of one named collection
+  differing read schemas. An inline-form binding carries no index and is its
+  own Source.
+
+## Schema inference (capture)
+
+Inference is keyed by *collection*, not binding: every binding of a Target
+widens that Target's one shape, capped and logged once. Any binding's
+`SourcedSchema` therefore ratchets its whole collection to
+`SOURCED_SCHEMA_COMPLEXITY_LIMIT`.
+
+Shapes live only in memory but accumulate across the many connector sessions of
+a shard, so between sessions they're stowed under the Target's
+`partition_template_name` — stable where Target *indices* are not — and restored
+into the next session's layout. A collection's generation is folded into its
+template name, so a collection reset also restarts inference.
+
+## Backfill truncation (capture)
+
+A capture `BackfillBegin` publishes an isolated, document-free marker
+transaction and stamps `estuary.dev/truncated-at` on every partition of the
+target collection — the boundary materializations classify against (below).
+
+When other active bindings of the task also write those journals
+(`Target::fan_in`), the head FSM suppresses the Begin: the message still
+isolates its transaction, but no boundary clock, marker intent, `truncated-at`
+label, or `ActiveBackfillChange::Begin` is built. The backfill itself proceeds
+regardless — the connector re-captures, and documents merge on key.
 
 ## Backfill truncation (materialize)
 
@@ -278,6 +366,28 @@ Consequences and requirements:
   accumulator is recycled. The per-binding boundary clocks live in the shard
   session, and on recovery the shard reconstructs them from the leader's
   cumulative `Begin` (committed ∪ hinted) delivered on the first `L:Load`.
+
+## Sync schedules (materialize)
+
+A materialization model may carry a `syncSchedule` (type and validation in
+`models::sync_schedule`) pacing how often transactions commit: a required
+`baseInterval`, plus any number of non-overlapping local-time `windows`, each
+with its own interval. The leader compiles the schedule once at task startup
+(`leader/materialize/sync_schedule.rs`) — compilation re-runs validation, so
+evaluation cannot fail — and computes the next permitted commit instant on an
+epoch-relative grid per regime, with deterministic jitter seeded from the
+task's tenant: a tenant's materializations — which typically share destination
+resources like a warehouse — commit at coinciding instants, waking the
+destination once, while unrelated tenants spread apart. A fire crossing regime
+transitions clamps to the first one where a faster regime takes over.
+
+Enforcement rides the close policy's min/max transaction durations:
+`fsm::compute_open_duration` modulates the open-duration band per evaluation
+(the band collapses onto the commit instant while holding), so
+`close_policy::evaluate` has no schedule awareness. The combiner usage
+ceilings still force early commits — a backfill drains under memory pressure
+with no caught-up detection — and `CloseNow` bypasses a hold, so spec updates
+restart promptly. The first transaction of a leader session is never held.
 
 ## Status
 

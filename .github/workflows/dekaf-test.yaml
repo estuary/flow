@@ -62,3 +62,14 @@ jobs:
             - run: mise run build:flowctl-go
             - run: mise run local:stack --dekaf
             - run: mise run ci:dekaf-e2e
+
+            # `ci:dekaf-e2e` dumps logs for the services a test failure implicates,
+            # but a failure while bringing the stack up leaves no diagnostics at
+            # all. Dump every unit's state and journal so those are debuggable
+            # from the run alone.
+            - name: Dump stack diagnostics
+              if: failure()
+              run: |
+                  systemctl --user list-units --all --no-pager 'flow-*' || true
+                  systemctl --user --failed --no-pager || true
+                  journalctl --user -u 'flow-*' --no-pager -n 3000 -o short-precise || true

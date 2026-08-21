@@ -497,11 +497,8 @@ async fn update_partition_info(
 {
     let mut tasks = Vec::with_capacity(spec.bindings.len());
 
-    for binding in &spec.bindings {
-        let collection_spec = binding
-            .collection
-            .as_ref()
-            .context("expected collection Spec")?;
+    for (binding, resolved) in spec.resolved_bindings() {
+        let (collection_spec, _identity) = resolved.context("expected collection Spec")?;
         let partition_template = collection_spec
             .partition_template
             .as_ref()

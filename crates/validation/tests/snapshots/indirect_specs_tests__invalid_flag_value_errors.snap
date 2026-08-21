@@ -1,0 +1,15 @@
+---
+source: crates/validation/tests/indirect_specs_tests.rs
+assertion_line: 124
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/captures/acmeCo~1capture/shards/flags,
+        error: shard flag indirect-specs must be "true" if set, but is "ture",
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/acmeCo~1materialization/shards/flags,
+        error: shard flag indirect-specs must be "true" if set, but is "false",
+    },
+]

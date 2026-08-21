@@ -332,14 +332,18 @@ pub enum Error {
     SourceCollectionWasReset { collection: String },
     #[error("materialization {materialization} uses Dekaf endpoint which cannot be reset")]
     DekafMaterializationCannotReset { materialization: String },
-    #[error(
-        "{entity} {name} has {count} bindings, which exceeds the maximum of {} bindings",
-        crate::MAX_BINDINGS
-    )]
+    #[error("shard flag {flag} must be {expect:?} if set, but is {value:?}")]
+    InvalidShardFlagValue {
+        flag: &'static str,
+        value: String,
+        expect: &'static str,
+    },
+    #[error("{entity} {name} has {count} bindings, which exceeds the maximum of {limit} bindings")]
     TooManyBindings {
         entity: &'static str,
         name: String,
         count: usize,
+        limit: usize,
     },
 
     #[error(
@@ -388,6 +392,13 @@ pub enum Error {
     TriggerTemplateInvalid { index: usize, detail: String },
     #[error("trigger {index}: rendered payload template is not valid JSON: {detail}")]
     TriggerTemplateInvalidJson { index: usize, detail: String },
+
+    #[error("invalid sync schedule: {detail}")]
+    SyncScheduleInvalid { detail: String },
+    #[error(
+        "materialization {materialization} configures a sync schedule both in its connector config (syncSchedule) and as a materialization sync schedule; remove one"
+    )]
+    SyncScheduleConflict { materialization: String },
 
     #[error("raising an error because {this_entity} specifies `onIncompatibleSchemaChange: abort`")]
     AbortOnIncompatibleSchemaChange {

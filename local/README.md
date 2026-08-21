@@ -167,8 +167,30 @@ flow-plane@<dp>.target                     one per data plane (dp = local-<stack
 
 `local:stack` boots the control plane plus a `local-<stack>-cluster` data plane
 at `FLOW_PLANE_BASE` with 4 brokers, 1 reactor, and link, then publishes
-`ops-catalog/local-view.bundle.json` and prints the stack card. Add `--dekaf`
-for the Kafka shim.
+`ops-catalog/local-view.bundle.json`, waits for the stack to actually serve
+(next section), and prints the stack card. Add `--dekaf` for the Kafka shim.
+
+### Unit state is NOT a readiness signal
+
+Every `flow-*@.service` is `Type=simple` and builds in `ExecStartPre` (cargo/go).
+Two consequences that will mislead you if you script against systemd state:
+
+- A unit reports `active` the moment `ExecStart` **forks** — before it binds its
+  port. `active` means "launched", not "serving".
+- `flow-plane@<dp>.target` aggregates its members with `Wants=`, so the target
+  reports `active` even while a member is still in `activating (start-pre)`
+  compiling. On a cold checkout that takes *minutes*.
+
+`local:stack-wait` is a readiness check - it enumerates this stack's
+loaded units, maps each to its port, and blocks until all accept connections:
+
+```bash
+mise run local:stack-wait                 # default 900s budget
+mise run local:stack-wait --timeout 120
+```
+
+`local:stack` runs and blocks on `local:stack-wait` before returning.
+Run it directly after restarting individual units.
 
 Useful incantations (stack `flow`, index 0, shown; `local:stack-info` prints the
 exact names/ports for your stack):
@@ -337,6 +359,41 @@ inside the checkout targets this stack** — no `--profile` needed.
 You must `export SSL_CERT_FILE=~/flow-local/ca.crt` (per command) or you'll see
 TLS violations on broker/reactor calls.
 
+## Connectors must be registered before you can publish them
+
+A stack can only publish specs whose connector image is in its `connectors`
+table, and `supabase/seed.sql` seeds only a handful. **Having the image locally
+in `docker images` is not enough**: image presence and DB registration are independent.
+
+Publishing an unregistered image fails with a message written for production:
+
+```
+connector image 'ghcr.io/estuary/materialize-sqlite:dev' is unknown to Estuary,
+so the endpoint configuration cannot be encrypted. Use a different connector or
+reach out to Estuary support for help
+```
+
+Locally, that means "register it first". See what this stack knows, then add what it doesn't:
+
+```bash
+# Make this stack's vars ambient first.
+eval "$(mise run local:stack-env)"
+
+# What's registered (and whether its tag job has run):
+psql "$FLOW_PG_URL" -c "SELECT c.image_name, t.image_tag,
+  t.job_status->>'type' FROM connectors c JOIN connector_tags t
+  ON t.connector_id = c.id ORDER BY 1;"
+
+# Register one. NOTE: the image name is passed WITHOUT its tag; the tag is a
+# separate second argument and defaults to 'local', NOT 'dev'.
+mise exec -- ./local/install-connector.sh ghcr.io/estuary/materialize-sqlite dev
+```
+
+Registering queues a `connector_tags` job; the agent runs the image to fill in
+its protocol and endpoint/resource spec schemas, which validation needs. Wait
+for that row to reach `success` (a few seconds) before publishing — until then
+the schemas are absent and a publish can still fail.
+
 ## Connectors run on the Supabase Docker network
 
 The **reactor** sets `FLOW_NETWORK=supabase_network_<stack>` (per stack), and the
@@ -413,5 +470,8 @@ collide; the classic remap set belongs to one stack).
 
 `local/ops-publication.sh <bundle>` emits the SQL that `local:stack` uses to
 publish an ops bundle (targets `ops/dp/public/${FLOW_CLUSTER}`).
-`local/install-connector.sh <image> [tag]` adds a connector to this stack's DB.
+`local/install-connector.sh <image> [tag]` adds a connector to this stack's DB —
+a **precondition** for publishing a spec that uses it, not an optional extra; see
+"Connectors must be registered before you can publish them" above for the failure
+it prevents and the tag-argument gotcha.
 Both require the ambient `FLOW_*` vars (run inside a mise context).

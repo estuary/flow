@@ -327,6 +327,7 @@ func (m *deriveAppV2) Destroy() {
 	if m.sqlite != nil {
 		m.sqlite.Destroy()
 	}
+	m.taskBase.removeRecoveryDir()
 	m.taskBase.opsCancel()
 	_ = os.RemoveAll(m.shuffleDir)
 }

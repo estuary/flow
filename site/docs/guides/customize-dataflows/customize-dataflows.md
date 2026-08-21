@@ -1,5 +1,5 @@
 ---
-description: Customize Estuary Data Flow behavior with CDC history mode, source tags, materialization delta updates, field selection, and sync schedules.
+description: Customize Estuary Data Flow behavior with CDC history mode, source tags, rediscovery intervals, materialization delta updates, field selection, and sync schedules.
 ---
 
 # Customizing Data Flows
@@ -46,6 +46,18 @@ For captures that write into the same collection, this feature helps note downst
 See [Document Metadata Fields](/guides/advanced-usage/metadata-fields) for all available `_meta` fields.
 
 You can edit the Source Tag in a capture's **Advanced Options** configuration.
+
+***
+
+### Rediscovery Interval
+
+While a capture is running, it periodically re-runs discovery against your database.
+This is how a running capture notices schema changes to the tables it captures, and how it starts capturing a bound table that didn't exist in the database yet.
+
+The interval defaults to 15 minutes and accepts duration strings such as `30m` or `2h`, from a minimum of `1m` up to a maximum of `8760h` (one year).
+The actual delay between passes is randomized around the value you configure.
+
+You can edit the Rediscovery Interval in a capture's **Advanced Options** configuration.
 
 ***
 

@@ -1,9 +1,20 @@
-use super::{Connectors, Error, NoOpConnectors, Scope, indexed, reference};
+use super::{Connectors, Error, NoOpConnectors, Scope, indexed, linked, reference};
 use futures::SinkExt;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 use xxhash_rust::xxh3::Xxh3;
+
+/// Live bindings of a capture, indexed on resource path and paired with their
+/// resolved collections. The live built spec may be in either encoding, so its
+/// bindings are meaningless apart from the spec which resolves them.
+type LiveBindings<'a> = BTreeMap<
+    &'a [String],
+    (
+        &'a flow::capture_spec::Binding,
+        Option<&'a flow::CollectionSpec>,
+    ),
+>;
 
 pub async fn walk_all_captures<C: Connectors>(
     pub_id: models::Id,
@@ -124,11 +135,16 @@ async fn walk_capture<C: Connectors>(
 
     indexed::walk_name(scope, "capture", capture, models::Capture::regex(), errors);
 
-    if bindings_model.len() > crate::MAX_BINDINGS {
+    let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+
+    let max_bindings = crate::max_bindings(indirect_specs);
+
+    if bindings_model.len() > max_bindings {
         Error::TooManyBindings {
             entity: "capture",
             name: capture.to_string(),
             count: bindings_model.len(),
+            limit: max_bindings,
         }
         .push(scope, errors);
         return None;
@@ -197,21 +213,35 @@ async fn walk_capture<C: Connectors>(
         })
         .collect();
 
-    // Index live binding specs, both active and inactive, on their declared resource paths.
-    let mut live_bindings_spec: BTreeMap<&[String], &flow::capture_spec::Binding> = live_spec
+    // Index live binding specs, both active and inactive, on their declared
+    // resource paths, each paired with its resolved collection.
+    let mut live_bindings_spec: LiveBindings = live_spec
         .iter()
-        .flat_map(|spec| spec.inactive_bindings.iter().chain(spec.bindings.iter()))
-        .map(|binding| (binding.resource_path.as_slice(), binding))
+        .flat_map(|spec| {
+            spec.resolved_inactive_bindings()
+                .chain(spec.resolved_bindings())
+        })
+        .map(|(binding, resolved)| {
+            (
+                binding.resource_path.as_slice(),
+                (binding, resolved.map(|(collection, _identity)| collection)),
+            )
+        })
         .collect();
 
     let scope_bindings = scope.push_prop("bindings");
 
-    // Map enumerated binding models into paired validation requests.
+    // Target collections of this capture, resolved once each.
+    let mut targets: BTreeMap<models::Collection, flow::CollectionSpec> = BTreeMap::new();
+
+    // Map enumerated binding models into their (possibly fixed) models, paired
+    // with the stripped resource config of each *active* binding: one which
+    // resolved its target collection and will be validated.
     let bindings_model_len = bindings_model.len();
     let bindings: Vec<(
         models::ResourcePath,
         models::CaptureBinding,
-        Option<capture::request::validate::Binding>,
+        Option<bytes::Bytes>,
     )> = bindings_model
         .into_iter()
         .enumerate()
@@ -224,11 +254,16 @@ async fn walk_capture<C: Connectors>(
                 shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
+                &mut targets,
                 &mut model_fixes,
                 errors,
             )
         })
         .collect();
+
+    // Live binding models have served their purpose. The map is proportional
+    // to the binding count, so release it before building the Validate request.
+    std::mem::drop(live_bindings_model);
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
@@ -236,14 +271,24 @@ async fn walk_capture<C: Connectors>(
         return None;
     }
 
-    // Filter to validation requests of active bindings.
+    // Filter to validation requests of active bindings, interning the target
+    // collection of each into the request's shared table.
+    let mut interner = linked::Interner::default();
     let bindings_validate: Vec<capture::request::validate::Binding> = bindings
         .iter()
-        .filter_map(|(_path, _model, validate)| validate.clone())
+        .filter_map(|(_path, model, resource_config)| {
+            let resource_config_json = resource_config.as_ref()?.clone();
+            Some(capture::request::validate::Binding {
+                resource_config_json,
+                collection: None,
+                backfill: model.backfill,
+                collection_index: interner.intern_ref(&targets[&model.target]),
+            })
+        })
         .collect();
     let bindings_validate_len = bindings_validate.len();
 
-    let validate_request = capture::request::Validate {
+    let mut validate_request = capture::request::Validate {
         name: capture.to_string(),
         connector_type,
         config_json: config_json.clone(),
@@ -254,13 +299,15 @@ async fn walk_capture<C: Connectors>(
         } else {
             expect_build_id.to_string()
         },
+        linked_collections: Vec::new(),
     };
+    linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
     // Send Request.Validate and receive Response.Validated.
     _ = request_tx
         .send(
             capture::Request {
-                validate: Some(validate_request.clone()),
+                validate: Some(validate_request),
                 ..Default::default()
             }
             .with_internal(|internal| {
@@ -300,11 +347,11 @@ async fn walk_capture<C: Connectors>(
     // Join binding models and their Validate requests with their Validated responses.
     let bindings = bindings.into_iter().scan(
         bindings_validated.into_iter(),
-        |validated, (path, model, validate)| {
-            if let Some(validate) = validate {
+        |validated, (path, model, resource_config)| {
+            if let Some(resource_config) = resource_config {
                 validated
                     .next()
-                    .map(|validated| (path, model, Some((validate, validated))))
+                    .map(|validated| (path, model, Some((resource_config, validated))))
             } else {
                 Some((path, model, None))
             }
@@ -315,21 +362,18 @@ async fn walk_capture<C: Connectors>(
     let mut bindings_model = Vec::with_capacity(bindings_model_len);
     let mut bindings_spec = Vec::with_capacity(bindings_validate_len);
     let mut n_meta_updated = 0;
+    // Target collections of the built spec, interned into its own table: the
+    // table of the Validate request covers active bindings only.
+    let mut interner = linked::Interner::default();
 
     // Map `bindings` into destructured binding models and built specs.
-    for (index, (mut path, mut model, validate_validated)) in bindings.into_iter().enumerate() {
-        let Some((validate, validated)) = validate_validated else {
+    for (index, (mut path, mut model, active_validated)) in bindings.into_iter().enumerate() {
+        let Some((resource_config_json, validated)) = active_validated else {
             bindings_path.push(path);
             bindings_model.push(model);
             continue;
         };
         let scope = scope_bindings.push_item(index);
-
-        let capture::request::validate::Binding {
-            resource_config_json,
-            collection,
-            backfill: _, // Same as `model.backfill`.
-        } = validate;
 
         let capture::response::validated::Binding {
             resource_path: validated_path,
@@ -344,10 +388,11 @@ async fn walk_capture<C: Connectors>(
         }
 
         // Map to the live binding now that we have a validated resource path.
-        let live_spec: Option<&flow::capture_spec::Binding> =
-            live_bindings_spec.get(path.as_slice()).cloned();
+        let live_binding: Option<&flow::capture_spec::Binding> = live_bindings_spec
+            .get(path.as_slice())
+            .map(|(binding, _collection)| *binding);
 
-        if let Some(live_spec) = live_spec {
+        if let Some(live_spec) = live_binding {
             if model.backfill < live_spec.backfill {
                 model_fixes.push(format!("restored `backfill` of resource {path:?}"));
                 model.backfill = live_spec.backfill;
@@ -360,9 +405,10 @@ async fn walk_capture<C: Connectors>(
         let spec = flow::capture_spec::Binding {
             resource_config_json,
             resource_path: path.clone(),
-            collection,
+            collection: None,
             backfill: model.backfill,
             state_key,
+            collection_index: interner.intern_ref(&targets[&model.target]),
         };
 
         bindings_path.push(path);
@@ -404,7 +450,21 @@ async fn walk_capture<C: Connectors>(
     for binding in &bindings_spec {
         live_bindings_spec.remove(binding.resource_path.as_slice());
     }
-    let inactive_bindings = live_bindings_spec.values().map(|v| (*v).clone()).collect();
+    // Carry over inactive bindings, re-interning each resolved collection: an
+    // index into the *live* spec's table is meaningless in the spec we're
+    // building, so it's never copied across generations. A binding whose
+    // collection doesn't resolve is dropped, as the live spec which gave it
+    // meaning is malformed.
+    let inactive_bindings = live_bindings_spec
+        .values()
+        .filter_map(|(binding, collection)| {
+            Some(flow::capture_spec::Binding {
+                collection: None,
+                collection_index: interner.intern_ref((*collection)?),
+                ..(*binding).clone()
+            })
+        })
+        .collect();
 
     // Use manual salt if provided, otherwise the live salt, otherwise generate a new one.
     let redact_salt = if let Some(salt) = &model_redact_salt {
@@ -435,7 +495,7 @@ async fn walk_capture<C: Connectors>(
         false, // Don't disable wait_for_ack.
         &network_ports,
     );
-    let spec = flow::CaptureSpec {
+    let mut spec = flow::CaptureSpec {
         name: capture.to_string(),
         connector_type,
         config_json,
@@ -447,7 +507,10 @@ async fn walk_capture<C: Connectors>(
         inactive_bindings,
         redact_salt,
         created_at: crate::created_at_date(control_id),
+        linked_collections: Vec::new(),
     };
+    linked::install_capture_spec(&mut spec, interner, indirect_specs);
+
     let model = models::CaptureDef {
         auto_discover,
         endpoint,
@@ -489,13 +552,14 @@ fn walk_capture_binding<'a>(
     _catalog_name: &models::Capture,
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::CaptureBinding>,
-    live_bindings_spec: &BTreeMap<&[String], &flow::capture_spec::Binding>,
+    live_bindings_spec: &LiveBindings,
+    targets: &mut BTreeMap<models::Collection, flow::CollectionSpec>,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (
     models::ResourcePath,
     models::CaptureBinding,
-    Option<capture::request::validate::Binding>,
+    Option<bytes::Bytes>,
 ) {
     let model_path = super::load_resource_meta_path(model.resource.get().as_bytes());
 
@@ -506,27 +570,34 @@ fn walk_capture_binding<'a>(
 
     let live_model = live_bindings_model.get(&model_path);
     let modified_target = Some(&model.target) != live_model.map(|l| &l.target);
-    let target = &model.target;
 
-    // We must resolve the target collection to continue.
-    let Some((target_spec, _built_collection)) = reference::walk_reference(
-        scope,
-        "capture binding",
-        || {
-            if !model_path.is_empty() {
-                model_path.join(".")
-            } else {
-                model.resource.get().to_string()
-            }
-        },
-        target,
-        built_collections,
-        modified_target.then_some(errors),
-    ) else {
-        model_fixes.push(format!("disabled binding of deleted collection {target}"));
-        model.disable = true;
-        return (model_path, model, None);
-    };
+    // We must resolve the target collection to continue. A collection already
+    // in `targets` resolved for an earlier binding, and that resolution is
+    // also this binding's.
+    if !targets.contains_key(&model.target) {
+        let Some((target_spec, _built_collection)) = reference::walk_reference(
+            scope,
+            "capture binding",
+            || {
+                if !model_path.is_empty() {
+                    model_path.join(".")
+                } else {
+                    model.resource.get().to_string()
+                }
+            },
+            &model.target,
+            built_collections,
+            modified_target.then_some(errors),
+        ) else {
+            model_fixes.push(format!(
+                "disabled binding of deleted collection {}",
+                model.target
+            ));
+            model.disable = true;
+            return (model_path, model, None);
+        };
+        targets.insert(model.target.clone(), target_spec);
+    }
 
     if disable {
         // Perform no further validations if the task is disabled.
@@ -534,22 +605,21 @@ fn walk_capture_binding<'a>(
     }
 
     // Was this binding's target collection reset under its current backfill count?
-    let live_spec = live_bindings_spec.get(model_path.as_slice());
-    let was_reset = live_spec.is_some_and(|live_spec| {
-        live_spec.backfill == model.backfill
-            && super::collection_was_reset(&target_spec, &live_spec.collection)
+    let live_binding = live_bindings_spec.get(model_path.as_slice());
+    let was_reset = live_binding.is_some_and(|(live_binding, live_collection)| {
+        live_binding.backfill == model.backfill
+            && super::collection_was_reset(&targets[&model.target], *live_collection)
     });
 
     if was_reset {
-        model_fixes.push(format!("backfilled binding of reset collection {target}"));
+        model_fixes.push(format!(
+            "backfilled binding of reset collection {}",
+            model.target
+        ));
         model.backfill += 1;
     }
 
-    let validate = capture::request::validate::Binding {
-        resource_config_json: super::strip_resource_meta(&model.resource),
-        collection: Some(target_spec),
-        backfill: model.backfill,
-    };
+    let resource_config_json = super::strip_resource_meta(&model.resource);
 
-    (model_path, model, Some(validate))
+    (model_path, model, Some(resource_config_json))
 }

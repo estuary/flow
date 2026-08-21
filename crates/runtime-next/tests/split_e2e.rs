@@ -113,6 +113,7 @@ fn open_publisher(
             runtime_next::new_producer(),
             "testing/ops/stats",
             &[spec],
+            &[0],
         )
         .expect("open JournalPublisher")
 }
@@ -728,10 +729,10 @@ async fn journal_split_lost_cas_is_non_destructive() {
     // real journal client, and a stale fixed watch pinned to revision R. The
     // watched journal's full key range (width 2^32, well above 2W) clears the
     // floor check, so the split proceeds to its Apply.
-    let publisher::Binding::Mapped(binding) =
-        publisher::Binding::from_collection_spec(&spec).expect("binding builds")
+    let publisher::Target::Mapped(target) =
+        publisher::Target::from_collection_spec(&spec).expect("target builds")
     else {
-        unreachable!("from_collection_spec builds Mapped bindings");
+        unreachable!("from_collection_spec builds Mapped targets");
     };
     let stale_watch = tokens::fixed(Ok(vec![publisher::watch::PartitionSplit {
         name: parent.clone().into(),
@@ -742,7 +743,7 @@ async fn journal_split_lost_cas_is_non_destructive() {
     let client = data_plane.journal_client.clone();
 
     let outcome = publisher::mapping::split_partition(
-        &binding.partitions_template,
+        &target.partitions_template,
         &client,
         &stale_watch,
         &parent,

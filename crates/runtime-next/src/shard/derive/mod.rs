@@ -7,7 +7,7 @@ mod startup;
 mod task;
 
 pub(crate) use handler::serve;
-use task::Task;
+use task::{Source, Task, Transform};
 
 #[derive(Clone)]
 pub(crate) struct Metrics {

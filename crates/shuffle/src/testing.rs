@@ -117,7 +117,7 @@ pub fn test_binding(
 ) -> crate::Binding {
     crate::Binding {
         index,
-        collection: models::Collection::new("test/collection"),
+        source: 0,
         filter_r_clocks: false,
         journal_read_suffix: journal_read_suffix.to_string(),
         priority: 0,
@@ -125,14 +125,11 @@ pub fn test_binding(
         key_extractors: Vec::new(),
         shuffle_key_partition_fields: partition_fields,
         partition_selector: broker::LabelSelector::default(),
-        source_uuid_ptr: json::Pointer::from_str("/_meta/uuid"),
         uses_lambda: false,
         uses_source_key,
         not_before: Clock::UNIX_EPOCH,
         not_after: Clock::from_u64(u64::MAX),
         cohort: 0,
-        partition_fields: Vec::new(),
-        partition_prefix: "test/collection/".into(),
     }
 }
 

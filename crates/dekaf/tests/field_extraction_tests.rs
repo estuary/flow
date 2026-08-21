@@ -39,23 +39,18 @@ async fn get_extraction_components(
                 .join(", ")
         ))?;
 
-    let binding = materialization
+    let (binding, resolved) = materialization
         .spec
         .as_ref()
         .expect("Missing spec")
-        .bindings
-        .iter()
+        .resolved_bindings()
         .next()
         .context("Materialization has no bindings")?;
 
     let collection_spec = built
         .built_collections
         .get_key(&models::Collection::new(
-            &binding
-                .collection
-                .as_ref()
-                .expect("missing binding collection")
-                .name,
+            &resolved.expect("missing binding collection").0.name,
         ))
         .context("Couldn't find bound collection")?
         .spec

@@ -2,9 +2,13 @@
 description: Sync Mailchimp data with Estuary's connector, including lists, campaigns, and email activity, using a Mailchimp API key.
 ---
 
-# Mailchimp
+# Mailchimp (Deprecated)
 
 This connector captures data from a Mailchimp account.
+
+:::deprecated
+This connector is deprecated. For the best experience, we recommend using our native [Mailchimp connector](./mailchimp-native.md) instead.
+:::
 
 Three data resources are supported, each of which is mapped to an Estuary collection: lists, campaigns, and email activity.
 

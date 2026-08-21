@@ -976,6 +976,17 @@
           "title": "Automatically materialize new bindings from a named capture",
           "$ref": "#/$defs/SourceType"
         },
+        "syncSchedule": {
+          "title": "Schedule controlling how often transactions commit.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyncSchedule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "targetNaming": {
           "title": "Naming strategy for destination resources.",
           "description": "Controls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.",
@@ -1270,7 +1281,7 @@
         },
         "maxTxnDuration": {
           "title": "Maximum duration of task transactions.",
-          "description": "This duration upper-bounds the amount of time during which a transaction\nmay process documents before it must flush and commit.\nIt may run for less time if there aren't additional ready documents for\nit to process.\nIf not set, the maximum duration defaults to five minutes for materializations,\nand one second for captures and derivations.\nEXPERIMENTAL: this field MAY be removed.",
+          "description": "This duration upper-bounds the amount of time during which a transaction\nmay process documents before it must flush and commit.\nIt may run for less time if there aren't additional ready documents for\nit to process.\nIf not set, the maximum duration defaults to twenty minutes for materializations,\nand one second for captures and derivations.\nEXPERIMENTAL: this field MAY be removed.",
           "type": [
             "string",
             "null"
@@ -1423,6 +1434,39 @@
         {
           "$ref": "#/$defs/SourceDef"
         }
+      ]
+    },
+    "SyncSchedule": {
+      "title": "Sync Schedule",
+      "description": "Controls how often a materialization commits transactions, trading data\nfreshness for reduced destination compute cost. When caught up, the runtime\nholds an open transaction (continuing to combine new documents) until the\nnext scheduled instant, rather than committing continuously.\n\nThe base interval applies 24/7, and any number of non-overlapping recurring\nlocal-time windows may each be given their own interval, which applies\nwhile that window is active.",
+      "type": "object",
+      "properties": {
+        "baseInterval": {
+          "title": "Base Interval",
+          "description": "Interval between transaction commits when the materialization is caught\nup, at all times not covered by a window. A value of zero commits as\nfast as possible.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h|d)$"
+        },
+        "timezone": {
+          "title": "Timezone",
+          "description": "IANA timezone name (e.g. `America/New_York`) or `+HH:MM` offset in\nwhich window times and days are interpreted. Required when windows are\nconfigured.",
+          "type": "string"
+        },
+        "windows": {
+          "title": "Windows",
+          "description": "Recurring local-time windows, each with its own commit interval which\napplies instead of the base interval while the window is active.\nWindows must not overlap.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Window"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "baseInterval"
       ]
     },
     "TargetNaming": {
@@ -1902,6 +1946,57 @@
         "config"
       ]
     },
-    "Value": true
+    "Value": true,
+    "Window": {
+      "title": "Window",
+      "description": "A recurring local-time window and the commit interval effective within it.",
+      "type": "object",
+      "properties": {
+        "days": {
+          "title": "Days",
+          "description": "Days of the week on which the window applies (e.g. `[Mon, Fri]`).\nAll days if not set.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "Mon",
+              "Tue",
+              "Wed",
+              "Thu",
+              "Fri",
+              "Sat",
+              "Sun"
+            ]
+          }
+        },
+        "end": {
+          "title": "End",
+          "description": "Local time of day (`HH:MM`) at which the window closes. The window may\nstraddle midnight (`end` earlier than `start`).",
+          "type": "string",
+          "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "interval": {
+          "title": "Interval",
+          "description": "Interval between transaction commits while the window is active.\nA value of zero commits as fast as possible.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h|d)$"
+        },
+        "start": {
+          "title": "Start",
+          "description": "Local time of day (`HH:MM`) at which the window opens.",
+          "type": "string",
+          "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "interval",
+        "start",
+        "end"
+      ]
+    }
   }
 }

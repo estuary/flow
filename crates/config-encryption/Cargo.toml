@@ -12,7 +12,6 @@ doc = { path = "../doc" }
 json = { path = "../json" }
 async-process = { path = "../async-process" }
 
-aide = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }

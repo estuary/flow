@@ -1,10 +1,10 @@
 ---
-description: Use the Smartsheet connector to capture sheets, reports, and their rows into Estuary Flow. Authenticates with a Smartsheet API access token and captures sheets incrementally and reports as full-refresh snapshots.
+description: Use the Smartsheet connector to capture sheets, reports, and their rows into Estuary. Authenticates with a Smartsheet API access token and captures sheets incrementally and reports as full-refresh snapshots.
 ---
 
 # Smartsheet
 
-This connector captures data from [Smartsheet](https://www.smartsheet.com/) sheets and reports into Estuary Flow collections.
+This connector captures data from [Smartsheet](https://www.smartsheet.com/) sheets and reports into Estuary collections.
 It authenticates with a Smartsheet [API access token](https://smartsheet.redoc.ly/#section/API-Basics/Authentication) and reads data through the [Smartsheet API 2.0](https://smartsheet.redoc.ly/).
 
 ## Supported data resources

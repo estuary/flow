@@ -14,7 +14,7 @@ use proto_gazette::broker;
 ///
 /// Port of Go's `Mapper.Map` (`go/flow/mapping.go`).
 pub(crate) async fn map_partition<N: json::AsNode>(
-    binding: &super::MappedBinding,
+    target: &super::MappedTarget,
     lazy: &std::sync::LazyLock<
         (
             gazette::journal::Client,
@@ -26,9 +26,9 @@ pub(crate) async fn map_partition<N: json::AsNode>(
     prefix: String,
     packed_key: bytes::BytesMut,
 ) -> tonic::Result<(String, bytes::BytesMut)> {
-    let (prefix, packed_key, key_hash) = extract_mapping_context(binding, doc, prefix, packed_key)?;
+    let (prefix, packed_key, key_hash) = extract_mapping_context(target, doc, prefix, packed_key)?;
     let (_doc, journal, packed_key) =
-        map_partition_from_context(binding, lazy, doc, prefix, packed_key, key_hash).await?;
+        map_partition_from_context(target, lazy, doc, prefix, packed_key, key_hash).await?;
     Ok((journal, packed_key))
 }
 
@@ -38,7 +38,7 @@ pub(crate) async fn map_partition<N: json::AsNode>(
 /// through the async mapping loop, rather than holding a borrowed `HeapNode`
 /// across its `.await` points. Returns `doc` alongside the mapped journal.
 pub(crate) async fn map_partition_owned(
-    binding: &super::MappedBinding,
+    target: &super::MappedTarget,
     lazy: &std::sync::LazyLock<
         (
             gazette::journal::Client,
@@ -51,12 +51,12 @@ pub(crate) async fn map_partition_owned(
     packed_key: bytes::BytesMut,
 ) -> tonic::Result<(doc::OwnedNode, String, bytes::BytesMut)> {
     let (prefix, packed_key, key_hash) =
-        extract_mapping_context_owned(binding, &doc, prefix, packed_key)?;
-    map_partition_from_context(binding, lazy, doc, prefix, packed_key, key_hash).await
+        extract_mapping_context_owned(target, &doc, prefix, packed_key)?;
+    map_partition_from_context(target, lazy, doc, prefix, packed_key, key_hash).await
 }
 
 async fn map_partition_from_context<D: PartitionDoc>(
-    binding: &super::MappedBinding,
+    target: &super::MappedTarget,
     lazy: &std::sync::LazyLock<
         (
             gazette::journal::Client,
@@ -84,18 +84,18 @@ async fn map_partition_from_context<D: PartitionDoc>(
         // Uncommon case: a covering physical partition doesn't exist.
 
         // Have we exhausted the limit of partitions?
-        if partitions.len() >= binding.partitions_limit {
+        if partitions.len() >= target.partitions_limit {
             return Err(tonic::Status::resource_exhausted(format!(
                 "collection {} has too many partitions ({}, limit is {})",
-                binding.collection,
+                target.collection,
                 partitions.len(),
-                binding.partitions_limit
+                target.partitions_limit
             )));
         }
         // Attempt to create a new full-range physical partition of this logical
         // partition. The logical-partition labels are extracted from the document
         // only here, on the uncommon path that actually needs them.
-        let (name, request) = build_partition_apply(binding, &doc)?;
+        let (name, request) = build_partition_apply(target, &doc)?;
         let result = client.apply(request).await;
 
         match result {
@@ -126,26 +126,26 @@ async fn map_partition_from_context<D: PartitionDoc>(
 /// is all that's required to map a document in the common case where its
 /// physical partition already exists.
 fn extract_mapping_context<N: json::AsNode>(
-    binding: &super::MappedBinding,
+    target: &super::MappedTarget,
     doc: &N,
     mut prefix: String,
     mut packed_key: bytes::BytesMut,
 ) -> tonic::Result<(String, bytes::BytesMut, u32)> {
     doc::Extractor::extract_all(
         doc,
-        &binding.key_extractors,
+        &target.key_extractors,
         doc::Encoding::Packed,
         &mut packed_key,
         None,
     );
     let key_hash = doc::Extractor::packed_hash(&packed_key);
 
-    prefix.push_str(&binding.partitions_template.name);
+    prefix.push_str(&target.partitions_template.name);
     prefix.push('/');
     prefix = labels::partition::append_extracted_fields_name_suffix(
         prefix,
-        &binding.partition_fields,
-        &binding.partition_extractors,
+        &target.partition_fields,
+        &target.partition_extractors,
         doc,
     )
     .map_err(|err| tonic::Status::internal(format!("failed to encode logical prefix: {err}")))?;
@@ -156,18 +156,18 @@ fn extract_mapping_context<N: json::AsNode>(
 /// Owned-document counterpart of `extract_mapping_context`, which dispatches
 /// `doc` to its inner `json::AsNode` representation.
 fn extract_mapping_context_owned(
-    binding: &super::MappedBinding,
+    target: &super::MappedTarget,
     doc: &doc::OwnedNode,
     prefix: String,
     packed_key: bytes::BytesMut,
 ) -> tonic::Result<(String, bytes::BytesMut, u32)> {
     match doc {
         doc::OwnedNode::Heap(root) => match root.access() {
-            Ok(heap_node) => extract_mapping_context(binding, &heap_node, prefix, packed_key),
-            Err(embedded) => extract_mapping_context(binding, embedded.get(), prefix, packed_key),
+            Ok(heap_node) => extract_mapping_context(target, &heap_node, prefix, packed_key),
+            Err(embedded) => extract_mapping_context(target, embedded.get(), prefix, packed_key),
         },
         doc::OwnedNode::Archived(archived) => {
-            extract_mapping_context(binding, archived.get(), prefix, packed_key)
+            extract_mapping_context(target, archived.get(), prefix, packed_key)
         }
     }
 }
@@ -184,7 +184,7 @@ trait PartitionDoc {
     /// `estuary.dev/field/` labels of `labels`, returning the extended set.
     fn encode_logical_partition_labels(
         &self,
-        binding: &super::MappedBinding,
+        target: &super::MappedTarget,
         labels: broker::LabelSet,
     ) -> tonic::Result<broker::LabelSet>;
 }
@@ -192,13 +192,13 @@ trait PartitionDoc {
 impl<N: json::AsNode> PartitionDoc for &N {
     fn encode_logical_partition_labels(
         &self,
-        binding: &super::MappedBinding,
+        target: &super::MappedTarget,
         labels: broker::LabelSet,
     ) -> tonic::Result<broker::LabelSet> {
         labels::partition::encode_extracted_fields_labels(
             labels,
-            &binding.partition_fields,
-            &binding.partition_extractors,
+            &target.partition_fields,
+            &target.partition_extractors,
             *self,
         )
         .map_err(|err| {
@@ -210,20 +210,20 @@ impl<N: json::AsNode> PartitionDoc for &N {
 impl PartitionDoc for doc::OwnedNode {
     fn encode_logical_partition_labels(
         &self,
-        binding: &super::MappedBinding,
+        target: &super::MappedTarget,
         labels: broker::LabelSet,
     ) -> tonic::Result<broker::LabelSet> {
         // Dispatch to the `&N` impl over `doc::OwnedNode`'s inner representation.
         match self {
             doc::OwnedNode::Heap(root) => match root.access() {
-                Ok(heap_node) => (&heap_node).encode_logical_partition_labels(binding, labels),
+                Ok(heap_node) => (&heap_node).encode_logical_partition_labels(target, labels),
                 Err(embedded) => embedded
                     .get()
-                    .encode_logical_partition_labels(binding, labels),
+                    .encode_logical_partition_labels(target, labels),
             },
             doc::OwnedNode::Archived(archived) => archived
                 .get()
-                .encode_logical_partition_labels(binding, labels),
+                .encode_logical_partition_labels(target, labels),
         }
     }
 }
@@ -282,10 +282,10 @@ fn pick_partition(
 // Build an ApplyRequest to create a new full-range physical partition of the
 // logical partition implied by `doc`.
 fn build_partition_apply<D: PartitionDoc>(
-    binding: &super::MappedBinding,
+    target: &super::MappedTarget,
     doc: &D,
 ) -> tonic::Result<(String, broker::ApplyRequest)> {
-    let mut spec = binding.partitions_template.clone();
+    let mut spec = target.partitions_template.clone();
 
     // Encode labels of a single physical partition covering the full key
     // range, then the logical-partition fields extracted from `doc`.
@@ -294,7 +294,7 @@ fn build_partition_apply<D: PartitionDoc>(
         u32::MIN,
         u32::MAX,
     );
-    let labels = doc.encode_logical_partition_labels(binding, labels)?;
+    let labels = doc.encode_logical_partition_labels(target, labels)?;
 
     let name = labels::partition::full_name(&spec.name, &labels).unwrap();
     spec.name = name.clone();
@@ -337,8 +337,8 @@ pub enum SplitOutcome {
 /// Attempt to split partition `journal` at its key-range midpoint.
 ///
 /// `partitions_template` is the owning collection's partition template (the
-/// only thing about the binding a split needs); `client` and `partitions` are
-/// the binding's journal client and live partition watch.
+/// only thing about the target a split needs); `client` and `partitions` are
+/// the target's journal client and live partition watch.
 ///
 /// The journal's width is first checked against the in-memory partition watch
 /// (no RPC): if it's below `2 * MIN_PARTITION_WIDTH` the outcome is `AtFloor`
@@ -363,6 +363,7 @@ pub async fn split_partition(
     if key_range_width(split.key_begin, split.key_end) < 2 * MIN_PARTITION_WIDTH {
         return Ok(SplitOutcome::AtFloor);
     }
+    tracing::info!(journal, "starting automatic journal split");
 
     // Read the parent's current spec: the watch tracks only its name, key
     // range, and revision, while the split derives the LHS / RHS specs from
@@ -547,8 +548,8 @@ mod test {
         assert_eq!(pick_partition(&p, "coll/a=1/", 0), None);
     }
 
-    /// Build a test MappedBinding from a built CollectionSpec.
-    fn test_binding(spec: &flow::CollectionSpec) -> super::super::MappedBinding {
+    /// Build a test MappedTarget from a built CollectionSpec.
+    fn test_target(spec: &flow::CollectionSpec) -> super::super::MappedTarget {
         let flow::CollectionSpec {
             name,
             partition_template,
@@ -566,7 +567,7 @@ mod test {
         let partition_extractors =
             extractors::for_fields(partition_fields, projections, &policy).unwrap();
 
-        super::super::MappedBinding {
+        super::super::MappedTarget {
             collection: models::Collection::new(name),
             key_extractors,
             partition_fields: partition_fields.clone(),
@@ -591,17 +592,17 @@ mod test {
             .unwrap();
 
         let spec = spec.as_ref().unwrap();
-        let binding = test_binding(spec);
+        let target = test_target(spec);
 
         // extract_mapping_context encodes partition field values directly into
         // the logical journal-name prefix.
         let doc_1 = json!({"a_key": "k", "a_bool": true, "a_str": "hello"});
         let (prefix_1, _, _) =
-            extract_mapping_context(&binding, &doc_1, String::new(), bytes::BytesMut::new())
+            extract_mapping_context(&target, &doc_1, String::new(), bytes::BytesMut::new())
                 .unwrap();
 
         let (prefix_2, _, _) = extract_mapping_context(
-            &binding,
+            &target,
             &json!({"a_key": "k", "a_bool": false, "a_str": "world"}),
             String::new(),
             bytes::BytesMut::new(),
@@ -610,7 +611,7 @@ mod test {
 
         // Pre-allocated capacity doesn't affect the output.
         let (prefix_3, _, _) = extract_mapping_context(
-            &binding,
+            &target,
             &json!({"a_key": "k", "a_bool": true, "a_str": "reused"}),
             String::with_capacity(256),
             bytes::BytesMut::new(),
@@ -622,7 +623,7 @@ mod test {
         // build_partition_apply creates a full-key-range partition spec, with
         // the logical-partition field labels extracted from the document only
         // when a new partition must be created.
-        let (name, request) = build_partition_apply(&binding, &&doc_1).unwrap();
+        let (name, request) = build_partition_apply(&target, &&doc_1).unwrap();
 
         insta::assert_json_snapshot!(
             "physical_partition_apply",
@@ -661,7 +662,7 @@ mod test {
         (client, tokens::fixed(Ok(listing)))
     }
 
-    /// Build a parent JournalSplit of `split_test_binding`'s template, having
+    /// Build a parent JournalSplit of `split_test_template`, having
     /// the given key range and one logical-partition field label.
     fn split_test_parent(
         key_begin: u32,

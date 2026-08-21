@@ -761,7 +761,10 @@ pub async fn resolve_live_specs(
 
     let rows = crate::live_specs::fetch_live_specs(
         user_id,
-        &all_spec_names,
+        &all_spec_names
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
         verify_user_authz,
         true, // always fetch spec capabilities
         db,
@@ -923,6 +926,11 @@ pub async fn resolve_live_specs(
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
+    // The `data_plane_names` authorization below still evaluates
+    // internal.user_roles() in SQL. Discovers now make the identical
+    // decision in-process against the authorization Snapshot
+    // (see agent's DiscoverExecutor); this SQL variant duplicates it
+    // and is to be strangled out in following commits.
     live.data_planes = sqlx::query_as!(
         tables::DataPlane,
         r#"

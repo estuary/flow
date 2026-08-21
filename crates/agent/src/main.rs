@@ -390,7 +390,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
-        snapshot_watch,
+        snapshot_watch.clone(),
         args.stripe_webhook_secret,
     ));
     let api_router = control_plane_api::build_router(
@@ -423,6 +423,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
+                snapshot_watch,
             })
             .register(directive_executor)
             .register(connector_tags_executor)

@@ -4,8 +4,7 @@
 /// The fixture defines three collections (apples, bananas, cherries) shared
 /// between a capture and a materialization. Tests build the shuffle task from
 /// the MaterializationSpec (exercising `Binding::from_materialization_binding`)
-/// and construct the publisher from the CaptureSpec (exercising
-/// `Binding::from_capture_spec`).
+/// and construct the publisher from the CaptureSpec.
 ///
 /// Each scenario verifies both the `Frontier` checkpoint metadata AND the
 /// actual documents read back by a `FrontierScan` from the on-disk log.
@@ -83,8 +82,7 @@ fn build_shards(
         .collect()
 }
 
-/// Build a Publisher from a CaptureSpec.
-/// Exercises `publisher::Binding::from_capture_spec()`.
+/// Build a Publisher from a CaptureSpec, with one Target per binding.
 fn make_publisher(
     spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
@@ -95,12 +93,21 @@ fn make_publisher(
         move |_authz_sub, _authz_obj| journal_client.clone()
     });
 
-    let bindings = publisher::Binding::from_capture_spec(spec)
-        .expect("should build bindings from capture spec");
+    let targets = spec
+        .resolved_bindings()
+        .enumerate()
+        .map(|(index, (_binding, resolved))| {
+            let (collection_spec, _identity) =
+                resolved.unwrap_or_else(|| panic!("capture binding {index} missing collection"));
+
+            publisher::Target::from_collection_spec(collection_spec)
+                .expect("should build target from collection spec")
+        })
+        .collect();
 
     publisher::Publisher::new(
         String::new(), // Empty AuthZ subject.
-        bindings,
+        targets,
         factory,
         producer,
         // Deterministic base clock for reproducible snapshots. Must be >=
@@ -175,7 +182,11 @@ fn collect_read_entries(
 #[tokio::test]
 async fn shuffle_scenarios() {
     // Build the catalog fixture.
-    let source = build::arg_source_to_url("./tests/shuffle.flow.yaml", false).unwrap();
+    let source = build::arg_source_to_url(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/shuffle.flow.yaml"),
+        false,
+    )
+    .unwrap();
     let build_output = Arc::new(
         build::for_local_test(&source, true)
             .await

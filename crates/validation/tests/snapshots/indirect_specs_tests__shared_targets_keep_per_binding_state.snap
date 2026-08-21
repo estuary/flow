@@ -1,0 +1,11 @@
+---
+source: crates/validation/tests/indirect_specs_tests.rs
+assertion_line: 131
+expression: summary
+---
+[
+    "[\"one\", \"a\"] backfill=7 state_key=one%2Fa.v7 resource={\"source\":\"one-a\"} => [0] acmeCo/one",
+    "[\"two\", \"a\"] backfill=0 state_key=two%2Fa resource={\"source\":\"two-a\"} => [1] acmeCo/two",
+    "[\"one\", \"b\"] backfill=3 state_key=one%2Fb.v3 resource={\"source\":\"one-b\"} => [0] acmeCo/one",
+    "[\"one\", \"c\"] backfill=0 state_key=one%2Fc resource={\"source\":\"one-c\"} => [0] acmeCo/one",
+]

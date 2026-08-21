@@ -60,6 +60,7 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 
 	for i := range task.Derivation.Transforms {
 		var transform = task.Derivation.Transforms[i]
+		var source = task.Derivation.TransformCollection(&transform)
 		var readDelay = message.NewClock(time.Unix(int64(transform.ReadDelaySeconds), 0)) - message.NewClock(time.Unix(0, 0))
 		var notBefore, notAfter = notBeforeAfter(transform.NotBefore, transform.NotAfter)
 
@@ -67,16 +68,16 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 			filterRClocks:             transform.ReadOnly,
 			journalReadSuffix:         transform.JournalReadSuffix,
 			priority:                  transform.Priority,
-			projections:               transform.Collection.Projections,
+			projections:               source.Projections,
 			readDelay:                 readDelay,
 			shuffleKey:                nil,
 			shuffleKeyPartitionFields: nil,
 			sourcePartitions:          transform.PartitionSelector,
-			sourceSpec:                &transform.Collection,
-			sourceUuidPtr:             transform.Collection.UuidPtr,
+			sourceSpec:                source,
+			sourceUuidPtr:             source.UuidPtr,
 			usesLambda:                false,
 			usesSourceKey:             false,
-			validateSchema:            transform.Collection.ReadSchemaJson,
+			validateSchema:            source.ReadSchemaJson,
 			notBefore:                 notBefore,
 			notAfter:                  notAfter,
 		}
@@ -84,16 +85,16 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 		// We always validate derivation sources on read,
 		// preferring a read schema and falling back to its singular schema.
 		if len(shuffle.validateSchema) == 0 {
-			shuffle.validateSchema = transform.Collection.WriteSchemaJson
+			shuffle.validateSchema = source.WriteSchemaJson
 		}
 
 		if len(transform.ShuffleKey) != 0 {
 			shuffle.shuffleKey = transform.ShuffleKey
 			shuffle.shuffleKeyPartitionFields = make([]string, len(transform.ShuffleKey))
-			shuffle.usesSourceKey = reflect.DeepEqual(transform.ShuffleKey, transform.Collection.Key)
+			shuffle.usesSourceKey = reflect.DeepEqual(transform.ShuffleKey, source.Key)
 
 			for i, ptr := range transform.ShuffleKey {
-				for _, projection := range transform.Collection.Projections {
+				for _, projection := range source.Projections {
 					if projection.Ptr == ptr && projection.IsPartitionKey {
 						shuffle.shuffleKeyPartitionFields[i] = projection.Field
 					}
@@ -109,7 +110,7 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 		} else {
 			// Shuffle is `any`. Currently we shuffle on the source key
 			// but this is arbitrary and can be changed.
-			shuffle.shuffleKey = transform.Collection.Key
+			shuffle.shuffleKey = source.Key
 			shuffle.usesSourceKey = true
 		}
 
@@ -123,19 +124,20 @@ func materializationShuffles(task *pf.MaterializationSpec) []shuffle {
 
 	for i := range task.Bindings {
 		var binding = task.Bindings[i]
+		var source = task.BindingCollection(binding)
 		var notBefore, notAfter = notBeforeAfter(binding.NotBefore, binding.NotAfter)
 
 		var shuffle = shuffle{
 			filterRClocks:             false,
 			journalReadSuffix:         binding.JournalReadSuffix,
 			priority:                  binding.Priority,
-			projections:               binding.Collection.Projections,
+			projections:               source.Projections,
 			readDelay:                 0,
-			shuffleKey:                binding.Collection.Key,
+			shuffleKey:                source.Key,
 			shuffleKeyPartitionFields: nil,
 			sourcePartitions:          binding.PartitionSelector,
-			sourceSpec:                &binding.Collection,
-			sourceUuidPtr:             binding.Collection.UuidPtr,
+			sourceSpec:                source,
+			sourceUuidPtr:             source.UuidPtr,
 			usesLambda:                false,
 			usesSourceKey:             true,
 			validateSchema:            nil,

@@ -578,13 +578,8 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
         let names = names.into_iter().collect::<Vec<_>>();
-        let mut live = live_specs::get_live_specs(
-            self.system_user_id,
-            &names,
-            None, // don't filter based on user capability
-            &self.pool,
-        )
-        .await?;
+        let mut live =
+            live_specs::get_live_specs_unfiltered(self.system_user_id, &names, &self.pool).await?;
 
         // TODO: Can we stop adding inferred schemas to live specs?
         // Fetch inferred schemas and add to live specs.
@@ -655,6 +650,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             logs_token,
             data_plane: data_plane.clone(),
             created_at,
+            snapshot,
         };
         discovers_handler.discover(pool, req).await
     }
