@@ -7,11 +7,10 @@
 //! `flowctl` and is not exported. Re-deriving it here would be a second copy of something with
 //! no test of its own.
 //!
-//! Two things are not `flowctl`, and the module used to claim otherwise. Unassigning a shard and
-//! joining a task's shards go through `gazctl`, via the scripts under `scripts/`, because neither
-//! is a `flowctl` subcommand. And reading a destination back goes through the connector's own
-//! code — its `read` subcommand for the reference connector, `testctl` for a real subject — see
-//! [`ReadVia`].
+//! Two things are not `flowctl`. Unassigning a shard and joining a task's shards go through
+//! `gazctl`, via the scripts under `scripts/`, because neither is a `flowctl` subcommand. And
+//! reading a destination back goes through the connector's own code — its `read` subcommand for
+//! the reference connector, `testctl` for a real subject — see [`ReadVia`].
 
 use crate::invariants::Event;
 use anyhow::Context;
@@ -30,9 +29,7 @@ pub struct Stack {
 
 /// Run a command to completion under a deadline, returning its stdout.
 ///
-/// `what` names the invocation for every failure this can produce — the deadline, the spawn,
-/// and a non-zero exit — because each of the three call sites had written that message out
-/// itself and they had already drifted into three shapes.
+/// `what` is used to name the invocation in returned Errs.
 async fn bounded_output(
     cmd: &mut async_process::Command,
     timeout: std::time::Duration,
@@ -52,9 +49,6 @@ async fn bounded_output(
 }
 
 /// Which reader a destination is read through.
-///
-/// `Copy`, because a drain reads three resources per poll and passing it by value each time
-/// reads better than borrowing a borrow.
 #[derive(Clone, Copy)]
 pub enum ReadVia<'a> {
     /// The reference connector's own `read` subcommand. It lives in this repository and is run
@@ -139,23 +133,14 @@ impl Stack {
 
     /// Every flowctl invocation is bounded, because none of the scenario deadlines
     /// bound *this*: they guard the wait loops, and a subprocess that never returns
-    /// sits under all of them. `destination-ahead-of-checkpoint` hit nextest's 960s
-    /// ceiling having logged only its publish line — a `catalog publish` had blocked,
-    /// and with four publish retries a single hang multiplies.
+    /// sits under all of them.
     ///
     /// Generous, because a publish on a loaded stack legitimately takes tens of
-    /// seconds; the point is to convert "hangs forever" into a named failure that the
-    /// publish retry can act on.
+    /// seconds; the point is to convert "hangs forever" into a named failure.
     const INVOCATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(150);
 
-    /// For invocations whose duration scales with how much data a run produced,
-    /// rather than with how busy the control plane is.
-    ///
-    /// Reading a collection scans the whole thing, so its cost grows with every
-    /// document the workload wrote — and the scenarios that run longest write the
-    /// most. One blanket bound failed `join-after-split` on exactly that: a
-    /// `collections read` of the collection it had spent 270 seconds filling took
-    /// longer than a publish ever would, and 150s cut it off.
+    /// For invocations whose duration scales with how much data a run produced.
+    /// Scenarios that run for long, also end up reading a lot.
     const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
     /// Attempts at a read before giving up.
@@ -185,13 +170,6 @@ impl Stack {
 
     /// Publish a catalog, retrying a build that fails for reasons outside the
     /// catalog.
-    ///
-    /// A publication builds against the whole control plane, so it can fail from
-    /// contention with unrelated work on a busy stack — several scenarios publish at
-    /// once, and the stack's own ops-catalog maintenance publishes alongside them. A
-    /// catalog that is genuinely wrong fails the same way every time, so retrying a
-    /// bounded number of times distinguishes the two without hiding either: the last
-    /// error is reported in full.
     pub async fn publish(&self, catalog: &models::Catalog) -> anyhow::Result<()> {
         let file = tempfile::Builder::new().suffix(".json").tempfile()?;
         std::fs::write(file.path(), serde_json::to_string_pretty(catalog)?)?;
@@ -230,9 +208,6 @@ impl Stack {
     }
 
     pub async fn delete_prefix(&self, prefix: &str) -> anyhow::Result<()> {
-        // With a trailing `/`, because flowctl matches this as a plain string prefix: without
-        // one, a run whose id happens to extend another's would delete that run's tasks too.
-        // Vanishingly unlikely with hex run ids, and a one-character guarantee.
         let prefix = format!("{}/", prefix.trim_end_matches('/'));
         self.run(&[
             "catalog",
@@ -265,13 +240,6 @@ impl Stack {
     }
 
     /// Whether every shard of `task` currently reports a primary.
-    ///
-    /// A single listing with no waiting, used only as `drain`'s health signal — to tell
-    /// a task that has genuinely gone quiet from one that has fallen over.
-    ///
-    /// A single listing is all this is: nothing in the suite *waits* on shard status, and the
-    /// reasoning for that — why a blocking version was unsafe in either position — is stated once
-    /// at the top of `harness::execute`.
     pub async fn all_primary(&self, task: &str) -> anyhow::Result<bool> {
         use proto_gazette::consumer::replica_status::Code;
 
@@ -285,27 +253,13 @@ impl Stack {
 
     /// Whether `task` has stopped writing: every shard disabled in the data plane, and none
     /// of them still primary.
-    ///
-    /// This is how the suite knows a disabled task has actually stopped, rather than been
-    /// *asked* to. Publishing with `shards.disable` returns once the spec is stored, and
-    /// activation carries it to the data plane afterwards, so between the two the task is
-    /// still running and its collection still growing.
-    ///
-    /// Both halves are needed. The spec is what makes it authoritative — it says the runtime
-    /// has been told — and it is checked rather than the shard's *absence*, because a
-    /// disabled shard is not deleted: its spec stays listed with `disable: true`, so waiting
-    /// for an empty listing waits forever. And the disabled spec alone is not enough, because
-    /// the allocator drops the assignment afterwards and the primary finishes the transaction
-    /// it is in; only when no shard reports primary is the last append behind us.
     pub async fn is_stopped(&self, task: &str) -> anyhow::Result<bool> {
         use proto_gazette::consumer::replica_status::Code;
 
         let shards = self.shards(task).await?;
 
-        // `!is_empty` for the same reason `all_primary` has it: `all` over nothing is true, so an
-        // anomalous empty listing would read as "stopped" and send the run off to read an
-        // expectation from a collection still growing. A disabled task keeps its shard specs, so
-        // an empty listing here is not the expected steady state — it is a listing to disbelieve.
+        // A disabled task keeps its shard specs, so an empty listing here is not the expected
+        // steady state.
         Ok(!shards.is_empty()
             && shards.iter().all(|shard| {
                 shard.spec.as_ref().is_some_and(|spec| spec.disable)
@@ -357,30 +311,14 @@ impl Stack {
 
     /// Read a collection repeatedly until its contents stop growing, and return
     /// them.
-    ///
-    /// This is how the harness knows a collection is *final*, and it observes that
-    /// directly rather than inferring it from the capture's lifecycle: disabling a
-    /// capture does not promptly remove its shards, and a task that still has shards
-    /// may or may not still be producing. What matters is only that no new document
-    /// is arriving — and an expectation read one document early would report the
-    /// materialization as having duplicated something it merely delivered on time.
     pub async fn read_collection_when_final(
         &self,
         collection: &str,
         timeout: std::time::Duration,
     ) -> anyhow::Result<Vec<Event>> {
-        // A plateau confirms rather than decides: the caller waits for the capture's shards to
-        // be gone first, after which nothing can append to this collection. What is left for
-        // this loop is the read itself being consistent — a `collections read` that returns
-        // mid-append, or against a broker still catching up.
-        //
-        // Bounded by attempts as well as by the clock, because the two limits fail for
-        // different reasons and only one of them means the capture is still writing.
-        //
-        // A read of this collection can take a minute under contention, so a wall-clock
-        // deadline alone can expire having compared only two or three samples — and it then
-        // reports "still growing", which reads as a capture that would not stop when it is
-        // really a runner that did not get to look twice in a row.
+        // The caller waits for the capture's shards to be gone first, after which nothing can
+        // append to this collection; this loop guards against an inconsistent read — a
+        // `collections read` that returns mid-append, or against a broker still catching up.
         const ATTEMPTS: usize = 8;
 
         let deadline = std::time::Instant::now() + timeout;
@@ -406,19 +344,13 @@ impl Stack {
 
     /// Unassign a task's shards so the allocator can schedule them again.
     ///
-    /// This is how a crash scenario recovers, and it is not a workaround: a shard
-    /// whose processing loop fails is marked FAILED and *stays* failed — the
-    /// allocator will not reschedule it on its own. In production something
-    /// eventually re-activates the task, which unassigns as a side effect; the suite
-    /// does the unassigning directly, so recovery is immediate and does not perturb
-    /// the specification of the task under test.
+    /// This is how a crash scenario recovers: a shard whose processing loop fails is
+    /// marked FAILED and the allocator will not reschedule it on its own.
     ///
-    /// Every shard, not only the failed ones. Gazette does remove a FAILED assignment
-    /// under `--failed`; what that filter skips is a shard whose primary is merely
-    /// *wedged* and has not been marked FAILED — which is precisely the state the stall
-    /// detection in `recover` fires on, so filtering would report zero shards unassigned
-    /// and leave the task down. Unassigning a healthy shard costs a brief reassignment,
-    /// and this is only called while already waiting on a task making no progress.
+    /// Every shard, not only the failed ones: `--failed` skips a shard whose primary is
+    /// merely wedged without being marked FAILED, which is exactly the state the stall
+    /// detection in `recover` fires on. Unassigning a healthy shard costs only a brief
+    /// reassignment.
     pub async fn unassign_shards(&self, task: &str) -> anyhow::Result<()> {
         self.shard_tool(&["unassign", task])
             .await
@@ -427,16 +359,6 @@ impl Stack {
     }
 
     /// Split every shard of a task in two, on shuffled key.
-    ///
-    /// `flowctl raw split-shards` builds the children directly, through
-    /// `activate::map_shard_to_split`: the parent's labels with re-encoded ranges,
-    /// `primary_hints: None`, and children that are stateless because a V2 task's non-zero
-    /// shards acquire state through the leader protocol.
-    ///
-    /// It is therefore *not* the legacy consumer-layer split workflow, which requires an
-    /// `estuary.dev/split-source` label and is where the old claim about this fencing the source
-    /// primary off its recovery log came from. Nothing here fences anything; the parent hands over
-    /// because the spec update cancels its term.
     pub async fn split_shards(&self, task: &str) -> anyhow::Result<()> {
         self.run(&["raw", "split-shards", "--task", task])
             .await
@@ -444,12 +366,8 @@ impl Stack {
         Ok(())
     }
 
-    /// Join every pair of a task's shards, halving their number.
-    ///
-    /// The inverse of `split_shards`, and the other half of verifying that scaling
-    /// is safe: a survivor absorbs its partner's key range and the partner is
-    /// deleted, so any key the departing shard still owed work for has to be picked
-    /// up by the one that remains.
+    /// Join every pair of a task's shards, halving their number: a survivor absorbs its
+    /// partner's key range and the partner is deleted.
     pub async fn join_shards(&self, task: &str) -> anyhow::Result<()> {
         self.shard_tool(&["join", task])
             .await
@@ -457,16 +375,10 @@ impl Stack {
         Ok(())
     }
 
-    /// Run the suite's shard tooling, which drives `gazctl` rather than `flowctl`.
-    ///
-    /// `gazctl` already implements both operations; the only missing piece was pointing it at a
-    /// Flow data plane, which `flowctl raw gazctl-env` supplies. Why they are scripts rather than
-    /// new `flowctl` subcommands is a design decision, recorded under that heading in
+    /// Run the suite's shard tooling, which drives `gazctl` rather than `flowctl`. Why these
+    /// are scripts rather than new `flowctl` subcommands is recorded in
     /// `docs/materialize/consistency-testing.md`.
     async fn shard_tool(&self, args: &[&str]) -> anyhow::Result<String> {
-        // Resolved from the crate's own source directory, not from the target directory:
-        // a build may put artefacts far outside the checkout, but the scripts ship beside
-        // the code that calls them.
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("scripts")
             .join("shard-tools.sh");
@@ -498,9 +410,6 @@ impl Stack {
     ) -> anyhow::Result<Vec<Event>> {
         let stdout = self.read_rows(via, resource, "snapshot").await?;
 
-        // Rows of columns rather than the documents that produced them, which is what a
-        // materialized resource actually holds — a standard binding need not carry a root
-        // document at all.
         let mut events = Vec::new();
         for line in stdout.lines() {
             if line.trim().is_empty() {

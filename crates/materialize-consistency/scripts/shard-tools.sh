@@ -66,8 +66,7 @@ join)
 
     "${GAZCTL}" shards list --selector "${SELECTOR}" -o yaml >"${SPECS}.orig"
 
-    # to see the plan, run
-    # `join-shards.py <listing> /dev/stdout` directly.
+    # To see the plan without applying it, run `join-shards.py <listing> /dev/stdout`.
     python3 "$(dirname "$0")/join-shards.py" "${SPECS}.orig" "${SPECS}"
     rm -f "${SPECS}.orig"
     "${GAZCTL}" shards apply --specs "${SPECS}"

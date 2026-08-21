@@ -221,12 +221,8 @@ pub enum Event {
     /// A session opened over `[key_begin, key_end]`, inclusive at both ends as Flow's
     /// ranges are (`flow.proto`: "[begin, end] inclusive").
     ///
-    /// `materialize.proto` contradicts itself on this within two sentences — the fencing
-    /// paragraph says `[key_begin, key_end)` and then, two lines later, `[key_begin, key_end]` —
-    /// so the citation above is `flow.proto`, and the side taken is the one every real fence
-    /// implementation takes. Noted so the next reader need not re-run the audit. Shard identity as the
-    /// connector sees it, which is how the harness correlates a trace with a
-    /// shard split.
+    /// This is shard identity as the connector sees it, which is how the harness
+    /// correlates a trace with a shard split.
     Opened {
         key_begin: u32,
         key_end: u32,

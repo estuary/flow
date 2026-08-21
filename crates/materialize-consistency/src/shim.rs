@@ -130,9 +130,8 @@ struct Instance {
 /// The value `materialize-boilerplate` expects in `FLOW_RUNTIME_CODEC`.
 ///
 /// The shim relays between runtime and connector without transcoding, so both sides must
-/// use one codec. A connector built on the boilerplate reads this variable and defaults to
-/// protobuf when it is unset — which is why every real connector failed here while the
-/// reference one, which hardcodes JSON, did not.
+/// use one codec. A connector built on the boilerplate reads this variable and defaults
+/// to protobuf when it is unset.
 fn codec_name(codec: connector_init::Codec) -> &'static str {
     match codec {
         connector_init::Codec::Proto => "proto",
@@ -186,14 +185,11 @@ impl Shim {
             _ => Vec::new(),
         };
 
-        // A zombie rule is only meaningful in one shape, and this refuses every other rather than
-        // degrading quietly. `zombie_action` consults the fired marker alone — not `nth`,
-        // `arm_after_nth_commits` or `shard` — so a rule keyed anywhere else would spawn a second
-        // *live* instance at every session open and never freeze it, and one keyed on a response
-        // trigger
-        // would be matched, marked fired and traced as a fault before being discarded, leaving the
-        // scenario to pass having raced no one. The scenario table is guarded by a unit test, but
-        // `FLOW_CONSISTENCY_FAULTS` is arbitrary JSON, and nothing else validated it.
+        // A zombie rule must be keyed on `Open` #1 with no arming and no shard restriction,
+        // and any other keying is rejected here. The shim spawns the zombie whenever a
+        // session opens and freezes it when the rule fires, so a rule that fires anywhere
+        // else leaves the zombie running as a second live connector instead of freezing it,
+        // and the scenario would pass without having raced anyone.
         for (idx, rule) in faults.iter().enumerate() {
             if !matches!(rule.action, Action::Zombie { .. }) {
                 continue;
@@ -402,16 +398,11 @@ impl Zombie {
     /// Await the zombie's first response, so that it has taken its fence before the
     /// live instance takes one.
     ///
-    /// Bounded, because a connector that never responds to `Open` must not wedge the live path —
-    /// and the bound *must not* be a silent fall-through, which is what it was. Proceeding without
-    /// the confirmation forwards the live `Open` anyway, so the zombie may fence *second* and hold
-    /// the newer nonce: then it is the live instance whose commits are refused, and the scenario
-    /// asserts the exact opposite of what it claims while looking like a connector defect.
-    ///
-    /// So a timeout here is fatal rather than tolerated. Thirty seconds is far outside any real
-    /// `Open` — the reference connector answers in milliseconds — so this cannot flake; it means
-    /// the subject is wedged, and failing loudly beats racing backwards or passing vacuously.
-    /// Returns whether the zombie opened; the caller crashes the session if it did not.
+    /// Bounded, because a connector that never responds to `Open` must not wedge the live
+    /// path — and a timeout is fatal rather than a fall-through: proceeding without the
+    /// confirmation forwards the live `Open` anyway, so the zombie may fence *second* and
+    /// hold the newer nonce, and the scenario would race in the wrong direction. Returns
+    /// whether the zombie opened; the caller crashes the session if it did not.
     #[must_use]
     async fn await_opened(&mut self) -> bool {
         let Some(opened) = self.opened.take() else {
@@ -460,10 +451,10 @@ impl Zombie {
             let _ = self.instance.stdin.write_all(&msg).await;
         }
         let _ = self.instance.stdin.flush().await;
-        // `shutdown` on a `ChildStdio` — a `tokio::fs::File` — flushes; it does not close the
-        // pipe, so this does not end the zombie's session and the comment here used to say it
-        // did. What actually ends the session is the fence refusing its commit, which is the
-        // scenario. The pipe closes later, when the request pump returns and drops the file.
+        // `shutdown` on a `ChildStdio` — a `tokio::fs::File` — flushes; it does not close
+        // the pipe, so it does not end the zombie's session. What ends the session is the
+        // fence refusing its commit; the pipe closes later, when the request pump returns
+        // and drops the file.
         let _ = self.instance.stdin.shutdown().await;
         self.frozen = false;
         self.sealed = true;
@@ -596,10 +587,7 @@ where
 
             let Some(trigger) = request_trigger(&req) else {
                 // Spec / Validate / Apply pass through untouched, and get no zombie: a
-                // second process re-running someone's DDL buys the suite nothing. That is the
-                // whole reason — earlier versions of this comment also asserted how the
-                // runtime groups these into sessions, twice, and were wrong both times. The
-                // pass-through does not depend on it, so it is not claimed here.
+                // second process re-running someone's DDL buys the suite nothing.
                 to_connector.write_all(&encoded).await?;
                 to_connector.flush().await?;
                 continue;

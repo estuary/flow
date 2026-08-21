@@ -7,13 +7,10 @@ then covers both; the partner is deleted. The survivor's range *begin* does not 
 a shard's ID derives from that, so it keeps its ID, its recovery log and its accumulated
 state. An odd shard out is left alone.
 
-Two details matter for correctness.
-
-`gazctl` hoists labels common to every shard into a `common:` block, so a range label can
-live there rather than on the shard. This flattens them onto each shard before editing —
-otherwise widening one shard's range would silently rewrite the hoisted value for all of
-them.
-
+One detail matters for correctness: `gazctl` hoists labels common to every shard into a
+`common:` block, so a range label can live there rather than on the shard. This flattens
+them onto each shard before editing — otherwise widening one shard's range would silently
+rewrite the hoisted value for all of them.
 """
 
 import copy

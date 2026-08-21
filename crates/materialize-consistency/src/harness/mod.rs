@@ -14,12 +14,7 @@ use std::io::BufRead;
 /// An invariant a connector is not held to, and why.
 ///
 /// The compliance model is default-strict: every connector is held to every
-/// invariant, and anything weaker is an explicit entry here. The rejected
-/// alternative was having each connector declare its class and running only that
-/// class's invariants — under which the cheapest way to make a failing test pass
-/// is to downgrade the claim, and a connector that silently regresses to a weaker
-/// class gets reclassified and passes. This way the pressure runs the other way,
-/// and the set of exemptions reads as a map of where the fleet is actually weak.
+/// invariant, and anything weaker is an explicit entry here.
 #[derive(Clone, Debug)]
 pub struct Exemption {
     pub invariant: Invariant,
@@ -34,88 +29,41 @@ pub struct Exemption {
     /// exemption also absorbs a subject that re-delivered the entire workload, which is a
     /// different failure wearing the same justification.
     ///
-    /// `None` where a ceiling would say nothing, and there are two such cases — neither of them
-    /// "the cause is not understood". The membership-change reordering *is* unexplained and still
-    /// carries a ceiling (`REORDERING_CEILING`), because an unexplained cause still has an
-    /// observed volume, and uncapped it was the widest blind spot in the suite: against a
-    /// destination read as an ordered table, a defect shuffling thousands of rows while keeping
-    /// the set exactly right was absorbed in full.
-    ///
-    /// Leave it off when:
-    ///
-    /// - the invariant is not recoverable through this subject's read at all, so no volume of
-    ///   violations means anything — the blanket monotonicity exemption a remotely-read
-    ///   destination carries; or
-    /// - the *checker* already bounds the count, in which case a ceiling measures the workload
-    ///   rather than the subject. See below.
-    ///
-    /// A ceiling is also worthless where the *checker* bounds the count for it. `OracleAgreement`
-    /// reports at most three violations per account in `check_standard` and two in
-    /// `check_merged_delta`, over a forty-account workload — so any ceiling above about two hundred
-    /// can never bind, and one below it is measuring the account count rather than the subject.
-    /// Only the per-document counts, `NoDuplicates` above all, carry volume information at all.
+    /// `None` where no count is meaningful. That is the case when the violation cannot be
+    /// observed at all — a real connector's destination is read back as a table, which returns
+    /// rows in no particular order, so no number of monotonicity violations says anything — and
+    /// when the checker emits a fixed number of violations however wrong the subject is, such
+    /// as one per account: a ceiling there would measure the workload's account count rather
+    /// than the subject.
     pub max_suppressed: Option<usize>,
     /// An invariant that must *also* have been violated for this exemption to apply.
     ///
-    /// This is what makes an exemption say what its justification says. "A duplicated document
-    /// leaves the reduced balance disagreeing with its own oracle" licenses an oracle disagreement
-    /// *caused by duplication* — and as a bare exemption it licensed one from any cause, including
-    /// a replay path that corrupted merged values while emitting no extra rows at all. Such a
-    /// subject broke oracle agreement and conservation, both exempt, while the per-document counts
-    /// stayed clean, and it passed the whole suite.
-    ///
-    /// Naming `NoDuplicates` here ties the licence to its stated cause: no duplicate row anywhere
-    /// in the run means nothing was duplicated, so a divergence is unexplained and held. It is
-    /// evaluated over the raw violations, before exemption, because a duplicate that this
-    /// scenario exempts is still a duplicate that happened.
+    /// This ties the exemption to its stated cause: "a duplicated document leaves the reduced
+    /// balance disagreeing with its own oracle" licenses an oracle disagreement *caused by
+    /// duplication*, so if no duplicate row appears anywhere in the run, there is an unexpected
+    /// divergence.
     pub conditional_on: Option<Invariant>,
-    /// Classes this exemption applies to; `None` for all of them.
-    ///
-    /// An exemption's justification is usually a statement about *a class* — "at-least-once by
-    /// construction: this class commits during `Store` with no record of what it applied" — and a
-    /// scenario runs against every class that should pass it. Unscoped, that licence reached
-    /// subjects it was never written about: `at-least-once-never-loses` runs for every class, so
-    /// it was excusing up to five hundred duplicates from connectors whose whole contract is that
-    /// they produce none. It passed `materialize-snowflake` with zero duplicates, which was the
-    /// connector being right rather than the suite checking.
-    ///
-    /// Scoped, the same scenario asks a *stronger* question of a stronger class: crash at
-    /// `StartedCommit` and lose nothing — and duplicate nothing either, because nothing licenses
-    /// otherwise.
+    /// Classes this exemption applies to; `None` to apply to all classes. This allows us to
+    /// scope the exemption to the specific classes that really require it.
     pub classes: Option<&'static [crate::reference::Class]>,
 }
 
 /// Marker in the error chain of a run that failed for a reason that says nothing about the subject.
 ///
 /// The defective half of a scenario treats a failed run as the defect being caught, which is
-/// right for a defect that wedges the task — `ignore-key-range` leaves two shards fencing each
-/// other and neither can commit — and wrong for everything else that can go wrong on the way. A
+/// right for a defect that wedges the task (e.g. `ignore-key-range` leaves two shards fencing
+/// each other and neither can commit) but we should not treat environmental issues as defects: a
 /// gate that timed out during warmup, a split that never landed, a capture slow to deactivate, a
-/// collection read that could not settle: none is evidence about the subject, and counting one
-/// silently vacates the pairing the scenario exists to provide.
-///
-/// So every such cause is *named* here rather than left as an untyped `anyhow` string, and the
-/// pairing guard asks for evidence rather than accepting the absence of a clean result as evidence.
-/// Four of these variants were untyped until a review pointed out that each one lands *after* the
-/// fault fires — so a stack degrading between the two halves scored as a catch, which is the exact
-/// regression the typing exists to prevent.
+/// collection read that could not settle.
 #[derive(Debug)]
 pub enum Environment {
     /// The control plane would not publish the scenario's catalog.
     PublishFailed,
     /// A gate before the run's perturbation timed out.
     ///
-    /// The line is drawn at the perturbation, and for four scenarios that is *not* the fault: a
-    /// membership change is a perturbation in its own right, and `split-during-store` and
-    /// `join-after-split` inject no fault at all. Their line sits at the split — before it, a
-    /// failure is setup; after it, a failure may be the defect, since `ignore-key-range` leaves
-    /// children fencing each other off and that is what stops a task committing.
-    ///
-    /// Hence the asymmetry in what is annotated: the call that *issues* the split carries this,
-    /// because a perturbation that never happened is setup failing, while the gates waiting on its
-    /// consequences do not. The join does not carry it either, for the same reason those gates do
-    /// not — it comes after the split, which is already `join-after-split`'s perturbation, so a
-    /// join that cannot be issued may be the defect's doing rather than the environment's.
+    /// The line is drawn at the perturbation. For the scenarios whose perturbation is a
+    /// membership change rather than a fault, the line sits at the split: before it, a failure
+    /// is setup; after it, a failure may be the defect being caught.
     BeforePerturbation,
     /// A capture was still running well after being published as disabled.
     WorkloadWouldNotStop,
@@ -153,12 +101,7 @@ pub struct Outcome {
     /// not to hold the connector to.
     pub exempted: Vec<Violation>,
     /// The exemptions that actually applied: the scenario's own, minus those scoped to another
-    /// class, plus the blanket ones a real subject's read earns it.
-    ///
-    /// Reported by the caller, which cannot re-derive it — the caller sees `scenario.exempt` and
-    /// not the blanket monotonicity exemption added here. Printing "held in full" from the
-    /// scenario's list alone said exactly that about a subject whose monotonicity was still
-    /// blanket-exempt.
+    /// class, plus the blanket ones added for a real subject.
     pub exemptions: Vec<Exemption>,
     /// Faults the shim reports having injected. A scenario whose fault never
     /// fired proved nothing, so the runner refuses to pass one.
@@ -300,19 +243,6 @@ pub async fn run(
         tracing::error!(%err, prefix = %names.prefix, "failed to delete the run's tasks");
     }
 
-    // A real subject's tables outlive its specifications too, and unlike the ops journals
-    // the harness *can* reach these — through `testctl`, which calls the same
-    // `Materializer.DeleteResource` the connectors' own integration tests call. The harness
-    // has no client for an arbitrary endpoint and should not grow one.
-    //
-    // Best-effort and deliberately not fatal: a warehouse refusing a `DROP` says nothing
-    // about the connector's consistency, and letting it fail a scenario that passed would
-    // trade a real signal for a housekeeping one. It is also unconditional on the outcome,
-    // unlike the run directory kept below for inspection — a failing scenario's evidence is
-    // already in its violation report, so the table itself is not needed afterwards.
-    //
-    // Table names carry the run id, so every run would otherwise leave three per scenario in
-    // someone's warehouse, holding data nobody reads again.
     if let Some(external) = external {
         for (table, delta) in [
             (catalog::TABLE_STANDARD, false),
@@ -332,20 +262,15 @@ pub async fn run(
     // The run's ops log and stats partitions outlive its specifications, and nothing
     // here can remove them: they live under `ops/`, and a task-scoped authorization does
     // not reach that far. `mise run ci:consistency` purges them against etcd before each
-    // suite run, which is the only level with the access. See that task for why the leak
-    // matters — it saturated the broker allocator once and cost a whole run.
+    // suite run, which is the only level with the access.
 
     let outcome = result?;
 
-    // A scenario declaring a runtime gap keeps its directory even when it passes, because *that*
-    // is the case someone has to inspect: the caller fails such a run as an unexpected pass, and
-    // whether the perturbation actually reached the gap's window is a question only the trace can
-    // answer. Removing it here left the one interesting outcome with nothing behind it.
-    // `FLOW_CONSISTENCY_KEEP_RUNS` retains the trace of a *passing* run too, which is what an
-    // experiment needs: whether a perturbation reached the state it was aiming at is answerable
-    // only from the trace, and a pass alone cannot tell "the subject survived the hazard" from
-    // "the hazard never landed". Off by default — a suite run that keeps every directory fills a
-    // disk with evidence nobody reads.
+    // A scenario declaring a runtime gap keeps its directory even when it passes: the caller
+    // fails such a run as an unexpected pass, and only the trace can say whether the
+    // perturbation actually reached the gap's window. `FLOW_CONSISTENCY_KEEP_RUNS` keeps a
+    // passing run's trace too, for experiments that need to know whether a perturbation
+    // reached the state it aimed at. Off by default.
     let keep = std::env::var_os("FLOW_CONSISTENCY_KEEP_RUNS").is_some();
 
     if outcome.passed() && scenario.known_limitation.is_none() && !keep {
@@ -361,16 +286,13 @@ pub async fn run(
 ///
 /// A subject carrying an append-side defect writes a row per replayed `Acknowledge`, and
 /// the runtime will replay for as long as the connector keeps refusing to make progress.
-/// Left alone that is unbounded: one such run reached 40 GiB and wedged every later run
-/// on the machine, because a scenario killed by the test runner's timeout never reaches
-/// any cleanup this crate could write. So the bound is enforced while the file grows
-/// rather than after the run ends.
+/// A scenario killed by the test runner's timeout never reaches any cleanup this crate
+/// could write, so the bound is enforced while the file grows.
 ///
 /// Never resolves while the destination is a sane size, so it composes as the losing arm
 /// of a `select!`.
 async fn watch_destination_size(destination: &std::path::Path) -> anyhow::Error {
-    /// 4 GiB — roughly ten times the largest destination a passing scenario has produced,
-    /// which is enough headroom that tripping this means "runaway", not "a big run".
+    /// 4 GiB — roughly ten times the largest destination a passing scenario has produced.
     const LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 
     loop {
@@ -398,23 +320,14 @@ async fn execute(
     plan: &catalog::Plan<'_>,
     external: Option<&subject::External>,
 ) -> anyhow::Result<Outcome> {
-    // Taken from the plan rather than passed alongside it: the plan already carries both, and
-    // two ways to reach the same value is two values to keep in step.
     let (names, run_dir) = (plan.names, plan.run_dir);
 
     let published = std::time::Instant::now();
     stack.publish(&catalog::build(plan)?).await?;
     tracing::info!(elapsed = ?published.elapsed(), "published");
 
-    // Scaled to the subject, because every gate here counts *commits*: a remote
-    // destination takes tens of seconds per transaction, so a budget sized for a local
-    // one expires while the connector is working correctly.
-    // The external figure is measured rather than guessed: against a remote warehouse the
-    // scenarios that pass take 200-600s, and every scenario that failed at 900s failed by
-    // running out of budget mid-phase — one having committed 2 of 3 transactions, another
-    // never reaching a fault keyed on the second post-split commit. A perturbed scenario
-    // needs several times the budget of an unperturbed one, because a split doubles the
-    // shards committing to the same warehouse and recovery republishes the task.
+    // Scaled to the subject: a remote destination takes tens of seconds per transaction, and
+    // perturbed scenarios need more time than unperturbed ones.
     let deadline = match external {
         Some(_) => std::time::Duration::from_secs(1800),
         None => std::time::Duration::from_secs(180),
@@ -431,23 +344,12 @@ async fn execute(
 
     // Nothing in a run waits on shard *status*, at any point. Progress is the gate
     // instead: `await_commits` and `recover` both watch the shim's trace, and a task
-    // that is committing is by definition being served, while a shard reported primary
-    // may still be doing nothing.
-    //
-    // A status check is unsafe in either position. After a perturbation it catches the
-    // crash the scenario just injected and fails before recovery is attempted. And before
-    // one it is no safer, because a task begins processing the moment it is activated: a
-    // fault keyed on an early protocol event can fire in the materialization while the
-    // harness is still checking a capture, leaving the sink's own check to find a FAILED
-    // shard with the recovery machinery still far below it.
+    // that is committing is by definition being served. A status check would catch the
+    // crash the scenario just injected and fail before recovery is attempted.
 
-    // Let the task establish a rhythm before perturbing it. Without this a fault
-    // keyed on the third StartCommit could fire while the first binding is still
-    // being applied, and the scenario would be testing startup rather than what it
-    // claims to.
-    // Split activation from cadence: the first traced message means the sink's connector
-    // is up and being spoken to, so everything before it is the runtime scheduling a shard
-    // and starting a process, and everything after is transactions.
+    // Let the task establish a rhythm before perturbing it, so a fault lands in steady
+    // state rather than startup. The first traced message means the sink's connector is
+    // up and being spoken to.
     let activating = std::time::Instant::now();
     await_first_message(&trace, deadline)
         .await
@@ -455,8 +357,7 @@ async fn execute(
     tracing::info!(elapsed = ?activating.elapsed(), "sink connector started");
 
     // The gap between the connector being spoken to and its first *non-empty* transaction
-    // is the sink sitting idle while its captures activate and produce. Measured
-    // separately because it, not the commit cadence, is what varies between runs.
+    // is the sink sitting idle while its captures activate and produce.
     let feeding = std::time::Instant::now();
     await_first_documents(&trace, deadline)
         .await
@@ -481,14 +382,13 @@ async fn execute(
 
     if scenario.split_shards {
         tracing::info!(task = %names.sink, "splitting shards");
-        // Marked, unlike the gates below it: this is the split being *issued*, and a failure here
-        // means the perturbation never happened at all.
+        // The split being *issued*: a failure here means the perturbation never happened.
         stack
             .split_shards(&names.sink)
             .await
             .context(Environment::BeforePerturbation)?;
-        // Both children must come up before the run can continue; a split that
-        // wedges is itself a finding — which is why this carries no marker. See [`Environment`].
+        // Both children must come up before the run can continue; a split that wedges is
+        // itself a finding, which is why this carries no marker.
         recover(
             stack,
             plan,
@@ -502,14 +402,8 @@ async fn execute(
 
     if scenario.join_shards {
         // Every child must commit *for itself* before the join, not merely two commits between
-        // them; `commits_per_split_shard` is where that requirement is explained.
-        //
-        // Unmarked, and that is the correction rather than an oversight: this gate runs *after*
-        // the split, and the only scenario that joins injects no fault, so the split is its
-        // perturbation. It pairs `ignore-key-range`, whose signature is children fencing each
-        // other off — exactly the state that stops them committing for themselves. Marked, the
-        // defective half would report a caught defect as "the run failed before its fault fired",
-        // i.e. as the environment's doing. See [`Environment`].
+        // them; see `commits_per_split_shard`. Carries no marker: this gate runs after the
+        // split, which is the joining scenario's perturbation.
         await_commits_each_shard(&trace, 2, 2, deadline).await?;
 
         tracing::info!(task = %names.sink, "joining shards");
@@ -530,21 +424,11 @@ async fn execute(
         .await
         .context(Environment::BeforePerturbation)?;
 
-    // Recover the shard, then require it to keep committing.
-    //
-    // Both halves matter. A crashed connector leaves its shard FAILED and the
-    // allocator will not reschedule it, so without the unassign the run would wait
-    // out its deadline — and a destination nothing wrote to is trivially
-    // consistent, which is a vacuous pass. Requiring further commits afterwards is
+    // Recover the shard, then require it to keep committing: a crashed connector leaves its
+    // shard FAILED and the allocator will not reschedule it, and requiring further commits is
     // what proves the connector *recovered* rather than merely stopped.
-    // Unconditional, including for the split scenarios that inject no fault: a
-    // split can fail a shard too, and unassigning a healthy one is a no-op, so
-    // there is nothing to gain by predicting which perturbations need it.
     let settled = std::time::Instant::now();
     let after = count_commits(&read_trace(&trace)?) + scenario.settle_commits;
-    // `recover` returns only once the task has reached `after`, so it is the gate — an
-    // `await_commits(after)` here was a guaranteed no-op, and reading like a second check made
-    // the first look weaker than it is.
     recover(stack, plan, &names.sink, &trace, after, deadline).await?;
     tracing::info!(elapsed = ?settled.elapsed(), commits = scenario.settle_commits, "settled");
 
@@ -555,15 +439,10 @@ async fn execute(
     let quiesced = std::time::Instant::now();
     stack.publish(&catalog::disable_captures(plan)?).await?;
 
-    // Then wait for the captures to have actually *stopped*, not merely been asked to.
-    //
-    // The publication returns once the spec is stored, and activation carries it to the data
-    // plane afterwards, so the capture is still writing at that moment.
-    // `read_collection_when_final` guarded this with a plateau — two equal reads three seconds
-    // apart — and a capture that paused across that window read as finished. The destination then
-    // held 74 documents the expectation did not, which looks exactly like a connector delivering
-    // them twice: 131 violations against a materialization that was right. Once the capture is
-    // stopped nothing can append, so the plateau below is confirming rather than deciding.
+    // Then wait for the captures to have actually *stopped*, not merely been asked to: the
+    // publication returns once the spec is stored, and activation carries it to the data
+    // plane afterwards, so the capture is still writing at that moment. Once the captures
+    // are stopped nothing can append, and the plateau below confirms.
     await_stopped(
         stack,
         &[&names.source_merged, &names.source_log],
@@ -582,12 +461,9 @@ async fn execute(
             .expect("a Subject always names its connector binary"),
     );
 
-    // Read each collection until it stops growing. A capture keeps producing for a
-    // while after the publication that disables it, and an expectation read one
-    // document early would report the materialization as having duplicated
-    // something it merely delivered on time.
-    // Concurrently: the two collections are independent, and each read loops until its
-    // own contents stop growing, so serialising them doubled the wait for nothing.
+    // Read each collection until it stops growing: a capture keeps producing for a while
+    // after the publication that disables it. The two reads are independent and run
+    // concurrently.
     let read = std::time::Instant::now();
     let (merged_expected, log_expected) = tokio::try_join!(
         stack.read_collection_when_final(&names.merged, finality_timeout),
@@ -629,23 +505,14 @@ async fn execute(
     };
     let documents = bindings.log_expected.documents() + bindings.merged_expected.documents();
 
-    // Monotonicity is exempted for a subject read as a table, because the order rows come
-    // back in is not guaranteed to be the order they were stored in — not merely unobserved
-    // but unguaranteeable, since a distributed destination is free to return rows from any
-    // partition or file in any order. There is no ordering to recover: a commit timestamp
-    // ties every row of a transaction, and inventing a total order out of that would
-    // manufacture violations rather than find them.
-    //
-    // The reference connector is the exception the check was written against — its tables
-    // carry an autoincrementing `ord`, so a read replays the sequence of appends — which is
-    // why the assumption survived until a real connector was pointed at.
-    //
-    // The set-based checks — no-loss, no-duplicates, conservation and oracle agreement —
-    // carry the exactly-once claim, and none of them depends on arrival order.
     // The class actually under test: what the subject declared, or what the scenario configures
-    // the reference connector as. Exemptions written about one class do not apply to another.
+    // the reference connector as.
     let subject_class = external.map_or(scenario.class, |e| e.class);
 
+    // A real subject's destination is read back as a table, which returns rows in no
+    // particular order, so delivery order is not recoverable and monotonicity gets a blanket
+    // exemption. The reference connector's tables carry an autoincrementing `ord`, so its
+    // read replays the order of appends and the check holds.
     let mut exempt = scenario.exempt.clone();
     if external.is_some() {
         exempt.push(Exemption {
@@ -664,12 +531,7 @@ async fn execute(
         });
     }
 
-    // A duplicate in the *collection* is not a connector defect and must not be reported as one:
-    // it means the harness's own comparison has stopped being sound, because the expectation folds
-    // a repeated `(id, seq)` to one document while a reducing binding would sum it twice. Every
-    // count that follows would then be wrong in a direction that looks exactly like a connector
-    // over-delivering. This is refused rather than recorded, so a run can never quietly conclude
-    // "exactly-once" from numbers it could not have compared.
+    // A duplicate in the collection means the harness's own comparison is unsound.
     let duplicated =
         bindings.merged_expected.duplicated_documents + bindings.log_expected.duplicated_documents;
     if duplicated != 0 {
@@ -685,12 +547,8 @@ async fn execute(
     let (violations, exempted, exemptions) =
         partition_exempt(invariants::check(&bindings), &exempt, subject_class);
 
-    // A failure writes down everything it judged, next to the trace.
-    //
-    // Diagnosing one of these from the violation list alone means guessing which side
-    // is wrong — the destination, or the expectation read from the collection. Both
-    // are cheap to record and impossible to reconstruct afterwards, because the run's
-    // tasks are deleted on the way out.
+    // A failure writes down everything it judged, next to the trace: the run's tasks are
+    // deleted on the way out, so neither side of the comparison can be reconstructed later.
     if !violations.is_empty() {
         if let Err(err) = dump_evidence(run_dir, &bindings) {
             tracing::error!(%err, "failed to write the failure's evidence");
@@ -761,17 +619,8 @@ fn partition_exempt(
     exemptions: &[Exemption],
     subject: crate::reference::Class,
 ) -> (Vec<Violation>, Vec<Violation>, Vec<Exemption>) {
-    // `DocumentIntegrity` is not exemptable, and this is where that is enforced rather than left
-    // to review. A connector may deliver a document twice or in a surprising order and still be
-    // doing its declared job; none has a reason to *alter* one in transit. The check used to be
-    // filed under `OracleAgreement`, where `at-least-once-never-loses`'s duplication exemption
-    // silenced it — which is how a corruption check came to be switched off by a scenario about
-    // duplication.
-    //
-    // `NoFabrication` joins it for the same reason and by the same route: all three checkers used
-    // to file a row for a key the collection does not hold under `NoDuplicates`, which
-    // `at-least-once-never-loses` exempts because a replay *re-delivers*. A replay can only
-    // re-deliver what the collection contains, so that exemption was absorbing invented rows too.
+    // `DocumentIntegrity` and `NoFabrication` are not exemptable — see their docs on
+    // [`Invariant`] — and this is where that is enforced.
     for invariant in [Invariant::DocumentIntegrity, Invariant::NoFabrication] {
         assert!(
             !exemptions.iter().any(|e| e.invariant == invariant),
@@ -779,10 +628,9 @@ fn partition_exempt(
         );
     }
 
-    // An exemption applies only to the classes it was written about, and only if its stated cause
-    // occurred. See [`Exemption::classes`] and [`Exemption::conditional_on`] — the latter is
-    // evaluated over the raw violations, so a duplicate this scenario also exempts still counts as
-    // having happened.
+    // An exemption applies only to the classes it was written about, and only if its stated
+    // cause occurred; see [`Exemption::classes`] and [`Exemption::conditional_on`]. The cause
+    // is checked over the raw violations, before exemption.
     let exemptions: Vec<&Exemption> = exemptions
         .iter()
         .filter(|e| e.classes.is_none_or(|classes| classes.contains(&subject)))
@@ -792,12 +640,9 @@ fn partition_exempt(
         })
         .collect();
 
-    // Ceilings are per *invariant*, not per exemption, because a run can carry more than one
-    // exemption for the same invariant — a scenario's own, plus the blanket monotonicity exemption
-    // a remotely-read destination gets — and the broadest claim has to govern. So an unbounded
-    // exemption removes the ceiling: it says order is not recoverable through this read at all,
-    // after which no volume of disorder means anything, and failing the run on the narrower
-    // exemption's ceiling would hold a subject to a claim nobody made about it.
+    // Ceilings are per *invariant*, not per exemption: a run can carry more than one exemption
+    // for the same invariant — a scenario's own, plus the blanket monotonicity exemption — and
+    // the broadest claim governs, so an unbounded exemption removes the ceiling.
     let mut ceilings: BTreeMap<Invariant, Option<usize>> = BTreeMap::new();
     for exemption in &exemptions {
         ceilings
@@ -812,10 +657,8 @@ fn partition_exempt(
     }
 
     // An exemption that has absorbed more than it claimed stops absorbing anything: the whole
-    // invariant reverts to being held, so the run fails with every one of those violations in its
-    // report rather than with a count. Dropping only the excess would be arbitrary — the
-    // violations are a set and nothing distinguishes the ones "within budget" — and would hide the
-    // shape of what happened behind whichever ones survived the cut.
+    // invariant reverts to being held, so the run fails with every one of those violations in
+    // its report rather than with a count.
     let overrun: Vec<(Invariant, usize, usize)> = ceilings
         .iter()
         .filter_map(|(invariant, ceiling)| {
@@ -835,8 +678,7 @@ fn partition_exempt(
                 .any(|(invariant, _, _)| *invariant == v.invariant)
     });
 
-    // Named as its own violation so the report says *why* an exempted invariant is being held,
-    // which the reverted violations alone would not explain.
+    // Named as its own violation so the report says *why* an exempted invariant is being held.
     for (invariant, count, max) in overrun {
         held.push(Violation {
             invariant,
@@ -924,13 +766,6 @@ fn read_trace(run: &RunDir) -> anyhow::Result<Vec<TraceEvent>> {
 
 /// Commits made by each shard a split produced, keyed by its range.
 ///
-/// `count_commits` sums over the whole task, which is the wrong gate before a join:
-/// two commits can both come from one child while the other has committed none. The
-/// survivor of a join is then widened while its recovery log still holds the *parent's*
-/// connector checkpoint, and recovery refuses it — `connector_checkpoint has clock ...
-/// which doesn't match committed_close (...) or hinted_close (...)`, 26 times in a
-/// restart loop, because the checkpoint predates the log's close.
-///
 /// Restarts are folded together: a shard that crashed and came back is one shard, and
 /// the commits of both its processes count towards its total.
 fn commits_per_split_shard(events: &[TraceEvent]) -> BTreeMap<(u32, u32), u64> {
@@ -1008,18 +843,13 @@ fn count_commits(events: &[TraceEvent]) -> u64 {
 /// Take the task down and bring it back, for a fault that failed the whole task
 /// rather than one shard.
 ///
-/// Unassigning failed shards and waiting for the allocator to reschedule them is right
-/// for a single-shard crash, and not sufficient for a split task: a crash in *either*
-/// shard fails both, since the survivor reports `expected leader message ... unexpected
-/// EOF`, and unassigning restores such a task only about two runs in three. Disabling the
-/// materialization tears its shards down; republishing the enabled catalog builds them
-/// again from the recovery log. A restart rather than a reschedule, and what an operator
-/// would do.
+/// Unassigning failed shards is enough for a single-shard crash but not for a split task:
+/// a crash in *either* shard fails both, and unassigning does not reliably restore such a
+/// task. Disabling the materialization tears its shards down; republishing the enabled
+/// catalog builds them again from the recovery log.
 ///
-/// Deliberately does *not* wait for a primary. The caller's recovery loop is the resilient
-/// step — it unassigns until the task is committing again — so waiting here would only add
-/// a way to fail before that loop gets its turn, on the surviving shard's `expected leader
-/// message ... unexpected EOF`.
+/// Deliberately does not wait for a primary: the caller is expected to verify recovery of
+/// the task.
 async fn restart_task(
     stack: &stack::Stack,
     plan: &catalog::Plan<'_>,
@@ -1038,15 +868,8 @@ async fn restart_task(
 /// Nudge the task back into service until it is committing again, escalating if it will
 /// not come back.
 ///
-/// Two remedies, in order of cost. Unassigning a FAILED shard is enough for most faults:
-/// the allocator will not reschedule a shard it has given up on, and unassigning clears
-/// that. After a third of the budget it escalates to [`restart_task`], which is where the
-/// reasoning for that heavier remedy lives.
-///
-/// The escalation lives here rather than behind a per-scenario flag because it is not a
-/// property of the scenario: any crash can land a shard somewhere unassigning will not
-/// lift it from, and a scenario author cannot predict which. Cheap remedy first means a
-/// task that recovers on its own never pays for the expensive one.
+/// Two remedies: unassigning a FAILED shard is often enough for most faults. After a
+/// third of the timeout has elapsed, we escalate to [`restart_task`].
 async fn recover(
     stack: &stack::Stack,
     plan: &catalog::Plan<'_>,
@@ -1061,16 +884,6 @@ async fn recover(
     let mut restarted = false;
 
     // How long without a commit before the task counts as stuck, and how often to look.
-    //
-    // Proportional to the subject's own transaction pace, not a constant. Unassigning is a
-    // *remedy* — it takes the shard from its reactor so a failed one is rescheduled — and
-    // applying it to a task that is merely mid-transaction interrupts work that was going
-    // to succeed. Three transaction-lengths is long enough that a connector committing on
-    // schedule is never touched, and short enough to rescue one that has genuinely died.
-    //
-    // A fixed threshold cannot do both: 20s is ample for a subject committing in
-    // milliseconds and less than one commit for a subject committing to a warehouse, which
-    // is why `materialize-databricks` was being yanked every 20s while working correctly.
     let pace = plan.capture_load.max_txn;
     let stalled_after = pace * 3;
     let poll = std::cmp::max(std::time::Duration::from_secs(5), pace / 3);
@@ -1121,10 +934,8 @@ async fn recover(
 
 /// Poll the shim's trace until it satisfies `decide`, or the deadline passes.
 ///
-/// Every gate below is this shape — read the trace, decide from it, sleep — and the only
-/// thing that genuinely differs is what a timeout *means*, which is why the message is the
-/// caller's. Any failure the shim recorded is appended to it: a gate that timed out because
-/// the connector died should say so rather than report only the count it wanted.
+/// The timeout message is the caller's, and any failure the shim recorded is appended to
+/// it: a gate that timed out because the connector died should say so.
 async fn poll_trace<T>(
     run: &RunDir,
     timeout: std::time::Duration,
@@ -1295,9 +1106,6 @@ async fn drain(
     (merged_expected, log_expected): (&Expectation, &Expectation),
     timeout: std::time::Duration,
 ) -> anyhow::Result<Contents> {
-    // The plan, rather than the three fields of it this needs: it is the same plan the catalog
-    // was built from, which is the point — a read asks for the resource the connector was
-    // actually given, named exactly as the catalog named it.
     let (names, standard_binding) = (plan.names, plan.standard_binding);
     let resource = |table: &str, delta: bool| {
         catalog::resource_config(plan.resource_shape, names, table, delta)
@@ -1309,22 +1117,9 @@ async fn drain(
     let mut previous = usize::MAX;
 
     /// Consecutive quiet polls before a destination counts as settled.
-    ///
-    /// Ten, at three seconds each, because a plateau is weak evidence and a short one
-    /// is worthless: transactions land every one to two seconds, so five polls was
-    /// fifteen seconds — a gap a task takes just by restarting after a fault, or by
-    /// being starved on a loaded stack. A scenario was once failed by exactly that,
-    /// reporting 229 still-undelivered documents as invariant violations.
     const QUIET_POLLS: usize = 10;
 
     /// Consecutive polls of an *unhealthy* destination going nowhere before the wait ends.
-    ///
-    /// Twice `QUIET_POLLS`, because "unhealthy" covers both a shard restarting — which
-    /// resolves in a poll or two — and a task that can never run again, which is how
-    /// several defects surface. Without a bound of its own the second case can only end at
-    /// the deadline, and that dominated the suite: `split-during-store`'s defective half
-    /// spent 150 of its 180 seconds waiting for a task whose two shards were fencing each
-    /// other off and were never going to progress.
     const STUCK_POLLS: usize = 20;
 
     loop {
@@ -1349,9 +1144,7 @@ async fn drain(
 
         // Documents reduced into the merged bindings, per the highest sequence reached
         // for each account. Taken from the standard binding when there is one, and
-        // otherwise from the delta binding's latest row per account — the same measure
-        // of *progress*, since `seq` is last-write-wins and a duplicate cannot inflate
-        // it.
+        // otherwise from the delta binding's latest row per account.
         let merged_delivered: usize = match &contents.standard {
             Some(rows) => rows.iter().map(|r| (r.seq + 1).max(0) as usize).sum(),
             None => {
@@ -1381,40 +1174,31 @@ async fn drain(
             delivered_max_seq(&contents, *id).is_some_and(|seq| seq >= account.max_seq)
         });
 
-        // The delta binding's row count is in here as well as its seq-derived progress, because
-        // the two see different things: `merged_delivered` is derived from the highest sequence
-        // reached, so rows arriving that do *not* advance any sequence — which is exactly what a
-        // duplicate looks like — left the total unchanged and read as settled. Free, and strictly
-        // more than the gate saw before.
+        // The delta binding's row count as well as its seq-derived progress: rows that
+        // advance no sequence — exactly what a duplicate looks like — leave the seq-derived
+        // total unchanged, so the row count is what notices them.
         let total = contents.log.len() + merged_delivered + contents.merged_delta.len();
 
         // Complete, and then confirmed unchanged by one further poll before the contents are
-        // handed to the checkers.
-        //
-        // The gate is "at least as many as the collection holds", so it is met the moment the
-        // last expected document lands — and returning there hands over a destination that a
-        // duplicate still in flight has yet to reach. Every duplication check would then be
-        // racing the very thing it looks for, and would win the race exactly when the connector
-        // is slow. One quiet poll is not proof that nothing more is coming, but it is the
-        // difference between "we looked after it settled" and "we looked at the first moment it
-        // could have passed".
+        // handed to the checkers: the gate is met the moment the last expected document
+        // lands, and returning there would race a duplicate still in flight.
         if total == previous && contents.log.len() >= log_expected.documents() && merged_complete {
             return Ok(contents);
         }
 
-        // A short-fall is *not* an error, and giving up on it is how the run reports
-        // one: it is exactly the data loss the invariants exist to name, and a
-        // violation listing the missing documents says far more than a timeout would.
-        // So stop once the destination has gone quiet, or once patience runs out.
+        // We cannot simply wait for the destination to hold everything the collection holds,
+        // because a buggy connector may never deliver everything — missing data is one of the
+        // things we are testing for. Instead we wait for the destination to stop changing,
+        // and only then hand its contents to the checkers.
         //
-        // "Quiet" means unchanged *and* the task healthy. Without the health gate a
-        // shard that is mid-restart looks identical to one that has finished its
-        // work, and every membership-change scenario becomes flaky in the direction
-        // of falsely reporting loss.
-        // A listing that *errors* is not evidence the task is unhealthy, but it has to be
-        // treated as such to make progress — so it is logged. Folded silently into `false`, a
-        // persistently failing listing reported as "stuck unhealthy", which is a real state
-        // with a different cause and sends the reader looking in the wrong place.
+        // "Stopped changing" alone is not enough either: a task that is restarting after its
+        // fault also writes nothing for a while. So we also check the task's health, and give
+        // an unhealthy task (`STUCK_POLLS`) longer than a healthy one (`QUIET_POLLS`) before
+        // giving up.
+        //
+        // If listing the shards fails, we do not know whether the task is healthy. Rather
+        // than failing the run over what may be a transient listing error, we assume
+        // unhealthy — the more patient of the two paths — and log the error.
         let healthy = match stack.all_primary(&names.sink).await {
             Ok(healthy) => healthy,
             Err(err) => {
@@ -1439,10 +1223,10 @@ async fn drain(
         let stuck = stuck_for >= STUCK_POLLS;
         let expired = std::time::Instant::now() >= deadline;
 
-        // A complete destination that will not hold still is not a shortfall, and must not be
-        // reported as one. It is what a connector writing without end looks like, and the
-        // duplication checks are the right place to say so — reaching them needs the contents,
-        // so the deadline hands them over rather than erroring.
+        // A destination that is complete but keeps changing is a connector that keeps
+        // writing — likely duplicating. The duplication checks are the ones that should
+        // report that, and they need the contents, so the deadline hands them over rather
+        // than erroring.
         if expired && contents.log.len() >= log_expected.documents() && merged_complete {
             tracing::warn!(
                 log = contents.log.len(),
@@ -1452,17 +1236,8 @@ async fn drain(
         }
 
         if quiet || stuck || expired {
-            // Which of the three ended the wait matters when reading a failure. "quiet"
-            // means a healthy task stopped writing while still short, which is a finding.
-            // "stuck unhealthy" means it cannot run at all — the shape several defects
-            // take, and not a shortfall to reason about. "deadline" means the runner ran
-            // out of patience, which is neither.
-            // Reported as the *delta* row count, the same figure the completion gate
-            // uses. The seq-derived `merged_delivered` belongs in the plateau check and
-            // nowhere else: it read "1020/997" — complete — for a destination whose
-            // delta binding held 768 of 997, which is precisely the shortfall being
-            // reported. A warning that hides what it is warning about is worse than
-            // none.
+            // Name each account that is still missing documents, so the report says what
+            // never arrived.
             let behind: Vec<String> = merged_expected
                 .accounts
                 .iter()
@@ -1493,18 +1268,11 @@ async fn drain(
                 },
             );
 
-            // An `Err`, not a short destination handed to the checkers. Whether those
-            // documents were lost by the connector or merely not waited for is exactly
-            // what cannot be told apart here, and attributing it to the connector
-            // produces confident nonsense: 109 oracle-agreement violations over a log
-            // binding that was perfect at 1020 of 1020. The defective half of a scenario
-            // counts an `Err` as caught, so a defect that genuinely loses data is still
-            // reported as caught rather than passing.
-            //
-            // Of the three ways to get here only two are findings. "Went quiet" and "stuck
-            // unhealthy" are states the subject put the task in; the *deadline* is the runner
-            // running out of patience, which says nothing about the subject and must not be
-            // scored as a defect caught — so it alone is tagged as the environment.
+            // We cannot tell whether the missing documents were lost by the connector or
+            // simply not delivered yet, so fail the run instead of judging invariants
+            // against incomplete contents. Only the deadline case is tagged as the
+            // environment: going quiet or getting stuck is the subject's doing, running
+            // out of patience is not.
             let err = anyhow::anyhow!(
                 "the destination stopped short of the collections ({short}); \
                  reason={}, task healthy={healthy}",
@@ -1587,11 +1355,6 @@ mod test {
     }
 
     /// An exemption written about one class does not excuse another.
-    ///
-    /// `at-least-once-never-loses` runs for every class, and its duplication exemption describes
-    /// `AtLeastOnce` alone. Unscoped it excused up to five hundred duplicates from connectors
-    /// whose contract forbids any — which is the whole question the scenario should be asking a
-    /// stronger class.
     #[test]
     fn an_exemption_does_not_reach_a_class_it_was_not_written_about() {
         use crate::reference::Class;
@@ -1620,11 +1383,6 @@ mod test {
     }
 
     /// An exemption licensed by duplication does not apply to a run that duplicated nothing.
-    ///
-    /// This is the hole it closes: a subject whose replay path corrupts merged values without
-    /// emitting extra rows breaks oracle agreement and conservation, both of which
-    /// `at-least-once-never-loses` exempts, while every per-document count stays clean — so it
-    /// passed the whole suite.
     #[test]
     fn an_exemption_does_not_apply_without_its_stated_cause() {
         let oracle = || Violation {

@@ -77,7 +77,6 @@ fn scenario(name: &str) -> Scenario {
 
 /// Run one scenario clean, then against its paired defect, asserting the outcome
 /// flips.
-
 async fn both_ways(name: &str) {
     init_tracing();
 
@@ -187,13 +186,11 @@ async fn both_ways(name: &str) {
     };
 
     // Printed with the count each one suppressed, because an exemption that never fires is
-    // paperwork rather than a weakened guarantee
+    // paperwork rather than a weakened guarantee.
     //
     // And a zero is not on its own grounds to delete an exemption: it may mean the violation
     // is *rare* rather than impossible. Deleting needs an argument that the violation cannot
-    // occur, with the count as corroboration — `at-least-once-never-loses`'s conservation
-    // exemption measures zero on most runs and is still load-bearing, while the two removed
-    // in 5525ae9c19f were unreachable by construction as well as unmeasured.
+    // occur, with the count as corroboration.
     for exempt in &scenario.exempt {
         // An exemption written about another class did not apply, and saying so is the point: it
         // means this subject was held to *more* than the scenario's own class is, which a silent

@@ -140,15 +140,10 @@ impl Default for Capture {
 }
 
 impl Capture {
-    /// Defaults for a subject that commits to a remote system.
-    ///
-    /// A real materialization  stages files to object
-    /// storage and runs a MERGE on a warehouse, which is seconds to tens of seconds per
-    /// transaction.
-    ///
-    /// So transactions are long and the rate is lower: fewer, larger transactions cover
-    /// the same set of verifications. Since scenarios are keyed on protocol events, having less
-    /// documents per transaction does not affect the verifications.
+    /// Defaults for a subject that commits to a remote system, which takes seconds to tens
+    /// of seconds per transaction: transactions are long and the rate is lower, and since
+    /// scenarios are keyed on protocol events, fewer documents per transaction does not
+    /// affect what is verified.
     pub fn remote() -> Self {
         Self {
             rate: 10.0,
@@ -348,13 +343,8 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
         serde_json::to_string(plan.faults).context("encoding fault rules")?,
     );
 
-    // Forwarded rather than set, so it is off unless a person asks for it.
-    //
-    // The reduction trace records every `Load` and `Store` of a merged key, plus each staged
-    // batch an `Acknowledge` applies — which is the only way to see *why* a reduced value came
-    // out wrong: the delivered rows say what the connector was told, never what it read before
-    // reducing onto it. Too voluminous to leave on, too useful to reinvent.
-
+    // Forwarded rather than set, so it is off unless a person asks for it. See
+    // `ENV_TRACE_REDUCE`.
     if std::env::var_os(ENV_TRACE_REDUCE).is_some() {
         env.insert(ENV_TRACE_REDUCE.to_string(), "1".to_string());
     }
@@ -365,20 +355,12 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
     // The shim is the catalog's connector; the real one is its argument. This is
     // the whole of the interposition: no change to Flow, and no change to the
     // connector under test.
-    // Protobuf against a real connector, JSON against the reference one.
     //
-    // The shim relays requests without transcoding, so runtime, shim and connector must
-    // agree on one codec — and a Go materialization connector cannot use JSON. Under the
-    // JSON codec the runtime populates `Load.key_json` and leaves `key_packed` empty, which
-    // is by design (see `Load` in `go/protocols/materialize/materialize.proto`: "the runtime
-    // populates exactly one of `key_json` or `key_packed` per the negotiated codec"). But
-    // `Request_Load.Validate` in `go/protocols/materialize/extensions.go` requires
-    // `KeyPacked` and carries the note "KeyJson is not checked yet", and the boilerplate
-    // reads only `KeyPacked` — so every `Load` and `Store` is rejected outright.
-    //
-    // So this is not a preference. JSON is available only to the reference connector, which
-    // is Rust and reads whichever field is set. The shim's `trace.jsonl` is human-readable
-    // either way, so nothing is lost by the fleet speaking protobuf.
+    // Protobuf against a real connector, JSON against the reference one. The shim relays
+    // requests without transcoding, so runtime, shim and connector must agree on one codec —
+    // and a Go materialization connector cannot use JSON: under the JSON codec the runtime
+    // populates `Load.key_json` and leaves `key_packed` empty, while the Go boilerplate
+    // reads only `KeyPacked`, so every `Load` and `Store` would be rejected.
     let protobuf = plan.protobuf;
 
     let mut command = vec![plan.shim.to_string_lossy().to_string()];
