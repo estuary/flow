@@ -29,6 +29,19 @@ struct Args {
     /// - For AGE, values are the encryption key to use.
     #[clap(long, env)]
     pub kms_key: String,
+    /// Type of KMS to use for encryption of first-class secrets.
+    #[clap(long, env)]
+    pub secrets_kms_type: KeychainType,
+    /// The fully qualified KMS key used to wrap first-class secrets,
+    /// in the forms taken by `--kms-key`.
+    ///
+    /// This key is deliberately distinct from `--kms-key`: its decrypt grant is
+    /// held by this service alone, and never by a data-plane.
+    #[clap(long, env)]
+    pub secrets_kms_key: String,
+    /// Base URL of the control-plane API, which authorizes secret decryptions.
+    #[clap(long, env)]
+    pub control_plane_url: url::Url,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -59,17 +72,15 @@ async fn async_main(
         api_port,
         kms_type,
         kms_key,
+        secrets_kms_type,
+        secrets_kms_key,
+        control_plane_url,
     }: Args,
 ) -> anyhow::Result<()> {
-    let default_keychain = match kms_type {
-        KeychainType::Age => config_encryption::Keychain::Age(kms_key),
-        KeychainType::Aws => config_encryption::Keychain::Aws(kms_key),
-        KeychainType::Gcp => config_encryption::Keychain::Gcp(kms_key),
-    };
+    let default_keychain = into_keychain(kms_type, kms_key);
+    let secrets_keychain = into_keychain(secrets_kms_type, secrets_kms_key);
 
-    let cors = tower_http::cors::CorsLayer::new()
-        .allow_origin(tower_http::cors::Any)
-        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::ACCEPT]);
+    let cors = config_encryption::cors_layer();
 
     let api_listener = tokio::net::TcpListener::bind(format!("[::]:{api_port}"))
         .await
@@ -78,12 +89,21 @@ async fn async_main(
     // Share-able future which completes when the agent should exit.
     let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
 
-    let app = axum::Router::new()
+    // The legacy route and the secret routes hold separate keychains, and are
+    // separate Routers for exactly that reason.
+    let legacy_router = axum::Router::new()
         .route(
             "/v1/encrypt-config",
             axum::routing::post(config_encryption::encrypt_config),
         )
-        .with_state(Arc::new(default_keychain))
+        .with_state(Arc::new(default_keychain));
+
+    let secrets_router = config_encryption::secrets::router(Arc::new(
+        config_encryption::secrets::App::new(secrets_keychain, control_plane_url),
+    ));
+
+    let app = legacy_router
+        .merge(secrets_router)
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http());
 
@@ -92,4 +112,12 @@ async fn async_main(
         .await?;
 
     Ok(())
+}
+
+fn into_keychain(kms_type: KeychainType, kms_key: String) -> config_encryption::Keychain {
+    match kms_type {
+        KeychainType::Age => config_encryption::Keychain::Age(kms_key),
+        KeychainType::Aws => config_encryption::Keychain::Aws(kms_key),
+        KeychainType::Gcp => config_encryption::Keychain::Gcp(kms_key),
+    }
 }
