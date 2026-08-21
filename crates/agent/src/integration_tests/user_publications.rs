@@ -903,6 +903,18 @@ async fn test_runtime_v2_new_derivations() {
 // tenant's mapping reflects whichever planes existed when its first test
 // provisioned it. Pin the mapping to just the default test plane so that
 // data-plane resolution (and its error suggestions) are deterministic.
+// Adds a plane outside the tenants' `ops/dp/public/` read grant: it exists
+// but is not readable by the tests' users.
+async fn add_private_plane(harness: &mut TestHarness) {
+    harness
+        .add_data_plane(
+            "ops/dp/private/other",
+            "ops-dp-private-other.dp.test",
+            vec!["c2VjcmV0".to_string()],
+        )
+        .await;
+}
+
 async fn pin_storage_mapping_planes(harness: &TestHarness, catalog_prefix: &str) {
     sqlx::query!(
         r#"update storage_mappings
@@ -1012,15 +1024,8 @@ async fn test_publication_no_data_plane() {
     let user_id = harness.setup_tenant("cats").await;
     pin_storage_mapping_planes(&harness, "cats/").await;
 
-    // A plane outside the tenant's `ops/dp/public/` read grant: it exists but
-    // is not readable, and must be indistinguishable from a missing plane.
-    harness
-        .add_data_plane(
-            "ops/dp/private/other",
-            "ops-dp-private-other.dp.test",
-            vec!["c2VjcmV0".to_string()],
-        )
-        .await;
+    // The unreadable plane must be indistinguishable from a missing one.
+    add_private_plane(&mut harness).await;
 
     let mut outcomes = Vec::new();
     for (case, data_plane_name) in [
@@ -1072,13 +1077,7 @@ async fn test_publication_storage_mapping_unreadable_plane() {
     let mut harness = TestHarness::init("test_publication_storage_mapping_unreadable_plane").await;
     let user_id = harness.setup_tenant("lynx").await;
 
-    harness
-        .add_data_plane(
-            "ops/dp/private/other",
-            "ops-dp-private-other.dp.test",
-            vec!["c2VjcmV0".to_string()],
-        )
-        .await;
+    add_private_plane(&mut harness).await;
 
     // The tenant's storage mapping leads with a plane the user cannot read,
     // making it the mapping's default, with the readable test plane second.
@@ -1160,13 +1159,7 @@ async fn test_publication_no_data_plane_requests_snapshot_refresh() {
     let user_id = harness.setup_tenant("cats").await;
     pin_storage_mapping_planes(&harness, "cats/").await;
 
-    harness
-        .add_data_plane(
-            "ops/dp/private/other",
-            "ops-dp-private-other.dp.test",
-            vec!["c2VjcmV0".to_string()],
-        )
-        .await;
+    add_private_plane(&mut harness).await;
 
     let result = harness
         .user_publication_in_plane(

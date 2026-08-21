@@ -372,10 +372,7 @@ async fn test_source_capture_no_annotations() {
     let harness = TestHarness::init("test_source_capture_no_annotations").await;
     let user_id = harness.setup_tenant("sheep").await;
 
-    // Direct `Publisher::build` calls bypass the publications executor, so pin
-    // a Snapshot here, refreshed to see the grants created by the setup above.
-    harness.refresh_snapshot().await;
-    let snapshot = harness.snapshot_watch.token();
+    let snapshot = harness.pinned_snapshot().await;
 
     let draft = draft_catalog(serde_json::json!({
         "collections": {
