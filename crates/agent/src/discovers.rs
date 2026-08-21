@@ -98,9 +98,9 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
 
     type Receive = serde_json::Value;
 
-    /// `None` round-trips as the JSON `null` that stateless polls have always
-    /// persisted, keeping in-flight tasks readable across a deploy in either
-    /// direction.
+    /// Polls are stateless and persist the JSON `null` that `None`
+    /// round-trips, keeping in-flight task state readable across a deploy
+    /// in either direction.
     type State = Option<DiscoverState>;
 
     type Outcome = DiscoverOutcome;
@@ -203,9 +203,9 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             return Ok((JobStatus::NotAuthorized, Err(errors)));
         }
 
-        // Data-plane authorization is evaluated against the pinned Snapshot,
-        // like the live-spec authorization below. An unauthorized plane and a
-        // missing one are deliberately indistinguishable.
+        // Data-plane authorization: unlike the capture check above, resolving
+        // the plane consults what exists in the Snapshot, so an unauthorized
+        // plane and a missing one are deliberately indistinguishable.
         let Some(data_plane) = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,

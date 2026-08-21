@@ -612,7 +612,7 @@ async fn test_discover_merge_filters_unauthorized_collection() {
 
     let user_id = harness.setup_tenant("squirrels").await;
 
-    // The drafted capture is readable by the user, but an existing binding
+    // The user holds SpecEdit to the drafted capture, but an existing binding
     // targets a collection outside their grants. The binding is retained by
     // the discover merge; its target is silently filtered from the
     // merge-phase fetch, so the collection is drafted fresh rather than
