@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run materialization consistency scenarios against this checkout's stack"
+#USAGE flag "--filter <filter>" help="Scenario name pattern for nextest (e.g. zombie)"
+#USAGE flag "--concurrency <concurrency>" help="How many scenarios to run at once"
+#USAGE flag "--debug" help="Enable debug logging and show all test output"
+
+source "$(dirname "$0")/../local/lib.sh"
+ensure_stack_env
+
+# Every scenario publishes only its own tasks, with a random suffix, and reads
+# the stack's identity at runtime — so this runs against any stack, the primary
+# checkout or a worktree, and several agents can run it concurrently.
+
+FILTER="${usage_filter:-}"
+# No default: unset means the `consistency` nextest profile's `test-threads` governs.
+#
+CONCURRENCY="${usage_concurrency:-}"
+DEBUG="${usage_debug:-false}"
+
+echo "Building flowctl, the shim, and the reference connector..."
+cargo build -p flowctl -p materialize-consistency --quiet
+
+# The workload is the soak capture, run unmodified out of the repository's
+# in-project poetry venv.
+if [ ! -x "$(flow_repo_root)/.venv/bin/python" ]; then
+    echo "Installing the workload capture's Python dependencies..."
+    poetry install --no-root
+fi
+
+# Purge gazette state of scenario tasks that no longer exist.
+#
+# Two kinds leak, in two different etcd roots, and both are load-bearing:
+#
+# **Ops partitions**, under `/gazette/<cluster>/items/ops/tasks`. A task's ops log and stats
+# partitions are not deleted when its specification is — they belong to the data plane's
+# shared `ops/tasks/...` collections — so the suite accumulates a pair per task, about two
+# hundred per full run. A four-broker data plane runs out of assignment slots at around
+# fourteen hundred partitions, after which newly published journals get no primary broker and
+# every scenario fails waiting for a capture that published fine and can never append.
+#
+# **Task shards and their recovery logs**, under `/flow/<cluster>/items` and
+# `/gazette/<cluster>/items` respectively. A run killed mid-flight — a CI timeout, a wedged
+# stack — can delete its specs while leaving these behind. They look harmless until the
+# build artifact they reference is collected, and then they are not: gazette's
+# `completeRecovery` nil-dereferences instead of erroring, the reactor segfaults on every
+# promotion attempt, and it crash-loops which takes
+# the whole data plane down — nothing can publish, because validating a derivation needs a
+# reactor to connect to. This is a worse failure than the partition leak: it wedges the
+# stack rather than degrading it, and the cause is invisible from the suite's own output.
+#
+# Done here, against etcd, rather than in the harness, because a task-scoped authorization
+# cannot reach these: `user_task_admin` authorizes a journal client for the task's own
+# prefix, while ops journals live under `ops/`, which no grant available to the test user
+# covers — and a journal listing outside that scope comes back empty rather than
+# unauthorized
+
+purge_orphan_gazette_items() {
+    local endpoint="localhost:${FLOW_PORT_ETCD}"
+
+    # Tasks the suite currently has published. Anything else under this tenant's consistency
+    # prefix is debris from a finished run.
+    #
+    # Matched as a *substring* of the key rather than by parsing a catalog name out of it.
+    # Key shapes differ by kind — `<kind>/<name>/<hex>/<range>` for a shard,
+    # `recovery/<kind>/<name>/<hex>/<range>` for its log, `.../name=<url-encoded>/...` for an
+    # ops partition
+    local live
+    live=$(psql "${FLOW_PG_URL}" -tAc \
+        "SELECT catalog_name FROM live_specs WHERE catalog_name LIKE '${FLOW_TEST_TENANT}/consistency/%'")
+
+    local removed=0
+    local root keys key rel name encoded claimed
+    for root in "/gazette/${FLOW_CLUSTER}" "/flow/${FLOW_CLUSTER}"; do
+        # Only ever consider keys naming this suite's own prefix, in either the plain or the
+        # URL-encoded form.
+        keys=$(ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" get --prefix --keys-only \
+            "${root}/items/" 2>/dev/null \
+            | grep -E "${FLOW_TEST_TENANT}(/|%2F)consistency(/|%2F)" || true)
+
+        for key in ${keys}; do
+            # A here-string rather than a pipe, so the flag survives the loop.
+            claimed=false
+            while read -r name; do
+                [ -n "${name}" ] || continue
+                encoded=${name//\//%2F}
+                case "${key}" in
+                *"${name}"* | *"${encoded}"*)
+                    claimed=true
+                    break
+                    ;;
+                esac
+            done <<<"${live}"
+
+            if [ "${claimed}" = true ]; then
+                continue # Still published; its state is in use.
+            fi
+
+            rel=${key#"${root}/items/"}
+            ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del "${key}" >/dev/null 2>&1
+            ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del --prefix "${root}/assign/${rel}" >/dev/null 2>&1
+            removed=$((removed + 1))
+        done
+    done
+
+    if [ "${removed}" -gt 0 ]; then
+        echo "Purged ${removed} gazette item(s) of finished scenario tasks."
+    fi
+}
+
+echo "Provisioning the test tenant..."
+mise run local:test-tenant
+source "${FLOW_STACK_DIR}/test-tenant-test.env" # Default tenant is 'test'.
+
+# Shard administration — splitting a task, and unassigning a shard is authorized at Admin capability
+echo "Granting ${FLOW_TEST_USER_EMAIL} support access (needed to split and unassign shards)..."
+psql "${FLOW_PG_URL}" -qtAc "
+    INSERT INTO public.user_grants (user_id, object_role, capability, detail)
+    VALUES ('${FLOW_TEST_USER_ID}'::uuid, 'estuary_support/', 'admin',
+            'materialization consistency suite: shard split and unassign')
+    ON CONFLICT (user_id, object_role) DO UPDATE SET capability = 'admin';" >/dev/null
+
+# The grant above is not yet visible to the agent, which authorizes from a snapshot it
+# refreshes only every 20s-5m. See `warm_authorization` in local/lib.sh.
+if ! warm_authorization "${FLOW_PG_URL}" "${FLOW_PORT_AGENT}" "${FLOW_TEST_TENANT}/" admin; then
+    echo "       Shard splits and crash recovery both need it; see the grant above." >&2
+    exit 1
+fi
+
+purge_orphan_gazette_items
+
+export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
+
+if [ "${DEBUG}" = "true" ]; then
+    export RUST_LOG="materialize_consistency=debug"
+    OUTPUT_FLAGS="--no-capture"
+else
+    export RUST_LOG="${RUST_LOG:-materialize_consistency=info}"
+    OUTPUT_FLAGS="--failure-output=immediate --success-output=final"
+fi
+
+# Against the reference connector each scenario runs twice — clean, then against the defect it
+# must catch — so a green result means the checkers can still see a real regression. Against a
+# real subject named by FLOW_CONSISTENCY_SUBJECT* it runs once: only the reference connector has
+# defects to switch on.
+echo "Running consistency scenarios..."
+
+TEST_EXIT_CODE=0
+if [ -n "${FILTER}" ]; then
+    cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
+        --ignore-default-filter --no-fail-fast ${CONCURRENCY:+-j "${CONCURRENCY}"} \
+        -E "binary_id(/materialize-consistency::scenarios/) and test(${FILTER})" || TEST_EXIT_CODE=$?
+else
+    cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
+        ${CONCURRENCY:+-j "${CONCURRENCY}"} --no-fail-fast || TEST_EXIT_CODE=$?
+fi
+
+if [ "${TEST_EXIT_CODE}" -ne 0 ]; then
+    REACTOR_PORT=$((FLOW_PLANE_BASE + 99))
+    echo ""
+    echo "A scenario failed. The run directories of failed scenarios are kept under"
+    echo "  ${FLOW_STACK_DIR}/consistency/"
+    echo "each holding the shim's protocol trace (trace.jsonl) and the destination."
+    echo ""
+    echo "Reactor logs:"
+    echo "  journalctl --user -u flow-reactor@${FLOW_CLUSTER}-${REACTOR_PORT} --since '15 min ago'"
+    echo ""
+    echo "Leftover tasks from a crashed run:"
+    echo "  flowctl catalog list --prefix test/consistency/"
+    exit "${TEST_EXIT_CODE}"
+fi
