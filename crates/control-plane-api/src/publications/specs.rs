@@ -948,8 +948,10 @@ pub async fn resolve_live_specs(
     // a missing one, so that authorization does not leak the existence of
     // unauthorized planes. Note this applies to the system user's controller
     // publications identically: the SQL filter this replaces was likewise
-    // unconditional. Planes referenced by id require no check, as they come
-    // from live specs which were themselves authorized above.
+    // unconditional. Planes referenced by id require no check: they come from
+    // live-spec rows which resolution above already admitted — user-authorized,
+    // or deliberately exempt (injected ops collections, and publications with
+    // `verify_user_authz: false`).
     let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) =
         data_plane_names.into_iter().partition(|name| {
             tables::UserGrant::is_authorized(

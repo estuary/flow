@@ -895,7 +895,7 @@ async fn test_runtime_v2_new_derivations() {
     );
 }
 
-// The tests below pin publication authorization behaviors ahead of moving
+// The tests below pin publication authorization behaviors across the move of
 // their enforcement off internal.user_roles() SQL and onto the pinned
 // authorization Snapshot (issue #2781), mirroring the discovers migration.
 
@@ -1149,10 +1149,10 @@ async fn test_publication_storage_mapping_unreadable_plane() {
     );
 }
 
-// This test asserts the new Snapshot-based behavior and is committed RED:
-// the SQL authorization path never cancels the Snapshot's revoke token, so
-// the assertion below fails until publications authorize data-planes via
-// the Snapshot.
+// Unlike the characterization tests above, this asserts new Snapshot-only
+// behavior: the SQL authorization path never cancelled the revoke token, so
+// this test was committed RED and turned green when data-plane authorization
+// moved onto the Snapshot.
 #[tokio::test]
 async fn test_publication_no_data_plane_requests_snapshot_refresh() {
     let mut harness =
