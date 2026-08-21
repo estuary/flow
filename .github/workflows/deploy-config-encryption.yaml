@@ -53,7 +53,10 @@ jobs:
           # configuration back to the image ENTRYPOINT plus the env vars below; leaving the
           # stale args in place would make the container exit on unrecognized arguments.
           # The `config-encryption` runtime service account already holds
-          # roles/cloudkms.cryptoKeyEncrypter on the KMS key's project.
+          # roles/cloudkms.cryptoKeyEncrypter on the legacy KMS key's project. On the
+          # first-class secrets key (`platform-secrets`) it must hold *both* encrypt and
+          # decrypt, because this service is the only holder of that decrypt grant: a
+          # secret never travels inside a built spec, so no data-plane is ever granted it.
           #
           # `--port` must go here rather than in a `port:` input: deploy-cloudrun@v2 has no
           # such input and silently ignores one, which leaves the container port at Cloud
@@ -65,11 +68,18 @@ jobs:
             --port=8765
             --service-account=config-encryption@estuary-control.iam.gserviceaccount.com
 
+          # KMS_KEY wraps legacy endpoint configs and is unwrapped by data-plane reactors,
+          # so it stays put. SECRETS_KMS_KEY wraps first-class secrets under a deliberately
+          # separate keychain which only this service can unwrap; CONTROL_PLANE_URL is the
+          # API it asks whether a `/secret/decrypt` caller may have the plaintext.
           env_vars: |-
             API_PORT=8765
+            CONTROL_PLANE_URL=https://api.estuary.dev/
             KMS_TYPE=gcp
             KMS_KEY=projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor
             NO_COLOR=1
             RUST_LOG=info
+            SECRETS_KMS_TYPE=gcp
+            SECRETS_KMS_KEY=projects/estuary-control/locations/us-central1/keyRings/platform-secrets/cryptoKeys/platform-secrets_key
 
           env_vars_update_strategy: overwrite
