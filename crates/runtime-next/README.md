@@ -95,6 +95,7 @@ src/
 │       ├── fsm.rs           # pipelined HeadFSM / TailFSM state machines
 │       ├── actor.rs         # event loop driving open / commit / acknowledge / trigger
 │       ├── triggers.rs      # webhook trigger delivery
+│       ├── sync_now.rs      # TaskControl.SyncNow decision evaluation
 │       ├── sync_schedule.rs # compiled sync-schedule evaluator (commit pacing)
 │       └── task.rs          # Task: the leader's data model
 │
@@ -388,6 +389,28 @@ Enforcement rides the close policy's min/max transaction durations:
 ceilings still force early commits — a backfill drains under memory pressure
 with no caught-up detection — and `CloseNow` bypasses a hold, so spec updates
 restart promptly. The first transaction of a leader session is never held.
+
+## Sync-now (materialize)
+
+`TaskControl.SyncNow` is a user-facing RPC forcing an immediate commit of a
+materialization's open transaction — collapsing any sync-schedule hold — and
+resolving once that transaction is fully acknowledged (committed and
+queryable in the destination). The tonic service lives beside `Leader` in
+`leader/service.rs` but is registered separately, because callers present
+ordinary gazette READ claims over the task's shards rather than LEAD.
+
+The service delivers the request to the task's live leader session via a
+per-session `SyncNowHandle` registered in `ServiceImpl`. The Actor evaluates
+a pure decision function (`sync_now::evaluate` over `fsm::sync_now_inputs`),
+acks it, arms the FSM's existing `close_requested` input when an open
+transaction can still be told to close, and parks the caller as a waiter on
+a monotonic count of `Tail::Done` transitions — so N concurrent requests
+await the same commit. Parked waiters receive ~15s heartbeats, then Done; a
+session that exits with parked waiters errors them out (sync-now is
+idempotent — callers re-invoke). The response messages are structural and
+carry no payload: transaction statistics belong to the stats journal.
+Derivations and captures are answered by the reactor front door; tasks
+without a live session are `NOT_FOUND`.
 
 ## Status
 

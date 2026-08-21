@@ -57,12 +57,7 @@ pub async fn user_task_authorization(
     gazette::shard::Client,
     gazette::journal::Client,
 )> {
-    let watch = tokens::watch(workflows::UserTaskAuth {
-        client: rest.clone(),
-        user_tokens: user_tokens.clone(),
-        task: models::Name::new(task),
-        capability: models::Capability::Read,
-    });
+    let watch = user_task_auth_watch(rest, user_tokens, task);
 
     let (shard_id_prefix, ops_logs_journal, ops_stats_journal) = {
         let ready = watch.ready().await.token();
@@ -90,6 +85,33 @@ pub async fn user_task_authorization(
     ))
 }
 
+/// Start a live authorization watch for user access to a task.
+/// Callers hold the watch and mint clients from it as needed, so that each
+/// RPC bears a currently-valid data-plane token.
+pub fn user_task_auth_watch(
+    rest: &flow_client_next::rest::Client,
+    user_tokens: &tokens::PendingWatch<UserToken>,
+    task: &str,
+) -> tokens::PendingWatch<models::authorizations::UserTaskAuthorization> {
+    tokens::watch(workflows::UserTaskAuth {
+        client: rest.clone(),
+        user_tokens: user_tokens.clone(),
+        task: models::Name::new(task),
+        capability: models::Capability::Read,
+    })
+}
+
+/// Await the reactor front-door address and bearer token of the data plane
+/// hosting the task which `auth` authorizes.
+pub async fn reactor_front_door(
+    auth: &tokens::PendingWatch<models::authorizations::UserTaskAuthorization>,
+) -> anyhow::Result<(String, String)> {
+    let ready = auth.ready().await.token();
+    let model = ready.result()?;
+
+    Ok((model.reactor_address.clone(), model.reactor_token.clone()))
+}
+
 /// Authorize the user for administrative operations over a task's shards
 /// and recovery logs, returning the task's ops journal names and
 /// Admin-capability shard + journal clients.
@@ -106,12 +128,7 @@ pub async fn user_task_admin(
     gazette::journal::Client,
 )> {
     let (ops_logs_journal, ops_stats_journal) = {
-        let watch = tokens::watch(workflows::UserTaskAuth {
-            client: rest.clone(),
-            user_tokens: user_tokens.clone(),
-            task: models::Name::new(task),
-            capability: models::Capability::Read,
-        });
+        let watch = user_task_auth_watch(rest, user_tokens, task);
         let ready = watch.ready().await.token();
         let model = ready.result()?;
 

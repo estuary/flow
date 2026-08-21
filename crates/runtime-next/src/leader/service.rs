@@ -42,6 +42,18 @@ pub struct ServiceImpl<
     pub(crate) registry: service_kit::Registry,
     /// When true, disarm AuthN+AuthZ enforcement (trusted local contexts only).
     pub(crate) disarm_auth: bool,
+    /// Sync-now handles of live Materialize leader sessions, keyed by task
+    /// name: the delivery points for TaskControl.SyncNow requests.
+    pub(crate) sync_now_handles: std::sync::Mutex<HashMap<String, SyncNowHandle>>,
+}
+
+/// A live Materialize session's sync-now delivery handle.
+pub(crate) struct SyncNowHandle {
+    /// Shard-zero ID of the session: the concrete scope that a TaskControl
+    /// caller's claims must authorize.
+    shard_zero: String,
+    /// SyncNow delivery channel into the session's Actor.
+    sync_now_tx: mpsc::UnboundedSender<super::materialize::SyncNow>,
 }
 
 impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory>
@@ -63,6 +75,7 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
             http_client: reqwest::Client::new(),
             registry,
             disarm_auth,
+            sync_now_handles: std::sync::Mutex::new(HashMap::new()),
         }))
     }
 
@@ -72,6 +85,40 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
         proto_grpc::runtime::leader_server::LeaderServer::new(self)
             .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX)
+    }
+
+    /// Wrap this service in the TaskControl tonic server. It's distinct from
+    /// the Leader service because its AuthN floor is gazette READ over the
+    /// task's shards (held by any `/authorize/user/task` caller), not LEAD.
+    pub fn into_task_control_service(
+        self,
+    ) -> proto_grpc::runtime::task_control_server::TaskControlServer<Self> {
+        proto_grpc::runtime::task_control_server::TaskControlServer::new(self)
+            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+            .max_encoding_message_size(usize::MAX)
+    }
+
+    /// Register a live Materialize session's sync-now handle, replacing any
+    /// prior registration for the task. The returned guard un-registers it
+    /// when dropped — tie the guard to the session's serve scope.
+    pub(crate) fn register_sync_now_handle(
+        &self,
+        task_name: &str,
+        shard_zero: String,
+        sync_now_tx: mpsc::UnboundedSender<super::materialize::SyncNow>,
+    ) -> SyncNowGuard<S, P, L> {
+        self.sync_now_handles.lock().unwrap().insert(
+            task_name.to_string(),
+            SyncNowHandle {
+                shard_zero,
+                sync_now_tx: sync_now_tx.clone(),
+            },
+        );
+        SyncNowGuard {
+            service: self.clone(),
+            task_name: task_name.to_string(),
+            sync_now_tx,
+        }
     }
 
     pub fn spawn_derive<R>(
@@ -159,4 +206,89 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
             ),
         ))
     }
+}
+
+/// Un-registers a Materialize session's [`SyncNowHandle`] when dropped.
+pub(crate) struct SyncNowGuard<
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+> {
+    service: Service<S, P, L>,
+    task_name: String,
+    sync_now_tx: mpsc::UnboundedSender<super::materialize::SyncNow>,
+}
+
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory> Drop
+    for SyncNowGuard<S, P, L>
+{
+    fn drop(&mut self) {
+        let mut guard = self.service.sync_now_handles.lock().unwrap();
+        // Remove only our own registration: a replacement session for the
+        // same task may have re-registered while this one wound down.
+        if guard
+            .get(&self.task_name)
+            .is_some_and(|handle| handle.sync_now_tx.same_channel(&self.sync_now_tx))
+        {
+            guard.remove(&self.task_name);
+        }
+    }
+}
+
+#[tonic::async_trait]
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory>
+    proto_grpc::runtime::task_control_server::TaskControl for Service<S, P, L>
+{
+    type SyncNowStream =
+        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::SyncNowResponse>>;
+
+    async fn sync_now(
+        &self,
+        mut request: tonic::Request<proto::SyncNowRequest>,
+    ) -> tonic::Result<tonic::Response<Self::SyncNowStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.disarm_auth)?;
+        let proto::SyncNowRequest { task_name } = request.into_inner();
+
+        if task_name.is_empty() {
+            return Err(tonic::Status::invalid_argument("task_name is required"));
+        }
+
+        // A live Materialize session? Authorize the caller against its
+        // concrete shard-zero ID and deliver the request; the Actor drives
+        // the response stream from there.
+        let handle = {
+            let guard = self.sync_now_handles.lock().unwrap();
+            guard
+                .get(&task_name)
+                .map(|handle| (handle.shard_zero.clone(), handle.sync_now_tx.clone()))
+        };
+        let Some((shard_zero, sync_now_tx)) = handle else {
+            // Not running here, not on the V2 runtime, or not a
+            // materialization at all: only the reactor front door can tell
+            // those apart, since only it has the shard keyspace. It answers
+            // for captures and derivations without dialing us.
+            return Err(not_found(&task_name));
+        };
+        let _authorized = authz.authorize_id(&shard_zero)?;
+
+        let (reply_tx, reply_rx) = mpsc::unbounded_channel();
+        if sync_now_tx
+            .send(super::materialize::SyncNow { reply_tx })
+            .is_ok()
+        {
+            return Ok(tonic::Response::new(
+                tokio_stream::wrappers::UnboundedReceiverStream::new(reply_rx),
+            ));
+        }
+        // The session exited between lookup and delivery.
+        Err(tonic::Status::unavailable(format!(
+            "leader session of task {task_name} is winding down; retry"
+        )))
+    }
+}
+
+fn not_found(task_name: &str) -> tonic::Status {
+    tonic::Status::not_found(format!(
+        "task {task_name} has no live leader session here (it may not be running, or may not be on the V2 runtime)"
+    ))
 }

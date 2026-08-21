@@ -325,6 +325,17 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	pr.RegisterShufflerServer(args.Server.GRPCServer,
 		pr.NewVerifiedShufflerServer(shuffle.NewAPI(args.Service.Resolver), f.service.Verifier))
 
+	// TaskControl is served only as a hand-written REST/NDJSON endpoint,
+	// sharing the CORS treatment of gazette's grpc-gateway `/v1/` mux (Go's
+	// ServeMux prefers the more specific pattern).
+	args.Server.HTTPMux.Handle(TaskControlSyncNowPath, config.Consumer.CORSWrapper(&taskControlHTTP{
+		relay: &taskControl{
+			service:         args.Service,
+			sidecarEndpoint: config.SidecarEndpoint,
+		},
+		verifier: f.service.Verifier,
+	}))
+
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
 		pf.NewVerifiedNetworkProxyServer(&network.ProxyServer{Resolver: args.Service.Resolver}, f.service.Verifier))
 
