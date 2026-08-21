@@ -2007,15 +2007,20 @@ dependencies = [
  "futures",
  "insta",
  "json",
+ "models",
+ "reqwest 0.12.23",
  "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
+ "tokens",
  "tokio",
+ "tonic",
  "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
+ "validator",
 ]
 
 [[package]]

@@ -11,20 +11,25 @@ path = "src/main.rs"
 doc = { path = "../doc" }
 json = { path = "../json" }
 async-process = { path = "../async-process" }
+models = { path = "../models" }
+tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+reqwest = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
+validator = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
