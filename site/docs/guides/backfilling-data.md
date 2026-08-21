@@ -243,7 +243,7 @@ To keep existing rows when a backfill is triggered, either:
 
 Both options skip the truncate step, but neither prevents the drop-and-recreate path: if the schema change requires a different table structure, the table is still dropped.
 
-### Backfill Selection
+### Backfill selection
 
 Backfills can be a powerful tool to recover data, but can also result in unnecessary data costs if used incorrectly. This section will help you choose when to backfill and which backfill option to use.
 
@@ -332,29 +332,37 @@ In general, you should not change this setting. Make sure you understand your us
 
 The following modes are available:
 
-* **Normal:** backfills chunks of the table and emits all replication events regardless of whether they occur within the backfilled portion of the table or not.
+### Normal mode
 
-   In Normal mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
-   All WAL changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
+Backfills chunks of the table and emits all replication events regardless of whether they occur within the backfilled portion of the table or not.
 
-* **Precise:** backfills chunks of the table and filters replication events in portions of the table which haven't yet been reached.
+In Normal mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
+All WAL changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
 
-   In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
-   Any WAL changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, WAL changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
+### Precise mode
 
-   WAL changes and backfill chunks get stitched together to produce a fully consistent logical sequence of changes for each key. For example, you are guaranteed to see an insert before an update or delete.
+Backfills chunks of the table and filters replication events in portions of the table which haven't yet been reached.
 
-   Note that Precise backfill is not possible in some cases due to equality comparison challenges when using varying character encodings.
+In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
+Any WAL changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, WAL changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
 
-* **Only Changes:** skips backfilling the table entirely and jumps directly to replication streaming for the entire dataset.
+WAL changes and backfill chunks get stitched together to produce a fully consistent logical sequence of changes for each key. For example, you are guaranteed to see an insert before an update or delete.
 
-   No backfill of the table content is performed at all. Only WAL changes are emitted.
+Note that Precise backfill is not possible in some cases due to equality comparison challenges when using varying character encodings.
 
-* **Without Primary Key:** can be used to capture tables without any form of unique primary key.
+### Only Changes mode
 
-   The connector uses an alternative physical row identifier (such as a Postgres `ctid`) to scan backfill chunks, rather than walking the table in key order.
+Skips backfilling the table entirely and jumps directly to replication streaming for the entire dataset.
 
-   This mode lacks the exact correctness properties of the Normal backfill mode.
+No backfill of the table content is performed at all. Only WAL changes are emitted.
+
+### Without Primary Key mode
+
+Captures tables that have no form of unique primary key.
+
+The connector uses an alternative physical row identifier (such as a Postgres `ctid`) to scan backfill chunks, rather than walking the table in key order.
+
+This mode lacks the exact correctness properties of the Normal backfill mode.
 
 If you do not choose a specific backfill mode, Estuary defaults to an automatic mode.
 
