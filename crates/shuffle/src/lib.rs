@@ -167,14 +167,10 @@ fn opening_aborted<T>(source: &str, peer: &str, msg: Option<tonic::Result<T>>) -
     }
 }
 
-// Map an anyhow::Error into a tonic::Status.
-#[inline]
-fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
-    match err.downcast::<tonic::Status>() {
-        Ok(status) => status,
-        Err(err) => tonic::Status::unknown(format!("{err:?}")),
-    }
-}
+// Map an anyhow::Error into a tonic::Status, bounding its message so that an
+// oversized status isn't replaced in transit by an opaque transport error.
+// See `proto_grpc::MAX_STATUS_MESSAGE_LEN`.
+use proto_grpc::anyhow_to_status;
 
 // Map a tonic::Status into an anyhow::Error.
 #[inline]

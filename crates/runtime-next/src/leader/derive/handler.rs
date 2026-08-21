@@ -245,10 +245,9 @@ where
     handler.finish_err(&format!("{err:#}"));
 
     // Best-effort broadcast of terminal error to all shards.
-    let status = match err.downcast_ref::<tonic::Status>() {
-        Some(status) => crate::bound_status(status.clone()),
-        None => crate::bounded_unknown_status(format!("{err:?}")),
-    };
+    // See the materialize handler for why the peer's Status isn't forwarded.
+    let status = crate::bounded_unknown_status(format!("leader session failed: {err:?}"));
+
     for tx in error_tx {
         let _ = tx.send(Err(status.clone()));
     }
