@@ -152,6 +152,14 @@ async fn test_user_publications() {
     ]
     "#);
 
+    // The denied read of cats/noms is Snapshot-evaluated, so it requests an
+    // early background refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the denied referenced name to cancel the Snapshot's revoke token"
+    );
+
     // Add a user_grant for dogs and assert that a subsequent publication still fails for lack of a role_grant.
     harness
         .add_user_grant(dogs_user, "cats/", Capability::Read)
@@ -172,6 +180,14 @@ async fn test_user_publications() {
         ),
     ]
     "#);
+
+    // The remaining error is spec-to-spec, which is not Snapshot-evaluated
+    // and must not request a refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        !snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the spec-to-spec denial to leave the Snapshot's revoke token alone"
+    );
 
     // Add the role grant, and now dogs can materialize cats/noms
     harness
@@ -245,6 +261,14 @@ async fn test_user_publications() {
         .assert_specs_touched_since(&starting_expanded_specs)
         .await;
     assert_publication_excluded(result.pub_id.unwrap(), &["dogs/materialize"], &mut harness).await;
+
+    // Filtering dogs/materialize from the expansion merely narrowed the
+    // draft, and must not request a Snapshot refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        !snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the filtered expansion to leave the Snapshot's revoke token alone"
+    );
 
     harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(
@@ -1145,6 +1169,14 @@ async fn test_publication_storage_mapping_unreadable_plane() {
         "pub failed with status {:?}: {:?}",
         result.status,
         result.errors
+    );
+
+    // Though unused, the mapping plane was still denied at partition time,
+    // which eagerly requests an early background refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the unused denied mapping plane to cancel the Snapshot's revoke token"
     );
 }
 
