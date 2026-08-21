@@ -77,3 +77,46 @@ type verifiedShuffleStream struct {
 }
 
 func (s verifiedShuffleStream) Context() context.Context { return s.ctx }
+
+// AuthTaskControlServer is similar to TaskControlServer except:
+//   - Requests have already been verified with accompanying Claims.
+//   - The Stream.Context() argument may be subject to a deadline
+//     bound to the expiration of the user's Claims.
+type AuthTaskControlServer interface {
+	SyncNow(pb.Claims, *SyncNowRequest, TaskControl_SyncNowServer) error
+}
+
+// NewVerifiedTaskControlServer adapts an AuthTaskControlServer into a
+// TaskControlServer by using the provided Verifier to verify incoming request
+// Authorizations. TaskControl's AuthN floor is gazette READ: the fine-grain
+// AuthZ check — that the claims' label selector covers the task's shards —
+// is deferred to shard resolution.
+func NewVerifiedTaskControlServer(tc AuthTaskControlServer, verifier pb.Verifier) TaskControlServer {
+	return &verifiedTaskControlServer{
+		inner:    tc,
+		verifier: verifier,
+	}
+}
+
+type verifiedTaskControlServer struct {
+	inner    AuthTaskControlServer
+	verifier pb.Verifier
+}
+
+func (a *verifiedTaskControlServer) SyncNow(in *SyncNowRequest, stream TaskControl_SyncNowServer) error {
+	if ctx, cancel, claims, err := a.verifier.Verify(stream.Context(), pb.Capability_READ); err != nil {
+		return err
+	} else {
+		defer cancel()
+		return a.inner.SyncNow(claims, in, verifiedSyncNowStream{ctx, stream})
+	}
+}
+
+var _ TaskControlServer = &verifiedTaskControlServer{}
+
+type verifiedSyncNowStream struct {
+	ctx context.Context
+	TaskControl_SyncNowServer
+}
+
+func (s verifiedSyncNowStream) Context() context.Context { return s.ctx }

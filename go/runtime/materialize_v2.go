@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
@@ -38,6 +39,16 @@ type materializeAppV2 struct {
 
 	// respCh is fed by a long-lived pump goroutine on `m.client.Recv()`.
 	respCh <-chan recvResult
+
+	// closeNowCh wakes the session loop to send CloseNow. It's a signal, not
+	// a queue: the request it carries is `closeSeq`, so concurrent sync-now
+	// callers coalesce onto one CloseNow bearing the highest of their
+	// sequences, which satisfies every one of them.
+	closeNowCh chan struct{}
+	// closeSeq is the highest sync-now close request claimed on this shard.
+	closeSeq atomic.Uint64
+	// synced holds the Synced counts last reported by the task's leader.
+	synced *syncedCounts
 }
 
 // recvResult is one outcome of m.client.Recv(): either a Materialize
@@ -114,6 +125,8 @@ func newMaterializeAppV2(host *FlowConsumer, shard consumer.Shard, recorder *rec
 		client:     client,
 		shuffleDir: shuffleDir,
 		respCh:     respCh,
+		closeNowCh: make(chan struct{}, 1),
+		synced:     &syncedCounts{changed: make(chan struct{})},
 	}, nil
 }
 
@@ -178,6 +191,9 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		}
 		close(ch)
 	}()
+	// End this session's Synced counts on any exit, waking sync-now callers
+	// parked on a transaction only this session could have acknowledged.
+	defer m.synced.update(nil)
 
 	var specBytes []byte
 	if specBytes, err = m.term.taskSpec.Marshal(); err != nil {
@@ -245,9 +261,16 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 	}
 	m.container.Store(resp.Opened.Container)
 
-	// Steady-state: drive teardown signals and surface stream errors.
-	// termDone is nil-ed once we've sent Stop, so the case stops firing.
-	// Future CloseNow plumbing slots in as another case alongside termDone.
+	// A close-request wake-up may already be queued, and must be honored: a
+	// sync-now caller can claim its sequence before any session exists, and
+	// it parks on the echo which only this session can produce. The wake-up
+	// may instead be left over from a caller failed with a prior session;
+	// that staleness is tolerated, because the worst case is one unneeded
+	// immediate commit (the sequence itself is read at send time).
+
+	// Steady-state: drive teardown and sync-now signals, track the leader's
+	// Synced counts, and surface stream errors. termDone is nil-ed once we've
+	// sent Stop, so the case stops firing.
 	var termDone = m.term.ctx.Done()
 	for {
 		select {
@@ -256,6 +279,14 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 			// Stopped, read from `respCh` below.
 			_ = m.client.Send(&pr.Materialize{Stop: &pr.Stop{}})
 			termDone = nil
+
+		case <-m.closeNowCh:
+			// A sync-now caller asks the leader to commit what it holds.
+			// Read the sequence here rather than at the wake-up, so that a
+			// caller which found the signal already queued is covered too.
+			_ = m.client.Send(&pr.Materialize{
+				CloseNow: &pr.CloseNow{Seq: m.closeSeq.Load()},
+			})
 
 		case <-shard.Context().Done():
 			return shard.Context().Err() // Immediate, non-graceful shutdown.
@@ -266,6 +297,10 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 			}
 			if r.err != nil {
 				return pf.UnwrapGRPCError(r.err)
+			}
+			if r.resp.Synced != nil {
+				m.synced.update(r.resp.Synced)
+				continue
 			}
 			if r.resp.Stopped != nil {
 				return nil // Graceful drain complete.
