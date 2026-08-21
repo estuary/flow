@@ -86,16 +86,11 @@ fn may_access(
 async fn verify_authorization(
     env: &crate::Envelope,
     prefix: &str,
-    capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
+    capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<()> {
-    let policy_result = crate::server::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        capability,
-        [prefix],
-    );
-    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
-    Ok(())
+    authorization::AuthorizationRequirement::for_catalog_prefix(capability, prefix)
+        .verify(env)
+        .await
 }
 
 /// A JSON object, the shape of which is opaque to the graphql schema
