@@ -27,6 +27,7 @@ pub enum JobStatus {
     },
     DeprecatedBackground,
     NoDataPlane,
+    NotAuthorized,
 }
 
 impl JobStatus {
@@ -380,6 +381,16 @@ mod test {
 
     use models::Id;
     use uuid::Uuid;
+
+    // `discovers.job_status` is a UI-facing contract: pin the wire tag.
+    #[test]
+    fn test_job_status_not_authorized_serde() {
+        let status = serde_json::to_value(super::JobStatus::NotAuthorized).unwrap();
+        assert_eq!(serde_json::json!({"type": "notAuthorized"}), status);
+
+        let round: super::JobStatus = serde_json::from_value(status).unwrap();
+        assert!(matches!(round, super::JobStatus::NotAuthorized));
+    }
 
     #[tokio::test]
     async fn test_prepare_discover() {

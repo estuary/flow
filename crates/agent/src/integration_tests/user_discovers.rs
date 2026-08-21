@@ -347,25 +347,173 @@ fn document_schema(version: usize) -> bytes::Bytes {
 }
 
 #[tokio::test]
-async fn test_discover_filters_unauthorized_capture() {
-    let mut harness = TestHarness::init("test_discover_filters_unauthorized_capture").await;
+async fn test_discover_not_authorized_capture() {
+    let mut harness = TestHarness::init("test_discover_not_authorized_capture").await;
 
     let user_id = harness.setup_tenant("squirrels").await;
 
-    // The user holds no grant to chipmunks/: the live-capture precheck fetch
-    // silently filters the name, and the discover proceeds treating the
-    // capture as new rather than failing. Any authorization error surfaces
-    // when the user tries to publish.
+    // A live capture exists at one of the unauthorized names, and not at the
+    // other. The SpecEdit precheck is a pure function of the grant graph and
+    // the requested name, so both cases must produce identical outcomes:
+    // a discover's failure may never disclose whether a spec exists in
+    // another tenant's catalog.
+    sqlx::query(
+        r#"
+        with p1 as (
+            insert into live_specs (id, catalog_name, spec_type, controller_task_id, spec, built_spec) values
+            ('1111000011110000'::flowid, 'chipmunks/capture-existing', 'capture', '2222000022220000'::flowid, '{
+                "bindings": [ ],
+                "endpoint": { "connector": { "config": {}, "image": "source/test:test" } }
+            }', '{}')
+        )
+        insert into internal.tasks (task_id, task_type) values ('2222000022220000'::flowid, 2)
+        on conflict do nothing;
+        "#,
+    )
+    .execute(&harness.pool)
+    .await
+    .unwrap();
+
+    for (case, capture_name) in [
+        ("missing live spec", "chipmunks/capture-missing"),
+        ("existing live spec", "chipmunks/capture-existing"),
+    ] {
+        let draft_id = harness
+            .create_draft(user_id, case, Default::default())
+            .await;
+        let discover_id = harness
+            .queue_user_discover(
+                "source/test",
+                ":test",
+                capture_name,
+                draft_id,
+                r#"{"filtered": 1}"#,
+                false,
+                Ok((
+                    spec_fixture(),
+                    Discovered {
+                        bindings: Vec::new(),
+                    },
+                )),
+            )
+            .await;
+        let result = harness.run_queued_discover(discover_id).await;
+
+        assert!(
+            matches!(
+                result.job_status,
+                crate::discovers::JobStatus::NotAuthorized
+            ),
+            "{case}: expected NotAuthorized, got: {:?}",
+            result.job_status
+        );
+        // A single, grant-based draft error: it speaks only to the user's
+        // grants, never to whether a spec exists at the name.
+        let expect_errors = vec![(
+            format!("flow://capture/{capture_name}"),
+            format!(
+                "user is not authorized to edit specs under '{capture_name}'; if this access was granted recently, retry the discover in a moment"
+            ),
+        )];
+        assert_eq!(expect_errors, result.errors, "{case}");
+        assert_eq!(0, result.draft.spec_count(), "{case}");
+
+        // A NotAuthorized outcome requests an early background Snapshot
+        // refresh, so a grant committed after the Snapshot was taken is
+        // visible to a manual retry. Each poll pins a freshly taken Snapshot,
+        // so cancellation is attributable to this case alone.
+        let snapshot = harness.snapshot_watch.token();
+        assert!(
+            snapshot.result().unwrap().revoke.is_cancelled(),
+            "{case}: expected the NotAuthorized outcome to cancel the Snapshot's revoke token"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_discover_capture_requires_spec_edit() {
+    let mut harness = TestHarness::init("test_discover_capture_requires_spec_edit").await;
+
+    // Provision the tenant (and its data-plane read grant), then a separate
+    // user whose only authorization is a direct grant to `squirrels/`.
+    let _admin_user = harness.setup_tenant("squirrels").await;
+    let limited_user = uuid::Uuid::new_v4();
+    sqlx::query(r#"insert into auth.users (id, email) values ($1, 'limited@squirrels.test')"#)
+        .bind(limited_user)
+        .execute(&harness.pool)
+        .await
+        .unwrap();
+
+    // Only grants conveying SpecEdit may discover: legacy `read` (Viewer) and
+    // `write` (Writer) hold CatalogRead but not SpecEdit, while `admin` does.
+    for (capability, expect_authorized) in [
+        (models::Capability::Read, false),
+        (models::Capability::Write, false),
+        (models::Capability::Admin, true),
+    ] {
+        harness
+            .add_user_grant(limited_user, "squirrels/", capability)
+            .await;
+        let draft_id = harness
+            .create_draft(limited_user, format!("{capability:?}"), Default::default())
+            .await;
+        let discover_id = harness
+            .queue_user_discover(
+                "source/test",
+                ":test",
+                "squirrels/capture-1",
+                draft_id,
+                r#"{}"#,
+                false,
+                Ok((
+                    spec_fixture(),
+                    Discovered {
+                        bindings: Vec::new(),
+                    },
+                )),
+            )
+            .await;
+        let result = harness.run_queued_discover(discover_id).await;
+
+        if expect_authorized {
+            assert!(
+                result.job_status.is_success(),
+                "{capability:?}: expected success, got: {:?}",
+                result.job_status
+            );
+        } else {
+            assert!(
+                matches!(
+                    result.job_status,
+                    crate::discovers::JobStatus::NotAuthorized
+                ),
+                "{capability:?}: expected NotAuthorized, got: {:?}",
+                result.job_status
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_discover_not_authorized_wins_over_missing_plane() {
+    let mut harness =
+        TestHarness::init("test_discover_not_authorized_wins_over_missing_plane").await;
+
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    // The user is unauthorized to the capture AND names a nonexistent data
+    // plane: the SpecEdit precheck runs first, so NotAuthorized wins.
     let draft_id = harness
-        .create_draft(user_id, "filtered discover", Default::default())
+        .create_draft(user_id, "ordering", Default::default())
         .await;
     let discover_id = harness
-        .queue_user_discover(
+        .queue_user_discover_in_plane(
             "source/test",
             ":test",
             "chipmunks/capture",
+            "ops/dp/public/missing",
             draft_id,
-            r#"{"filtered": 1}"#,
+            r#"{}"#,
             false,
             Ok((
                 spec_fixture(),
@@ -378,18 +526,13 @@ async fn test_discover_filters_unauthorized_capture() {
     let result = harness.run_queued_discover(discover_id).await;
 
     assert!(
-        result.job_status.is_success(),
-        "expected success, got: {:?}",
+        matches!(
+            result.job_status,
+            crate::discovers::JobStatus::NotAuthorized
+        ),
+        "expected NotAuthorized, got: {:?}",
         result.job_status
     );
-    assert!(result.errors.is_empty());
-    // The capture is drafted as a brand-new spec.
-    let drafted = result
-        .draft
-        .captures
-        .get_by_key(&models::Capture::new("chipmunks/capture"))
-        .expect("expected chipmunks/capture to be drafted");
-    assert_eq!(Some(models::Id::zero()), drafted.expect_pub_id);
 }
 
 #[tokio::test]
