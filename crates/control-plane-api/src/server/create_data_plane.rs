@@ -103,7 +103,7 @@ pub async fn create_data_plane(
 
     let data_plane_name = format!("ops/dp/{base_name}");
 
-    if super::public::graphql::parse_data_plane_name(&data_plane_name).is_none() {
+    if crate::data_plane::parse_data_plane_name(&data_plane_name).is_none() {
         return Err(tonic::Status::invalid_argument(format!(
             "data plane name '{data_plane_name}' does not match the expected format (e.g., 'ops/dp/public/aws-us-east-1-c1')",
         ))
