@@ -15,10 +15,7 @@ async fn test_publication_concurrent_commits() {
 
     let user_id = harness.setup_tenant("beavers").await;
 
-    // Direct `Publisher::build` calls bypass the publications executor, so pin
-    // a Snapshot here, refreshed to see the grants created by the setup above.
-    harness.refresh_snapshot().await;
-    let snapshot = harness.snapshot_watch.token();
+    let snapshot = harness.pinned_snapshot().await;
 
     let draft = draft_catalog(serde_json::json!({
         "collections": {
@@ -109,10 +106,7 @@ async fn test_publication_optimistic_locking_failures() {
 
     let user_id = harness.setup_tenant("mice").await;
 
-    // Direct `Publisher::build` calls bypass the publications executor, so pin
-    // a Snapshot here, refreshed to see the grants created by the setup above.
-    harness.refresh_snapshot().await;
-    let snapshot = harness.snapshot_watch.token();
+    let snapshot = harness.pinned_snapshot().await;
 
     // If expect_pub_id is anything but `0` for a new spec, the publication should fail
     let wrong_expect_pub_ids = draft_catalog(serde_json::json!({
@@ -413,10 +407,7 @@ async fn test_injected_ops_collections_are_not_locked() {
 
     let user_id = harness.setup_tenant("owls").await;
 
-    // Direct `Publisher::build` calls bypass the publications executor, so pin
-    // a Snapshot here, refreshed to see the grants created by the setup above.
-    harness.refresh_snapshot().await;
-    let snapshot = harness.snapshot_watch.token();
+    let snapshot = harness.pinned_snapshot().await;
 
     let draft = draft_catalog(serde_json::json!({
         "collections": {

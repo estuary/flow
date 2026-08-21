@@ -1110,6 +1110,15 @@ impl TestHarness {
         (self.snapshot_replace)(snapshot);
     }
 
+    /// Refreshes and pins the authorization Snapshot, for tests that call
+    /// `Publisher::build` directly and so bypass the publications executor's
+    /// per-poll pinning. Refreshing makes grants created by the test's setup
+    /// visible to authorization.
+    pub async fn pinned_snapshot(&self) -> Arc<tokens::Refresh<control_plane_api::Snapshot>> {
+        self.refresh_snapshot().await;
+        self.snapshot_watch.token()
+    }
+
     /// Runs at most one automation task of the given type, and returns the id of the task that was run.
     /// Returns None if no eligible task was ready.
     pub async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
