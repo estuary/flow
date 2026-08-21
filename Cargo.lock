@@ -3385,6 +3385,8 @@ dependencies = [
  "anyhow",
  "futures",
  "gazette",
+ "insta",
+ "labels",
  "lazy_static",
  "models",
  "postgrest",

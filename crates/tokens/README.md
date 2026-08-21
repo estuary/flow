@@ -23,6 +23,10 @@ Three built-in source types:
 ## Usage
 
 ```rust
+// Fetch a Token once, without retaining it. Retries server-directed
+// indeterminate results, bounded by the caller.
+let token = tokio::time::timeout(std::time::Duration::from_secs(60), tokens::fetch_once(my_source)).await??;
+
 // Create a watch from any Source. Spawns a background refresh task.
 let pending: PendingWatch<String> = tokens::watch(my_source);
 
@@ -46,6 +50,8 @@ The `jwt` module provides signing, verification, and parsing:
 ## Entry Points
 
 - `watch()` - Create a `PendingWatch` from a `Source` with background refresh.
+- `fetch_once()` - Drive a `Source` for a single Token, for operations which
+  must not retain what they fetch.
 - `fixed()` - Create an immediately-ready watch with a static result.
 - `manual()` - Create a watch with a closure for manual updates.
 - `map()` - Transform a watch's token type via a closure.

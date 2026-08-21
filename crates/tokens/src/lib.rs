@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod fetch;
 pub mod jwt;
 pub mod rest;
 mod stream;
@@ -17,6 +18,7 @@ pub type DateTime = chrono::DateTime<chrono::Utc>;
 // Re-export of chrono::TimeDelta, as the foundational duration type.
 pub use chrono::TimeDelta;
 
+pub use fetch::fetch_once;
 pub use rest::RestSource;
 pub use stream::StreamSource;
 pub use watch::{fixed, manual, map, watch};
