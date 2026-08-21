@@ -246,7 +246,7 @@ mod tests {
                   "labels": [
                     {
                       "name": "id",
-                      "value": "materialization/bobCo/anvils/materialize-orange/0011223344556677/",
+                      "value": "materialize/bobCo/anvils/materialize-orange/0011223344556677/",
                       "prefix": true
                     }
                   ]
@@ -256,7 +256,7 @@ mod tests {
             },
             "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
             "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
-            "materialization/bobCo/anvils/materialize-orange/0011223344556677/"
+            "materialize/bobCo/anvils/materialize-orange/0011223344556677/"
           ]
         }
         "###);
@@ -364,7 +364,7 @@ mod tests {
                   "labels": [
                     {
                       "name": "id",
-                      "value": "materialization/bobCo/widgets/materialize-mango/0011223344556677/",
+                      "value": "materialize/bobCo/widgets/materialize-mango/0011223344556677/",
                       "prefix": true
                     }
                   ]
@@ -374,7 +374,7 @@ mod tests {
             },
             "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
             "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fwidgets%2Fmaterialize-mango/pivot=00",
-            "materialization/bobCo/widgets/materialize-mango/0011223344556677/"
+            "materialize/bobCo/widgets/materialize-mango/0011223344556677/"
           ]
         }
         "###);
@@ -447,7 +447,7 @@ mod tests {
                   "labels": [
                     {
                       "name": "id",
-                      "value": "materialization/aliceCo/wonderland/materialize-tea/0011223344556677/",
+                      "value": "materialize/aliceCo/wonderland/materialize-tea/0011223344556677/",
                       "prefix": true
                     }
                   ]
@@ -457,7 +457,7 @@ mod tests {
             },
             "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=aliceCo%2Fwonderland%2Fmaterialize-tea/pivot=00",
             "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=aliceCo%2Fwonderland%2Fmaterialize-tea/pivot=00",
-            "materialization/aliceCo/wonderland/materialize-tea/0011223344556677/"
+            "materialize/aliceCo/wonderland/materialize-tea/0011223344556677/"
           ]
         }
         "###);

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            s.document AS \"document?: models::RawValue\",\n            s.id AS \"secret_id?: models::Id\",\n            COALESCE(\n                (\n                    SELECT $3 IN (SELECT json_array_elements_text(m.spec -> 'data_planes'))\n                    FROM storage_mappings m\n                    WHERE m.catalog_prefix = ANY ($2::text[])\n                    ORDER BY length(m.catalog_prefix) DESC\n                    LIMIT 1\n                ),\n                false\n            ) AS \"admissible!: bool\"\n        FROM (SELECT $1::text::catalog_name) AS q (catalog_name)\n        LEFT JOIN internal.secrets s ON s.catalog_name = q.catalog_name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document?: models::RawValue",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 1,
+        "name": "secret_id?: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "admissible!: bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "df14abed83662a91bea4df643a7cb09003fb6ce93f20db9e0610b54111038157"
+}

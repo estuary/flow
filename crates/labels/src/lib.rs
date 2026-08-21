@@ -42,6 +42,10 @@ pub const EXPOSE_PORT: &str = "estuary.dev/expose-port";
 pub const PORT_PROTO_PREFIX: &str = "estuary.dev/port-proto/";
 pub const PORT_PUBLIC_PREFIX: &str = "estuary.dev/port-public/";
 
+// Authorization labels. These appear only in the label selector of an
+// authorization request or response, and never on a JournalSpec or ShardSpec.
+pub const SECRET_NAME: &str = "estuary.dev/secret-name";
+
 // A used subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
 pub const CONTENT_TYPE: &str = "content-type";
 pub const CONTENT_TYPE_JSON_LINES: &str = "application/x-ndjson";
