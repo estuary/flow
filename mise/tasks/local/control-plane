@@ -69,6 +69,19 @@ RUST_LOG=info
 # This matches SOPS_AGE_KEY in the reactor development task.
 KMS_TYPE=age
 KMS_KEY=age1z2qskpk8ww2rx5frxzykryufkfm9sj03v56m3qu54y0lgndytp3sdg24vs
+
+# First-class secrets are wrapped under a second, separate keychain, and
+# SOPS_AGE_KEY below is its private half. It appears in this env file and
+# nowhere else: unlike KMS_KEY, whose private half the reactor task also holds,
+# the authority to unwrap a secret belongs to config-encryption alone. Reactors
+# reach their plaintext only by asking, and only for the secrets which the
+# control-plane authorizes them to have.
+SECRETS_KMS_TYPE=age
+SECRETS_KMS_KEY=age1x4kj9xj8n9w0zjtz04m7eq2ahaec3kg6hsvp02hj2s5t42adcacqzq3ep0
+SOPS_AGE_KEY=AGE-SECRET-KEY-15HVSX9LVZT2FHEUN0N3W7HZG5G5JJKK8ED4UZ3T88M7ZDDW6U50S5L063P
+
+# Control-plane API which authorizes each decryption.
+CONTROL_PLANE_URL=http://localhost:${FLOW_PORT_AGENT}/
 EOF
 } > "${FLOW_ENV_DIR}/config-encryption-${NAME}.env"
 

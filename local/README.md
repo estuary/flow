@@ -295,6 +295,9 @@ preserve state, delete the sentinel beforehand or don't restart.
   signed with it for the `support@estuary.dev` system user.
 - **`AGE-SECRET-KEY-1UX6ZHA…`** — SOPS age key used by reactor and dekaf; its
   public counterpart `age1z2qskpk…` is the config-encryption `KMS_KEY`.
+- **`AGE-SECRET-KEY-15HVSX9…`** — the second SOPS age key, which wraps
+  first-class secrets. Only config-encryption holds it (as `SOPS_AGE_KEY` in
+  its own env file); its public counterpart `age1x4kj9xj…` is `SECRETS_KMS_KEY`.
 - **`key-<data-plane-name>`**, base64 — the HMAC auth key shared by brokers,
   reactors, sidecar, and the agent (e.g. for `local-flow-cluster`, the base64 of
   `key-local-flow-cluster`).

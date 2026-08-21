@@ -248,6 +248,26 @@ pub struct DecryptAuthorization {
     pub retry_millis: u64,
 }
 
+/// SecretDecryption is config-encryption's response to `/secret/decrypt`:
+/// the plaintext value of a secret, having been authorized by the control-plane
+/// and unwrapped under the KMS key which only config-encryption holds.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretDecryption {
+    /// # Decrypted value of the secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<crate::RawValue>,
+    /// # Lifecycle identity of the decrypted document.
+    /// Every change to a secret mints a new `secretId`, and ids are
+    /// time-ordered, so comparing two observations tells you which is newer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_id: Option<crate::Id>,
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if `value` is not set. It is passed through from
+    /// the control-plane, which alone decides when a denial becomes terminal.
+    pub retry_millis: u64,
+}
+
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DekafAuthResponse {

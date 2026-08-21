@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+pub mod secrets;
+
 /// Keychain represents a specific KMS key which `sops` will use.
 #[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone)]
 pub enum Keychain {
@@ -44,6 +46,24 @@ pub enum Error {
     SopsOutput(#[source] serde_json::Error),
     #[error("failed to run `sops`")]
     SopsError(#[source] std::io::Error),
+    #[error("request body is not a JSON value")]
+    SecretValue(#[source] serde_json::Error),
+    #[error("invalid secret name{0}")]
+    SecretName(validator::ValidationErrors),
+    #[error(
+        "this is an authenticated API but the request is missing a required Authorization: Bearer token"
+    )]
+    BearerMissing,
+    #[error("failed to parse the claims of the bearer token: {0}")]
+    BearerClaims(tonic::Status),
+    #[error("the document of secret '{requested}' names '{embedded}'")]
+    NameMismatch { requested: String, embedded: String },
+    #[error("failed to reach the control-plane API")]
+    ControlPlaneUnreachable(#[source] reqwest::Error),
+    #[error("control-plane API responded {status}: {message}")]
+    ControlPlaneStatus { status: u16, message: String },
+    #[error("failed to parse the control-plane API response")]
+    ControlPlaneResponse(#[source] serde_json::Error),
 }
 
 // Given an input schema and config instance, validate the config and re-write it
@@ -134,45 +154,43 @@ fn apply_sops_suffix(
     }
 }
 
+/// Run `sops` over `input`, returning its stdout.
+///
+/// `keychain` names the key which wraps a new document, and is omitted when
+/// decrypting: sops then reads the key metadata of the document itself, and
+/// reaches its KMS through this process' ambient credentials.
 async fn invoke_sops(
-    keychain: &Keychain,
-    config: serde_json::Value,
-) -> Result<Box<serde_json::value::RawValue>, Error> {
+    keychain: Option<&Keychain>,
+    args: &[&str],
+    input: &[u8],
+) -> Result<Vec<u8>, Error> {
     let mut child = async_process::Command::new("sops");
 
     match keychain {
-        Keychain::Age(age_key) => {
+        Some(Keychain::Age(age_key)) => {
             child.args(&["--age", age_key]);
         }
-        Keychain::Aws(aws_key) => {
+        Some(Keychain::Aws(aws_key)) => {
             child.args(&["--kms", aws_key]);
         }
-        Keychain::Gcp(gcp_key) => {
+        Some(Keychain::Gcp(gcp_key)) => {
             child.args(&["--gcp-kms", gcp_key]);
         }
+        None => {}
     }
-    child.args(&[
-        "--encrypt",
-        "--encrypted-suffix=_sops",
-        "--input-type=json",
-        "--output-type=json",
-        "/dev/stdin",
-    ]);
+    child.args(args);
+    child.args(&["--input-type=json", "--output-type=json", "/dev/stdin"]);
 
-    let config = serde_json::to_vec(&config).unwrap();
     let std::process::Output {
         status,
         stdout,
         stderr,
-    } = async_process::input_output(&mut child, &config)
+    } = async_process::input_output(&mut child, input)
         .await
         .map_err(Error::SopsError)?;
 
     if status.success() {
-        let config: Box<serde_json::value::RawValue> =
-            serde_json::from_slice(&stdout).map_err(Error::SopsOutput)?;
-
-        Ok(config)
+        Ok(stdout)
     } else {
         Err(Error::SopsFailed(
             String::from_utf8_lossy(&stderr).into_owned(),
@@ -197,15 +215,60 @@ pub async fn encrypt_config(
     };
 
     let config = prepare_config_for_sops(&schema, config)?;
-    let encrypted = invoke_sops(keychain, config).await?;
+    let config = serde_json::to_vec(&config).expect("serialization of a Value is infallible");
+
+    let stdout = invoke_sops(
+        Some(keychain),
+        &["--encrypt", "--encrypted-suffix=_sops"],
+        &config,
+    )
+    .await?;
+    let encrypted: Box<serde_json::value::RawValue> =
+        serde_json::from_slice(&stdout).map_err(Error::SopsOutput)?;
 
     Ok(axum::Json(encrypted))
 }
 
+/// CORS policy of every route this service serves.
+///
+/// Every route is a POST, and `/secret/decrypt` carries the caller's bearer
+/// token -- which is what forces a browser to preflight it, and so must be
+/// named here. Allowing it from any origin discloses nothing: credentials are
+/// never allowed, so no ambient cookie can ride along, and a caller must
+/// present a token which it already holds.
+pub fn cors_layer() -> tower_http::cors::CorsLayer {
+    tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([axum::http::Method::POST])
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::ACCEPT,
+        ])
+}
+
 impl axum::response::IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
+        use axum::http::StatusCode;
+
+        // Everything a client could fix by asking differently is a 400, which
+        // `tokens::RestSource` maps to a terminal error. A tampered or
+        // mis-wrapped document is terminal in exactly the same way: no amount
+        // of retrying will make its MAC verify. Only a control plane we could
+        // not reach, or could not understand, is worth coming back for, and
+        // both borrow a 5xx -- the class which that same client retries on.
+        let status = match &self {
+            Error::BearerMissing | Error::BearerClaims(_) => StatusCode::UNAUTHORIZED,
+            Error::ControlPlaneUnreachable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Error::ControlPlaneResponse(_) => StatusCode::BAD_GATEWAY,
+            Error::ControlPlaneStatus { status, .. } => {
+                StatusCode::from_u16(*status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE)
+            }
+            _ => StatusCode::BAD_REQUEST,
+        };
         let error = format!("{:?}", anyhow::Error::new(self));
-        (axum::http::StatusCode::BAD_REQUEST, error).into_response()
+
+        (status, error).into_response()
     }
 }
 
@@ -425,11 +488,15 @@ mod test {
             ]
         });
 
-        let result = invoke_sops(&Keychain::Age(TEST_AGE_KEY.to_string()), config)
-            .await
-            .unwrap();
+        let result = invoke_sops(
+            Some(&Keychain::Age(TEST_AGE_KEY.to_string())),
+            &["--encrypt", "--encrypted-suffix=_sops"],
+            &serde_json::to_vec(&config).unwrap(),
+        )
+        .await
+        .unwrap();
 
-        let encrypted: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        let encrypted: serde_json::Value = serde_json::from_slice(&result).unwrap();
 
         // Verify public fields remain unchanged
         assert_eq!(encrypted["public_scalar"], "visible");
