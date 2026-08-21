@@ -5,8 +5,10 @@ use std::sync::Arc;
 
 mod authorize_dekaf;
 mod authorize_task;
+mod authorize_task_secret;
 mod authorize_user_collection;
 mod authorize_user_prefix;
+mod authorize_user_secret;
 mod authorize_user_task;
 mod create_data_plane;
 mod error;
@@ -204,6 +206,10 @@ pub fn build_router(
 
     let main_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))
+        .route(
+            "/authorize/task/decrypt-secret",
+            post(authorize_task_secret::authorize_task_secret),
+        )
         .route("/authorize/dekaf", post(authorize_dekaf::authorize_dekaf))
         .route(
             "/authorize/user/collection",
@@ -212,6 +218,11 @@ pub fn build_router(
         .route(
             "/authorize/user/prefix",
             post(authorize_user_prefix::authorize_user_prefix).options(preflight_handler),
+        )
+        .route(
+            "/authorize/user/decrypt-secret",
+            axum::routing::get(authorize_user_secret::authorize_user_secret)
+                .options(preflight_handler),
         )
         .route(
             "/authorize/user/task",
@@ -326,6 +337,40 @@ fn parse_untrusted_data_plane_claims(
     }
 
     Ok(unverified)
+}
+
+/// Read the wrapped document of `name` from the DB, for a caller already
+/// authorized to have it. Note `/authorize/task/decrypt-secret` also implements
+/// a variant of this query which performs additional storage-mapping AuthZ,
+/// for Discover / Validate cases of novel tasks.
+async fn fetch_secret(
+    pg_pool: &sqlx::PgPool,
+    name: &models::Name,
+) -> Result<models::authorizations::DecryptAuthorization, ApiError> {
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            document AS "document!: models::RawValue",
+            id AS "secret_id!: models::Id"
+        FROM internal.secrets
+        WHERE catalog_name = $1::text::catalog_name
+        "#,
+        name.as_str(),
+    )
+    .fetch_optional(pg_pool)
+    .await?;
+
+    // Absence is terminal: unlike a grant, a secret is read at its current
+    // value, so a later read cannot turn this answer around.
+    let Some(row) = row else {
+        return Err(tonic::Status::not_found(format!("secret '{name}' does not exist")).into());
+    };
+
+    Ok(models::authorizations::DecryptAuthorization {
+        document: Some(row.document),
+        secret_id: Some(row.secret_id),
+        retry_millis: 0,
+    })
 }
 
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {

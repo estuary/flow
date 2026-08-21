@@ -215,6 +215,39 @@ pub struct UserTaskAuthorization {
     pub shard_id_prefix: String,
 }
 
+/// UserDecryptAuthorizationRequest asks for authority to decrypt a named secret,
+/// authorized by a user's accompanying control-plane bearer token.
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct UserDecryptAuthorizationRequest {
+    /// # Catalog name of the secret.
+    #[validate(nested)]
+    pub name: crate::Name,
+}
+
+/// DecryptAuthorization is an authorized disclosure of a secret's wrapped
+/// document, granted to a user or task subject who may decrypt it. The document
+/// remains sops-wrapped in this response under a key held only by
+/// config-encryption, which is the intended recipient of this response and
+/// proxies the decryption back to the user.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DecryptAuthorization {
+    /// # The sops-wrapped document of the secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<crate::RawValue>,
+    /// # Lifecycle identity of the disclosed document.
+    /// Every change to a secret mints a new `secretId`, and ids are
+    /// time-ordered, so comparing two observations tells you which is newer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_id: Option<crate::Id>,
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if `document` is not set.
+    pub retry_millis: u64,
+}
+
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DekafAuthResponse {

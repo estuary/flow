@@ -183,7 +183,7 @@
       "data_plane_id": "0101010101010101"
     },
     {
-      "shard_template_id": "materialization/acmeCo/materialize-pear/0011223344556677",
+      "shard_template_id": "materialize/acmeCo/materialize-pear/0011223344556677",
       "task_name": "acmeCo/materialize-pear",
       "spec_type": "materialization",
       "data_plane_id": "0101010101010101"
@@ -195,28 +195,34 @@
       "data_plane_id": "0202020202020202"
     },
     {
-      "shard_template_id": "materialization/bobCo/widgets/materialize-mango/0011223344556677",
+      "shard_template_id": "materialize/bobCo/widgets/materialize-mango/0011223344556677",
       "task_name": "bobCo/widgets/materialize-mango",
       "spec_type": "materialization",
       "data_plane_id": "0202020202020202"
     },
     {
-      "shard_template_id": "materialization/bobCo/anvils/materialize-orange/0011223344556677",
+      "shard_template_id": "materialize/bobCo/anvils/materialize-orange/0011223344556677",
       "task_name": "bobCo/anvils/materialize-orange",
       "spec_type": "materialization",
       "data_plane_id": "0202020202020202"
     },
     {
-      "shard_template_id": "materialization/aliceCo/wonderland/materialize-tea/0011223344556677",
+      "shard_template_id": "materialize/aliceCo/wonderland/materialize-tea/0011223344556677",
       "task_name": "aliceCo/wonderland/materialize-tea",
       "spec_type": "materialization",
       "data_plane_id": "0202020202020202"
     },
     {
-      "shard_template_id": "materialization/bobCo/tires/materialize-wheels/0011223344556677",
+      "shard_template_id": "materialize/bobCo/tires/materialize-wheels/0011223344556677",
       "task_name": "bobCo/tires/materialize-wheels",
       "spec_type": "materialization",
       "data_plane_id": "0202020202020202"
+    },
+    {
+      "shard_template_id": "capture/acmeCo/source-legacy",
+      "task_name": "acmeCo/source-legacy",
+      "spec_type": "capture",
+      "data_plane_id": "0101010101010101"
     }
   ]
 }
