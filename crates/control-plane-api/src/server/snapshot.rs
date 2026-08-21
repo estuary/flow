@@ -121,6 +121,14 @@ impl Snapshot {
         )
     }
 
+    /// Requests an early background refresh of this Snapshot by cancelling
+    /// its `revoke` token. Call this upon denying an authorization: the
+    /// needed grant may have been created after this Snapshot was taken,
+    /// and an early refresh narrows the staleness window for a manual retry.
+    pub fn request_refresh(&self) {
+        self.revoke.cancel();
+    }
+
     /// Construct a new, empty Snapshot.
     pub fn empty() -> Self {
         Self {

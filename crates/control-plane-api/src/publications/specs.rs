@@ -797,10 +797,7 @@ pub async fn resolve_live_specs(
                     Some(Capability::Admin)
                 )
             {
-                // The needed grant may have been created after this Snapshot
-                // was taken: request an early background refresh to narrow the
-                // staleness window for a manual retry.
-                snapshot.revoke.cancel();
+                snapshot.request_refresh();
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -852,7 +849,7 @@ pub async fn resolve_live_specs(
                     .user_capability(user_id, &spec_row.catalog_name)
                     .is_some_and(|c| c >= Capability::Read)
             {
-                snapshot.revoke.cancel();
+                snapshot.request_refresh();
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
                     scope,
@@ -947,10 +944,7 @@ pub async fn resolve_live_specs(
         .into_iter()
         .partition(|name| snapshot.is_user_authorized(user_id, name, models::Capability::Read));
     if !denied_names.is_empty() {
-        // The needed grant may have been created after this Snapshot was
-        // taken: request an early background refresh to narrow the staleness
-        // window for a manual retry.
-        snapshot.revoke.cancel();
+        snapshot.request_refresh();
         tracing::warn!(?denied_names, "excluding unauthorized data-plane names");
     }
 
