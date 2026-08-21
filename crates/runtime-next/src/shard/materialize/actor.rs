@@ -43,6 +43,9 @@ pub(super) struct Actor {
     disable_load_optimization: bool,
     // Wire codec negotiated with the connector.
     codec: connector_init::Codec,
+    // Channel for sending to the controller. Used only to relay the leader's
+    // Synced, which the controller (not this actor) acts upon.
+    controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     // Aggregate active bindings of a pending Flushed response.
     flushed: HashMap<u32, FlushedBinding>,
     // Channel for sending to the leader.
@@ -69,6 +72,7 @@ impl Actor {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<materialize::Request>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
         db: crate::shard::RocksDB,
         disable_load_optimization: bool,
         leader_tx: mpsc::UnboundedSender<proto::Materialize>,
@@ -89,6 +93,7 @@ impl Actor {
             boundaries: Boundaries::new(task.bindings.len()),
             connector_pending: Vec::new(),
             connector_tx,
+            controller_tx,
             db: Some(db),
             db_persist_fut: None,
             disable_load_optimization,
@@ -386,6 +391,13 @@ impl Actor {
 
         if let Some(proto::Stopped {}) = msg.stopped {
             return Ok((phase, true));
+        } else if let Some(synced) = msg.synced {
+            // Relay unmodified: the controller drives the sync-now barrier.
+            _ = self.controller_tx.send(Ok(proto::Materialize {
+                synced: Some(synced),
+                ..Default::default()
+            }));
+            return Ok((phase, false));
         } else if let Some(proto::materialize::Load {
             frontier: Some(proto),
         }) = msg.load
@@ -673,9 +685,11 @@ impl Actor {
                 stop: Some(proto::Stop {}),
                 ..Default::default()
             });
-        } else if matches!(msg.close_now, Some(proto::CloseNow {})) {
+        } else if let Some(close_now) = msg.close_now {
+            // Relayed unmodified: `seq` is the controller's, and the leader
+            // echoes it back as `Synced.close_request_seq`.
             _ = self.leader_tx.send(proto::Materialize {
-                close_now: Some(proto::CloseNow {}),
+                close_now: Some(close_now),
                 ..Default::default()
             });
         } else {
@@ -754,12 +768,14 @@ mod tests {
     ) {
         let (leader_tx, leader_rx) = mpsc::unbounded_channel();
         let (connector_tx, connector_rx) = mpsc::channel(8);
+        let (controller_tx, _controller_rx) = mpsc::unbounded_channel();
 
         (
             Actor {
                 boundaries: Boundaries::new(0),
                 connector_pending: Vec::new(),
                 connector_tx,
+                controller_tx,
                 db: None,
                 db_persist_fut: None,
                 disable_load_optimization: false,
@@ -847,6 +863,9 @@ mod tests {
         // Controller → actor; used to drive Stop + CloseNow forwarding below.
         let (controller_to_actor_tx, controller_to_actor_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
+        // Actor → controller; the test reads as a mock controller.
+        let (actor_to_controller_tx, mut actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
 
         let conn_stream = ReceiverStream::new(conn_to_actor_rx);
         let leader_stream = UnboundedReceiverStream::new(leader_to_actor_rx);
@@ -859,6 +878,7 @@ mod tests {
             boundaries: Boundaries::new(0),
             connector_pending: Vec::new(),
             connector_tx: actor_to_conn_tx,
+            controller_tx: actor_to_controller_tx,
             db: Some(db),
             db_persist_fut: None,
             disable_load_optimization: false,
@@ -1029,14 +1049,30 @@ mod tests {
 
         controller_to_actor_tx
             .send(Ok(proto::Materialize {
-                close_now: Some(proto::CloseNow {}),
+                close_now: Some(proto::CloseNow::default()),
                 ..Default::default()
             }))
             .unwrap();
         let resp = actor_to_leader_rx.recv().await.unwrap();
         assert!(resp.close_now.is_some());
 
-        // 7) L:Stopped + leader EOF → serve completes, returning the DB.
+        // 7) L:Synced → relayed to the controller unmodified, and not to the
+        // connector or the leader.
+        let synced = proto::Synced {
+            acknowledged_count: 7,
+            pending_count: 2,
+            close_request_seq: 3,
+        };
+        leader_to_actor_tx
+            .send(Ok(proto::Materialize {
+                synced: Some(synced.clone()),
+                ..Default::default()
+            }))
+            .unwrap();
+        let resp = actor_to_controller_rx.recv().await.unwrap().unwrap();
+        assert_eq!(resp.synced, Some(synced));
+
+        // 8) L:Stopped + leader EOF → serve completes, returning the DB.
         leader_to_actor_tx
             .send(Ok(proto::Materialize {
                 stopped: Some(proto::Stopped {}),

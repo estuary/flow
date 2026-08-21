@@ -1248,6 +1248,21 @@ fn compute_open_duration(
     hold..hold
 }
 
+/// Count the transactions which are ahead of the leader's acknowledged
+/// count and will increment it as they complete: an open Head transaction,
+/// plus a Tail which hasn't yet reached Done. It's the `pending_count` of
+/// [`proto::Synced`], and lives here because it reads private `Extents`.
+pub(crate) fn pending_transactions(head: &Head, tail: &Tail) -> u32 {
+    let head_open = match head {
+        Head::Idle(s) => s.extents.open != uuid::Clock::zero(),
+        Head::Stop => false,
+        // Extend, and the Flush / Persist / Store / WriteStats / StartCommit
+        // phases of a transaction which is closing.
+        _ => true,
+    };
+    head_open as u32 + !matches!(tail, Tail::Done(_)) as u32
+}
+
 /// Leader-lifetime debounce state for materialization triggers. Accumulates
 /// per-transaction windows and gates firing to at most once per the task's
 /// configured trigger `interval`.

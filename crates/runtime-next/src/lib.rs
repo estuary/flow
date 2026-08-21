@@ -4,7 +4,8 @@
 //! controller-bound and leader-bound `runtime.proto` streams, and
 //! translates between them and the connector RPC. The only messages that
 //! flow end-to-end unmodified are `Stop` and `CloseNow`
-//! (controller → runtime-next → leader).
+//! (controller → runtime-next → leader), and `Synced`
+//! (leader → runtime-next → controller).
 //!
 //! "Controller" here is the peer that drives the shard's lifecycle: the
 //! Go runtime in production, an in-process driver such as `flowctl

@@ -647,7 +647,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         if matches!(msg.stop, Some(proto::Stop {})) {
             *stopping = true;
             kind = "Stopping";
-        } else if matches!(msg.close_now, Some(proto::CloseNow {})) {
+        } else if matches!(msg.close_now, Some(proto::CloseNow { .. })) {
             *close_requested = true;
             kind = "CloseNow";
         } else {

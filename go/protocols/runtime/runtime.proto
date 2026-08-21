@@ -695,7 +695,50 @@ message Open {
 
 // CloseNow is sent Controller → Shard → Leader, as a request to
 // immediately close a transaction being held open by policy.
-message CloseNow {}
+message CloseNow {
+  // Monotonic sequence of this request within its sending controller.
+  // A materialization leader echoes the highest it has received as
+  // `Synced.close_request_seq`, which is how a controller learns its own
+  // request landed. Zero from a sender which doesn't track sequences,
+  // including every capture and derivation controller.
+  uint64 seq = 1;
+}
+
+// Synced reports a materialization leader's transaction-acknowledgement
+// progress. The leader broadcasts it Leader → Shards → Controllers, and
+// shards relay it unmodified. Broadcasts are demand-driven: the leader is
+// silent until it receives a session's first CloseNow, and thereafter
+// re-broadcasts whenever its counts change.
+//
+// Synced is the answer half of CloseNow, and together they form a commit
+// barrier. A controller sends CloseNow with sequence S, waits for a Synced
+// reporting `close_request_seq >= S`, and awaits `acknowledged_count`
+// reaching that same Synced's `acknowledged_count + pending_count`. It has
+// then awaited full acknowledgement of everything the leader held when it
+// received the request. TaskControl.SyncNow is exactly that barrier.
+//
+// The echo is what makes the barrier exact rather than best-effort: counts
+// travel Leader → Shard → Controller, so the counts a controller already
+// holds may predate a transaction which has since opened. Taking the barrier
+// from the Synced which acknowledges one's own request rules that out.
+//
+// Counts are of one leader session and restart from zero with the next, so a
+// controller must discard a target recorded under a session which has ended.
+message Synced {
+  // Transactions of this leader session which are fully acknowledged:
+  // committed, and queryable in the endpoint.
+  uint64 acknowledged_count = 1;
+  // Transactions which are still ahead of `acknowledged_count` and which
+  // will increment it as they complete: the open transaction, if any, plus a
+  // prior transaction still draining its connector acknowledgement. Never
+  // more than two.
+  uint32 pending_count = 2;
+  // Highest `CloseNow.seq` this leader has received, over all of its shards.
+  // Sync-now is driven by shard zero's controller, whose sequences are
+  // therefore the only ones which matter; the running maximum keeps a stray
+  // sequence from another shard from regressing it.
+  uint64 close_request_seq = 3;
+}
 
 // Stop is sent Controller → Shard → Leader to request graceful shutdown.
 message Stop {}
@@ -1017,6 +1060,11 @@ message Materialize {
   // currently-open transaction.
   CloseNow close_now = 52;
 
+  // Leader → Shards → Controllers. Transaction acknowledgement progress,
+  // sent after a session's first CloseNow and whenever its counts change
+  // thereafter. Shards relay it unmodified.
+  Synced synced = 53;
+
   // ----- TEARDOWN -----
 
   // Controller → Shard → Leader. Graceful shutdown request.
@@ -1221,4 +1269,60 @@ message Derive {
   // Leader → Shards → Controllers. Shutdown confirmed; EOF follows on
   // each leg.
   Stopped stopped = 61;
+}
+
+// SyncNowRequest is the request of a TaskControl.SyncNow RPC.
+message SyncNowRequest {
+  // Name of the task to synchronize.
+  string task_name = 1;
+}
+
+// SyncNowResponse is the streamed response of a TaskControl.SyncNow RPC.
+// Its messages are structural: they mark the caller's position in the
+// stream and carry no payload. Statistics of the awaited transaction are
+// recorded to the task's stats journal, which is where callers read them.
+message SyncNowResponse {
+  // Ack is sent exactly once, as the first message of the stream: the
+  // task's leader has the request, has been told to close its open
+  // transaction, and has reported back the commit which is now being
+  // awaited. Past this point the commit happens whether or not the caller
+  // stays to watch.
+  message Ack {}
+
+  // Heartbeat keeps a long-lived stream alive while the caller waits.
+  message Heartbeat {}
+
+  // Done is sent exactly once, as the final message of the stream: the
+  // awaited transaction is committed and queryable in the endpoint.
+  message Done {}
+
+  oneof response {
+    Ack ack = 1;
+    Heartbeat heartbeat = 2;
+    Done done = 3;
+  }
+}
+
+// TaskControl is a user-facing control surface for running tasks.
+// It's distinct from the Leader service because it has a different
+// authorization model: callers present ordinary gazette READ claims
+// scoped to the task's shards, not the LEAD capability held by shards.
+//
+// The reactor front door serves TaskControl. Users reach it as HTTP/NDJSON
+// (see go/runtime/task_control_http.go); gRPC carries only the front door's
+// internal hop to the peer front door which is the task's shard-zero primary.
+service TaskControl {
+  // SyncNow asks a materialization to immediately commit its open
+  // transaction, and resolves once that transaction is fully acknowledged:
+  // committed and queryable in the endpoint. It's served by the front door
+  // of the task's shard-zero primary, which drives the CloseNow / Synced
+  // commit barrier of the shard's session with its leader.
+  //
+  // The stream is exactly one Ack, then zero or more Heartbeats while the
+  // caller waits, then exactly one Done, after which the stream closes.
+  // SyncNow is idempotent: concurrent calls await the same commit, and a
+  // caller which hangs up early has still forced the commit. There is no
+  // error for "nothing to do" — a task with nothing to await, including a
+  // capture or derivation, Acks and its Done follows immediately.
+  rpc SyncNow(SyncNowRequest) returns (stream SyncNowResponse);
 }

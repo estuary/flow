@@ -151,7 +151,8 @@ types.
   connector RPC.
 
 The only messages that flow controller → runtime-next → leader unmodified are
-`Stop` and `CloseNow`.
+`Stop` and `CloseNow`, and the only one flowing leader → runtime-next →
+controller unmodified is `Synced`.
 
 ## Protocol
 
@@ -388,6 +389,36 @@ Enforcement rides the close policy's min/max transaction durations:
 ceilings still force early commits — a backfill drains under memory pressure
 with no caught-up detection — and `CloseNow` bypasses a hold, so spec updates
 restart promptly. The first transaction of a leader session is never held.
+
+## Sync-now (materialize)
+
+Sync-now forces an immediate commit of a materialization's open transaction —
+collapsing any sync-schedule hold — and resolves once that transaction is
+fully acknowledged (committed and queryable in the destination). This crate
+contributes only the *barrier*, not the RPC: `TaskControl.SyncNow` is served
+by the reactor front door (`go/runtime/task_control.go`), and the waiting is
+done by the Go controller (`materializeAppV2.syncNow`).
+
+The barrier is `CloseNow` and `Synced`, documented in `runtime.proto`. The
+Actor counts `Tail::Done` transitions of its session (`acknowledged_count`),
+the transactions still ahead of that count (`pending_count` —
+`fsm::pending_transactions`, an open Head transaction plus a Tail which
+hasn't reached Done), and the highest `CloseNow.seq` it has received
+(`close_request_seq`). It broadcasts `Synced` to its shards whenever any of
+the three changes after the session's first `CloseNow`, and each shard
+relays it to its controller unmodified.
+
+A controller sends `CloseNow` with sequence S, waits for a `Synced` reporting
+`close_request_seq >= S`, and then awaits `acknowledged_count` reaching that
+same message's `acknowledged + pending`. Waiting for its own echo is what
+makes the barrier exact: counts take a moment to travel out, so the ones a
+controller already holds can predate a transaction which has since opened.
+
+So the Actor holds no waiters, no timers, and no notion of a caller: repeated
+`CloseNow` is idempotent (the FSM's existing `close_requested` input, cleared
+whenever no transaction is open), and a session which exits simply stops
+reporting — its counts restart from zero in the next one, which is why a
+controller must discard a target recorded under a session that ended.
 
 ## Status
 
