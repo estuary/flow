@@ -1,6 +1,6 @@
 use crate::{
     collection::read::ReadBounds,
-    local_specs,
+    local_specs, migrate_target_naming,
     ops::{OpsCollection, TaskSelector},
 };
 use anyhow::Context;
@@ -81,6 +81,13 @@ pub enum Command {
     /// Locally run and preview a capture, derivation, or materialization using
     /// the V2 runtime.
     PreviewNext(preview_next::Preview),
+
+    /// Migrate materializations to use explicit targetNaming strategies.
+    ///
+    /// Analyzes all materializations and determines the appropriate
+    /// TargetNamingStrategy based on current source.targetNaming and
+    /// endpoint configuration. Currently read-only (dry-run).
+    MigrateTargetNaming(migrate_target_naming::MigrateTargetNaming),
 }
 
 #[derive(Debug, clap::Args)]
@@ -234,6 +241,9 @@ impl Advanced {
             Command::SplitShards(split) => split_shards::do_split(ctx, split).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
             Command::PreviewNext(preview) => preview.run(ctx).await,
+            Command::MigrateTargetNaming(args) => {
+                migrate_target_naming::do_migrate_target_naming(ctx, args).await
+            }
         }
     }
 }
