@@ -587,11 +587,9 @@ impl TestHarness {
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
-        let user_id = self.control_plane().inner.system_user_id;
         let names: Vec<&str> = prev_specs.all_spec_names().collect();
         let specs = control_plane_api::live_specs::fetch_live_specs(
-            user_id, &names, false, /* don't fetch user capabilities */
-            false, /* don't fetch spec capabilities */
+            &names, false, /* don't fetch spec capabilities */
             &self.pool,
         )
         .await
