@@ -29,13 +29,16 @@ pub struct CaptureDef {
     /// For example, if the interval is five minutes, and an invocation of the
     /// capture finishes after two minutes, then the next invocation will be started
     /// after three additional minutes.
+    ///
+    /// When unset, the interval is resolved at build time: first from a default
+    /// configured for the task's connector, and otherwise from a global default.
     #[serde(
-        default = "CaptureDef::default_interval",
+        default,
         with = "humantime_serde",
-        skip_serializing_if = "CaptureDef::is_default_interval"
+        skip_serializing_if = "Option::is_none"
     )]
     #[schemars(schema_with = "super::duration_schema")]
-    pub interval: Duration,
+    pub interval: Option<Duration>,
     /// # Salt used for redacting sensitive fields in captured documents.
     /// When provided, this base64-encoded salt is used instead of a generated one.
     #[serde(
@@ -122,11 +125,10 @@ pub struct CaptureBinding {
 }
 
 impl CaptureDef {
+    /// Global fallback interval, applied when neither the model nor the task's
+    /// connector supplies one.
     pub fn default_interval() -> Duration {
         Duration::from_secs(300) // 5 minutes.
-    }
-    fn is_default_interval(interval: &Duration) -> bool {
-        *interval == Self::default_interval()
     }
 
     pub fn example() -> Self {
@@ -137,7 +139,7 @@ impl CaptureDef {
             }),
             endpoint: CaptureEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![CaptureBinding::example()],
-            interval: Self::default_interval(),
+            interval: None,
             shards: ShardTemplate::default(),
             expect_pub_id: None,
             delete: false,

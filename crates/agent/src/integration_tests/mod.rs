@@ -5,6 +5,7 @@
 mod abandoned_tasks;
 mod alerts;
 mod auto_discovers;
+mod capture_intervals;
 mod collection_resets;
 mod config_updates;
 mod created_at;
