@@ -119,22 +119,31 @@ pub async fn get_live_specs_unfiltered(
     Ok(live)
 }
 
+/// Fetches the live specs connected to `collection_names` — tasks that read
+/// from or write to them — excluding `exclude_names`. When `filter_capability`
+/// is set, specs to which the user lacks that capability are silently omitted,
+/// evaluated against the authorization `snapshot`. A denial never cancels the
+/// snapshot's revoke token: filtering merely narrows expansion, and the worst
+/// case of a not-yet-observed grant is only a narrower validation.
 pub async fn get_connected_live_specs(
     user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
-    let expanded_rows =
-        db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db).await?;
+    let expanded_rows = db::fetch_expanded_live_specs(collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !exp
-                .user_capability
-                .map(|c| c >= minimum_capability)
-                .unwrap_or(false)
+            if !tables::UserGrant::get_user_capability(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                &exp.catalog_name,
+            )
+            .is_some_and(|c| c >= minimum_capability)
             {
                 continue;
             }
