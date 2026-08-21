@@ -306,6 +306,7 @@ where
     let result = super::actor::Actor::new(
         codec,
         connector_tx,
+        controller_tx.clone(),
         db,
         disable_load_optimization,
         leader_tx,

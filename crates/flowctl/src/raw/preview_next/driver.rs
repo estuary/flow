@@ -272,6 +272,8 @@ async fn drive_session_responses(
                             ..Default::default()
                         }));
                     }
+                } else if msg.synced.is_some() {
+                    // Sync-now progress, which preview has no caller to serve.
                 } else if let Some(proto::Stopped {}) = msg.stopped {
                     tracing::debug!(session_index, "session stopped");
                     return Ok(());

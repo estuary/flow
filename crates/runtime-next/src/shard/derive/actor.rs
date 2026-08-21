@@ -574,9 +574,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 stop: Some(proto::Stop {}),
                 ..Default::default()
             });
-        } else if matches!(msg.close_now, Some(proto::CloseNow {})) {
+        } else if let Some(close_now) = msg.close_now {
             _ = self.leader_tx.send(proto::Derive {
-                close_now: Some(proto::CloseNow {}),
+                close_now: Some(close_now),
                 ..Default::default()
             });
         } else {
@@ -885,7 +885,7 @@ mod tests {
 
         controller_to_actor_tx
             .send(Ok(proto::Derive {
-                close_now: Some(proto::CloseNow {}),
+                close_now: Some(proto::CloseNow::default()),
                 ..Default::default()
             }))
             .unwrap();

@@ -37,6 +37,11 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
     // Future for an in-flight stats flush, if any, yielding ACK intents.
     stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
+    // Monotonic count of Tail arrivals at Done within this session: the
+    // `acknowledged_count` of broadcast Synced.
+    acknowledged_count: u64,
+    // Last Synced broadcast to shards, or None before the first.
+    synced: Option<proto::Synced>,
     // Task being executed by this actor.
     task: Task,
     // Leader-lifetime trigger debounce accumulator and last-fire times.
@@ -69,6 +74,8 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             pending_ack_intents: BTreeMap::new(),
             shard_tx,
             stats_write_fut: None,
+            acknowledged_count: 0,
+            synced: None,
             task,
             trigger_debounce: fsm::TriggerDebounce::default(),
             trigger_fut: None,
@@ -115,6 +122,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let mut checkpoint_requested = false;
         // When true, Head should close its current open transaction ASAP.
         let mut close_requested = false;
+        // Highest `CloseNow.seq` received, echoed in Synced so that a
+        // controller can recognize the acknowledgement of its own request.
+        let mut close_request_seq = 0;
         // Iteration counter for the per-loop trace event.
         let mut loop_count: u64 = 0;
         // Monotonic Clock which is ticked on loop iterations, and updated on IO.
@@ -152,6 +162,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
             let mut action: fsm::Action;
             let prev_kind = tail.kind();
+            let prev_resolves = !matches!(tail, fsm::Tail::Done(_) | fsm::Tail::Begin(_));
             (action, tail) = tail.step(
                 &self.trigger_debounce,
                 self.intents_write_fut.is_none(),
@@ -170,6 +181,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     next = tail.kind(),
                     "transition",
                 );
+            }
+            // Tail arriving at Done is the "committed and queryable" instant
+            // that Synced reports. The Begin→Done stopping shortcut is
+            // excluded: it defers connector acknowledgement to a future
+            // session rather than completing it, so it must not count.
+            if prev_resolves && matches!(tail, fsm::Tail::Done(_)) {
+                self.acknowledged_count += 1;
             }
             self.merge_backfill_clocks(&mut action);
             let tail_wake_after = self.dispatch(action)?;
@@ -229,6 +247,12 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
             };
             let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
+
+            // Report here, where both FSMs have settled and we're about to
+            // sleep. Reporting earlier in the iteration would strand the
+            // change until whatever wakes us next, which for an idle or held
+            // task is a very long time.
+            self.broadcast_synced(&head, &tail, close_request_seq);
 
             // If `head` and `tail` are awaiting IO and `ready_shard_rx` was not
             // consumed by either, then it was unexpected and is a protocol error.
@@ -295,6 +319,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 Some((shard_index, msg, rx)) = shard_rx.next() => {
                     if let Some(msg) = self.on_shard_rx(
                         &mut close_requested,
+                        &mut close_request_seq,
                         &mut stopping,
                         shard_index,
                         msg,
@@ -614,6 +639,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     fn on_shard_rx(
         &self,
         close_requested: &mut bool,
+        close_request_seq: &mut u64,
         stopping: &mut bool,
         shard_index: usize,
         result: Option<tonic::Result<proto::Materialize>>,
@@ -628,8 +654,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         if matches!(msg.stop, Some(proto::Stop {})) {
             *stopping = true;
             return Ok(None);
-        } else if matches!(msg.close_now, Some(proto::CloseNow {})) {
+        } else if let Some(proto::CloseNow { seq }) = msg.close_now {
             *close_requested = true;
+            // Running maximum: only shard zero's controller drives sync-now,
+            // and a stray sequence from another shard must not regress it.
+            *close_request_seq = (*close_request_seq).max(seq);
             return Ok(None);
         }
 
@@ -663,6 +692,31 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         );
 
         Ok(Some(msg))
+    }
+
+    /// Broadcast [`proto::Synced`] whenever what it reports changes.
+    /// It's the answer half of `CloseNow`; `runtime.proto` documents the
+    /// commit barrier the two form.
+    fn broadcast_synced(&mut self, head: &fsm::Head, tail: &fsm::Tail, close_request_seq: u64) {
+        // Demand-driven: broadcast only once a controller has engaged the
+        // barrier.
+        if close_request_seq == 0 {
+            return;
+        }
+        let synced = proto::Synced {
+            acknowledged_count: self.acknowledged_count,
+            pending_count: fsm::pending_transactions(head, tail),
+            close_request_seq,
+        };
+        if self.synced.as_ref() == Some(&synced) {
+            return;
+        }
+        self.synced = Some(synced.clone());
+
+        self.broadcast(proto::Materialize {
+            synced: Some(synced),
+            ..Default::default()
+        });
     }
 
     /// Synchronously fan out a single leader message to every shard.
@@ -773,11 +827,46 @@ mod tests {
         rxs[0].try_recv().unwrap().unwrap();
     }
 
+    /// `close_request_seq` is a running maximum, so a sequence from another
+    /// shard's controller — which doesn't drive sync-now, and counts from its
+    /// own origin — can never regress shard zero's echo and strand a caller.
+    #[test]
+    fn close_request_seq_is_a_running_maximum() {
+        let (actor, _rxs) = mk_actor(2);
+        let mut close_requested = false;
+        let mut close_request_seq = 0;
+        let mut stopping = false;
+
+        for (shard_index, seq, want) in [(0, 4, 4), (1, 2, 4), (0, 5, 5)] {
+            actor
+                .on_shard_rx(
+                    &mut close_requested,
+                    &mut close_request_seq,
+                    &mut stopping,
+                    shard_index,
+                    Some(Ok(proto::Materialize {
+                        close_now: Some(proto::CloseNow { seq }),
+                        ..Default::default()
+                    })),
+                )
+                .unwrap();
+
+            assert_eq!(
+                close_request_seq, want,
+                "after seq {seq} from {shard_index}"
+            );
+        }
+    }
+
     #[test]
     fn on_shard_rx_dispatches_by_message_kind() {
         // Outcome: Ok(None) consumed control flag, Ok(Some) data, Err message.
         enum Want {
-            Consumed { stopping: bool, close: bool },
+            Consumed {
+                stopping: bool,
+                close: bool,
+                seq: u64,
+            },
             Passthrough,
             Err(&'static str),
         }
@@ -793,17 +882,19 @@ mod tests {
                 Consumed {
                     stopping: true,
                     close: false,
+                    seq: 0,
                 },
             ),
             (
                 0,
                 Some(Ok(proto::Materialize {
-                    close_now: Some(proto::CloseNow {}),
+                    close_now: Some(proto::CloseNow { seq: 7 }),
                     ..Default::default()
                 })),
                 Consumed {
                     stopping: false,
                     close: true,
+                    seq: 7,
                 },
             ),
             (
@@ -827,23 +918,31 @@ mod tests {
         for (shard_index, input, want) in cases {
             let (actor, _rxs) = mk_actor(3);
             let mut close_requested = false;
+            let mut close_request_seq = 0;
             let mut stopping = false;
             let result = actor.on_shard_rx(
                 &mut close_requested,
+                &mut close_request_seq,
                 &mut stopping,
                 *shard_index,
                 input.clone(),
             );
             match want {
-                Consumed { stopping: s, close } => {
+                Consumed {
+                    stopping: s,
+                    close,
+                    seq,
+                } => {
                     assert!(result.as_ref().unwrap().is_none());
                     assert_eq!(stopping, *s);
                     assert_eq!(close_requested, *close);
+                    assert_eq!(close_request_seq, *seq);
                 }
                 Passthrough => {
                     let msg = result.unwrap().expect("passthrough");
                     assert!(msg.loaded.is_some());
                     assert!(!stopping && !close_requested);
+                    assert_eq!(close_request_seq, 0);
                 }
                 Err(needle) => {
                     let err = result.unwrap_err();

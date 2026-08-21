@@ -1643,8 +1643,16 @@ impl serde::Serialize for CloseNow {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let len = 0;
-        let struct_ser = serializer.serialize_struct("runtime.CloseNow", len)?;
+        let mut len = 0;
+        if self.seq != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.CloseNow", len)?;
+        if self.seq != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("seq", ToString::to_string(&self.seq).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -1655,10 +1663,12 @@ impl<'de> serde::Deserialize<'de> for CloseNow {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "seq",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Seq,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1680,7 +1690,10 @@ impl<'de> serde::Deserialize<'de> for CloseNow {
                     where
                         E: serde::de::Error,
                     {
-                            Ok(GeneratedField::__SkipField__)
+                        match value {
+                            "seq" => Ok(GeneratedField::Seq),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -1698,10 +1711,24 @@ impl<'de> serde::Deserialize<'de> for CloseNow {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map_.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                let mut seq__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Seq => {
+                            if seq__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("seq"));
+                            }
+                            seq__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
                 }
                 Ok(CloseNow {
+                    seq: seq__.unwrap_or_default(),
                 })
             }
         }
@@ -5849,6 +5876,9 @@ impl serde::Serialize for Materialize {
         if self.close_now.is_some() {
             len += 1;
         }
+        if self.synced.is_some() {
+            len += 1;
+        }
         if self.stop.is_some() {
             len += 1;
         }
@@ -5939,6 +5969,9 @@ impl serde::Serialize for Materialize {
         if let Some(v) = self.close_now.as_ref() {
             struct_ser.serialize_field("closeNow", v)?;
         }
+        if let Some(v) = self.synced.as_ref() {
+            struct_ser.serialize_field("synced", v)?;
+        }
         if let Some(v) = self.stop.as_ref() {
             struct_ser.serialize_field("stop", v)?;
         }
@@ -5988,6 +6021,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             "persisted",
             "close_now",
             "closeNow",
+            "synced",
             "stop",
             "stopped",
         ];
@@ -6021,6 +6055,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             Persist,
             Persisted,
             CloseNow,
+            Synced,
             Stop,
             Stopped,
             __SkipField__,
@@ -6072,6 +6107,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                             "persist" => Ok(GeneratedField::Persist),
                             "persisted" => Ok(GeneratedField::Persisted),
                             "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
+                            "synced" => Ok(GeneratedField::Synced),
                             "stop" => Ok(GeneratedField::Stop),
                             "stopped" => Ok(GeneratedField::Stopped),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -6120,6 +6156,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                 let mut persist__ = None;
                 let mut persisted__ = None;
                 let mut close_now__ = None;
+                let mut synced__ = None;
                 let mut stop__ = None;
                 let mut stopped__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -6286,6 +6323,12 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                             }
                             close_now__ = map_.next_value()?;
                         }
+                        GeneratedField::Synced => {
+                            if synced__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("synced"));
+                            }
+                            synced__ = map_.next_value()?;
+                        }
                         GeneratedField::Stop => {
                             if stop__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("stop"));
@@ -6331,6 +6374,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                     persist: persist__,
                     persisted: persisted__,
                     close_now: close_now__,
+                    synced: synced__,
                     stop: stop__,
                     stopped: stopped__,
                 })
@@ -10569,6 +10613,586 @@ impl<'de> serde::Deserialize<'de> for Stopped {
             }
         }
         deserializer.deserialize_struct("runtime.Stopped", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SyncNowRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.task_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.SyncNowRequest", len)?;
+        if !self.task_name.is_empty() {
+            struct_ser.serialize_field("taskName", &self.task_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SyncNowRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "task_name",
+            "taskName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            TaskName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "taskName" | "task_name" => Ok(GeneratedField::TaskName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SyncNowRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SyncNowRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut task_name__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::TaskName => {
+                            if task_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("taskName"));
+                            }
+                            task_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SyncNowRequest {
+                    task_name: task_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SyncNowResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.response.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.SyncNowResponse", len)?;
+        if let Some(v) = self.response.as_ref() {
+            match v {
+                sync_now_response::Response::Ack(v) => {
+                    struct_ser.serialize_field("ack", v)?;
+                }
+                sync_now_response::Response::Heartbeat(v) => {
+                    struct_ser.serialize_field("heartbeat", v)?;
+                }
+                sync_now_response::Response::Done(v) => {
+                    struct_ser.serialize_field("done", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SyncNowResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ack",
+            "heartbeat",
+            "done",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Ack,
+            Heartbeat,
+            Done,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "ack" => Ok(GeneratedField::Ack),
+                            "heartbeat" => Ok(GeneratedField::Heartbeat),
+                            "done" => Ok(GeneratedField::Done),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SyncNowResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SyncNowResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut response__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Ack => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ack"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Ack)
+;
+                        }
+                        GeneratedField::Heartbeat => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("heartbeat"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Heartbeat)
+;
+                        }
+                        GeneratedField::Done => {
+                            if response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("done"));
+                            }
+                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Done)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SyncNowResponse {
+                    response: response__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for sync_now_response::Ack {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("runtime.SyncNowResponse.Ack", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for sync_now_response::Ack {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = sync_now_response::Ack;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse.Ack")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<sync_now_response::Ack, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(sync_now_response::Ack {
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse.Ack", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for sync_now_response::Done {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("runtime.SyncNowResponse.Done", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for sync_now_response::Done {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = sync_now_response::Done;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse.Done")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<sync_now_response::Done, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(sync_now_response::Done {
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse.Done", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for sync_now_response::Heartbeat {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("runtime.SyncNowResponse.Heartbeat", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for sync_now_response::Heartbeat {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = sync_now_response::Heartbeat;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.SyncNowResponse.Heartbeat")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<sync_now_response::Heartbeat, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(sync_now_response::Heartbeat {
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.SyncNowResponse.Heartbeat", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Synced {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.acknowledged_count != 0 {
+            len += 1;
+        }
+        if self.pending_count != 0 {
+            len += 1;
+        }
+        if self.close_request_seq != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.Synced", len)?;
+        if self.acknowledged_count != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("acknowledgedCount", ToString::to_string(&self.acknowledged_count).as_str())?;
+        }
+        if self.pending_count != 0 {
+            struct_ser.serialize_field("pendingCount", &self.pending_count)?;
+        }
+        if self.close_request_seq != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("closeRequestSeq", ToString::to_string(&self.close_request_seq).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Synced {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "acknowledged_count",
+            "acknowledgedCount",
+            "pending_count",
+            "pendingCount",
+            "close_request_seq",
+            "closeRequestSeq",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AcknowledgedCount,
+            PendingCount,
+            CloseRequestSeq,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "acknowledgedCount" | "acknowledged_count" => Ok(GeneratedField::AcknowledgedCount),
+                            "pendingCount" | "pending_count" => Ok(GeneratedField::PendingCount),
+                            "closeRequestSeq" | "close_request_seq" => Ok(GeneratedField::CloseRequestSeq),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Synced;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.Synced")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Synced, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut acknowledged_count__ = None;
+                let mut pending_count__ = None;
+                let mut close_request_seq__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AcknowledgedCount => {
+                            if acknowledged_count__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("acknowledgedCount"));
+                            }
+                            acknowledged_count__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::PendingCount => {
+                            if pending_count__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pendingCount"));
+                            }
+                            pending_count__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CloseRequestSeq => {
+                            if close_request_seq__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("closeRequestSeq"));
+                            }
+                            close_request_seq__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(Synced {
+                    acknowledged_count: acknowledged_count__.unwrap_or_default(),
+                    pending_count: pending_count__.unwrap_or_default(),
+                    close_request_seq: close_request_seq__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.Synced", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for Task {

@@ -773,7 +773,54 @@ pub struct Open {
 /// CloseNow is sent Controller → Shard → Leader, as a request to
 /// immediately close a transaction being held open by policy.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CloseNow {}
+pub struct CloseNow {
+    /// Monotonic sequence of this request within its sending controller.
+    /// A materialization leader echoes the highest it has received as
+    /// `Synced.close_request_seq`, which is how a controller learns its own
+    /// request landed. Zero from a sender which doesn't track sequences,
+    /// including every capture and derivation controller.
+    #[prost(uint64, tag = "1")]
+    pub seq: u64,
+}
+/// Synced reports a materialization leader's transaction-acknowledgement
+/// progress. The leader broadcasts it Leader → Shards → Controllers, and
+/// shards relay it unmodified. Broadcasts are demand-driven: the leader is
+/// silent until it receives a session's first CloseNow, and thereafter
+/// re-broadcasts whenever its counts change.
+///
+/// Synced is the answer half of CloseNow, and together they form a commit
+/// barrier. A controller sends CloseNow with sequence S, waits for a Synced
+/// reporting `close_request_seq >= S`, and awaits `acknowledged_count`
+/// reaching that same Synced's `acknowledged_count + pending_count`. It has
+/// then awaited full acknowledgement of everything the leader held when it
+/// received the request. TaskControl.SyncNow is exactly that barrier.
+///
+/// The echo is what makes the barrier exact rather than best-effort: counts
+/// travel Leader → Shard → Controller, so the counts a controller already
+/// holds may predate a transaction which has since opened. Taking the barrier
+/// from the Synced which acknowledges one's own request rules that out.
+///
+/// Counts are of one leader session and restart from zero with the next, so a
+/// controller must discard a target recorded under a session which has ended.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Synced {
+    /// Transactions of this leader session which are fully acknowledged:
+    /// committed, and queryable in the endpoint.
+    #[prost(uint64, tag = "1")]
+    pub acknowledged_count: u64,
+    /// Transactions which are still ahead of `acknowledged_count` and which
+    /// will increment it as they complete: the open transaction, if any, plus a
+    /// prior transaction still draining its connector acknowledgement. Never
+    /// more than two.
+    #[prost(uint32, tag = "2")]
+    pub pending_count: u32,
+    /// Highest `CloseNow.seq` this leader has received, over all of its shards.
+    /// Sync-now is driven by shard zero's controller, whose sequences are
+    /// therefore the only ones which matter; the running maximum keeps a stray
+    /// sequence from another shard from regressing it.
+    #[prost(uint64, tag = "3")]
+    pub close_request_seq: u64,
+}
 /// Stop is sent Controller → Shard → Leader to request graceful shutdown.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Stop {}
@@ -946,6 +993,11 @@ pub struct Materialize {
     /// currently-open transaction.
     #[prost(message, optional, tag = "52")]
     pub close_now: ::core::option::Option<CloseNow>,
+    /// Leader → Shards → Controllers. Transaction acknowledgement progress,
+    /// sent after a session's first CloseNow and whenever its counts change
+    /// thereafter. Shards relay it unmodified.
+    #[prost(message, optional, tag = "53")]
+    pub synced: ::core::option::Option<Synced>,
     /// Controller → Shard → Leader. Graceful shutdown request.
     #[prost(message, optional, tag = "60")]
     pub stop: ::core::option::Option<Stop>,
@@ -1409,6 +1461,48 @@ pub mod derive {
     /// sending this; V2 connector state flows via Flushed.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct StartedCommit {}
+}
+/// SyncNowRequest is the request of a TaskControl.SyncNow RPC.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncNowRequest {
+    /// Name of the task to synchronize.
+    #[prost(string, tag = "1")]
+    pub task_name: ::prost::alloc::string::String,
+}
+/// SyncNowResponse is the streamed response of a TaskControl.SyncNow RPC.
+/// Its messages are structural: they mark the caller's position in the
+/// stream and carry no payload. Statistics of the awaited transaction are
+/// recorded to the task's stats journal, which is where callers read them.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SyncNowResponse {
+    #[prost(oneof = "sync_now_response::Response", tags = "1, 2, 3")]
+    pub response: ::core::option::Option<sync_now_response::Response>,
+}
+/// Nested message and enum types in `SyncNowResponse`.
+pub mod sync_now_response {
+    /// Ack is sent exactly once, as the first message of the stream: the
+    /// task's leader has the request, has been told to close its open
+    /// transaction, and has reported back the commit which is now being
+    /// awaited. Past this point the commit happens whether or not the caller
+    /// stays to watch.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Ack {}
+    /// Heartbeat keeps a long-lived stream alive while the caller waits.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Heartbeat {}
+    /// Done is sent exactly once, as the final message of the stream: the
+    /// awaited transaction is committed and queryable in the endpoint.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Done {}
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(message, tag = "1")]
+        Ack(Ack),
+        #[prost(message, tag = "2")]
+        Heartbeat(Heartbeat),
+        #[prost(message, tag = "3")]
+        Done(Done),
+    }
 }
 /// Plane describes the type of data plane in which the runtime is operating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
