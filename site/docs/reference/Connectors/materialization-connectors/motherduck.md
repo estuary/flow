@@ -77,7 +77,7 @@ more of your Estuary collections to your desired tables in the database.
 |---------------------------------------|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
 | **`/token`**                          | MotherDuck Service Token | Service token for authenticating with MotherDuck.                                                                                                                | string  | Required         |
 | **`/database`**                       | Database                 | The database to materialize to.                                                                                                                                  | string  | Required         |
-| **`/schema`**                         | Database Schema          | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables. | string  | Required         |
+| **`/schema`**                         | Database Schema          | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as the `flow_checkpoints_v1` metadata table. See [running multiple materializations to the same database](#running-multiple-materializations-to-the-same-database). | string  | Required         |
 | `/hardDelete`                         | Hard Delete              | If enabled, items deleted in the source will also be deleted from the destination.                                                                               | boolean | `false`          |
 | **`/stagingBucket`**                  | Staging Bucket           | The type of staging bucket to use.                                                                                                    | [Staging Bucket](#staging-bucket)  | Required         |
 | `/advanced/no_flow_document`          | Exclude Flow Document    | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false`          |
@@ -142,6 +142,28 @@ materializations:
           table: ${TABLE_NAME}
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
+
+## Running multiple materializations to the same database
+
+The connector keeps its progress in one metadata table, `flow_checkpoints_v1`, placed in the endpoint
+`database` and `schema`. Materializations that share both share that table, which can cause write
+contention and failed transactions. To separate them, give each materialization its own endpoint
+`schema`, and set the binding-level `schema` to where the collection tables should go.
+
+Changing the endpoint `schema` on an existing materialization points it at an empty checkpoints table
+and it re-processes every bound collection. To keep its progress, copy the rows across first, leaving
+the original table for any other materialization still using it:
+
+```sql
+CREATE SCHEMA my_db.new_schema;
+
+CREATE TABLE my_db.new_schema.flow_checkpoints_v1 AS
+  SELECT * FROM my_db.old_schema.flow_checkpoints_v1
+  WHERE materialization = '${PREFIX}/${mat_name}';
+```
+
+Change `schema` only, never `database`. The database cannot be overridden per binding, so changing it
+relocates every table and forces a full re-materialization.
 
 ## Sync Schedule
 
