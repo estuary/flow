@@ -1397,8 +1397,8 @@ impl TestHarness {
     }
 
     /// Runs a publication of `draft` against a caller-chosen data-plane, for
-    /// exercising data-plane authorization. `user_publication` delegates here
-    /// with the default test plane.
+    /// exercising data-plane authorization. `user_publication` instead uses
+    /// the default test plane.
     pub async fn user_publication_in_plane(
         &mut self,
         user_id: Uuid,

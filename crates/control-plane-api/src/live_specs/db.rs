@@ -139,8 +139,9 @@ pub async fn fetch_expanded_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            -- Placeholder: spec-to-spec capabilities apply only to drafted
-            -- specs, which expansion excludes.
+            -- Placeholder with no reader: the caller discards this column,
+            -- and specs which expansion adds to the draft have their
+            -- capabilities fetched afresh by the resolve-path fetch_live_specs.
             '[]' as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from exp
