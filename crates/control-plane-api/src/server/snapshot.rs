@@ -705,7 +705,7 @@ mod tests {
         assert_eq!(
             snapshot
                 .task_by_shard_id(
-                    "materialization/bobCo/widgets/materialize-mango/0011223344556677/pivot=00"
+                    "materialize/bobCo/widgets/materialize-mango/0011223344556677/pivot=00"
                 )
                 .unwrap()
                 .task_name
@@ -714,7 +714,7 @@ mod tests {
         );
         assert!(
             snapshot
-                .task_by_shard_id("materialization/bobCo/widgets/materialize-mango")
+                .task_by_shard_id("materialize/bobCo/widgets/materialize-mango")
                 .is_none()
         ); // Must be _more_ specific to match.
 
@@ -726,7 +726,7 @@ mod tests {
         );
         assert!(
             snapshot
-                .task_by_shard_id("materialization/acmeCo/nonexistent/0011223344556677")
+                .task_by_shard_id("materialize/acmeCo/nonexistent/0011223344556677")
                 .is_none()
         );
     }

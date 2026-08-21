@@ -396,7 +396,7 @@ mod tests {
           "opsLogsJournal": "ops/tasks/public/one/logs/gen1234/kind=materialization/name=aliceCo%2Fout%2Fmaterialize-bar/pivot=00",
           "opsStatsJournal": "ops/tasks/public/one/stats/gen1234/kind=materialization/name=aliceCo%2Fout%2Fmaterialize-bar/pivot=00",
           "taskSpec": {
-            "$serde_json::private::RawValue": "{\"shardTemplate\":{\"id\":\"materialization/aliceCo/out/materialize-bar/gen9012\"}}"
+            "$serde_json::private::RawValue": "{\"shardTemplate\":{\"id\":\"materialize/aliceCo/out/materialize-bar/gen9012\"}}"
           },
           "retryMillis": 0
         }

@@ -1727,6 +1727,7 @@ impl TestHarness {
             refresh: app.snapshot.token(),
             retry_after: tokens::DateTime::UNIX_EPOCH,
             started: tokens::now(),
+            started_set: false,
             locale: control_plane_api::Locale::EnUS,
         };
 

@@ -62,6 +62,8 @@ pub struct Envelope {
     ///
     /// If absent, it's set to the current time.
     pub started: tokens::DateTime,
+    /// Was `started` provided on the request?
+    pub started_set: bool,
     /// Database pool to use during request processing.
     pub pg_pool: sqlx::PgPool,
     /// The desired locale for any internationalized text values. This is
@@ -273,6 +275,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                 maybe_claims,
                 retry_after: retry_after.unwrap_or(tokens::DateTime::UNIX_EPOCH),
                 refresh: state.snapshot.token(),
+                started_set: started.is_some(),
                 started: started.unwrap_or_else(|| tokens::now()),
                 pg_pool: state.pg_pool.clone(),
                 original_uri,

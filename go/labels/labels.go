@@ -91,6 +91,13 @@ const (
 	PortPublicPrefix = "estuary.dev/port-public/"
 )
 
+// Authorization labels. These appear only in the label selector of an
+// authorization request or response, and never on a JournalSpec or ShardSpec.
+const (
+	// SecretName names the secret which a task asks to decrypt.
+	SecretName = "estuary.dev/secret-name"
+)
+
 // A re-exported subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
 const (
 	ContentType             = gazLabels.ContentType
