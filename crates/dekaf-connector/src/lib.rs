@@ -46,6 +46,15 @@ pub struct DekafConfig {
     #[serde(default)]
     #[schemars(title = "Strict Topic Names")]
     pub strict_topic_names: bool,
+    /// Whether to expose bound collections which have never been written as
+    /// valid, empty topics holding a single partition at offset 0. Off by
+    /// default, in which case such a topic reports the retryable error
+    /// `LeaderNotAvailable` until its first document is written — which
+    /// prevents a consumer group from stabilizing across the whole
+    /// subscription, not just the empty topic.
+    #[serde(default)]
+    #[schemars(title = "Allow Empty Topics")]
+    pub allow_empty_topics: bool,
 }
 
 /// Configures a particular binding in a Dekaf-type materialization
