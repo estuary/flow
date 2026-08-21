@@ -92,6 +92,7 @@ impl Initialize for ExpandDraft<'_> {
             &all_drafted_specs,
             capability_filter,
             db,
+            self.snapshot,
         )
         .await?;
         tracing::debug!(

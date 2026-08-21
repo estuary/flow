@@ -120,9 +120,9 @@ pub async fn fetch_inferred_schemas(
 }
 
 /// Queries for all non-deleted `live_specs` that are connected to the given `collection_names` via
-/// `live_spec_flows`.
+/// `live_spec_flows`. This is a pure data fetch: user authorization over the expanded rows is
+/// evaluated by the caller, in-process against the authorization Snapshot.
 pub async fn fetch_expanded_live_specs(
-    user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
@@ -132,7 +132,7 @@ pub async fn fetch_expanded_live_specs(
         r#"
         with collections(id) as (
             select ls.id
-            from unnest($2::text[]) as names(catalog_name)
+            from unnest($1::text[]) as names(catalog_name)
             join live_specs ls on ls.catalog_name = names.catalog_name
         ),
         exp(id) as (
@@ -154,22 +154,17 @@ pub async fn fetch_expanded_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            (
-                select max(capability) from internal.user_roles($1) r
-                where starts_with(ls.catalog_name, r.role_prefix)
-            ) as "user_capability: Capability",
-            coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(ls.catalog_name, subject_role)),
-                '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
+            -- Placeholders: the expansion path never reads these row fields.
+            -- `user_capability` is evaluated in-process by the caller, and
+            -- spec-to-spec capabilities apply only to drafted specs, which
+            -- expansion excludes.
+            null as "user_capability: Capability",
+            '[]' as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from exp
         join live_specs ls on ls.id = exp.id
-        where ls.spec is not null and not ls.catalog_name = any($3);
+        where ls.spec is not null and not ls.catalog_name = any($2);
         "#,
-        user_id,
         collection_names as &[&str],
         exclude_names as &[&str],
     )
