@@ -1,0 +1,15 @@
+---
+source: crates/flowctl/src/raw/graphql/mod.rs
+expression: "build_variables(None, &vars).unwrap()"
+---
+{
+  "closed": true,
+  "filter": {
+    "catalogPrefix": {
+      "startsWith": "acmeCo/"
+    }
+  },
+  "first": 10,
+  "prefix": "acmeCo/",
+  "quoted": "10"
+}

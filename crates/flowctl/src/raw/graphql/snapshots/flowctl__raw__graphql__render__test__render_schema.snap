@@ -1,0 +1,81 @@
+---
+source: crates/flowctl/src/raw/graphql/render.rs
+expression: "schema(&schema_fixture(), false)"
+---
+type Alert {
+	firedAt: String!
+}
+
+input AwsInput {
+	serviceName: String!
+}
+
+enum Capability {
+	"""
+	May read.
+	"""
+	read
+	admin @deprecated(reason: "Use \"write\" instead.")
+}
+
+"""
+An opaque control-plane identifier.
+"""
+scalar Id
+
+"""
+A live specification.
+
+One per catalog name.
+"""
+type LiveSpec implements Node {
+	id: Id!
+	alerts(first: Int, after: String): [Alert!]!
+	"""
+	Prefixes of this spec.
+	"""
+	prefixes(
+		"""
+		Least capability to report.
+		"""
+		minCapability: Capability!
+		first: Int = 10
+	): [String!]!
+	oldName: String @deprecated(reason: "Use \"catalogName\" instead.")
+}
+
+type MutationRoot {
+	deleteLiveSpec(id: Id!): Boolean!
+}
+
+interface Node {
+	id: Id!
+}
+
+input PrivateLinkConfigInput @oneOf {
+	aws: AwsInput
+	"""
+	Region of the link.
+	"""
+	region: String! = "us-east-1"
+	zone: String @deprecated(reason: "Inferred from `region`.")
+}
+
+type QueryRoot {
+	"""
+	Resolves any node by id.
+	"""
+	node(id: Id!): Node
+}
+
+union SpecOrAlert = LiveSpec | Alert
+
+"""
+Marks an element as no longer supported.
+"""
+directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITION | ENUM_VALUE
+directive @oneOf on INPUT_OBJECT
+schema {
+	query: QueryRoot
+	mutation: MutationRoot
+}
