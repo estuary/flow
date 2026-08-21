@@ -34,10 +34,18 @@ authorization scenarios:
 | `UserPrefixAuth` | Users accessing a catalog prefix within a data-plane |
 | `TaskCollectionAuth` | Tasks accessing their bound collections |
 | `TaskDekafAuth` | Dekaf tasks fetching specs and schemas |
+| `TaskSecretDecrypt` | Tasks decrypting one of their sibling secrets |
+| `UserSecretDecrypt` | Users decrypting a secret |
 
 Each workflow handles token refresh automatically. For task-based workflows,
 use the `new_signed_source()` helper to construct the JWT claims with the
 appropriate data-plane signing key.
+
+The two `SecretDecrypt` workflows are the exception: they address
+config-encryption rather than the control-plane, and must be driven by
+`tokens::fetch_once` rather than a Watch, which would retain and periodically
+re-fetch plaintext. Both extract their response through the module's
+`extract_secret_decryption()`.
 
 ## Building Gazette Clients
 
