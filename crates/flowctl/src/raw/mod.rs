@@ -19,7 +19,7 @@ mod preview_next;
 mod shards;
 mod spec;
 mod split_shards;
-mod sync_now;
+pub mod sync_now;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]

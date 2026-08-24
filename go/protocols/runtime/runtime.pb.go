@@ -2139,6 +2139,10 @@ type Synced struct {
 	// will increment it as they complete: the open transaction, if any, plus a
 	// prior transaction still draining its connector acknowledgement. Never
 	// more than two.
+	//
+	// A configured trigger delivers within that drain, and a debounced trigger
+	// fired while idle drains (and counts) the same way, so the barrier also
+	// awaits trigger delivery — possibly with nothing uncommitted.
 	PendingCount uint32 `protobuf:"varint,2,opt,name=pending_count,json=pendingCount,proto3" json:"pending_count,omitempty"`
 	// Highest `CloseNow.seq` this leader has received, over all of its shards.
 	// Sync-now is driven by shard zero's controller, whose sequences are

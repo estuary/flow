@@ -101,17 +101,6 @@ pub fn user_task_auth_watch(
     })
 }
 
-/// Await the reactor front-door address and bearer token of the data plane
-/// hosting the task which `auth` authorizes.
-pub async fn reactor_front_door(
-    auth: &tokens::PendingWatch<models::authorizations::UserTaskAuthorization>,
-) -> anyhow::Result<(String, String)> {
-    let ready = auth.ready().await.token();
-    let model = ready.result()?;
-
-    Ok((model.reactor_address.clone(), model.reactor_token.clone()))
-}
-
 /// Authorize the user for administrative operations over a task's shards
 /// and recovery logs, returning the task's ops journal names and
 /// Admin-capability shard + journal clients.

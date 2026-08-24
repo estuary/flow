@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
@@ -86,17 +87,23 @@ func TestTaskControlSyncNow(t *testing.T) {
 		&pc.ShardSpec{
 			Id:             tcTestShardID,
 			MaxTxnDuration: time.Minute,
-			LabelSet:       pb.MustLabelSet(labels.TaskName, tcTestTask),
+			LabelSet: pb.MustLabelSet(
+				labels.TaskName, tcTestTask,
+				labels.TaskType, ops.TaskType_materialization.String()),
 		},
 		&pc.ShardSpec{
 			Id:             tcTestCaptureShardID,
 			MaxTxnDuration: time.Minute,
-			LabelSet:       pb.MustLabelSet(labels.TaskName, tcTestCaptureTask),
+			LabelSet: pb.MustLabelSet(
+				labels.TaskName, tcTestCaptureTask,
+				labels.TaskType, ops.TaskType_capture.String()),
 		},
 		&pc.ShardSpec{
 			Id:             tcTestV1ShardID,
 			MaxTxnDuration: time.Minute,
-			LabelSet:       pb.MustLabelSet(labels.TaskName, tcTestV1Task),
+			LabelSet: pb.MustLabelSet(
+				labels.TaskName, tcTestV1Task,
+				labels.TaskType, ops.TaskType_materialization.String()),
 		},
 	)
 

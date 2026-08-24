@@ -12,7 +12,7 @@ use std::time::Duration;
 
 /// Path of TaskControl.SyncNow on a reactor front door. Mirrors
 /// `TaskControlSyncNowPath` in `go/runtime/task_control_http.go`.
-const SYNC_NOW_PATH: &str = "/v1/task-control/sync-now";
+pub const SYNC_NOW_PATH: &str = "/v1/task-control/sync-now";
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -36,7 +36,11 @@ pub async fn do_sync_now(ctx: &CliContext, args: &SyncNow) -> anyhow::Result<()>
     loop {
         // Re-read the front door on each attempt, as an hour-long wait may
         // have outlived its reactor token.
-        let (address, token) = crate::dataplane::reactor_front_door(&auth).await?;
+        let (address, token) = {
+            let ready = auth.ready().await.token();
+            let model = ready.result()?;
+            (model.reactor_address.clone(), model.reactor_token.clone())
+        };
         let url = url::Url::parse(&address)
             .and_then(|url| url.join(SYNC_NOW_PATH))
             .with_context(|| format!("building a sync-now URL from reactor address {address}"))?;
@@ -71,7 +75,10 @@ pub async fn do_sync_now(ctx: &CliContext, args: &SyncNow) -> anyhow::Result<()>
 /// `tls-native-roots` -- ignores `SSL_CERT_FILE`. Honor it explicitly, so that
 /// a data plane behind a private CA (such as a local stack) is reachable.
 fn new_http_client() -> anyhow::Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder();
+    // The read timeout maps a stalled response stream onto the retryable
+    // Transport failure. It's per-read: it bounds the gap between the
+    // server's 15s heartbeats, not the (possibly hour-long) wait overall.
+    let mut builder = reqwest::Client::builder().read_timeout(Duration::from_secs(60));
 
     if let Some(path) = std::env::var_os("SSL_CERT_FILE") {
         let path = std::path::PathBuf::from(path);
@@ -91,9 +98,7 @@ fn new_http_client() -> anyhow::Result<reqwest::Client> {
 /// line we don't understand.
 #[derive(serde::Deserialize)]
 struct Line {
-    #[serde(default)]
     result: Option<proto_flow::runtime::SyncNowResponse>,
-    #[serde(default)]
     error: Option<ErrorLine>,
 }
 
@@ -107,15 +112,15 @@ struct ErrorLine {
 
 /// Failure of a single SyncNow attempt.
 #[derive(Debug)]
-struct Failed {
+pub struct Failed {
     /// The leader acknowledged this attempt before it failed, as happens on a
     /// leader restart or shard reassignment mid-wait.
-    acked: bool,
-    kind: FailedKind,
+    pub acked: bool,
+    pub kind: FailedKind,
 }
 
 #[derive(Debug)]
-enum FailedKind {
+pub enum FailedKind {
     /// A terminal error line of the data plane, carrying its gRPC code.
     Status { code: tonic::Code, message: String },
     /// A response which isn't a line of the documented protocol, as an
@@ -137,7 +142,7 @@ impl Failed {
     /// that the task isn't running here (or isn't on the V2 runtime), but
     /// afterwards they're a leader restart racing our reconnect -- the
     /// replacement session isn't addressable until it reaches Join consensus.
-    fn is_retryable(&self, acked_ever: bool) -> bool {
+    pub fn is_retryable(&self, acked_ever: bool) -> bool {
         match &self.kind {
             FailedKind::Status { code, .. } => match code {
                 // The leader itself reports Unavailable to ask for a retry,
@@ -162,7 +167,7 @@ impl Failed {
         }
     }
 
-    fn into_error(self, task: &str) -> anyhow::Error {
+    pub fn into_error(self, task: &str) -> anyhow::Error {
         anyhow::anyhow!("sync-now of {task} did not complete: {}", self.detail())
     }
 }
@@ -170,7 +175,7 @@ impl Failed {
 /// Invoke SyncNow once, returning when the leader reports the awaited
 /// transaction committed. Nothing is printed: the exit status is the whole
 /// contract.
-async fn attempt(
+pub async fn attempt(
     client: &reqwest::Client,
     url: &url::Url,
     token: &str,
@@ -258,17 +263,7 @@ async fn attempt(
 
 #[cfg(test)]
 mod test {
-    use super::{Failed, FailedKind, SYNC_NOW_PATH, attempt};
-    use proto_flow::runtime::{SyncNowResponse, sync_now_response};
-
-    /// A full stream — ack, heartbeat, done — completes, and heartbeats
-    /// arriving mid-wait neither terminate it nor are mistaken for Done.
-    #[tokio::test]
-    async fn awaits_done_through_heartbeats() {
-        let outcome = run(Script::ok(vec![ack(), heartbeat(), done()])).await;
-
-        outcome.expect("attempt completed");
-    }
+    use super::{Failed, FailedKind};
 
     /// Retry classification: NotFound and EOF are the "not running here"
     /// diagnostic until an Ack proves otherwise, while Unavailable and
@@ -293,97 +288,6 @@ mod test {
         for (name, failed, acked_ever, want) in cases {
             assert_eq!(failed.is_retryable(acked_ever), want, "case `{name}`");
         }
-    }
-
-    #[tokio::test]
-    async fn eof_before_ack_is_fatal_on_a_first_attempt() {
-        let outcome = run(Script::ok(Vec::new())).await;
-
-        let Err(failed) = outcome else {
-            panic!("expected a failure");
-        };
-        assert!(!failed.acked);
-        assert!(!failed.is_retryable(false));
-        insta::assert_snapshot!(
-            format!("{:#}", failed.into_error("acmeCo/foo/materialize-bar")),
-            @"sync-now of acmeCo/foo/materialize-bar did not complete: the leader hung up without a Done response"
-        );
-    }
-
-    #[tokio::test]
-    async fn eof_after_ack_is_retryable() {
-        let outcome = run(Script::ok(vec![ack()])).await;
-
-        let Err(failed) = outcome else {
-            panic!("expected a failure");
-        };
-        assert!(failed.acked);
-        assert!(failed.is_retryable(true));
-    }
-
-    /// A body which aborts mid-stream, as a leader restart or a dropped
-    /// connection produces, is always retryable — whether or not we managed to
-    /// read the Ack before the connection went away.
-    #[tokio::test]
-    async fn broken_stream_is_retryable() {
-        let outcome = run(Script {
-            status: reqwest::StatusCode::OK,
-            lines: vec![line(ack())],
-            abort: true,
-        })
-        .await;
-
-        let Err(failed) = outcome else {
-            panic!("expected a failure");
-        };
-        assert!(
-            matches!(failed.kind, FailedKind::Transport(_)),
-            "{failed:?}"
-        );
-        assert!(failed.is_retryable(false));
-    }
-
-    /// A terminal error line renders as the data plane's own message.
-    #[tokio::test]
-    async fn terminal_error_line_is_contextualized() {
-        let outcome = run(Script {
-            status: reqwest::StatusCode::NOT_FOUND,
-            lines: vec![
-                r#"{"error":{"grpcCode":5,"httpCode":404,"message":"task acmeCo/foo/materialize-bar has no live leader session here","httpStatus":"Not Found"}}"#.to_string(),
-            ],
-            abort: false,
-        })
-        .await;
-
-        let Err(failed) = outcome else {
-            panic!("expected a failure");
-        };
-        assert!(!failed.is_retryable(false));
-        insta::assert_snapshot!(
-            format!("{:#}", failed.into_error("acmeCo/foo/materialize-bar")),
-            @"sync-now of acmeCo/foo/materialize-bar did not complete: NotFound: task acmeCo/foo/materialize-bar has no live leader session here"
-        );
-    }
-
-    /// A load balancer answering in the data plane's stead speaks neither
-    /// NDJSON nor gRPC codes, and its 5xx is retryable.
-    #[tokio::test]
-    async fn unparsed_gateway_response_is_retryable() {
-        let outcome = run(Script {
-            status: reqwest::StatusCode::BAD_GATEWAY,
-            lines: vec!["<html>".to_string()],
-            abort: false,
-        })
-        .await;
-
-        let Err(failed) = outcome else {
-            panic!("expected a failure");
-        };
-        assert!(failed.is_retryable(false));
-        insta::assert_snapshot!(
-            format!("{:#}", failed.into_error("acmeCo/foo/materialize-bar")),
-            @"sync-now of acmeCo/foo/materialize-bar did not complete: HTTP 502 Bad Gateway: <html>"
-        );
     }
 
     fn status(code: tonic::Code) -> Failed {
@@ -445,102 +349,5 @@ mod test {
             acked: false,
             kind: FailedKind::Transport("connection reset".to_string()),
         }
-    }
-
-    fn ack() -> SyncNowResponse {
-        SyncNowResponse {
-            response: Some(sync_now_response::Response::Ack(sync_now_response::Ack {})),
-        }
-    }
-
-    fn heartbeat() -> SyncNowResponse {
-        SyncNowResponse {
-            response: Some(sync_now_response::Response::Heartbeat(
-                sync_now_response::Heartbeat {},
-            )),
-        }
-    }
-
-    fn done() -> SyncNowResponse {
-        SyncNowResponse {
-            response: Some(sync_now_response::Response::Done(
-                sync_now_response::Done {},
-            )),
-        }
-    }
-
-    /// Render a response as the front door's `{"result": ...}` NDJSON line.
-    fn line(response: SyncNowResponse) -> String {
-        serde_json::json!({"result": response}).to_string()
-    }
-
-    /// A scripted front-door response.
-    #[derive(Clone)]
-    struct Script {
-        status: reqwest::StatusCode,
-        /// NDJSON lines of the response body.
-        lines: Vec<String>,
-        /// Abort the body after its lines, rather than ending it cleanly.
-        abort: bool,
-    }
-
-    impl Script {
-        fn ok(responses: Vec<SyncNowResponse>) -> Self {
-            Self {
-                status: reqwest::StatusCode::OK,
-                lines: responses.into_iter().map(line).collect(),
-                abort: false,
-            }
-        }
-    }
-
-    /// Drive `attempt` against a stub front door replaying `script`.
-    async fn run(script: Script) -> Result<(), Failed> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        let app = axum::Router::new().route(
-            SYNC_NOW_PATH,
-            axum::routing::post(move |body: String| {
-                let script = script.clone();
-                async move {
-                    assert_eq!(body, r#"{"taskName":"acmeCo/foo/materialize-bar"}"#);
-                    serve(script)
-                }
-            }),
-        );
-        let server = tokio::spawn(async move { axum::serve(listener, app).await });
-
-        let url = url::Url::parse(&format!("http://{addr}{SYNC_NOW_PATH}")).unwrap();
-        let outcome = attempt(
-            &reqwest::Client::new(),
-            &url,
-            "a-reactor-token",
-            "acmeCo/foo/materialize-bar",
-        )
-        .await;
-
-        server.abort();
-        outcome
-    }
-
-    /// Serve `script` as a chunk-per-line streamed body, so that a mid-stream
-    /// abort is distinguishable from a clean end.
-    fn serve(script: Script) -> axum::response::Response {
-        let Script {
-            status,
-            lines,
-            abort,
-        } = script;
-
-        let chunks = lines
-            .into_iter()
-            .map(|line| Ok(format!("{line}\n")))
-            .chain(abort.then(|| Err(std::io::Error::other("mid-stream abort"))));
-
-        axum::response::IntoResponse::into_response((
-            axum::http::StatusCode::from_u16(status.as_u16()).unwrap(),
-            axum::body::Body::from_stream(futures::stream::iter(chunks)),
-        ))
     }
 }

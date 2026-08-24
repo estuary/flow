@@ -256,6 +256,26 @@ impl Tail {
             Self::Done(_) => "Done",
         }
     }
+
+    /// Does this state's arrival at Done complete a connector
+    /// acknowledgement? It's the increment condition of
+    /// `Synced.acknowledged_count`, evaluated by the Actor against the
+    /// pre-`step` state: Tail reaching Done is the "committed and
+    /// queryable" instant that Synced reports. Exhaustive, so a new state
+    /// must decide whether its path into Done counts.
+    pub(crate) fn resolves_on_done(&self) -> bool {
+        match self {
+            // The Begin→Done stopping shortcut defers connector
+            // acknowledgement to a future session rather than completing
+            // it, so it must not count.
+            Self::Begin(_) => false,
+            // Done self-steps; re-observing it is not a new resolution.
+            Self::Done(_) => false,
+            Self::Acknowledge(_) | Self::WriteIntents(_) | Self::Trigger(_) | Self::Persist(_) => {
+                true
+            }
+        }
+    }
 }
 
 /// HeadIdle evaluates the close policy between Load rounds.
@@ -2240,6 +2260,50 @@ mod tests {
         assert!(matches!(action, Action::PollAgain));
         assert!(matches!(head, Head::Stop));
         assert!(matches!(tail, Tail::Done(_)));
+    }
+
+    /// The Begin→Done stopping shortcut defers connector acknowledgement to
+    /// a future session, so its arrival at Done must not count toward
+    /// `Synced.acknowledged_count` — while the ordinary Acknowledge-driven
+    /// route must. Pins `Tail::resolves_on_done` against the shortcut.
+    #[test]
+    fn stopping_shortcut_does_not_resolve_acknowledgement() {
+        let mut ctx = Ctx {
+            binding_bytes_behind: vec![0; 1],
+            close_requested: false,
+            debounce: TriggerDebounce::default(),
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: uuid::Clock::from_unix(1_700_000_000, 0),
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: None,
+            shard_rx: None,
+            stats_idle: true,
+            stopping: true,
+            task: mk_task(1),
+            trigger_running: false,
+        };
+
+        // The shortcut: under `stopping`, Begin steps directly to Done.
+        let tail = Tail::Begin(TailBegin {
+            pending: PendingDeltas::default(),
+        });
+        assert!(!tail.resolves_on_done());
+        let (action, tail) = ctx.step_tail(tail);
+        assert!(matches!(action, Action::Idle));
+        assert!(matches!(tail, Tail::Done(_)));
+        assert!(!tail.resolves_on_done());
+
+        // The ordinary route: without `stopping`, Begin Acknowledges, and
+        // the post-Begin states resolve on their arrival at Done.
+        ctx.stopping = false;
+        let tail = Tail::Begin(TailBegin {
+            pending: PendingDeltas::default(),
+        });
+        let (action, tail) = ctx.step_tail(tail);
+        assert!(matches!(action, Action::Acknowledge { .. }));
+        assert!(matches!(tail, Tail::Acknowledge(_)));
+        assert!(tail.resolves_on_done());
     }
 
     /// An idempotent-recovery session performs the replay and nothing else.

@@ -812,6 +812,10 @@ pub struct Synced {
     /// will increment it as they complete: the open transaction, if any, plus a
     /// prior transaction still draining its connector acknowledgement. Never
     /// more than two.
+    ///
+    /// A configured trigger delivers within that drain, and a debounced trigger
+    /// fired while idle drains (and counts) the same way, so the barrier also
+    /// awaits trigger delivery — possibly with nothing uncommitted.
     #[prost(uint32, tag = "2")]
     pub pending_count: u32,
     /// Highest `CloseNow.seq` this leader has received, over all of its shards.
