@@ -1,11 +1,16 @@
 package gazctlcmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/broker/stores"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 )
@@ -469,4 +474,67 @@ func TestSegmentFoldingWithManyLogs(t *testing.T) {
 			{Author: 0x50, FirstSeqNo: 50, FirstOffset: 50, LastSeqNo: 51, LastOffset: 51, Log: "l/two"},
 		},
 	}, m)
+}
+
+func TestRemoveFragment(t *testing.T) {
+	defer func(i time.Duration) { removeRetryInterval = i }(removeRetryInterval)
+	removeRetryInterval = 0
+
+	var authError = errors.New("access denied")
+	var transientError = errors.New("connection reset by peer")
+	var attempts = make(map[string]int)
+
+	// A store whose deletes fail with `err` until `failures` are exhausted.
+	var provider = func(err error, failures int) stores.Constructor {
+		return func(u *url.URL) (stores.Store, error) {
+			return &stores.CallbackStore{
+				Fallback: stores.NewMemoryStore(u),
+				RemoveFunc: func(fallback stores.Store, ctx context.Context, path string) error {
+					if attempts[u.Scheme]++; attempts[u.Scheme] <= failures {
+						return err
+					}
+					return fallback.Remove(ctx, path)
+				},
+				IsAuthErrorFunc: func(_ stores.Store, e error) bool {
+					return e == authError
+				},
+			}, nil
+		}
+	}
+
+	stores.RegisterProviders(map[string]stores.Constructor{
+		"s3":   provider(transientError, 1),  // A transient failure, then success.
+		"gs":   provider(transientError, 99), // Always fails.
+		"file": provider(authError, 99),      // Denies deletes.
+	})
+
+	var frag = pb.Fragment{
+		Journal:          "a/log",
+		Begin:            0,
+		End:              100,
+		CompressionCodec: pb.CompressionCodec_NONE,
+	}
+
+	// A transient error is retried until the delete succeeds.
+	frag.BackingStore = "s3://bucket/"
+	require.NoError(t, removeFragment(context.Background(), frag))
+	require.Equal(t, 2, attempts["s3"])
+
+	// Retries are bounded, and the final error is returned.
+	frag.BackingStore = "gs://bucket/"
+	require.Equal(t, transientError, removeFragment(context.Background(), frag))
+	require.Equal(t, removeAttempts, attempts["gs"])
+
+	// An authorization error is returned on its first occurrence.
+	frag.BackingStore = "file:///root/"
+	require.Equal(t, authError, removeFragment(context.Background(), frag))
+	require.Equal(t, 1, attempts["file"])
+
+	// A cancelled prune stops retrying.
+	var ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+
+	attempts["gs"], frag.BackingStore = 0, "gs://bucket/"
+	require.Equal(t, transientError, removeFragment(ctx, frag))
+	require.Equal(t, 1, attempts["gs"])
 }

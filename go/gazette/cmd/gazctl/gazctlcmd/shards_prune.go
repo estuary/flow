@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -157,7 +158,7 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 			group.Go(func() error {
 				var err error
 				if !cmd.DryRun {
-					err = fragment.Remove(ctx, spec)
+					err = removeFragment(ctx, spec)
 				}
 
 				mu.Lock()
@@ -204,6 +205,33 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 		log.WithField("failures", metrics.failedToRemove).Fatal("failed to remove fragments")
 	}
 	return nil
+}
+
+const removeAttempts = 3
+
+var removeRetryInterval = time.Second
+
+// removeFragment deletes `spec` from its store, retrying errors which are
+// commonly transient: 5xx responses, rate limits, and dropped connections.
+func removeFragment(ctx context.Context, spec pb.Fragment) error {
+	for attempt := 0; ; attempt++ {
+		var err = fragment.Remove(ctx, spec)
+
+		if err == nil {
+			return nil
+		} else if fragment.IsAuthError(spec, err) || ctx.Err() != nil {
+			return err
+		} else if attempt+1 == removeAttempts {
+			return err
+		}
+
+		log.WithFields(log.Fields{
+			"fragment": spec,
+			"error":    err,
+		}).Warn("failed to remove fragment (will retry)")
+
+		time.Sleep(removeRetryInterval)
+	}
 }
 
 // checkRecoveryLogStoresHealth checks if all fragment stores for the given recovery log journal are healthy.
