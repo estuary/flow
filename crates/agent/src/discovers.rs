@@ -193,7 +193,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                 ),
                 catalog_name: row.capture_name.clone(),
                 detail: format!(
-                    "user is not authorized to edit specs under '{}'; if this access was granted recently, retry the discover in a moment",
+                    "user is not authorized to edit specs under '{}'; if this access was granted recently, please retry in a moment",
                     row.capture_name
                 ),
             }];
