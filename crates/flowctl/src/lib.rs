@@ -16,7 +16,7 @@ mod ops;
 mod output;
 mod poll;
 mod preview;
-mod raw;
+pub mod raw;
 mod shuffle_read;
 mod version;
 

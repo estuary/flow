@@ -3,9 +3,9 @@ package runtime
 import (
 	"context"
 	"io"
-	"strings"
 
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -68,7 +68,7 @@ func (tc *taskControl) syncNow(
 	if res, err = tc.service.Resolver.Resolve(consumer.ResolveArgs{
 		Context:     ctx,
 		Claims:      claims,
-		ShardID:     shardZero,
+		ShardID:     shardZero.Id,
 		MayProxy:    proxyHeader == nil, // MayProxy if not already proxied.
 		ProxyHeader: proxyHeader,
 	}); err != nil {
@@ -83,13 +83,13 @@ func (tc *taskControl) syncNow(
 		return errTaskNotFound(req.TaskName)
 	default:
 		return status.Errorf(codes.Unavailable,
-			"cannot resolve task shard %s to a ready primary (%s)", shardZero, res.Status)
+			"cannot resolve task shard %s to a ready primary (%s)", shardZero.Id, res.Status)
 	}
 
 	// Captures and derivations hold no open transaction, so there's nothing to
 	// force or await, and no need to route any further. Resolve() verified the
-	// caller's claims cover the shard, whose ID gives us the task's type.
-	if !strings.HasPrefix(shardZero.String(), "materialize/") {
+	// caller's claims cover the shard.
+	if shardZero.LabelSet.ValueOf(labels.TaskType) != ops.TaskType_materialization.String() {
 		if res.Done != nil {
 			res.Done()
 		}
@@ -144,8 +144,8 @@ func errTaskNotFound(taskName string) error {
 		"task %s was not found in this data plane (or your authorization does not cover it)", taskName)
 }
 
-// taskShardZero returns the ID of the named task's shard zero: the shard with
-// the lowest key / r-clock range. Shard IDs are `<task-type>/<task-name>/
+// taskShardZero returns the spec of the named task's shard zero: the shard
+// with the lowest key / r-clock range. Shard IDs are `<task-type>/<task-name>/
 // <generation-id>/<range>`, so a prefix scan finds the task's shards in
 // range-ascending order — but one task's name may prefix another's, so require
 // an exact task-name label match.
@@ -154,7 +154,7 @@ func errTaskNotFound(taskName string) error {
 // shards before deleting the old, so both can briefly appear here and we take
 // the older. Sync-now during a reset is meaningless either way: the task is
 // being backfilled from scratch.
-func taskShardZero(state *allocator.State, taskName string) (pc.ShardID, bool) {
+func taskShardZero(state *allocator.State, taskName string) (*pc.ShardSpec, bool) {
 	state.KS.Mu.RLock()
 	defer state.KS.Mu.RUnlock()
 
@@ -165,10 +165,10 @@ func taskShardZero(state *allocator.State, taskName string) (pc.ShardID, bool) {
 			if spec.LabelSet.ValueOf(labels.TaskName) != taskName {
 				continue
 			}
-			return spec.Id, true
+			return spec, true
 		}
 	}
-	return "", false
+	return nil, false
 }
 
 // forwardAuthorization returns a Context which forwards the caller's incoming

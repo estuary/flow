@@ -162,7 +162,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
             let mut action: fsm::Action;
             let prev_kind = tail.kind();
-            let prev_resolves = !matches!(tail, fsm::Tail::Done(_) | fsm::Tail::Begin(_));
+            let prev_resolves = tail.resolves_on_done();
             (action, tail) = tail.step(
                 &self.trigger_debounce,
                 self.intents_write_fut.is_none(),
@@ -182,10 +182,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     "transition",
                 );
             }
-            // Tail arriving at Done is the "committed and queryable" instant
-            // that Synced reports. The Begin→Done stopping shortcut is
-            // excluded: it defers connector acknowledgement to a future
-            // session rather than completing it, so it must not count.
+            // See `Tail::resolves_on_done` for what counts and why.
             if prev_resolves && matches!(tail, fsm::Tail::Done(_)) {
                 self.acknowledged_count += 1;
             }
