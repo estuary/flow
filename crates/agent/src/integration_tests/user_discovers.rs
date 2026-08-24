@@ -412,7 +412,7 @@ async fn test_discover_not_authorized_capture() {
         let expect_errors = vec![(
             format!("flow://capture/{capture_name}"),
             format!(
-                "user is not authorized to edit specs under '{capture_name}'; if this access was granted recently, retry the discover in a moment"
+                "user is not authorized to edit specs under '{capture_name}'; if this access was granted recently, please retry in a moment"
             ),
         )];
         assert_eq!(expect_errors, result.errors, "{case}");
