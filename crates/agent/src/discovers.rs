@@ -98,9 +98,6 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
 
     type Receive = serde_json::Value;
 
-    /// Polls are stateless and persist the JSON `null` that `None`
-    /// round-trips, keeping in-flight task state readable across a deploy
-    /// in either direction.
     type State = Option<DiscoverState>;
 
     type Outcome = DiscoverOutcome;
@@ -308,19 +305,18 @@ async fn prepare_discover<'a>(
     // embedded in its control-plane Id — is carried on the Discover request,
     // so that re-discovers resolve connector feature-flag defaults as the
     // running task does. It's empty for a task which doesn't exist yet.
-    // The executor has already required the user hold SpecEdit to the
-    // capture, but this fetch also *discloses* the live model into the
-    // user's draft, and disclosure is CatalogRead's axis. Bundles which
-    // convey SpecEdit convey CatalogRead too, so this is a no-op for
-    // real grants — but requiring both here keeps the fetch's read
-    // semantics locally correct rather than leaning on that bundling
-    // convention: a SpecEdit-only grant may discover, with the live
-    // capture treated as absent.
+    //
+    // process() already required the user hold SpecEdit to the capture, but
+    // this fetch *discloses* the live model into the user's draft, and
+    // disclosure is CatalogRead's axis — so the fetch filters on CatalogRead
+    // in its own right rather than leaning on the convention that bundles
+    // conveying SpecEdit convey CatalogRead too. Under a SpecEdit-only
+    // grant the discover proceeds with the live capture treated as absent.
     let name = &[capture_name.to_string()];
     let live = live_specs::get_live_specs_filtered(
         user_id,
         name,
-        models::authz::Capability::SpecEdit | models::authz::Capability::CatalogRead,
+        models::authz::Capability::CatalogRead,
         snapshot,
         pool,
     )
