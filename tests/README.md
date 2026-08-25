@@ -1,7 +1,10 @@
-# `flowctl` snapshot tests
+# Tests
 
-This directory includes an experimental approach for Python-based snapshot tests of `flowctl` connector sessions. To run them:
-* Install [Poetry](https://python-poetry.org/) for python.
-* Run `poetry install` to setup an environment with test dependencies.
-* Run `poetry run pytest tests/` to run all tests.
-* If the snapshot is updated, add `--insta review` to interactively review and update differences.
+End-to-end tests that exercise Flow through its real binaries and connectors,
+rather than in-crate unit tests (which live beside the code they cover).
+
+* [`preview/`](preview/README.md): Python snapshot tests of connector sessions
+  run through `flowctl raw preview-next`. Fast, and needs only Docker.
+* [`soak/`](soak/README.md): a long-running catalog of captures, derivations,
+  and materializations, published to a data plane to shake out correctness and
+  stability bugs under sustained load.

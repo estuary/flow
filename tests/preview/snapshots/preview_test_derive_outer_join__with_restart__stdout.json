@@ -1,0 +1,57 @@
+[
+  [
+    "patterns/outer-join",
+    {
+      "Key": "key",
+      "LHS": 5,
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      }
+    }
+  ],
+  [
+    "patterns/outer-join",
+    {
+      "Key": "key",
+      "LHS": 5,
+      "RHS": [
+        "hello"
+      ],
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      }
+    }
+  ],
+  [
+    "patterns/outer-join",
+    {
+      "Key": "key",
+      "LHS": 6,
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      }
+    }
+  ],
+  [
+    "patterns/outer-join",
+    {
+      "Key": "key",
+      "LHS": 7,
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      }
+    }
+  ],
+  [
+    "patterns/outer-join",
+    {
+      "Key": "key",
+      "RHS": [
+        "world"
+      ],
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      }
+    }
+  ]
+]
