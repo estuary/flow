@@ -6,9 +6,10 @@ def test_basic(request, snapshot):
     result = subprocess.run(
         [
             "flowctl",
-            "preview",
+            "raw",
+            "preview-next",
             "--source",
-            request.config.rootdir + "/tests/test_capture_csv_rides.flow.yaml",
+            request.config.rootdir + "/tests/preview/test_capture_csv_rides.flow.yaml",
             "--sessions",
             "3,-1",  # Restart after the tenth transaction.
         ],

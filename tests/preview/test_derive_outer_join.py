@@ -6,13 +6,14 @@ def test_with_restart(request, snapshot):
     result = subprocess.run(
         [
             "flowctl",
-            "preview",
+            "raw",
+            "preview-next",
             "--source",
             request.config.rootdir + "/examples/derive-patterns/join-outer.flow.yaml",
             "--name",
             "patterns/outer-join",
             "--fixture",
-            request.config.rootdir + "/tests/ints-strings-fixture.json",
+            request.config.rootdir + "/tests/preview/ints-strings-fixture.ndjson",
             "--sessions",
             "2,-1",  # Restart after the second transaction.
         ],
