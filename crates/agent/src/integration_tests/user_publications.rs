@@ -1042,6 +1042,164 @@ async fn test_publication_drafted_name_requires_admin() {
     );
 }
 
+// Draft of a dogs/ capture which writes into the cats/ tenant: the write
+// analogue of `test_user_publications`' dogs/ materialization of cats/noms.
+fn dog_capture_of_noms() -> serde_json::Value {
+    serde_json::json!({
+        "captures": {
+            "dogs/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "ghcr.io/estuary/source-hello-world:dev",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": {
+                            "name": "greetings",
+                            "prefix": "Hello {}!"
+                        },
+                        "target": "cats/noms"
+                    }
+                ]
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn test_publication_spec_to_spec_write_authorization() {
+    let mut harness = TestHarness::init("test_publication_spec_to_spec_write_authorization").await;
+
+    let cats_user = harness.setup_tenant("cats").await;
+    let dogs_user = harness.setup_tenant("dogs").await;
+
+    let result = harness
+        .user_publication(
+            cats_user,
+            "setup noms",
+            draft_catalog(serde_json::json!({
+                // A cats/ capture binds the collection, which would otherwise
+                // be pruned as unbound and yield an `EmptyDraft`.
+                "collections": {
+                    "cats/noms": {
+                        "schema": {
+                            "type": "object",
+                            "properties": { "id": { "type": "string" } }
+                        },
+                        "key": ["/id"]
+                    }
+                },
+                "captures": {
+                    "cats/capture": {
+                        "endpoint": {
+                            "connector": {
+                                "image": "ghcr.io/estuary/source-hello-world:dev",
+                                "config": {}
+                            }
+                        },
+                        "bindings": [
+                            {
+                                "resource": {
+                                    "name": "greetings",
+                                    "prefix": "Hello {}!"
+                                },
+                                "target": "cats/noms"
+                            }
+                        ]
+                    }
+                }
+            })),
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "setup pub failed with status {:?}: {:?}",
+        result.status,
+        result.errors
+    );
+
+    // The user may read cats/noms, so the only obstacle left is the
+    // spec-to-spec write authorization of dogs/capture into cats/.
+    harness
+        .add_user_grant(dogs_user, "cats/", Capability::Read)
+        .await;
+
+    let result = harness
+        .user_publication(
+            dogs_user,
+            "expect fail not write-authorized",
+            draft_catalog(dog_capture_of_noms()),
+        )
+        .await;
+    assert!(!result.status.is_success());
+    insta::assert_debug_snapshot!(result.errors, @r#"
+    [
+        (
+            "flow://capture/dogs/capture",
+            "Specification is not write-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+        ),
+    ]
+    "#);
+
+    // The spec-to-spec denial is not Snapshot-evaluated
+    // and must not request a refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        !snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the spec-to-spec denial to leave the Snapshot's revoke token alone"
+    );
+
+    // A grant chain reaching cats/ through an intermediary role: dogs/ holds
+    // admin of middle/, and middle/ holds write to cats/.
+    harness
+        .add_role_grant("dogs/", "middle/", Capability::Admin)
+        .await;
+    harness
+        .add_role_grant("middle/", "cats/", Capability::Write)
+        .await;
+
+    // Spec-to-spec authorization matches direct role_grants rows only: the
+    // chain through middle/ does not authorize the capture, even though the
+    // runtime's task authorization (`authorize_task`) walks exactly this
+    // chain and would let a running dogs/ task append to cats/.
+    let result = harness
+        .user_publication(
+            dogs_user,
+            "expect fail chained grant",
+            draft_catalog(dog_capture_of_noms()),
+        )
+        .await;
+    assert!(!result.status.is_success());
+    insta::assert_debug_snapshot!(result.errors, @r#"
+    [
+        (
+            "flow://capture/dogs/capture",
+            "Specification is not write-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"middle/\",\n    \"capability\": \"admin\",\n    \"bundles\": []\n  }\n]",
+        ),
+    ]
+    "#);
+
+    // A direct grant authorizes the capture.
+    harness
+        .add_role_grant("dogs/", "cats/", Capability::Write)
+        .await;
+    let result = harness
+        .user_publication(
+            dogs_user,
+            "expect success",
+            draft_catalog(dog_capture_of_noms()),
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed with status {:?}: {:?}",
+        result.status,
+        result.errors
+    );
+}
+
 #[tokio::test]
 async fn test_publication_no_data_plane() {
     let mut harness = TestHarness::init("test_publication_no_data_plane").await;
