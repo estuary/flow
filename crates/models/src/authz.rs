@@ -103,7 +103,7 @@ impl Capability {
 /// This type answers *what may be exercised*, never *whether the bearer is
 /// masked*. A token whose mask happens to enable everything is still a
 /// deliberately-reduced credential, and surfaces that fail closed for masked
-/// bearers (the `/admin` endpoints, the mint) must key on the claim's
+/// bearers (such as the `/admin` endpoints) must key on the claim's
 /// presence — `capability_mask.is_some()` — and never on [`Self::is_all`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapabilityMask(CapabilitySet);
@@ -149,10 +149,10 @@ impl CapabilityMask {
     /// Attenuate `capabilities` to this mask.
     ///
     /// Apply this at each node emission of the user grant walk, never to the
-    /// walk's result: the mask has to gate `Delegate` itself, so that a mask
-    /// without it confines the token to direct user grants, and it must not
-    /// be re-widened by `Assume`, which makes all of an edge's bits
-    /// delegatable as it passes through.
+    /// walk's result: the mask has to gate traversal itself, so that a mask
+    /// without `Delegate` (and `Assume`) confines the token to direct user
+    /// grants, and it must not be re-widened by `Assume`, which makes all of
+    /// an edge's bits delegatable as it passes through.
     pub fn apply(self, capabilities: CapabilitySet) -> CapabilitySet {
         capabilities & self.0
     }
