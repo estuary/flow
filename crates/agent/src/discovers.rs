@@ -27,6 +27,7 @@ pub enum JobStatus {
     },
     DeprecatedBackground,
     NoDataPlane,
+    NotAuthorized,
 }
 
 impl JobStatus {
@@ -41,21 +42,8 @@ impl JobStatus {
 
 type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
 
-/// Poll state persisted to `internal.tasks` between polls, and therefore
-/// shared with whichever agent instance dequeues the next poll.
-///
-/// This deploy doesn't yet read or write this state: it's carried so that
-/// state persisted by the upcoming stale-snapshot deferral changes remains
-/// decodable by this version during a deploy or rollback.
-#[allow(dead_code)]
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct DiscoverState {
-    /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
-    /// before this discover is retried: the queued time its prior attempt
-    /// anchored authorization staleness on.
-    #[serde(default)]
-    pub awaiting_snapshot_after: Option<tokens::DateTime>,
-}
+pub struct DiscoverState {}
 
 pub struct DiscoverOutcome {
     id: Id,
@@ -110,9 +98,6 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
 
     type Receive = serde_json::Value;
 
-    /// `None` — the common, never-deferred case — round-trips as the JSON
-    /// `null` that stateless polls have always persisted, keeping in-flight
-    /// tasks readable across a deploy in either direction.
     type State = Option<DiscoverState>;
 
     type Outcome = DiscoverOutcome;
@@ -183,9 +168,41 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
-        // Data-plane authorization is evaluated against the pinned Snapshot,
-        // like the live-spec authorization below. An unauthorized plane and a
-        // missing one are deliberately indistinguishable.
+        // A discover validates and edits the capture's spec, so the user must
+        // hold SpecEdit to the capture's name -- without it they could never
+        // publish the result. The check is deliberately unconditional: a pure
+        // function of the grant graph and the requested name, never of whether
+        // a spec exists at that name, so its outcome discloses nothing about
+        // other tenants' catalogs.
+        if !tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            row.user_id,
+            &row.capture_name,
+            models::authz::Capability::SpecEdit,
+        ) {
+            // Request an early background refresh: the grant may have been
+            // committed after this Snapshot was taken, and cancelling narrows
+            // the staleness window for a manual retry.
+            snapshot.revoke.cancel();
+            tracing::warn!(capture_name = %row.capture_name, "user is not authorized to edit the capture spec");
+            let errors = vec![models::draft_error::Error {
+                scope: Some(
+                    tables::synthetic_scope(models::CatalogType::Capture, &row.capture_name)
+                        .to_string(),
+                ),
+                catalog_name: row.capture_name.clone(),
+                detail: format!(
+                    "user is not authorized to edit specs under '{}'; if this access was granted recently, please retry in a moment",
+                    row.capture_name
+                ),
+            }];
+            return Ok((JobStatus::NotAuthorized, Err(errors)));
+        }
+
+        // Data-plane authorization: unlike the capture check above, resolving
+        // the plane consults what exists in the Snapshot, so an unauthorized
+        // plane and a missing one are deliberately indistinguishable.
         let Some(data_plane) = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
@@ -288,14 +305,18 @@ async fn prepare_discover<'a>(
     // embedded in its control-plane Id — is carried on the Discover request,
     // so that re-discovers resolve connector feature-flag defaults as the
     // running task does. It's empty for a task which doesn't exist yet.
-    // Filter to only specs the user holds CatalogRead to: a capture they
-    // can't read is treated as absent, and any error surfaces when they
-    // try to publish.
+    //
+    // process() already required the user hold SpecEdit to the capture, but
+    // this fetch *discloses* the live model into the user's draft, and
+    // disclosure is CatalogRead's axis — so the fetch filters on CatalogRead
+    // in its own right rather than leaning on the convention that bundles
+    // conveying SpecEdit convey CatalogRead too. Under a SpecEdit-only
+    // grant the discover proceeds with the live capture treated as absent.
     let name = &[capture_name.to_string()];
     let live = live_specs::get_live_specs_filtered(
         user_id,
         name,
-        models::authz::Capability::CatalogRead.into(),
+        models::authz::Capability::CatalogRead,
         snapshot,
         pool,
     )
@@ -380,6 +401,16 @@ mod test {
 
     use models::Id;
     use uuid::Uuid;
+
+    // `discovers.job_status` is a UI-facing contract: pin the wire tag.
+    #[test]
+    fn test_job_status_not_authorized_serde() {
+        let status = serde_json::to_value(super::JobStatus::NotAuthorized).unwrap();
+        assert_eq!(serde_json::json!({"type": "notAuthorized"}), status);
+
+        let round: super::JobStatus = serde_json::from_value(status).unwrap();
+        assert!(matches!(round, super::JobStatus::NotAuthorized));
+    }
 
     #[tokio::test]
     async fn test_prepare_discover() {

@@ -319,7 +319,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             crate::live_specs::get_live_specs_filtered(
                 user_id,
                 &collection_names,
-                models::authz::Capability::CatalogRead.into(),
+                models::authz::Capability::CatalogRead,
                 snapshot,
                 db,
             )

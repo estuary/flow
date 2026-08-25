@@ -49,11 +49,12 @@ fn partition_by_authorization<'n>(
 pub async fn get_live_specs_filtered(
     user_id: Uuid,
     names: &[String],
-    capability: models::authz::CapabilitySet,
+    capability: impl Into<models::authz::CapabilitySet>,
     snapshot: &crate::Snapshot,
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
-    let (authorized, denied) = partition_by_authorization(user_id, names, capability, snapshot);
+    let (authorized, denied) =
+        partition_by_authorization(user_id, names, capability.into(), snapshot);
 
     if !denied.is_empty() {
         tracing::debug!(?denied, %user_id, "filtered unauthorized specs from fetch");
