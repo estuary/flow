@@ -492,6 +492,9 @@ async fn test_injected_ops_collections_are_not_locked() {
     harness
         .add_role_grant("owls/", "ops.us-central1.v1/", Capability::Read)
         .await;
+    // Re-pin the Snapshot: the build's spec-to-spec authorization must see
+    // the just-added role grant.
+    let snapshot = harness.pinned_snapshot().await;
     let reader_draft = draft_catalog(serde_json::json!({
         "collections": {
             "owls/ops-report": {

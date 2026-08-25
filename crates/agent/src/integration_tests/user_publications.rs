@@ -181,12 +181,13 @@ async fn test_user_publications() {
     ]
     "#);
 
-    // The remaining error is spec-to-spec, which is not Snapshot-evaluated
-    // and must not request a refresh.
+    // The remaining spec-to-spec denial is Snapshot-evaluated, so it too
+    // requests an early background refresh: the needed role grant may have
+    // been created after the Snapshot was taken.
     let snapshot = harness.snapshot_watch.token();
     assert!(
-        !snapshot.result().unwrap().revoke.is_cancelled(),
-        "expected the spec-to-spec denial to leave the Snapshot's revoke token alone"
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the spec-to-spec denial to cancel the Snapshot's revoke token"
     );
 
     // Add the role grant, and now dogs can materialize cats/noms
@@ -1143,12 +1144,13 @@ async fn test_publication_spec_to_spec_write_authorization() {
     ]
     "#);
 
-    // The spec-to-spec denial is not Snapshot-evaluated
-    // and must not request a refresh.
+    // The spec-to-spec denial is Snapshot-evaluated and requests an early
+    // background refresh: the needed role grant may have been created after
+    // the Snapshot was taken.
     let snapshot = harness.snapshot_watch.token();
     assert!(
-        !snapshot.result().unwrap().revoke.is_cancelled(),
-        "expected the spec-to-spec denial to leave the Snapshot's revoke token alone"
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the spec-to-spec denial to cancel the Snapshot's revoke token"
     );
 
     // A grant chain reaching cats/ through an intermediary role: dogs/ holds
@@ -1160,35 +1162,13 @@ async fn test_publication_spec_to_spec_write_authorization() {
         .add_role_grant("middle/", "cats/", Capability::Write)
         .await;
 
-    // Spec-to-spec authorization matches direct role_grants rows only: the
-    // chain through middle/ does not authorize the capture, even though the
-    // runtime's task authorization (`authorize_task`) walks exactly this
-    // chain and would let a running dogs/ task append to cats/.
+    // The chain authorizes the capture: spec-to-spec authorization walks the
+    // grant graph — the same walk which authorizes running tasks
+    // (`authorize_task`) — rather than matching direct role_grants rows only.
     let result = harness
         .user_publication(
             dogs_user,
-            "expect fail chained grant",
-            draft_catalog(dog_capture_of_noms()),
-        )
-        .await;
-    assert!(!result.status.is_success());
-    insta::assert_debug_snapshot!(result.errors, @r#"
-    [
-        (
-            "flow://capture/dogs/capture",
-            "Specification is not write-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"middle/\",\n    \"capability\": \"admin\",\n    \"bundles\": []\n  }\n]",
-        ),
-    ]
-    "#);
-
-    // A direct grant authorizes the capture.
-    harness
-        .add_role_grant("dogs/", "cats/", Capability::Write)
-        .await;
-    let result = harness
-        .user_publication(
-            dogs_user,
-            "expect success",
+            "expect success via chained grant",
             draft_catalog(dog_capture_of_noms()),
         )
         .await;
@@ -1392,13 +1372,6 @@ async fn test_publication_system_user_data_plane_filter() {
             vec!["c2VjcmV0".to_string()],
         )
         .await;
-    // `TestControlPlane::publish` pins from the control plane's DB-backed
-    // watch (not the harness's manually-driven executor watch). The denial
-    // below is purely a grant decision, so the plane's absence from that
-    // watch's Snapshot is irrelevant. Capture the Refresh it will pin:
-    // cancellation must land on this very Snapshot, and a cancelled revoke
-    // makes the watch's next `token()` fetch a fresh one.
-    let refresh = harness.control_plane().snapshot_refresh();
 
     let denied = harness
         .control_plane()
@@ -1421,6 +1394,9 @@ async fn test_publication_system_user_data_plane_filter() {
         "data plane acmeCo/dp/other, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
     ]
     "#);
+    // `publish` re-took and pinned the shared watch's Snapshot; the denial
+    // must have cancelled that very Snapshot's revoke token.
+    let refresh = harness.control_plane().snapshot_refresh();
     assert!(
         refresh.result().unwrap().revoke.is_cancelled(),
         "expected the system-path plane denial to cancel the Snapshot's revoke token"

@@ -808,30 +808,31 @@ pub async fn resolve_live_specs(
                 // of referenced collections.
                 continue;
             }
-            // Spec authz must always be checked, even if we're not checking user authz
+            // Spec authz must always be checked, even if we're not checking user authz.
+            // The walk is the same one which authorizes running tasks
+            // (`authorize_task`), so a spec which verifies here is a spec the
+            // runtime will let run. Denials request an early Snapshot refresh:
+            // the needed role grant may postdate this Snapshot.
             for source in reads_from {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read
-                }) {
+                if !snapshot.is_role_authorized(catalog_name, source.as_str(), Capability::Read) {
+                    snapshot.request_refresh();
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            serde_json::to_string_pretty(&snapshot.spec_capabilities(catalog_name)).unwrap(),
                         ),
                     });
                 }
             }
             for target in writes_to {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    target.starts_with(c.object_role.as_str())
-                        && matches!(c.capability, Capability::Write | Capability::Admin)
-                }) {
+                if !snapshot.is_role_authorized(catalog_name, target.as_str(), Capability::Write) {
+                    snapshot.request_refresh();
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            serde_json::to_string_pretty(&snapshot.spec_capabilities(catalog_name)).unwrap(),
                         ),
                     });
                 }

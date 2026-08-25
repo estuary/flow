@@ -185,7 +185,7 @@ pub struct TestHarness {
     /// poll, so that grants created by the test are visible to authorization.
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     /// Replaces the Snapshot behind `snapshot_watch`.
-    snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+    snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
@@ -261,31 +261,32 @@ impl HarnessBuilder {
         )
         .with_skip_all_tests();
 
-        let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
-        let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
-
-        // The discovers and publications executors authorize against a
+        // All authorization under test — the executors and the control
+        // plane's own publications alike — is evaluated against a single
         // manually-driven watch, so that tests control exactly when the
         // Snapshot is (re)taken.
         let (executor_snapshots, replace_executor_snapshot) =
             tokens::manual::<control_plane_api::Snapshot>();
         let (executor_snapshot_watch, _ready) = executor_snapshots.into_parts();
-        let snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
-            Box::new(move |snapshot| {
+        let snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
+            Arc::new(move |snapshot| {
                 let _ = replace_executor_snapshot(Ok(snapshot));
             });
 
-        let control_plane = TestControlPlane::new(PGControlPlane::new(
-            pool.clone(),
-            system_user_id,
-            publisher.clone(),
-            discover_handler.clone(),
-            logs_tx.clone(),
-            snapshot_watch,
-            1.0, // auto_discover_probability
-            publication_cooldown,
-            crate::controllers::ControllerConfig::default(),
-        ));
+        let control_plane = TestControlPlane::new(
+            PGControlPlane::new(
+                pool.clone(),
+                system_user_id,
+                publisher.clone(),
+                discover_handler.clone(),
+                logs_tx.clone(),
+                executor_snapshot_watch.clone(),
+                1.0, // auto_discover_probability
+                publication_cooldown,
+                crate::controllers::ControllerConfig::default(),
+            ),
+            snapshot_replace.clone(),
+        );
 
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
@@ -592,8 +593,8 @@ impl TestHarness {
             &names, false, /* don't fetch spec capabilities */
             &self.pool,
         )
-        .await
-        .expect("failed to query live specs");
+            .await
+            .expect("failed to query live specs");
         assert_eq!(
             prev_specs.spec_count(),
             specs.len(),
@@ -1936,6 +1937,9 @@ pub struct TestControlPlane {
     inner: PGControlPlane<MockDiscoverConnectors>,
     mocks: Arc<Mutex<ControlPlaneMocks>>,
     controller_config: Arc<Mutex<crate::controllers::ControllerConfig>>,
+    /// Replaces the Snapshot behind the shared manually-driven watch, which
+    /// `inner` also holds as its `snapshot_watch`.
+    snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
 }
 
 /// A `Finalize` that can inject build failures in order to test failure scenarios.
@@ -1969,9 +1973,13 @@ impl publications::FinalizeBuild for InjectBuildFailures {
 }
 
 impl TestControlPlane {
-    fn new(inner: PGControlPlane<MockDiscoverConnectors>) -> Self {
+    fn new(
+        inner: PGControlPlane<MockDiscoverConnectors>,
+        snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+    ) -> Self {
         Self {
             inner,
+            snapshot_replace,
             mocks: Arc::new(Mutex::new(ControlPlaneMocks {
                 activations: Vec::new(),
                 fail_activations: BTreeSet::new(),
@@ -1989,10 +1997,10 @@ impl TestControlPlane {
         *self.controller_config.lock().unwrap() = config;
     }
 
-    /// Returns the current `Refresh` of the control plane's DB-backed
-    /// Snapshot watch — the Snapshot which `publish` pins. Capture it before
-    /// publishing to observe revoke cancellation on that same Snapshot: a
-    /// cancelled revoke makes the watch's next `token()` fetch a fresh one.
+    /// Returns the current `Refresh` of the shared manually-driven Snapshot
+    /// watch. `publish` re-takes and pins that watch's Snapshot, so capture
+    /// this *after* publishing to observe revoke cancellation on the very
+    /// Snapshot the publication evaluated.
     pub fn snapshot_refresh(&self) -> Arc<tokens::Refresh<control_plane_api::Snapshot>> {
         self.inner.snapshot_watch.token()
     }
@@ -2284,6 +2292,15 @@ impl ControlPlane for TestControlPlane {
             let mocks = self.mocks.lock().unwrap();
             mocks.build_failures.clone()
         };
+        // Publication authorization — data-plane names, and spec-to-spec
+        // even though system publications skip user checks — is evaluated
+        // against the shared manually-driven watch, whose Snapshot predates
+        // fixtures the test created since the last refresh. Re-take it
+        // before pinning, exactly as the executor poll paths do.
+        let data =
+            control_plane_api::snapshot::try_fetch(&self.inner.pool, &mut Default::default())
+                .await?;
+        (self.snapshot_replace)(control_plane_api::Snapshot::new(tokens::now(), data));
         let refresh = self.inner.snapshot_watch.token();
 
         let publication = DraftPublication {
