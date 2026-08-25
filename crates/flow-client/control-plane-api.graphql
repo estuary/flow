@@ -838,6 +838,11 @@ input DataPlanesFilter {
 	Filter on the `closed` flag.
 	"""
 	closed: BoolFilter
+	"""
+	Filter on the `public` flag, which is derived from the data plane's
+	name prefix (`ops/dp/public/` vs `ops/dp/private/`).
+	"""
+	public: BoolFilter
 }
 
 input DateFilter {
@@ -1872,6 +1877,8 @@ type QueryRoot {
 	
 	`filter.closed.eq` restricts results to data planes whose `closed`
 	flag matches it; omitting it returns both open and closed planes.
+	`filter.public.eq` restricts results to public or private planes;
+	omitting it returns both.
 	"""
 	dataPlanes(filter: DataPlanesFilter, after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 	"""

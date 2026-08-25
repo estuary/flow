@@ -16,6 +16,9 @@ pub struct DataPlanesFilter {
     pub id: Option<filters::IdFilter>,
     /// Filter on the `closed` flag.
     pub closed: Option<filters::BoolFilter>,
+    /// Filter on the `public` flag, which is derived from the data plane's
+    /// name prefix (`ops/dp/public/` vs `ops/dp/private/`).
+    pub public: Option<filters::BoolFilter>,
 }
 
 /// Cloud provider where the data plane is hosted.
@@ -469,6 +472,8 @@ impl DataPlanesQuery {
     ///
     /// `filter.closed.eq` restricts results to data planes whose `closed`
     /// flag matches it; omitting it returns both open and closed planes.
+    /// `filter.public.eq` restricts results to public or private planes;
+    /// omitting it returns both.
     pub async fn data_planes(
         &self,
         ctx: &Context<'_>,
@@ -482,9 +487,10 @@ impl DataPlanesQuery {
         let claims = env.claims()?;
         let snapshot = env.snapshot();
 
-        let DataPlanesFilter { id, closed } = filter.unwrap_or_default();
+        let DataPlanesFilter { id, closed, public } = filter.unwrap_or_default();
         let id_in = id.and_then(|f| f.r#in);
         let closed_eq = closed.and_then(|f| f.eq);
+        let public_eq = public.and_then(|f| f.eq);
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
@@ -492,8 +498,13 @@ impl DataPlanesQuery {
             .data_planes
             .iter()
             .filter(|dp| {
-                if parse_data_plane_name(&dp.data_plane_name).is_none() {
+                // `public` isn't a column: it's implied by the name prefix,
+                // so it comes from the same parse that validates the name.
+                let Some((_, _, _, public)) = parse_data_plane_name(&dp.data_plane_name) else {
                     tracing::warn!(data_plane_name = %dp.data_plane_name, "skipping data plane with unparseable name");
+                    return false;
+                };
+                if public_eq.is_some_and(|want| want != public) {
                     return false;
                 }
                 if let Some(ids) = id_in.as_ref() {
