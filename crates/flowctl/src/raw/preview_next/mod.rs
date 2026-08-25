@@ -44,9 +44,9 @@ pub struct Preview {
     /// of transactions for each session?
     ///
     /// Sessions are specified as a comma-separated list of the number of
-    /// transactions for the ordered session. For a given session, a value less
-    /// than zero means "unlimited transactions", though the session will still
-    /// end upon a connector exit / EOF (when a capture) or timeout.
+    /// transactions for the ordered session. For a given session, a value of
+    /// zero or less means "unlimited transactions", though the session will
+    /// still end upon a connector exit / EOF (when a capture) or timeout.
     ///
     /// For example, to run three sessions consisting of two transactions,
     /// then one transaction, and then unlimited transactions,
@@ -55,7 +55,10 @@ pub struct Preview {
     /// A session is stopped and the next started upon reaching the target number
     /// of transactions, or upon a timeout, or if the connector exits.
     ///
-    /// The default is a single session with an unbounded number of transactions.
+    /// The default (no --sessions) is a single session with an unbounded number
+    /// of transactions which acts as production does: when a capture connector
+    /// exits, the session holds through the capture's poll interval before
+    /// stopping, rather than stopping at EOF.
     ///
     /// Materialization previews always append one final empty drain session:
     /// a session halts after its final commit without running the post-commit
@@ -199,8 +202,13 @@ impl Preview {
         let session_targets: Vec<u32> = if let Some(s) = sessions {
             s.iter()
                 .map(|i| {
-                    if *i < 0 {
-                        Ok(0)
+                    if *i <= 0 {
+                        // "Unlimited" transactions: a bound never reached in
+                        // practice, but non-zero so a capture session stops at
+                        // connector EOF. Zero selects production semantics,
+                        // which hold an EOF'd session through the capture's
+                        // poll interval -- reserved for an unset --sessions.
+                        Ok(u32::MAX)
                     } else {
                         u32::try_from(*i).context("--sessions values must fit in uint32")
                     }

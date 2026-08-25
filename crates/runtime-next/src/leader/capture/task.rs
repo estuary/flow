@@ -17,6 +17,8 @@ pub struct Task {
     pub explicit_acknowledgements: bool,
     /// Transactions to complete before stopping, or zero for unbounded.
     /// Set only by the preview / test harness; production leaves it zero.
+    /// A non-zero bound also stops the session at connector EOF, where
+    /// production holds it through the poll interval (`restart`).
     pub max_transactions: u32,
     /// Salt used for redacting sensitive fields.
     pub redact_salt: bytes::Bytes,
