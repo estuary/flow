@@ -1250,6 +1250,102 @@ mod tests {
         );
     }
 
+    // The `filter.public.eq` argument narrows the listing by the public /
+    // private distinction, which is derived from the plane's name prefix
+    // rather than a column. The fixture's only private plane is otherwise
+    // excluded from snapshots for having no HMAC keys, so give it keys and
+    // grant alice read on `ops/dp/private/` to make it visible.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_data_planes_public_filter(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let private_dp = "ops/dp/private/defunct/az-westeurope-c1";
+        let public_dps = vec![
+            "ops/dp/public/aws-us-west-2-c1".to_string(),
+            "ops/dp/public/gcp-us-central1-c2".to_string(),
+        ];
+
+        // give test user read access to the private plane
+        sqlx::query("UPDATE data_planes SET hmac_keys = '{c2VjcmV0}' WHERE data_plane_name = $1")
+            .bind(private_dp)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO role_grants (subject_role, object_role, capability)
+             VALUES ('aliceCo/', 'ops/dp/private/', 'read')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // Collects the sorted set of returned data-plane names for the given
+        // `filter` argument (JSON null when omitted).
+        async fn names(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Vec<String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        query($filter: DataPlanesFilter) {
+                            dataPlanes(filter: $filter) {
+                                edges { node { name isPublic } }
+                            }
+                        }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
+                    Some(token),
+                )
+                .await;
+            let mut names: Vec<String> = response["data"]["dataPlanes"]["edges"]
+                .as_array()
+                .unwrap_or_else(|| panic!("expected edges, got: {response}"))
+                .iter()
+                .map(|e| e["node"]["name"].as_str().unwrap().to_string())
+                .collect();
+            names.sort();
+            names
+        }
+
+        // No filter: public and private planes returned.
+        let mut all = public_dps.clone();
+        all.push(private_dp.to_string());
+        all.sort();
+        assert_eq!(names(&server, &token, serde_json::Value::Null).await, all);
+        // public eq true -> only the two public planes.
+        assert_eq!(
+            names(
+                &server,
+                &token,
+                serde_json::json!({ "public": { "eq": true } })
+            )
+            .await,
+            public_dps,
+        );
+        // public eq false -> only the private plane.
+        assert_eq!(
+            names(
+                &server,
+                &token,
+                serde_json::json!({ "public": { "eq": false } })
+            )
+            .await,
+            vec![private_dp.to_string()],
+        );
+    }
+
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(
