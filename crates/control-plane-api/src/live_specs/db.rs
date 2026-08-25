@@ -2,7 +2,6 @@ use crate::TextJson;
 use models::{CatalogType, Id};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-use tables::RoleGrant;
 
 /// Deletes the given live spec row, along with the corresponding `controller_jobs` row.
 pub async fn hard_delete_live_spec(id: Id, txn: &mut sqlx::PgConnection) -> sqlx::Result<()> {
@@ -33,16 +32,18 @@ pub struct LiveSpec {
     pub spec: Option<TextJson<Box<RawValue>>>,
     pub built_spec: Option<TextJson<Box<RawValue>>>,
     pub inferred_schema_md5: Option<String>,
-    // Capabilities of the specification with respect to other roles.
-    pub spec_capabilities: Json<Vec<RoleGrant>>,
+    // Authorization capabilities are deliberately absent: both the user's
+    // capability to `catalog_name` and the spec's own role grants are
+    // evaluated in-process against the authorization Snapshot, never
+    // synthesized onto rows.
     pub dependency_hash: Option<String>,
 }
 
 /// Returns a `LiveSpec` row for each of the given `names`. This will always return a row for each
-/// name, even if no live spec exists in the database.
+/// name, even if no live spec exists in the database. This is a pure data fetch: authorization
+/// is evaluated by callers, in-process against the authorization Snapshot.
 pub async fn fetch_live_specs(
     names: &[&str],
-    fetch_spec_capabilities: bool,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> sqlx::Result<Vec<LiveSpec>> {
     sqlx::query_as!(
@@ -58,20 +59,11 @@ pub async fn fetch_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            case when $2 then coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(names, subject_role)),
-                '[]'
-            ) else
-               '[]'
-            end as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from unnest($1::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
         "#,
         names as &[&str],
-        fetch_spec_capabilities,
     )
     .fetch_all(db)
     .await
@@ -137,10 +129,6 @@ pub async fn fetch_expanded_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            -- Placeholder with no reader: the caller discards this column,
-            -- and specs which expansion adds to the draft have their
-            -- capabilities fetched afresh by the resolve-path fetch_live_specs.
-            '[]' as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from exp
         join live_specs ls on ls.id = exp.id

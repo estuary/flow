@@ -735,9 +735,8 @@ pub async fn resolve_live_specs(
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<tables::LiveCatalog> {
-    // We're expecting to get a row for catalog name that's either drafted or referenced
-    // by a drafted spec, even if the live spec does not exist. In that case, the row will
-    // still contain information on the spec capabilities.
+    // We're expecting to get a row for each catalog name that's either drafted or
+    // referenced by a drafted spec, even if the live spec does not exist.
     // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
     let mut all_spec_names = draft
         .all_catalog_names()
@@ -765,7 +764,6 @@ pub async fn resolve_live_specs(
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        true, // always fetch spec capabilities
         db,
     )
     .await

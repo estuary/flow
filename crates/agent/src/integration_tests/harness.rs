@@ -589,10 +589,7 @@ impl TestHarness {
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
         let names: Vec<&str> = prev_specs.all_spec_names().collect();
-        let specs = control_plane_api::live_specs::fetch_live_specs(
-            &names, false, /* don't fetch spec capabilities */
-            &self.pool,
-        )
+        let specs = control_plane_api::live_specs::fetch_live_specs(&names, &self.pool)
             .await
             .expect("failed to query live specs");
         assert_eq!(
