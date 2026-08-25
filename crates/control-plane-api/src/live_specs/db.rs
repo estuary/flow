@@ -32,10 +32,6 @@ pub struct LiveSpec {
     pub spec: Option<TextJson<Box<RawValue>>>,
     pub built_spec: Option<TextJson<Box<RawValue>>>,
     pub inferred_schema_md5: Option<String>,
-    // Authorization capabilities are deliberately absent: both the user's
-    // capability to `catalog_name` and the spec's own role grants are
-    // evaluated in-process against the authorization Snapshot, never
-    // synthesized onto rows.
     pub dependency_hash: Option<String>,
 }
 
