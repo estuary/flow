@@ -662,7 +662,6 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         default_data_plane: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
         let refresh = self.snapshot_watch.token();
-        let snapshot = refresh.result().unwrap();
 
         let publication = DraftPublication {
             user_id: self.system_user_id,
@@ -673,7 +672,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             default_data_plane_name: default_data_plane,
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
-            snapshot,
+            snapshot: refresh.result().unwrap(),
             initialize: NoopInitialize,
             finalize: PruneUnboundCollections,
             retry: DefaultRetryPolicy,

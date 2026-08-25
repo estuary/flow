@@ -943,7 +943,7 @@ pub async fn resolve_live_specs(
     // `verify_user_authz: false`).
     let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) = data_plane_names
         .into_iter()
-        .partition(|name| snapshot.is_user_authorized(user_id, name, models::Capability::Read));
+        .partition(|name| snapshot.is_user_authorized(user_id, name, Capability::Read));
     if !denied_names.is_empty() {
         snapshot.request_refresh();
         tracing::warn!(?denied_names, "excluding unauthorized data-plane names");

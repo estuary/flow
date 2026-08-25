@@ -1212,3 +1212,75 @@ async fn test_publication_no_data_plane_requests_snapshot_refresh() {
         "expected the denied data-plane to cancel the Snapshot's revoke token"
     );
 }
+
+// The data-plane read filter is deliberately unconditional: system
+// publications (`verify_user_authz: false`, as controllers issue) pass
+// through it as the system user, identically to user publications. Pin both
+// directions: a plane outside the system user's grants fails exactly as a
+// missing one and requests a Snapshot refresh, while its `ops/` grant admits
+// the shared test plane.
+#[tokio::test]
+async fn test_publication_system_user_data_plane_filter() {
+    let mut harness = TestHarness::init("test_publication_system_user_data_plane_filter").await;
+    let _user_id = harness.setup_tenant("cats").await;
+    pin_storage_mapping_planes(&harness, "cats/").await;
+
+    // A plane outside every grant of the system user, which holds admin only
+    // to `ops/` and `estuary_support/`.
+    harness
+        .add_data_plane(
+            "acmeCo/dp/other",
+            "acmeco-dp-other.dp.test",
+            vec!["c2VjcmV0".to_string()],
+        )
+        .await;
+    // `TestControlPlane::publish` pins from the control plane's DB-backed
+    // watch (not the harness's manually-driven executor watch). The denial
+    // below is purely a grant decision, so the plane's absence from that
+    // watch's Snapshot is irrelevant. Capture the Refresh it will pin:
+    // cancellation must land on this very Snapshot, and a cancelled revoke
+    // makes the watch's next `token()` fetch a fresh one.
+    let refresh = harness.control_plane().snapshot_refresh();
+
+    let denied = harness
+        .control_plane()
+        .publish(
+            Some("system publication into a denied plane".to_string()),
+            uuid::Uuid::new_v4(),
+            draft_catalog(pawed_collection()),
+            Some("acmeCo/dp/other".to_string()),
+        )
+        .await
+        .expect("publish failed to run");
+    assert!(!denied.status.is_success());
+    let errors: Vec<String> = denied
+        .draft_errors()
+        .into_iter()
+        .map(|e| e.detail)
+        .collect();
+    insta::assert_debug_snapshot!(errors, @r#"
+    [
+        "data plane acmeCo/dp/other, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
+    ]
+    "#);
+    assert!(
+        refresh.result().unwrap().revoke.is_cancelled(),
+        "expected the system-path plane denial to cancel the Snapshot's revoke token"
+    );
+
+    let allowed = harness
+        .control_plane()
+        .publish(
+            Some("system publication into a readable plane".to_string()),
+            uuid::Uuid::new_v4(),
+            draft_catalog(pawed_collection()),
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .expect("publish failed to run");
+    assert!(
+        allowed.status.is_success(),
+        "publication failed with: {:?}",
+        allowed.draft_errors()
+    );
+}

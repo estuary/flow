@@ -268,12 +268,12 @@ impl HarnessBuilder {
         // The discovers and publications executors authorize against a
         // manually-driven watch, so that tests control exactly when the
         // Snapshot is (re)taken.
-        let (discover_snapshots, replace_discover_snapshot) =
+        let (executor_snapshots, replace_executor_snapshot) =
             tokens::manual::<control_plane_api::Snapshot>();
-        let (discover_snapshot_watch, _ready) = discover_snapshots.into_parts();
+        let (executor_snapshot_watch, _ready) = executor_snapshots.into_parts();
         let snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
             Box::new(move |snapshot| {
-                let _ = replace_discover_snapshot(Ok(snapshot));
+                let _ = replace_executor_snapshot(Ok(snapshot));
             });
 
         let control_plane = TestControlPlane::new(PGControlPlane::new(
@@ -299,7 +299,7 @@ impl HarnessBuilder {
             publisher,
             builds_root,
             discover_handler,
-            snapshot_watch: discover_snapshot_watch,
+            snapshot_watch: executor_snapshot_watch,
             snapshot_replace,
             control_plane,
             controller_exec,
@@ -1990,6 +1990,14 @@ impl TestControlPlane {
         *self.controller_config.lock().unwrap() = config;
     }
 
+    /// Returns the current `Refresh` of the control plane's DB-backed
+    /// Snapshot watch — the Snapshot which `publish` pins. Capture it before
+    /// publishing to observe revoke cancellation on that same Snapshot: a
+    /// cancelled revoke makes the watch's next `token()` fetch a fresh one.
+    pub fn snapshot_refresh(&self) -> Arc<tokens::Refresh<control_plane_api::Snapshot>> {
+        self.inner.snapshot_watch.token()
+    }
+
     pub fn reset_activations(&mut self) {
         let mut mocks = self.mocks.lock().unwrap();
         mocks.activations.clear();
@@ -2278,7 +2286,6 @@ impl ControlPlane for TestControlPlane {
             mocks.build_failures.clone()
         };
         let refresh = self.inner.snapshot_watch.token();
-        let snapshot = refresh.result().unwrap();
 
         let publication = DraftPublication {
             user_id: self.inner.system_user_id,
@@ -2288,7 +2295,7 @@ impl ControlPlane for TestControlPlane {
             dry_run: false,
             default_data_plane_name: data_plane_name,
             verify_user_authz: false,
-            snapshot,
+            snapshot: refresh.result().unwrap(),
             initialize: NoopInitialize,
             finalize,
             retry: DefaultRetryPolicy,

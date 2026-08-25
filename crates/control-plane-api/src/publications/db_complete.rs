@@ -449,25 +449,6 @@ pub async fn find_tenant_quotas(
     .await
 }
 
-#[derive(Debug)]
-pub struct ExpandedRow {
-    // Name of the specification.
-    pub catalog_name: String,
-    // Last build ID of the live spec.
-    pub last_build_id: Id,
-    // Last publication ID of the live spec.
-    pub last_pub_id: Id,
-    // Current live specification of this expansion.
-    // It won't be changed by this publication.
-    pub live_spec: Json<Box<RawValue>>,
-    // ID of the expanded live specification.
-    pub live_spec_id: Id,
-    // Spec type of the live specification.
-    pub live_type: CatalogType,
-    // User's capability to the specification `catalog_name`.
-    pub user_capability: Option<Capability>,
-}
-
 pub async fn delete_stale_flow(
     live_spec_id: Id,
     catalog_type: CatalogType,
