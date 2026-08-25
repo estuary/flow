@@ -551,6 +551,7 @@ mod tests {
             sub: user_id,
             role: "authenticated".to_string(),
             email,
+            capability_mask: None,
         };
 
         match evaluate_authorization(&snapshot, &claims, &prefix, &data_plane, capability) {

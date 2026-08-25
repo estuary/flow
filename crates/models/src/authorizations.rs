@@ -20,6 +20,27 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    // Capability names to which this token's authority is masked.
+    //
+    // `None` is an unmasked token — today that's every token we mint, and a
+    // full-authority credential stays unmasked once masking exists. `Some`
+    // is a masked token whose authority is its user's live grants
+    // intersected with the recognized names herein, and an empty list is
+    // valid: it mints an identity-only token.
+    //
+    // Deliberately an opaque list of strings rather than
+    // `authz::CapabilitySet`, so that this shared claim doesn't structurally
+    // depend on the newest capability variant. A name an instance doesn't
+    // recognize must parse and then be inert — it can never widen authority —
+    // which is what makes mixed-version fleets and future capability names
+    // safe by construction. See `authz::CapabilityMask::from_claim`.
+    //
+    // Leniency is over names only. The claim's shape stays strict — an array,
+    // absent, or null — because the control plane is its sole minter, so a
+    // differently-shaped claim is a corrupt or forged token and failing
+    // verification is the fail-safe outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_mask: Option<Vec<String>>,
 }
 
 impl ControlClaims {
@@ -249,4 +270,147 @@ pub struct DekafAuthResponse {
 
 const fn capability_read() -> crate::Capability {
     crate::Capability::Read
+}
+
+#[cfg(test)]
+mod test {
+    use super::ControlClaims;
+    use crate::authz::CapabilityMask;
+
+    #[test]
+    fn test_capability_mask_claim_forms() {
+        // Every form of the claim parses. A token which fails to parse is a
+        // token which fails to authenticate, so an unrecognized name must
+        // never be a deserialization error: it's carried through and is then
+        // inert when the mask is built.
+        let base = serde_json::json!({
+            "aud": "authenticated",
+            "iat": 1000,
+            "exp": 2000,
+            "sub": "11111111-1111-1111-1111-111111111111",
+            "role": "authenticated",
+        });
+        let cases = [
+            // Absent: every token minted before capability masks existed.
+            serde_json::Value::Null,
+            serde_json::json!(["CatalogRead", "JournalRead", "Delegate"]),
+            serde_json::json!([]),
+            serde_json::json!(["SpecEdit", "FutureCapability"]),
+            serde_json::json!(["FutureCapability"]),
+        ];
+
+        let outcomes: Vec<(Option<Vec<String>>, CapabilityMask)> = cases
+            .into_iter()
+            .map(|mask| {
+                let mut claims = base.clone();
+                if !mask.is_null() {
+                    claims["capability_mask"] = mask;
+                }
+                let claims: ControlClaims = serde_json::from_value(claims).unwrap();
+                let mask = CapabilityMask::from_claim(claims.capability_mask.as_deref());
+                (claims.capability_mask, mask)
+            })
+            .collect();
+
+        // Claim-less forms map to the unmasked (full) set. Asserted rather
+        // than snapshotted so this test doesn't churn when a capability
+        // variant is added.
+        for (claim, mask) in &outcomes {
+            if claim.is_none() {
+                assert_eq!(*mask, CapabilityMask::UNMASKED);
+            }
+        }
+        let bounded: Vec<_> = outcomes
+            .into_iter()
+            .filter(|(claim, _)| claim.is_some())
+            .collect();
+
+        insta::assert_debug_snapshot!(bounded, @r#"
+        [
+            (
+                Some(
+                    [
+                        "CatalogRead",
+                        "JournalRead",
+                        "Delegate",
+                    ],
+                ),
+                CapabilityMask(
+                    EnumSet(CatalogRead | JournalRead | Delegate),
+                ),
+            ),
+            (
+                Some(
+                    [],
+                ),
+                CapabilityMask(
+                    EnumSet(),
+                ),
+            ),
+            (
+                Some(
+                    [
+                        "SpecEdit",
+                        "FutureCapability",
+                    ],
+                ),
+                CapabilityMask(
+                    EnumSet(SpecEdit),
+                ),
+            ),
+            (
+                Some(
+                    [
+                        "FutureCapability",
+                    ],
+                ),
+                CapabilityMask(
+                    EnumSet(),
+                ),
+            ),
+        ]
+        "#);
+    }
+
+    #[test]
+    fn test_capability_mask_claim_round_trip() {
+        let claims = ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 1000,
+            exp: 2000,
+            sub: uuid::Uuid::nil(),
+            role: "authenticated".to_string(),
+            email: None,
+            capability_mask: None,
+        };
+
+        // An unmasked token doesn't carry the claim at all, so tokens we
+        // mint today are unchanged on the wire.
+        insta::assert_json_snapshot!(claims, @r#"
+        {
+          "aud": "authenticated",
+          "iat": 1000,
+          "exp": 2000,
+          "sub": "00000000-0000-0000-0000-000000000000",
+          "role": "authenticated"
+        }
+        "#);
+
+        // An empty mask is distinct from an absent one on the wire, and
+        // survives a round trip as such.
+        let masked = ControlClaims {
+            capability_mask: Some(Vec::new()),
+            ..claims
+        };
+        insta::assert_json_snapshot!(masked, @r#"
+        {
+          "aud": "authenticated",
+          "iat": 1000,
+          "exp": 2000,
+          "sub": "00000000-0000-0000-0000-000000000000",
+          "role": "authenticated",
+          "capability_mask": []
+        }
+        "#);
+    }
 }
