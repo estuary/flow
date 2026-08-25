@@ -1515,8 +1515,11 @@ var xxx_messageInfo_Joined proto.InternalMessageInfo
 type Task struct {
 	// Task specification (protobuf-encoded bytes).
 	Spec []byte `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
-	// Maximum number of transactions to run before exiting. Zero means unlimited.
-	// Used by "preview" workflows.
+	// Maximum number of transactions to run before exiting. Zero means unlimited
+	// and selects production semantics: on connector exit, a capture session
+	// holds until its poll interval elapses. A non-zero bound instead stops the
+	// capture session at connector EOF. Set only by "preview" workflows and test
+	// harnesses; production leaves it zero.
 	MaxTransactions uint32 `protobuf:"varint,3,opt,name=max_transactions,json=maxTransactions,proto3" json:"max_transactions,omitempty"`
 	// URL of a SQLite VFS the shard threads to a SQLite derive connector via
 	// `DeriveRequestExt.open.sqlite_vfs_uri` on C:Open. Set by the controller

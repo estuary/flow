@@ -490,8 +490,11 @@ pub struct Task {
     /// Task specification (protobuf-encoded bytes).
     #[prost(bytes = "bytes", tag = "1")]
     pub spec: ::prost::bytes::Bytes,
-    /// Maximum number of transactions to run before exiting. Zero means unlimited.
-    /// Used by "preview" workflows.
+    /// Maximum number of transactions to run before exiting. Zero means unlimited
+    /// and selects production semantics: on connector exit, a capture session
+    /// holds until its poll interval elapses. A non-zero bound instead stops the
+    /// capture session at connector EOF. Set only by "preview" workflows and test
+    /// harnesses; production leaves it zero.
     #[prost(uint32, tag = "3")]
     pub max_transactions: u32,
     /// URL of a SQLite VFS the shard threads to a SQLite derive connector via

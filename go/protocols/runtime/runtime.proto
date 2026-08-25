@@ -474,8 +474,11 @@ message Task {
 
   // Task specification (protobuf-encoded bytes).
   bytes spec = 1;
-  // Maximum number of transactions to run before exiting. Zero means unlimited.
-  // Used by "preview" workflows.
+  // Maximum number of transactions to run before exiting. Zero means unlimited
+  // and selects production semantics: on connector exit, a capture session
+  // holds until its poll interval elapses. A non-zero bound instead stops the
+  // capture session at connector EOF. Set only by "preview" workflows and test
+  // harnesses; production leaves it zero.
   uint32 max_transactions = 3;
   // URL of a SQLite VFS the shard threads to a SQLite derive connector via
   // `DeriveRequestExt.open.sqlite_vfs_uri` on C:Open. Set by the controller

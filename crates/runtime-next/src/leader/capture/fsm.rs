@@ -313,8 +313,14 @@ impl HeadIdle {
             }
         }
         // Restart condition: once the Tail has drained, hold until `task.restart`
-        // and then Stop this session.
+        // and then Stop this session. Under a preview or test harness -- the
+        // only setters of `max_transactions` -- stop at EOF instead: the
+        // session is done when the connector is, rather than holding through
+        // the capture's poll interval.
         if matches!(ready, ConnectorRx::Eof) && !is_open && tail_done {
+            if task.max_transactions != 0 {
+                return (Action::PollAgain, Head::Stop);
+            }
             return match uuid::Clock::delta(task.restart, now) {
                 Duration::ZERO => (Action::PollAgain, Head::Stop),
                 wake_after => (Action::Sleep { wake_after }, Head::Idle(self)),
@@ -1490,6 +1496,51 @@ mod tests {
             matches!(head, Head::Stop),
             "Head must stop once the Tail is Done, got {head:?}",
         );
+        assert!(matches!(action, Action::PollAgain));
+    }
+
+    /// On connector EOF with the Tail drained, a production session (zero
+    /// `max_transactions`) holds through the poll interval: it sleeps until
+    /// `task.restart` and stops only once that clock elapses. A preview or
+    /// test-harness session (non-zero `max_transactions`) stops at EOF
+    /// immediately -- the session is done when the connector is.
+    #[test]
+    fn eof_sleeps_until_restart_in_production_and_stops_preview_immediately() {
+        let interval = Duration::from_secs(300);
+        let mk = |max_transactions: u32| {
+            let mut task = mk_task(true);
+            task.max_transactions = max_transactions;
+            // `restart` is one poll interval past the Ctx clock.
+            task.restart = uuid::Clock::from_unix(1_700_000_300, 0);
+            let mut ctx = mk_ctx(task);
+            ctx.ready = ConnectorRx::Eof;
+            ctx
+        };
+        let tail = Tail::Done(TailDone::default());
+
+        // Production: Head sleeps until `restart` ...
+        let mut ctx = mk(0);
+        let (action, head) = ctx.step_head(Head::Idle(HeadIdle::default()), &tail);
+        assert!(matches!(head, Head::Idle(_)));
+        let Action::Sleep { wake_after } = action else {
+            panic!("expected Sleep until restart, got {action:?}");
+        };
+        assert!(
+            wake_after <= interval && wake_after > interval - Duration::from_secs(1),
+            "wake_after {wake_after:?} is not about one interval {interval:?}",
+        );
+
+        // ... and stops once it has elapsed.
+        ctx.now = ctx.task.restart;
+        let (action, head) = ctx.step_head(head, &tail);
+        assert!(matches!(head, Head::Stop));
+        assert!(matches!(action, Action::PollAgain));
+
+        // Preview / test harness: stops at EOF immediately, `restart`
+        // notwithstanding.
+        let mut ctx = mk(u32::MAX);
+        let (action, head) = ctx.step_head(Head::Idle(HeadIdle::default()), &tail);
+        assert!(matches!(head, Head::Stop));
         assert!(matches!(action, Action::PollAgain));
     }
 
