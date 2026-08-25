@@ -14,11 +14,14 @@
 //! - a document:      `["collection/name", { ...document... }]`
 //! - a commit marker: `{"commit": true}`
 //!
-//! Documents between commit markers form one transaction. Each transaction is
-//! written as a single log block, and (paired with a collapsed transaction
-//! duration window on the preview task spec) commits as exactly one runtime
-//! transaction — preserving the 1:1 transaction boundaries of legacy fixture
-//! preview. Empty transactions — consecutive commit markers — are deliberate
+//! Documents between commit markers form one transaction. A transaction is
+//! written as one or more log blocks per shard — see [`FIXTURE_BLOCK_ENTRIES`]
+//! — and (paired with a collapsed transaction duration window on the preview
+//! task spec) commits as exactly one runtime transaction, preserving the 1:1
+//! transaction boundaries of legacy fixture preview. Block count does not
+//! affect that boundary: the frontier carries only each shard's final LSN as
+//! its read barrier, so a transaction split across many blocks still commits
+//! once. Empty transactions — consecutive commit markers — are deliberate
 //! and preserved: connectors-repo fixtures lead with one to drive an initial
 //! empty commit cycle, and apply-only tests use a fixture that is a single
 //! bare `{"commit": true}` line.
@@ -57,6 +60,21 @@ use tokio::sync::{Mutex, mpsc};
 
 /// Fixed synthetic producer for all fixture documents (matches legacy preview).
 const FIXTURE_PRODUCER: uuid::Producer = uuid::Producer([7, 19, 83, 3, 3, 17]);
+
+/// Flush a shard's buffered entries into a block once either threshold is met.
+///
+/// `block::encode` asserts that a block holds at most 65,536 entries, an
+/// invariant the live actor keeps by consulting `BlockState::is_full()` every
+/// iteration. The fixture writes blocks through `Writer::append_block`, which
+/// performs no such check, so it must bound its own blocks. A benchmark
+/// generator feeding millions of documents in one transaction otherwise trips
+/// the assert.
+///
+/// The byte threshold matters as much as the entry count: without it a
+/// transaction's documents all stay resident until the transaction ends, so
+/// peak memory tracks transaction size rather than block size.
+const FIXTURE_BLOCK_ENTRIES: usize = 32 * 1024;
+const FIXTURE_BLOCK_BYTES: usize = 64 * 1024 * 1024;
 
 /// One queued item of a fixture-replay opener's channel.
 pub enum FixtureItem {
@@ -565,6 +583,9 @@ fn write_transaction(
 ) -> anyhow::Result<shuffle::Frontier> {
     let mut entries: Vec<Vec<(shuffle::log::BlockMeta, u32, bytes::Bytes, bytes::Bytes)>> =
         vec![Vec::new(); writers.len()];
+    // Buffered document bytes per shard, driving FIXTURE_BLOCK_BYTES.
+    let mut entries_bytes: Vec<usize> = vec![0; writers.len()];
+    let producers: HashMap<uuid::Producer, u16> = [(FIXTURE_PRODUCER, 0)].into();
     let mut block_journals: HashMap<String, u16> = HashMap::new();
     // (journal, binding) => (max committed clock, source bytes this txn).
     let mut frontier_acc: BTreeMap<(String, u16), (uuid::Clock, i64)> = BTreeMap::new();
@@ -646,6 +667,26 @@ fn write_transaction(
                 shards,
             ) {
                 entries[shard_index].push((meta, source_len, key.clone(), doc_bytes.clone()));
+                entries_bytes[shard_index] += doc_bytes.len();
+
+                if entries[shard_index].len() >= FIXTURE_BLOCK_ENTRIES
+                    || entries_bytes[shard_index] >= FIXTURE_BLOCK_BYTES
+                {
+                    // Every entry buffered for this shard carries a journal_bid
+                    // already present in `block_journals`, so the map as it
+                    // stands resolves them all. Later journals appearing in it
+                    // are unreferenced by this block and harmless.
+                    let block = std::mem::take(&mut entries[shard_index]);
+                    entries_bytes[shard_index] = 0;
+
+                    let (lsn, rolled) = writers[shard_index]
+                        .append_block(block_journals.clone(), producers.clone(), block)
+                        .context("writing fixture log block")?;
+                    if let Some(rolled) = rolled {
+                        sealed.push(rolled);
+                    }
+                    last_lsns[shard_index] = lsn;
+                }
             }
 
             let acc = frontier_acc
@@ -657,9 +698,9 @@ fn write_transaction(
         }
     }
 
-    // Write each shard's documents as a single block (if any), advancing that
-    // shard's session-local read barrier to its LSN.
-    let producers: HashMap<uuid::Producer, u16> = [(FIXTURE_PRODUCER, 0)].into();
+    // Write each shard's remaining documents (if any), advancing that shard's
+    // session-local read barrier to its LSN. Shards flushed mid-loop and left
+    // empty keep the barrier their last flush set.
     for (shard_index, shard_entries) in entries.into_iter().enumerate() {
         if shard_entries.is_empty() {
             continue;
