@@ -290,20 +290,30 @@ mod test {
             "sub": "11111111-1111-1111-1111-111111111111",
             "role": "authenticated",
         });
+        // `None` leaves the field absent; `Some` sets it, including to an
+        // explicit JSON null. Absent and null both mean "no mask", while an
+        // empty array is a mask enabling nothing — and the difference
+        // is load-bearing: `[]` attenuates authority to nothing, absence
+        // doesn't attenuate at all.
         let cases = [
             // Absent: every token minted before capability masks existed.
-            serde_json::Value::Null,
-            serde_json::json!(["CatalogRead", "JournalRead", "Delegate"]),
-            serde_json::json!([]),
-            serde_json::json!(["SpecEdit", "FutureCapability"]),
-            serde_json::json!(["FutureCapability"]),
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!([
+                "CatalogRead",
+                "JournalRead",
+                "Delegate"
+            ])),
+            Some(serde_json::json!([])),
+            Some(serde_json::json!(["SpecEdit", "FutureCapability"])),
+            Some(serde_json::json!(["FutureCapability"])),
         ];
 
         let outcomes: Vec<(Option<Vec<String>>, CapabilityMask)> = cases
             .into_iter()
             .map(|mask| {
                 let mut claims = base.clone();
-                if !mask.is_null() {
+                if let Some(mask) = mask {
                     claims["capability_mask"] = mask;
                 }
                 let claims: ControlClaims = serde_json::from_value(claims).unwrap();
@@ -373,6 +383,53 @@ mod test {
     }
 
     #[test]
+    fn test_capability_mask_claim_rejects_malformed_shapes() {
+        // Leniency is over names only. The claim must be an array of
+        // strings, absent, or null; any other shape fails deserialization,
+        // and a token whose claims fail to parse fails to authenticate.
+        // The control plane is the claim's sole minter, so a
+        // differently-shaped claim is corrupt or forged, and refusing the
+        // token is the fail-safe outcome.
+        let base = serde_json::json!({
+            "aud": "authenticated",
+            "iat": 1000,
+            "exp": 2000,
+            "sub": "11111111-1111-1111-1111-111111111111",
+            "role": "authenticated",
+        });
+        let errors: Vec<String> = [
+            serde_json::json!("CatalogRead"),
+            serde_json::json!(42),
+            serde_json::json!(true),
+            serde_json::json!({"names": ["CatalogRead"]}),
+            serde_json::json!([["CatalogRead"]]),
+            serde_json::json!(["CatalogRead", 42]),
+            serde_json::json!([null]),
+        ]
+        .into_iter()
+        .map(|mask| {
+            let mut claims = base.clone();
+            claims["capability_mask"] = mask;
+            serde_json::from_value::<ControlClaims>(claims)
+                .unwrap_err()
+                .to_string()
+        })
+        .collect();
+
+        insta::assert_debug_snapshot!(errors, @r#"
+        [
+            "invalid type: string \"CatalogRead\", expected a sequence",
+            "invalid type: integer `42`, expected a sequence",
+            "invalid type: boolean `true`, expected a sequence",
+            "invalid type: map, expected a sequence",
+            "invalid type: sequence, expected a string",
+            "invalid type: integer `42`, expected a string",
+            "invalid type: null, expected a string",
+        ]
+        "#);
+    }
+
+    #[test]
     fn test_capability_mask_claim_round_trip() {
         let claims = ControlClaims {
             aud: "authenticated".to_string(),
@@ -410,6 +467,33 @@ mod test {
           "sub": "00000000-0000-0000-0000-000000000000",
           "role": "authenticated",
           "capability_mask": []
+        }
+        "#);
+
+        // A populated mask serializes its names verbatim — including names
+        // this binary doesn't recognize — and they survive a round trip
+        // intact. Carry-through is load-bearing: an upgrade token's
+        // unrecognized names must re-mint unchanged rather than being
+        // dropped by whichever instance happens to re-sign it.
+        let masked = ControlClaims {
+            capability_mask: Some(vec!["SpecEdit".to_string(), "FutureCapability".to_string()]),
+            ..masked
+        };
+        let round_tripped: ControlClaims =
+            serde_json::from_value(serde_json::to_value(&masked).unwrap()).unwrap();
+        assert_eq!(round_tripped.capability_mask, masked.capability_mask);
+
+        insta::assert_json_snapshot!(masked, @r#"
+        {
+          "aud": "authenticated",
+          "iat": 1000,
+          "exp": 2000,
+          "sub": "00000000-0000-0000-0000-000000000000",
+          "role": "authenticated",
+          "capability_mask": [
+            "SpecEdit",
+            "FutureCapability"
+          ]
         }
         "#);
     }
