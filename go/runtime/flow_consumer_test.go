@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	pb "go.gazette.dev/core/broker/protocol"
 	"github.com/stretchr/testify/require"
@@ -57,36 +57,76 @@ func TestFlowConsumerConfig_Plane(t *testing.T) {
 }
 
 func TestUseRuntimeV2(t *testing.T) {
+	var capture = pb.Label{Name: labels.TaskType, Value: ops.TaskType_capture.String()}
+	var derivation = pb.Label{Name: labels.TaskType, Value: ops.TaskType_derivation.String()}
+	var materialization = pb.Label{Name: labels.TaskType, Value: ops.TaskType_materialization.String()}
+
 	tests := []struct {
 		name   string
 		labels []pb.Label
 		want   bool
 	}{
+		// Captures default to V2: only an explicit `false` holds them on V1.
 		{
-			name:   "no flag",
-			labels: []pb.Label{{Name: labels.TaskName, Value: "task"}},
-			want:   false,
-		},
-		{
-			name:   "enable-runtime-v2=true",
-			labels: []pb.Label{{Name: labels.FlagPrefix + "enable-runtime-v2", Value: "true"}},
+			name:   "capture with no flag",
+			labels: []pb.Label{capture},
 			want:   true,
 		},
 		{
-			name:   "enable-runtime-v2=false",
-			labels: []pb.Label{{Name: labels.FlagPrefix + "enable-runtime-v2", Value: "false"}},
+			name:   "capture with enable-runtime-v2=true",
+			labels: []pb.Label{capture, {Name: runtimeV2Flag, Value: "true"}},
+			want:   true,
+		},
+		{
+			name:   "capture with enable-runtime-v2=false",
+			labels: []pb.Label{capture, {Name: runtimeV2Flag, Value: "false"}},
 			want:   false,
 		},
 		{
-			name:   "unrelated flag",
-			labels: []pb.Label{{Name: labels.FlagPrefix + "some-other-flag", Value: "true"}},
+			name:   "capture with an unrelated flag",
+			labels: []pb.Label{capture, {Name: labels.FlagPrefix + "some-other-flag", Value: "true"}},
+			want:   true,
+		},
+		// Derivations and materializations remain opt-in.
+		{
+			name:   "derivation with no flag",
+			labels: []pb.Label{derivation},
+			want:   false,
+		},
+		{
+			name:   "derivation with enable-runtime-v2=true",
+			labels: []pb.Label{derivation, {Name: runtimeV2Flag, Value: "true"}},
+			want:   true,
+		},
+		{
+			name:   "materialization with no flag",
+			labels: []pb.Label{materialization},
+			want:   false,
+		},
+		{
+			name:   "materialization with enable-runtime-v2=true",
+			labels: []pb.Label{materialization, {Name: runtimeV2Flag, Value: "true"}},
+			want:   true,
+		},
+		{
+			name:   "materialization with enable-runtime-v2=false",
+			labels: []pb.Label{materialization, {Name: runtimeV2Flag, Value: "false"}},
+			want:   false,
+		},
+		{
+			name:   "missing task type falls back to opt-in",
+			labels: []pb.Label{{Name: labels.TaskName, Value: "task"}},
 			want:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var set = pf.LabelSet{Labels: tt.labels}
+			// AddValue inserts in sorted position, which ValueOf's binary search requires.
+			var set pb.LabelSet
+			for _, label := range tt.labels {
+				set.AddValue(label.Name, label.Value)
+			}
 			require.Equal(t, tt.want, useRuntimeV2(set))
 		})
 	}

@@ -204,8 +204,17 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 const runtimeV2Flag = labels.FlagPrefix + "enable-runtime-v2"
 
 // useRuntimeV2 reports whether the shard's labels select the runtime-next path.
+//
+// Captures have ratcheted past opt-in: they run V2 unless the flag is
+// explicitly "false", which is now the only way to hold a capture on V1.
+// Derivations and materializations remain opt-in, requiring an explicit "true".
 func useRuntimeV2(set pf.LabelSet) bool {
-	return set.ValueOf(runtimeV2Flag) == "true"
+	var flag = set.ValueOf(runtimeV2Flag)
+
+	if set.ValueOf(labels.TaskType) == ops.TaskType_capture.String() {
+		return flag != "false"
+	}
+	return flag == "true"
 }
 
 // NewMessage panics if called.

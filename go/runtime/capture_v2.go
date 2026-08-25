@@ -105,7 +105,7 @@ func (c *captureAppV2) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, e
 	if !useRuntimeV2(shard.Spec().LabelSet) {
 		c.term.cancel()
 		return pf.Checkpoint{}, fmt.Errorf(
-			"runtime-v2 feature flag is unset but this shard is running the V2 capture runtime; failing to force a restart")
+			"this shard now pins the V1 runtime (enable-runtime-v2: false) but is running the V2 capture runtime; failing to force a restart")
 	}
 	return pf.Checkpoint{}, nil
 }
