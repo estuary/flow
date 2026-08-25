@@ -180,6 +180,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             row.user_id,
             &row.capture_name,
             models::authz::Capability::SpecEdit,
+            models::authz::CapabilityMask::UNMASKED,
         ) {
             // Request an early background refresh: the grant may have been
             // committed after this Snapshot was taken, and cancelling narrows
@@ -209,6 +210,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             row.user_id,
             &row.data_plane_name,
             models::Capability::Read,
+            models::authz::CapabilityMask::UNMASKED,
         )
         .then(|| snapshot.data_plane_by_catalog_name(&row.data_plane_name))
         .flatten()

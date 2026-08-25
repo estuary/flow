@@ -88,6 +88,7 @@ fn evaluate_authorization(
         *user_id,
         prefix,
         capability,
+        models::authz::CapabilityMask::UNMASKED,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {prefix} for {capability:?}",
@@ -102,6 +103,7 @@ fn evaluate_authorization(
             *user_id,
             "estuary_support/",
             models::Capability::Admin,
+            models::authz::CapabilityMask::UNMASKED,
         );
 
         if !has_support_access {
@@ -117,6 +119,7 @@ fn evaluate_authorization(
         *user_id,
         data_plane_name,
         models::Capability::Read,
+        models::authz::CapabilityMask::UNMASKED,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {data_plane_name}",

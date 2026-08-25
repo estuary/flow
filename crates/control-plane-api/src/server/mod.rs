@@ -125,6 +125,7 @@ where
             *user_id,
             prefix_or_name.as_ref(),
             min_capability,
+            models::authz::CapabilityMask::UNMASKED,
         ) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
@@ -155,6 +156,7 @@ where
                 &snapshot.user_grants,
                 claims.sub,
                 &prefix,
+                models::authz::CapabilityMask::UNMASKED,
             );
             attach(prefix, capability)
         })
