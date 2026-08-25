@@ -1,5 +1,5 @@
 import:
-  - ../examples/derive-patterns/inputs.flow.yaml
+  - ../../examples/derive-patterns/inputs.flow.yaml
 
 materializations:
   acmeCo/materialization:

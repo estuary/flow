@@ -1,0 +1,10 @@
+["patterns/ints", {"Key": "key", "Int": 5}]
+["patterns/ints", {"Key": "key", "Int": 5}]
+["patterns/strings", {"Key": "key", "String": "hello"}]
+{"commit": true}
+["patterns/ints", {"Key": "key", "Int": 6}]
+{"commit": true}
+["patterns/ints", {"Key": "key", "Int": 7}]
+{"commit": true}
+["patterns/strings", {"Key": "key", "String": "world"}]
+{"commit": true}
