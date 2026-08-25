@@ -97,8 +97,8 @@ impl super::RoleGrant {
             legacy: models::Capability::None,
         };
         // Role-to-role authorization answers questions where no user bearer
-        // participates (task authorizations, public role reachability), so a
-        // capability mask never applies here.
+        // participates (task authorizations, prefix-to-data-plane checks),
+        // so a capability mask never applies here.
         pathfinding::directed::bfs::bfs_reach(seed, move |f| {
             next_neighbors(
                 f.clone(),
@@ -1915,8 +1915,9 @@ mod test {
         use Capability::*;
 
         // With Delegate in the mask the chain traverses, and every hop is
-        // clamped: bobCo/ loses SpecEdit's siblings outside the mask, and
-        // carolCo/ receives Viewer bits clamped to CatalogRead.
+        // clamped: bobCo/ loses the Editor bits outside the mask (SpecEdit,
+        // JournalRead), and carolCo/ receives Viewer bits clamped to
+        // CatalogRead.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
         let mask = authz::CapabilityMask::bounded(CatalogRead | Delegate);
 
@@ -2033,9 +2034,9 @@ mod test {
             vec![&"acmeCo/", &"bobCo/shared/", &"carolCo/upstream/"],
         );
 
-        // Unmasked: today's output is unchanged, including nodes whose
-        // effective bits are empty (supportCo/'s bare Assume grant emits
-        // Assume, and daveCo/ arrives with full Admin bits).
+        // Unmasked: today's output is unchanged, including the prefixes the
+        // mask hid above (supportCo/'s bare Assume grant emits Assume, and
+        // daveCo/ arrives with full Admin bits).
         let unmasked = UserGrant::reachable_prefixes(
             &role_grants,
             &user_grants,
