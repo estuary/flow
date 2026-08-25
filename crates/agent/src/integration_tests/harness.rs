@@ -265,8 +265,9 @@ impl HarnessBuilder {
         let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
         let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
 
-        // The discovers executor authorizes against a manually-driven watch,
-        // so that tests control exactly when the Snapshot is (re)taken.
+        // The discovers and publications executors authorize against a
+        // manually-driven watch, so that tests control exactly when the
+        // Snapshot is (re)taken.
         let (discover_snapshots, replace_discover_snapshot) =
             tokens::manual::<control_plane_api::Snapshot>();
         let (discover_snapshot_watch, _ready) = discover_snapshots.into_parts();
@@ -1747,8 +1748,8 @@ impl TestHarness {
         // Execute the query using a pretty short timeout. This is necessary because the
         // server will try to wait for a Snapshot refresh when an authZ check fails, but
         // the API app's snapshot is a fixed watch that is never refreshed during
-        // integration tests. (The discovers executor's snapshot is separate, and IS
-        // refreshed by the harness before each discover poll by default.)
+        // integration tests. (The discovers and publications executors' snapshot is
+        // separate, and IS refreshed by the harness before each such poll by default.)
         let response =
             tokio::time::timeout(std::time::Duration::from_secs(1), schema.execute(request))
                 .await

@@ -48,8 +48,9 @@ pub struct DraftPublication<
     pub draft: tables::DraftCatalog,
     /// Detail message to associate with this publication.
     pub detail: Option<String>,
-    /// Whether to check user permissions when publishing specs. If this is false, then all
-    /// permission checks will be skipped, and the publication may modify any specs.
+    /// Whether to check user permissions when publishing specs. If this is false, user
+    /// permission checks are skipped and the publication may modify any specs; spec-to-spec
+    /// capability checks and the data-plane name read filter still apply.
     pub verify_user_authz: bool,
     /// Authorization Snapshot pinned for the entire publication, so that
     /// authorization decisions cannot flip between initialization, build,

@@ -923,10 +923,6 @@ async fn test_runtime_v2_new_derivations() {
 // their enforcement off internal.user_roles() SQL and onto the pinned
 // authorization Snapshot (issue #2781), mirroring the discovers migration.
 
-// Neither `storage_mappings` nor `data_planes` are reset between tests, so a
-// tenant's mapping reflects whichever planes existed when its first test
-// provisioned it. Pin the mapping to just the default test plane so that
-// data-plane resolution (and its error suggestions) are deterministic.
 // Adds a plane outside the tenants' `ops/dp/public/` read grant: it exists
 // but is not readable by the tests' users.
 async fn add_private_plane(harness: &mut TestHarness) {
@@ -939,6 +935,10 @@ async fn add_private_plane(harness: &mut TestHarness) {
         .await;
 }
 
+// Neither `storage_mappings` nor `data_planes` are reset between tests, so a
+// tenant's mapping reflects whichever planes existed when its first test
+// provisioned it. Pin the mapping to just the default test plane so that
+// data-plane resolution (and its error suggestions) are deterministic.
 async fn pin_storage_mapping_planes(harness: &TestHarness, catalog_prefix: &str) {
     sqlx::query!(
         r#"update storage_mappings

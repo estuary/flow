@@ -934,9 +934,10 @@ pub async fn resolve_live_specs(
     // Data-plane name read authorization is evaluated in-process against the
     // pinned Snapshot, as discovers do. A denied name is excluded exactly as
     // a missing one, so that authorization does not leak the existence of
-    // unauthorized planes. Note this applies to the system user's controller
-    // publications identically: the SQL filter this replaces was likewise
-    // unconditional. Planes referenced by id require no check: they come from
+    // unauthorized planes. The filter is deliberately unconditional,
+    // independent of `verify_user_authz`: the system user's controller
+    // publications pass through it identically.
+    // Planes referenced by id require no check: they come from
     // live-spec rows which resolution above already admitted — user-authorized,
     // or deliberately exempt (injected ops collections, and publications with
     // `verify_user_authz: false`).
