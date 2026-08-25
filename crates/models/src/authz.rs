@@ -354,6 +354,16 @@ mod test {
             .map(|claim| CapabilityMask::from_claim(claim.as_deref()))
             .collect();
 
+        // The empty claim bounds the token to nothing; it is not "no mask".
+        assert_eq!(
+            CapabilityMask::from_claim(Some(&[])),
+            CapabilityMask::bounded(CapabilitySet::empty()),
+        );
+        assert_ne!(
+            CapabilityMask::from_claim(Some(&[])),
+            CapabilityMask::UNMASKED,
+        );
+
         insta::assert_debug_snapshot!(masks, @r"
         [
             CapabilityMask(
