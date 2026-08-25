@@ -71,7 +71,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     drain_input: Option<DrainInput>,
 
     // --- In-flight IO futures; `None` when idle. ---
-    acknowledge_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
+    acknowledge_fut: Option<BoxFuture<'static, ()>>,
     drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
     intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     labels_apply_fut: Option<LabelsApplyFut<P>>,
@@ -336,8 +336,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         None => {}
                     }
                 }
-                Some(result) = maybe_fut(&mut self.acknowledge_fut) => {
-                    result?;
+                Some(()) = maybe_fut(&mut self.acknowledge_fut) => {
                     self.acknowledge_fut = None;
                 }
                 Some(result) = maybe_fut(&mut self.intents_write_fut) => {
@@ -574,13 +573,18 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 let connector_tx = self.connector_tx.clone();
                 self.acknowledge_fut = Some(
                     async move {
-                        connector_tx
+                        // Sends to the connector are best-effort: a connector
+                        // which exited has closed its channel, and the
+                        // acknowledgement is moot once it has -- the commit is
+                        // durable, and it recovers from persisted state on its
+                        // next session. Connector failures surface on the
+                        // receive side, never here.
+                        _ = connector_tx
                             .send(Request {
                                 acknowledge: Some(request::Acknowledge { checkpoints }),
                                 ..Default::default()
                             })
-                            .await
-                            .context("sending connector Acknowledge")
+                            .await;
                     }
                     .boxed(),
                 );
@@ -1218,6 +1222,64 @@ mod tests {
 
         // The committing Persist durably recorded the connector state.
         let (_db, recover) = session.recover().await;
+        assert_eq!(
+            recover.connector_state_json.as_ref(),
+            br#"{"cursor":"lsn-9"}"#
+        );
+    }
+
+    /// A connector which exits before its committed transaction is acknowledged
+    /// must not fail the session: sends to the connector are best-effort, and
+    /// the acknowledgement is moot once it has exited -- the commit is durable,
+    /// and the connector recovers from persisted state on its next session.
+    /// This is routine for polling captures, which emit a final Checkpoint and
+    /// exit without awaiting its Acknowledge.
+    #[tokio::test]
+    async fn connector_exit_before_acknowledge_is_benign() {
+        let (conn_resp_tx, conn_resp_rx) =
+            mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
+        let (_controller_tx, controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
+
+        let task = std::sync::Arc::new(mk_task(true));
+        let (actor, actor_to_conn_rx) = mk_actor(
+            &task,
+            BTreeMap::new(),
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            true, // is_shard_zero
+            crate::TracingLogger,
+            RecordingPublisher::default(),
+        );
+        // The connector has exited: its request channel is closed before the
+        // actor can send the post-commit Acknowledge.
+        std::mem::drop(actor_to_conn_rx);
+
+        for response in [
+            captured(0, br#"{"id":"a0"}"#),
+            checkpoint(br#"{"cursor":"lsn-9"}"#),
+        ] {
+            conn_resp_tx.send(response).await.unwrap();
+        }
+        // Response stream EOF. Once the Tail drains, the Head steps to Stop on
+        // its own (the fixture's `restart` Clock is zero, and thus elapsed).
+        std::mem::drop(conn_resp_tx);
+
+        let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
+        let (db, _shapes) = actor
+            .serve(
+                ReceiverStream::new(conn_resp_rx),
+                &mut controller_rx,
+                fsm::Head::Idle(fsm::HeadIdle::default()),
+                fsm::Tail::Recover(fsm::TailRecover {
+                    checkpoints: 0,
+                    ack_intents: BTreeMap::new(),
+                }),
+            )
+            .await
+            .expect("session must stop cleanly despite the closed connector channel");
+
+        // The transaction nonetheless committed durably.
+        let (_db, recover) = db.scan(state_keys(&task)).await.unwrap();
         assert_eq!(
             recover.connector_state_json.as_ref(),
             br#"{"cursor":"lsn-9"}"#

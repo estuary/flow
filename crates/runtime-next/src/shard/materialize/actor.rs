@@ -343,13 +343,24 @@ impl Actor {
             .connector_tx
             .capacity()
             .min(self.connector_pending.len());
-        let permits = self
-            .connector_tx
-            .try_reserve_many(n)
-            .expect("capacity was just observed and we are the sole sender");
 
-        for (request, permit) in self.connector_pending.drain(..n).zip(permits) {
-            permit.send(request);
+        match self.connector_tx.try_reserve_many(n) {
+            Ok(permits) => {
+                for (request, permit) in self.connector_pending.drain(..n).zip(permits) {
+                    permit.send(request);
+                }
+            }
+            // Sends to the connector are best-effort: a Closed channel means the
+            // connector exited, which surfaces on the receive side rather than
+            // here. `capacity()` is blind to closure, so Closed is reachable
+            // despite the capacity just observed. Drop what's pending.
+            Err(mpsc::error::TrySendError::Closed(())) => {
+                self.connector_pending.clear();
+                return idle;
+            }
+            Err(mpsc::error::TrySendError::Full(())) => {
+                unreachable!("capacity was just observed and we are the sole sender")
+            }
         }
         // Wake when more capacity becomes available.
         future::Either::Left(self.connector_tx.clone().reserve_owned().map(ok))
