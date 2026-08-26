@@ -16,6 +16,9 @@ pub struct DataPlanesFilter {
     pub id: Option<filters::IdFilter>,
     /// Filter on the `closed` flag.
     pub closed: Option<filters::BoolFilter>,
+    /// Filter on the `public` flag, which is derived from the data plane's
+    /// name prefix (`ops/dp/public/` vs `ops/dp/private/`).
+    pub public: Option<filters::BoolFilter>,
 }
 
 /// Cloud provider where the data plane is hosted.
@@ -469,6 +472,8 @@ impl DataPlanesQuery {
     ///
     /// `filter.closed.eq` restricts results to data planes whose `closed`
     /// flag matches it; omitting it returns both open and closed planes.
+    /// `filter.public.eq` restricts results to public or private planes;
+    /// omitting it returns both.
     pub async fn data_planes(
         &self,
         ctx: &Context<'_>,
@@ -482,9 +487,10 @@ impl DataPlanesQuery {
         let claims = env.claims()?;
         let snapshot = env.snapshot();
 
-        let DataPlanesFilter { id, closed } = filter.unwrap_or_default();
+        let DataPlanesFilter { id, closed, public } = filter.unwrap_or_default();
         let id_in = id.and_then(|f| f.r#in);
         let closed_eq = closed.and_then(|f| f.eq);
+        let public_eq = public.and_then(|f| f.eq);
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
@@ -492,8 +498,13 @@ impl DataPlanesQuery {
             .data_planes
             .iter()
             .filter(|dp| {
-                if parse_data_plane_name(&dp.data_plane_name).is_none() {
+                // `public` isn't a column: it's implied by the name prefix,
+                // so it comes from the same parse that validates the name.
+                let Some((_, _, _, public)) = parse_data_plane_name(&dp.data_plane_name) else {
                     tracing::warn!(data_plane_name = %dp.data_plane_name, "skipping data plane with unparseable name");
+                    return false;
+                };
+                if public_eq.is_some_and(|want| want != public) {
                     return false;
                 }
                 if let Some(ids) = id_in.as_ref() {
@@ -1236,6 +1247,91 @@ mod tests {
             )
             .await,
             vec![closed_dp.to_string()],
+        );
+    }
+
+    // The `filter.public.eq` argument narrows the listing by the public /
+    // private distinction, which is derived from the plane's name prefix
+    // rather than a column. The fixture's only private plane is otherwise
+    // excluded from snapshots for having no HMAC keys, so give it keys and
+    // grant alice read on `ops/dp/private/` to make it visible.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "private_links", "alice")
+        )
+    )]
+    async fn test_graphql_data_planes_public_filter(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let private_dps = vec!["ops/dp/private/aliceCo/aws-us-east-1-c1".to_string()];
+        let public_dps = vec![
+            "ops/dp/public/aws-us-west-2-c1".to_string(),
+            "ops/dp/public/gcp-us-central1-c2".to_string(),
+        ];
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // Collects the sorted set of returned data-plane names for the given
+        // `filter` argument (JSON null when omitted).
+        async fn names(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Vec<String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        query($filter: DataPlanesFilter) {
+                            dataPlanes(filter: $filter) {
+                                edges { node { name isPublic } }
+                            }
+                        }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
+                    Some(token),
+                )
+                .await;
+            let mut names: Vec<String> = response["data"]["dataPlanes"]["edges"]
+                .as_array()
+                .unwrap_or_else(|| panic!("expected edges, got: {response}"))
+                .iter()
+                .map(|e| e["node"]["name"].as_str().unwrap().to_string())
+                .collect();
+            names.sort();
+            names
+        }
+
+        // No filter: public and private planes returned.
+        let mut all = public_dps.clone();
+        all.extend(private_dps.clone());
+        all.sort();
+        assert_eq!(names(&server, &token, serde_json::Value::Null).await, all);
+        // public eq true -> only the two public planes.
+        assert_eq!(
+            names(
+                &server,
+                &token,
+                serde_json::json!({ "public": { "eq": true } })
+            )
+            .await,
+            public_dps,
+        );
+        // public eq false -> only the private plane.
+        assert_eq!(
+            names(
+                &server,
+                &token,
+                serde_json::json!({ "public": { "eq": false } })
+            )
+            .await,
+            private_dps,
         );
     }
 
