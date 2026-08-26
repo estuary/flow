@@ -12,7 +12,7 @@ Integrating the API with monitoring platforms like Prometheus or Datadog also al
 
 The OpenMetrics API consists of one main endpoint:
 
-```https://agent-api-1084703453822.us-central1.run.app/api/v1/metrics/{prefix}/```
+```https://api.estuary.dev/api/v1/metrics/{prefix}/```
 
 The prefix may be for your entire tenant (such as `acmeCo/`) or a subset (such as `acmeCo/sub/path/`).
 
@@ -43,7 +43,7 @@ scrape_configs:
     bearer_token: REFRESH_TOKEN
     metrics_path: /api/v1/metrics/PREFIX/
     static_configs:
-      - targets: [agent-api-1084703453822.us-central1.run.app]
+      - targets: [api.estuary.dev]
 ```
 
 Make sure to replace `REFRESH_TOKEN` and `PREFIX` with your generated refresh token and desired prefix.
@@ -68,7 +68,7 @@ To use the OpenMetrics API with Datadog, add the API endpoint to your `datadog.y
 init_config: {}
 
 instances:
-  - openmetrics_endpoint: https://agent-api-1084703453822.us-central1.run.app/api/v1/metrics/PREFIX/
+  - openmetrics_endpoint: https://api.estuary.dev/api/v1/metrics/PREFIX/
     namespace: estuary
     min_collection_interval: 60
     headers:
@@ -106,7 +106,7 @@ You can also access the OpenMetrics API directly or as part of a custom integrat
 For example, using `curl` this would look like:
 
 ```bash
-curl --location 'https://agent-api-1084703453822.us-central1.run.app/api/v1/metrics/PREFIX/' \
+curl --location 'https://api.estuary.dev/api/v1/metrics/PREFIX/' \
 --header 'Authorization: Bearer REFRESH_TOKEN'
 ```
 
