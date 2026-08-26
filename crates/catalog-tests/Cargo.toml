@@ -1,0 +1,47 @@
+[package]
+name = "catalog-tests"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme = "./README.md"
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+doc = { path = "../doc", features = ["combine"] }
+extractors = { path = "../extractors" }
+json = { path = "../json" }
+labels = { path = "../labels" }
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+publisher = { path = "../publisher" }
+runtime-local = { path = "../runtime-local" }
+runtime-next = { path = "../runtime-next" }
+service-kit = { path = "../service-kit" }
+shuffle = { path = "../shuffle" }
+tables = { path = "../tables" }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+prost = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# Callers hand `run_tests` a `build::Output`, so building is test-only.
+build = { path = "../build" }
+insta = { workspace = true }
+# The runtime-next loopback stack dials over rustls 0.23; a direct dev-dep lets
+# tests install the process crypto provider (as `flowctl` main does).
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true }
