@@ -48,6 +48,15 @@ pub struct Envelope {
     pub original_uri: axum::http::Uri,
     /// The verified control-plane claims, if any.
     pub maybe_claims: MaybeControlClaims,
+    /// Catalog prefix which narrows this request's authority, taken from the
+    /// `X-Estuary-Scope-Prefix` header.
+    ///
+    /// Authorization considers only prefixes reachable both from the user's
+    /// grants and from this prefix, so the header can only ever remove
+    /// authority. That makes it safe for a client to set freely, which is how
+    /// the web UI lets a user choose which tenant they are working in and
+    /// switch between them without re-authenticating.
+    pub scope_prefix: Option<models::Prefix>,
     /// If provided, the `retryAfter` query parameter attached to the request.
     /// This parameter is used to detect clients that don't honor the Retry-After
     /// header sent with 307 Temporary Redirect responses.
@@ -70,10 +79,71 @@ pub struct Envelope {
     pub locale: Locale,
 }
 
+/// Header naming the catalog prefix which narrows a request's authority.
+pub const SCOPE_PREFIX_HEADER: &str = "x-estuary-scope-prefix";
+
+/// Reads and validates the scope prefix header.
+///
+/// A malformed value is rejected rather than passed through, because an
+/// unparseable prefix would match no grant and present as an authorization
+/// failure that gives the client no way to tell a typo from a missing grant.
+/// An empty value is rejected for the same reason in the other direction: it
+/// would match every prefix and silently do nothing.
+fn parse_scope_prefix(
+    headers: &axum::http::HeaderMap,
+) -> tonic::Result<Option<models::Prefix>, tonic::Status> {
+    use validator::Validate;
+
+    let Some(value) = headers.get(SCOPE_PREFIX_HEADER) else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_err| {
+        tonic::Status::invalid_argument(format!("{SCOPE_PREFIX_HEADER} header is not valid UTF-8"))
+    })?;
+
+    if value.is_empty() {
+        return Err(tonic::Status::invalid_argument(format!(
+            "{SCOPE_PREFIX_HEADER} header is empty; omit it to request unscoped authority"
+        )));
+    }
+
+    let prefix = models::Prefix::new(value);
+    if let Err(err) = prefix.validate() {
+        return Err(tonic::Status::invalid_argument(format!(
+            "{SCOPE_PREFIX_HEADER} header '{value}' is not a valid catalog prefix: {err}"
+        )));
+    }
+    Ok(Some(prefix))
+}
+
 impl Envelope {
     /// Returns verified ControlClaims or an unauthenticated error.
     pub fn claims(&self) -> tonic::Result<&crate::ControlClaims> {
         self.maybe_claims.result()
+    }
+
+    /// Returns the principal on whose behalf this request is authorized:
+    /// the authenticated user, narrowed by `scope_prefix` if it was given.
+    ///
+    /// Every user authorization check goes through a `Principal`, so a handler
+    /// cannot honor the token while overlooking the scope.
+    pub fn principal(&self) -> tonic::Result<tables::Principal<'_>> {
+        let claims = self.claims()?;
+
+        Ok(tables::Principal {
+            user_id: claims.sub,
+            scope: self.scope_prefix.as_ref().map(|p| p.as_str()),
+        })
+    }
+
+    /// The authenticated user's email, for inclusion in error messages.
+    /// Falls back to "user" when the token carries no email.
+    pub fn user_email(&self) -> &str {
+        self.maybe_claims
+            .result()
+            .ok()
+            .and_then(|claims| claims.email.as_deref())
+            .unwrap_or("user")
     }
 
     /// Returns the request's associated Snapshot.
@@ -263,6 +333,8 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                 None => MaybeControlClaims::with_unauthenticated(),
             };
 
+            let scope_prefix = parse_scope_prefix(&parts.headers)?;
+
             // Placeholder. In the future, we should determine this value from
             // the request headers (e.g. Accept-Language and/or the auth token).
             // For now, we hard code it, because we don't have translations for
@@ -271,6 +343,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
 
             Ok(Envelope {
                 maybe_claims,
+                scope_prefix,
                 retry_after: retry_after.unwrap_or(tokens::DateTime::UNIX_EPOCH),
                 refresh: state.snapshot.token(),
                 started: started.unwrap_or_else(|| tokens::now()),
@@ -285,3 +358,51 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
 // Empty impl allows aide to generate OpenAPI specs for handlers using this extractor.
 // The extractor is an internal detail and doesn't appear in the API documentation.
 impl aide::operation::OperationInput for Envelope {}
+
+#[cfg(test)]
+mod test {
+    use super::{SCOPE_PREFIX_HEADER, parse_scope_prefix};
+
+    fn parse(value: &str) -> tonic::Result<Option<String>, tonic::Status> {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::HeaderName::from_static(SCOPE_PREFIX_HEADER),
+            axum::http::HeaderValue::from_str(value).expect("test header value"),
+        );
+        parse_scope_prefix(&headers).map(|p| p.map(|p| p.to_string()))
+    }
+
+    #[test]
+    fn test_absent_header_is_unscoped() {
+        let headers = axum::http::HeaderMap::new();
+        assert_eq!(parse_scope_prefix(&headers).unwrap(), None);
+    }
+
+    #[test]
+    fn test_valid_prefixes() {
+        for case in ["acmeCo/", "acmeCo/team/", "acmeCo/one/two/th.ree/"] {
+            assert_eq!(parse(case).unwrap().as_deref(), Some(case));
+        }
+    }
+
+    #[test]
+    fn test_rejected_values() {
+        // Empty would scope to everything, which the caller should express by
+        // omitting the header.
+        assert_eq!(
+            parse("").unwrap_err().code(),
+            tonic::Code::InvalidArgument,
+            "empty value must be rejected",
+        );
+
+        // A catalog *name* is not a prefix: prefixes must end in '/'. Passing
+        // one is a client error rather than a scope matching nothing.
+        for case in ["acmeCo", "/acmeCo/", "acmeCo//team/", "acmeCo/sp ace/", "/"] {
+            assert_eq!(
+                parse(case).unwrap_err().code(),
+                tonic::Code::InvalidArgument,
+                "'{case}' must be rejected",
+            );
+        }
+    }
+}

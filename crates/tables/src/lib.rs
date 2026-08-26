@@ -421,6 +421,47 @@ pub struct NodeRef<'a> {
     pub legacy: models::Capability,
 }
 
+/// Principal identifies the user whose authority an authorization check
+/// evaluates, and optionally narrows that authority to one branch of the
+/// grant graph.
+///
+/// When `scope` is set, the check considers only prefixes which are reachable
+/// both from the user's own grants and from `scope`. Because the result is an
+/// intersection, a scope can only ever remove authority: a scope naming a
+/// prefix the user cannot reach yields no authority at all, and a request
+/// cannot use a scope to reach beyond the user's grants.
+///
+/// `scope` is a request parameter, not a statement of authority, so it is
+/// safe for a caller to choose it freely. It answers "which part of my access
+/// am I using right now", which is why the web UI can switch between tenants
+/// by varying it. A credential which must not be able to widen its own reach
+/// carries its scope in the access token instead of the request.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Principal<'a> {
+    /// The authenticated user.
+    pub user_id: uuid::Uuid,
+    /// Catalog prefix narrowing this principal's authority, if any.
+    pub scope: Option<&'a str>,
+}
+
+impl<'a> Principal<'a> {
+    /// A principal with its user's full authority.
+    pub fn unscoped(user_id: uuid::Uuid) -> Self {
+        Self {
+            user_id,
+            scope: None,
+        }
+    }
+
+    /// A principal narrowed to the branch of the grant graph rooted at `scope`.
+    pub fn scoped(user_id: uuid::Uuid, scope: &'a str) -> Self {
+        Self {
+            user_id,
+            scope: Some(scope),
+        }
+    }
+}
+
 /// Attempts to parse a catalog type and name from a URL in the form of:
 /// `flow://<catalog-type>/<catalog-name>`. Returns None if the URL doesn't
 /// have a valid `CatalogType`, or if the scheme doesn't match.

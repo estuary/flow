@@ -93,16 +93,20 @@ pub(crate) async fn wake_tenant_controller(
     Ok(res.rows_affected() > 0u64)
 }
 
-/// Evaluate whether the user identified by `claims` is authorized to access all
-/// of the enumerated `prefixes_or_names` with at least `min_capability`.
+/// Evaluate whether `principal` is authorized to access all of the enumerated
+/// `prefixes_or_names` with at least `min_capability`.
 /// Return a policy_result shape which fits Envelope::authorization_outcome.
+///
+/// `principal` comes from `Envelope::principal`, so a request which narrows its
+/// authority with a scope prefix is evaluated against that narrower authority.
 ///
 /// `min_capability` accepts any value that converts into a `CapabilitySet`:
 /// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
 /// `models::authz::Capability` bit, or an explicit `CapabilitySet`.
 pub fn evaluate_names_authorization<'r, Iter, S, C>(
     snapshot: &Snapshot,
-    claims: &crate::ControlClaims,
+    principal: tables::Principal<'_>,
+    user_email: &str,
     min_capability: C,
     prefixes_or_names: Iter,
 ) -> AuthZResult<()>
@@ -111,35 +115,32 @@ where
     S: AsRef<str> + std::fmt::Display,
     C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
     for prefix_or_name in prefixes_or_names.into_iter() {
         if !tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            *user_id,
+            principal,
             prefix_or_name.as_ref(),
             min_capability,
         ) {
+            let scoped = match principal.scope {
+                Some(scope) => format!(" within scope prefix '{scope}'"),
+                None => String::new(),
+            };
             return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
+                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}{scoped}",
             )));
         }
     }
     Ok((None, ()))
 }
 
-/// Looks up the user's authorization grants for each item in
+/// Looks up `principal`'s authorization grants for each item in
 /// `prefixes_or_names`, and calls the provided `attach` function with each
 /// item and its capability. The `Some` results are returned in a vec.
 pub fn attach_user_capabilities<I, F, T>(
     snapshot: &Snapshot,
-    claims: &crate::ControlClaims,
+    principal: tables::Principal<'_>,
     prefixes_or_names: I,
     mut attach: F,
 ) -> Vec<T>
@@ -153,7 +154,7 @@ where
             let capability = tables::UserGrant::get_user_capability(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                claims.sub,
+                principal,
                 &prefix,
             );
             attach(prefix, capability)

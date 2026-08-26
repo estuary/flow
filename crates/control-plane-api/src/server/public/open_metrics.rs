@@ -18,7 +18,8 @@ pub async fn handle_get_metrics(
 
     let policy_result = crate::evaluate_names_authorization(
         env.snapshot(),
-        env.claims()?,
+        env.principal()?,
+        env.user_email(),
         models::Capability::Read,
         [&prefix],
     );

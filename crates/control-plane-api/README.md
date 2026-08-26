@@ -49,3 +49,33 @@ Tests use `insta` for snapshot testing. To automatically accept updated snapshot
 ```bash
 INSTA_UPDATE=always cargo test -p control-plane-api -- --test-threads=1
 ```
+
+## Scoping a request to one branch of the grant graph
+
+Requests may narrow their own authority with the `X-Estuary-Scope-Prefix`
+header, naming a catalog prefix:
+
+```
+X-Estuary-Scope-Prefix: acmeCo/
+```
+
+Authorization then considers only prefixes reachable both from the user's
+grants and from that prefix, including prefixes it reaches through
+`role_grants`. So a user who admins `acmeCo/` and `betaCo/`, where `acmeCo/`
+holds a role grant to `charlieCo/`, sees `acmeCo/` and `charlieCo/` under this
+header and does not see `betaCo/`.
+
+Because the result is an intersection with the user's own grants, the header
+can only remove authority. A prefix the user cannot reach yields nothing
+rather than access to it. That is why a client may set the header freely — the
+dashboard uses it to let a user pick which tenant they are working in, and to
+switch without re-authenticating.
+
+Omit the header to request the user's full authority. An empty or malformed
+value is rejected with `invalid_argument` rather than silently matching
+everything or nothing.
+
+Handlers reach this through `Envelope::principal`, which pairs the
+authenticated user with the scope. It is the only input the
+`tables::UserGrant` authorization functions accept, so a handler cannot honor
+the token while overlooking the scope.

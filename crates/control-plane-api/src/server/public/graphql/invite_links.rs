@@ -81,7 +81,7 @@ impl InviteLinksQuery {
             super::authorized_prefixes::filtered_authorized_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                env.claims()?.sub,
+                env.principal()?,
                 models::Capability::Admin,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",

@@ -177,7 +177,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         if !tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            row.user_id,
+            tables::Principal::unscoped(row.user_id),
             &row.capture_name,
             models::authz::Capability::SpecEdit,
         ) {
@@ -206,7 +206,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         let Some(data_plane) = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            row.user_id,
+            tables::Principal::unscoped(row.user_id),
             &row.data_plane_name,
             models::Capability::Read,
         )
@@ -313,8 +313,10 @@ async fn prepare_discover<'a>(
     // conveying SpecEdit convey CatalogRead too. Under a SpecEdit-only
     // grant the discover proceeds with the live capture treated as absent.
     let name = &[capture_name.to_string()];
+    // Discovers authorize against the user recorded on the job, which is not
+    // tied to the request that enqueued it, so there is no scope prefix here.
     let live = live_specs::get_live_specs_filtered(
-        user_id,
+        tables::Principal::unscoped(user_id),
         name,
         models::authz::Capability::CatalogRead,
         snapshot,

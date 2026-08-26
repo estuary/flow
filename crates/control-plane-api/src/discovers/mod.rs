@@ -316,8 +316,11 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .collect::<Vec<_>>();
 
         let live = if filter_user_authz {
+            // Discovers authorize against the user recorded on the job, which
+            // is not tied to the request that enqueued it, so there is no
+            // scope prefix to narrow by here.
             crate::live_specs::get_live_specs_filtered(
-                user_id,
+                tables::Principal::unscoped(user_id),
                 &collection_names,
                 models::authz::Capability::CatalogRead,
                 snapshot,

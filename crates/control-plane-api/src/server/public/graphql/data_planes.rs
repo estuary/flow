@@ -479,7 +479,7 @@ impl DataPlanesQuery {
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedDataPlanes> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
+        let principal = env.principal()?;
         let snapshot = env.snapshot();
 
         let DataPlanesFilter { id, closed } = filter.unwrap_or_default();
@@ -504,7 +504,7 @@ impl DataPlanesQuery {
                 tables::UserGrant::is_authorized(
                         &snapshot.role_grants,
                         &snapshot.user_grants,
-                        claims.sub,
+                        principal,
                         &dp.data_plane_name,
                         models::Capability::Read,
                     )
@@ -553,7 +553,7 @@ impl DataPlanesQuery {
 
         let edges = crate::server::attach_user_capabilities(
             env.snapshot(),
-            env.claims()?,
+            env.principal()?,
             names.into_iter(),
             |data_plane_name, user_capability| {
                 let dp = row_data.get(&data_plane_name)?;
