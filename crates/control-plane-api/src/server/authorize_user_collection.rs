@@ -70,15 +70,7 @@ fn evaluate_authorization(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
-    // A mask which doesn't cover `capability` is a definitive denial — a pure
-    // function of the bearer's claims — evaluated before any walk so that the
-    // structured 403 names the missing capabilities without consulting (or
-    // disclosing anything about) the user's grants.
-    let required: models::authz::CapabilitySet = capability.into();
-    let missing = required - mask.apply(required);
-    if !missing.is_empty() {
-        return Err(crate::Forbidden::missing_capabilities(missing).into());
-    }
+    crate::Forbidden::require_mask_covers(mask, capability)?;
 
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,

@@ -558,14 +558,7 @@ fn check_authorization(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
-    // A mask which doesn't cover the Admin requirement is a definitive
-    // denial, evaluated before the walk so the structured 403 names the
-    // missing capabilities without consulting the user's grants.
-    let required: models::authz::CapabilitySet = models::Capability::Admin.into();
-    let missing = required - mask.apply(required);
-    if !missing.is_empty() {
-        return Err(crate::Forbidden::missing_capabilities(missing).into());
-    }
+    crate::Forbidden::require_mask_covers(mask, models::Capability::Admin)?;
 
     // Verify the User admins `catalog_prefix`.
     if !tables::UserGrant::is_authorized(
