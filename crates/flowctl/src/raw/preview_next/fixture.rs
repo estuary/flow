@@ -388,6 +388,14 @@ async fn feed_stream(
     eof_stop: tokio_util::sync::CancellationToken,
     hold: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
+    // A panic unwinds this task without running the graceful stop below, so the
+    // consumer would park on a checkpoint that can never arrive: `Run` retains a
+    // `frontier_tx` clone, so a dead feeder doesn't even close the channel. The
+    // guard cancels on unwind, ending the run; `finish_fixtures` then joins this
+    // handle and reports the panic. Redundant on the graceful path, which
+    // cancels first.
+    let _stop_on_panic = eof_stop.clone().drop_guard();
+
     let mut sealed = Vec::new();
     let result = feed_lines(
         &bindings,
