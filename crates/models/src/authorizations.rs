@@ -330,7 +330,7 @@ mod test {
         // variant is added.
         for (claim, mask) in &outcomes {
             if claim.is_none() {
-                assert_eq!(*mask, CapabilityMask::UNMASKED);
+                assert_eq!(*mask, CapabilityMask::ALL_CAPABILITIES);
             }
         }
         let bounded: Vec<_> = outcomes

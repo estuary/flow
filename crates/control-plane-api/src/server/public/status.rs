@@ -53,7 +53,7 @@ pub(crate) async fn handle_get_status(
                     claims.sub,
                     name,
                     models::Capability::Read,
-                    models::authz::CapabilityMask::UNMASKED,
+                    models::authz::CapabilityMask::ALL_CAPABILITIES,
                 )
             })
             .collect::<Vec<_>>();

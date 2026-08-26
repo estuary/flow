@@ -71,7 +71,7 @@ fn evaluate_authorization(
         *user_id,
         collection_name,
         capability,
-        models::authz::CapabilityMask::UNMASKED,
+        models::authz::CapabilityMask::ALL_CAPABILITIES,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {collection_name} for {capability:?}",
@@ -86,7 +86,7 @@ fn evaluate_authorization(
             *user_id,
             "estuary_support/",
             models::Capability::Admin,
-            models::authz::CapabilityMask::UNMASKED,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
         );
 
         if !has_support_access {

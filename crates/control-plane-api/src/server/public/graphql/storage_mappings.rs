@@ -537,7 +537,7 @@ fn check_authorization(
         *user_id,
         catalog_prefix,
         models::Capability::Admin,
-        models::authz::CapabilityMask::UNMASKED,
+        models::authz::CapabilityMask::ALL_CAPABILITIES,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
@@ -780,7 +780,7 @@ impl StorageMappingsQuery {
                     &snapshot.user_grants,
                     claims.sub,
                     &row.catalog_prefix,
-                    models::authz::CapabilityMask::UNMASKED,
+                    models::authz::CapabilityMask::ALL_CAPABILITIES,
                 )
                 .ok_or_else(|| {
                     async_graphql::Error::new(format!(
