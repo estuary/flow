@@ -33,7 +33,9 @@ impl SealedSegment {
     /// 1. If the reader unlinks the file before compression, yields the original
     ///    size and terminates.
     /// 2. If the file survives past `COMPRESS_AFTER`, yields bytes saved by
-    ///    compression (`old_size - new_size`), then continues polling.
+    ///    compression (`old_size - new_size`), then continues polling. When
+    ///    compression would grow the file (incompressible payloads), the
+    ///    original is kept and zero bytes are yielded.
     /// 3. When the (now compressed) file is eventually unlinked by the reader,
     ///    yields the compressed size and terminates.
     ///
@@ -75,7 +77,12 @@ impl SealedSegment {
 
                     match result {
                         Ok(new_size) => {
-                            let reclaimed = sealed.size.saturating_sub(new_size);
+                            // A segment's lifetime credits must total exactly the
+                            // `size` its owner debited when it was sealed. The min
+                            // guards that identity: `try_compress` never adopts a
+                            // larger file, so this is defensive only.
+                            let new_size = new_size.min(sealed.size);
+                            let reclaimed = sealed.size - new_size;
                             sealed.size = new_size;
                             Some((Ok(reclaimed), State::Compressed(sealed)))
                         }
@@ -146,9 +153,16 @@ fn is_not_found(err: &anyhow::Error) -> bool {
 
 /// Compress an uncompressed segment by rewriting it with LZ4-compressed block
 /// payloads, then atomically replace the original file.
-/// Returns the new (compressed) file size.
+/// Returns the resulting file size.
+///
+/// LZ4 expands incompressible input, and each block adds header overhead. If
+/// the rewrite would not shrink the file, the original is kept and its size is
+/// returned: adopting a larger file would waste the disk this pass exists to
+/// save, and would break sealed-segment accounting, which debits a segment's
+/// size once at seal time and expects its lifetime credits to total the same.
 fn try_compress(path: &std::path::Path) -> anyhow::Result<u64> {
     let mut segment = log::reader::Segment::open(path)?;
+    let original_size = std::fs::metadata(path)?.len();
 
     let dir = path
         .parent()
@@ -196,9 +210,14 @@ fn try_compress(path: &std::path::Path) -> anyhow::Result<u64> {
             .context("segment file overflows 4GB after payload read")?;
     }
 
-    // Disarm so Segment::drop doesn't unlink the file we're about to replace.
+    // Disarm so Segment::drop doesn't unlink the original: we keep it below,
+    // or atomically replace it.
     segment.disarm();
     drop(segment);
+
+    if new_size >= original_size {
+        return Ok(original_size); // Keep the original; drop the larger rewrite.
+    }
 
     // Atomically replace the original file with the compressed version.
     rename_exchange(tmp_file.path(), path).with_context(|| {
@@ -364,6 +383,73 @@ mod test {
             .unwrap();
         let archived2 = rkyv::access::<block::ArchivedBlock, rkyv::rancor::Error>(&buf2).unwrap();
         assert_eq!(archived2.meta[0].clock.to_native(), 200);
+    }
+
+    /// LZ4 expands incompressible payloads. `try_compress` must keep the
+    /// original file and report its unchanged size — a larger "compressed"
+    /// file wastes disk, and its size would over-credit sealed-segment
+    /// accounting: the owner debits `SealedSegment::size` once at seal time,
+    /// and an inflated terminal credit underflows the backlog counter
+    /// (`disk_backlog_bytes underflow`).
+    #[test]
+    fn test_try_compress_keeps_original_when_expanding() {
+        use crate::log::block::BlockMeta;
+        use proto_gazette::uuid;
+        use std::collections::HashMap;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer = log::Writer::with_thresholds(dir.path(), 0, usize::MAX, u64::MAX).unwrap();
+
+        // Incompressible document bytes from a plain LCG.
+        let mut rng = 1u64;
+        let mut noise = |n: usize| -> bytes::Bytes {
+            (0..n)
+                .map(|_| {
+                    rng = rng
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    (rng >> 56) as u8
+                })
+                .collect::<Vec<u8>>()
+                .into()
+        };
+
+        let journals: HashMap<String, u16> = [("j/one".to_string(), 0)].into();
+        let producers: HashMap<uuid::Producer, u16> =
+            [(uuid::Producer([1, 0, 0, 0, 0, 1]), 0)].into();
+
+        for clock in 0..4 {
+            let entries = vec![(
+                BlockMeta {
+                    binding: 0,
+                    journal_bid: 0,
+                    producer_bid: 0,
+                    flags: 0x8000,
+                    clock,
+                },
+                1024u32,
+                noise(32),
+                noise(64 * 1024),
+            )];
+            writer
+                .append_block(journals.clone(), producers.clone(), entries)
+                .unwrap();
+        }
+
+        let seg_path = log::segment_path(dir.path(), 0, 1);
+        let original_size = std::fs::metadata(&seg_path).unwrap().len();
+
+        let new_size = try_compress(&seg_path).unwrap();
+
+        // The original is kept, byte-for-byte: same reported and on-disk size,
+        // and the first block is still uncompressed (lz4_len == 0).
+        assert_eq!(new_size, original_size);
+        assert_eq!(std::fs::metadata(&seg_path).unwrap().len(), original_size);
+
+        let seg = Segment::open(&seg_path).unwrap();
+        let (raw_len, lz4_len) = seg.read_block_header(0).unwrap().unwrap();
+        assert_eq!(lz4_len, 0, "original uncompressed block must survive");
+        assert!(raw_len > 0);
     }
 
     #[test]
