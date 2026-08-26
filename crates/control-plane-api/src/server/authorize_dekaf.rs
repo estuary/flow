@@ -30,7 +30,9 @@ type Response = models::authorizations::DekafAuthResponse;
 #[tracing::instrument(skip(app, env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_dekaf(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
-    mut env: crate::Envelope,
+    crate::Authority {
+        envelope: mut env, ..
+    }: crate::Authority,
     super::Request(Request { token }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let unverified = super::parse_untrusted_data_plane_claims(&token)?;

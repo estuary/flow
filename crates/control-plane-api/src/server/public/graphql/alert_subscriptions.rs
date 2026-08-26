@@ -28,7 +28,7 @@ impl AlertSubscriptionsQuery {
         ctx: &Context<'_>,
         by: AlertSubscriptionsBy,
     ) -> async_graphql::Result<Vec<AlertSubscription>> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         let _ = super::verify_authorization(env, &by.prefix, models::Capability::Admin).await?;
 
@@ -53,7 +53,7 @@ impl AlertSubscriptionsMutation {
         alert_types: Option<Vec<AlertType>>,
         detail: Option<String>,
     ) -> async_graphql::Result<AlertSubscription> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         let _ = super::verify_authorization(env, &prefix, models::Capability::Admin).await?;
 
@@ -110,7 +110,7 @@ impl AlertSubscriptionsMutation {
         alert_types: Option<Vec<AlertType>>,
         detail: Option<String>,
     ) -> async_graphql::Result<AlertSubscription> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         let _ = super::verify_authorization(env, &prefix, models::Capability::Admin).await?;
         if alert_types.is_none() && detail.is_none() {
@@ -159,7 +159,7 @@ impl AlertSubscriptionsMutation {
         prefix: models::Prefix,
         email: String,
     ) -> async_graphql::Result<AlertSubscription> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         let _ = super::verify_authorization(env, &prefix, models::Capability::Admin).await?;
 

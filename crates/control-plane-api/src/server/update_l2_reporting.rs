@@ -26,7 +26,7 @@ pub struct Response {
 )]
 pub async fn update_l2_reporting(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
-    env: crate::Envelope,
+    crate::Authority { envelope: env, .. }: crate::Authority,
     super::Request(Request {
         default_data_plane,
         dry_run,

@@ -205,7 +205,7 @@ impl StorageMappingsMutation {
         detail: Option<String>,
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
@@ -337,7 +337,7 @@ impl StorageMappingsMutation {
         detail: Option<String>,
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<UpdateStorageMappingResult> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
@@ -482,7 +482,7 @@ impl StorageMappingsMutation {
         catalog_prefix: models::Prefix,
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<ConnectionHealthTestResult> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
@@ -681,7 +681,7 @@ impl StorageMappingsQuery {
         first: Option<i32>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedStorageMappings> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         // `filter` is the going-forward replacement for `by`. Map the
         // deprecated `by` onto the same `PrefixFilter` shape — `underPrefix` is

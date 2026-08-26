@@ -62,7 +62,7 @@ fn may_access(
     name: &str,
     capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<bool> {
-    let env = ctx.data::<crate::Envelope>()?;
+    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
     let snapshot = env.snapshot();
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
@@ -162,13 +162,13 @@ pub fn schema_sdl() -> String {
 pub(crate) async fn graphql_handler(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
-    env: crate::Envelope,
+    authority: crate::Authority,
     axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
 ) -> axum::response::Response {
-    let pg_pool = env.pg_pool.clone();
+    let pg_pool = authority.envelope.pg_pool.clone();
 
     let mut request = req
-        .data(env)
+        .data(authority)
         .data(async_graphql::dataloader::DataLoader::new(
             PgDataLoader(pg_pool),
             tokio::spawn,

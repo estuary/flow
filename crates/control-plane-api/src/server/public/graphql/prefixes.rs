@@ -47,7 +47,7 @@ impl PrefixesQuery {
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedPrefixes> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
             let snapshot = env.snapshot();

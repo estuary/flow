@@ -19,7 +19,7 @@ pub struct StatusQuery {
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn handle_get_status(
-    env: crate::Envelope,
+    crate::Authority { envelope: env, .. }: crate::Authority,
     axum_extra::extract::Query(StatusQuery {
         name, // axum_extra handles multiple `name` params.
         short,

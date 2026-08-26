@@ -1,10 +1,7 @@
 mod protocol;
 mod tags;
 
-use crate::{
-    envelope::{Envelope, Locale},
-    server::public::graphql::PgDataLoader,
-};
+use crate::{envelope::Locale, server::public::graphql::PgDataLoader};
 use async_graphql::{
     Context,
     connection::{self, Connection, Edge},
@@ -188,7 +185,7 @@ impl ConnectorsQuery {
         )]
         full_image_name: String,
     ) -> async_graphql::Result<Option<ConnectorSpec>> {
-        let env = ctx.data::<Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let _claims = env.claims()?;
 
         let (image, tag) = models::split_image_tag(&full_image_name);
@@ -231,7 +228,7 @@ impl ConnectorsQuery {
         // Require an authenticated user, just to avoid getting spammed by
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
-        let env = ctx.data::<Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let _claims = env.claims()?;
         let locale: &str = env.locale.as_ref();
         sqlx::query_as!(
@@ -288,7 +285,7 @@ impl ConnectorsQuery {
         // Require an authenticated user, just to avoid getting spammed by
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
-        let env = ctx.data::<Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let _claims = env.claims()?;
         let locale = env.locale;
 

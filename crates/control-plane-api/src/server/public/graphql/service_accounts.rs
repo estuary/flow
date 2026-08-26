@@ -82,7 +82,7 @@ impl ServiceAccountsQuery {
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedServiceAccounts> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         let snapshot = env.snapshot();
         // Service accounts are visible to callers holding QueryServiceAccounts
@@ -205,7 +205,7 @@ impl ServiceAccountsMutation {
         catalog_name: models::Name,
         grants: Vec<UserGrantInput>,
     ) -> async_graphql::Result<ServiceAccount> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         if let Err(err) = validator::Validate::validate(&catalog_name) {
@@ -346,7 +346,7 @@ impl ServiceAccountsMutation {
         prefix: models::Prefix,
         capability: models::Capability,
     ) -> async_graphql::Result<ServiceAccount> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         super::verify_authorization(
@@ -418,7 +418,7 @@ impl ServiceAccountsMutation {
         catalog_name: models::Name,
         prefix: models::Prefix,
     ) -> async_graphql::Result<ServiceAccount> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         super::verify_authorization(
@@ -463,7 +463,7 @@ impl ServiceAccountsMutation {
         ctx: &Context<'_>,
         catalog_name: models::Name,
     ) -> async_graphql::Result<ServiceAccount> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         super::verify_authorization(
@@ -508,7 +508,7 @@ impl ServiceAccountsMutation {
         #[graphql(desc = "ISO 8601 duration for token validity (e.g. P90D, P1Y)")]
         valid_for: String,
     ) -> async_graphql::Result<CreateApiKeyResult> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         super::verify_authorization(
@@ -626,7 +626,7 @@ impl ServiceAccountsMutation {
         ctx: &Context<'_>,
         id: models::Id,
     ) -> async_graphql::Result<ServiceAccount> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         // Resolve the owning account regardless of the token's current validity,
@@ -702,7 +702,7 @@ impl ServiceAccountsMutation {
         ctx: &Context<'_>,
         catalog_name: models::Name,
     ) -> async_graphql::Result<ServiceAccount> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         super::verify_authorization(

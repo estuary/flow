@@ -6,7 +6,7 @@ use std::fmt::Write;
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub async fn handle_get_metrics(
-    env: crate::Envelope,
+    crate::Authority { envelope: env, .. }: crate::Authority,
     axum::extract::Path(prefix): axum::extract::Path<String>,
 ) -> Result<axum::response::Response, crate::ApiError> {
     if !prefix.ends_with('/') {

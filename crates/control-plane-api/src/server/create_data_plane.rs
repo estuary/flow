@@ -56,7 +56,7 @@ pub struct Response {}
 #[tracing::instrument(skip(app, env), ret, err(Debug, level = tracing::Level::WARN))]
 pub async fn create_data_plane(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
-    env: crate::Envelope,
+    crate::Authority { envelope: env, .. }: crate::Authority,
     super::Request(Request {
         name,
         private,

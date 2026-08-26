@@ -483,7 +483,7 @@ impl DataPlanesQuery {
         first: Option<i32>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedDataPlanes> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
 
@@ -626,7 +626,7 @@ impl DataPlanesQuery {
         first: Option<i32>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedPublicDataPlanes> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
         let mut planes: Vec<PublicDataPlane> = env
             .snapshot()
@@ -715,7 +715,7 @@ async fn resolve_modifiable_link(
     ctx: &Context<'_>,
     id: models::Id,
 ) -> async_graphql::Result<String> {
-    let env = ctx.data::<crate::Envelope>()?;
+    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
     let not_found = || async_graphql::Error::new(format!("private link '{id}' not found"));
 
     let Some(row) = sqlx::query!(
@@ -755,7 +755,7 @@ impl DataPlanesMutation {
         data_plane_name: String,
         config: models::PrivateLink,
     ) -> async_graphql::Result<DataPlanePrivateLink> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         require_private_dp_name(&data_plane_name)?;
         super::verify_authorization(
             env,
@@ -813,7 +813,7 @@ impl DataPlanesMutation {
         id: models::Id,
         config: models::PrivateLink,
     ) -> async_graphql::Result<DataPlanePrivateLink> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         resolve_modifiable_link(ctx, id).await?;
 
         // Only the desired config is set here. When it differs, the desired-edit
@@ -860,7 +860,7 @@ impl DataPlanesMutation {
         ctx: &Context<'_>,
         id: models::Id,
     ) -> async_graphql::Result<models::Id> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let data_plane_name = resolve_modifiable_link(ctx, id).await?;
 
         _ = sqlx::query!(
