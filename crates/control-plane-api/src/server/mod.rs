@@ -119,7 +119,7 @@ where
     S: AsRef<str> + std::fmt::Display,
     C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
-    crate::Forbidden::require_mask_covers(mask, min_capability)?;
+    crate::Forbidden::required_covered(mask, min_capability)?;
 
     let models::authorizations::ControlClaims {
         sub: user_id,

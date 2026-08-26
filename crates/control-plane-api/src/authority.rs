@@ -122,7 +122,7 @@ impl Forbidden {
     /// claims — when `mask` doesn't cover `required`, evaluated before the
     /// grant walk so the structured 403 names the missing capabilities
     /// without consulting (or disclosing anything about) the user's grants.
-    pub fn require_mask_covers(
+    pub fn required_covered(
         mask: CapabilityMask,
         required: impl Into<CapabilitySet>,
     ) -> Result<(), Self> {
