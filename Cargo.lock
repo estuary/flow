@@ -6494,6 +6494,8 @@ dependencies = [
 name = "proto-grpc"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
+ "bytes",
  "labels",
  "proto-build",
  "proto-flow",

@@ -14,6 +14,8 @@ proto-flow = { path = "../proto-flow", optional = true }
 proto-gazette = { path = "../proto-gazette" }
 tokens = { path = "../tokens" }
 
+anyhow = { workspace = true }
+bytes = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }

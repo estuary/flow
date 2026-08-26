@@ -10,6 +10,9 @@ mod protocol;
 pub mod runtime;
 pub mod shuffle;
 
+mod status;
+pub use status::{MAX_STATUS_MESSAGE_LEN, anyhow_to_status, bound_status, bounded_unknown_status};
+
 // The `protocol` package is publicly exported as `broker`.
 #[cfg(any(feature = "broker_client", feature = "broker_server"))]
 pub mod broker {

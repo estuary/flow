@@ -236,7 +236,9 @@ impl Actor {
                 }
                 // Next, a leader message.
                 msg = leader_rx.next() => {
-                    let (next, stopped) = self.on_leader_message(phase, msg)?;
+                    let (next, stopped) = self
+                        .on_leader_message(phase, msg)
+                        .map_err(|err| prefer_connector_error(connector_rx, err))?;
                     phase = next;
 
                     if stopped {
@@ -672,6 +674,30 @@ impl Actor {
             return Err(verify.fail_msg(msg));
         }
         Ok(())
+    }
+}
+
+/// Replace a leader-stream failure with the connector's own terminal error,
+/// if the connector has already failed and its error is immediately ready.
+///
+/// The leader fails a session when any of its shards does, and broadcasts that
+/// failure to every shard — including the shard whose connector caused it. Both
+/// errors are then ready at once, and while the `biased` select prefers the
+/// connector arm, that only helps if the loop polls again: an error surfaced by
+/// the leader arm in the meantime would report the leader's echo of this
+/// shard's own failure, rather than the connector error which caused it.
+///
+/// A ready *response* is discarded rather than handled: the session is failing
+/// either way, and the only question is which error describes why.
+fn prefer_connector_error<Conn>(connector_rx: &mut Conn, err: anyhow::Error) -> anyhow::Error
+where
+    Conn: futures::Stream<Item = tonic::Result<materialize::Response>> + Unpin,
+{
+    match connector_rx.next().now_or_never() {
+        Some(Some(Err(status))) => {
+            crate::verify("Materialize", "connector response", "connector").fail_status(status)
+        }
+        _ => err,
     }
 }
 
@@ -1287,6 +1313,47 @@ mod tests {
         assert!(
             result.is_err(),
             "a corrupt document UUID fails a truncating binding's transaction"
+        );
+    }
+
+    #[tokio::test]
+    async fn connector_error_wins_over_the_leaders_echo() {
+        let leader_err = || anyhow::anyhow!("leader session failed: some peer shard failed");
+
+        // A connector error which is already ready replaces the leader's error:
+        // the leader is echoing this shard's own failure back at it.
+        let (tx, rx) = mpsc::channel(1);
+        tx.send(Err(tonic::Status::unknown(
+            "commit failed: refusing to commit store table",
+        )))
+        .await
+        .unwrap();
+        let mut connector_rx = ReceiverStream::new(rx);
+
+        let err = prefer_connector_error(&mut connector_rx, leader_err());
+        assert_eq!(
+            format!("{err:#}"),
+            "Materialize error (expected connector response) from connector: \
+             commit failed: refusing to commit store table"
+        );
+
+        // A healthy connector leaves the leader's error in place, as does a
+        // connector which has merely reached EOF.
+        let (_tx, rx) = mpsc::channel::<tonic::Result<materialize::Response>>(1);
+        let mut connector_rx = ReceiverStream::new(rx);
+        let err = prefer_connector_error(&mut connector_rx, leader_err());
+        assert_eq!(
+            format!("{err:#}"),
+            "leader session failed: some peer shard failed"
+        );
+
+        let (tx, rx) = mpsc::channel::<tonic::Result<materialize::Response>>(1);
+        drop(tx);
+        let mut connector_rx = ReceiverStream::new(rx);
+        let err = prefer_connector_error(&mut connector_rx, leader_err());
+        assert_eq!(
+            format!("{err:#}"),
+            "leader session failed: some peer shard failed"
         );
     }
 }
