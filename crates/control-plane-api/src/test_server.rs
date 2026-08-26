@@ -110,7 +110,6 @@ impl TestServer {
 
         // Build an invalid Publisher that will blow up if used.
         let publisher = crate::publications::Publisher::new(
-            std::path::PathBuf::from("/invalid"),
             &url::Url::parse("file:///invalid").unwrap(),
             &"invalid",
             &logs_tx,
