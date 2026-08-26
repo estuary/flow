@@ -172,6 +172,47 @@ pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output 
     .await
 }
 
+/// Build a source catalog for local catalog testing (`flowctl raw test`).
+///
+/// Live specs resolve against a `NoOpCatalogResolver`, so there is no
+/// control-plane round-trip. Derivation connectors are validated over `network`,
+/// while capture and materialization connectors are not: a catalog test never
+/// runs those tasks.
+pub async fn for_catalog_test(
+    source: &url::Url,
+    network: &str,
+    log_handler: impl Fn(&ops::Log) + Send + Sync + Clone + 'static,
+) -> Output {
+    use tables::CatalogResolver;
+
+    let file_root = std::path::Path::new("/");
+    let draft = load(source, file_root).await;
+
+    if !draft.errors.is_empty() {
+        return Output::new(draft, Default::default(), Default::default());
+    }
+    let catalog_names = draft.all_spec_names().collect();
+    let live = NoOpCatalogResolver.resolve(catalog_names).await;
+
+    if !live.errors.is_empty() {
+        return Output::new(draft, live, Default::default());
+    }
+
+    local(
+        models::Id::new([32; 8]),
+        models::Id::new([1; 8]),
+        network,
+        log_handler,
+        true,  // noop_captures: tests never run a capture.
+        false, // Validate derivations.
+        true,  // noop_materializations: tests never run a materialization.
+        &project_root(source),
+        draft,
+        live,
+    )
+    .await
+}
+
 /// The output of a build, which can be either successful, failed, or anything
 /// in between. The "in between" may seem silly, but may be important for
 /// some use cases. For example, you may be executing a build for the purpose
