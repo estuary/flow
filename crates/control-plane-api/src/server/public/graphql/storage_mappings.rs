@@ -558,7 +558,7 @@ fn check_authorization(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
-    crate::Forbidden::require_mask_covers(mask, models::Capability::Admin)?;
+    crate::Forbidden::required_covered(mask, models::Capability::Admin)?;
 
     // Verify the User admins `catalog_prefix`.
     if !tables::UserGrant::is_authorized(

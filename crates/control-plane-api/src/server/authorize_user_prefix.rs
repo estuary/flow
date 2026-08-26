@@ -85,7 +85,7 @@ fn evaluate_authorization(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
-    crate::Forbidden::require_mask_covers(mask, capability)?;
+    crate::Forbidden::required_covered(mask, capability)?;
 
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
