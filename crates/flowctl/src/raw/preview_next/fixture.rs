@@ -1125,6 +1125,88 @@ mod test {
         feeder.await.unwrap().unwrap();
     }
 
+    /// A feeder that dies before EOF must fail the run, not stall it.
+    ///
+    /// A panic inside the feeder unwinds only its tokio worker. It sends no
+    /// `Boundary`, never cancels `eof_stop`, and never releases `hold` — while
+    /// `services::Run` still retains a `frontier_tx` clone, so the channel stays
+    /// open. The consumer therefore cannot distinguish a dead feeder from a slow
+    /// producer, and parks on `recv_checkpoint` until something external reaps
+    /// the process. Aborting the task reproduces exactly that state.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_streaming_feeder_death_is_not_a_hang() {
+        use tokio::io::AsyncWriteExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+
+        let (opener, frontier_tx) = fixture_opener();
+        // `services::Run` holds a sender for the life of the run, so a dead
+        // feeder does not close the channel.
+        let _run_tx = frontier_tx.clone();
+
+        let eof_stop = tokio_util::sync::CancellationToken::new();
+        let hold = tokio_util::sync::CancellationToken::new();
+
+        let (_dir, feeder) = start_streaming(
+            &empty_task(),
+            Some(path.clone()),
+            tmp.path(),
+            1,
+            frontier_tx,
+            eof_stop.clone(),
+            hold.clone(),
+        )
+        .unwrap();
+
+        // The producer holds the pipe open for the whole test, as a benchmark
+        // generator does: the feeder's death is the only thing that changes.
+        let mut pipe = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .await
+            .unwrap();
+        pipe.write_all(b"[\"a/coll\", {\"k\": 1}]\n{\"commit\": true}\n")
+            .await
+            .unwrap();
+        pipe.flush().await.unwrap();
+
+        let mut src = opener
+            .open(Default::default(), Vec::new(), shuffle::Frontier::default())
+            .await
+            .unwrap();
+        src.request_checkpoint();
+        src.recv_checkpoint().await.unwrap();
+
+        feeder.abort();
+        let _ = feeder.await;
+
+        // The next checkpoint can never be served. It must resolve — as an
+        // error, or by the run being stopped — rather than await forever.
+        src.request_checkpoint();
+        let recv = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            tokio::select! {
+                r = src.recv_checkpoint() => Some(r),
+                () = eof_stop.cancelled() => None, // The run was stopped instead.
+            }
+        })
+        .await;
+
+        match recv {
+            Err(_elapsed) => panic!("a dead fixture feeder hung the run"),
+            Ok(Some(Ok(_))) => panic!("a dead feeder must not yield a further checkpoint"),
+            Ok(_) => (),
+        }
+    }
+
     #[test]
     fn test_is_commit_line() {
         assert!(is_commit_line(r#"{"commit": true}"#));
