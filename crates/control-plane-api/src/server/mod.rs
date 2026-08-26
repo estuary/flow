@@ -119,11 +119,7 @@ where
     S: AsRef<str> + std::fmt::Display,
     C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
-    let min_bits: models::authz::CapabilitySet = min_capability.into();
-    let missing = min_bits - mask.apply(min_bits);
-    if !missing.is_empty() {
-        return Err(crate::Forbidden::missing_capabilities(missing).into());
-    }
+    crate::Forbidden::require_mask_covers(mask, min_capability)?;
 
     let models::authorizations::ControlClaims {
         sub: user_id,

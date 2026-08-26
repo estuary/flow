@@ -117,6 +117,24 @@ impl Forbidden {
         }
     }
 
+    /// The mask-shortfall pre-check shared by every authorization policy
+    /// function: a definitive denial — a pure function of the bearer's
+    /// claims — when `mask` doesn't cover `required`, evaluated before the
+    /// grant walk so the structured 403 names the missing capabilities
+    /// without consulting (or disclosing anything about) the user's grants.
+    pub fn require_mask_covers(
+        mask: CapabilityMask,
+        required: impl Into<CapabilitySet>,
+    ) -> Result<(), Self> {
+        let required: CapabilitySet = required.into();
+        let missing = required - mask.apply(required);
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(Self::missing_capabilities(missing))
+        }
+    }
+
     pub fn unmasked_token_required() -> Self {
         Self {
             error: "unmasked_token_required",
