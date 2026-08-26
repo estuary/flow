@@ -1101,8 +1101,9 @@ mod test {
         });
 
         // The row filter and the attached userCapability metadata are
-        // computed under the same mask, so a masked listing narrows
-        // coherently — it never errors on a row it chose to show.
+        // computed under the same mask, so masking narrows the listing
+        // coherently: it cannot show a row whose capability lookup then
+        // comes up empty, because both are the same masked reachability.
         let masked = server.make_masked_access_token(alice, None, Some(vec!["CatalogRead"]));
         let response: serde_json::Value = server.graphql(&query, Some(&masked)).await;
         insta::assert_json_snapshot!(response, @r#"

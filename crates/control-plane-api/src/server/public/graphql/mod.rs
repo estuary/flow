@@ -47,7 +47,9 @@ mod tenant;
 pub(crate) use scalars::Sensitive;
 
 /// Whether the current user holds `capability` on `name`, as a pure check
-/// against the request's authorization Snapshot.
+/// against the request's authorization Snapshot under the bearer's capability
+/// mask: a capability the mask doesn't enable is absent here exactly as a
+/// grant the user doesn't hold.
 ///
 /// This is the visibility gate: use it to hide a field or filter a list,
 /// failing closed to an empty or default value when it returns `false`. Unlike

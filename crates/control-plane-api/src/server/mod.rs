@@ -152,6 +152,10 @@ where
 /// Looks up the user's authorization grants for each item in
 /// `prefixes_or_names`, and calls the provided `attach` function with each
 /// item and its capability. The `Some` results are returned in a vec.
+///
+/// Grant reachability is evaluated under the bearer's capability `mask`;
+/// the legacy capability of a reached grant passes through un-attenuated
+/// (see `tables::UserGrant::get_user_capability`).
 pub fn attach_user_capabilities<I, F, T>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,

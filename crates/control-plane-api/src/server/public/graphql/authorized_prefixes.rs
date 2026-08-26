@@ -1,5 +1,8 @@
 /// Returns catalog prefixes where the authenticated user has at least
-/// `min_capability`, optionally narrowed to those overlapping `prefix_filter`.
+/// `min_capability` under the bearer's capability `mask`, optionally narrowed
+/// to those overlapping `prefix_filter`. The mask gates the walk itself, so a
+/// masked listing narrows (a mask without `Delegate` stops at direct grants)
+/// rather than erroring.
 ///
 /// Intended for use by GraphQL queries that list resources scoped to the
 /// caller's authorized prefixes, with an optional prefix filter.
