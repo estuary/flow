@@ -185,7 +185,7 @@ fn create_segment(
 }
 
 /// Default segment file size threshold: 64 MB.
-const DEFAULT_SEGMENT_THRESHOLD: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_SEGMENT_THRESHOLD: u64 = 64 * 1024 * 1024;
 
 #[cfg(test)]
 mod test {
