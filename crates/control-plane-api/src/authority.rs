@@ -610,13 +610,13 @@ mod test {
         let token = sign_token(&key, "authenticated", true, None);
         insta::assert_snapshot!(fetch(&router, "/none", Some(&token)).await, @r"
         401 Unauthorized
-        ExpiredSignature
+        failed to verify token: ExpiredSignature
         ");
 
         // ...and signature verification of a malformed bearer.
         insta::assert_snapshot!(fetch(&router, "/none", Some("not.a.jwt")).await, @r"
         401 Unauthorized
-        InvalidToken
+        failed to verify token: Base64 error: Invalid last symbol 116, offset 2.
         ");
     }
 }
