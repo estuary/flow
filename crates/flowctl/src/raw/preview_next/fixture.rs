@@ -1125,6 +1125,273 @@ mod test {
         feeder.await.unwrap().unwrap();
     }
 
+    /// A Task with one materialization binding on `acmeCo/events`, keyed on
+    /// `/id`: fixture documents for that collection are routed and written, so
+    /// tests can observe what the feeder actually puts on disk.
+    fn one_binding_task() -> shuffle::proto::Task {
+        let collection = proto_flow::flow::CollectionSpec {
+            name: "acmeCo/events".to_string(),
+            key: vec!["/id".to_string()],
+            uuid_ptr: "/_meta/uuid".to_string(),
+            write_schema_json: r#"{
+                "type": "object",
+                "required": ["id"],
+                "properties": {"id": {"type": "integer"}, "pad": {"type": "string"}}
+            }"#
+            .into(),
+            partition_template: Some(proto_gazette::broker::JournalSpec {
+                name: "acmeCo/events".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        shuffle::proto::Task {
+            task: Some(shuffle::proto::task::Task::Materialization(
+                proto_flow::flow::MaterializationSpec {
+                    name: "acmeCo/sink".to_string(),
+                    bindings: vec![proto_flow::flow::materialization_spec::Binding {
+                        collection: Some(collection),
+                        partition_selector: Some(Default::default()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            )),
+        }
+    }
+
+    /// Total bytes of log segment files living under `dir`. Nothing unlinks
+    /// them in these tests (no consumer reads), so this is the writer's
+    /// standing on-disk backlog.
+    fn live_segment_bytes(dir: &std::path::Path) -> u64 {
+        let mut total = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            if entry.path().extension().is_some_and(|e| e == "flog") {
+                total += entry.metadata().unwrap().len();
+            }
+        }
+        total
+    }
+
+    /// One fixture line: a document of roughly `pad` bytes of padding.
+    ///
+    /// The padding is incompressible. A gated writer will reclaim disk by
+    /// LZ4-compressing sealed segments as well as by the consumer unlinking
+    /// them, so compressible padding would let compression alone drain the
+    /// backlog — and let `streaming_writer_respects_the_shuffle_disk_limit`
+    /// pass without the gate ever engaging.
+    fn fixture_doc(id: usize, pad: usize) -> String {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-";
+
+        // A plain LCG: deterministic across runs, and cheap enough to generate
+        // hundreds of MiB of padding.
+        let mut rng = id as u64 | 1;
+        let padding: String = (0..pad)
+            .map(|_| {
+                rng = rng
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                ALPHABET[(rng >> 58) as usize & 63] as char
+            })
+            .collect();
+
+        format!("[\"acmeCo/events\",{{\"id\":{id},\"pad\":\"{padding}\"}}]\n")
+    }
+
+    /// The fixture writer must not accumulate an unbounded on-disk backlog.
+    ///
+    /// `LogActor` gates every append on `shuffle_disk_limit_bytes` worth of
+    /// sealed segments (`crates/shuffle/src/log/actor.rs`), which are reclaimed
+    /// only as the consumer unlinks them while reading — so in production the
+    /// writer is throttled by consumer progress. The fixture calls
+    /// `Writer::append_block` directly and consults no such gate, so with no
+    /// consumer it writes the whole fixture to disk.
+    ///
+    /// Fed through a FIFO, a gated writer stops draining the pipe and
+    /// back-pressures to this test's own writes; that is success.
+    ///
+    /// The asserted bound is the gate's true guarantee, which has three slack
+    /// terms past the limit itself:
+    ///
+    /// - one segment: the backlog is accounted in whole sealed segments, so
+    ///   engagement overshoots by up to the segment roll threshold;
+    /// - one segment: `live_segment_bytes` also counts the active (unsealed)
+    ///   segment, which the backlog accounting never sees;
+    /// - one transaction: the gate is taken only at transaction boundaries —
+    ///   a transaction's blocks lie beyond the last relayed frontier's
+    ///   `flushed_lsn`, so the consumer cannot read, and so cannot reclaim,
+    ///   them until that transaction commits.
+    ///
+    /// The limit inherited by preview is the data-plane-wide default (2 GiB,
+    /// `shuffle::DEFAULT_SHUFFLE_DISK_LIMIT_BYTES`), so this test necessarily
+    /// moves that much data; a fix which gives preview its own smaller bound
+    /// should retarget it there.
+    #[tokio::test]
+    async fn streaming_writer_respects_the_fixture_disk_limit() {
+        let limit = shuffle::DEFAULT_SHUFFLE_DISK_LIMIT_BYTES;
+        let segment_threshold = shuffle::log::writer::DEFAULT_SEGMENT_THRESHOLD;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+
+        let (frontier_tx, _frontier_rx) = tokio::sync::mpsc::unbounded_channel();
+        let eof_stop = tokio_util::sync::CancellationToken::new();
+        let hold = tokio_util::sync::CancellationToken::new();
+
+        let (dir, feeder) = start_streaming(
+            &one_binding_task(),
+            Some(path.clone()),
+            tmp.path(),
+            1,
+            frontier_tx,
+            eof_stop,
+            hold.clone(),
+        )
+        .unwrap();
+        let dir = std::path::PathBuf::from(dir);
+
+        use tokio::io::AsyncWriteExt;
+        let mut pipe = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .await
+            .unwrap();
+
+        // One transaction per iteration, of large documents to keep the line
+        // count (and so the parse cost) modest.
+        let mut txn = String::new();
+        for id in 0..256 {
+            txn.push_str(&fixture_doc(id, 64 * 1024));
+        }
+        txn.push_str("{\"commit\": true}\n");
+
+        // The gate's guarantee: limit, plus a sealed segment of accounting
+        // granularity, plus the active segment, plus one transaction.
+        let bound = limit + 2 * segment_threshold + txn.len() as u64;
+
+        // Feed past the bound. Nothing reads these segments, so the standing
+        // backlog may never exceed it, and the writer must eventually stall.
+        let mut fed = 0u64;
+        let mut stalled = false;
+        while fed < limit + limit / 8 {
+            let write = pipe.write_all(txn.as_bytes());
+            match tokio::time::timeout(std::time::Duration::from_secs(5), write).await {
+                // A blocked write is the back-pressure we want: the gated
+                // writer has stopped draining the pipe.
+                Err(_) => {
+                    stalled = true;
+                    break;
+                }
+                Ok(result) => result.unwrap(),
+            }
+            fed += txn.len() as u64;
+
+            let backlog = live_segment_bytes(&dir);
+            assert!(
+                backlog <= bound,
+                "fixture log backlog grew to {backlog} bytes, past the {bound}-byte \
+                 bound (the {limit}-byte disk limit plus segment-accounting slack \
+                 plus one transaction), with no consumer reading it",
+            );
+        }
+
+        // Nothing ever reads these segments, so back-pressure can only engage
+        // and never release: staying under the bound must be the gate's doing,
+        // not the producer simply running out of fixtures.
+        assert!(
+            stalled,
+            "the writer consumed {fed} bytes without ever stalling, so the \
+             {limit}-byte disk limit is not back-pressuring the producer",
+        );
+
+        drop(pipe);
+        hold.cancel();
+        feeder.abort(); // A gated writer is parked mid-append.
+    }
+
+    /// The streaming feeder must write a transaction's documents incrementally.
+    ///
+    /// A feeder which holds a transaction's documents until its commit marker
+    /// has peak memory tracking *transaction* size, which `FIXTURE_BLOCK_BYTES`
+    /// cannot bound: it caps the encoded block, downstream of any such buffer.
+    ///
+    /// Feeding more than `FIXTURE_BLOCK_ENTRIES` documents with no commit
+    /// marker must therefore put at least one block on disk.
+    #[tokio::test]
+    async fn streaming_feeder_writes_before_the_commit_marker() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+
+        let (frontier_tx, _frontier_rx) = tokio::sync::mpsc::unbounded_channel();
+        let eof_stop = tokio_util::sync::CancellationToken::new();
+        let hold = tokio_util::sync::CancellationToken::new();
+
+        let (dir, feeder) = start_streaming(
+            &one_binding_task(),
+            Some(path.clone()),
+            tmp.path(),
+            1,
+            frontier_tx,
+            eof_stop,
+            hold.clone(),
+        )
+        .unwrap();
+        let dir = std::path::PathBuf::from(dir);
+
+        use tokio::io::AsyncWriteExt;
+        let mut pipe = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .await
+            .unwrap();
+
+        // Twice FIXTURE_BLOCK_ENTRIES documents, and no commit marker: the
+        // entry threshold alone should have flushed a block by now.
+        let mut batch = String::new();
+        for id in 0..(2 * FIXTURE_BLOCK_ENTRIES) {
+            batch.push_str(&fixture_doc(id, 64));
+        }
+        pipe.write_all(batch.as_bytes()).await.unwrap();
+        pipe.flush().await.unwrap();
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut written = 0;
+        while tokio::time::Instant::now() < deadline {
+            written = live_segment_bytes(&dir);
+            if written != 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(
+            written != 0,
+            "no log bytes written after {} uncommitted documents: the whole \
+             transaction is resident in the feeder's parse buffer",
+            2 * FIXTURE_BLOCK_ENTRIES,
+        );
+
+        drop(pipe);
+        hold.cancel();
+        feeder.abort();
+    }
+
     #[test]
     fn test_is_commit_line() {
         assert!(is_commit_line(r#"{"commit": true}"#));
