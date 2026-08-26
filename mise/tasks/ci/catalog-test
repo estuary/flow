@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CARGO_TARGET_DIR and GOBIN are per-checkout (see mise/tasks/local/stack-env).
-# flowctl-go spawns flow-connector-init (musl) and other Rust binaries found on
-# PATH; mise's _.path covers ${CARGO_TARGET_DIR}/debug but not the musl dir.
+# `flowctl raw test` runs the catalog's tests locally on the runtime-next stack:
+# no Gazette broker, no etcd, no Go consumer. Image derivations still run as
+# connector containers, so Docker is required.
+#
+# CARGO_TARGET_DIR is per-checkout (see mise/tasks/local/stack-env). Connector
+# containers mount flow-connector-init (musl) from PATH, which mise's _.path
+# covers for ${CARGO_TARGET_DIR}/debug but not the musl dir.
 PATH=${PATH}:${CARGO_TARGET_DIR}/debug:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug \
-"${GOBIN}/flowctl-go" test --source examples/flow.yaml
+cargo run --quiet -p flowctl -- raw test --source examples/flow.yaml

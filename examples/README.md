@@ -11,12 +11,11 @@ test and publish YAML specifications. But you would need to change the names
 to use a prefix that you have `admin` access to in order to actually run these
 yourself.
 
-Note that these examples are tested using the `flowctl-go` CLI, not the typical
-`flowctl` that users typically interact with. But all the specs here are the
-same as what you'd use with regular `flowctl`. The main difference is that
-`flowctl` will run tests on the server side and perform authorization checks
-(which will fail because users don't have access to these prefixes in the
-Estuary control-plane).
+Note that these examples are tested with `flowctl raw test`, which runs a
+catalog's tests entirely locally. That is distinct from `flowctl catalog test`,
+which runs tests on the server side and performs authorization checks (those
+would fail here, because users don't have access to these prefixes in the Estuary
+control-plane). The specs themselves are the same either way.
 
 ## Running All Tests
 
@@ -25,13 +24,13 @@ catalog collections. We recommend that _every_ Estuary catalog include tests,
 and these examples are no exception:
 
 ```console
-$ flowctl-go test --source examples/flow.yaml
+$ flowctl raw test --source examples/flow.yaml
 ```
 
 You can also directly test catalog sources which are hosted remotely:
 
 ```console
-$ flowctl-go test --source https://raw.githubusercontent.com/estuary/flow/master/examples/all.flow.yaml
+$ flowctl raw test --source https://raw.githubusercontent.com/estuary/flow/master/examples/all.flow.yaml
 ```
 
 ## Examples
