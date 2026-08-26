@@ -90,6 +90,11 @@ impl AuthZRetry {
 pub enum ApiError {
     Status(tonic::Status),
     AuthZRetry(AuthZRetry),
+    /// A definitive capability-mask denial, carrying the structured `403`
+    /// body. Unlike Status denials it is never provisional: it's a pure
+    /// function of the bearer's verified claims, so no Snapshot refresh or
+    /// client retry can change the outcome.
+    Forbidden(crate::Forbidden),
 }
 
 impl From<sqlx::Error> for ApiError {
@@ -130,19 +135,38 @@ impl axum::response::IntoResponse for ApiError {
         match self {
             Self::Status(status) => crate::status_into_response(status),
             Self::AuthZRetry(retry) => retry.to_response(),
+            Self::Forbidden(forbidden) => forbidden.into_response(),
         }
     }
 }
 
 impl From<ApiError> for async_graphql::Error {
     fn from(api_error: ApiError) -> Self {
-        let status = match &api_error {
-            ApiError::Status(status) => status,
-            ApiError::AuthZRetry(retry) => &retry.status,
+        let mut err = match &api_error {
+            ApiError::Status(status) => {
+                Self::new(format!("{:?}: {}", status.code(), status.message()))
+            }
+            ApiError::AuthZRetry(retry) => Self::new(format!(
+                "{:?}: {}",
+                retry.status.code(),
+                retry.status.message()
+            )),
+            // Carry the structured 403 body in error extensions, so that
+            // "you need capability X" is machine-readable identically on the
+            // REST and GraphQL surfaces: a client parses the missing names
+            // and re-mints a capability token which enables them.
+            ApiError::Forbidden(forbidden) => {
+                let mut err = Self::new(forbidden.message.clone());
+                let mut extensions = async_graphql::ErrorExtensionValues::default();
+                extensions.set("error", forbidden.error);
+                extensions.set(
+                    "missing_capabilities",
+                    forbidden.missing_capabilities.clone(),
+                );
+                err.extensions = Some(extensions);
+                err
+            }
         };
-        let message = format!("{:?}: {}", status.code(), status.message());
-
-        let mut err = Self::new(message);
         err.source = Some(std::sync::Arc::new(api_error));
 
         err

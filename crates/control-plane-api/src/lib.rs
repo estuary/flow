@@ -43,8 +43,10 @@ pub type DataClaims = proto_gazette::Claims;
 ///
 /// Its Ok variant contains an optional `cordon_at` DateTime which denotes when
 /// the authorization will become invalid due to cordoning, which (when present)
-/// upper-bounds the expiry of a derived authorization.
-pub type AuthZResult<Ok> = tonic::Result<(Option<tokens::DateTime>, Ok)>;
+/// upper-bounds the expiry of a derived authorization. Its Err variant
+/// distinguishes Snapshot-retriable denials from definitive ones; see
+/// [`AuthZError`].
+pub type AuthZResult<Ok> = Result<(Option<tokens::DateTime>, Ok), AuthZError>;
 
 /// Envelope is common fields and parameters of every API request.
 pub use envelope::{Envelope, Locale, MaybeControlClaims};
@@ -52,7 +54,9 @@ pub use envelope::{Envelope, Locale, MaybeControlClaims};
 /// Authority is the authenticated context of an API request: an Envelope
 /// plus the capability mask of the bearer's `capability_mask` claim, with
 /// the route's Requirement evaluated at extraction.
-pub use authority::{Authority, Forbidden, NoRequirement, RequireUnmasked, Requirement};
+pub use authority::{
+    AuthZError, Authority, Forbidden, NoRequirement, RequireUnmasked, RequireViewer, Requirement,
+};
 
 // TODO(johnny): These types are all fundamental to this crate, and should be
 // hoisted from the `server` module. For now, just re-export to minimize churn.
