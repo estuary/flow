@@ -17,10 +17,24 @@ impl MaybeControlClaims {
     pub fn result(&self) -> tonic::Result<&crate::ControlClaims> {
         match &self.0 {
             Some(verified) => Ok(verified.claims()),
-            None => Err(tonic::Status::unauthenticated(
-                "This is an authenticated API but the request is missing a required Authorization: Bearer token",
-            )),
+            None => Err(Self::unauthenticated()),
         }
+    }
+
+    /// Peek at verified claims without requiring their presence.
+    ///
+    /// This exists for `Authority` extraction, which must evaluate a route's
+    /// `Requirement` against the claims of an authenticated bearer while
+    /// leaving an unauthenticated request to the lazy per-callsite identity
+    /// gate of [`Self::result`].
+    pub fn maybe(&self) -> Option<&crate::ControlClaims> {
+        self.0.as_ref().map(|verified| verified.claims())
+    }
+
+    pub(crate) fn unauthenticated() -> tonic::Status {
+        tonic::Status::unauthenticated(
+            "This is an authenticated API but the request is missing a required Authorization: Bearer token",
+        )
     }
 }
 
