@@ -15,6 +15,7 @@ async-process = { path = "../async-process" }
 async-stripe = { workspace = true }
 billing-types = { path = "../billing-types", features = ["async-graphql"] }
 build = { path = "../build" }
+catalog-tests = { path = "../catalog-tests" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
 gazette = { path = "../gazette" }
