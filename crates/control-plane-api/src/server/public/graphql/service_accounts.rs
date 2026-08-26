@@ -91,7 +91,7 @@ impl ServiceAccountsQuery {
             &snapshot.role_grants,
             &snapshot.user_grants,
             env.claims()?.sub,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             models::authz::Capability::QueryServiceAccounts,
             None,
         );
@@ -219,7 +219,7 @@ impl ServiceAccountsMutation {
         // narrower than full Admin.
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             catalog_name.as_str(),
             models::authz::Capability::CreateServiceAccount,
         )
@@ -250,7 +250,7 @@ impl ServiceAccountsMutation {
         for grant in &grants {
             super::verify_authorization(
                 env,
-                *ctx.data::<models::authz::CapabilityMask>()?,
+                super::bearer_mask(ctx)?,
                 grant.prefix.as_str(),
                 models::authz::Capability::CreateGrant,
             )
@@ -354,7 +354,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             catalog_name.as_str(),
             models::authz::Capability::CreateGrant,
         )
@@ -376,7 +376,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             prefix.as_str(),
             models::authz::Capability::CreateGrant,
         )
@@ -432,7 +432,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             catalog_name.as_str(),
             models::authz::Capability::CreateServiceAccount,
         )
@@ -478,7 +478,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             catalog_name.as_str(),
             models::authz::Capability::CreateServiceAccount,
         )
@@ -524,7 +524,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             catalog_name.as_str(),
             models::authz::Capability::CreateApiKey,
         )
@@ -676,7 +676,7 @@ impl ServiceAccountsMutation {
         // and denial are indistinguishable.
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &owner.catalog_name,
             models::authz::Capability::RevokeApiKey,
         )
@@ -720,7 +720,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             catalog_name.as_str(),
             models::authz::Capability::RevokeApiKey,
         )

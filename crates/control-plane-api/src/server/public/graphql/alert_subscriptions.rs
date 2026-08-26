@@ -32,7 +32,7 @@ impl AlertSubscriptionsQuery {
 
         let _ = super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &by.prefix,
             models::Capability::Admin,
         )
@@ -63,7 +63,7 @@ impl AlertSubscriptionsMutation {
 
         let _ = super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &prefix,
             models::Capability::Admin,
         )
@@ -126,7 +126,7 @@ impl AlertSubscriptionsMutation {
 
         let _ = super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &prefix,
             models::Capability::Admin,
         )
@@ -181,7 +181,7 @@ impl AlertSubscriptionsMutation {
 
         let _ = super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &prefix,
             models::Capability::Admin,
         )

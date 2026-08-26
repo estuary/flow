@@ -217,7 +217,7 @@ impl StorageMappingsMutation {
         evaluate_authorization(
             env,
             claims,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &catalog_prefix,
             &spec.data_planes,
         )
@@ -356,7 +356,7 @@ impl StorageMappingsMutation {
         evaluate_authorization(
             env,
             claims,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &catalog_prefix,
             &spec.data_planes,
         )
@@ -508,7 +508,7 @@ impl StorageMappingsMutation {
         evaluate_authorization(
             env,
             claims,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &catalog_prefix,
             &spec.data_planes,
         )
@@ -747,7 +747,7 @@ impl StorageMappingsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
-                *ctx.data::<models::authz::CapabilityMask>()?,
+                super::bearer_mask(ctx)?,
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -812,7 +812,7 @@ impl StorageMappingsQuery {
 
         let snapshot = env.snapshot();
         let claims = env.claims()?;
-        let mask = *ctx.data::<models::authz::CapabilityMask>()?;
+        let mask = super::bearer_mask(ctx)?;
         let edges = rows
             .into_iter()
             .map(|row| {
@@ -1054,14 +1054,25 @@ mod test {
         let Err(crate::AuthZError::Definitive(forbidden)) = result else {
             panic!("expected a definitive denial, got {result:?}");
         };
-        assert!(
-            !forbidden.missing_capabilities.contains(&"CatalogRead"),
-            "{forbidden:?}",
-        );
-        assert!(
-            forbidden.missing_capabilities.contains(&"SpecEdit"),
-            "{forbidden:?}",
-        );
+        insta::assert_debug_snapshot!(forbidden.missing_capabilities, @r#"
+        [
+            "JournalRead",
+            "JournalAppend",
+            "SpecEdit",
+            "CreateGrant",
+            "DeleteGrant",
+            "CreateInviteLink",
+            "ViewDataPlanePrivateNetworking",
+            "ModifyDataPlanePrivateNetworking",
+            "ViewBilling",
+            "EditBilling",
+            "QueryServiceAccounts",
+            "CreateServiceAccount",
+            "CreateApiKey",
+            "RevokeApiKey",
+            "Delegate",
+        ]
+        "#);
     }
 
     #[sqlx::test(

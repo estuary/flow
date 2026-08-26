@@ -12,7 +12,7 @@ impl TenantQuery {
 
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             tenant.as_str(),
             models::Capability::Read,
         )

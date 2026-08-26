@@ -20,7 +20,7 @@ impl Tenant {
         let env = ctx.data::<crate::Envelope>()?;
         verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::super::bearer_mask(ctx)?,
             &self.name,
             models::authz::Capability::ViewBilling,
         )
