@@ -10,7 +10,8 @@ impl TenantQuery {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&name)?;
 
-        super::verify_authorization(env, tenant.as_str(), models::Capability::Read).await?;
+        super::verify_authorization(env, *ctx.data()?, tenant.as_str(), models::Capability::Read)
+            .await?;
 
         let exists: bool = sqlx::query_scalar!(
             r#"SELECT EXISTS(SELECT 1 FROM tenants WHERE tenant = $1) AS "exists!""#,

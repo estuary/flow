@@ -142,6 +142,7 @@ async fn fetch_alert_history_by_prefix(
     let policy_result = crate::server::evaluate_names_authorization(
         env.snapshot(),
         env.claims()?,
+        *ctx.data()?,
         models::Capability::Read,
         [&by.prefix],
     );

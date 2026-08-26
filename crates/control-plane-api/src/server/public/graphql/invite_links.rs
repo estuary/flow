@@ -82,6 +82,7 @@ impl InviteLinksQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
+                *ctx.data()?,
                 models::Capability::Admin,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
@@ -197,7 +198,13 @@ impl InviteLinksMutation {
             )));
         }
 
-        super::verify_authorization(env, &catalog_prefix, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            *ctx.data()?,
+            &catalog_prefix,
+            models::Capability::Admin,
+        )
+        .await?;
 
         let row = sqlx::query!(
             r#"
@@ -386,7 +393,13 @@ impl InviteLinksMutation {
             None => return Err(async_graphql::Error::new("Invalid invite link")),
         };
 
-        super::verify_authorization(env, &invite.catalog_prefix, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            *ctx.data()?,
+            &invite.catalog_prefix,
+            models::Capability::Admin,
+        )
+        .await?;
 
         sqlx::query!("DELETE FROM internal.invite_links WHERE token = $1", token,)
             .execute(&mut *txn)
