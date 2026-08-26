@@ -82,7 +82,7 @@ impl InviteLinksQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
-                *ctx.data()?,
+                *ctx.data::<models::authz::CapabilityMask>()?,
                 models::Capability::Admin,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
@@ -200,7 +200,7 @@ impl InviteLinksMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             &catalog_prefix,
             models::Capability::Admin,
         )
@@ -395,7 +395,7 @@ impl InviteLinksMutation {
 
         super::verify_authorization(
             env,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             &invite.catalog_prefix,
             models::Capability::Admin,
         )

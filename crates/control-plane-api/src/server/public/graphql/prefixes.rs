@@ -48,7 +48,7 @@ impl PrefixesQuery {
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedPrefixes> {
         let env = ctx.data::<crate::Envelope>()?;
-        let mask: models::authz::CapabilityMask = *ctx.data()?;
+        let mask = *ctx.data::<models::authz::CapabilityMask>()?;
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
             let snapshot = env.snapshot();

@@ -186,7 +186,7 @@ pub async fn paginate_live_specs_refs(
     let all_refs = crate::server::attach_user_capabilities(
         env.snapshot(),
         env.claims()?,
-        *ctx.data()?,
+        *ctx.data::<models::authz::CapabilityMask>()?,
         all_names,
         |name, maybe_capability| {
             if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
@@ -292,7 +292,7 @@ impl LiveSpecsQuery {
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
             env.claims()?,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             models::Capability::Read,
             names
                 .iter()
@@ -363,7 +363,7 @@ impl LiveSpecsQuery {
         let edges = crate::server::attach_user_capabilities(
             env.snapshot(),
             env.claims()?,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             names,
             |name, user_capability| {
                 Some(connection::Edge::new(
