@@ -23,7 +23,7 @@ pub(super) fn authorized_prefixes(
         role_grants,
         user_grants,
         user_id,
-        models::authz::CapabilityMask::UNMASKED,
+        models::authz::CapabilityMask::ALL_CAPABILITIES,
     )
     .into_iter()
     .filter(|(prefix, _)| {
@@ -246,7 +246,7 @@ mod tests {
             &rg,
             &ug,
             ALICE,
-            models::authz::CapabilityMask::UNMASKED,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
         );
         assert_eq!(
             reachable["acmeCo/"].0,
@@ -288,7 +288,7 @@ mod tests {
             &rg,
             &ug,
             ALICE,
-            models::authz::CapabilityMask::UNMASKED,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
         );
         assert_eq!(
             reachable["sharedCo/"].0,

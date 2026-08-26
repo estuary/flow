@@ -70,7 +70,7 @@ fn may_access(
         env.claims()?.sub,
         name,
         capability,
-        models::authz::CapabilityMask::UNMASKED,
+        models::authz::CapabilityMask::ALL_CAPABILITIES,
     ))
 }
 
