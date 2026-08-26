@@ -25,8 +25,9 @@ pub trait Requirement: Send + Sync + 'static {
 
 /// The default, vacuous [`Requirement`]: extraction is Maybe-shaped, so an
 /// unauthenticated request extracts successfully and
-/// [`crate::Envelope::claims`] remains the lazy per-callsite identity gate
-/// (which GraphQL and the token endpoint depend on).
+/// [`crate::Envelope::claims`] remains the lazy per-callsite identity gate.
+/// GraphQL depends on this: its one route serves every operation, so
+/// identity errors must surface per-resolver rather than at extraction.
 pub struct NoRequirement;
 
 impl Requirement for NoRequirement {
