@@ -148,10 +148,10 @@ impl axum::response::IntoResponse for Rejection {
 /// `Authority { envelope: env, mask, .. }` — in the manner of axum's
 /// `State`, and act on the parts directly.
 ///
-/// Every handler extracts Authority rather than `Envelope`, so the bearer's
-/// mask always reaches request processing; `Envelope`'s own
-/// `FromRequestParts` impl remains as the inner extraction this composes
-/// over.
+/// Handlers extract Authority — never `Envelope` directly — so the bearer's
+/// mask always reaches request processing. `Envelope`'s own
+/// `FromRequestParts` impl exists to serve as the inner extraction this
+/// composes over.
 pub struct Authority<R: Requirement = NoRequirement> {
     /// The extracted request Envelope.
     pub envelope: crate::Envelope,

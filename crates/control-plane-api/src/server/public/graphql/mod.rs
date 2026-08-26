@@ -172,9 +172,11 @@ pub(crate) async fn graphql_handler(
     let pg_pool = env.pg_pool.clone();
 
     // The Envelope and the bearer's capability mask enter the GraphQL
-    // context as separate data: resolvers read the Envelope exactly as
-    // before, while authorization chokepoints consume the mask on their
-    // own, without every resolver having to care that it exists.
+    // context as separate data — deliberately not as the Authority itself.
+    // The two have different consumers: resolvers read identity and the
+    // Snapshot from the Envelope, while only the authorization chokepoints
+    // consume the mask, and neither should have to care that the other's
+    // context datum exists.
     let mut request = req
         .data(env)
         .data(mask)
