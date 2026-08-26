@@ -485,7 +485,7 @@ impl DataPlanesQuery {
     ) -> async_graphql::Result<PaginatedDataPlanes> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
-        let mask = *ctx.data::<models::authz::CapabilityMask>()?;
+        let mask = super::bearer_mask(ctx)?;
         let snapshot = env.snapshot();
 
         let DataPlanesFilter { id, closed, public } = filter.unwrap_or_default();
@@ -567,7 +567,7 @@ impl DataPlanesQuery {
         let edges = crate::server::attach_user_capabilities(
             env.snapshot(),
             env.claims()?,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             names.into_iter(),
             |data_plane_name, user_capability| {
                 let dp = row_data.get(&data_plane_name)?;
@@ -761,7 +761,7 @@ impl DataPlanesMutation {
         require_private_dp_name(&data_plane_name)?;
         super::verify_authorization(
             env,
-            *ctx.data::<models::authz::CapabilityMask>()?,
+            super::bearer_mask(ctx)?,
             &data_plane_name,
             models::authz::Capability::ModifyDataPlanePrivateNetworking,
         )

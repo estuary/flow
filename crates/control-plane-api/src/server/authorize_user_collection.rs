@@ -523,14 +523,10 @@ mod tests {
                     Outcome::Ok((broker_address, journal_name_prefix, data_claims))
                 }
             }
-            Err(crate::AuthZError::Retriable(status)) => Outcome::Err {
-                status: tokens::rest::grpc_status_code_to_http(status.code()),
-                error: status.message().to_string(),
-            },
-            Err(crate::AuthZError::Definitive(forbidden)) => Outcome::Err {
-                status: 403,
-                error: forbidden.message,
-            },
+            Err(err) => {
+                let (status, error) = err.into_status_message();
+                Outcome::Err { status, error }
+            }
         }
     }
 

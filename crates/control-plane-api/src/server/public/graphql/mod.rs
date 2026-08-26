@@ -46,6 +46,15 @@ mod tenant;
 
 pub(crate) use scalars::Sensitive;
 
+/// The bearer's capability mask, as injected into the GraphQL context by
+/// `graphql_handler`. One named accessor keeps the ~40 resolver pulls
+/// explicit about what they read without each repeating the type.
+pub(crate) fn bearer_mask(
+    ctx: &async_graphql::Context<'_>,
+) -> async_graphql::Result<models::authz::CapabilityMask> {
+    Ok(*ctx.data::<models::authz::CapabilityMask>()?)
+}
+
 /// Whether the current user holds `capability` on `name`, as a pure check
 /// against the request's authorization Snapshot under the bearer's capability
 /// mask: a capability the mask doesn't enable is absent here exactly as a
@@ -65,7 +74,7 @@ fn may_access(
     capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
-    let mask = *ctx.data::<models::authz::CapabilityMask>()?;
+    let mask = bearer_mask(ctx)?;
     let snapshot = env.snapshot();
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
@@ -78,7 +87,7 @@ fn may_access(
 }
 
 /// Errors unless the current user holds `capability` on `prefix`, under the
-/// bearer's capability `mask` (read from the GraphQL context as `*ctx.data::<models::authz::CapabilityMask>()?`).
+/// bearer's capability `mask` (read from the GraphQL context as `bearer_mask(ctx)?`).
 ///
 /// This is the hard gate for mutations and access-controlled queries: a denial
 /// becomes `permission_denied`, and a provisional denial against a stale

@@ -158,6 +158,21 @@ impl From<Forbidden> for AuthZError {
     }
 }
 
+#[cfg(test)]
+impl AuthZError {
+    /// Map to the (HTTP status, message) pair which handler test harnesses
+    /// snapshot as their `Outcome::Err` shape.
+    pub(crate) fn into_status_message(self) -> (u16, String) {
+        match self {
+            Self::Retriable(status) => (
+                tokens::rest::grpc_status_code_to_http(status.code()),
+                status.message().to_string(),
+            ),
+            Self::Definitive(forbidden) => (403, forbidden.message),
+        }
+    }
+}
+
 /// Rejection is an error of Authority extraction.
 #[derive(Debug, thiserror::Error)]
 pub enum Rejection {

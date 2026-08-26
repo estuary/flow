@@ -386,7 +386,7 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
 
 #[cfg(test)]
 mod test {
-    use models::authz::{Capability, CapabilityMask, CapabilitySet};
+    use models::authz;
 
     fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
         models::authorizations::ControlClaims {
@@ -407,14 +407,14 @@ mod test {
         let claims = claims(bob);
 
         // Legacy Read requires the full Viewer bundle of capability bits.
-        let viewer: CapabilitySet = models::Capability::Read.into();
+        let viewer: authz::CapabilitySet = models::Capability::Read.into();
 
         // An unmasked bearer is authorized through Bob's grant.
         assert!(
             super::evaluate_names_authorization(
                 &snapshot,
                 &claims,
-                CapabilityMask::ALL_CAPABILITIES,
+                authz::CapabilityMask::ALL_CAPABILITIES,
                 models::Capability::Read,
                 ["bobCo/tires/"],
             )
@@ -426,7 +426,7 @@ mod test {
             super::evaluate_names_authorization(
                 &snapshot,
                 &claims,
-                CapabilityMask::bounded(viewer),
+                authz::CapabilityMask::bounded(viewer),
                 models::Capability::Read,
                 ["bobCo/tires/"],
             )
@@ -439,7 +439,7 @@ mod test {
         let result = super::evaluate_names_authorization(
             &snapshot,
             &claims,
-            CapabilityMask::bounded(Capability::CatalogRead.into()),
+            authz::CapabilityMask::bounded(authz::Capability::CatalogRead.into()),
             models::Capability::Read,
             ["bobCo/tires/"],
         );
@@ -457,7 +457,7 @@ mod test {
         let result = super::evaluate_names_authorization(
             &snapshot,
             &claims,
-            CapabilityMask::bounded(CapabilitySet::empty()),
+            authz::CapabilityMask::bounded(authz::CapabilitySet::empty()),
             models::Capability::Read,
             ["acmeCo/nothing/"],
         );
@@ -471,7 +471,7 @@ mod test {
         let result = super::evaluate_names_authorization(
             &snapshot,
             &claims,
-            CapabilityMask::bounded(viewer),
+            authz::CapabilityMask::bounded(viewer),
             models::Capability::Read,
             ["acmeCo/nothing/"],
         );
