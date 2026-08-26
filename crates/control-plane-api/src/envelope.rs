@@ -99,7 +99,9 @@ impl Envelope {
     ///
     /// This method handles the complexity of Snapshot refresh, retry logic,
     /// and cordoning. Call it with a AuthZResult from your authorization
-    /// evaluation policy function.
+    /// evaluation policy function. Only [`crate::AuthZError::Retriable`]
+    /// denials participate in refresh-and-retry; a definitive denial is
+    /// returned immediately as [`crate::ApiError::Forbidden`].
     pub async fn authorization_outcome<Ok>(
         &self,
         policy_result: crate::AuthZResult<Ok>,
@@ -368,9 +370,9 @@ mod test {
 
     #[tokio::test]
     async fn test_retriable_denial_with_stale_snapshot_awaits_refresh() {
-        // The pre-existing provisional path: a walk denial against a Snapshot
-        // older than the request is not yet definitive, and becomes a client
-        // retry. This pins that Definitive and Retriable actually diverge.
+        // A walk denial against a Snapshot older than the request is not yet
+        // definitive, and becomes a client retry. This pins that Retriable
+        // and Definitive actually diverge.
         let env = envelope(chrono::TimeDelta::minutes(1)).await;
 
         let status = tonic::Status::permission_denied("not authorized");
