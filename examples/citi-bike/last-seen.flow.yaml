@@ -18,5 +18,10 @@ collections:
       transforms:
         - name: locationFromRide
           source: { name: examples/citi-bike/rides }
-          shuffle: any
+          # Shuffle on bike, not `any`: this collection is keyed on the bike and
+          # its `last` terminus is last-write-wins, so a bike's rides must reduce
+          # in source order — which holds only for documents of one shuffle key.
+          # `any` would shuffle on the source key (bike *and* ride start), and a
+          # bike's rides could then reduce in either order.
+          shuffle: { key: [/bike_id] }
           lambda: select $bike_id, $end as last;
