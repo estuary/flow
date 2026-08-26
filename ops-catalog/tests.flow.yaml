@@ -1,4 +1,5 @@
-# These tests exist for local testing with flowctl-go. They must not be published.
+# These tests run under `flowctl raw test`, imported by examples/flow.yaml and
+# exercised by CI's catalog-test task. They must not be published.
 
 import:
   - data-plane-template.flow.yaml

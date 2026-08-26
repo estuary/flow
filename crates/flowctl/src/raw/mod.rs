@@ -19,6 +19,7 @@ mod preview_next;
 mod shards;
 mod spec;
 mod split_shards;
+mod test;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -81,6 +82,18 @@ pub enum Command {
     /// Locally run and preview a capture, derivation, or materialization using
     /// the V2 runtime.
     PreviewNext(preview_next::Preview),
+    /// Run your catalog's tests locally on the V2 runtime.
+    ///
+    /// Builds the specifications in --source, then runs their `tests` on a local
+    /// runtime-next instance: derivations execute as resident sessions
+    /// (derive-sqlite in-process, image derivations as containers) and each
+    /// test's ingest / verify steps run against an in-memory collection store.
+    /// No Gazette broker or control-plane round-trip is involved. Exits non-zero
+    /// if any test fails.
+    ///
+    /// This is unrelated to `flowctl catalog test`, which is a remote dry-run
+    /// publish against the control plane.
+    Test(test::Test),
 }
 
 #[derive(Debug, clap::Args)]
@@ -234,6 +247,7 @@ impl Advanced {
             Command::SplitShards(split) => split_shards::do_split(ctx, split).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
             Command::PreviewNext(preview) => preview.run(ctx).await,
+            Command::Test(test) => test.run(ctx).await,
         }
     }
 }
