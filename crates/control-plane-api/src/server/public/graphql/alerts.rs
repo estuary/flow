@@ -136,7 +136,7 @@ async fn fetch_alert_history_by_prefix(
     after: Option<String>,
     first: Option<i32>,
 ) -> async_graphql::Result<PaginatedAlerts> {
-    let env = ctx.data::<crate::Envelope>()?;
+    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
     // Verify user authorization to read alerts for the given prefix.
     let policy_result = crate::server::evaluate_names_authorization(
@@ -326,7 +326,7 @@ pub async fn live_spec_alert_history_no_authz(
     before_date: Option<String>,
     limit: i32,
 ) -> async_graphql::Result<PaginatedAlerts> {
-    let env = ctx.data::<crate::Envelope>()?;
+    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
 
     connection::query(
         None,

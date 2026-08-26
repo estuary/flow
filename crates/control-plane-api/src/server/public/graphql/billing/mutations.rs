@@ -37,7 +37,7 @@ impl BillingMutation {
         ctx: &Context<'_>,
         tenant: String,
     ) -> Result<CreateBillingSetupIntentPayload> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
@@ -93,7 +93,7 @@ impl BillingMutation {
         tenant: String,
         payment_method_id: String,
     ) -> Result<BillingPaymentMethodPayload> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
@@ -129,7 +129,7 @@ impl BillingMutation {
         name: String,
         address: BillingAddressInput,
     ) -> Result<SetBillingContactPayload> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
@@ -165,7 +165,7 @@ impl BillingMutation {
         tenant: String,
         payment_method_id: String,
     ) -> Result<BillingPaymentMethodPayload> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 

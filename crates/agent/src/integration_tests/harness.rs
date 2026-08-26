@@ -1700,6 +1700,11 @@ impl TestHarness {
             started: tokens::now(),
             locale: control_plane_api::Locale::EnUS,
         };
+        // Resolvers pull their auth context as Authority, which composes over
+        // the Envelope exactly as HTTP extraction does.
+        let authority: control_plane_api::Authority =
+            control_plane_api::Authority::from_envelope(envelope)
+                .expect("NoRequirement evaluation cannot fail");
 
         // Create GraphQL schema
         let schema = control_plane_api::server::public::graphql::create_schema(
@@ -1709,7 +1714,7 @@ impl TestHarness {
         // Create GraphQL request
         let request = async_graphql::Request::new(query)
             .variables(async_graphql::Variables::from_json(variables.clone()))
-            .data(envelope)
+            .data(authority)
             .data(async_graphql::dataloader::DataLoader::new(
                 control_plane_api::server::public::graphql::PgDataLoader(self.pool.clone()),
                 tokio::spawn,

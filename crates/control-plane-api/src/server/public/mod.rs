@@ -13,7 +13,8 @@ pub mod token_exchange;
 ///
 /// ```ignore
 /// fn handle_{get|post|etc}_{resource_name}(
-///     env: State<crate::Envelope>, // has the database connection pool, verified claims, etc
+///     // has the database connection pool, verified claims, capability mask, etc
+///     crate::Authority { envelope: env, .. }: crate::Authority,
 ///     other_stuff: T, // other extracted data from the request
 /// ) -> Result<Json<Resp>, ApiError>
 /// ```

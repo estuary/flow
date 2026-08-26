@@ -44,7 +44,7 @@ impl RefreshTokensQuery {
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedRefreshTokens> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         connection::query_with::<TimestampCursor, _, _, _, async_graphql::Error>(
@@ -130,7 +130,7 @@ impl RefreshTokensMutation {
         #[graphql(default = true)] multi_use: bool,
         #[graphql(default)] detail: Option<String>,
     ) -> async_graphql::Result<RefreshTokenResult> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
@@ -208,7 +208,7 @@ impl RefreshTokensMutation {
         ctx: &Context<'_>,
         id: models::Id,
     ) -> async_graphql::Result<bool> {
-        let env = ctx.data::<crate::Envelope>()?;
+        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
         let claims = env.claims()?;
 
         super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
