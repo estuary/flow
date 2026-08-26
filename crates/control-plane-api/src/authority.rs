@@ -14,7 +14,7 @@ pub trait Requirement: Send + Sync + 'static {
     /// Capabilities which the bearer's mask must enable. A masked bearer
     /// whose mask does not cover this set is rejected at extraction with a
     /// structured `403` naming the missing capabilities, so that a client
-    /// can drive an `upgrade_token` re-mint.
+    /// can request a fresh capability token which enables them.
     const REQUIRED: CapabilitySet;
     /// Whether the route refuses masked bearers outright, regardless of what
     /// their mask enables. This keys on the *presence* of the
@@ -51,9 +51,9 @@ impl Requirement for RequireUnmasked {
 /// Forbidden is the structured body of a capability-shortfall `403`.
 ///
 /// Its shape is stable and machine-readable across the REST and GraphQL
-/// surfaces: an MCP agent parses `missing_capabilities` and drives the
-/// `upgrade_token` re-mint, so "you need capability X" must read identically
-/// wherever it's said.
+/// surfaces: an MCP agent parses `missing_capabilities` and requests a fresh
+/// capability token which enables them, so "you need capability X" must read
+/// identically wherever it's said.
 #[derive(Debug, serde::Serialize)]
 pub struct Forbidden {
     /// Stable machine-readable code: `missing_capabilities` when the
@@ -235,8 +235,11 @@ impl<R: Requirement> axum::extract::FromRequestParts<Arc<crate::App>> for Author
     }
 }
 
-// Empty impl allows aide to generate OpenAPI specs for handlers using this extractor.
-// The extractor is an internal detail and doesn't appear in the API documentation.
+// Empty impl allows aide to generate OpenAPI specs for handlers using this
+// extractor. No shipped handler extracts Authority yet — the migration off
+// Envelope is pending — but the impl must exist for those handlers to compile,
+// and the extractor is an internal detail which doesn't appear in the API
+// documentation either way.
 impl<R: Requirement> aide::operation::OperationInput for Authority<R> {}
 
 #[cfg(test)]
@@ -570,8 +573,8 @@ mod test {
         ");
 
         // A partial mask is refused with a body naming exactly what's
-        // missing: the stable contract an MCP agent parses to drive the
-        // `upgrade_token` re-mint.
+        // missing: the stable contract an MCP agent parses to request a
+        // fresh capability token which enables them.
         let token = sign_token(
             &key,
             "authenticated",
@@ -613,6 +616,66 @@ mod test {
 
         // ...and signature verification of a malformed bearer.
         insta::assert_snapshot!(fetch(&router, "/none", Some("not.a.jwt")).await, @r"
+        401 Unauthorized
+        failed to verify token: Base64 error: Invalid last symbol 116, offset 2.
+        ");
+    }
+
+    #[tokio::test]
+    async fn test_http_envelope_refusal_precedes_requirements() {
+        let (router, key) = test_router().await;
+
+        // Each bearer below fails BOTH Envelope authentication and its
+        // route's Requirement, pinning that the Envelope's 401 wins: were
+        // Requirements evaluated first, these would be 403s. (The vacuous
+        // `/none` cases in test_http_inherits_envelope_authentication can't
+        // distinguish this ordering, because their Requirement passes any
+        // bearer.)
+
+        // An expired, masked bearer against RequireUnmasked...
+        let token = sign_token(&key, "authenticated", true, Some(vec![]));
+        insta::assert_snapshot!(fetch(&router, "/unmasked", Some(&token)).await, @r"
+        401 Unauthorized
+        failed to verify token: ExpiredSignature
+        ");
+
+        // ...and against required capabilities its mask doesn't cover, which
+        // is the separate REQUIRED evaluation path.
+        let token = sign_token(&key, "authenticated", true, Some(vec!["CatalogRead"]));
+        insta::assert_snapshot!(fetch(&router, "/edit", Some(&token)).await, @r"
+        401 Unauthorized
+        failed to verify token: ExpiredSignature
+        ");
+
+        // A masked bearer whose signature verifies but whose `aud` doesn't:
+        // the aud check refuses at a later point within Envelope extraction
+        // than signature verification, and still precedes the Requirement.
+        let token = sign_token(&key, "wrong-audience", false, Some(vec![]));
+        insta::assert_snapshot!(fetch(&router, "/unmasked", Some(&token)).await, @r"
+        401 Unauthorized
+        authorization bearer claims missing required `aud` of 'authenticated'
+        ");
+
+        // The inverse direction: a mask which fully covers the requirement
+        // cannot rescue a bearer signed with the wrong key.
+        let wrong_key = jsonwebtoken::EncodingKey::from_secret(b"not-the-server-secret");
+        let token = sign_token(
+            &wrong_key,
+            "authenticated",
+            false,
+            Some(vec!["CatalogRead", "SpecEdit"]),
+        );
+        insta::assert_snapshot!(fetch(&router, "/edit", Some(&token)).await, @r"
+        401 Unauthorized
+        failed to verify token: InvalidSignature
+        ");
+
+        // A malformed bearer offers no claims to evaluate a Requirement
+        // against at all: requirement-bearing routes return the Envelope's
+        // rejection verbatim.
+        let malformed = fetch(&router, "/unmasked", Some("not.a.jwt")).await;
+        assert_eq!(malformed, fetch(&router, "/edit", Some("not.a.jwt")).await);
+        insta::assert_snapshot!(malformed, @r"
         401 Unauthorized
         failed to verify token: Base64 error: Invalid last symbol 116, offset 2.
         ");
