@@ -282,11 +282,12 @@ impl Preview {
                     session_targets,
                     fixture_dirs,
                     controls.clone(),
-                    session_stop,
+                    session_stop.clone(),
                 );
+                let session_loop =
+                    with_fixture_feeder(session_loop, fixture_keepalive, &session_stop);
                 tokio::pin!(session_loop);
                 let result = run_with_timeout(session_loop, timeout, &stop_token).await;
-                let result = finish_fixtures(result, fixture_keepalive).await;
                 finish_output_state(&run, *output_state, result).await
             }
             TaskSpec::Derivation(mut spec) => {
@@ -326,11 +327,12 @@ impl Preview {
                     session_targets,
                     fixture_dirs,
                     controls.clone(),
-                    session_stop,
+                    session_stop.clone(),
                 );
+                let session_loop =
+                    with_fixture_feeder(session_loop, fixture_keepalive, &session_stop);
                 tokio::pin!(session_loop);
                 let result = run_with_timeout(session_loop, timeout, &stop_token).await;
-                let result = finish_fixtures(result, fixture_keepalive).await;
                 finish_output_state(&run, *output_state, result).await
             }
         };
@@ -456,22 +458,53 @@ fn is_streaming_fixture(path: &str) -> anyhow::Result<bool> {
     }
 }
 
-/// Conclude fixture feeding once the session loop has ended: release the
-/// streaming feeder's segment keepalive and join it, surfacing a stream error
-/// (e.g. a malformed fixture line) that otherwise manifests only as a
-/// gracefully-stopped run.
-async fn finish_fixtures(
-    result: anyhow::Result<()>,
+/// Run the session loop alongside a streaming fixture's feeder, concluding both.
+///
+/// The feeder holds its shuffle-log writers until the run ends, so it outlives
+/// the session loop on every ordinary path — a malformed fixture line included,
+/// since that still hands over a Boundary before waiting. Its completing early
+/// therefore means it died: a panic unwinds its worker, stopping nothing. The
+/// consumer would then wait on transactions that can never arrive, so stop the
+/// session and report the feeder's cause.
+///
+/// On the ordinary path the session loop ends first: release the segment
+/// keepalive and join the feeder, surfacing a stream error that otherwise
+/// manifests only as a gracefully-stopped run.
+async fn with_fixture_feeder<F>(
+    session_loop: F,
     keepalive: Option<FixtureKeepalive>,
-) -> anyhow::Result<()> {
-    let Some(FixtureKeepalive::Streaming { _hold, feeder }) = keepalive else {
-        return result;
+    session_stop: &tokio_util::sync::CancellationToken,
+) -> anyhow::Result<()>
+where
+    F: std::future::Future<Output = anyhow::Result<()>>,
+{
+    // An eager fixture (or no fixture) has no feeder; `keepalive` still holds
+    // its segments for the loop's lifetime.
+    let Some(FixtureKeepalive::Streaming { _hold, mut feeder }) = keepalive else {
+        return session_loop.await;
     };
-    drop(_hold); // Cancels the feeder's hold token.
-    let feeder_result = feeder
-        .await
-        .unwrap_or_else(|panic| Err(anyhow::anyhow!("fixture feeder panic: {panic}")));
-    result.and(feeder_result)
+    tokio::pin!(session_loop);
+
+    tokio::select! {
+        result = &mut session_loop => {
+            drop(_hold); // Cancels the feeder's hold token.
+            result.and(feeder_result((&mut feeder).await))
+        }
+        joined = &mut feeder => {
+            tracing::error!("fixture feeder ended before end-of-stream; stopping active session");
+            session_stop.cancel();
+            let _ = session_loop.await;
+            // A panic or stream error is the more useful cause to report.
+            feeder_result(joined).and(Err(anyhow::anyhow!(
+                "fixture feeder ended before end-of-stream"
+            )))
+        }
+    }
+}
+
+/// The feeder's own result, with a panic mapped into an error.
+fn feeder_result(joined: Result<anyhow::Result<()>, tokio::task::JoinError>) -> anyhow::Result<()> {
+    joined.unwrap_or_else(|panic| Err(anyhow::anyhow!("fixture feeder panic: {panic}")))
 }
 
 /// On a successful `--output-state` run, emit the final reduced connector state.
@@ -730,6 +763,41 @@ fn resolve_task(validations: &tables::Validations, name: Option<&str>) -> anyhow
 #[cfg(test)]
 mod test {
     use super::*;
+
+    /// A feeder that dies before end-of-stream must fail the run, not stall it.
+    ///
+    /// The feeder holds its writers until the run ends, so its completion means
+    /// death. A panic unwinds only its worker, leaving the session loop parked
+    /// on a checkpoint that can never arrive.
+    #[tokio::test]
+    async fn test_feeder_death_fails_the_run() {
+        let session_stop = tokio_util::sync::CancellationToken::new();
+        let hold = tokio_util::sync::CancellationToken::new();
+
+        let keepalive = Some(FixtureKeepalive::Streaming {
+            _hold: hold.drop_guard(),
+            feeder: tokio::spawn(async { panic!("feeder died") }),
+        });
+
+        // A session loop parked until something stops it, as one awaiting a
+        // checkpoint is.
+        let stop = session_stop.clone();
+        let session_loop = async move {
+            stop.cancelled().await;
+            Ok(())
+        };
+
+        let run = with_fixture_feeder(session_loop, keepalive, &session_stop);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), run).await;
+
+        let Ok(Err(err)) = result else {
+            panic!("a dead fixture feeder must fail the run, got {result:?}");
+        };
+        assert!(
+            format!("{err:#}").contains("fixture feeder panic"),
+            "the error must name the panic: {err:#}",
+        );
+    }
 
     #[test]
     fn test_is_streaming_fixture() {
