@@ -27,7 +27,14 @@ collections:
           source:
             name: stock/ticks
             partitions: { include: { exchange: [NYSE, NASDAQ] } }
-          shuffle: any
+          # Shuffle on security, not `any`: a daily stat reduces its ticks under
+          # firstWriteWins / lastWriteWins, so all ticks of one (security, date)
+          # must reduce in source order — which holds only for documents of one
+          # shuffle key. `any` would shuffle on the source key (security *and*
+          # tick time), scattering a day's ticks across shards. `date` isn't a
+          # tick field, but shuffling on the security alone still pins every
+          # (security, date) to a single shard.
+          shuffle: { key: [/security] }
 
 tests:
   # TODO this is a pretty silly test, and is the result of my messing around

@@ -15,4 +15,9 @@ collections:
       transforms:
         - name: ridesAndMoves
           source: examples/citi-bike/rides-and-relocations
-          shuffle: any
+          # Shuffle on bike, not `any`: a station's `stable` set is reduced from
+          # ordered add / remove pairs of a *single* bike (its relocation-arrival
+          # must reduce before its ride-departure), and only same-shuffle-key
+          # documents are guaranteed to reduce in source order. Operations of
+          # *different* bikes commute, because the set is keyed on the bike ID.
+          shuffle: { key: [/bike_id] }
