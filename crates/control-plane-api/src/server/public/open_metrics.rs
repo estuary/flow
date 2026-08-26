@@ -6,7 +6,13 @@ use std::fmt::Write;
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub async fn handle_get_metrics(
-    crate::Authority { envelope: env, .. }: crate::Authority,
+    // RequireViewer fast-fails a mask which can't satisfy the Read walk
+    // below; a test pins the two together.
+    crate::Authority {
+        envelope: env,
+        mask,
+        ..
+    }: crate::Authority<crate::RequireViewer>,
     axum::extract::Path(prefix): axum::extract::Path<String>,
 ) -> Result<axum::response::Response, crate::ApiError> {
     if !prefix.ends_with('/') {
@@ -19,6 +25,7 @@ pub async fn handle_get_metrics(
     let policy_result = crate::evaluate_names_authorization(
         env.snapshot(),
         env.claims()?,
+        mask,
         models::Capability::Read,
         [&prefix],
     );

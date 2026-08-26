@@ -94,8 +94,15 @@ pub(crate) async fn wake_tenant_controller(
 }
 
 /// Evaluate whether the user identified by `claims` is authorized to access all
-/// of the enumerated `prefixes_or_names` with at least `min_capability`.
+/// of the enumerated `prefixes_or_names` with at least `min_capability`,
+/// under the bearer's capability `mask`.
 /// Return a policy_result shape which fits Envelope::authorization_outcome.
+///
+/// A mask which doesn't cover `min_capability` is a definitive denial — a
+/// pure function of the bearer's claims which no Snapshot refresh can change —
+/// evaluated before the walk so that its structured `403` names the missing
+/// capabilities without consulting (or disclosing anything about) the user's
+/// actual grants.
 ///
 /// `min_capability` accepts any value that converts into a `CapabilitySet`:
 /// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
@@ -103,6 +110,7 @@ pub(crate) async fn wake_tenant_controller(
 pub fn evaluate_names_authorization<'r, Iter, S, C>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
+    mask: models::authz::CapabilityMask,
     min_capability: C,
     prefixes_or_names: Iter,
 ) -> AuthZResult<()>
@@ -111,6 +119,12 @@ where
     S: AsRef<str> + std::fmt::Display,
     C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
+    let min_bits: models::authz::CapabilitySet = min_capability.into();
+    let missing = min_bits - mask.apply(min_bits);
+    if !missing.is_empty() {
+        return Err(crate::Forbidden::missing_capabilities(missing).into());
+    }
+
     let models::authorizations::ControlClaims {
         sub: user_id,
         email: user_email,
@@ -125,11 +139,11 @@ where
             *user_id,
             prefix_or_name.as_ref(),
             min_capability,
-            models::authz::CapabilityMask::ALL_CAPABILITIES,
+            mask,
         ) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
-            )));
+            )).into());
         }
     }
     Ok((None, ()))
@@ -141,6 +155,7 @@ where
 pub fn attach_user_capabilities<I, F, T>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
+    mask: models::authz::CapabilityMask,
     prefixes_or_names: I,
     mut attach: F,
 ) -> Vec<T>
@@ -156,7 +171,7 @@ where
                 &snapshot.user_grants,
                 claims.sub,
                 &prefix,
-                models::authz::CapabilityMask::ALL_CAPABILITIES,
+                mask,
             );
             attach(prefix, capability)
         })
@@ -362,5 +377,103 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
                 | proto_gazette::capability::APPEND
                 | proto_gazette::capability::APPLY
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use models::authz::{Capability, CapabilityMask, CapabilitySet};
+
+    fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
+        models::authorizations::ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 0,
+            exp: 0,
+            sub: user_id,
+            role: "authenticated".to_string(),
+            email: None,
+            capability_mask: None,
+        }
+    }
+
+    #[test]
+    fn test_names_authorization_applies_the_mask() {
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let bob = uuid::Uuid::from_bytes([32; 16]); // Holds `write` on bobCo/.
+        let claims = claims(bob);
+
+        // Legacy Read requires the full Viewer bundle of capability bits.
+        let viewer: CapabilitySet = models::Capability::Read.into();
+
+        // An unmasked bearer is authorized through Bob's grant.
+        assert!(
+            super::evaluate_names_authorization(
+                &snapshot,
+                &claims,
+                CapabilityMask::ALL_CAPABILITIES,
+                models::Capability::Read,
+                ["bobCo/tires/"],
+            )
+            .is_ok()
+        );
+
+        // A mask which enables everything the operation requires changes nothing.
+        assert!(
+            super::evaluate_names_authorization(
+                &snapshot,
+                &claims,
+                CapabilityMask::bounded(viewer),
+                models::Capability::Read,
+                ["bobCo/tires/"],
+            )
+            .is_ok()
+        );
+
+        // A mask which does not cover the required capabilities is a
+        // definitive denial naming exactly the missing bits — even though
+        // Bob holds the underlying grant.
+        let result = super::evaluate_names_authorization(
+            &snapshot,
+            &claims,
+            CapabilityMask::bounded(Capability::CatalogRead.into()),
+            models::Capability::Read,
+            ["bobCo/tires/"],
+        );
+        let Err(crate::AuthZError::Definitive(forbidden)) = result else {
+            panic!("expected a definitive denial, got {result:?}");
+        };
+        assert_eq!(
+            forbidden.missing_capabilities,
+            vec!["JournalRead", "ViewDataPlanePrivateNetworking"],
+        );
+
+        // The mask shortfall is evaluated before the walk, so it wins even
+        // for a name the user holds no grant on: no existence or grant
+        // oracle leaks through the error distinction.
+        let result = super::evaluate_names_authorization(
+            &snapshot,
+            &claims,
+            CapabilityMask::bounded(CapabilitySet::empty()),
+            models::Capability::Read,
+            ["acmeCo/nothing/"],
+        );
+        assert!(
+            matches!(result, Err(crate::AuthZError::Definitive(_))),
+            "expected a definitive denial, got {result:?}"
+        );
+
+        // A mask which covers the requirement, over a grant the user lacks:
+        // an ordinary retriable denial, exactly as an unmasked bearer sees.
+        let result = super::evaluate_names_authorization(
+            &snapshot,
+            &claims,
+            CapabilityMask::bounded(viewer),
+            models::Capability::Read,
+            ["acmeCo/nothing/"],
+        );
+        assert!(
+            matches!(result, Err(crate::AuthZError::Retriable(_))),
+            "expected a retriable denial, got {result:?}"
+        );
     }
 }

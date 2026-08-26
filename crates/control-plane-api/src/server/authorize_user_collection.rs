@@ -5,7 +5,9 @@ type Response = models::authorizations::UserCollectionAuthorization;
 #[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_user_collection(
     crate::Authority {
-        envelope: mut env, ..
+        envelope: mut env,
+        mask,
+        ..
     }: crate::Authority,
     super::Request(Request {
         collection,
@@ -21,7 +23,7 @@ pub async fn authorize_user_collection(
     }
 
     let policy_result =
-        evaluate_authorization(env.snapshot(), env.claims()?, &collection, capability);
+        evaluate_authorization(env.snapshot(), env.claims()?, mask, &collection, capability);
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
     let (expiry, (encoding_key, mut claims, broker_address, journal_name_prefix)) =
@@ -52,6 +54,7 @@ pub async fn authorize_user_collection(
 fn evaluate_authorization(
     snapshot: &crate::Snapshot,
     claims: &crate::ControlClaims,
+    mask: models::authz::CapabilityMask,
     collection_name: &models::Collection,
     capability: models::Capability,
 ) -> crate::AuthZResult<(
@@ -67,17 +70,28 @@ fn evaluate_authorization(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
+    // A mask which doesn't cover `capability` is a definitive denial — a pure
+    // function of the bearer's claims — evaluated before any walk so that the
+    // structured 403 names the missing capabilities without consulting (or
+    // disclosing anything about) the user's grants.
+    let required: models::authz::CapabilitySet = capability.into();
+    let missing = required - mask.apply(required);
+    if !missing.is_empty() {
+        return Err(crate::Forbidden::missing_capabilities(missing).into());
+    }
+
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
         *user_id,
         collection_name,
         capability,
-        models::authz::CapabilityMask::ALL_CAPABILITIES,
+        mask,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {collection_name} for {capability:?}",
-        )));
+        ))
+        .into());
     }
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
@@ -88,32 +102,34 @@ fn evaluate_authorization(
             *user_id,
             "estuary_support/",
             models::Capability::Admin,
-            models::authz::CapabilityMask::ALL_CAPABILITIES,
+            mask,
         );
 
         if !has_support_access {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to {collection_name} for Admin capability (requires estuary_support/ grant)",
-            )));
+            )).into());
         }
     }
 
     let Some(collection) = snapshot.collection_by_catalog_name(collection_name) else {
-        return Err(tonic::Status::not_found(format!(
-            "collection {collection_name} is not known"
-        )));
+        return Err(
+            tonic::Status::not_found(format!("collection {collection_name} is not known")).into(),
+        );
     };
     let Some(data_plane) = snapshot.data_planes.get_by_key(&collection.data_plane_id) else {
         return Err(tonic::Status::internal(format!(
             "collection data-plane {} not found",
             collection.data_plane_id
-        )));
+        ))
+        .into());
     };
     let Some(encoding_key) = data_plane.hmac_keys.first() else {
         return Err(tonic::Status::internal(format!(
             "collection data-plane {} has no configured HMAC keys",
             data_plane.data_plane_name
-        )));
+        ))
+        .into());
     };
     let encoding_key =
         tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
@@ -349,6 +365,109 @@ mod tests {
         "###);
     }
 
+    #[test]
+    fn test_mask_shortfall_is_definitive() {
+        // Bob holds write on bobCo/, but the bearer's mask doesn't cover
+        // what a Write walk requires: a definitive 403 naming the missing
+        // capabilities, computed before (and disclosing nothing about) the
+        // grant walk.
+        let outcome = run_masked(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/anvils/peaches"),
+            models::Capability::Write,
+            Some(vec!["CatalogRead", "JournalRead"]),
+        );
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "the bearer token's capability mask does not enable required capabilities: JournalAppend, ViewDataPlanePrivateNetworking"
+          }
+        }
+        "###);
+    }
+
+    #[test]
+    fn test_empty_mask_denies_all_authorization() {
+        // An empty mask is a valid identity-only token: identity verifies,
+        // but every capability is missing.
+        let outcome = run_masked(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/anvils/peaches"),
+            models::Capability::Read,
+            Some(vec![]),
+        );
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "the bearer token's capability mask does not enable required capabilities: CatalogRead, JournalRead, ViewDataPlanePrivateNetworking"
+          }
+        }
+        "###);
+    }
+
+    #[test]
+    fn test_covering_mask_matches_unmasked_outcome() {
+        // A mask which enables everything the operation requires yields the
+        // exact unmasked outcome (compare test_success).
+        let unmasked = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/anvils/peaches"),
+            models::Capability::Write,
+        );
+        let masked = run_masked(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/anvils/peaches"),
+            models::Capability::Write,
+            Some(vec![
+                "CatalogRead",
+                "JournalRead",
+                "JournalAppend",
+                "ViewDataPlanePrivateNetworking",
+            ]),
+        );
+        assert_eq!(
+            serde_json::to_value(&unmasked).unwrap(),
+            serde_json::to_value(&masked).unwrap(),
+        );
+    }
+
+    #[test]
+    fn test_masked_admin_support_walk() {
+        // The estuary_support/ secondary walk runs under the same mask as
+        // every other walk of the request: alice passes with a mask covering
+        // the Admin requirement, identically to her unmasked outcome.
+        let all_names: Vec<&str> = models::authz::CapabilitySet::all()
+            .iter()
+            .map(|c| c.name())
+            .collect();
+
+        let unmasked = run(
+            uuid::Uuid::from_bytes([64; 16]),
+            Some("alice@alice".to_string()),
+            models::Collection::new("aliceCo/wonderland/data"),
+            models::Capability::Admin,
+        );
+        let masked = run_masked(
+            uuid::Uuid::from_bytes([64; 16]),
+            Some("alice@alice".to_string()),
+            models::Collection::new("aliceCo/wonderland/data"),
+            models::Capability::Admin,
+            Some(all_names),
+        );
+        assert_eq!(
+            serde_json::to_value(&unmasked).unwrap(),
+            serde_json::to_value(&masked).unwrap(),
+        );
+    }
+
     // Serialization wrapper that distinguishes cordoned vs non-cordoned success.
     #[derive(serde::Serialize)]
     enum Outcome {
@@ -367,6 +486,16 @@ mod tests {
         collection: models::Collection,
         capability: models::Capability,
     ) -> Outcome {
+        run_masked(user_id, email, collection, capability, None)
+    }
+
+    fn run_masked(
+        user_id: uuid::Uuid,
+        email: Option<String>,
+        collection: models::Collection,
+        capability: models::Capability,
+        capability_mask: Option<Vec<&str>>,
+    ) -> Outcome {
         let snapshot = crate::Snapshot::build_fixture(None);
         let claims = models::authorizations::ControlClaims {
             aud: "authenticated".to_string(),
@@ -375,10 +504,14 @@ mod tests {
             sub: user_id,
             role: "authenticated".to_string(),
             email,
-            capability_mask: None,
+            capability_mask: capability_mask
+                .map(|names| names.into_iter().map(String::from).collect()),
         };
+        // As the handler does: the mask is computed from the verified claim
+        // at extraction and passed alongside it.
+        let mask = models::authz::CapabilityMask::from_claim(claims.capability_mask.as_deref());
 
-        match evaluate_authorization(&snapshot, &claims, &collection, capability) {
+        match evaluate_authorization(&snapshot, &claims, mask, &collection, capability) {
             Ok((cordon_at, (_key, mut data_claims, broker_address, journal_name_prefix))) => {
                 // Zero out timestamps for stable snapshots.
                 data_claims.iat = 0;
@@ -390,9 +523,13 @@ mod tests {
                     Outcome::Ok((broker_address, journal_name_prefix, data_claims))
                 }
             }
-            Err(status) => Outcome::Err {
+            Err(crate::AuthZError::Retriable(status)) => Outcome::Err {
                 status: tokens::rest::grpc_status_code_to_http(status.code()),
                 error: status.message().to_string(),
+            },
+            Err(crate::AuthZError::Definitive(forbidden)) => Outcome::Err {
+                status: 403,
+                error: forbidden.message,
             },
         }
     }

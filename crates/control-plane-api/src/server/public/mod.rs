@@ -151,3 +151,118 @@ fn api_docs(api: aide::transform::TransformOpenApi) -> aide::transform::Transfor
         )
         .security_requirement("ApiKey")
 }
+
+#[cfg(test)]
+mod test {
+    /// The real public v1 router over an empty Snapshot and a pool which is
+    /// never dialed: these tests exercise extraction-time capability
+    /// requirements, which reject before any handler body runs.
+    async fn router() -> (axum::Router, tokens::jwt::EncodingKey) {
+        let snapshot = crate::test_server::empty_snapshot().await;
+        let pg_pool = sqlx::PgPool::connect_lazy("postgres://unused-by-extraction").unwrap();
+        let app = crate::test_server::build_app(pg_pool, snapshot, None);
+        let encoding_key = app.control_plane_jwt_encode_key.clone();
+
+        let router =
+            super::api_v1_router(app.clone(), models::AlertConfig::default()).with_state(app);
+
+        (router, encoding_key)
+    }
+
+    fn sign_token(
+        encoding_key: &tokens::jwt::EncodingKey,
+        capability_mask: Option<Vec<&str>>,
+    ) -> String {
+        let now = tokens::now();
+        let claims = models::authorizations::ControlClaims {
+            iat: now.timestamp() as u64,
+            exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
+            sub: uuid::Uuid::nil(),
+            role: "authenticated".to_string(),
+            aud: "authenticated".to_string(),
+            email: None,
+            capability_mask: capability_mask
+                .map(|names| names.into_iter().map(String::from).collect()),
+        };
+        jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, encoding_key).unwrap()
+    }
+
+    async fn fetch(router: &axum::Router, path: &str, bearer: &str) -> (u16, String) {
+        use tower::ServiceExt;
+
+        let request = axum::http::Request::builder()
+            .uri(path)
+            .header("authorization", format!("Bearer {bearer}"))
+            .header("accept", "application/json")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let (parts, body) = router.clone().oneshot(request).await.unwrap().into_parts();
+        let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        (parts.status.as_u16(), String::from_utf8_lossy(&body).into())
+    }
+
+    #[test]
+    fn test_viewer_requirement_matches_legacy_read() {
+        // The route consts on /catalog/status and /metrics and their
+        // handlers' walk requirement (legacy Read) are two statements of one
+        // fact; this pins them together so they cannot drift.
+        assert_eq!(
+            <crate::RequireViewer as crate::Requirement>::REQUIRED,
+            models::authz::bits_for_legacy(models::Capability::Read),
+        );
+    }
+
+    #[tokio::test]
+    async fn test_status_and_metrics_reject_mask_shortfall_at_extraction() {
+        let (router, key) = router().await;
+
+        // A mask which doesn't cover the Viewer bits is rejected with the
+        // structured 403 before the handler (or any database access) runs.
+        let masked = sign_token(&key, Some(vec!["SpecEdit"]));
+        for path in [
+            "/api/v1/catalog/status?name=acmeCo/thing",
+            "/api/v1/metrics/acmeCo/",
+        ] {
+            let (status, body) = fetch(&router, path, &masked).await;
+            assert_eq!(status, 403, "{path}: {body}");
+
+            let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(body["error"], "missing_capabilities", "{path}");
+            assert_eq!(
+                body["missing_capabilities"],
+                serde_json::json!([
+                    "CatalogRead",
+                    "JournalRead",
+                    "ViewDataPlanePrivateNetworking"
+                ]),
+                "{path}",
+            );
+        }
+
+        // A mask which covers the requirement passes extraction: with no
+        // grants in the (empty) Snapshot the walk then provisionally denies,
+        // which surfaces as the 307 retry — proof the const is a necessary
+        // condition on the mask only, never a grant decision.
+        let covering = sign_token(
+            &key,
+            Some(vec![
+                "CatalogRead",
+                "JournalRead",
+                "ViewDataPlanePrivateNetworking",
+            ]),
+        );
+        // An unmasked bearer behaves identically.
+        let unmasked = sign_token(&key, None);
+
+        for bearer in [&covering, &unmasked] {
+            for path in [
+                "/api/v1/catalog/status?name=acmeCo/thing",
+                "/api/v1/metrics/acmeCo/",
+            ] {
+                let (status, body) = fetch(&router, path, bearer).await;
+                assert_eq!(status, 307, "{path}: {body}");
+            }
+        }
+    }
+}
