@@ -62,7 +62,7 @@ fn may_access(
     name: &str,
     capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<bool> {
-    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+    let env = ctx.data::<crate::Envelope>()?;
     let snapshot = env.snapshot();
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
@@ -162,13 +162,22 @@ pub fn schema_sdl() -> String {
 pub(crate) async fn graphql_handler(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
-    authority: crate::Authority,
+    crate::Authority {
+        envelope: env,
+        mask,
+        ..
+    }: crate::Authority,
     axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
 ) -> axum::response::Response {
-    let pg_pool = authority.envelope.pg_pool.clone();
+    let pg_pool = env.pg_pool.clone();
 
+    // The Envelope and the bearer's capability mask enter the GraphQL
+    // context as separate data: resolvers read the Envelope exactly as
+    // before, while authorization chokepoints consume the mask on their
+    // own, without every resolver having to care that it exists.
     let mut request = req
-        .data(authority)
+        .data(env)
+        .data(mask)
         .data(async_graphql::dataloader::DataLoader::new(
             PgDataLoader(pg_pool),
             tokio::spawn,

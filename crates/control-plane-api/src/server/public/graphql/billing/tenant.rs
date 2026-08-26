@@ -17,7 +17,7 @@ use async_graphql::{
 #[ComplexObject]
 impl Tenant {
     async fn billing(&self, ctx: &Context<'_>) -> Result<TenantBilling> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         verify_authorization(env, &self.name, models::authz::Capability::ViewBilling).await?;
         let provider = billing_provider(ctx)?;
         Ok(TenantBilling::new(self.name.clone(), provider))
@@ -39,7 +39,7 @@ impl TenantBilling {
 #[async_graphql::Object]
 impl TenantBilling {
     async fn contact(&self, ctx: &Context<'_>) -> Result<BillingContact> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         contact::fetch_billing_contact(&env.pg_pool, &self.tenant)
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))
@@ -85,7 +85,7 @@ impl TenantBilling {
         first: Option<i32>,
         last: Option<i32>,
     ) -> Result<Connection<InvoiceCursor, Invoice>> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let tenant = self.tenant.clone();
         let query = filter.unwrap_or_default().into_query();
 

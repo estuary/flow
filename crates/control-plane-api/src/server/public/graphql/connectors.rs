@@ -185,7 +185,7 @@ impl ConnectorsQuery {
         )]
         full_image_name: String,
     ) -> async_graphql::Result<Option<ConnectorSpec>> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let _claims = env.claims()?;
 
         let (image, tag) = models::split_image_tag(&full_image_name);
@@ -228,7 +228,7 @@ impl ConnectorsQuery {
         // Require an authenticated user, just to avoid getting spammed by
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let _claims = env.claims()?;
         let locale: &str = env.locale.as_ref();
         sqlx::query_as!(
@@ -285,7 +285,7 @@ impl ConnectorsQuery {
         // Require an authenticated user, just to avoid getting spammed by
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let _claims = env.claims()?;
         let locale = env.locale;
 
