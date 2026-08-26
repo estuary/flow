@@ -99,7 +99,7 @@ impl LiveSpec {
         let attached = crate::server::attach_user_capabilities(
             env.snapshot(),
             env.claims()?,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             [source_capture_name.clone()],
             |name, user_capability| {
                 Some(LiveSpecRef {

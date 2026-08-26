@@ -63,7 +63,7 @@ fn may_access(
     capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
-    let mask: models::authz::CapabilityMask = *ctx.data()?;
+    let mask = *ctx.data::<models::authz::CapabilityMask>()?;
     let snapshot = env.snapshot();
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
@@ -76,7 +76,7 @@ fn may_access(
 }
 
 /// Errors unless the current user holds `capability` on `prefix`, under the
-/// bearer's capability `mask` (read from the GraphQL context as `*ctx.data()?`).
+/// bearer's capability `mask` (read from the GraphQL context as `*ctx.data::<models::authz::CapabilityMask>()?`).
 ///
 /// This is the hard gate for mutations and access-controlled queries: a denial
 /// becomes `permission_denied`, and a provisional denial against a stale

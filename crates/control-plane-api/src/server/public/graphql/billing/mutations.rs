@@ -41,7 +41,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             tenant.as_str(),
             models::authz::Capability::EditBilling,
         )
@@ -103,7 +103,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             tenant.as_str(),
             models::authz::Capability::EditBilling,
         )
@@ -145,7 +145,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             tenant.as_str(),
             models::authz::Capability::EditBilling,
         )
@@ -187,7 +187,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             tenant.as_str(),
             models::authz::Capability::EditBilling,
         )

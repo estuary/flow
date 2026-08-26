@@ -217,7 +217,7 @@ impl StorageMappingsMutation {
         evaluate_authorization(
             env,
             claims,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             &catalog_prefix,
             &spec.data_planes,
         )
@@ -356,7 +356,7 @@ impl StorageMappingsMutation {
         evaluate_authorization(
             env,
             claims,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             &catalog_prefix,
             &spec.data_planes,
         )
@@ -508,7 +508,7 @@ impl StorageMappingsMutation {
         evaluate_authorization(
             env,
             claims,
-            *ctx.data()?,
+            *ctx.data::<models::authz::CapabilityMask>()?,
             &catalog_prefix,
             &spec.data_planes,
         )
@@ -747,7 +747,7 @@ impl StorageMappingsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
-                *ctx.data()?,
+                *ctx.data::<models::authz::CapabilityMask>()?,
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -812,7 +812,7 @@ impl StorageMappingsQuery {
 
         let snapshot = env.snapshot();
         let claims = env.claims()?;
-        let mask: models::authz::CapabilityMask = *ctx.data()?;
+        let mask = *ctx.data::<models::authz::CapabilityMask>()?;
         let edges = rows
             .into_iter()
             .map(|row| {
