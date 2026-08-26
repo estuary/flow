@@ -278,6 +278,10 @@ pub async fn start<L: crate::Logger>(
         .expect("formatting endpoint address")
         .connect_timeout(std::time::Duration::from_secs(5))
         .http2_keep_alive_interval(std::time::Duration::from_secs(5))
+        // Default is 20s. The task runtime is single-threaded and hyper checks
+        // this timer before reading the pending PONG, so a long synchronous
+        // stretch of shard work would otherwise be misread as a dead peer.
+        .keep_alive_timeout(std::time::Duration::from_secs(60))
         .connect()
         .await
         .with_context(|| {

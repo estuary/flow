@@ -151,6 +151,14 @@ impl Actor {
                 "shard materialize Actor::serve iteration"
             );
 
+            // Scanning and Draining `continue` below without awaiting, and a
+            // scan of an append-only binding emits no C:Load at all, so a large
+            // transaction would otherwise monopolize the single-threaded runtime
+            // and starve the connector's h2 keep-alive, killing the connection.
+            if loop_count % 64 == 0 {
+                tokio::task::yield_now().await;
+            }
+
             // Perform non-blocking sends of pending connector requests.
             let wake_connector_tx = self.try_connector_tx();
 
