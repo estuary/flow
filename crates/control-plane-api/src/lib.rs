@@ -4,6 +4,7 @@ use sqlx::types::Uuid;
 
 pub mod alert_subscriptions;
 pub mod alerts;
+mod authority;
 pub mod billing;
 pub mod connector_tags;
 pub mod controllers;
@@ -47,6 +48,11 @@ pub type AuthZResult<Ok> = tonic::Result<(Option<tokens::DateTime>, Ok)>;
 
 /// Envelope is common fields and parameters of every API request.
 pub use envelope::{Envelope, Locale, MaybeControlClaims};
+
+/// Authority is the authenticated context of an API request: an Envelope
+/// plus the capability mask of the bearer's `capability_mask` claim, with
+/// the route's Requirement evaluated at extraction.
+pub use authority::{Authority, Forbidden, NoRequirement, RequireUnmasked, Requirement};
 
 // TODO(johnny): These types are all fundamental to this crate, and should be
 // hoisted from the `server` module. For now, just re-export to minimize churn.
