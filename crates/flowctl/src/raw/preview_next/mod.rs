@@ -403,6 +403,7 @@ fn prepare_sessions<S>(
             source,
             std::path::Path::new(&run.shuffle_log_dir),
             run.n_shards,
+            fixture::StreamLimits::default(),
             frontier_tx,
             session_stop.clone(),
             hold.clone(),
