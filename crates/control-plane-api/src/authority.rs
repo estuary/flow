@@ -241,8 +241,8 @@ impl<R: Requirement> aide::operation::OperationInput for Authority<R> {}
 
 #[cfg(test)]
 mod test {
-    use super::{Authority, NoRequirement, Rejection, RequireUnmasked, Requirement};
     use super::evaluate_requirement;
+    use super::{Authority, NoRequirement, Rejection, RequireUnmasked, Requirement};
     use models::authz::{Capability, CapabilityMask, CapabilitySet};
 
     /// A representative capability-bearing requirement, as routes will
@@ -393,9 +393,7 @@ mod test {
 
     /// Report the extracted configuration: the identity, the wire claim,
     /// and the capabilities the mask enables.
-    async fn probe<R: Requirement>(
-        Authority { envelope, mask, .. }: Authority<R>,
-    ) -> String {
+    async fn probe<R: Requirement>(Authority { envelope, mask, .. }: Authority<R>) -> String {
         let enabled = if mask.has_all_capabilities() {
             "all".to_string()
         } else {
