@@ -123,7 +123,7 @@ pub async fn fetch_spec_history_no_authz(
 ) -> async_graphql::Result<SpecHistoryConnection> {
     const DEFAULT_PAGE_SIZE: usize = 10;
 
-    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+    let env = ctx.data::<crate::Envelope>()?;
 
     connection::query_with::<TimestampCursor, _, _, _, async_graphql::Error>(
         after,

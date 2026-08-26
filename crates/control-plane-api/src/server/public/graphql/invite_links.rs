@@ -70,7 +70,7 @@ impl InviteLinksQuery {
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedInviteLinks> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
 
         let single_use_eq = filter
             .as_ref()
@@ -182,7 +182,7 @@ impl InviteLinksMutation {
         #[graphql(default = true)] single_use: bool,
         detail: Option<String>,
     ) -> async_graphql::Result<InviteLink> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
         if capability == models::Capability::None {
@@ -254,7 +254,7 @@ impl InviteLinksMutation {
         ctx: &Context<'_>,
         token: uuid::Uuid,
     ) -> async_graphql::Result<RedeemInviteLinkResult> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
         let mut txn = env.pg_pool.begin().await?;
@@ -363,7 +363,7 @@ impl InviteLinksMutation {
         ctx: &Context<'_>,
         token: uuid::Uuid,
     ) -> async_graphql::Result<bool> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
         let mut txn = env.pg_pool.begin().await?;

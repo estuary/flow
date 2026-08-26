@@ -7,7 +7,7 @@ pub struct TenantQuery;
 #[async_graphql::Object]
 impl TenantQuery {
     async fn tenant(&self, ctx: &Context<'_>, name: String) -> Result<Option<Tenant>> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&name)?;
 
         super::verify_authorization(env, tenant.as_str(), models::Capability::Read).await?;

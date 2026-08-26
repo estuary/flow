@@ -91,7 +91,7 @@ impl LiveSpec {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<LiveSpecRef>> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
 
         let Some(source_capture_name) = &self.source_capture else {
             return Ok(None);

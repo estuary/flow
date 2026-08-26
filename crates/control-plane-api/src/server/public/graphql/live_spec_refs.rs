@@ -178,7 +178,7 @@ pub async fn paginate_live_specs_refs(
     first: Option<i32>,
     last: Option<i32>,
 ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+    let env = ctx.data::<crate::Envelope>()?;
 
     if all_names.is_empty() {
         return Ok(connection::Connection::new(false, false));
@@ -277,7 +277,7 @@ impl LiveSpecsQuery {
         first: Option<i32>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
 
         let LiveSpecsBy {
             names,

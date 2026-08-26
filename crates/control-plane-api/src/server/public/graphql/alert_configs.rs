@@ -62,7 +62,7 @@ pub async fn resolve_effective_alert_config(
     ctx: &Context<'_>,
     catalog_prefix_or_name: &str,
 ) -> async_graphql::Result<EffectiveAlertConfig> {
-    let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+    let env = ctx.data::<crate::Envelope>()?;
     let defaults = ctx.data::<models::AlertConfig>()?;
 
     let (config, provenance_map) = crate::controllers::fetch_alert_config_with_provenance(
@@ -120,7 +120,7 @@ impl AlertConfigsQuery {
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlertConfigs> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
         let snapshot = env.snapshot();
@@ -214,7 +214,7 @@ impl AlertConfigsQuery {
         ctx: &Context<'_>,
         catalog_prefix_or_name: String,
     ) -> async_graphql::Result<EffectiveAlertConfig> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
         validate_prefix_or_name(&catalog_prefix_or_name)?;
@@ -260,7 +260,7 @@ impl AlertConfigsMutation {
         config: async_graphql::Json<models::AlertConfig>,
         detail: Option<String>,
     ) -> async_graphql::Result<UpdateAlertConfigResult> {
-        let crate::Authority { envelope: env, .. } = ctx.data::<crate::Authority>()?;
+        let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
         let async_graphql::Json(config) = config;
 
