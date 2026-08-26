@@ -52,6 +52,10 @@ pub struct Request {
 #[serde(rename_all = "camelCase")]
 pub struct Response {}
 
+/// Authorization is SQL `internal.user_roles` rather than the snapshot walk,
+/// so the bearer's capability mask has no effect — a masked bearer is
+/// treated as unmasked — until this endpoint's authorization is refactored
+/// onto the snapshot. See #3376.
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 #[tracing::instrument(skip(app, env), ret, err(Debug, level = tracing::Level::WARN))]
 pub async fn create_data_plane(
