@@ -243,7 +243,7 @@ impl<R: Requirement> axum::extract::FromRequestParts<Arc<crate::App>> for Author
         state: &Arc<crate::App>,
     ) -> Result<Self, Self::Rejection> {
         let envelope = crate::Envelope::from_request_parts(parts, state).await?;
-        Ok(Self::from_envelope(envelope)?)
+        Self::from_envelope(envelope)
     }
 }
 
