@@ -1257,30 +1257,19 @@ mod tests {
     // grant alice read on `ops/dp/private/` to make it visible.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "private_links", "alice")
+        )
     )]
     async fn test_graphql_data_planes_public_filter(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
-        let private_dp = "ops/dp/private/defunct/az-westeurope-c1";
+        let private_dps = vec!["ops/dp/private/aliceCo/aws-us-east-1-c1".to_string()];
         let public_dps = vec![
             "ops/dp/public/aws-us-west-2-c1".to_string(),
             "ops/dp/public/gcp-us-central1-c2".to_string(),
         ];
-
-        // give test user read access to the private plane
-        sqlx::query("UPDATE data_planes SET hmac_keys = '{c2VjcmV0}' WHERE data_plane_name = $1")
-            .bind(private_dp)
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query(
-            "INSERT INTO role_grants (subject_role, object_role, capability)
-             VALUES ('aliceCo/', 'ops/dp/private/', 'read')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
 
         let server =
             test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
@@ -1321,7 +1310,7 @@ mod tests {
 
         // No filter: public and private planes returned.
         let mut all = public_dps.clone();
-        all.push(private_dp.to_string());
+        all.extend(private_dps.clone());
         all.sort();
         assert_eq!(names(&server, &token, serde_json::Value::Null).await, all);
         // public eq true -> only the two public planes.
@@ -1342,7 +1331,7 @@ mod tests {
                 serde_json::json!({ "public": { "eq": false } })
             )
             .await,
-            vec![private_dp.to_string()],
+            private_dps,
         );
     }
 
