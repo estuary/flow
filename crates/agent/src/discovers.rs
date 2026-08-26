@@ -180,6 +180,12 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             row.user_id,
             &row.capture_name,
             models::authz::Capability::SpecEdit,
+            // Deliberately unmasked: this is an async executor, where the
+            // requesting JWT and its capability mask are gone and
+            // authorization is by user identity. Threading a persisted mask
+            // across the async boundary — and deciding whether it should
+            // propagate at all — is the dedicated discovers follow-up task
+            // of the #3376 plan.
             models::authz::CapabilityMask::ALL_CAPABILITIES,
         ) {
             // Request an early background refresh: the grant may have been
@@ -210,6 +216,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             row.user_id,
             &row.data_plane_name,
             models::Capability::Read,
+            // Deliberately unmasked; see the SpecEdit check above.
             models::authz::CapabilityMask::ALL_CAPABILITIES,
         )
         .then(|| snapshot.data_plane_by_catalog_name(&row.data_plane_name))
