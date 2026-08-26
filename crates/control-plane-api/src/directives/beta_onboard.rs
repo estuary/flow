@@ -64,6 +64,10 @@ pub async fn provision_tenant(
         .filter(models::status::AlertType::is_default)
         .collect();
 
+    // The first data-plane in this list becomes the tenant's default, because that's
+    // what validation picks when a publication doesn't name one. aws-us-east-1-c2 is
+    // sorted to the front: c1 is at capacity and is closed to new tenants.
+    //
     // Note that the gcp-us-central1-c1 (combustible-cronut) dataplane is excluded here
     // because it's being deprecated and replaced.
     sqlx::query!(
@@ -88,7 +92,7 @@ pub async fn provision_tenant(
         public_planes as (
             select json_agg(
                 data_plane_name
-                order by case when data_plane_name = 'ops/dp/public/aws-us-east-1-c1' then 0 else 1 end asc,
+                order by case when data_plane_name = 'ops/dp/public/aws-us-east-1-c2' then 0 else 1 end asc,
                 id desc
             ) as arr
             from data_planes
