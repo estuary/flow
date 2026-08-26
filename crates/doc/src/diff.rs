@@ -60,7 +60,31 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
         location: &Location,
         out: &mut Vec<Self>,
     ) {
-        match (actual.map(AsNode::as_node), expect.map(AsNode::as_node)) {
+        let actual_node = actual.map(AsNode::as_node);
+        let expect_node = expect.map(AsNode::as_node);
+
+        // A float compares to a number of any representation under a
+        // magnitude-scaled epsilon: JSON Schema draws no distinction between the
+        // integer `0` and the float `0.0`, and neither do we, while reductions
+        // introduce floaty funny bitness that an exact compare would report as a
+        // difference.
+        if let Some((actual_f64, expect_f64)) = actual_node
+            .as_ref()
+            .zip(expect_node.as_ref())
+            .and_then(|(actual, expect)| epsilon_pair(actual, expect))
+        {
+            if !f64_eq(actual_f64, expect_f64) {
+                out.push(Diff {
+                    location: location.pointer_str().to_string(),
+                    actual,
+                    expect,
+                    note: None,
+                });
+            }
+            return;
+        }
+
+        match (actual_node, expect_node) {
             (Some(Node::Object(actual)), Some(Node::Object(expect))) => {
                 for eob in actual
                     .iter()
@@ -99,18 +123,6 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
                     );
                 }
             }
-            // If both values are floats, then compare them using an epsilon value so we don't
-            // fail the diff due to floaty funny bitness.
-            (Some(Node::Float(actual_f64)), Some(Node::Float(expected_f64))) => {
-                if !f64_eq(actual_f64, expected_f64) {
-                    out.push(Diff {
-                        location: format!("{}", location.pointer_str()),
-                        actual,
-                        expect,
-                        note: None,
-                    });
-                }
-            }
             // For remaining scalar cases, or differing types, fall back to basic equality.
             (Some(_), Some(_)) if json::node::compare(actual.unwrap(), expect.unwrap()).is_eq() => {
             }
@@ -124,12 +136,35 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
                     expect,
                     note: if actual.is_none() {
                         Some("missing in actual document")
+                    } else if expect.is_none() {
+                        Some("unexpected in actual document")
                     } else {
                         None
                     },
                 });
             }
         }
+    }
+}
+
+/// The `f64` values of `actual` and `expect` if the pair should compare under a
+/// scaled epsilon: both are numbers, and at least one is a float.
+fn epsilon_pair<A: AsNode, E: AsNode>(
+    actual: &Node<'_, A>,
+    expect: &Node<'_, E>,
+) -> Option<(f64, f64)> {
+    let pair = (as_f64(actual)?, as_f64(expect)?);
+
+    (matches!(actual, Node::Float(_)) || matches!(expect, Node::Float(_))).then_some(pair)
+}
+
+/// The `f64` value of a numeric node, or None if it isn't a number.
+fn as_f64<N: AsNode>(node: &Node<'_, N>) -> Option<f64> {
+    match node {
+        Node::Float(v) => Some(*v),
+        Node::NegInt(v) => Some(*v as f64),
+        Node::PosInt(v) => Some(*v as f64),
+        _ => None,
     }
 }
 
@@ -169,6 +204,42 @@ mod test {
 
         assert!(!f64_eq(1.0, 1.00001));
         assert!(!f64_eq(4.56E+10, 4.5603E+10));
+    }
+
+    #[test]
+    fn test_numeric_epsilon_across_representations() {
+        let case = |equal, actual: serde_json::Value, expect: serde_json::Value| {
+            let out = diff(Some(&actual), Some(&expect));
+            assert_eq!(equal, out.is_empty(), "{actual} vs {expect}: {out:?}");
+        };
+
+        // Reduction drift lands an integral expectation on a neighboring float.
+        case(true, json!(8.000000000000002), json!(8));
+        // A float and an integer of the same value are the same number.
+        case(true, json!(0), json!(0.0));
+        case(true, json!(-42.0), json!(-42));
+        // The epsilon floors at machine epsilon and never scales down,
+        // so values very near zero compare equal to zero.
+        case(true, json!(1e-17), json!(0.0));
+
+        case(false, json!(1.0), json!(1.00001));
+        case(false, json!(41), json!(42));
+
+        // Two integers compare exactly: no epsilon widens with their magnitude,
+        // so distinct IDs and nanosecond timestamps stay distinct.
+        case(true, json!(u64::MAX), json!(u64::MAX));
+        case(
+            false,
+            json!(9007199254740993u64),
+            json!(9007199254740992u64),
+        );
+        case(false, json!(u64::MAX), json!(u64::MAX - 3000));
+        case(
+            false,
+            json!(1750000000000000000u64),
+            json!(1750000000000000300u64),
+        );
+        case(false, json!(i64::MIN), json!(i64::MIN + 808));
     }
 
     #[test]
@@ -259,7 +330,8 @@ mod test {
           },
           {
             "location": "/shorter/1",
-            "actual": true
+            "actual": true,
+            "note": "unexpected in actual document"
           }
         ]
         "###);
