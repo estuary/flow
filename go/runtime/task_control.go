@@ -43,7 +43,7 @@ func (tc *taskControl) SyncNow(claims pb.Claims, req *pr.SyncNowRequest, stream 
 	return tc.syncNow(stream.Context(), claims, req, stream.Send)
 }
 
-// syncNow is the relay core shared by the gRPC and HTTP transports: resolve
+// syncNow is the relay core shared by the gRPC and HTTP transports: locate
 // the task's shard zero, then either await its commit locally or forward to
 // the peer front door which is its primary.
 func (tc *taskControl) syncNow(
@@ -55,44 +55,14 @@ func (tc *taskControl) syncNow(
 	if req.TaskName == "" {
 		return status.Error(codes.InvalidArgument, "task_name is required")
 	}
-	var proxyHeader, err = getProxyHeader(ctx)
+	var shardZero, primary, err = taskShardZero(tc.service.State, claims, req.TaskName)
 	if err != nil {
 		return err
 	}
-	var shardZero, found = taskShardZero(tc.service.State, req.TaskName)
-	if !found {
-		return errTaskNotFound(req.TaskName)
-	}
-
-	var res consumer.Resolution
-	if res, err = tc.service.Resolver.Resolve(consumer.ResolveArgs{
-		Context:     ctx,
-		Claims:      claims,
-		ShardID:     shardZero.Id,
-		MayProxy:    proxyHeader == nil, // MayProxy if not already proxied.
-		ProxyHeader: proxyHeader,
-	}); err != nil {
-		return err
-	}
-
-	switch res.Status {
-	case pc.Status_OK:
-		// Pass.
-	case pc.Status_SHARD_NOT_FOUND:
-		// Also returned when the caller's claims don't cover the shard.
-		return errTaskNotFound(req.TaskName)
-	default:
-		return status.Errorf(codes.Unavailable,
-			"cannot resolve task shard %s to a ready primary (%s)", shardZero.Id, res.Status)
-	}
 
 	// Captures and derivations hold no open transaction, so there's nothing to
-	// force or await, and no need to route any further. Resolve() verified the
-	// caller's claims cover the shard.
+	// force or await, and no need to route any further.
 	if shardZero.LabelSet.ValueOf(labels.TaskType) != ops.TaskType_materialization.String() {
-		if res.Done != nil {
-			res.Done()
-		}
 		if err = send(&pr.SyncNowResponse{
 			Response: &pr.SyncNowResponse_Ack_{Ack: &pr.SyncNowResponse_Ack{}},
 		}); err != nil {
@@ -103,11 +73,10 @@ func (tc *taskControl) syncNow(
 		})
 	}
 
-	if res.Store == nil {
+	if primary.Primary == -1 {
 		// Shard zero's primary is a peer reactor, and only its front door
 		// holds the shard's session with the task's leader. Forward there.
-		ctx = attachProxyHeader(forwardAuthorization(ctx), &res.Header)
-		ctx = pb.WithDispatchRoute(ctx, res.Header.Route, res.Header.ProcessId)
+		ctx = pb.WithDispatchRoute(forwardAuthorization(ctx), primary, primary.Members[0])
 
 		var client, err = pr.NewTaskControlClient(tc.service.Loopback).SyncNow(ctx, req)
 		if err != nil {
@@ -125,10 +94,22 @@ func (tc *taskControl) syncNow(
 		}
 	}
 
-	// We are the primary. Take the shard's Store and release the resolution
-	// before awaiting anything: a wait can run for an hour and must not pin
-	// the shard's teardown. Teardown instead ends the leader session, which
-	// breaks the barrier and errors the wait; the caller re-invokes.
+	// We are the primary. Resolve only to obtain the shard's Store once it's
+	// done recovering, and release the resolution before awaiting anything: a
+	// wait can run for an hour and must not pin the shard's teardown. Teardown
+	// instead ends the leader session, which breaks the barrier and errors the
+	// wait; the caller re-invokes.
+	res, err := tc.service.Resolver.Resolve(consumer.ResolveArgs{
+		Context: ctx,
+		Claims:  claims,
+		ShardID: shardZero.Id,
+	})
+	if err != nil {
+		return err
+	} else if res.Status != pc.Status_OK {
+		return status.Errorf(codes.Unavailable,
+			"cannot resolve task shard %s to a ready primary (%s)", shardZero.Id, res.Status)
+	}
 	var app, isV2 = res.Store.(syncNower)
 	res.Done()
 
@@ -139,36 +120,57 @@ func (tc *taskControl) syncNow(
 	return app.syncNow(ctx, send)
 }
 
-func errTaskNotFound(taskName string) error {
-	return status.Errorf(codes.NotFound,
-		"task %s was not found in this data plane (or your authorization does not cover it)", taskName)
-}
-
-// taskShardZero returns the spec of the named task's shard zero: the shard
-// with the lowest key / r-clock range. Shard IDs are `<task-type>/<task-name>/
-// <generation-id>/<range>`, so a prefix scan finds the task's shards in
-// range-ascending order — but one task's name may prefix another's, so require
-// an exact task-name label match.
+// taskShardZero returns the spec of the named task's shard zero, and a
+// one-member Route to its current primary, which is marked Primary if it's
+// the local reactor. Shard zero is the shard with the lowest key / r-clock
+// range. Shard IDs are `<task-type>/<task-name>/<generation-id>/<range>`, so a
+// prefix scan finds the task's shards in range-ascending order — but one
+// task's name may prefix another's, so require an exact task-name label match.
 //
 // A `reset` publication starts a new generation, and activation creates the new
 // shards before deleting the old, so both can briefly appear here and we take
 // the older. Sync-now during a reset is meaningless either way: the task is
 // being backfilled from scratch.
-func taskShardZero(state *allocator.State, taskName string) (*pc.ShardSpec, bool) {
+func taskShardZero(state *allocator.State, claims pb.Claims, taskName string) (*pc.ShardSpec, pb.Route, error) {
 	state.KS.Mu.RLock()
 	defer state.KS.Mu.RUnlock()
 
+	var spec *pc.ShardSpec
 	for _, taskType := range []string{"capture", "derivation", "materialize"} {
 		var prefix = allocator.ItemKey(state.KS, taskType+"/"+taskName+"/")
 		for _, kv := range state.Items.Prefixed(prefix) {
-			var spec = kv.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
-			if spec.LabelSet.ValueOf(labels.TaskName) != taskName {
-				continue
+			var candidate = kv.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
+			if candidate.LabelSet.ValueOf(labels.TaskName) == taskName {
+				spec = candidate
+				break
 			}
-			return spec, true
+		}
+		if spec != nil {
+			break
 		}
 	}
-	return nil, false
+	// Act as if an unauthorized shard doesn't exist, as Resolve does.
+	if spec == nil || !claims.Selector.Matches(spec.LabelSetExt(pb.LabelSet{})) {
+		return nil, pb.Route{}, status.Errorf(codes.NotFound,
+			"task %s was not found in this data plane (or your authorization does not cover it)", taskName)
+	}
+
+	var asn, _, ok = primaryAssignment(state, spec.Id)
+	if !ok || state.LocalMemberInd == -1 {
+		return nil, pb.Route{}, status.Errorf(codes.Unavailable,
+			"task shard %s has no ready primary", spec.Id)
+	}
+	var id = pb.ProcessSpec_ID{Zone: asn.MemberZone, Suffix: asn.MemberSuffix}
+	var endpoint, found = memberEndpoint(state, id)
+	if !found {
+		return nil, pb.Route{}, status.Errorf(codes.Unavailable,
+			"primary reactor %s of task shard %s is not present in Etcd", &id, spec.Id)
+	}
+	var route = pb.Route{Members: []pb.ProcessSpec_ID{id}, Endpoints: []pb.Endpoint{endpoint}, Primary: -1}
+	if id == state.Members[state.LocalMemberInd].Decoded.(allocator.Member).MemberValue.(*pc.ConsumerSpec).Id {
+		route.Primary = 0
+	}
+	return spec, route, nil
 }
 
 // forwardAuthorization returns a Context which forwards the caller's incoming
@@ -181,35 +183,4 @@ func forwardAuthorization(ctx context.Context) context.Context {
 		}
 	}
 	return ctx
-}
-
-// taskControlProxyMD carries a marshalled pb.Header on a proxied TaskControl
-// RPC. SyncNowRequest deliberately has no Header field (it's user-facing),
-// so the gazette proxy convention — Header marks an already-proxied request,
-// and synchronizes the peer to the proxying member's Etcd revision — rides
-// gRPC metadata instead.
-const taskControlProxyMD = "flow-task-control-proxy-bin"
-
-func attachProxyHeader(ctx context.Context, hdr *pb.Header) context.Context {
-	var b, err = hdr.Marshal()
-	if err != nil {
-		panic(err) // Marshal of a valid Header cannot fail.
-	}
-	return metadata.AppendToOutgoingContext(ctx, taskControlProxyMD, string(b))
-}
-
-func getProxyHeader(ctx context.Context) (*pb.Header, error) {
-	var md, ok = metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, nil
-	}
-	var vals = md.Get(taskControlProxyMD)
-	if len(vals) == 0 {
-		return nil, nil
-	}
-	var hdr = new(pb.Header)
-	if err := hdr.Unmarshal([]byte(vals[len(vals)-1])); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid proxy header: %s", err)
-	}
-	return hdr, nil
 }
