@@ -28,7 +28,12 @@ pub struct SyncNow {
 pub async fn do_sync_now(ctx: &CliContext, args: &SyncNow) -> anyhow::Result<()> {
     let auth = crate::dataplane::user_task_auth_watch(&ctx.rest, &ctx.user_tokens, &args.task.task);
     let task = &args.task.task;
-    let client = new_http_client()?;
+    // The read timeout maps a stalled response stream onto the retryable
+    // Transport failure. It's per-read: it bounds the gap between the
+    // server's 15s heartbeats, not the wait overall.
+    let client = reqwest::Client::builder()
+        .read_timeout(Duration::from_secs(60))
+        .build()?;
 
     let mut acked_ever = false;
     let mut backoff = Duration::from_secs(1);
@@ -67,31 +72,6 @@ pub async fn do_sync_now(ctx: &CliContext, args: &SyncNow) -> anyhow::Result<()>
             (backoff * 2).min(Duration::from_secs(30))
         };
     }
-}
-
-/// Build the HTTP client which calls the reactor front door.
-///
-/// `reqwest` verifies against webpki's bundled roots, and -- unlike tonic's
-/// `tls-native-roots` -- ignores `SSL_CERT_FILE`. Honor it explicitly, so that
-/// a data plane behind a private CA (such as a local stack) is reachable.
-fn new_http_client() -> anyhow::Result<reqwest::Client> {
-    // The read timeout maps a stalled response stream onto the retryable
-    // Transport failure. It's per-read: it bounds the gap between the
-    // server's 15s heartbeats, not the (possibly hour-long) wait overall.
-    let mut builder = reqwest::Client::builder().read_timeout(Duration::from_secs(60));
-
-    if let Some(path) = std::env::var_os("SSL_CERT_FILE") {
-        let path = std::path::PathBuf::from(path);
-        let pem = std::fs::read(&path)
-            .with_context(|| format!("reading SSL_CERT_FILE {}", path.display()))?;
-
-        for cert in reqwest::Certificate::from_pem_bundle(&pem)
-            .with_context(|| format!("parsing certificates of {}", path.display()))?
-        {
-            builder = builder.add_root_certificate(cert);
-        }
-    }
-    Ok(builder.build()?)
 }
 
 /// One NDJSON line of a SyncNow response stream. Both fields are absent in a
