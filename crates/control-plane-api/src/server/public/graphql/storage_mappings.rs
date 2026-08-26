@@ -214,7 +214,14 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(
+            env,
+            claims,
+            *ctx.data()?,
+            &catalog_prefix,
+            &spec.data_planes,
+        )
+        .await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -346,7 +353,14 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(
+            env,
+            claims,
+            *ctx.data()?,
+            &catalog_prefix,
+            &spec.data_planes,
+        )
+        .await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -491,7 +505,14 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(
+            env,
+            claims,
+            *ctx.data()?,
+            &catalog_prefix,
+            &spec.data_planes,
+        )
+        .await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -508,11 +529,17 @@ impl StorageMappingsMutation {
 async fn evaluate_authorization(
     env: &crate::Envelope,
     claims: &crate::ControlClaims,
+    mask: models::authz::CapabilityMask,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> Result<(), crate::ApiError> {
-    let policy_result =
-        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
+    let policy_result = check_authorization(
+        &env.snapshot(),
+        claims,
+        mask,
+        catalog_prefix,
+        data_plane_names,
+    );
     env.authorization_outcome(policy_result).await?;
     Ok(())
 }
@@ -520,6 +547,7 @@ async fn evaluate_authorization(
 fn check_authorization(
     snapshot: &crate::Snapshot,
     claims: &crate::ControlClaims,
+    mask: models::authz::CapabilityMask,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> crate::AuthZResult<()> {
@@ -530,6 +558,15 @@ fn check_authorization(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
+    // A mask which doesn't cover the Admin requirement is a definitive
+    // denial, evaluated before the walk so the structured 403 names the
+    // missing capabilities without consulting the user's grants.
+    let required: models::authz::CapabilitySet = models::Capability::Admin.into();
+    let missing = required - mask.apply(required);
+    if !missing.is_empty() {
+        return Err(crate::Forbidden::missing_capabilities(missing).into());
+    }
+
     // Verify the User admins `catalog_prefix`.
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
@@ -537,11 +574,12 @@ fn check_authorization(
         *user_id,
         catalog_prefix,
         models::Capability::Admin,
-        models::authz::CapabilityMask::ALL_CAPABILITIES,
+        mask,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
-        )));
+        ))
+        .into());
     }
 
     for data_plane_name in data_plane_names {
@@ -554,7 +592,8 @@ fn check_authorization(
         ) {
             return Err(tonic::Status::permission_denied(format!(
                 "'{catalog_prefix}' is not authorized to data plane '{data_plane_name}' for Read",
-            )));
+            ))
+            .into());
         }
     }
 
@@ -708,6 +747,7 @@ impl StorageMappingsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
+                *ctx.data()?,
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -772,6 +812,7 @@ impl StorageMappingsQuery {
 
         let snapshot = env.snapshot();
         let claims = env.claims()?;
+        let mask: models::authz::CapabilityMask = *ctx.data()?;
         let edges = rows
             .into_iter()
             .map(|row| {
@@ -780,7 +821,7 @@ impl StorageMappingsQuery {
                     &snapshot.user_grants,
                     claims.sub,
                     &row.catalog_prefix,
-                    models::authz::CapabilityMask::ALL_CAPABILITIES,
+                    mask,
                 )
                 .ok_or_else(|| {
                     async_graphql::Error::new(format!(
@@ -978,6 +1019,127 @@ mod test {
             err.message,
             "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely"
         );
+    }
+
+    #[test]
+    fn test_check_authorization_applies_the_mask() {
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let claims = models::authorizations::ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 0,
+            exp: 0,
+            sub: uuid::Uuid::from_bytes([32; 16]), // bob: admin of bobCo/tires/.
+            role: "authenticated".to_string(),
+            email: Some("bob@bob".to_string()),
+            capability_mask: None,
+        };
+        let prefix = models::Prefix::new("bobCo/tires/");
+
+        // Unmasked, and a mask covering the Admin requirement: authorized.
+        for mask in [
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
+            models::authz::CapabilityMask::bounded(models::Capability::Admin.into()),
+        ] {
+            assert!(
+                super::check_authorization(&snapshot, &claims, mask, &prefix, &[]).is_ok(),
+                "{mask:?}",
+            );
+        }
+
+        // A mask which doesn't cover Admin is a definitive denial naming the
+        // missing capabilities, though bob holds the underlying grant.
+        let mask =
+            models::authz::CapabilityMask::bounded(models::authz::Capability::CatalogRead.into());
+        let result = super::check_authorization(&snapshot, &claims, mask, &prefix, &[]);
+        let Err(crate::AuthZError::Definitive(forbidden)) = result else {
+            panic!("expected a definitive denial, got {result:?}");
+        };
+        assert!(
+            !forbidden.missing_capabilities.contains(&"CatalogRead"),
+            "{forbidden:?}",
+        );
+        assert!(
+            forbidden.missing_capabilities.contains(&"SpecEdit"),
+            "{forbidden:?}",
+        );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mappings_list_is_coherent_under_a_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let mut store = models::Store::example();
+        *store.prefix_mut() = models::Prefix::new("tenant/collection-data/");
+        let spec = crate::TextJson(models::StorageDef {
+            data_planes: Vec::new(),
+            stores: vec![store],
+        });
+        for prefix in ["aliceCo/", "aliceCo/team/", "otherCo/"] {
+            sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+                .bind(prefix)
+                .bind(&spec)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let query = serde_json::json!({
+            "query": r#"
+                query {
+                    storageMappings {
+                        edges { node { catalogPrefix userCapability } }
+                    }
+                }
+            "#,
+        });
+
+        // The row filter and the attached userCapability metadata are
+        // computed under the same mask, so a masked listing narrows
+        // coherently — it never errors on a row it chose to show.
+        let masked = server.make_masked_access_token(alice, None, Some(vec!["CatalogRead"]));
+        let response: serde_json::Value = server.graphql(&query, Some(&masked)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/",
+                    "userCapability": "admin"
+                  }
+                },
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/team/",
+                    "userCapability": "admin"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        // An identity-only token lists nothing, and does not error.
+        let identity_only = server.make_masked_access_token(alice, None, Some(vec![]));
+        let response: serde_json::Value = server.graphql(&query, Some(&identity_only)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": []
+            }
+          }
+        }
+        "#);
     }
 
     #[sqlx::test(

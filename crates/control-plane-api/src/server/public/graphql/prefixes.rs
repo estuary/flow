@@ -48,6 +48,7 @@ impl PrefixesQuery {
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedPrefixes> {
         let env = ctx.data::<crate::Envelope>()?;
+        let mask: models::authz::CapabilityMask = *ctx.data()?;
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
             let snapshot = env.snapshot();
@@ -59,7 +60,7 @@ impl PrefixesQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 user_id,
-                models::authz::CapabilityMask::ALL_CAPABILITIES,
+                mask,
             );
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
@@ -163,6 +164,132 @@ mod tests {
                   }
                 }
               ]
+            }
+          }
+        }
+        "#);
+
+        // A masked bearer's listing narrows to what the mask can reach —
+        // it never errors. Without `Delegate` the walk is confined to
+        // alice's direct grant; the role-edge-derived prefixes disappear.
+        let masked = server.make_masked_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            None,
+            Some(vec![
+                "CatalogRead",
+                "JournalRead",
+                "ViewDataPlanePrivateNetworking",
+            ]),
+        );
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        prefixes(by: { minCapability: read }) {
+                            edges { node { prefix userCapability } }
+                        }
+                    }
+                "#
+                }),
+                Some(&masked),
+            )
+            .await;
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": {
+            "prefixes": {
+              "edges": [
+                {
+                  "node": {
+                    "prefix": "aliceCo/",
+                    "userCapability": "admin"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        // Adding `Delegate` re-enables role-graph traversal: the listing is
+        // the full unmasked set, because every reached node still clears the
+        // Viewer bits under this mask.
+        let masked = server.make_masked_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            None,
+            Some(vec![
+                "CatalogRead",
+                "JournalRead",
+                "ViewDataPlanePrivateNetworking",
+                "Delegate",
+            ]),
+        );
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        prefixes(by: { minCapability: read }) {
+                            edges { node { prefix } }
+                        }
+                    }
+                "#
+                }),
+                Some(&masked),
+            )
+            .await;
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": {
+            "prefixes": {
+              "edges": [
+                {
+                  "node": {
+                    "prefix": "aliceCo/"
+                  }
+                },
+                {
+                  "node": {
+                    "prefix": "aliceCo/data/"
+                  }
+                },
+                {
+                  "node": {
+                    "prefix": "ops/dp/public/"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        // An identity-only (empty-mask) token lists nothing, and does not error.
+        let identity_only =
+            server.make_masked_access_token(uuid::Uuid::from_bytes([0x11; 16]), None, Some(vec![]));
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        prefixes(by: { minCapability: read }) {
+                            edges { node { prefix } }
+                        }
+                    }
+                "#
+                }),
+                Some(&identity_only),
+            )
+            .await;
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": {
+            "prefixes": {
+              "edges": []
             }
           }
         }
