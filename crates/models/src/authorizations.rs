@@ -20,13 +20,15 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
-    // Capability names to which this token's authority is masked.
+    // Capability-bundle names to which this token's authority is masked.
     //
     // `None` is an unmasked token — today that's every token we mint, and a
     // full-authority credential stays unmasked once masking exists. `Some`
     // is a masked token whose authority is its user's live grants
-    // intersected with the recognized names herein, and an empty list is
-    // valid: it mints an identity-only token.
+    // intersected with the capability bits of the recognized bundle names
+    // herein, and an empty list is valid: it mints an identity-only token.
+    // Every individual capability is itself a same-named bundle, so the
+    // vocabulary spans coarse bundles and single capability bits alike.
     //
     // Deliberately an opaque list of strings rather than
     // `authz::CapabilitySet`, so that this shared claim doesn't structurally
@@ -304,6 +306,7 @@ mod test {
                 "JournalRead",
                 "Delegate"
             ])),
+            Some(serde_json::json!(["Viewer"])),
             Some(serde_json::json!([])),
             Some(serde_json::json!(["SpecEdit", "FutureCapability"])),
             Some(serde_json::json!(["FutureCapability"])),
@@ -347,6 +350,16 @@ mod test {
                 ),
                 CapabilityMask(
                     EnumSet(CatalogRead | JournalRead | Delegate),
+                ),
+            ),
+            (
+                Some(
+                    [
+                        "Viewer",
+                    ],
+                ),
+                CapabilityMask(
+                    EnumSet(CatalogRead | JournalRead | ViewDataPlanePrivateNetworking),
                 ),
             ),
             (

@@ -48,15 +48,18 @@ impl std::fmt::Display for Capability {
 impl Capability {
     /// PascalCase wire name of this capability.
     ///
-    /// One vocabulary is shared by the `capability_mask` token claim and by
-    /// GraphQL's `CapabilityBit` enum (which derives the same spelling from
-    /// these variant identifiers), so that "you need capability X" reads
-    /// identically wherever it's said. Names are minted into tokens which
-    /// outlive a deploy and are interpreted by instances of differing
+    /// This spelling is shared by GraphQL's `CapabilityBit` enum (which
+    /// derives it from these variant identifiers) and — because every
+    /// capability is also a same-named single-capability [`CapabilityBundle`] —
+    /// by the `capability_mask` token claim, so that "you need capability X"
+    /// reads identically wherever it's said. Names are minted into tokens
+    /// which outlive a deploy and are interpreted by instances of differing
     /// versions, so they must remain stable: the mapping is written out
     /// rather than derived from `Debug` precisely so that renaming a variant
     /// is not silently a wire-format change — `test_graphql_names_match_claim_names`
-    /// holds this mapping and GraphQL's derived spelling together.
+    /// holds this mapping and GraphQL's derived spelling together, and
+    /// `test_capabilities_are_single_capability_bundles` holds it to the
+    /// claim vocabulary.
     pub const fn name(&self) -> &'static str {
         match self {
             Self::CatalogRead => "CatalogRead",
@@ -77,18 +80,6 @@ impl Capability {
             Self::Delegate => "Delegate",
             Self::Assume => "Assume",
         }
-    }
-
-    /// Parse a PascalCase capability name, or `None` if this binary doesn't
-    /// recognize it.
-    ///
-    /// An unrecognized name is inert rather than an error: a token minted by
-    /// a newer control plane must still authenticate against an older one,
-    /// and a capability we cannot enforce must never widen what we allow.
-    pub fn from_name(name: &str) -> Option<Self> {
-        // Linear over the variants, which keeps `name()` the mapping's
-        // single source of truth.
-        CapabilitySet::all().iter().find(|c| c.name() == name)
     }
 }
 
@@ -136,20 +127,22 @@ impl CapabilityMask {
 
     /// Build a mask from a token's verified `capability_mask` claim.
     ///
-    /// An absent claim is [`Self::UNMASKED`]; a present claim enables its
-    /// recognized names, and that includes an empty list — "no mask" and
-    /// "an empty mask" are distinct on the wire and the difference is
-    /// load-bearing. Unrecognized names contribute nothing, so a claim
-    /// naming only names we don't know bounds the token to nothing at all;
-    /// see [`Capability::from_name`].
+    /// An absent claim is [`Self::UNMASKED`]; a present claim enables the
+    /// union of the capability bits of its recognized [`CapabilityBundle`]
+    /// names, and that includes an empty list — "no mask" and "an empty
+    /// mask" are distinct on the wire and the difference is load-bearing.
+    /// Unrecognized names contribute nothing, so a claim naming only names
+    /// we don't know bounds the token to nothing at all; see
+    /// [`CapabilityBundle::from_name`].
     pub fn from_claim(mask: Option<&[String]>) -> Self {
         let Some(mask) = mask else {
             return Self::UNMASKED;
         };
         Self(
             mask.iter()
-                .filter_map(|name| Capability::from_name(name))
-                .collect(),
+                .filter_map(|name| CapabilityBundle::from_name(name))
+                .map(|bundle| bundle.capabilities())
+                .fold(CapabilitySet::empty(), |set, bits| set | bits),
         )
     }
 
@@ -194,6 +187,31 @@ pub enum CapabilityBundle {
     ManageDataPlane,
     Delegate,
     Assume,
+    // The variants below are single-capability bundles: each maps directly
+    // to the one `Capability` bit of the same name, so that any individual
+    // capability — in particular one named by a `missing_capabilities`
+    // denial — is expressible in the bundle vocabulary of the
+    // `capability_mask` claim.
+    //
+    // Unlike the grantable bundles above, these are not values of the
+    // Postgres `capability_bundle` enum and never appear on grant rows:
+    // they exist for the claim vocabulary. Encoding one into SQL is a
+    // runtime error, and nothing does.
+    CatalogRead,
+    JournalRead,
+    JournalAppend,
+    SpecEdit,
+    CreateGrant,
+    DeleteGrant,
+    CreateInviteLink,
+    ViewDataPlanePrivateNetworking,
+    ModifyDataPlanePrivateNetworking,
+    ViewBilling,
+    EditBilling,
+    QueryServiceAccounts,
+    CreateServiceAccount,
+    CreateApiKey,
+    RevokeApiKey,
 }
 
 impl CapabilityBundle {
@@ -263,7 +281,114 @@ impl CapabilityBundle {
             }
             Self::Delegate => Delegate.into(),
             Self::Assume => Assume.into(),
+            // Single-capability bundles map directly to their bit.
+            Self::CatalogRead => CatalogRead.into(),
+            Self::JournalRead => JournalRead.into(),
+            Self::JournalAppend => JournalAppend.into(),
+            Self::SpecEdit => SpecEdit.into(),
+            Self::CreateGrant => CreateGrant.into(),
+            Self::DeleteGrant => DeleteGrant.into(),
+            Self::CreateInviteLink => CreateInviteLink.into(),
+            Self::ViewDataPlanePrivateNetworking => ViewDataPlanePrivateNetworking.into(),
+            Self::ModifyDataPlanePrivateNetworking => ModifyDataPlanePrivateNetworking.into(),
+            Self::ViewBilling => ViewBilling.into(),
+            Self::EditBilling => EditBilling.into(),
+            Self::QueryServiceAccounts => QueryServiceAccounts.into(),
+            Self::CreateServiceAccount => CreateServiceAccount.into(),
+            Self::CreateApiKey => CreateApiKey.into(),
+            Self::RevokeApiKey => RevokeApiKey.into(),
         }
+    }
+
+    /// Every bundle, in declaration order: the vocabulary of the
+    /// `capability_mask` claim. [`Self::from_name`] searches this, keeping
+    /// [`Self::name`] the mapping's single source of truth.
+    pub const ALL: [Self; 25] = [
+        Self::Viewer,
+        Self::Writer,
+        Self::Editor,
+        Self::Admin,
+        Self::Billing,
+        Self::TeamAdmin,
+        Self::ManageServiceAccounts,
+        Self::ManageDataPlane,
+        Self::Delegate,
+        Self::Assume,
+        Self::CatalogRead,
+        Self::JournalRead,
+        Self::JournalAppend,
+        Self::SpecEdit,
+        Self::CreateGrant,
+        Self::DeleteGrant,
+        Self::CreateInviteLink,
+        Self::ViewDataPlanePrivateNetworking,
+        Self::ModifyDataPlanePrivateNetworking,
+        Self::ViewBilling,
+        Self::EditBilling,
+        Self::QueryServiceAccounts,
+        Self::CreateServiceAccount,
+        Self::CreateApiKey,
+        Self::RevokeApiKey,
+    ];
+
+    /// PascalCase wire name of this bundle: the vocabulary of the
+    /// `capability_mask` token claim.
+    ///
+    /// This is distinct from the snake_case serde / Postgres spelling, which
+    /// is a storage concern. Like [`Capability::name`], these names are
+    /// minted into tokens which outlive a deploy, so they must remain
+    /// stable; single-capability bundles share their capability's spelling
+    /// by construction.
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Viewer => "Viewer",
+            Self::Writer => "Writer",
+            Self::Editor => "Editor",
+            Self::Admin => "Admin",
+            Self::Billing => "Billing",
+            Self::TeamAdmin => "TeamAdmin",
+            Self::ManageServiceAccounts => "ManageServiceAccounts",
+            Self::ManageDataPlane => "ManageDataPlane",
+            Self::Delegate => Capability::Delegate.name(),
+            Self::Assume => Capability::Assume.name(),
+            Self::CatalogRead => Capability::CatalogRead.name(),
+            Self::JournalRead => Capability::JournalRead.name(),
+            Self::JournalAppend => Capability::JournalAppend.name(),
+            Self::SpecEdit => Capability::SpecEdit.name(),
+            Self::CreateGrant => Capability::CreateGrant.name(),
+            Self::DeleteGrant => Capability::DeleteGrant.name(),
+            Self::CreateInviteLink => Capability::CreateInviteLink.name(),
+            Self::ViewDataPlanePrivateNetworking => {
+                Capability::ViewDataPlanePrivateNetworking.name()
+            }
+            Self::ModifyDataPlanePrivateNetworking => {
+                Capability::ModifyDataPlanePrivateNetworking.name()
+            }
+            Self::ViewBilling => Capability::ViewBilling.name(),
+            Self::EditBilling => Capability::EditBilling.name(),
+            Self::QueryServiceAccounts => Capability::QueryServiceAccounts.name(),
+            Self::CreateServiceAccount => Capability::CreateServiceAccount.name(),
+            Self::CreateApiKey => Capability::CreateApiKey.name(),
+            Self::RevokeApiKey => Capability::RevokeApiKey.name(),
+        }
+    }
+
+    /// Parse a PascalCase bundle name, or `None` if this binary doesn't
+    /// recognize it.
+    ///
+    /// An unrecognized name is inert rather than an error: a token minted by
+    /// a newer control plane must still authenticate against an older one,
+    /// and a capability we cannot enforce must never widen what we allow.
+    pub fn from_name(name: &str) -> Option<Self> {
+        // Linear over the variants, which keeps `name()` the mapping's
+        // single source of truth.
+        Self::ALL.into_iter().find(|b| b.name() == name)
+    }
+}
+
+impl From<CapabilityBundle> for CapabilitySet {
+    fn from(bundle: CapabilityBundle) -> Self {
+        bundle.capabilities()
     }
 }
 
@@ -287,21 +412,35 @@ mod test {
     use super::{Capability, CapabilityBundle, CapabilityMask, CapabilitySet};
 
     #[test]
-    fn test_capability_names_round_trip() {
-        // Every capability has a name which parses back to itself, and the
-        // set of names is the vocabulary of the `capability_mask` claim.
-        let names: Vec<&str> = CapabilitySet::all().iter().map(|c| c.name()).collect();
+    fn test_bundle_names_round_trip() {
+        // Every bundle has a name which parses back to itself, and the set
+        // of names is the vocabulary of the `capability_mask` claim.
+        let names: Vec<&str> = CapabilityBundle::ALL.iter().map(|b| b.name()).collect();
 
-        for capability in CapabilitySet::all() {
-            assert_eq!(Capability::from_name(capability.name()), Some(capability));
+        for bundle in CapabilityBundle::ALL {
+            assert_eq!(CapabilityBundle::from_name(bundle.name()), Some(bundle));
         }
-        // Names a binary doesn't know about are not errors, they're absences.
-        assert_eq!(Capability::from_name("NotACapability"), None);
-        assert_eq!(Capability::from_name("catalogRead"), None);
-        assert_eq!(Capability::from_name(""), None);
+        // Names a binary doesn't know about are not errors, they're
+        // absences — and the snake_case serde / Postgres spelling is not
+        // the claim vocabulary.
+        assert_eq!(CapabilityBundle::from_name("NotABundle"), None);
+        assert_eq!(CapabilityBundle::from_name("viewer"), None);
+        assert_eq!(CapabilityBundle::from_name("team_admin"), None);
+        assert_eq!(CapabilityBundle::from_name("catalogRead"), None);
+        assert_eq!(CapabilityBundle::from_name(""), None);
 
         insta::assert_debug_snapshot!(names, @r#"
         [
+            "Viewer",
+            "Writer",
+            "Editor",
+            "Admin",
+            "Billing",
+            "TeamAdmin",
+            "ManageServiceAccounts",
+            "ManageDataPlane",
+            "Delegate",
+            "Assume",
             "CatalogRead",
             "JournalRead",
             "JournalAppend",
@@ -317,10 +456,22 @@ mod test {
             "CreateServiceAccount",
             "CreateApiKey",
             "RevokeApiKey",
-            "Delegate",
-            "Assume",
         ]
         "#);
+    }
+
+    #[test]
+    fn test_capabilities_are_single_capability_bundles() {
+        // Every capability is expressible in the claim vocabulary under its
+        // own spelling: a `missing_capabilities` denial names `Capability`
+        // bits, and an agent must be able to hand those names straight back
+        // in a mask request. Each such name parses as a bundle enabling
+        // exactly its bit.
+        for capability in CapabilitySet::all() {
+            let bundle = CapabilityBundle::from_name(capability.name())
+                .expect("every capability name is a bundle name");
+            assert_eq!(bundle.capabilities(), CapabilitySet::only(capability));
+        }
     }
 
     #[test]
@@ -329,11 +480,17 @@ mod test {
         assert_eq!(CapabilityMask::from_claim(None), CapabilityMask::UNMASKED);
 
         let cases = [
-            // Recognized names enable exactly what they name.
+            // Single-capability bundle names enable exactly the bit they
+            // name.
             Some(vec!["CatalogRead".to_string(), "Delegate".to_string()]),
+            // A composite bundle name enables all of its capability bits...
+            Some(vec!["Viewer".to_string()]),
+            // ...and bundles and single capabilities union freely.
+            Some(vec!["Viewer".to_string(), "SpecEdit".to_string()]),
             // An empty mask is valid, and authorizes nothing.
             Some(vec![]),
-            // Unknown names are inert alongside known ones...
+            // Unknown names are inert alongside known ones — including the
+            // snake_case Postgres spelling, which is not this vocabulary...
             Some(vec![
                 "SpecEdit".to_string(),
                 "FutureCapability".to_string(),
@@ -368,6 +525,12 @@ mod test {
         [
             CapabilityMask(
                 EnumSet(CatalogRead | Delegate),
+            ),
+            CapabilityMask(
+                EnumSet(CatalogRead | JournalRead | ViewDataPlanePrivateNetworking),
+            ),
+            CapabilityMask(
+                EnumSet(CatalogRead | JournalRead | SpecEdit | ViewDataPlanePrivateNetworking),
             ),
             CapabilityMask(
                 EnumSet(),
@@ -412,11 +575,13 @@ mod test {
         assert!(CapabilityMask::UNMASKED.is_all());
     }
 
-    // The claim vocabulary and GraphQL's `CapabilityBit` vocabulary are one
-    // and the same, and must not drift: an agent told it needs `SpecEdit`
-    // must be able to name `SpecEdit` in a mask request. Reading the derive's
-    // own item list catches a variant rename, where GraphQL's spelling moves
-    // and `name()`'s hard-coded string doesn't.
+    // GraphQL's `CapabilityBit` vocabulary must stay a subset of the claim
+    // vocabulary and must not drift: an agent told it needs `SpecEdit` must
+    // be able to name `SpecEdit` in a mask request. This test holds
+    // `Capability::name` to GraphQL's derived spelling (catching a variant
+    // rename, where GraphQL's spelling moves and `name()`'s hard-coded
+    // string doesn't), and `test_capabilities_are_single_capability_bundles`
+    // holds those same names to the bundle vocabulary the claim parses.
     //
     // Requires the `async-graphql` feature, so `cargo test -p models` alone
     // skips this; a workspace-wide run enables it by feature unification.
