@@ -45,16 +45,17 @@ pub struct LiveSpecRef {
     pub user_capability: Option<models::Capability>,
 }
 
-/// The `userCapability` value for a referent covered by `bits` and labeled
-/// `legacy`: the legacy label when the effective bits grant access, `none`
-/// standing in for access that has no legacy label, and null (no access —
-/// every other field is gated to null) when the bits fall short of Viewer.
+/// The `userCapability` value for a referent the user holds `authorization`
+/// to: the legacy label when the effective bits grant access, and null (no
+/// access — every other field is gated to null) when the bits fall short of
+/// Viewer.
 pub(super) fn user_capability_field(
-    bits: models::authz::CapabilitySet,
-    legacy: Option<models::Capability>,
+    authorization: tables::UserAuthorization,
 ) -> Option<models::Capability> {
-    bits.is_superset(models::authz::CapabilityBundle::Viewer.capabilities())
-        .then(|| legacy.unwrap_or(models::Capability::None))
+    authorization
+        .bits
+        .is_superset(models::authz::CapabilityBundle::Viewer.capabilities())
+        .then(|| authorization.legacy_label())
 }
 
 #[ComplexObject]
@@ -207,13 +208,15 @@ pub async fn paginate_live_specs_refs(
         env.claims()?,
         super::bearer_mask(ctx)?,
         all_names,
-        |name, bits, legacy| {
-            if require_min_capability.is_some_and(|required| !bits.is_superset(required)) {
+        |name, authorization| {
+            if require_min_capability
+                .is_some_and(|required| !authorization.bits.is_superset(required))
+            {
                 return None;
             }
             Some(LiveSpecRef {
                 catalog_name: models::Name::new(name),
-                user_capability: user_capability_field(bits, legacy),
+                user_capability: user_capability_field(authorization),
             })
         },
     );
@@ -384,12 +387,12 @@ impl LiveSpecsQuery {
             env.claims()?,
             super::bearer_mask(ctx)?,
             names,
-            |name, bits, legacy| {
+            |name, authorization| {
                 Some(connection::Edge::new(
                     name.clone(),
                     LiveSpecRef {
                         catalog_name: models::Name::new(name),
-                        user_capability: user_capability_field(bits, legacy),
+                        user_capability: user_capability_field(authorization),
                     },
                 ))
             },
