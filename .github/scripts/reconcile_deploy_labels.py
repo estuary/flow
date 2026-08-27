@@ -240,6 +240,10 @@ def main() -> None:
         "--end-ref", default="HEAD",
         help="merged-through ref; pass origin/master when running from a branch checkout",
     )
+    ap.add_argument(
+        "--only", choices=["agent-api", "agent", "flowctl"],
+        help="reconcile a single target; CI runs one matrix job per target",
+    )
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -247,29 +251,31 @@ def main() -> None:
     agent_dirs = closure(repo_root, "agent")
     flowctl_dirs = closure(repo_root, "flowctl")
 
-    # (target, closure, label, description, baseline). Baselines are resolved
-    # lazily and each label reconciles independently: one target's failure —
-    # e.g. a missing GH_TOKEN_OPS — must not skip the others.
-    targets = [
-        (
+    # key -> (target, closure, label, description, baseline). Baselines are
+    # resolved lazily and each label reconciles independently: one target's
+    # failure — e.g. a missing GH_TOKEN_OPS — must not skip the others.
+    targets = {
+        "agent-api": (
             "agent", agent_dirs, "pending:agent-api",
             "Merged, ships via Deploy agent-api, and not yet deployed",
             lambda: agent_api_commit(args.repo, args.deploy_run),
         ),
-        (
+        "agent": (
             "agent", agent_dirs, "pending:agent",
             "Merged, in the control-plane-agent image, and not yet rolled to flow-agent",
             lambda: worker_commit(args.repo),
         ),
-        (
+        "flowctl": (
             "flowctl", flowctl_dirs, "pending:flowctl",
             "Merged, changes the flowctl binary, and not in a published release",
             lambda: flowctl_release_commit(args.repo),
         ),
-    ]
+    }
+    if args.only:
+        targets = {args.only: targets[args.only]}
 
     failed = []
-    for target, dirs, label, description, baseline in targets:
+    for target, dirs, label, description, baseline in targets.values():
         try:
             reconcile(
                 args.repo, args.repo_dir, target, dirs,

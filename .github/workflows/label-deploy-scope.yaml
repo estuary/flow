@@ -26,8 +26,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   reconcile:
-    name: reconcile agent-api labels
+    name: ${{ matrix.target }}
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      # One job per target so a failing target is visible by name, and one
+      # target's failure does not cancel the others.
+      fail-fast: false
+      matrix:
+        target: [agent-api, agent, flowctl]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -52,4 +58,5 @@ jobs:
       - name: Reconcile labels
         run: |
           python3 .github/scripts/reconcile_deploy_labels.py \
+            --only "${{ matrix.target }}" \
             ${DEPLOY_RUN_ID:+--deploy-run "$DEPLOY_RUN_ID"}
