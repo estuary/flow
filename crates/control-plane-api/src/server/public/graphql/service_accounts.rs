@@ -748,29 +748,6 @@ impl ServiceAccountsMutation {
     }
 }
 
-/// Whether `user_id` is a service-account identity.
-///
-/// Claims alone cannot answer this — a service-account access token is
-/// shaped identically to a human one — so callers which restrict an
-/// operation to human users pay this lookup at that operation, never
-/// per-request. Consumers: the refresh-token mutations (via
-/// [`verify_not_service_account`]) and the `capability_token` mint.
-pub(crate) async fn is_service_account(
-    pg_pool: &sqlx::PgPool,
-    user_id: uuid::Uuid,
-) -> sqlx::Result<bool> {
-    sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM internal.service_accounts WHERE user_id = $1
-        ) AS "is_service_account!"
-        "#,
-        user_id,
-    )
-    .fetch_one(pg_pool)
-    .await
-}
-
 /// Verify that `user_id` is not a service-account identity, erroring if it is.
 ///
 /// Service-account credentials are administered through createApiKey /
@@ -782,7 +759,7 @@ pub(super) async fn verify_not_service_account(
     pg_pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
 ) -> async_graphql::Result<()> {
-    if is_service_account(pg_pool, user_id).await? {
+    if crate::grants::is_service_account(pg_pool, user_id).await? {
         return Err(async_graphql::Error::new(
             "service accounts cannot manage refresh tokens: their API keys are \
              administered via createApiKey and revokeApiKey",

@@ -96,7 +96,7 @@ async fn mint_capability_token(
             crate::Forbidden::unmasked_token_required(),
         ));
     }
-    if super::graphql::is_service_account(&envelope.pg_pool, claims.sub).await? {
+    if crate::grants::is_service_account(&envelope.pg_pool, claims.sub).await? {
         return Err(crate::ApiError::Forbidden(
             crate::Forbidden::service_account_forbidden(),
         ));
@@ -288,24 +288,37 @@ mod test {
         assert_eq!(status, reqwest::StatusCode::OK, "mint failed: {body}");
         let (claims, minted_token) = claims_of(&body);
 
-        // Identity claims are a pure copy-through of the caller's, and the
-        // fresh validity window matches the SQL mint's one hour.
-        assert_eq!(claims.sub, ALICE);
-        assert_eq!(claims.email.as_deref(), Some("alice@example.com"));
-        assert_eq!(claims.role, "authenticated");
-        assert_eq!(claims.aud, "authenticated");
+        // The validity window matches the SQL mint's one hour and `iat` is
+        // fresh; both are volatile, so the snapshot below redacts them.
         assert_eq!(claims.exp, claims.iat + 3600);
         let now = tokens::now().timestamp() as u64;
         assert!(now - claims.iat < 60, "iat {} is fresh", claims.iat);
-        assert_eq!(
-            claims.capability_mask,
-            Some(vec![
-                "CatalogRead".to_string(),
-                "Viewer".to_string(),
-                "NotARealBundle".to_string(),
-                "CatalogRead".to_string(),
-            ]),
-        );
+
+        // The full serialized claim set: identity claims are a pure
+        // copy-through of the caller's, the mask is stamped verbatim
+        // (unrecognized names and duplicates included), and the key set is
+        // exactly the SQL `generate_access_token` mint's plus `email` and
+        // `capability_mask`. This is the Rust half of the two-snapshot claim
+        // parity; pgTAP pins the SQL half in `supabase/tests/`.
+        let mut redacted = serde_json::to_value(&claims).unwrap();
+        redacted["iat"] = serde_json::json!("[iat]");
+        redacted["exp"] = serde_json::json!("[iat+3600]");
+        insta::assert_json_snapshot!(redacted, @r###"
+        {
+          "aud": "authenticated",
+          "capability_mask": [
+            "CatalogRead",
+            "Viewer",
+            "NotARealBundle",
+            "CatalogRead"
+          ],
+          "email": "alice@example.com",
+          "exp": "[iat+3600]",
+          "iat": "[iat]",
+          "role": "authenticated",
+          "sub": "11111111-1111-1111-1111-111111111111"
+        }
+        "###);
 
         // === A masked caller cannot mint (and so cannot widen itself) ===
         // Presenting the minted token as the bearer also proves its

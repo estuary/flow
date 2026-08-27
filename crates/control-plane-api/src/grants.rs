@@ -55,3 +55,26 @@ pub async fn overwrite_user_grant(
 
     Ok(())
 }
+
+/// Whether `user_id` is a service-account identity.
+///
+/// Claims alone cannot answer this — a service-account access token is
+/// shaped identically to a human one — so callers which restrict an
+/// operation to human users pay this lookup at that operation, never
+/// per-request. Consumers: the refresh-token GraphQL mutations (via
+/// `verify_not_service_account`) and the REST `capability_token` mint.
+pub(crate) async fn is_service_account(
+    pg_pool: &sqlx::PgPool,
+    user_id: Uuid,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM internal.service_accounts WHERE user_id = $1
+        ) AS "is_service_account!"
+        "#,
+        user_id,
+    )
+    .fetch_one(pg_pool)
+    .await
+}
