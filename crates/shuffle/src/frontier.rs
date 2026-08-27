@@ -700,16 +700,19 @@ impl Frontier {
     /// a journal reading from behind the cohort's frontier, such as a re-enabled
     /// binding, which may never observe the ACK that would resolve it on the
     /// forward path. The horizon rule additionally discharges hints whose
-    /// producer the runtime has durably pruned and so forgotten entirely.
+    /// producer the runtime has durably pruned and so forgotten entirely. The
+    /// binding's gap floor ([`Completed::is_gap_stale`]) discharges hints which
+    /// trail it.
     ///
     /// A producer left with neither a hint nor a commit is dropped, as is a
     /// journal left with no producers. `unresolved_hints` is decremented for
     /// each cleared hint.
     ///
-    /// Returns `(cleared_by_clock, cleared_by_horizon)`.
-    pub fn prune_hints(&mut self, completed: &Completed) -> (usize, usize) {
+    /// Returns `(cleared_by_clock, cleared_by_horizon, cleared_by_gap_floor)`.
+    pub fn prune_hints(&mut self, completed: &Completed) -> (usize, usize, usize) {
         let mut by_clock = 0usize;
         let mut by_horizon = 0usize;
+        let mut by_gap_floor = 0usize;
 
         self.journals.retain_mut(|jf| {
             let binding = jf.binding;
@@ -722,6 +725,8 @@ impl Frontier {
                     by_clock += 1;
                 } else if completed.is_horizon_stale(binding, pf.hinted_commit) {
                     by_horizon += 1;
+                } else if completed.is_gap_stale(binding, pf.hinted_commit) {
+                    by_gap_floor += 1;
                 } else {
                     return true; // Hint is at the frontier.
                 }
@@ -734,8 +739,8 @@ impl Frontier {
             !jf.producers.is_empty()
         });
 
-        self.unresolved_hints -= by_clock + by_horizon;
-        (by_clock, by_horizon)
+        self.unresolved_hints -= by_clock + by_horizon + by_gap_floor;
+        (by_clock, by_horizon, by_gap_floor)
     }
 
     /// Judge whether `delta` is *accounted* for by `self` — an unresolved pending
@@ -745,17 +750,17 @@ impl Frontier {
     /// clocks — both read-derived commits and causal hints — which some
     /// accounting authority covers. Two are per-producer **ceilings**: the
     /// maximum of that producer's `last_commit` and `hinted_commit` in `self`,
-    /// and the clock its cohort has completed. The third is the staleness
-    /// horizon, which is per-binding rather than per-producer. A producer named
+    /// and the clock its cohort has completed. Two are per-binding: the
+    /// staleness horizon, and, for hints only, the gap floor. A producer named
     /// by neither of the first two has a zero ceiling, so a clock reported for it
-    /// is unaccounted unless the horizon covers it.
+    /// is unaccounted unless a per-binding authority covers it.
     ///
     /// Returns the first unaccounted entry in `(journal, binding, producer)`
     /// order, or None if `delta` is accounted.
     ///
     /// # Soundness
     ///
-    /// Three authorities account for a clock, and an accounted delta adds
+    /// Four authorities account for a clock, and an accounted delta adds
     /// nothing beyond them:
     ///
     /// 1. The pending checkpoint's own clocks and hints. A commit at-or-below
@@ -774,6 +779,11 @@ impl Frontier {
     ///    read heap and Log append leveling — both order by priority and then by
     ///    adjusted clock, so a cohort's journals advance in near-lockstep and
     ///    never drift 48 hours apart.
+    /// 4. Hints, never commits, below the binding's gap floor. A read-start
+    ///    byte gap left such a hint's ACK unreachable, so holding the boundary
+    ///    for it gains nothing and may stall forever. A byte gap says nothing
+    ///    about whether a producer committed, so a commit past its ceiling
+    ///    still freezes the ratchet.
     ///
     /// Open spans ride along as `+begin`s, as clause 2 of the Frontier
     /// invariant prescribes. So the delta's entries jointly satisfy clauses 1
@@ -812,6 +822,7 @@ impl Frontier {
                     (UnaccountedKind::Commit, delta_p.last_commit)
                 } else if delta_p.hinted_commit > ceiling
                     && !completed.is_horizon_stale(delta_jf.binding, delta_p.hinted_commit)
+                    && !completed.is_gap_stale(delta_jf.binding, delta_p.hinted_commit)
                 {
                     (UnaccountedKind::Hint, delta_p.hinted_commit)
                 } else {
@@ -995,11 +1006,10 @@ impl Frontier {
 }
 
 /// Completed accounting: the clocks a binding no longer needs to see resolved.
-/// Consumed by [`Frontier::prune_hints`] and [`Frontier::first_unaccounted`],
-/// which apply it uniformly.
+/// Consumed by [`Frontier::prune_hints`] and [`Frontier::first_unaccounted`].
 ///
-/// It bundles two authorities over the single question "is this clock already
-/// accounted for?", because they are one mechanism:
+/// It bundles three authorities over the single question "is this clock already
+/// accounted for?":
 ///
 /// 1. `clocks`, the per-cohort ledger of producer commits which reached a
 ///    fully-resolved checkpoint. A clock at-or-below a producer's entry is
@@ -1010,17 +1020,23 @@ impl Frontier {
 ///    the dual of the runtime's committed-frontier prune, which durably forgets
 ///    producers under the same horizon; without it, a hint targeting a
 ///    forgotten producer could never be discharged at all.
+/// 3. `binding_gap_floor`, the per-binding clock below which a read-start byte
+///    gap left causal hints unreachable. Unlike the other two it discharges
+///    hints only.
 ///
-/// Gating writes on promotion is what makes this an authority on "this commit is
-/// done": a frontier reaches `ready` only once its own causal hints have
-/// resolved, so a clock recorded here is a commit whose cross-journal extent was
-/// already confirmed.
+/// The first two are gated on promotion, which is what makes them authorities on
+/// "this commit is done": a frontier reaches `ready` only once its own causal
+/// hints have resolved. The gap floor is instead ratcheted from `Progressed`
+/// deltas ahead of any promotion — sound because a byte gap is a fact about what
+/// a read can reach, not about a transaction's outcome.
 #[derive(Debug)]
 pub struct Completed {
     /// Per-cohort map from Producer to its highest completed Clock.
     clocks: Vec<crate::ProducerMap<Clock>>,
     /// Per-binding maximum promoted commit Clock.
     binding_max: Vec<Clock>,
+    /// Per-binding gap floor (zero = none).
+    binding_gap_floor: Vec<Clock>,
     /// Maps binding index → cohort index (from `Binding::cohort`).
     binding_cohorts: Vec<u32>,
 }
@@ -1038,6 +1054,7 @@ impl Completed {
         Self {
             clocks: vec![crate::ProducerMap::default(); num_cohorts],
             binding_max: vec![Clock::zero(); binding_cohorts.len()],
+            binding_gap_floor: vec![Clock::zero(); binding_cohorts.len()],
             binding_cohorts,
         }
     }
@@ -1088,6 +1105,20 @@ impl Completed {
     /// accounting query.
     pub fn is_horizon_stale(&self, binding: u16, clock: Clock) -> bool {
         Clock::delta(self.binding_max[binding as usize], clock) >= crate::PRODUCER_STALENESS_HORIZON
+    }
+
+    pub fn advance_gap_floors(&mut self, floors: &BTreeMap<u16, Clock>) {
+        for (binding, clock) in floors {
+            let floor = &mut self.binding_gap_floor[*binding as usize];
+            *floor = (*floor).max(*clock);
+        }
+    }
+
+    /// Whether `clock` lies below `binding`'s gap floor, deeming the ACK it
+    /// references unreachable. The third authority of the accounting query; a
+    /// binding with no floor (zero) discharges nothing.
+    pub fn is_gap_stale(&self, binding: u16, clock: Clock) -> bool {
+        clock < self.binding_gap_floor[binding as usize]
     }
 }
 
@@ -1154,6 +1185,13 @@ mod test {
         for &(binding, seconds) in binding_max {
             completed.binding_max[binding] = from_secs(seconds);
         }
+        completed
+    }
+
+    /// `Completed` seeding no authority but `binding`'s gap floor, isolating it.
+    fn gap_completed(binding: usize, seconds: u64) -> Completed {
+        let mut completed = Completed::new(vec![0u32, 0]);
+        completed.binding_gap_floor[binding] = from_secs(seconds);
         completed
     }
 
@@ -1400,7 +1438,6 @@ mod test {
             r.latest_backfill_complete.get(&1),
             Some(&Clock::from_u64(140))
         );
-        // Gap floors take each binding's maximum.
         assert_eq!(
             r.binding_gap_floors,
             BTreeMap::from([(0, Clock::from_u64(700)), (3, Clock::from_u64(1_100))]),
@@ -1886,6 +1923,83 @@ mod test {
     }
 
     #[test]
+    fn test_gap_floor_discharges_unreachable_hints() {
+        let floor = 500_000;
+        let below = floor - 48 * 3600;
+
+        let mut f = Frontier {
+            journals: vec![
+                // Below the floor: discharged, and dropped for want of a
+                // commit, emptying its journal.
+                jf("journal/A", 0, vec![pf(0x09, 0, below, 0)]),
+                // Just below: discharged. The producer keeps its real commit;
+                // only the hint is cleared.
+                jf("journal/B", 0, vec![pf(0x09, 10_000, floor - 1, -500)]),
+                // At the floor: retained, until some other authority covers it.
+                jf("journal/C", 0, vec![pf(0x09, 10_000, floor, -500)]),
+                // Binding 1 has no floor of its own, so nothing applies — not
+                // even to a hint far below binding 0's floor.
+                jf("journal/D", 1, vec![pf(0x09, 10_000, below, -500)]),
+            ],
+            unresolved_hints: 4,
+            ..Default::default()
+        };
+        let completed = gap_completed(0, floor);
+
+        assert_eq!(f.prune_hints(&completed), (0, 0, 2));
+        assert_eq!(f.unresolved_hints, 2);
+
+        let readout: Vec<_> = f
+            .journals
+            .iter()
+            .map(|jf| {
+                (
+                    &*jf.journal,
+                    jf.producers.iter().map(pf_tuple).collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            readout,
+            vec![
+                ("journal/B", vec![(10_000, 0, -500)]),
+                ("journal/C", vec![(10_000, floor, -500)]),
+                ("journal/D", vec![(10_000, below, -500)]),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_gap_floor_accounts_hints_but_never_commits() {
+        let floor = 500_000;
+        let completed = gap_completed(0, floor);
+
+        let judge = |delta: Vec<JournalFrontier>| {
+            let delta = Frontier::new(delta, vec![]).unwrap();
+            Frontier::default()
+                .first_unaccounted(&delta, &completed)
+                .map(|u| match u.kind {
+                    UnaccountedKind::Commit => "commit",
+                    UnaccountedKind::Hint => "hint",
+                })
+        };
+
+        // A hint the floor covers is accounted, so it can neither freeze the
+        // ratchet nor enter a transactional boundary.
+        assert_eq!(
+            judge(vec![jf("journal/A", 0, vec![pf(0x09, 0, floor - 1, 0)])]),
+            None
+        );
+
+        // A read-derived commit below the floor is NOT accounted: a byte gap is
+        // evidence that content is gone, never that a producer commit happened.
+        assert_eq!(
+            judge(vec![jf("journal/A", 0, vec![pf(0x09, floor - 1, 0, -700)])]),
+            Some("commit"),
+        );
+    }
+
+    #[test]
     fn test_frontier_encode_decode_round_trip() {
         let mut original = Frontier::new(
             vec![
@@ -2112,7 +2226,7 @@ mod test {
         };
         let completed = completed(vec![0u32, 0], &[(0, 0x01, 5_000)], &[(0, leader)]);
 
-        assert_eq!(f.prune_hints(&completed), (1, 2));
+        assert_eq!(f.prune_hints(&completed), (1, 2, 0));
         assert_eq!(f.unresolved_hints, 2);
 
         insta::assert_debug_snapshot!(f.journals.iter().map(|jf| {

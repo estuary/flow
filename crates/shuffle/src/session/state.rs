@@ -328,6 +328,7 @@ impl CheckpointPipeline {
         // wait on again.
         let mut completed = crate::frontier::Completed::new(binding_cohorts);
         completed.update(resume_checkpoint);
+        completed.advance_gap_floors(&resume_checkpoint.binding_gap_floors);
 
         service_kit::event!(
             tracing::Level::DEBUG,
@@ -471,6 +472,15 @@ impl CheckpointPipeline {
             "received Progressed response",
         );
 
+        // A floor cannot tell an ACK the gap removed from one just past it, so
+        // the session which must replay its hinted frontier exactly acts on no
+        // floor raised while it runs.
+        if !self.recovery_session && !progressed.binding_gap_floors.is_empty() {
+            self.completed
+                .advance_gap_floors(&progressed.binding_gap_floors);
+            self.discharge_unresolved_by_gap_floor();
+        }
+
         // If the ratchet is not yet frozen, determine if `unresolved` accounts
         // for all progress in `progressed` (and if so, adopt it).
         if !self.ratchet_frozen && self.unresolved.unresolved_hints != 0 {
@@ -558,7 +568,7 @@ impl CheckpointPipeline {
         // Remove hints which `completed` alone accounted for. Every hint this
         // leaves is covered by a matching entry of `unresolved`, so the reduce
         // below cannot raise its hint count.
-        let (hints_cleared_by_clock, hints_cleared_by_horizon) =
+        let (hints_cleared_by_clock, hints_cleared_by_horizon, hints_cleared_by_gap_floor) =
             progressed.prune_hints(&self.completed);
 
         // A delta left with no journals still carries its `flushed_lsn` into
@@ -575,6 +585,7 @@ impl CheckpointPipeline {
                 "pipeline",
                 hints_cleared_by_clock,
                 hints_cleared_by_horizon,
+                hints_cleared_by_gap_floor,
                 recovery_session = self.recovery_session,
                 unresolved_hints = self.unresolved.unresolved_hints,
                 "ratcheted an accounted delta into `unresolved`"
@@ -585,11 +596,40 @@ impl CheckpointPipeline {
                 "pipeline",
                 hints_cleared_by_clock,
                 hints_cleared_by_horizon,
+                hints_cleared_by_gap_floor,
                 recovery_session = self.recovery_session,
                 "promoting ratcheted `unresolved` to `ready` (all hints resolved)"
             );
             self.promote_unresolved();
             assert!(self.progressed.journals.is_empty()); // Needs no promotion.
+        }
+    }
+
+    fn discharge_unresolved_by_gap_floor(&mut self) {
+        if self.unresolved.unresolved_hints == 0 {
+            return;
+        }
+        // The clock and horizon authorities advance only on promotion, which
+        // empties `unresolved`, so only a floor can have moved since it was last
+        // pruned.
+        let (by_clock, by_horizon, discharged) = self.unresolved.prune_hints(&self.completed);
+        assert_eq!((by_clock, by_horizon), (0, 0));
+        if discharged == 0 {
+            return;
+        }
+        service_kit::event!(
+            tracing::Level::WARN,
+            "pipeline",
+            discharged,
+            unresolved_hints = self.unresolved.unresolved_hints,
+            "discharged unreachable causal hint(s) of the pending checkpoint by their binding gap floor",
+        );
+        self.unresolved_stalled_ticks = 0;
+
+        if self.unresolved.unresolved_hints == 0 {
+            self.promote_unresolved();
+        } else {
+            self.unresolved_peek_progress = true;
         }
     }
 
@@ -666,7 +706,7 @@ impl CheckpointPipeline {
         // while it sits here. This is also where cyclic hints clear (journal A
         // hints at a commit on B while B hints at one on A, in distinct
         // Progressed responses).
-        let (hints_cleared_by_clock, hints_cleared_by_horizon) =
+        let (hints_cleared_by_clock, hints_cleared_by_horizon, hints_cleared_by_gap_floor) =
             self.progressed.prune_hints(&self.completed);
 
         self.unresolved = std::mem::take(&mut self.progressed);
@@ -683,6 +723,7 @@ impl CheckpointPipeline {
                 "pipeline",
                 hints_cleared_by_clock,
                 hints_cleared_by_horizon,
+                hints_cleared_by_gap_floor,
                 "promoted `progressed` directly to `ready`"
             );
             self.promote_unresolved();
@@ -692,6 +733,7 @@ impl CheckpointPipeline {
                 "pipeline",
                 hints_cleared_by_clock,
                 hints_cleared_by_horizon,
+                hints_cleared_by_gap_floor,
                 unresolved_hints = self.unresolved.unresolved_hints,
                 "promoted `progressed` to `unresolved`"
             );
@@ -880,6 +922,24 @@ mod test {
     ) {
         let mut proto = crate::JournalFrontier::encode(&journals);
         proto.flushed_lsn = flushed_lsn;
+        pipeline.on_progressed(0, proto).unwrap();
+    }
+
+    /// Feed a Progressed frontier carrying `gap_floors` — `(binding, seconds)`
+    /// pairs — via shard 0.
+    fn ingest_progressed_with_gap_floors(
+        pipeline: &mut CheckpointPipeline,
+        journals: Vec<crate::JournalFrontier>,
+        gap_floors: &[(u16, u64)],
+    ) {
+        let mut proto = crate::JournalFrontier::encode(&journals);
+        proto.binding_gap_floors = gap_floors
+            .iter()
+            .map(|(binding, seconds)| shuffle::frontier::BindingGapFloor {
+                binding: *binding as u32,
+                clock: uuid::Clock::from_unix(*seconds, 0).as_u64(),
+            })
+            .collect();
         pipeline.on_progressed(0, proto).unwrap();
     }
 
@@ -2791,6 +2851,104 @@ mod test {
         assert_eq!(
             ready.latest_backfill_complete.get(&0),
             Some(&uuid::Clock::from_u64(100))
+        );
+    }
+
+    #[test]
+    fn test_gap_floor_discharges_pending_checkpoint_hints() {
+        let mut pipeline = test_pipeline();
+        let floor = 500_000;
+
+        // A delta whose journal/A ACK hints an old commit in journal/B — the
+        // same binding, a different journal — promotes to `unresolved` and
+        // blocks there. Nothing will ever read journal/B's ACK.
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, floor, 0, -500)]),
+                jf("journal/B", 0, vec![pf(0x03, 0, floor - 1, 0)]),
+            ],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+        assert!(pipeline.ready.journals.is_empty());
+
+        // A floor rides the flush frontier of the read which sampled it.
+        pipeline.unresolved_stalled_ticks = 3;
+        ingest_progressed_with_gap_floors(
+            &mut pipeline,
+            vec![jf("journal/E", 0, vec![pf(0x05, floor, 0, -100)])],
+            &[(0, floor)],
+        );
+
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
+        assert!(pipeline.unresolved.journals.is_empty());
+        assert_eq!(pipeline.unresolved_stalled_ticks, 0);
+
+        assert_eq!(
+            pipeline.ready.binding_gap_floors,
+            std::collections::BTreeMap::from([(0, uuid::Clock::from_unix(floor, 0))]),
+        );
+        let readout: Vec<_> = pipeline
+            .ready
+            .journals
+            .iter()
+            .map(|jf| &*jf.journal)
+            .collect();
+        assert_eq!(readout, vec!["journal/A", "journal/E"]);
+    }
+
+    #[test]
+    fn test_gap_floor_seeded_from_resume_checkpoint() {
+        let floor = 500_000;
+        let mut resume = crate::Frontier {
+            journals: vec![jf("journal/A", 0, vec![pf(0x01, floor, 0, -500)])],
+            binding_gap_floors: std::collections::BTreeMap::from([(
+                0,
+                uuid::Clock::from_unix(floor, 0),
+            )]),
+            ..Default::default()
+        };
+
+        // A regular session resumes with the durable floor as authority, so a
+        // hint the prior session could not read is discharged on arrival.
+        let mut pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
+        assert!(!pipeline.recovery_session);
+
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x03, 0, floor - 1, 0)])],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
+
+        // An idempotent-recovery session seeds the same durable authority, so
+        // the delta's hint is accounted and the delta ratchets rather than
+        // freezing the recovery checkpoint at its resume cut.
+        resume.journals[0].producers[0].hinted_commit = uuid::Clock::from_unix(floor + 10, 0);
+        resume.unresolved_hints = 1;
+
+        let mut pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
+        assert!(pipeline.recovery_session);
+
+        ingest_progressed_with_gap_floors(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x03, 0, floor - 1, 0)])],
+            &[(0, floor + 1_000)],
+        );
+        assert!(!pipeline.ratchet_frozen);
+        assert!(pipeline.progressed.journals.is_empty());
+
+        // But it acts on no floor raised while it runs.
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+        assert!(
+            !pipeline
+                .completed
+                .is_gap_stale(0, uuid::Clock::from_unix(floor + 500, 0))
+        );
+        assert_eq!(
+            pipeline.unresolved.binding_gap_floors,
+            std::collections::BTreeMap::from([(0, uuid::Clock::from_unix(floor + 1_000, 0))]),
         );
     }
 }

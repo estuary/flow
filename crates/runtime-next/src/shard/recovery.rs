@@ -1728,10 +1728,9 @@ mod test {
             let clock = commits[&(journal.clone(), *binding, *producer)];
             let mut f = hint_frontier(journal, *binding, *producer, clock);
 
-            let (by_clock, by_horizon) = f.prune_hints(&completed);
             assert_eq!(
-                (by_clock, by_horizon),
-                (0, 1),
+                f.prune_hints(&completed),
+                (0, 1, 0),
                 "pruned {journal} binding={binding} producer={producer:?} \
                  must be horizon-cleared",
             );
@@ -1757,7 +1756,7 @@ mod test {
             uuid::Producer::from_bytes(producer_id(0xcc)),
             uuid::Clock::from_unix(950_000, 0),
         );
-        assert_eq!(f.prune_hints(&completed), (0, 0));
+        assert_eq!(f.prune_hints(&completed), (0, 0, 0));
         assert_eq!(f.unresolved_hints, 1);
     }
 
