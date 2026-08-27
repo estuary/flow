@@ -101,10 +101,10 @@ impl LiveSpec {
             env.claims()?,
             super::bearer_mask(ctx)?,
             [source_capture_name.clone()],
-            |name, user_capability| {
+            |name, bits, legacy| {
                 Some(LiveSpecRef {
                     catalog_name: models::Name::new(name),
-                    user_capability,
+                    user_capability: super::live_spec_refs::user_capability_field(bits, legacy),
                 })
             },
         );
@@ -136,7 +136,7 @@ impl LiveSpec {
         }
         let conn = paginate_live_specs_refs(
             ctx,
-            Some(models::Capability::Read),
+            Some(models::authz::CapabilityBundle::Viewer.capabilities()),
             self.written_by.clone(),
             after,
             before,
@@ -162,7 +162,7 @@ impl LiveSpec {
         }
         let conn = paginate_live_specs_refs(
             ctx,
-            Some(models::Capability::Read),
+            Some(models::authz::CapabilityBundle::Viewer.capabilities()),
             self.read_by.clone(),
             after,
             before,
@@ -361,6 +361,83 @@ mod tests {
                       "dataPlaneId": "111111fffe111111"
                     },
                     "userCapability": "admin"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_live_specs_bundles_only_grant(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Carol's authorization comes entirely from the bundles column: her
+        // grant row carries no legacy capability. Effective bits are the
+        // decision input everywhere, so she lists and reads specs exactly
+        // like a legacy `read` grant would, while `userCapability` reports
+        // the literal legacy column: `none`.
+        let carol_uid = uuid::Uuid::from_bytes([0x33; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'carol@example.test')")
+            .bind(carol_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'aliceCo/', 'none', ARRAY['viewer']::capability_bundle[])",
+        )
+        .bind(carol_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, true).await)
+                .await;
+        let token = server.make_access_token(carol_uid, Some("carol@example.test"));
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { prefix: "aliceCo/data/" }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    userCapability
+                                    liveSpec {
+                                        catalogType
+                                    }
+                                }
+                            }
+                        }
+                    }
+                "#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": {
+            "liveSpecs": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogName": "aliceCo/data/foo",
+                    "liveSpec": {
+                      "catalogType": "collection"
+                    },
+                    "userCapability": "none"
                   }
                 }
               ]
