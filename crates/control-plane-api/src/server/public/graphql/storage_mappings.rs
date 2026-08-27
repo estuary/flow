@@ -816,29 +816,25 @@ impl StorageMappingsQuery {
             .into_iter()
             .map(|row| {
                 // The row is already authorized by the effective-bits prefix
-                // pre-filter; the legacy label is reporting metadata only,
-                // and reads `none` where coverage comes entirely from the
-                // bundles column.
-                let (_bits, legacy) = tables::UserGrant::get_user_authorization(
+                // pre-filter.
+                let authorization = tables::UserGrant::get_user_authorization(
                     &snapshot.role_grants,
                     &snapshot.user_grants,
                     claims.sub,
                     &row.catalog_prefix,
                     mask,
                 );
-                let user_capability = legacy.unwrap_or(models::Capability::None);
-
-                Ok(connection::Edge::new(
+                connection::Edge::new(
                     row.catalog_prefix.clone(),
                     StorageMapping {
                         catalog_prefix: models::Prefix::new(row.catalog_prefix),
                         detail: row.detail,
                         spec: async_graphql::Json(row.spec),
-                        user_capability,
+                        user_capability: authorization.legacy_label(),
                     },
-                ))
+                )
             })
-            .collect::<Result<Vec<_>, async_graphql::Error>>()?;
+            .collect();
 
         let mut conn = PaginatedStorageMappings::new(has_prev, has_next);
         conn.edges = edges;

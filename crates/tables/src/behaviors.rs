@@ -201,30 +201,32 @@ impl super::UserGrant {
         out
     }
 
-    /// The user's authorization for `object_role_or_name`: effective
-    /// capability bits accumulated additively across every covering node
-    /// (the decision input), paired with the max legacy label among covering
-    /// nodes that carry one (compatibility metadata).
+    /// The user's [`super::UserAuthorization`] for `object_role_or_name`.
     ///
-    /// The bits are mask-attenuated like every walk emission. The legacy
+    /// Its bits are mask-attenuated like every walk emission. The legacy
     /// label of a reached node passes through un-attenuated — it reflects
     /// storage, never an authorization decision, and may legitimately read
-    /// broader than the effective bits — and is `None` when coverage comes
-    /// entirely from `bundles`-column grants.
+    /// broader than the effective bits.
     pub fn get_user_authorization<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         user_id: uuid::Uuid,
         object_role_or_name: &str,
         mask: authz::CapabilityMask,
-    ) -> (authz::CapabilitySet, Option<models::Capability>) {
+    ) -> super::UserAuthorization {
         Self::reachable_nodes(role_grants, user_grants, user_id, mask)
             .filter(|n| object_role_or_name.starts_with(n.object_role))
             .fold(
-                (authz::CapabilitySet::empty(), None),
-                |(bits, legacy), n| {
+                super::UserAuthorization {
+                    bits: authz::CapabilitySet::empty(),
+                    legacy: None,
+                },
+                |acc, n| {
                     let node_legacy = Some(n.legacy).filter(|c| *c != models::Capability::None);
-                    (bits | n.capabilities, legacy.max(node_legacy))
+                    super::UserAuthorization {
+                        bits: acc.bits | n.capabilities,
+                        legacy: acc.legacy.max(node_legacy),
+                    }
                 },
             )
     }
@@ -647,7 +649,7 @@ mod test {
                 "ops/private/dp/acmeCo/foooo",
                 authz::CapabilityMask::ALL_CAPABILITIES
             )
-            .1
+            .legacy
         );
         assert_eq!(
             Some(Write),
@@ -658,7 +660,7 @@ mod test {
                 "ops/private/dp/acmeCo/foooo",
                 authz::CapabilityMask::ALL_CAPABILITIES
             )
-            .1
+            .legacy
         );
         assert_eq!(
             None,
@@ -669,7 +671,7 @@ mod test {
                 "different/co/altogether",
                 authz::CapabilityMask::ALL_CAPABILITIES
             )
-            .1
+            .legacy
         );
     }
 
@@ -2133,7 +2135,7 @@ mod test {
         let mask = authz::CapabilityMask::bounded(EnumSet::empty());
         assert_eq!(
             UserGrant::get_user_authorization(&role_grants, &user_grants, user_id, "acmeCo/", mask)
-                .1,
+                .legacy,
             Some(models::Capability::Admin),
         );
         assert!(!UserGrant::is_authorized(
@@ -2156,7 +2158,7 @@ mod test {
                 "sharedCo/",
                 mask
             )
-            .1,
+            .legacy,
             None,
         );
         // ...and with Delegate it's reached, reporting its legacy value
@@ -2171,7 +2173,7 @@ mod test {
                 "sharedCo/",
                 mask
             )
-            .1,
+            .legacy,
             Some(models::Capability::Read),
         );
     }
@@ -2216,7 +2218,10 @@ mod test {
                 "acmeCo/thing",
                 mask
             ),
-            (CapabilityBundle::Viewer.capabilities(), None),
+            crate::UserAuthorization {
+                bits: CapabilityBundle::Viewer.capabilities(),
+                legacy: None,
+            },
         );
         assert_eq!(
             UserGrant::get_user_authorization(
@@ -2226,10 +2231,10 @@ mod test {
                 "otherCo/thing",
                 mask
             ),
-            (
-                CapabilityBundle::Admin.capabilities(),
-                Some(models::Capability::Admin)
-            ),
+            crate::UserAuthorization {
+                bits: CapabilityBundle::Admin.capabilities(),
+                legacy: Some(models::Capability::Admin),
+            },
         );
 
         // An uncovered name reports neither bits nor a label.
@@ -2241,7 +2246,10 @@ mod test {
                 "unrelatedCo/thing",
                 mask
             ),
-            (EnumSet::empty().into(), None),
+            crate::UserAuthorization {
+                bits: EnumSet::empty().into(),
+                legacy: None,
+            },
         );
 
         // Masked: bits are the mask-attenuated effective bits, while a
@@ -2255,10 +2263,10 @@ mod test {
                 "sharedCo/thing",
                 mask
             ),
-            (
-                EnumSet::from(CatalogRead).into(),
-                Some(models::Capability::Read)
-            ),
+            crate::UserAuthorization {
+                bits: EnumSet::from(CatalogRead).into(),
+                legacy: Some(models::Capability::Read),
+            },
         );
 
         // An identity-only mask attenuates bits to nothing while a directly
@@ -2272,7 +2280,10 @@ mod test {
                 "otherCo/thing",
                 mask
             ),
-            (EnumSet::empty().into(), Some(models::Capability::Admin)),
+            crate::UserAuthorization {
+                bits: EnumSet::empty().into(),
+                legacy: Some(models::Capability::Admin),
+            },
         );
     }
 
@@ -2298,7 +2309,7 @@ mod test {
         ]);
         let role_grants = RoleGrants::from_iter([]);
 
-        let (bits, legacy) = UserGrant::get_user_authorization(
+        let crate::UserAuthorization { bits, legacy } = UserGrant::get_user_authorization(
             &role_grants,
             &user_grants,
             user_id,

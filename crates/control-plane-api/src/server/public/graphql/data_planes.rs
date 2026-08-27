@@ -569,7 +569,7 @@ impl DataPlanesQuery {
             env.claims()?,
             super::bearer_mask(ctx)?,
             names.into_iter(),
-            |data_plane_name, _bits, legacy| {
+            |data_plane_name, authorization| {
                 let dp = row_data.get(&data_plane_name)?;
                 let details = details_map.get(&data_plane_name);
                 let (cloud_provider, region, tag, is_public) =
@@ -579,10 +579,8 @@ impl DataPlanesQuery {
                     name: data_plane_name.clone(),
                     fqdn: dp.data_plane_fqdn.clone(),
                     reactor_address: dp.reactor_address.clone(),
-                    // The row is authorized by the effective-bits pre-filter;
-                    // the legacy label is reporting metadata, `none` where
-                    // coverage comes entirely from the bundles column.
-                    user_capability: legacy.unwrap_or(models::Capability::None),
+                    // The row is authorized by the effective-bits pre-filter.
+                    user_capability: authorization.legacy_label(),
                     cloud_provider,
                     region,
                     tag,
