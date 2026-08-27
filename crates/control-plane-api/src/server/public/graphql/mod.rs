@@ -40,6 +40,7 @@ mod publication_history;
 mod refresh_tokens;
 mod scalars;
 mod service_accounts;
+pub(crate) use service_accounts::is_service_account;
 pub mod status;
 mod storage_mappings;
 mod tenant;
