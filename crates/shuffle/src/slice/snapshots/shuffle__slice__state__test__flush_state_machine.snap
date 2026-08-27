@@ -32,5 +32,6 @@ Frontier {
     ],
     latest_backfill_begin: {},
     latest_backfill_complete: {},
+    binding_gap_floors: {},
     unresolved_hints: 0,
 }

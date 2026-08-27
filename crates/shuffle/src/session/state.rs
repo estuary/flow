@@ -427,6 +427,7 @@ impl CheckpointPipeline {
                 unresolved_hints: self.unresolved.unresolved_hints,
                 latest_backfill_begin: self.unresolved.latest_backfill_begin.clone(),
                 latest_backfill_complete: self.unresolved.latest_backfill_complete.clone(),
+                binding_gap_floors: self.unresolved.binding_gap_floors.clone(),
             };
             self.floor_flushed_lsn(&mut peek);
 
@@ -1401,6 +1402,7 @@ mod test {
                 unresolved_hints: 1,
                 latest_backfill_begin: Default::default(),
                 latest_backfill_complete: Default::default(),
+                binding_gap_floors: Default::default(),
             },
             vec![0],
         );
@@ -1535,6 +1537,7 @@ mod test {
                 unresolved_hints: 0,
                 latest_backfill_begin: Default::default(),
                 latest_backfill_complete: Default::default(),
+                binding_gap_floors: Default::default(),
             },
             vec![0],
         );
@@ -2129,6 +2132,7 @@ mod test {
             unresolved_hints: 0,
             latest_backfill_begin: Default::default(),
             latest_backfill_complete: Default::default(),
+            binding_gap_floors: Default::default(),
         };
 
         // Checkpoint found in resume_checkpoint.
@@ -2465,6 +2469,7 @@ mod test {
             unresolved_hints: 0,
             latest_backfill_begin: Default::default(),
             latest_backfill_complete: Default::default(),
+            binding_gap_floors: Default::default(),
         };
         let mut pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
 
@@ -2670,6 +2675,7 @@ mod test {
                     uuid::Clock::from_u64(42),
                 )]),
                 latest_backfill_complete: Default::default(),
+                binding_gap_floors: Default::default(),
             },
             vec![0],
         );

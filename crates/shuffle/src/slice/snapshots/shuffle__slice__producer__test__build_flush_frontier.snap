@@ -14,6 +14,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 0,
         },
         [],
@@ -58,6 +59,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 0,
         },
         [
@@ -157,6 +159,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 2,
         },
         [],
@@ -187,6 +190,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 0,
         },
         [
@@ -286,6 +290,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 2,
         },
         [
@@ -390,6 +395,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [
@@ -461,6 +467,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [],
@@ -491,6 +498,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [
@@ -568,6 +576,7 @@ expression: snap
             ],
             latest_backfill_begin: {},
             latest_backfill_complete: {},
+            binding_gap_floors: {},
             unresolved_hints: 1,
         },
         [
