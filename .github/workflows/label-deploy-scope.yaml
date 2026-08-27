@@ -42,7 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # Blobless partial clone: the reconciler needs the full commit graph
+          # (git log <deployed>..HEAD) and the manifests at HEAD, but none of
+          # the historical file contents — a plain fetch-depth: 0 downloads
+          # multiple GB of blobs and dominates the run.
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
       - name: Reconcile labels
         run: |
