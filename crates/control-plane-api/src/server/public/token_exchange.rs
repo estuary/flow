@@ -113,8 +113,8 @@ async fn mint_capability_token(
 /// claims and carries `capability_mask` verbatim.
 ///
 /// The identity claims (`sub`, `role`, `aud`, and `email` when the caller's
-/// token has it) are a pure copy-through, so the minted token remains a
-/// fully functional access token everywhere its bearer's identity is what
+/// token has it) are a pure copy-through, so the minted token is a fully
+/// functional access token everywhere its bearer's identity is what
 /// matters — including Supabase/PostgREST, which reads `sub` and `role` and
 /// ignores claims it doesn't know. Aside from `email` and `capability_mask`,
 /// this is the claim set of the SQL `generate_access_token` mint, whose
@@ -396,7 +396,7 @@ mod test {
         // === An invalid bearer is rejected regardless of grant ===
         // The endpoint verifies any Authorization header it is given, so a
         // broken bearer fails even the otherwise-unauthenticated
-        // refresh_token grant. (A bearer-less refresh_token request remains
+        // refresh_token grant. (Bearer-less refresh_token requests are
         // covered by the refresh-token management test.)
         let (status, _body) = post_token(
             &server,
