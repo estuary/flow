@@ -17,6 +17,8 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     // Cumulative per-binding backfill-complete clock, accumulated across all
     // transactions of the session.
     backfill_complete: BTreeMap<u16, uuid::Clock>,
+    // Per-binding gap floor, cumulative across the session.
+    gap_floors: BTreeMap<u16, uuid::Clock>,
     // Client used for trigger dispatch.
     http_client: reqwest::Client,
     // Future for an in-flight ACK intents write, if any.
@@ -54,6 +56,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         backfill_begin: BTreeMap<u16, uuid::Clock>,
         backfill_complete: BTreeMap<u16, uuid::Clock>,
+        gap_floors: BTreeMap<u16, uuid::Clock>,
         http_client: reqwest::Client,
         legacy_checkpoint: Option<shuffle::Frontier>,
         metrics: super::Metrics,
@@ -65,6 +68,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         Self {
             backfill_begin,
             backfill_complete,
+            gap_floors,
             http_client,
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
@@ -186,7 +190,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             if prev_resolves && matches!(tail, fsm::Tail::Done(_)) {
                 self.acknowledged_count += 1;
             }
-            self.merge_backfill_clocks(&mut action);
+            self.merge_binding_clocks(&mut action);
             let tail_wake_after = self.dispatch(action)?;
 
             let action: fsm::Action;
@@ -239,7 +243,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     Duration::ZERO
                 }
                 mut action => {
-                    self.merge_backfill_clocks(&mut action);
+                    self.merge_binding_clocks(&mut action);
                     self.dispatch(action)?
                 }
             };
@@ -382,10 +386,23 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         Ok(())
     }
 
-    /// Stamp the session-cumulative backfill boundary onto outgoing frontiers:
+    /// Stamp the session-cumulative per-binding clocks onto outgoing frontiers:
     /// `Load` stamps begin only (shards classify on begin; the connector's
-    /// Complete rides `Flush`), `Persist` stamps both maps as durable state.
-    fn merge_backfill_clocks(&mut self, action: &mut fsm::Action) {
+    /// Complete rides `Flush`), `Persist` stamps all three maps as durable state.
+    fn merge_binding_clocks(&mut self, action: &mut fsm::Action) {
+        // Gap floors fold from every `Load`, eager peeks included: a floor is a
+        // fact about retention, not about a transaction. Backfill markers fold
+        // only from a resolved `Load`, below.
+        if let fsm::Action::Load { frontier } = action {
+            for (binding, clock) in &frontier.binding_gap_floors {
+                let entry = self
+                    .gap_floors
+                    .entry(*binding)
+                    .or_insert(uuid::Clock::zero());
+                *entry = (*entry).max(*clock);
+            }
+        }
+
         match action {
             fsm::Action::Load { frontier } if frontier.unresolved_hints != 0 => {
                 // Eager peek: fold the cumulative begin into the frontier's own
@@ -436,6 +453,16 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         },
                     )
                     .collect();
+                let floors: Vec<_> = self
+                    .gap_floors
+                    .iter()
+                    .map(
+                        |(binding, clock)| shuffle::proto::frontier::BindingGapFloor {
+                            binding: *binding as u32,
+                            clock: clock.as_u64(),
+                        },
+                    )
+                    .collect();
                 for frontier in [
                     &mut persist.committed_frontier,
                     &mut persist.hinted_frontier,
@@ -445,6 +472,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 {
                     frontier.latest_backfill_begin = begin.clone();
                     frontier.latest_backfill_complete = complete.clone();
+                    frontier.binding_gap_floors = floors.clone();
                 }
             }
             _ => {}
@@ -783,6 +811,7 @@ mod tests {
         let actor = Actor::new(
             BTreeMap::new(),
             BTreeMap::new(),
+            BTreeMap::new(),
             reqwest::Client::new(),
             None,
             super::super::Metrics::new("test/task/shard"),
@@ -951,10 +980,11 @@ mod tests {
     }
 
     #[test]
-    fn merge_backfill_clocks_load_advances_and_stamps() {
+    fn merge_binding_clocks_load_advances_and_stamps() {
         let (mut actor, _rxs) = mk_actor(1);
         actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
         actor.backfill_complete = BTreeMap::from([(0, uuid::Clock::from_u64(4))]);
+        actor.gap_floors = BTreeMap::from([(0, uuid::Clock::from_u64(700))]);
 
         // Incoming Load delta: an older binding 0 (must not regress the
         // cumulative) and a fresh binding 1.
@@ -965,10 +995,14 @@ mod tests {
                     (1, uuid::Clock::from_u64(7)),
                 ]),
                 latest_backfill_complete: BTreeMap::from([(1, uuid::Clock::from_u64(6))]),
+                binding_gap_floors: BTreeMap::from([
+                    (0, uuid::Clock::from_u64(300)),
+                    (1, uuid::Clock::from_u64(900)),
+                ]),
                 ..Default::default()
             },
         };
-        actor.merge_backfill_clocks(&mut action);
+        actor.merge_binding_clocks(&mut action);
 
         let want_begin = BTreeMap::from([
             (0, uuid::Clock::from_u64(5)), // kept 5, not regressed to 3
@@ -980,6 +1014,13 @@ mod tests {
         // The cumulative maps advance (max-fold), never regress.
         assert_eq!(actor.backfill_begin, want_begin);
         assert_eq!(actor.backfill_complete, want_complete);
+        assert_eq!(
+            actor.gap_floors,
+            BTreeMap::from([
+                (0, uuid::Clock::from_u64(700)),
+                (1, uuid::Clock::from_u64(900))
+            ]),
+        );
 
         // The outgoing frontier carries the full cumulative begin, not just the
         // delta. (Complete isn't stamped on a Load; only the fold above matters.)
@@ -989,17 +1030,18 @@ mod tests {
         assert_eq!(frontier.latest_backfill_begin, want_begin);
     }
 
-    // An eager (unresolved-peek) Load stamps cumulative ∪ eager begin but must
-    // NOT advance the cumulative maps; a following Persist stamps only the
-    // pre-eager resolved state.
+    // An eager (unresolved-peek) Load stamps cumulative ∪ eager begin and folds
+    // its gap floor, but must NOT advance the cumulative marker maps; a
+    // following Persist stamps the pre-eager markers alongside the eager floor.
     #[test]
-    fn merge_backfill_clocks_eager_load_does_not_advance_cumulative() {
+    fn merge_binding_clocks_eager_load_folds_floors_not_markers() {
         let (mut actor, _rxs) = mk_actor(1);
         actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
         actor.backfill_complete = BTreeMap::from([(0, uuid::Clock::from_u64(4))]);
+        actor.gap_floors = BTreeMap::from([(0, uuid::Clock::from_u64(700))]);
 
         // An unresolved peek carrying eager markers: a higher begin for binding
-        // 0, a fresh binding 1, and a complete.
+        // 0, a fresh binding 1, a complete, and a higher gap floor.
         let mut action = fsm::Action::Load {
             frontier: shuffle::Frontier {
                 latest_backfill_begin: BTreeMap::from([
@@ -1007,11 +1049,12 @@ mod tests {
                     (1, uuid::Clock::from_u64(7)),
                 ]),
                 latest_backfill_complete: BTreeMap::from([(0, uuid::Clock::from_u64(8))]),
+                binding_gap_floors: BTreeMap::from([(0, uuid::Clock::from_u64(900))]),
                 unresolved_hints: 1,
                 ..Default::default()
             },
         };
-        actor.merge_backfill_clocks(&mut action);
+        actor.merge_binding_clocks(&mut action);
 
         // The outgoing frontier carries cumulative ∪ eager begin.
         let fsm::Action::Load { frontier } = &action else {
@@ -1022,7 +1065,7 @@ mod tests {
             BTreeMap::from([(0, uuid::Clock::from_u64(9)), (1, uuid::Clock::from_u64(7))]),
         );
 
-        // Neither cumulative map advanced — the eager markers are not durable.
+        // Neither marker map advanced, but the floor did.
         assert_eq!(
             actor.backfill_begin,
             BTreeMap::from([(0, uuid::Clock::from_u64(5))]),
@@ -1033,37 +1076,49 @@ mod tests {
             BTreeMap::from([(0, uuid::Clock::from_u64(4))]),
             "eager complete must not advance the cumulative map",
         );
+        assert_eq!(
+            actor.gap_floors,
+            BTreeMap::from([(0, uuid::Clock::from_u64(900))]),
+            "an eager gap floor advances the cumulative map",
+        );
 
-        // A subsequent Persist stamps only the pre-eager cumulative begin (5).
+        // A subsequent Persist stamps the pre-eager cumulative begin (5) and
+        // the eager gap floor (900).
         let mut persist = fsm::Action::Persist {
             persist: proto::Persist {
                 committed_frontier: Some(shuffle::proto::Frontier::default()),
                 ..Default::default()
             },
         };
-        actor.merge_backfill_clocks(&mut persist);
+        actor.merge_binding_clocks(&mut persist);
         let fsm::Action::Persist { persist } = &persist else {
             panic!("expected Persist");
         };
+        let committed = persist.committed_frontier.as_ref().unwrap();
         assert_eq!(
-            persist
-                .committed_frontier
-                .as_ref()
-                .unwrap()
-                .latest_backfill_begin,
+            committed.latest_backfill_begin,
             vec![shuffle::proto::frontier::BackfillBegin {
                 binding: 0,
                 clock: 5,
             }],
             "Persist stamps only durable resolved state, never the eager begin",
         );
+        assert_eq!(
+            committed.binding_gap_floors,
+            vec![shuffle::proto::frontier::BindingGapFloor {
+                binding: 0,
+                clock: 900,
+            }],
+            "Persist stamps the eager floor",
+        );
     }
 
     #[test]
-    fn merge_backfill_clocks_persist_stamps() {
+    fn merge_binding_clocks_persist_stamps() {
         let (mut actor, _rxs) = mk_actor(1);
         actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
         actor.backfill_complete = BTreeMap::from([(0, uuid::Clock::from_u64(4))]);
+        actor.gap_floors = BTreeMap::from([(0, uuid::Clock::from_u64(700))]);
 
         let mut action = fsm::Action::Persist {
             persist: proto::Persist {
@@ -1071,7 +1126,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        actor.merge_backfill_clocks(&mut action);
+        actor.merge_binding_clocks(&mut action);
 
         let fsm::Action::Persist { persist } = &action else {
             panic!("expected Persist");
@@ -1091,6 +1146,13 @@ mod tests {
                 clock: 4,
             }],
         );
+        assert_eq!(
+            frontier.binding_gap_floors,
+            vec![shuffle::proto::frontier::BindingGapFloor {
+                binding: 0,
+                clock: 700,
+            }],
+        );
     }
 
     // A hint Persist carries a `hinted_frontier`, not a `committed_frontier`; it
@@ -1098,9 +1160,10 @@ mod tests {
     // see recovery.rs) and reduced into committed on a remote-authoritative
     // recovery, so a marker observed in the hinted transaction isn't lost.
     #[test]
-    fn merge_backfill_clocks_stamps_hinted_frontier() {
+    fn merge_binding_clocks_stamps_hinted_frontier() {
         let (mut actor, _rxs) = mk_actor(1);
         actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
+        actor.gap_floors = BTreeMap::from([(0, uuid::Clock::from_u64(700))]);
 
         let mut action = fsm::Action::Persist {
             persist: proto::Persist {
@@ -1108,26 +1171,30 @@ mod tests {
                 ..Default::default()
             },
         };
-        actor.merge_backfill_clocks(&mut action);
+        actor.merge_binding_clocks(&mut action);
 
         let fsm::Action::Persist { persist } = &action else {
             panic!("expected Persist");
         };
+        let hinted = persist.hinted_frontier.as_ref().unwrap();
         assert_eq!(
-            persist
-                .hinted_frontier
-                .as_ref()
-                .unwrap()
-                .latest_backfill_begin,
+            hinted.latest_backfill_begin,
             vec![shuffle::proto::frontier::BackfillBegin {
                 binding: 0,
                 clock: 5,
             }],
         );
+        assert_eq!(
+            hinted.binding_gap_floors,
+            vec![shuffle::proto::frontier::BindingGapFloor {
+                binding: 0,
+                clock: 700,
+            }],
+        );
     }
 
     #[test]
-    fn merge_backfill_clocks_noop_cases() {
+    fn merge_binding_clocks_noop_cases() {
         let (mut actor, _rxs) = mk_actor(1);
         actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
 
@@ -1135,11 +1202,11 @@ mod tests {
         let mut persist = fsm::Action::Persist {
             persist: proto::Persist::default(),
         };
-        actor.merge_backfill_clocks(&mut persist);
+        actor.merge_binding_clocks(&mut persist);
 
         // ...and a non-Load/Persist action is ignored.
         let mut store = fsm::Action::Store;
-        actor.merge_backfill_clocks(&mut store);
+        actor.merge_binding_clocks(&mut store);
 
         assert_eq!(
             actor.backfill_begin,

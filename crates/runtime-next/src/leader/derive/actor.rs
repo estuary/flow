@@ -11,6 +11,8 @@ use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established derivation task session.
 pub struct Actor<P: crate::Publisher, L: crate::Logger> {
+    // Per-binding gap floor, cumulative across the session.
+    gap_floors: BTreeMap<u16, uuid::Clock>,
     // Future for an in-flight ACK intents write, if any.
     intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     // Optional full Frontier and Checkpoint, used for V1 rollback support.
@@ -33,6 +35,7 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
+        gap_floors: BTreeMap<u16, uuid::Clock>,
         legacy_checkpoint: Option<shuffle::Frontier>,
         metrics: super::Metrics,
         logger: L,
@@ -41,6 +44,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         task: Task,
     ) -> Self {
         Self {
+            gap_floors,
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
             metrics,
@@ -117,7 +121,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 "leader derive Actor::serve iteration"
             );
 
-            let action: fsm::Action;
+            let mut action: fsm::Action;
             let prev_kind = tail.kind();
             (action, tail) = tail.step(
                 &mut binding_bytes_behind,
@@ -140,6 +144,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     "transition",
                 );
             }
+            self.merge_binding_clocks(&mut action);
             let tail_wake_after = self.dispatch(action)?;
 
             let action: fsm::Action;
@@ -185,7 +190,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
                     Duration::ZERO
                 }
-                action => self.dispatch(action)?,
+                mut action => {
+                    self.merge_binding_clocks(&mut action);
+                    self.dispatch(action)?
+                }
             };
             let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
 
@@ -307,6 +315,45 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             .context("closing shuffle Session on Stop")?;
 
         Ok(())
+    }
+
+    /// Fold the gap floors of every `Load` frontier into the session-cumulative
+    /// map, and stamp it onto outgoing `Persist` frontiers as durable state.
+    /// Derivations carry floors alone; materialize also folds backfill markers.
+    fn merge_binding_clocks(&mut self, action: &mut fsm::Action) {
+        match action {
+            fsm::Action::Load { frontier } => {
+                for (binding, clock) in &frontier.binding_gap_floors {
+                    let entry = self
+                        .gap_floors
+                        .entry(*binding)
+                        .or_insert(uuid::Clock::zero());
+                    *entry = (*entry).max(*clock);
+                }
+            }
+            fsm::Action::Persist { persist } => {
+                let floors: Vec<_> = self
+                    .gap_floors
+                    .iter()
+                    .map(
+                        |(binding, clock)| shuffle::proto::frontier::BindingGapFloor {
+                            binding: *binding as u32,
+                            clock: clock.as_u64(),
+                        },
+                    )
+                    .collect();
+                for frontier in [
+                    &mut persist.committed_frontier,
+                    &mut persist.hinted_frontier,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    frontier.binding_gap_floors = floors.clone();
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Execute the outgoing-IO primitive for an Action.
@@ -536,4 +583,115 @@ async fn next_shard_rx(
 ) {
     let msg = rx.next().await;
     (shard_index, msg, rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_actor(
+        n_shards: usize,
+    ) -> (
+        Actor<crate::publish::RecordingPublisher, crate::TracingLogger>,
+        Vec<mpsc::UnboundedReceiver<tonic::Result<proto::Derive>>>,
+    ) {
+        let mut shard_tx = Vec::with_capacity(n_shards);
+        let mut rxs = Vec::with_capacity(n_shards);
+        for _ in 0..n_shards {
+            let (tx, rx) = mpsc::unbounded_channel();
+            shard_tx.push(tx);
+            rxs.push(rx);
+        }
+        let task = Task {
+            binding_collection_names: vec!["source/collection".to_string()],
+            binding_journal_read_suffixes: vec!["pivot=00".to_string()],
+            binding_transform_names: vec!["my-transform".to_string()],
+            close_policy: super::super::close_policy::Policy::new(Duration::ZERO, Duration::MAX),
+            max_transactions: 0,
+            n_shards,
+            peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
+            remote_authoritative: false,
+            shard_ref: proto_flow::ops::ShardRef::default(),
+        };
+        let actor = Actor::new(
+            BTreeMap::new(),
+            None,
+            super::super::Metrics::new("test/task/shard"),
+            crate::TracingLogger,
+            crate::publish::RecordingPublisher::default(),
+            shard_tx,
+            task,
+        );
+        (actor, rxs)
+    }
+
+    #[test]
+    fn merge_binding_clocks_folds_and_stamps_gap_floors() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.gap_floors = BTreeMap::from([(0, uuid::Clock::from_u64(700))]);
+
+        // An eager peek's floor folds like any other.
+        let mut eager = fsm::Action::Load {
+            frontier: shuffle::Frontier {
+                binding_gap_floors: BTreeMap::from([(0, uuid::Clock::from_u64(900))]),
+                unresolved_hints: 1,
+                ..Default::default()
+            },
+        };
+        actor.merge_binding_clocks(&mut eager);
+        assert_eq!(
+            actor.gap_floors,
+            BTreeMap::from([(0, uuid::Clock::from_u64(900))]),
+            "an eager floor advances the cumulative map",
+        );
+
+        // A resolved Load delta: an older binding 0 (must not regress the
+        // cumulative) and a fresh binding 1.
+        let mut resolved = fsm::Action::Load {
+            frontier: shuffle::Frontier {
+                binding_gap_floors: BTreeMap::from([
+                    (0, uuid::Clock::from_u64(300)),
+                    (1, uuid::Clock::from_u64(900)),
+                ]),
+                ..Default::default()
+            },
+        };
+        actor.merge_binding_clocks(&mut resolved);
+        assert_eq!(
+            actor.gap_floors,
+            BTreeMap::from([
+                (0, uuid::Clock::from_u64(900)),
+                (1, uuid::Clock::from_u64(900))
+            ]),
+        );
+
+        let mut action = fsm::Action::Persist {
+            persist: proto::Persist {
+                committed_frontier: Some(shuffle::proto::Frontier::default()),
+                ..Default::default()
+            },
+        };
+        actor.merge_binding_clocks(&mut action);
+
+        let fsm::Action::Persist { persist } = &action else {
+            panic!("expected Persist");
+        };
+        assert_eq!(
+            persist
+                .committed_frontier
+                .as_ref()
+                .unwrap()
+                .binding_gap_floors,
+            vec![
+                shuffle::proto::frontier::BindingGapFloor {
+                    binding: 0,
+                    clock: 900,
+                },
+                shuffle::proto::frontier::BindingGapFloor {
+                    binding: 1,
+                    clock: 900,
+                },
+            ],
+        );
+    }
 }
