@@ -374,6 +374,168 @@ mod tests {
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
     )]
+    async fn test_graphql_live_specs_mask_below_viewer_is_refused(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, true).await)
+                .await;
+
+        // A mask below the Viewer threshold is a definitive refusal at the
+        // root query, before any ref is constructed: reached grants' legacy
+        // labels are never a side-channel around the mask.
+        let masked = server.make_masked_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            None,
+            Some(vec!["Delegate"]),
+        );
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { prefix: "aliceCo/" }) {
+                            edges { node { catalogName userCapability } }
+                        }
+                    }
+                "#
+                }),
+                Some(&masked),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": null,
+          "errors": [
+            {
+              "extensions": {
+                "error": "missing_capabilities",
+                "missing_capabilities": [
+                  "CatalogRead",
+                  "JournalRead",
+                  "ViewDataPlanePrivateNetworking"
+                ]
+              },
+              "locations": [
+                {
+                  "column": 25,
+                  "line": 3
+                }
+              ],
+              "message": "the bearer token's capability mask does not enable required capabilities: CatalogRead, JournalRead, ViewDataPlanePrivateNetworking",
+              "path": [
+                "liveSpecs"
+              ]
+            }
+          ]
+        }
+        "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_written_by_read_by_filter_on_effective_bits(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // capture-foo writes to data/foo, which materialize-bar reads.
+        sqlx::query(
+            "INSERT INTO public.live_spec_flows (source_id, target_id, flow_type) VALUES
+             ('000000000005'::flowid, '000000000001'::flowid, 'capture'),
+             ('000000000001'::flowid, '000000000006'::flowid, 'materialization')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Carol can read aliceCo/data/ and aliceCo/in/ — both entirely from
+        // the bundles column — but not aliceCo/out/. writtenBy and readBy
+        // filter on her effective bits: the bundles-only-covered capture
+        // appears (labeled none), and the unauthorized materialization's
+        // name is withheld entirely.
+        let carol_uid = uuid::Uuid::from_bytes([0x33; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'carol@example.test')")
+            .bind(carol_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles) VALUES
+             ($1, 'aliceCo/data/', 'none', ARRAY['viewer']::capability_bundle[]),
+             ($1, 'aliceCo/in/', 'none', ARRAY['viewer']::capability_bundle[])",
+        )
+        .bind(carol_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, true).await)
+                .await;
+        let carol = server.make_access_token(carol_uid, Some("carol@example.test"));
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/data/foo"] }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    liveSpec {
+                                        writtenBy { edges { node { catalogName userCapability } } }
+                                        readBy { edges { node { catalogName userCapability } } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                "#
+                }),
+                Some(&carol),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": {
+            "liveSpecs": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogName": "aliceCo/data/foo",
+                    "liveSpec": {
+                      "readBy": {
+                        "edges": []
+                      },
+                      "writtenBy": {
+                        "edges": [
+                          {
+                            "node": {
+                              "catalogName": "aliceCo/in/capture-foo",
+                              "userCapability": "none"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
     async fn test_graphql_live_specs_bundles_only_grant(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
