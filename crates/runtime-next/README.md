@@ -254,6 +254,13 @@ Shard zero holds one `GF:{state_key}` row per binding: the shuffle Session's
 state: it rides either `Persist` Frontier, restores onto the committed Frontier,
 and neither `delete_*_frontier` clears it.
 
+For that same reason the leader's actor folds floors from unresolved peeks as
+well as resolved `Load`s, unlike `BB:`/`BC:`. Materialize's hinted `Persist`
+precedes StartCommit, so a floor is durable before the transaction which
+observed the gap commits. Derive's only `Persist` follows StartCommit, so a
+remote-authoritative derivation which crashes in between loses the floors of
+that one transaction.
+
 ## Idempotent recovery (materialize)
 
 A leader whose startup scan finds a hinted-but-uncommitted transaction opens
