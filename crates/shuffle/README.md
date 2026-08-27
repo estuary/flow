@@ -187,6 +187,18 @@ correlated committing closes are only tracked within a cohort, allowing differen
 cohorts to make progress independently. For example, a binding read with an
 explicit delay cannot gate a binding read in real time.
 
+**Byte gap**: A read has a byte gap when Gazette resolves its requested offset
+`M` to a larger offset `L`: the read cannot receive the bytes of `[M, L)`,
+whether retention removed them, `begin_mod_time` skipped them, or they were
+never written. The response does not say which.
+
+**Binding gap floor**: A clock below which a binding's causal hints are
+unreachable. Only a byte gap at read start raises it, to the first document past
+the gap plus `CAUSAL_HINT_GAP_MARGIN` (`ReadState::sample_gap_floor`). It only
+rises, and discharges causal hints which trail it (`Completed::is_gap_stale`) —
+never producer commits, and never the hinted frontier an idempotent-recovery
+session replays.
+
 #### Terms to avoid
 
 - *claim / claimed* — invokes confusing agency (claimed by whom?). Say "covered
@@ -297,6 +309,10 @@ whose open span begins before `M` is marked *gapped* and its skipped range is
 recovered later by a bounded replay (see `slice/replay.rs`).
 It first probes the journal write head to determine whether the read is already
 tailing (caught up).
+
+A probe landing beyond the requested offset is a byte gap at read start, which
+raises the binding's gap floor (`ReadState::sample_gap_floor`). A gap mid-read
+raises nothing.
 
 Read data arrives as `LinesBatch` chunks from Gazette, which are
 transcoded via `simd_doc::SimdParser` into archived document nodes.

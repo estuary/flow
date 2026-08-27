@@ -37,10 +37,11 @@ pub struct SliceActor {
     /// Previous journal name sent to each Log shard, for delta encoding.
     pub log_prev_journal: Vec<String>,
     /// Pending Journal read-start probes for newly started reads.
-    /// Each resolves to `(start_offset, read)`, where `start_offset` is the
-    /// read's fast-forwarded starting offset used to seed its `ReadState`.
+    /// Each resolves to `(offset, start_offset, read)`: the offset requested of
+    /// the broker, and the read's fast-forwarded starting offset used to seed
+    /// its `ReadState`.
     pub pending_probes: stream::FuturesUnordered<
-        future::BoxFuture<'static, anyhow::Result<(i64, super::ReadLines)>>,
+        future::BoxFuture<'static, anyhow::Result<(i64, i64, super::ReadLines)>>,
     >,
     /// Reads that are awaiting more data from Gazette brokers.
     pub pending_reads: stream::FuturesUnordered<stream::StreamFuture<super::ReadLines>>,
@@ -196,17 +197,19 @@ impl SliceActor {
 
                 // Lowest priority is processing journal listings and reads.
                 Some(probe_result) = self.pending_probes.next() => {
-                    let (start_offset, read) = match probe_result {
+                    let (offset, start_offset, read) = match probe_result {
                         Ok(ok) => ok,
                         Err(err) => {
                             self.metrics.reads_stopped.increment(1);
                             return Err(err);
                         }
                     };
+                    let read_state = &mut self.reads[read.id() as usize];
+                    read_state.pending_gap = start_offset > offset;
                     // Seed the ReadState's offsets at the probe's resolved start
                     // before parking, so byte deltas exclude the filtered range
                     // the read skipped.
-                    self.reads[read.id() as usize].start_at(start_offset);
+                    read_state.start_at(start_offset);
                     self.park_or_process(read)?;
                 }
                 Some(listing_result) = listing_tasks.next() => {
@@ -461,6 +464,7 @@ impl SliceActor {
             );
 
             Ok((
+                offset,
                 start_offset,
                 Box::pin(gazette::journal::read::ReadLines::new(
                     client.read(request).boxed(),
@@ -862,6 +866,8 @@ impl SliceActor {
             read_state.backfill_complete = read_state
                 .backfill_complete
                 .max(sequenced.backfill_complete);
+
+            read_state.sample_gap_floor(clock);
 
             _ = read_state
                 .unreported
