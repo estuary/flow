@@ -14,6 +14,8 @@ and the named deployment does not include its merge commit yet.
                      env/estuary/combustable-cronut/main.jsonnet. Reading that
                      private repo from CI requires a token with contents:read
                      on estuary/ops in the GH_TOKEN_OPS environment variable.
+  pending:flowctl    the released flowctl CLI. Its baseline is the tag of the
+                     latest published (non-prerelease) GitHub release.
 
 The script recomputes each full label set and applies the difference — adding
 and removing labels — so missed events, rollbacks, and manual label edits all
@@ -85,6 +87,16 @@ def agent_api_commit(repo: str, run_id: str | None) -> str:
     if not m:
         raise SystemExit(f"error: no {IMAGE_NAME} image tag in logs of run {run_id}")
     return tag_to_commit(repo, m.group(1))
+
+
+def flowctl_release_commit(repo: str) -> str:
+    """Baseline of the released flowctl CLI: the latest published release.
+
+    /releases/latest excludes prereleases, so the continuously-updated
+    dev-next prerelease does not move this baseline.
+    """
+    tag = run("gh", "api", f"repos/{repo}/releases/latest", "--jq", ".tag_name").strip()
+    return run("gh", "api", f"repos/{repo}/commits/{tag}", "--jq", ".sha").strip()
 
 
 def worker_commit(repo: str) -> str:
@@ -172,14 +184,14 @@ def currently_labeled(repo: str, label: str) -> set[int]:
 
 
 def reconcile(
-    repo: str, repo_dir: str, shipping_dirs: set[str],
+    repo: str, repo_dir: str, target: str, shipping_dirs: set[str],
     label: str, description: str, deployed: str, end_ref: str, apply: bool,
 ) -> None:
     print(f"{label}: deployed commit {deployed}")
     desired = {
         number
         for number, files in merged_prs_since(repo, repo_dir, deployed, end_ref).items()
-        if classify(files, shipping_dirs).ships
+        if classify(files, shipping_dirs, target).ships
     }
     current = currently_labeled(repo, label)
 
@@ -214,10 +226,12 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    shipping_dirs = closure(pathlib.Path(args.repo_dir).resolve(), "agent")
+    repo_root = pathlib.Path(args.repo_dir).resolve()
+    agent_dirs = closure(repo_root, "agent")
+    flowctl_dirs = closure(repo_root, "flowctl")
 
     reconcile(
-        args.repo, args.repo_dir, shipping_dirs,
+        args.repo, args.repo_dir, "agent", agent_dirs,
         "pending:agent-api",
         "Merged, ships via Deploy agent-api, and not yet deployed",
         agent_api_commit(args.repo, args.deploy_run),
@@ -225,10 +239,18 @@ def main() -> None:
         apply=not args.dry_run,
     )
     reconcile(
-        args.repo, args.repo_dir, shipping_dirs,
+        args.repo, args.repo_dir, "agent", agent_dirs,
         "pending:agent",
         "Merged, in the control-plane-agent image, and not yet rolled to flow-agent",
         worker_commit(args.repo),
+        args.end_ref,
+        apply=not args.dry_run,
+    )
+    reconcile(
+        args.repo, args.repo_dir, "flowctl", flowctl_dirs,
+        "pending:flowctl",
+        "Merged, changes the flowctl binary, and not in a published release",
+        flowctl_release_commit(args.repo),
         args.end_ref,
         apply=not args.dry_run,
     )

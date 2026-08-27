@@ -33,33 +33,56 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 
-# Files outside any crate that still change what is built into the image.
-# go.mod / go.sum pin the Go module graph for the flowctl-go and gazette
-# binaries the image carries.
-WORKSPACE_BUILD_FILES = {
-    "Cargo.toml",
-    "Cargo.lock",
-    "rust-toolchain.toml",
-    "mise.toml",
-    ".cargo/config.toml",
-    "go.mod",
-    "go.sum",
+# Per-artifact build inputs. Each target names a root crate, plus the files
+# outside any crate that still change what is built into that artifact:
+#
+#   workspace_files    exact paths (lockfiles, toolchain pins).
+#   input_prefixes     path prefixes baked into the artifact itself.
+#
+# agent: the control-plane-agent image. go.mod / go.sum pin the Go module
+# graph for the flowctl-go and gazette binaries the image carries; the two
+# ops-catalog bundles are include_str!'d by control-plane-api, which links
+# into the agent binary.
+#
+# flowctl: the released CLI binary, built by flowctl-release.yaml with plain
+# cargo (no mise, no Go, no Dockerfile). It include_str!'s the ops-task
+# bundle, which is deliberately absent from the agent target: the Rust
+# flowctl binary is not in the agent image.
+TARGETS = {
+    "agent": {
+        "workspace_files": {
+            "Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            "mise.toml",
+            ".cargo/config.toml",
+            "go.mod",
+            "go.sum",
+        },
+        "input_prefixes": (
+            "docker/control-plane-agent.Dockerfile",
+            "mise/tasks/ci/package",
+            "mise/tasks/ci/docker-images",
+            "mise/tasks/ci/gnu-opt",  # the `cargo build --release` that produces `agent`
+            "mise/tasks/build/",
+            "go/",  # flowctl-go and gazette are copied into the image
+            "ops-catalog/data-plane-template.bundle.json",
+            "ops-catalog/reporting-L2-template.bundle.json",
+        ),
+    },
+    "flowctl": {
+        "workspace_files": {
+            "Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            ".cargo/config.toml",
+        },
+        "input_prefixes": (
+            ".github/workflows/flowctl-release.yaml",
+            "ops-catalog/ops-task-template.bundle.json",
+        ),
+    },
 }
-
-# Prefixes outside `crates/` that are baked into the image itself.
-# The two ops-catalog bundles are include_str!'d by control-plane-api, which
-# links into the agent binary. ops-task-template.bundle.json is deliberately
-# absent: flowctl embeds it, and the Rust flowctl binary is not in this image.
-IMAGE_INPUT_PREFIXES = (
-    "docker/control-plane-agent.Dockerfile",
-    "mise/tasks/ci/package",
-    "mise/tasks/ci/docker-images",
-    "mise/tasks/ci/gnu-opt",  # the `cargo build --release` that produces `agent`
-    "mise/tasks/build/",
-    "go/",  # flowctl-go and gazette are copied into the image
-    "ops-catalog/data-plane-template.bundle.json",
-    "ops-catalog/reporting-L2-template.bundle.json",
-)
 
 # Within a shipping crate, these paths are compiled but cannot change behavior.
 # _test.go files are excluded from production Go binaries by the toolchain.
@@ -147,13 +170,14 @@ def is_inert(path: str) -> bool:
     )
 
 
-def classify(paths: list[str], shipping_dirs: set[str]) -> Verdict:
+def classify(paths: list[str], shipping_dirs: set[str], target: str = "agent") -> Verdict:
+    spec = TARGETS[target]
     v = Verdict()
 
     for path in paths:
         in_artifact = False
 
-        if path in WORKSPACE_BUILD_FILES or path.startswith(IMAGE_INPUT_PREFIXES):
+        if path in spec["workspace_files"] or path.startswith(spec["input_prefixes"]):
             in_artifact = True
         elif path.startswith("crates/"):
             parts = path.split("/")
@@ -175,7 +199,10 @@ def classify(paths: list[str], shipping_dirs: set[str]) -> Verdict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--files", required=True, help="file with one changed path per line")
-    ap.add_argument("--target", default="agent", help="root crate of the artifact")
+    ap.add_argument(
+        "--target", default="agent", choices=sorted(TARGETS),
+        help="artifact to classify against; also names the root crate",
+    )
     ap.add_argument("--repo", default=".", help="repository root")
     args = ap.parse_args()
 
@@ -186,7 +213,7 @@ def main() -> int:
         if line.strip()
     ]
 
-    verdict = classify(paths, closure(repo, args.target))
+    verdict = classify(paths, closure(repo, args.target), args.target)
 
     print(
         f"{'ships' if verdict.ships else 'does not ship'}: "

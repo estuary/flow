@@ -1,8 +1,8 @@
 name: Label deploy scope
-# A merged PR carries `pending:agent-api` / `pending:agent` exactly when its
-# changes are compiled into the control-plane-agent image and that deployment
-# does not include them yet, so filtering merged PRs by a label yields that
-# deployment's queue. The reconciler recomputes the full label sets on every
+# A merged PR carries `pending:agent-api` / `pending:agent` / `pending:flowctl`
+# exactly when its changes are compiled into that target's artifact and the
+# deployed (or released) artifact does not include them yet, so filtering
+# merged PRs by a label yields that target's queue. The reconciler recomputes the full label sets on every
 # master push and after every successful deploy: missed events, rollbacks, and
 # manual label edits all converge on the next run. It never executes PR code —
 # deployed commits come from the deploy run's logs and the estuary/ops image
@@ -17,6 +17,8 @@ on:
   workflow_run:
     workflows: ["Deploy agent-api"]
     types: [completed]
+  release:
+    types: [published]
   workflow_dispatch: {}
 concurrency:
   group: ${{ github.workflow }}

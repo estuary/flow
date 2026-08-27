@@ -17,6 +17,7 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 
 # Computed once: the closure walks every crate manifest under crates/.
 CLOSURE = closure(REPO, "agent")
+FLOWCTL_CLOSURE = closure(REPO, "flowctl")
 
 
 class TestClosure(unittest.TestCase):
@@ -139,6 +140,46 @@ class TestClassify(unittest.TestCase):
             v = self.verdict(path)
             self.assertFalse(v.ships)
             self.assertEqual(len(v.excluded), 1)
+
+
+class TestFlowctlTarget(unittest.TestCase):
+    def verdict(self, *paths):
+        return classify(list(paths), FLOWCTL_CLOSURE, "flowctl")
+
+    def test_flowctl_sources_ship(self):
+        self.assertTrue(self.verdict("crates/flowctl/src/ops.rs").ships)
+        # flow-client-next is the CLI's client of the control-plane API;
+        # flow-client (no -next) is dekaf's and is NOT in this closure.
+        self.assertTrue(self.verdict("crates/flow-client-next/src/lib.rs").ships)
+        self.assertFalse(self.verdict("crates/flow-client/src/lib.rs").ships)
+
+    def test_runtime_next_ships_for_flowctl(self):
+        # The inverse of the agent target: flowctl links runtime-next and
+        # shuffle (for preview-next), so those PRs ship via flowctl releases.
+        self.assertTrue(self.verdict("crates/runtime-next/src/logger.rs").ships)
+        self.assertTrue(self.verdict("crates/shuffle/src/lib.rs").ships)
+
+    def test_ops_task_bundle_ships_for_flowctl(self):
+        # The inverse of the agent target: flowctl include_str!'s this bundle,
+        # and the two bundles embedded by control-plane-api do not apply.
+        self.assertTrue(self.verdict("ops-catalog/ops-task-template.bundle.json").ships)
+        self.assertFalse(
+            self.verdict("ops-catalog/data-plane-template.bundle.json").ships
+        )
+
+    def test_agent_image_inputs_do_not_apply(self):
+        # flowctl-release builds with plain cargo: no mise, no Go, no image.
+        for path in (
+            "mise.toml",
+            "go.mod",
+            "go/flow/converge.go",
+            "docker/control-plane-agent.Dockerfile",
+            "crates/agent/src/main.rs",
+        ):
+            self.assertFalse(self.verdict(path).ships)
+
+    def test_release_workflow_ships(self):
+        self.assertTrue(self.verdict(".github/workflows/flowctl-release.yaml").ships)
 
 
 if __name__ == "__main__":
