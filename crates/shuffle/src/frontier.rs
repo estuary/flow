@@ -377,6 +377,9 @@ pub struct Frontier {
     /// Latest committed backfill-complete clock of the checkpoint delta, keyed
     /// by binding index. See `latest_backfill_begin`.
     pub latest_backfill_complete: BTreeMap<u16, Clock>,
+    /// Gap floor of each binding, keyed by binding index. See
+    /// [`Completed::is_gap_stale`].
+    pub binding_gap_floors: BTreeMap<u16, Clock>,
     /// Count of `ProducerFrontier` entries with `hinted_commit > last_commit`.
     /// A Frontier with a non-zero count is "partial": readable for processing
     /// (e.g. log scanning), but NOT a transactional boundary.
@@ -515,11 +518,12 @@ impl Frontier {
             flushed_lsn,
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
+            binding_gap_floors: BTreeMap::new(),
             unresolved_hints,
         })
     }
 
-    fn merge_backfill_clocks(
+    fn merge_binding_clocks(
         mut a: BTreeMap<u16, Clock>,
         b: BTreeMap<u16, Clock>,
     ) -> BTreeMap<u16, Clock> {
@@ -558,17 +562,20 @@ impl Frontier {
     pub fn reduce(self, other: Self) -> Self {
         let flushed_lsn = Self::merge_flushed_lsn(self.flushed_lsn, other.flushed_lsn);
         let latest_backfill_begin =
-            Self::merge_backfill_clocks(self.latest_backfill_begin, other.latest_backfill_begin);
-        let latest_backfill_complete = Self::merge_backfill_clocks(
+            Self::merge_binding_clocks(self.latest_backfill_begin, other.latest_backfill_begin);
+        let latest_backfill_complete = Self::merge_binding_clocks(
             self.latest_backfill_complete,
             other.latest_backfill_complete,
         );
+        let binding_gap_floors =
+            Self::merge_binding_clocks(self.binding_gap_floors, other.binding_gap_floors);
 
         if self.journals.is_empty() {
             return Self {
                 flushed_lsn,
                 latest_backfill_begin,
                 latest_backfill_complete,
+                binding_gap_floors,
                 ..other
             };
         } else if other.journals.is_empty() {
@@ -576,6 +583,7 @@ impl Frontier {
                 flushed_lsn,
                 latest_backfill_begin,
                 latest_backfill_complete,
+                binding_gap_floors,
                 ..self
             };
         }
@@ -620,6 +628,7 @@ impl Frontier {
             flushed_lsn,
             latest_backfill_begin,
             latest_backfill_complete,
+            binding_gap_floors,
             unresolved_hints,
         }
     }
@@ -844,6 +853,14 @@ impl Frontier {
                 clock: clock.as_u64(),
             })
             .collect();
+        proto.binding_gap_floors = self
+            .binding_gap_floors
+            .iter()
+            .map(|(binding, clock)| shuffle::frontier::BindingGapFloor {
+                binding: *binding as u32,
+                clock: clock.as_u64(),
+            })
+            .collect();
         proto
     }
 
@@ -859,10 +876,17 @@ impl Frontier {
             .map(|e| (e.binding as u16, Clock::from_u64(e.clock)))
             .collect();
 
+        let binding_gap_floors: BTreeMap<u16, Clock> =
+            std::mem::take(&mut proto.binding_gap_floors)
+                .into_iter()
+                .map(|e| (e.binding as u16, Clock::from_u64(e.clock)))
+                .collect();
+
         let journals: Vec<JournalFrontier> = JournalFrontier::decode(proto).collect();
         let mut frontier = Self::new(journals, flushed_lsn)?;
         frontier.latest_backfill_begin = latest_backfill_begin;
         frontier.latest_backfill_complete = latest_backfill_complete;
+        frontier.binding_gap_floors = binding_gap_floors;
         Ok(frontier)
     }
 
@@ -901,6 +925,7 @@ impl Frontier {
             flushed_lsn: vec![],
             latest_backfill_begin: self.latest_backfill_begin.clone(),
             latest_backfill_complete: self.latest_backfill_complete.clone(),
+            binding_gap_floors: self.binding_gap_floors.clone(),
             unresolved_hints,
         }
     }
@@ -1282,6 +1307,10 @@ mod test {
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(100))]),
             latest_backfill_complete: BTreeMap::from([(1, Clock::from_u64(140))]),
+            binding_gap_floors: BTreeMap::from([
+                (0, Clock::from_u64(700)),
+                (3, Clock::from_u64(900)),
+            ]),
             unresolved_hints: 0,
         };
         let hints = Frontier {
@@ -1292,6 +1321,10 @@ mod test {
             flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(120))]),
             latest_backfill_complete: BTreeMap::from([(0, Clock::from_u64(130))]),
+            binding_gap_floors: BTreeMap::from([
+                (0, Clock::from_u64(500)),
+                (3, Clock::from_u64(1_100)),
+            ]),
             unresolved_hints: 2,
         };
         let r = reads.reduce(hints);
@@ -1367,6 +1400,11 @@ mod test {
             r.latest_backfill_complete.get(&1),
             Some(&Clock::from_u64(140))
         );
+        // Gap floors take each binding's maximum.
+        assert_eq!(
+            r.binding_gap_floors,
+            BTreeMap::from([(0, Clock::from_u64(700)), (3, Clock::from_u64(1_100))]),
+        );
 
         // Identity: reducing with an empty frontier preserves all fields.
         let f = Frontier {
@@ -1374,6 +1412,7 @@ mod test {
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(20)],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(100))]),
             latest_backfill_complete: BTreeMap::from([(0, Clock::from_u64(200))]),
+            binding_gap_floors: BTreeMap::from([(0, Clock::from_u64(300))]),
             unresolved_hints: 0,
         };
         let r = f.clone().reduce(Frontier::default());
@@ -1381,6 +1420,7 @@ mod test {
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
         assert_eq!(r.latest_backfill_begin, f.latest_backfill_begin);
         assert_eq!(r.latest_backfill_complete, f.latest_backfill_complete);
+        assert_eq!(r.binding_gap_floors, f.binding_gap_floors);
         let r = Frontier::default().reduce(f);
         assert_eq!(r.journals.len(), 1);
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
@@ -1389,6 +1429,7 @@ mod test {
             r.latest_backfill_complete.get(&0),
             Some(&Clock::from_u64(200))
         );
+        assert_eq!(r.binding_gap_floors.get(&0), Some(&Clock::from_u64(300)));
         assert!(
             Frontier::default()
                 .reduce(Frontier::default())
@@ -1586,6 +1627,7 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
+            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 2,
         };
 
@@ -1599,6 +1641,7 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
+            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
 
@@ -1634,6 +1677,7 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
+            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
         let (advanced2, resolved2) = pending.resolve_hints(&progressed2);
@@ -1714,6 +1758,7 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
+            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 1,
         };
         let progressed = Frontier {
@@ -1721,6 +1766,7 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
+            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
         assert_eq!(pending.resolve_hints(&progressed), (0, 0));
@@ -1772,18 +1818,20 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::from([(0, Clock::from_u64(9))]),
             latest_backfill_complete: BTreeMap::from([(0, Clock::from_u64(8))]),
+            binding_gap_floors: BTreeMap::from([(0, Clock::from_u64(7))]),
             unresolved_hints: 2,
         };
 
         let projected = f.project_unresolved_hints();
 
-        // The projection preserves the input's backfill boundary verbatim — the
+        // The projection preserves the input's per-binding clocks verbatim — the
         // leader controls what it seeds onto the resume frontier (see startup.rs).
         assert_eq!(projected.latest_backfill_begin, f.latest_backfill_begin);
         assert_eq!(
             projected.latest_backfill_complete,
             f.latest_backfill_complete
         );
+        assert_eq!(projected.binding_gap_floors, f.binding_gap_floors);
 
         // journal/A: only P1 (unresolved). journal/B: filtered out (no hints).
         // journal/C: P7 (unresolved).
@@ -1823,6 +1871,7 @@ mod test {
             flushed_lsn: vec![],
             latest_backfill_begin: BTreeMap::new(),
             latest_backfill_complete: BTreeMap::new(),
+            binding_gap_floors: BTreeMap::new(),
             unresolved_hints: 0,
         };
         assert!(no_hints.project_unresolved_hints().journals.is_empty());
@@ -1838,7 +1887,7 @@ mod test {
 
     #[test]
     fn test_frontier_encode_decode_round_trip() {
-        let original = Frontier::new(
+        let mut original = Frontier::new(
             vec![
                 jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
                 jf("journal/A", 1, vec![pf(0x03, 200, 0, -800)]),
@@ -1847,6 +1896,8 @@ mod test {
             vec![100, 200, 300],
         )
         .unwrap();
+        original.binding_gap_floors =
+            BTreeMap::from([(0, Clock::from_u64(700)), (3, Clock::from_u64(900))]);
 
         let proto = original.encode();
         assert_eq!(proto.journals.len(), 3);
@@ -1860,6 +1911,7 @@ mod test {
             assert_eq!(a.producers.len(), b.producers.len());
         }
         assert_eq!(reassembled.flushed_lsn, original.flushed_lsn);
+        assert_eq!(reassembled.binding_gap_floors, original.binding_gap_floors);
     }
 
     #[test]

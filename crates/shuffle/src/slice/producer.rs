@@ -72,6 +72,7 @@ pub fn build_flush_frontier(
     let mut journals: Vec<crate::JournalFrontier> = Vec::new();
     let mut latest_backfill_begin = BTreeMap::<u16, Clock>::new();
     let mut latest_backfill_complete = BTreeMap::<u16, Clock>::new();
+    let binding_gap_floors = BTreeMap::<u16, Clock>::new();
 
     for read_state in reads.iter_mut() {
         if read_state.unreported.is_empty() {
@@ -145,6 +146,7 @@ pub fn build_flush_frontier(
         flushed_lsn: vec![crate::log::Lsn::ZERO; shard_count],
         latest_backfill_begin,
         latest_backfill_complete,
+        binding_gap_floors,
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
@@ -190,6 +192,7 @@ pub fn build_flush_frontier(
         flushed_lsn: vec![],
         latest_backfill_begin: Default::default(),
         latest_backfill_complete: Default::default(),
+        binding_gap_floors: Default::default(),
     })
 }
 
