@@ -15,10 +15,11 @@ on:
   push:
     branches: [master]
   workflow_run:
-    workflows: ["Deploy agent-api"]
+    # Flowctl release, not `release: published`: publication merely starts the
+    # binary build, so reconciling then would clear pending:flowctl before
+    # binaries exist (or despite a failed build).
+    workflows: ["Deploy agent-api", "Flowctl release"]
     types: [completed]
-  release:
-    types: [published]
   workflow_dispatch: {}
 concurrency:
   group: ${{ github.workflow }}
@@ -35,7 +36,9 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN_OPS: ${{ secrets.OPS_READ_TOKEN }}
-      DEPLOY_RUN_ID: ${{ github.event.workflow_run.id }}
+      # Only a Deploy agent-api run is a usable agent-api baseline; for any
+      # other trigger the script finds the newest successful deploy itself.
+      DEPLOY_RUN_ID: ${{ github.event.workflow_run.name == 'Deploy agent-api' && github.event.workflow_run.id || '' }}
     steps:
       - uses: actions/checkout@v5
         with:

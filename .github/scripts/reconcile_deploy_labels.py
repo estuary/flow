@@ -14,8 +14,10 @@ and the named deployment does not include its merge commit yet.
                      env/estuary/combustable-cronut/main.jsonnet. Reading that
                      private repo from CI requires a token with contents:read
                      on estuary/ops in the GH_TOKEN_OPS environment variable.
-  pending:flowctl    the released flowctl CLI. Its baseline is the tag of the
-                     latest published (non-prerelease) GitHub release.
+  pending:flowctl    the released flowctl CLI. Its baseline is the head commit
+                     of the newest successful `Flowctl release` run — not the
+                     release itself, whose publication merely starts the
+                     binary build.
 
 The script recomputes each full label set and applies the difference — adding
 and removing labels — so missed events, rollbacks, and manual label edits all
@@ -39,6 +41,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -46,6 +49,7 @@ from deploy_scope import classify, closure
 
 LABEL_COLOR = "1D76DB"
 DEPLOY_WORKFLOW = "deploy-agent-api.yaml"
+FLOWCTL_WORKFLOW = "flowctl-release.yaml"
 IMAGE_NAME = "control-plane-agent"
 OPS_REPO = "estuary/ops"
 OPS_PIN_PATH = "env/estuary/combustable-cronut/main.jsonnet"
@@ -58,6 +62,30 @@ def run(*argv: str, env: dict | None = None) -> str:
     ).stdout
 
 
+def newest_successful_run(repo: str, workflow: str, field: str) -> str:
+    """`field` of the newest successful run of `workflow`.
+
+    The runs listing intermittently serves stale snapshots that omit recent
+    runs entirely (observed windows anchored months back, even paginated), so
+    take the newest across several spaced attempts: a wrong answer then needs
+    every attempt to hit a stale snapshot.
+    """
+    best = ""
+    for attempt in range(3):
+        if attempt:
+            time.sleep(2)
+        lines = run(
+            "gh", "api", "--paginate",
+            f"repos/{repo}/actions/workflows/{workflow}/runs"
+            "?status=success&per_page=100",
+            "--jq", rf'.workflow_runs[] | "\(.created_at) \({field})"',
+        ).splitlines()
+        best = max([best, *lines])
+    if not best:
+        raise SystemExit(f"error: no successful {workflow} run found")
+    return best.split()[1]
+
+
 def tag_to_commit(repo: str, tag: str) -> str:
     """Full sha of the commit an image tag was built from."""
     suffix = re.search(r"(?:^|-)g([0-9a-f]{7,40})$", tag)
@@ -68,19 +96,7 @@ def tag_to_commit(repo: str, tag: str) -> str:
 def agent_api_commit(repo: str, run_id: str | None) -> str:
     """Baseline of the agent-api Cloud Run service, from deploy run logs."""
     if not run_id:
-        # The runs listing does not reliably return newest-first (observed
-        # windows anchored months back), so page through every successful run
-        # and select the newest ourselves. This is a low-volume, manually
-        # dispatched workflow; the full listing is a few pages.
-        lines = run(
-            "gh", "api", "--paginate",
-            f"repos/{repo}/actions/workflows/{DEPLOY_WORKFLOW}/runs"
-            "?status=success&per_page=100",
-            "--jq", r'.workflow_runs[] | "\(.created_at) \(.id)"',
-        ).splitlines()
-        if not lines:
-            raise SystemExit(f"error: no successful {DEPLOY_WORKFLOW} run found")
-        run_id = max(lines).split()[1]
+        run_id = newest_successful_run(repo, DEPLOY_WORKFLOW, ".id")
 
     log = run("gh", "run", "view", run_id, "--repo", repo, "--log")
     m = re.search(rf"{IMAGE_NAME}:([A-Za-z0-9._-]+)", log)
@@ -90,13 +106,14 @@ def agent_api_commit(repo: str, run_id: str | None) -> str:
 
 
 def flowctl_release_commit(repo: str) -> str:
-    """Baseline of the released flowctl CLI: the latest published release.
+    """Baseline of the released flowctl CLI.
 
-    /releases/latest excludes prereleases, so the continuously-updated
-    dev-next prerelease does not move this baseline.
+    The newest successful `Flowctl release` run, which checks out the release
+    tag; its head commit is the released code. Publishing a release only
+    *starts* that build, and binaries land tens of minutes later (or never,
+    on failure), so the release itself is not the baseline.
     """
-    tag = run("gh", "api", f"repos/{repo}/releases/latest", "--jq", ".tag_name").strip()
-    return run("gh", "api", f"repos/{repo}/commits/{tag}", "--jq", ".sha").strip()
+    return newest_successful_run(repo, FLOWCTL_WORKFLOW, ".head_sha")
 
 
 def worker_commit(repo: str) -> str:

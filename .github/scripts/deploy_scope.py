@@ -60,6 +60,8 @@ TARGETS = {
             "go.sum",
         },
         "input_prefixes": (
+            ".github/workflows/platform-build.yaml",  # builds and packages the image
+            ".sqlx/",  # offline query metadata; gnu-opt builds with SQLX_OFFLINE=true
             "docker/control-plane-agent.Dockerfile",
             "mise/tasks/ci/package",
             "mise/tasks/ci/docker-images",
@@ -79,6 +81,7 @@ TARGETS = {
         },
         "input_prefixes": (
             ".github/workflows/flowctl-release.yaml",
+            ".sqlx/",  # offline query metadata; the release builds with SQLX_OFFLINE=1
             "ops-catalog/ops-task-template.bundle.json",
         ),
     },

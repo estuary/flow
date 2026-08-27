@@ -121,6 +121,17 @@ class TestClassify(unittest.TestCase):
         # `agent` binary; its flags and env are build inputs.
         self.assertTrue(self.verdict("mise/tasks/ci/gnu-opt").ships)
 
+    def test_build_workflow_and_sqlx_ship(self):
+        # platform-build.yaml drives the image build, and .sqlx/ holds the
+        # offline query metadata compiled in under SQLX_OFFLINE=true.
+        self.assertTrue(self.verdict(".github/workflows/platform-build.yaml").ships)
+        self.assertTrue(self.verdict(".sqlx/query-0000.json").ships)
+
+    def test_deploy_workflow_does_not_ship(self):
+        # Deploying moves an existing image; it cannot change the artifact.
+        v = self.verdict(".github/workflows/deploy-agent-api.yaml")
+        self.assertFalse(v.ships)
+
     def test_embedded_ops_catalog_bundles_ship(self):
         # Both are include_str!'d by control-plane-api, in the closure.
         for path in (
@@ -182,6 +193,10 @@ class TestFlowctlTarget(unittest.TestCase):
 
     def test_release_workflow_ships(self):
         self.assertTrue(self.verdict(".github/workflows/flowctl-release.yaml").ships)
+
+    def test_sqlx_ships_for_flowctl(self):
+        # flowctl-release also builds with SQLX_OFFLINE.
+        self.assertTrue(self.verdict(".sqlx/query-0000.json").ships)
 
 
 if __name__ == "__main__":
