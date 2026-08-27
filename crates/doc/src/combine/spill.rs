@@ -423,7 +423,12 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         let key = self.spec.keys[binding].as_ref();
         let validator = &mut self.spec.validators[validator_index];
 
-        let reduced: Option<HeapNode<'_>> = loop {
+        // Reduce further entries of this key into `root`. Each reduction allocates
+        // its output from `alloc`, and a bump allocator can't reclaim the prior
+        // output, so a key reduced across many segments could grow `alloc` without
+        // bound. Once it's past threshold, the intermediate reduction is archived
+        // back into `root`, `alloc` is replaced, and reduction resumes from there.
+        let reduced: Option<HeapNode<'_>> = 'outer: loop {
             // `reduced` root which is updated as reductions occur.
             let mut reduced: Option<HeapNode<'_>> = None;
 
@@ -440,6 +445,23 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                     // * We've already attempted this associative reduction.
                     self.in_group = true;
                     break;
+                } else if let Some(node) = &reduced
+                    && bump_mem_used(&self.alloc) > BUMP_THRESHOLD
+                {
+                    // Safety: `to_archive` produces a valid ArchivedNode, and Bytes adopts
+                    // the AlignedVec's 16-byte aligned allocation without copying.
+                    root = unsafe {
+                        OwnedArchivedNode::new(bytes::Bytes::from_owner(node.to_archive()))
+                    };
+                    tracing::debug!(
+                        alloc_bytes = bump_mem_used(&self.alloc),
+                        archived_bytes = root.bytes().len(),
+                        "archived an intermediate reduction to bound allocator memory"
+                    );
+                    self.alloc = Arc::new(Bump::new());
+                    // Re-enter with a fresh `reduced`: its lifetime is bound to the
+                    // allocator we just replaced.
+                    continue 'outer;
                 }
 
                 let rhs_outcomes = validator
@@ -1165,6 +1187,213 @@ mod test {
           ]
         ]
         "###);
+    }
+
+    /// Push `drainer`'s allocator past BUMP_THRESHOLD, so that its next reduction
+    /// archives the intermediate result and replaces it. The reservation is never
+    /// written, so it costs address space rather than resident memory.
+    fn exhaust_alloc<F: io::Read + io::Seek>(drainer: &SpillDrainer<F>) {
+        let layout = std::alloc::Layout::from_size_align(BUMP_THRESHOLD + 1, 8).unwrap();
+        drainer.alloc.alloc_layout(layout);
+        assert!(bump_mem_used(&drainer.alloc) > BUMP_THRESHOLD);
+    }
+
+    #[test]
+    fn test_drain_archives_intermediate_reductions() {
+        // A key reduced across many segments has its intermediate reduction
+        // archived, and its allocator replaced, whenever `alloc` is past
+        // threshold. Exhausting the allocator before each drain does so at the
+        // first reduction of every key, which must not change the drained result
+        // under either full or associative reduction.
+        for full in [true, false] {
+            let schema = json::schema::build(
+                &url::Url::parse("http://example/schema").unwrap(),
+                &json!({
+                    "properties": {
+                        "key": { "type": "string" },
+                        "v": { "type": "array", "reduce": { "strategy": "append" } }
+                    },
+                    "reduce": { "strategy": "merge" }
+                }),
+            )
+            .unwrap();
+            let spec = Spec::with_one_binding(
+                full,
+                vec![Extractor::new("/key", &SerPolicy::noop())],
+                "source",
+                Vec::new(),
+                Validator::new(schema).unwrap(),
+            );
+
+            // Every segment holds the hot key and one unique key.
+            let alloc = Bump::new();
+            let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+            for i in 0..12 {
+                let segment = segment_fixture(
+                    &[
+                        (0, json!({"key": "hot", "v": [i]}), false),
+                        (0, json!({"key": format!("k{i:02}"), "v": [i]}), false),
+                    ],
+                    &alloc,
+                );
+                spill.write_segment(&segment, CHUNK_TARGET_SIZE).unwrap();
+            }
+            let (spill, ranges) = spill.into_parts();
+
+            let to_json = |doc: DrainedDoc| {
+                serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap()
+            };
+            let mut drainer = SpillDrainer::new(spec, spill, &ranges, Vec::new().into()).unwrap();
+            let expected = (&mut drainer)
+                .map_ok(to_json)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+
+            let (spec, spill) = drainer.into_parts();
+            let mut drainer = SpillDrainer::new(spec, spill, &ranges, Vec::new().into()).unwrap();
+            let mut actual = Vec::new();
+            loop {
+                exhaust_alloc(&drainer);
+                match drainer.drain_next().unwrap() {
+                    Some(doc) => actual.push(to_json(doc)),
+                    None => break,
+                }
+            }
+            assert_eq!(expected, actual);
+
+            // Full reduction drains the hot key as one document; associative
+            // reduction holds back its first entry and reduces the rest.
+            let hot: Vec<_> = expected.iter().filter(|d| d["key"] == "hot").collect();
+            assert_eq!(hot.len(), if full { 1 } else { 2 });
+            let reduced = hot.last().unwrap()["v"].as_array().unwrap().len();
+            assert_eq!(reduced, if full { 12 } else { 11 });
+        }
+    }
+
+    /// Random RFC-7396 merge patches: nested objects over a few keys, with
+    /// `null` (a deletion under full reduction), scalars, and arrays.
+    #[derive(Clone, Debug)]
+    struct MergePatchOps(Vec<Value>);
+
+    impl quickcheck::Arbitrary for MergePatchOps {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            fn value(g: &mut quickcheck::Gen, depth: usize) -> Value {
+                let scalar = |g: &mut quickcheck::Gen| match g.choose(&[0, 0, 1, 2, 3]).unwrap() {
+                    0 => Value::Null,
+                    1 => json!(u8::arbitrary(g) % 4),
+                    2 => json!(g.choose(&["x", "y"]).unwrap()),
+                    _ => json!([u8::arbitrary(g) % 4]),
+                };
+                if depth == 0 || bool::arbitrary(g) {
+                    return scalar(g);
+                }
+                let n = usize::arbitrary(g) % 4 + 1;
+                (0..n)
+                    .map(|_| {
+                        (
+                            g.choose(&["a", "b", "c", "d"]).unwrap().to_string(),
+                            value(g, depth - 1),
+                        )
+                    })
+                    .collect::<serde_json::Map<_, _>>()
+                    .into()
+            }
+            let n = usize::arbitrary(g) % 11 + 2; // 2..=12 operands.
+            Self((0..n).map(|_| value(g, 2)).collect())
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            if self.0.len() <= 2 {
+                return quickcheck::empty_shrinker();
+            }
+            let ops = self.0.clone();
+            Box::new((0..ops.len()).map(move |i| {
+                let mut ops = ops.clone();
+                ops.remove(i);
+                Self(ops)
+            }))
+        }
+    }
+
+    #[test]
+    fn test_drain_archive_merge_patch_fuzz() {
+        // Archiving within a key's reduction must be invisible: a drain that
+        // archives at the first reduction of every key must match a plain drain
+        // in both documents and Meta, and full reductions must match RFC-7396
+        // merge-patch.
+        fn prop(MergePatchOps(ops): MergePatchOps) -> bool {
+            let spec = |full| {
+                let curi = url::Url::parse("schema://").unwrap();
+                let schema = json::schema::build(&curi, &reduce::merge_patch_schema()).unwrap();
+                Spec::with_one_binding(
+                    full,
+                    [],
+                    "source",
+                    Vec::new(),
+                    Validator::new(schema).unwrap(),
+                )
+            };
+            let to_json = |doc: &DrainedDoc| {
+                serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap()
+            };
+
+            // One operand per segment, all under the empty key.
+            let alloc = Bump::new();
+            let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+            for op in &ops {
+                let segment = segment_fixture(&[(0, op.clone(), false)], &alloc);
+                spill.write_segment(&segment, CHUNK_TARGET_SIZE).unwrap();
+            }
+            let (spill, ranges) = spill.into_parts();
+
+            let mut expect = ops[0].clone();
+            for op in &ops[1..] {
+                json_patch::merge(&mut expect, op);
+            }
+
+            for full in [true, false] {
+                let drainer =
+                    SpillDrainer::new(spec(full), spill.clone(), &ranges, Vec::new().into())
+                        .unwrap();
+                let plain: Vec<(Meta, Value)> = drainer
+                    .map(|doc| doc.map(|doc| (doc.meta, to_json(&doc))))
+                    .collect::<Result<_, _>>()
+                    .unwrap();
+
+                let mut drainer =
+                    SpillDrainer::new(spec(full), spill.clone(), &ranges, Vec::new().into())
+                        .unwrap();
+                let mut archived = Vec::new();
+                loop {
+                    exhaust_alloc(&drainer);
+                    match drainer.drain_next().unwrap() {
+                        Some(doc) => archived.push((doc.meta, to_json(&doc))),
+                        None => break,
+                    }
+                }
+                if archived != plain {
+                    return false;
+                }
+
+                // Full reduction yields one document, with `null` as a tombstone.
+                // Associative reduction yields documents which merge-patch to it.
+                let mut actual = archived[0].1.clone();
+                for (_, doc) in &archived[1..] {
+                    json_patch::merge(&mut actual, doc);
+                }
+                if actual != expect {
+                    return false;
+                }
+                if full && (archived.len() != 1 || archived[0].0.deleted() != expect.is_null()) {
+                    return false;
+                }
+            }
+            true
+        }
+
+        quickcheck::QuickCheck::new()
+            .tests(500)
+            .quickcheck(prop as fn(MergePatchOps) -> bool);
     }
 
     #[test]
