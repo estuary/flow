@@ -82,11 +82,7 @@ async fn mint_capability_token(
 ) -> Result<TokenResponse, crate::ApiError> {
     let claims = envelope.claims()?;
 
-    if claims.capability_mask.is_some() {
-        return Err(crate::ApiError::Forbidden(
-            crate::Forbidden::unmasked_token_required(),
-        ));
-    }
+    crate::Forbidden::require_unmasked(claims).map_err(crate::ApiError::Forbidden)?;
     if crate::grants::is_service_account(&envelope.pg_pool, claims.sub).await? {
         return Err(crate::ApiError::Forbidden(
             crate::Forbidden::service_account_forbidden(),

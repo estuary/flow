@@ -58,6 +58,29 @@ impl Requirement for NoRequirement {
 /// `internal.user_roles` rather than the snapshot walk — and for operations
 /// which would let a masked bearer escape its mask, such as minting a
 /// full-authority refresh credential.
+///
+/// The audited inventory of unmasked-only surfaces (#3376):
+/// - The `capability_token` grant of `POST /api/v1/auth/token`: a reduced
+///   token must not widen or re-mint itself.
+/// - GraphQL `createRefreshToken`: a refresh token exchanges for a
+///   full-authority access token, so a masked bearer minting one escapes
+///   its mask. The resolver enforces this through
+///   [`Forbidden::require_unmasked`], since an axum extractor cannot reach
+///   a resolver.
+/// - `/admin/create-data-plane` and `/admin/update-l2-reporting`: their
+///   SQL authorization cannot bind the mask, so they fail closed instead.
+///
+/// Every other identity-gated operation deliberately stays open to masked
+/// bearers: revocations (`revokeRefreshToken`, `revokeApiKey`, and kin)
+/// never widen the bearer's authority; credential-adjacent operations like
+/// `createApiKey` and `createServiceAccount` authorize through the grant
+/// walk, which the mask already filters; and invite redemption widens the
+/// *user's* grants while the bearer still exercises them only through its
+/// mask. SQL functions reachable through PostgREST
+/// (`public.create_refresh_token`, `public.gateway_auth_token`) are outside
+/// this crate's enforcement entirely — they are part of the documented
+/// PostgREST mask bypass whose resolution is the #2877 migration, tracked
+/// under #3376.
 pub struct RequireUnmasked;
 
 impl Requirement for RequireUnmasked {
@@ -131,6 +154,20 @@ impl Forbidden {
         } else {
             Err(Self::missing_capabilities(missing))
         }
+    }
+
+    /// The masked-bearer refusal shared by every surface which demands a
+    /// full-authority credential: a definitive denial keyed on the
+    /// *presence* of the `capability_mask` claim, never its value — a mask
+    /// which happens to enable everything is still a deliberately-reduced
+    /// credential. Requirement evaluation consumes this during extraction;
+    /// GraphQL resolvers consume it directly, where an axum extractor
+    /// cannot reach.
+    pub fn require_unmasked(claims: &crate::ControlClaims) -> Result<(), Self> {
+        if claims.capability_mask.is_some() {
+            return Err(Self::unmasked_token_required());
+        }
+        Ok(())
     }
 
     pub fn unmasked_token_required() -> Self {
@@ -304,8 +341,8 @@ fn evaluate_requirement<R: Requirement>(
     };
     let mask = CapabilityMask::from_claim(claims.capability_mask.as_deref());
 
-    if R::REQUIRE_UNMASKED && claims.capability_mask.is_some() {
-        return Err(Rejection::Forbidden(Forbidden::unmasked_token_required()));
+    if R::REQUIRE_UNMASKED {
+        Forbidden::require_unmasked(claims).map_err(Rejection::Forbidden)?;
     }
 
     let required = R::required();
