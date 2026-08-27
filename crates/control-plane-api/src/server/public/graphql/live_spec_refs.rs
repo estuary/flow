@@ -36,7 +36,25 @@ pub struct LiveSpecRef {
     /// name, and passing a name that the user cannot access. In either case,
     /// the result would be `userCapability: null`, and all other fields on the
     /// LiveSpecRef would also be null.
+    ///
+    /// Access is decided by the user's effective capability bits under the
+    /// bearer's mask, and a non-null value is the literal legacy `capability`
+    /// column of the covering grant(s): informational compatibility metadata,
+    /// reported as `none` when access comes entirely from the `bundles`
+    /// column.
     pub user_capability: Option<models::Capability>,
+}
+
+/// The `userCapability` value for a referent covered by `bits` and labeled
+/// `legacy`: the legacy label when the effective bits grant access, `none`
+/// standing in for access that has no legacy label, and null (no access —
+/// every other field is gated to null) when the bits fall short of Viewer.
+pub(super) fn user_capability_field(
+    bits: models::authz::CapabilitySet,
+    legacy: Option<models::Capability>,
+) -> Option<models::Capability> {
+    bits.is_superset(models::authz::CapabilityBundle::Viewer.capabilities())
+        .then(|| legacy.unwrap_or(models::Capability::None))
 }
 
 #[ComplexObject]
@@ -166,12 +184,13 @@ impl LiveSpecRef {
 /// order, both of `all_names` and the query results, must always be ascending,
 /// regardless of whether forward or reverse pagination is being used. Source:
 /// https://relay.dev/graphql/connections.htm#sec-Edge-order
-/// If `require_min_capability` is `Some`, then `all_specs` will be filtered to
-/// only include those specs for which the user has the required minimum
-/// capability.
+/// If `require_min_capability` is `Some`, then `all_specs` is filtered to
+/// only the specs where the user's effective capability bits cover that
+/// required set — names falling short are omitted entirely, never surfaced
+/// as inaccessible refs.
 pub async fn paginate_live_specs_refs(
     ctx: &Context<'_>,
-    require_min_capability: Option<models::Capability>,
+    require_min_capability: Option<models::authz::CapabilitySet>,
     all_names: Vec<String>,
     after: Option<String>,
     before: Option<String>,
@@ -188,13 +207,13 @@ pub async fn paginate_live_specs_refs(
         env.claims()?,
         super::bearer_mask(ctx)?,
         all_names,
-        |name, maybe_capability| {
-            if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
+        |name, bits, legacy| {
+            if require_min_capability.is_some_and(|required| !bits.is_superset(required)) {
                 return None;
             }
             Some(LiveSpecRef {
                 catalog_name: models::Name::new(name),
-                user_capability: maybe_capability,
+                user_capability: user_capability_field(bits, legacy),
             })
         },
     );
@@ -365,12 +384,12 @@ impl LiveSpecsQuery {
             env.claims()?,
             super::bearer_mask(ctx)?,
             names,
-            |name, user_capability| {
+            |name, bits, legacy| {
                 Some(connection::Edge::new(
                     name.clone(),
                     LiveSpecRef {
                         catalog_name: models::Name::new(name),
-                        user_capability,
+                        user_capability: user_capability_field(bits, legacy),
                     },
                 ))
             },

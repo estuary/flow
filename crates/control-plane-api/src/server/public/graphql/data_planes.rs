@@ -569,7 +569,7 @@ impl DataPlanesQuery {
             env.claims()?,
             super::bearer_mask(ctx)?,
             names.into_iter(),
-            |data_plane_name, user_capability| {
+            |data_plane_name, _bits, user_capability| {
                 let dp = row_data.get(&data_plane_name)?;
                 let details = details_map.get(&data_plane_name);
                 let (cloud_provider, region, tag, is_public) =
