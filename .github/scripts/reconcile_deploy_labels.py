@@ -110,13 +110,17 @@ def worker_commit(repo: str) -> str:
     return tag_to_commit(repo, m.group(1))
 
 
-def merged_prs_since(repo: str, repo_dir: str, deployed: str) -> dict[int, list[str]]:
+def merged_prs_since(
+    repo: str, repo_dir: str, deployed: str, end_ref: str
+) -> dict[int, list[str]]:
     """PR number -> changed files, for merged PRs not included in the deploy.
 
     Commits are resolved to PRs via associatedPullRequests: the repository
     mixes squash and non-squash merges, so subject parsing undercounts.
     """
-    shas = run("git", "-C", repo_dir, "log", "--format=%H", f"{deployed}..HEAD").split()
+    shas = run(
+        "git", "-C", repo_dir, "log", "--format=%H", f"{deployed}..{end_ref}"
+    ).split()
 
     prs: dict[int, dict] = {}
     for start in range(0, len(shas), 25):
@@ -169,12 +173,12 @@ def currently_labeled(repo: str, label: str) -> set[int]:
 
 def reconcile(
     repo: str, repo_dir: str, shipping_dirs: set[str],
-    label: str, description: str, deployed: str, apply: bool,
+    label: str, description: str, deployed: str, end_ref: str, apply: bool,
 ) -> None:
     print(f"{label}: deployed commit {deployed}")
     desired = {
         number
-        for number, files in merged_prs_since(repo, repo_dir, deployed).items()
+        for number, files in merged_prs_since(repo, repo_dir, deployed, end_ref).items()
         if classify(files, shipping_dirs).ships
     }
     current = currently_labeled(repo, label)
@@ -203,6 +207,10 @@ def main() -> None:
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "estuary/flow"))
     ap.add_argument("--repo-dir", default=".", help="full-history checkout")
     ap.add_argument("--deploy-run", help="deploy run id; defaults to the latest successful run")
+    ap.add_argument(
+        "--end-ref", default="HEAD",
+        help="merged-through ref; pass origin/master when running from a branch checkout",
+    )
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -213,6 +221,7 @@ def main() -> None:
         "pending:agent-api",
         "Merged, ships via Deploy agent-api, and not yet deployed",
         agent_api_commit(args.repo, args.deploy_run),
+        args.end_ref,
         apply=not args.dry_run,
     )
     reconcile(
@@ -220,6 +229,7 @@ def main() -> None:
         "pending:agent",
         "Merged, in the control-plane-agent image, and not yet rolled to flow-agent",
         worker_commit(args.repo),
+        args.end_ref,
         apply=not args.dry_run,
     )
 
