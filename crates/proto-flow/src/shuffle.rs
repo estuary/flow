@@ -138,6 +138,9 @@ pub struct Frontier {
     /// or NextCheckpoint sequence. Empty otherwise.
     #[prost(message, repeated, tag = "4")]
     pub latest_backfill_complete: ::prost::alloc::vec::Vec<frontier::BackfillComplete>,
+    /// Gap floors, sorted and unique on binding.
+    #[prost(message, repeated, tag = "5")]
+    pub binding_gap_floors: ::prost::alloc::vec::Vec<frontier::BindingGapFloor>,
 }
 /// Nested message and enum types in `Frontier`.
 pub mod frontier {
@@ -160,6 +163,17 @@ pub mod frontier {
         #[prost(uint32, tag = "1")]
         pub binding: u32,
         /// Truncation boundary of the completed backfill: the backfill's begin clock.
+        #[prost(fixed64, tag = "2")]
+        pub clock: u64,
+    }
+    /// BindingGapFloor is a binding's gap floor: a clock below which its causal
+    /// hints are unreachable, raised by a byte gap at read start.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BindingGapFloor {
+        /// Binding index within this task version.
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
+        /// Gap floor clock of this binding.
         #[prost(fixed64, tag = "2")]
         pub clock: u64,
     }
