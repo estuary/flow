@@ -70,17 +70,12 @@ impl Requirement for RequireUnmasked {
 ///
 /// Declared by routes whose entire authorization is a Read-capability walk
 /// (`/api/v1/catalog/status`, `/api/v1/metrics`), so a mask shortfall is
-/// rejected at extraction, before the handler runs. The set is spelled as a
-/// literal because `CapabilityBundle::capabilities` is not a `const fn`;
-/// a test pins it to `bits_for_legacy(Read)` so the two cannot drift.
+/// rejected at extraction, before the handler runs. A test pins the bundle
+/// to `bits_for_legacy(Read)` so the two cannot drift.
 pub struct RequireViewer;
 
 impl Requirement for RequireViewer {
-    const REQUIRED: CapabilitySet = enumset::enum_set!(
-        models::authz::Capability::CatalogRead
-            | models::authz::Capability::JournalRead
-            | models::authz::Capability::ViewDataPlanePrivateNetworking
-    );
+    const REQUIRED: &'static [CapabilityBundle] = &[CapabilityBundle::Viewer];
     const REQUIRE_UNMASKED: bool = false;
 }
 
