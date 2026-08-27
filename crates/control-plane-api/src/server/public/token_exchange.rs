@@ -247,11 +247,15 @@ mod test {
     }
 
     /// Covers the capability_token grant end-to-end: the copy-through claim
-    /// set of a successful mint, verbatim mask stamping, the identity-only
-    /// empty mask, and every refusal — missing bearer, masked caller,
-    /// service-account caller — plus the bearer handling of the endpoint as
-    /// a whole (an invalid bearer is rejected regardless of grant) and the
-    /// typed extractor's rejection of an unknown grant.
+    /// set of a successful mint (with a scoped-role, email-less bearer
+    /// distinguishing copy-through from hardcoded values), verbatim mask
+    /// stamping, the identity-only empty mask, and minted names driving real
+    /// enforcement at a RequireViewer route; every refusal — missing bearer,
+    /// masked caller, service-account caller, and the mask refusal preceding
+    /// the service-account lookup when a bearer is both — plus the bearer
+    /// handling of the endpoint as a whole (an invalid bearer is rejected
+    /// regardless of grant) and the typed extractor's rejection of
+    /// structurally invalid requests.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
@@ -340,16 +344,86 @@ mod test {
         .await;
         assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
 
-        // === A caller without an email claim mints a token without one ===
-        let no_email_token = server.make_access_token(ALICE, None);
+        // === Minted names are enforcement's vocabulary ===
+        // The mask is opaque at mint, so nothing above proves that a name the
+        // mint stamps is a name enforcement recognizes — a token whose names
+        // enforcement couldn't parse would round-trip every claim assertion
+        // and still be functionally identity-only. Driving a
+        // RequireViewer route with minted tokens closes that seam through
+        // real extraction: the Viewer-bearing mask passes the requirement
+        // gate (the 307 is the walk's provisional denial under the test's
+        // empty first Snapshot — extraction is already behind it), while the
+        // identity-only mask is the structured shortfall 403.
+        let no_redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let probe_status = |bearer: String| {
+            let url = server.base_url().join("/api/v1/catalog/status").unwrap();
+            let no_redirect = no_redirect.clone();
+            async move {
+                let response = no_redirect
+                    .get(url)
+                    .query(&[("name", "aliceCo/thing")])
+                    .bearer_auth(bearer)
+                    .send()
+                    .await
+                    .unwrap();
+                (response.status(), response.text().await.unwrap())
+            }
+        };
+
+        let (status, body) = probe_status(minted_token.clone()).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::TEMPORARY_REDIRECT,
+            "a minted Viewer mask clears the requirement gate: {body}"
+        );
+
+        let (status, body) = probe_status(identity_token.clone()).await;
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{body}");
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(body["error"], "missing_capabilities");
+        assert!(
+            !body["missing_capabilities"].as_array().unwrap().is_empty(),
+            "the shortfall names the Viewer capabilities: {body}"
+        );
+
+        // === Identity claims are copied, not assumed ===
+        // Every other bearer in this test carries role "authenticated" and an
+        // email, which a hardcoded role literal and an invented email would
+        // satisfy equally well. A scoped role — the shape of a pg_role CI
+        // credential — distinguishes copy-through (role fidelity is what
+        // keeps a minted token authorizing as its caller does against
+        // Supabase/PostgREST's SET ROLE), and the same bearer's absent email
+        // pins that the mint carries `None` rather than inventing a value.
+        let scoped_role_token = {
+            let now = tokens::now();
+            let claims = models::authorizations::ControlClaims {
+                iat: now.timestamp() as u64,
+                exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
+                sub: ALICE,
+                role: "github_action_connector_refresh".to_string(),
+                aud: "authenticated".to_string(),
+                email: None,
+                capability_mask: None,
+            };
+            jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &server.encoding_key,
+            )
+            .unwrap()
+        };
         let (status, body) = post_token(
             &server,
             &capability_request(serde_json::json!(["CatalogRead"])),
-            Some(&no_email_token),
+            Some(&scoped_role_token),
         )
         .await;
-        assert_eq!(status, reqwest::StatusCode::OK, "email-less mint: {body}");
+        assert_eq!(status, reqwest::StatusCode::OK, "scoped-role mint: {body}");
         let (claims, _token) = claims_of(&body);
+        assert_eq!(claims.role, "github_action_connector_refresh");
         assert_eq!(claims.email, None);
 
         // === The grant requires an authenticated caller ===
@@ -393,6 +467,24 @@ mod test {
             @r###"403 Forbidden: {"error":"service_account_forbidden","message":"this operation is restricted to human users, but the bearer token belongs to a service account","missing_capabilities":[]}"###
         );
 
+        // A bearer which is both masked and a service account gets the mask
+        // refusal: the pure-claims check runs before the database lookup, so
+        // the cheaper check decides and the response discloses nothing the
+        // claims don't already say.
+        let masked_svc_token =
+            server.make_masked_access_token(svc_user, None, Some(vec!["CatalogRead"]));
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!(["CatalogRead"])),
+            Some(&masked_svc_token),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
+        assert!(
+            body.contains("unmasked_token_required"),
+            "the mask refusal precedes the service-account lookup: {body}"
+        );
+
         // === An invalid bearer is rejected regardless of grant ===
         // The endpoint verifies any Authorization header it is given, so a
         // broken bearer fails even the otherwise-unauthenticated
@@ -410,13 +502,21 @@ mod test {
         .await;
         assert_eq!(status, reqwest::StatusCode::UNAUTHORIZED);
 
-        // === An unknown grant is rejected by the typed extractor ===
-        let (status, _body) = post_token(
-            &server,
-            &serde_json::json!({ "grant_type": "not_a_grant" }),
-            Some(&alice_token),
-        )
-        .await;
-        assert_eq!(status, reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+        // === Structurally invalid requests are rejected by the typed extractor ===
+        // `capability_mask` is a required array, so the grant structurally
+        // cannot be spoken without one — there is no request shape which
+        // mints an unmasked token — and null is not the empty mask.
+        for invalid in [
+            serde_json::json!({ "grant_type": "not_a_grant" }),
+            serde_json::json!({ "grant_type": "capability_token" }),
+            serde_json::json!({ "grant_type": "capability_token", "capability_mask": null }),
+        ] {
+            let (status, body) = post_token(&server, &invalid, Some(&alice_token)).await;
+            assert_eq!(
+                status,
+                reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+                "{invalid}: {body}"
+            );
+        }
     }
 }
