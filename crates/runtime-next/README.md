@@ -247,6 +247,13 @@ session's `shuffle::Completed`. Pruning forgets a producer, so only the
 session's matching horizon rule can still discharge a later backfill's causal
 hints naming it. Read both doc comments before touching either.
 
+## Binding gap floors (`GF:`)
+
+Shard zero holds one `GF:{state_key}` row per binding: the shuffle Session's
+*binding gap floor* (see `crates/shuffle/README.md`). A floor is not transaction
+state: it rides either `Persist` Frontier, restores onto the committed Frontier,
+and neither `delete_*_frontier` clears it.
+
 ## Idempotent recovery (materialize)
 
 A leader whose startup scan finds a hinted-but-uncommitted transaction opens

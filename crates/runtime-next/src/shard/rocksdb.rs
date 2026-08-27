@@ -239,6 +239,7 @@ impl RocksDB {
                     let mut committed_backfill_complete = std::collections::BTreeMap::new();
                     let mut hinted_backfill_begin = std::collections::BTreeMap::new();
                     let mut hinted_backfill_complete = std::collections::BTreeMap::new();
+                    let mut gap_floors = std::collections::BTreeMap::new();
 
                     let mut it = self.db.raw_iterator();
                     it.seek_to_first();
@@ -252,6 +253,7 @@ impl RocksDB {
                             &mut committed_backfill_complete,
                             &mut hinted_backfill_begin,
                             &mut hinted_backfill_complete,
+                            &mut gap_floors,
                             key,
                             value,
                             &index,
@@ -306,14 +308,15 @@ impl RocksDB {
                             .then(|| shuffle::JournalFrontier::encode(&frontier));
                     }
 
-                    // Fold the persisted backfill clocks onto the recovered committed
-                    // and hinted Frontiers (keyed by binding index).
-                    recovery::restore_backfill_clocks(
+                    // Fold the persisted backfill clocks and gap floors onto the recovered
+                    // Frontiers (keyed by binding index).
+                    recovery::restore_binding_clocks(
                         &mut recover,
                         committed_backfill_begin,
                         committed_backfill_complete,
                         hinted_backfill_begin,
                         hinted_backfill_complete,
+                        gap_floors,
                     );
 
                     Ok((self, recover))
@@ -817,10 +820,27 @@ mod test {
             },
         ]);
 
+        // Per-binding clocks ride the committed frontier.
+        let committed_frontier = shuffle::proto::Frontier {
+            latest_backfill_begin: vec![shuffle::proto::frontier::BackfillBegin {
+                binding: 1,
+                clock: 700,
+            }],
+            latest_backfill_complete: vec![shuffle::proto::frontier::BackfillComplete {
+                binding: 1,
+                clock: 600,
+            }],
+            binding_gap_floors: vec![shuffle::proto::frontier::BindingGapFloor {
+                binding: 1,
+                clock: 900,
+            }],
+            ..frontier.clone()
+        };
+
         let db = db
             .persist(
                 &proto::Persist {
-                    committed_frontier: Some(frontier.clone()),
+                    committed_frontier: Some(committed_frontier.clone()),
                     hinted_frontier: Some(frontier),
                     ..Default::default()
                 },
@@ -850,6 +870,24 @@ mod test {
         assert_eq!(committed[1].binding, 1);
         assert_eq!(hinted[0].binding, 0);
         assert_eq!(hinted[1].binding, 1);
+
+        let recovered = recover.committed_frontier.as_ref().unwrap();
+        assert_eq!(
+            recovered.latest_backfill_begin,
+            committed_frontier.latest_backfill_begin
+        );
+        assert_eq!(
+            recovered.latest_backfill_complete,
+            committed_frontier.latest_backfill_complete
+        );
+        assert_eq!(
+            recovered.binding_gap_floors,
+            committed_frontier.binding_gap_floors
+        );
+        let recovered = recover.hinted_frontier.as_ref().unwrap();
+        assert!(recovered.latest_backfill_begin.is_empty());
+        assert!(recovered.latest_backfill_complete.is_empty());
+        assert!(recovered.binding_gap_floors.is_empty());
     }
 
     /// `scan` drops stale `FC:` producers (old clock AND far behind in bytes)
