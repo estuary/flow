@@ -247,30 +247,42 @@ def main() -> None:
     agent_dirs = closure(repo_root, "agent")
     flowctl_dirs = closure(repo_root, "flowctl")
 
-    reconcile(
-        args.repo, args.repo_dir, "agent", agent_dirs,
-        "pending:agent-api",
-        "Merged, ships via Deploy agent-api, and not yet deployed",
-        agent_api_commit(args.repo, args.deploy_run),
-        args.end_ref,
-        apply=not args.dry_run,
-    )
-    reconcile(
-        args.repo, args.repo_dir, "agent", agent_dirs,
-        "pending:agent",
-        "Merged, in the control-plane-agent image, and not yet rolled to flow-agent",
-        worker_commit(args.repo),
-        args.end_ref,
-        apply=not args.dry_run,
-    )
-    reconcile(
-        args.repo, args.repo_dir, "flowctl", flowctl_dirs,
-        "pending:flowctl",
-        "Merged, changes the flowctl binary, and not in a published release",
-        flowctl_release_commit(args.repo),
-        args.end_ref,
-        apply=not args.dry_run,
-    )
+    # (target, closure, label, description, baseline). Baselines are resolved
+    # lazily and each label reconciles independently: one target's failure —
+    # e.g. a missing GH_TOKEN_OPS — must not skip the others.
+    targets = [
+        (
+            "agent", agent_dirs, "pending:agent-api",
+            "Merged, ships via Deploy agent-api, and not yet deployed",
+            lambda: agent_api_commit(args.repo, args.deploy_run),
+        ),
+        (
+            "agent", agent_dirs, "pending:agent",
+            "Merged, in the control-plane-agent image, and not yet rolled to flow-agent",
+            lambda: worker_commit(args.repo),
+        ),
+        (
+            "flowctl", flowctl_dirs, "pending:flowctl",
+            "Merged, changes the flowctl binary, and not in a published release",
+            lambda: flowctl_release_commit(args.repo),
+        ),
+    ]
+
+    failed = []
+    for target, dirs, label, description, baseline in targets:
+        try:
+            reconcile(
+                args.repo, args.repo_dir, target, dirs,
+                label, description, baseline(), args.end_ref,
+                apply=not args.dry_run,
+            )
+        except (Exception, SystemExit) as err:
+            detail = getattr(err, "stderr", "") or str(err)
+            print(f"{label}: FAILED: {detail.strip()}", file=sys.stderr)
+            failed.append(label)
+
+    if failed:
+        raise SystemExit(f"error: reconciliation failed for: {', '.join(failed)}")
 
 
 if __name__ == "__main__":
