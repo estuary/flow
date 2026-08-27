@@ -101,10 +101,10 @@ impl LiveSpec {
             env.claims()?,
             super::bearer_mask(ctx)?,
             [source_capture_name.clone()],
-            |name, bits, legacy| {
+            |name, authorization| {
                 Some(LiveSpecRef {
                     catalog_name: models::Name::new(name),
-                    user_capability: super::live_spec_refs::user_capability_field(bits, legacy),
+                    user_capability: super::live_spec_refs::user_capability_field(authorization),
                 })
             },
         );
@@ -449,6 +449,17 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        // The capture's model also names a collection outside carol's
+        // grants, exercising the writesTo path where an inaccessible
+        // referent presents as a null ref.
+        sqlx::query(
+            "UPDATE public.live_specs
+             SET writes_to = ARRAY['aliceCo/data/foo', 'aliceCo/out/forbidden']::catalog_name[]
+             WHERE catalog_name = 'aliceCo/in/capture-foo'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         // Carol can read aliceCo/data/ and aliceCo/in/ — both entirely from
         // the bundles column — but not aliceCo/out/. writtenBy and readBy
@@ -518,6 +529,82 @@ mod tests {
                             "node": {
                               "catalogName": "aliceCo/in/capture-foo",
                               "userCapability": "none"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        // writesTo refs are un-filtered: the accessible referent serves its
+        // gated fields under the bundles-only label, while the referent
+        // outside carol's grants presents as a null ref — userCapability
+        // null and every gated field null.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/in/capture-foo"] }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    liveSpec {
+                                        writesTo {
+                                            edges {
+                                                node {
+                                                    catalogName
+                                                    userCapability
+                                                    activeAlerts { alertType }
+                                                    liveSpec { catalogType }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                "#
+                }),
+                Some(&carol),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response,
+          @r#"
+        {
+          "data": {
+            "liveSpecs": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogName": "aliceCo/in/capture-foo",
+                    "liveSpec": {
+                      "writesTo": {
+                        "edges": [
+                          {
+                            "node": {
+                              "activeAlerts": [],
+                              "catalogName": "aliceCo/data/foo",
+                              "liveSpec": {
+                                "catalogType": "collection"
+                              },
+                              "userCapability": "none"
+                            }
+                          },
+                          {
+                            "node": {
+                              "activeAlerts": null,
+                              "catalogName": "aliceCo/out/forbidden",
+                              "liveSpec": null,
+                              "userCapability": null
                             }
                           }
                         ]
