@@ -208,7 +208,7 @@ mod test {
         // handlers' walk requirement (legacy Read) are two statements of one
         // fact; this pins them together so they cannot drift.
         assert_eq!(
-            <crate::RequireViewer as crate::Requirement>::REQUIRED,
+            <crate::RequireViewer as crate::Requirement>::required(),
             models::authz::bits_for_legacy(models::Capability::Read),
         );
     }
