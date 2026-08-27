@@ -130,7 +130,7 @@ impl AlertConfigsQuery {
                 &snapshot.user_grants,
                 claims.sub,
                 super::bearer_mask(ctx)?,
-                models::Capability::Read,
+                models::authz::CapabilityBundle::Viewer,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",
             )?;
