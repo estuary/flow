@@ -88,14 +88,17 @@ impl Requirement for RequireViewer {
 #[derive(Debug, serde::Serialize)]
 pub struct Forbidden {
     /// Stable machine-readable code: `missing_capabilities` when the
-    /// bearer's mask does not enable required capabilities, or
+    /// bearer's mask does not enable required capabilities,
     /// `unmasked_token_required` when the operation refuses masked bearers
-    /// outright (which no re-mint can remedy).
+    /// outright (which no re-mint can remedy), or
+    /// `service_account_forbidden` when the operation is restricted to
+    /// human users and the bearer is a service-account identity.
     pub error: &'static str,
     /// Human-readable description of the refusal.
     pub message: String,
     /// PascalCase names of capabilities which are required but not enabled
-    /// by the bearer's mask. Empty for `unmasked_token_required`.
+    /// by the bearer's mask. Empty for `unmasked_token_required` and
+    /// `service_account_forbidden`.
     pub missing_capabilities: Vec<&'static str>,
 }
 
@@ -134,6 +137,14 @@ impl Forbidden {
         Self {
             error: "unmasked_token_required",
             message: "this operation requires a full-authority token, but the bearer token carries a capability mask".to_string(),
+            missing_capabilities: Vec::new(),
+        }
+    }
+
+    pub fn service_account_forbidden() -> Self {
+        Self {
+            error: "service_account_forbidden",
+            message: "this operation is restricted to human users, but the bearer token belongs to a service account".to_string(),
             missing_capabilities: Vec::new(),
         }
     }
