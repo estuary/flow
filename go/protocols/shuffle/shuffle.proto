@@ -137,6 +137,17 @@ message Frontier {
   // Populated only on a terminal (empty-journals) frontier of a Progressed
   // or NextCheckpoint sequence. Empty otherwise.
   repeated BackfillComplete latest_backfill_complete = 4;
+
+  // BindingGapFloor is a binding's gap floor: a clock below which its causal
+  // hints are unreachable, raised by a byte gap at read start.
+  message BindingGapFloor {
+    // Binding index within this task version.
+    uint32 binding = 1;
+    // Gap floor clock of this binding.
+    fixed64 clock = 2;
+  }
+  // Gap floors, sorted and unique on binding.
+  repeated BindingGapFloor binding_gap_floors = 5;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.
