@@ -148,8 +148,10 @@ class TestFlowctlTarget(unittest.TestCase):
 
     def test_flowctl_sources_ship(self):
         self.assertTrue(self.verdict("crates/flowctl/src/ops.rs").ships)
-        # flow-client-next is the CLI's client of the control-plane API;
-        # flow-client (no -next) is dekaf's and is NOT in this closure.
+        # flowctl has moved to flow-client-next; its predecessor flow-client
+        # is still used by dekaf (only), so it is not in flowctl's closure.
+        # When dekaf adopts flow-client-next, closures follow the manifests
+        # automatically and only this pin needs a fresh look.
         self.assertTrue(self.verdict("crates/flow-client-next/src/lib.rs").ships)
         self.assertFalse(self.verdict("crates/flow-client/src/lib.rs").ships)
 
