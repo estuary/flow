@@ -423,65 +423,69 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         let key = self.spec.keys[binding].as_ref();
         let validator = &mut self.spec.validators[validator_index];
 
-        // `reduced` root which is updated as reductions occur.
-        let mut reduced: Option<HeapNode<'_>> = None;
+        let reduced: Option<HeapNode<'_>> = loop {
+            // `reduced` root which is updated as reductions occur.
+            let mut reduced: Option<HeapNode<'_>> = None;
 
-        // Attempt to reduce additional entries.
-        while let Some(cmp::Reverse(next)) = self.heap.peek() {
-            if meta.0 != next.head.meta.0
-                || !Extractor::compare_key(key, root.get(), next.head.root.get()).is_eq()
-            {
-                self.in_group = false;
-                break;
-            } else if !is_full && (!self.in_group || meta.not_associative()) {
-                // We're performing associative reductions and:
-                // * This is the first document of a group, which we cannot reduce into, or
-                // * We've already attempted this associative reduction.
-                self.in_group = true;
-                break;
-            }
-
-            let rhs_outcomes = validator
-                .validate(next.head.root.get(), validation::reduce_filter)
-                .map_err(|invalid| {
-                    let rhs_binding = next.head.meta.binding();
-                    let rhs_index = self.spec.validator_index[rhs_binding] as usize;
-
-                    Error::FailedValidation(
-                        super::memtable::failed_name(&self.spec.names[rhs_index], rhs_binding),
-                        invalid,
-                    )
-                })?;
-
-            match reduce::reduce::<crate::ArchivedNode>(
-                match &reduced {
-                    Some(root) => LazyNode::Heap(root),
-                    None => LazyNode::Node(root.get()),
-                },
-                LazyNode::Node(next.head.root.get()),
-                &rhs_outcomes,
-                &self.alloc,
-                is_full,
-            ) {
-                Ok((node, deleted)) => {
-                    meta.set_deleted(deleted);
-                    meta.set_known_valid(false); // Must re-validate.
-                    reduced = Some(node);
-
-                    // Discard the peeked entry, which was reduced into `reduced_root`.
-                    let segment = self.heap.pop().unwrap().0;
-                    let (_discard, segment) = segment.pop_head(&mut self.spill)?;
-                    if let Some(segment) = segment {
-                        self.heap.push(cmp::Reverse(segment));
-                    }
-                }
-                Err(reduce::Error::NotAssociative) => {
-                    meta.set_not_associative();
+            // Attempt to reduce additional entries.
+            while let Some(cmp::Reverse(next)) = self.heap.peek() {
+                if meta.0 != next.head.meta.0
+                    || !Extractor::compare_key(key, root.get(), next.head.root.get()).is_eq()
+                {
+                    self.in_group = false;
+                    break;
+                } else if !is_full && (!self.in_group || meta.not_associative()) {
+                    // We're performing associative reductions and:
+                    // * This is the first document of a group, which we cannot reduce into, or
+                    // * We've already attempted this associative reduction.
+                    self.in_group = true;
                     break;
                 }
-                Err(err) => return Err(Error::Reduce(err)),
+
+                let rhs_outcomes = validator
+                    .validate(next.head.root.get(), validation::reduce_filter)
+                    .map_err(|invalid| {
+                        let rhs_binding = next.head.meta.binding();
+                        let rhs_index = self.spec.validator_index[rhs_binding] as usize;
+
+                        Error::FailedValidation(
+                            super::memtable::failed_name(&self.spec.names[rhs_index], rhs_binding),
+                            invalid,
+                        )
+                    })?;
+
+                match reduce::reduce::<crate::ArchivedNode>(
+                    match &reduced {
+                        Some(root) => LazyNode::Heap(root),
+                        None => LazyNode::Node(root.get()),
+                    },
+                    LazyNode::Node(next.head.root.get()),
+                    &rhs_outcomes,
+                    &self.alloc,
+                    is_full,
+                ) {
+                    Ok((node, deleted)) => {
+                        meta.set_deleted(deleted);
+                        meta.set_known_valid(false); // Must re-validate.
+                        reduced = Some(node);
+
+                        // Discard the peeked entry, which was reduced into `reduced`.
+                        let segment = self.heap.pop().unwrap().0;
+                        let (_discard, segment) = segment.pop_head(&mut self.spill)?;
+                        if let Some(segment) = segment {
+                            self.heap.push(cmp::Reverse(segment));
+                        }
+                    }
+                    Err(reduce::Error::NotAssociative) => {
+                        meta.set_not_associative();
+                        break;
+                    }
+                    Err(err) => return Err(Error::Reduce(err)),
+                }
             }
-        }
+
+            break reduced;
+        };
 
         let outcomes = if meta.known_valid() {
             Vec::new() // Skip validation.
