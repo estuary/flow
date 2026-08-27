@@ -220,6 +220,32 @@ impl super::UserGrant {
             .max()
     }
 
+    /// The user's authorization for `object_role_or_name`: effective
+    /// capability bits accumulated additively across every covering node
+    /// (the decision input), paired with the max legacy label among covering
+    /// nodes that carry one (compatibility metadata).
+    ///
+    /// The bits are mask-attenuated like every walk emission; the legacy
+    /// label passes through un-attenuated per `get_user_capability`, and is
+    /// `None` when coverage comes entirely from `bundles`-column grants.
+    pub fn get_user_authorization<'a>(
+        role_grants: &'a [super::RoleGrant],
+        user_grants: &'a [super::UserGrant],
+        user_id: uuid::Uuid,
+        object_role_or_name: &str,
+        mask: authz::CapabilityMask,
+    ) -> (authz::CapabilitySet, Option<models::Capability>) {
+        Self::reachable_nodes(role_grants, user_grants, user_id, mask)
+            .filter(|n| object_role_or_name.starts_with(n.object_role))
+            .fold(
+                (authz::CapabilitySet::empty(), None),
+                |(bits, legacy), n| {
+                    let node_legacy = Some(n.legacy).filter(|c| *c != models::Capability::None);
+                    (bits | n.capabilities, legacy.max(node_legacy))
+                },
+            )
+    }
+
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
@@ -2147,5 +2173,141 @@ mod test {
             UserGrant::get_user_capability(&role_grants, &user_grants, user_id, "sharedCo/", mask),
             Some(models::Capability::Read),
         );
+    }
+
+    #[test]
+    fn test_get_user_authorization() {
+        use Capability::*;
+
+        let user_id = uuid::Uuid::from_bytes([1; 16]);
+        let user_grants = UserGrants::from_iter([
+            // A bundles-only grant: authorization comes entirely from the
+            // bundles column and there is no legacy value to report.
+            UserGrant {
+                user_id,
+                object_role: models::Prefix::new("acmeCo/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::Viewer],
+            },
+            // A legacy grant, whose node carries both bits and a label.
+            UserGrant {
+                user_id,
+                object_role: models::Prefix::new("otherCo/"),
+                capability: models::Capability::Admin,
+                bundles: vec![],
+            },
+        ]);
+        let role_grants = RoleGrants::from_iter([RoleGrant {
+            subject_role: models::Prefix::new("otherCo/"),
+            object_role: models::Prefix::new("sharedCo/"),
+            capability: models::Capability::Read,
+            bundles: vec![],
+        }]);
+
+        // Unmasked: the bundles-only grant reports its full Viewer bits with
+        // no legacy label; the legacy grant reports both halves.
+        let mask = authz::CapabilityMask::ALL_CAPABILITIES;
+        assert_eq!(
+            UserGrant::get_user_authorization(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "acmeCo/thing",
+                mask
+            ),
+            (CapabilityBundle::Viewer.capabilities(), None),
+        );
+        assert_eq!(
+            UserGrant::get_user_authorization(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "otherCo/thing",
+                mask
+            ),
+            (
+                CapabilityBundle::Admin.capabilities(),
+                Some(models::Capability::Admin)
+            ),
+        );
+
+        // An uncovered name reports neither bits nor a label.
+        assert_eq!(
+            UserGrant::get_user_authorization(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "unrelatedCo/thing",
+                mask
+            ),
+            (EnumSet::empty().into(), None),
+        );
+
+        // Masked: bits are the mask-attenuated effective bits, while a
+        // reached node's legacy label passes through un-attenuated.
+        let mask = authz::CapabilityMask::bounded(CatalogRead | Delegate);
+        assert_eq!(
+            UserGrant::get_user_authorization(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "sharedCo/thing",
+                mask
+            ),
+            (
+                EnumSet::from(CatalogRead).into(),
+                Some(models::Capability::Read)
+            ),
+        );
+
+        // An identity-only mask attenuates bits to nothing while a directly
+        // granted node still reports its legacy label.
+        let mask = authz::CapabilityMask::bounded(EnumSet::empty());
+        assert_eq!(
+            UserGrant::get_user_authorization(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "otherCo/thing",
+                mask
+            ),
+            (EnumSet::empty().into(), Some(models::Capability::Admin)),
+        );
+    }
+
+    #[test]
+    fn test_get_user_authorization_multi_path_composition() {
+        // Two grants cover the same name with complementary authority:
+        // bits compose additively across covering nodes, and the legacy
+        // label is the max across nodes that carry one.
+        let user_id = uuid::Uuid::from_bytes([1; 16]);
+        let user_grants = UserGrants::from_iter([
+            UserGrant {
+                user_id,
+                object_role: models::Prefix::new("acmeCo/"),
+                capability: models::Capability::Read,
+                bundles: vec![],
+            },
+            UserGrant {
+                user_id,
+                object_role: models::Prefix::new("acmeCo/data/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::Editor],
+            },
+        ]);
+        let role_grants = RoleGrants::from_iter([]);
+
+        let (bits, legacy) = UserGrant::get_user_authorization(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "acmeCo/data/thing",
+            authz::CapabilityMask::ALL_CAPABILITIES,
+        );
+        assert_eq!(
+            bits,
+            CapabilityBundle::Viewer.capabilities() | CapabilityBundle::Editor.capabilities(),
+        );
+        assert_eq!(legacy, Some(models::Capability::Read));
     }
 }
