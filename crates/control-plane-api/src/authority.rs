@@ -70,17 +70,17 @@ impl Requirement for NoRequirement {
 /// - `/admin/create-data-plane` and `/admin/update-l2-reporting`: their
 ///   SQL authorization cannot bind the mask, so they fail closed instead.
 ///
-/// Every other identity-gated operation deliberately stays open to masked
-/// bearers: revocations (`revokeRefreshToken`, `revokeApiKey`, and kin)
-/// never widen the bearer's authority; credential-adjacent operations like
-/// `createApiKey` and `createServiceAccount` authorize through the grant
-/// walk, which the mask already filters; and invite redemption widens the
-/// *user's* grants while the bearer still exercises them only through its
-/// mask. SQL functions reachable through PostgREST
-/// (`public.create_refresh_token`, `public.gateway_auth_token`) are outside
-/// this crate's enforcement entirely — they are part of the documented
-/// PostgREST mask bypass whose resolution is the #2877 migration, tracked
-/// under #3376.
+/// Everything else needs no unmasked guard. Identity-gated revocation
+/// (`revokeRefreshToken`) deliberately stays open to masked bearers,
+/// because revocation never widens the bearer's authority.
+/// Capability-gated operations — `createApiKey`, `createServiceAccount`,
+/// `revokeApiKey`, and kin — authorize through the grant walk, which the
+/// mask already filters. Invite redemption widens the *user's* grants
+/// while the bearer still exercises them only through its mask. SQL
+/// functions reachable through PostgREST (`public.create_refresh_token`,
+/// `public.gateway_auth_token`) are outside this crate's enforcement
+/// entirely — they are part of the documented PostgREST mask bypass whose
+/// resolution is the #2877 migration, tracked under #3376.
 pub struct RequireUnmasked;
 
 impl Requirement for RequireUnmasked {
