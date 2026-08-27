@@ -98,6 +98,13 @@ pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
 pub const PRODUCER_STALENESS_HORIZON: std::time::Duration =
     std::time::Duration::from_secs(48 * 60 * 60);
 
+/// Margin added to the clock sampled by
+/// [`slice::read::ReadState::sample_gap_floor`].
+///
+/// It covers producer clock skew only: offset order is not clock order, so an
+/// ACK the gap removed may post-date the sample.
+pub const CAUSAL_HINT_GAP_MARGIN: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 /// Return the current wall-clock time as a `uuid::Clock`.
 ///
 /// This routine is aware of tokio paused/advanced test time when running

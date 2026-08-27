@@ -69,6 +69,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -89,6 +91,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -109,6 +113,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {},
                 unreported: {},
                 read_offset: 123,
@@ -200,6 +206,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -220,6 +228,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {},
                 unreported: {},
                 read_offset: 0,
@@ -300,6 +310,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -320,6 +332,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -405,6 +419,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -425,6 +441,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
@@ -508,6 +526,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
@@ -586,6 +606,8 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
+                pending_gap: false,
+                gap_floor: Clock(0s 0ns),
                 reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 0ns),

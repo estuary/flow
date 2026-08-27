@@ -32,6 +32,10 @@ pub struct ReadState {
     /// Truncation boundary of the latest `BackfillComplete` folded from a
     /// committing ACK on this journal, awaiting the next flush (zero = none).
     pub backfill_complete: uuid::Clock,
+    /// Whether a read-start byte gap awaits its first document.
+    pub pending_gap: bool,
+    /// Sampled gap floor, awaiting the next flush (zero = none).
+    pub gap_floor: uuid::Clock,
     /// Producers whose state has been reported in a flush frontier: either from
     /// the initial checkpoint or drained from `unreported` at the start of a
     /// flush cycle.
@@ -84,6 +88,8 @@ impl ReadState {
             truncated_at,
             backfill_begin: uuid::Clock::zero(),
             backfill_complete: uuid::Clock::zero(),
+            pending_gap: false,
+            gap_floor: uuid::Clock::zero(),
             reported,
             unreported: Default::default(),
             read_offset: 0,
@@ -114,6 +120,25 @@ impl ReadState {
         self.prev_read_offset = offset;
         self.write_head = offset;
         self.prev_write_head = offset;
+    }
+
+    /// Sample the first document past a read-start byte gap into `gap_floor`,
+    /// plus [`crate::CAUSAL_HINT_GAP_MARGIN`].
+    ///
+    /// Every ACK the gap removed precedes this document in offset order, so the
+    /// sample bounds them all. Hints naming them can never resolve on this read.
+    ///
+    /// `notBefore` is not consulted: it suppresses append but not commits
+    /// (`super::state::sequence_producer`), so hints still resolve from any
+    /// document the read receives. It bears on the floor only when it opens a gap.
+    pub fn sample_gap_floor(&mut self, clock: uuid::Clock) {
+        if !std::mem::take(&mut self.pending_gap) {
+            return;
+        }
+        // A duration as a Clock delta, encoded as `Binding::read_delay` is.
+        let margin =
+            uuid::Clock::from_u64((crate::CAUSAL_HINT_GAP_MARGIN.as_secs() * 10_000_000) << 4);
+        self.gap_floor = self.gap_floor.max(clock + margin);
     }
 
     /// Fold a just-sequenced commit's `post` producer state into [`Park`],
@@ -615,5 +640,29 @@ mod test {
             .expect_err("should fail for missing UUID");
 
         insta::assert_debug_snapshot!(err.to_string());
+    }
+
+    #[test]
+    fn test_gap_floor_at_read_start() {
+        let clock = |secs| uuid::Clock::from_unix(secs, 0);
+        let margin = crate::CAUSAL_HINT_GAP_MARGIN.as_secs();
+        let mut read = recovered(&[]);
+
+        // No gap: nothing is sampled.
+        read.sample_gap_floor(clock(20));
+        assert_eq!(read.gap_floor, uuid::Clock::zero());
+
+        // A gap samples its first document plus the margin, and nothing after.
+        read.pending_gap = true;
+        read.sample_gap_floor(clock(20));
+        assert!(!read.pending_gap);
+        assert_eq!(read.gap_floor, clock(20 + margin));
+        read.sample_gap_floor(clock(30));
+        assert_eq!(read.gap_floor, clock(20 + margin));
+
+        // The floor only rises.
+        read.pending_gap = true;
+        read.sample_gap_floor(clock(15));
+        assert_eq!(read.gap_floor, clock(20 + margin));
     }
 }
