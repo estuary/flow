@@ -1155,6 +1155,12 @@ type LiveSpecRef {
 	name, and passing a name that the user cannot access. In either case,
 	the result would be `userCapability: null`, and all other fields on the
 	LiveSpecRef would also be null.
+	
+	Access is decided by the user's effective capability bits under the
+	bearer's mask, and a non-null value is the literal legacy `capability`
+	column of the covering grant(s): informational compatibility metadata,
+	reported as `none` when access comes entirely from the `bundles`
+	column.
 	"""
 	userCapability: Capability
 	"""
@@ -1373,6 +1379,8 @@ type MutationRoot {
 	"""
 	Create a refresh token for the authenticated user.
 	
+	Capability-masked callers are rejected: a refresh token exchanges for
+	a full-authority access token, which would escape the bearer's mask.
 	Service-account callers are rejected: their API keys are administered
 	via createApiKey and revokeApiKey.
 	"""

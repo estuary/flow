@@ -20,9 +20,9 @@ pub struct Response {
 }
 
 /// Authorization is SQL `internal.user_roles` rather than the snapshot walk,
-/// so the bearer's capability mask has no effect — a masked bearer is
-/// treated as unmasked — until this endpoint's authorization is refactored
-/// onto the snapshot. See #3376.
+/// so the capability ceiling cannot bind here; `RequireUnmasked` fail-closes
+/// masked bearers instead, until the wider refactor retires this endpoint's
+/// SQL authorization (#3376, decision 12).
 #[axum::debug_handler]
 #[tracing::instrument(
     skip(app),
@@ -30,7 +30,7 @@ pub struct Response {
 )]
 pub async fn update_l2_reporting(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
-    crate::Authority { envelope: env, .. }: crate::Authority,
+    crate::Authority { envelope: env, .. }: crate::Authority<crate::RequireUnmasked>,
     super::Request(Request {
         default_data_plane,
         dry_run,
@@ -365,4 +365,63 @@ fn camel_case(name: &str, mut upper: bool) -> String {
         }
     }
     w
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test_server;
+
+    const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
+
+    /// A masked bearer is refused at extraction with the structured `403`,
+    /// while an unmasked bearer reaches the handler's own `ops/` admin gate
+    /// unchanged.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_update_l2_reporting_requires_unmasked(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let body = serde_json::json!({"dryRun": true});
+
+        // The mask enables Admin, and is still refused: masked-ness is the
+        // claim's presence, never its value.
+        let masked_token =
+            server.make_masked_access_token(ALICE, Some("alice@example.com"), Some(vec!["Admin"]));
+        let response = server
+            .rest_client()
+            .post("/admin/update-l2-reporting", &body, Some(&masked_token))
+            .send()
+            .await
+            .unwrap();
+        let (status, text) = (response.status(), response.text().await.unwrap());
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{text}");
+        insta::assert_snapshot!(
+            text,
+            @r###"{"error":"unmasked_token_required","message":"this operation requires a full-authority token, but the bearer token carries a capability mask","missing_capabilities":[]}"###
+        );
+
+        // An unmasked bearer passes extraction and lands on the handler's
+        // SQL authorization, which refuses alice: she is no `ops/` admin.
+        let unmasked_token = server.make_access_token(ALICE, Some("alice@example.com"));
+        let response = server
+            .rest_client()
+            .post("/admin/update-l2-reporting", &body, Some(&unmasked_token))
+            .send()
+            .await
+            .unwrap();
+        let (status, text) = (response.status(), response.text().await.unwrap());
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{text}");
+        assert!(
+            text.contains("not an admin of the 'ops/' tenant"),
+            "the unmasked refusal is the handler's own gate: {text}"
+        );
+    }
 }

@@ -117,6 +117,8 @@ pub struct RefreshTokensMutation;
 impl RefreshTokensMutation {
     /// Create a refresh token for the authenticated user.
     ///
+    /// Capability-masked callers are rejected: a refresh token exchanges for
+    /// a full-authority access token, which would escape the bearer's mask.
     /// Service-account callers are rejected: their API keys are administered
     /// via createApiKey and revokeApiKey.
     async fn create_refresh_token(
@@ -133,6 +135,11 @@ impl RefreshTokensMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
+        // The mask refusal precedes the service-account lookup: it's a pure
+        // function of the verified claims, so a masked caller is refused
+        // without a database round-trip, in the same order as the
+        // capability_token mint.
+        crate::Forbidden::require_unmasked(claims).map_err(crate::ApiError::Forbidden)?;
         super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
 
         // ISO 8601 durations begin with 'P'; considering this cheap and good enough validation for now.
@@ -482,5 +489,82 @@ mod test {
             )
             .await;
         assert!(revoke_again["errors"].is_array());
+    }
+
+    /// A masked bearer cannot mint a refresh credential: a refresh token
+    /// exchanges for a full-authority access token, which would escape the
+    /// mask. Revocation never widens authority, so it deliberately stays
+    /// open to masked bearers.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_refresh_token_requires_unmasked(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let unmasked_token = server.make_access_token(alice, Some("alice@example.com"));
+        // The mask enables Admin, and is still refused: masked-ness is the
+        // claim's presence, never its value.
+        let masked_token =
+            server.make_masked_access_token(alice, Some("alice@example.com"), Some(vec!["Admin"]));
+
+        let refused: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { createRefreshToken(validFor: "P30D") { id } }"#
+                }),
+                Some(&masked_token),
+            )
+            .await;
+        assert_eq!(
+            refused["errors"][0]["extensions"]["error"], "unmasked_token_required",
+            "a masked caller is refused with the structured code: {refused}"
+        );
+        assert_eq!(
+            refused["errors"][0]["extensions"]["missing_capabilities"],
+            serde_json::json!([]),
+            "no re-mint can remedy this refusal: {refused}"
+        );
+
+        // An unmasked caller mints one...
+        let create: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { createRefreshToken(validFor: "P30D") { id } }"#
+                }),
+                Some(&unmasked_token),
+            )
+            .await;
+        assert!(
+            create["errors"].is_null(),
+            "create should succeed: {create}"
+        );
+        let token_id = create["data"]["createRefreshToken"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // ...and a masked bearer may revoke it.
+        let revoke: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation($id: Id!) { revokeRefreshToken(id: $id) }"#,
+                    "variables": { "id": token_id }
+                }),
+                Some(&masked_token),
+            )
+            .await;
+        assert!(
+            revoke["errors"].is_null(),
+            "masked revocation should succeed: {revoke}"
+        );
+        assert_eq!(revoke["data"]["revokeRefreshToken"], true);
     }
 }
