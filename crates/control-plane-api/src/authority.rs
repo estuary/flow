@@ -1,4 +1,4 @@
-use models::authz::{CapabilityMask, CapabilitySet};
+use models::authz::{CapabilityBundle, CapabilityMask, CapabilitySet};
 use std::sync::Arc;
 
 /// Requirement is a route's compile-time authorization precondition,
@@ -11,16 +11,32 @@ use std::sync::Arc;
 /// requirement by definition. Full authorization is still evaluated against
 /// the user grant walk under the extracted mask.
 pub trait Requirement: Send + Sync + 'static {
-    /// Capabilities which the bearer's mask must enable. A masked bearer
-    /// whose mask does not cover this set is rejected at extraction with a
-    /// structured `403` naming the missing capabilities, so that a client
-    /// can request a fresh capability token which enables them.
-    const REQUIRED: CapabilitySet;
+    /// Capability bundles which the bearer's mask must enable, spelled in
+    /// the same [`CapabilityBundle`] vocabulary the `capability_mask` claim
+    /// speaks — a composite bundle or an individual capability's same-named
+    /// bundle alike. A masked bearer whose mask does not cover the union of
+    /// their capability bits is rejected at extraction with a structured
+    /// `403` naming the missing capabilities, so that a client can request
+    /// a fresh capability token which enables them.
+    ///
+    /// [`Self::required`] computes the union of the declared bundles'
+    /// capability bits at evaluation time, because
+    /// `CapabilityBundle::capabilities` is not a `const fn` and so cannot
+    /// feed an associated const.
+    const REQUIRED: &'static [CapabilityBundle];
     /// Whether the route refuses masked bearers outright, regardless of what
     /// their mask enables. This keys on the *presence* of the
     /// `capability_mask` claim — a mask which happens to enable everything
     /// is still a deliberately-reduced credential.
     const REQUIRE_UNMASKED: bool;
+
+    /// The capability bits which [`Self::REQUIRED`] demands of the mask.
+    fn required() -> CapabilitySet {
+        Self::REQUIRED
+            .iter()
+            .map(|bundle| bundle.capabilities())
+            .fold(CapabilitySet::empty(), |set, bits| set | bits)
+    }
 }
 
 /// The default, vacuous [`Requirement`]: extraction is Maybe-shaped, so an
@@ -31,7 +47,7 @@ pub trait Requirement: Send + Sync + 'static {
 pub struct NoRequirement;
 
 impl Requirement for NoRequirement {
-    const REQUIRED: CapabilitySet = CapabilitySet::empty();
+    const REQUIRED: &'static [CapabilityBundle] = &[];
     const REQUIRE_UNMASKED: bool = false;
 }
 
@@ -45,7 +61,7 @@ impl Requirement for NoRequirement {
 pub struct RequireUnmasked;
 
 impl Requirement for RequireUnmasked {
-    const REQUIRED: CapabilitySet = CapabilitySet::empty();
+    const REQUIRED: &'static [CapabilityBundle] = &[];
     const REQUIRE_UNMASKED: bool = true;
 }
 
@@ -208,7 +224,8 @@ fn evaluate_requirement<R: Requirement>(
         return Err(Rejection::Forbidden(Forbidden::unmasked_token_required()));
     }
 
-    let missing = R::REQUIRED - mask.apply(R::REQUIRED);
+    let required = R::required();
+    let missing = required - mask.apply(required);
     if !missing.is_empty() {
         return Err(Rejection::Forbidden(Forbidden::missing_capabilities(
             missing,
@@ -247,15 +264,15 @@ impl<R: Requirement> aide::operation::OperationInput for Authority<R> {}
 mod test {
     use super::evaluate_requirement;
     use super::{Authority, NoRequirement, Rejection, RequireUnmasked, Requirement};
-    use models::authz::{Capability, CapabilityMask, CapabilitySet};
+    use models::authz::{Capability, CapabilityBundle, CapabilityMask, CapabilitySet};
 
     /// A representative capability-bearing requirement, as routes will
     /// declare once per-route requirements are put to use.
     struct RequireEdit;
 
     impl Requirement for RequireEdit {
-        const REQUIRED: CapabilitySet =
-            enumset::enum_set!(Capability::CatalogRead | Capability::SpecEdit);
+        const REQUIRED: &'static [CapabilityBundle] =
+            &[CapabilityBundle::CatalogRead, CapabilityBundle::SpecEdit];
         const REQUIRE_UNMASKED: bool = false;
     }
 
