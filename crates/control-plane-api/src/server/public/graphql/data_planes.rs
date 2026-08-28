@@ -1367,6 +1367,133 @@ mod tests {
         );
     }
 
+    // Tests the `filter.tenant` filter on the `dataPlanes` query. Expected behavior is to filter
+    // private planes to only the ones the given tenant owns, while public planes are also returned
+    // since they are shared across tenants. If no tenant filter is provided, the expectation is that
+    // all private planes the user has access to are returned along with public planes.
+    //
+    // The `sso_tenant` fixture is loaded only for the user records needed by the `bob_co` and `bob_co2`
+    // tenants. The `data_planes` fixture creates the needed public data planes.
+    //
+    // Bob belongs to `bobCo/` and `bobCo2/` and has access to their private planes. The two tenant names
+    // start with the same characters, so can be used to ensure that the tenant filter does not inadvertantly
+    // match other tenants, since under-the-hood it relies on a string prefix match.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("sso_tenant", "data_planes", "bob_co", "bob_co2",)
+        )
+    )]
+    async fn test_graphql_data_planes_tenant_filter(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Bob reads every plane below, so the tenant filter is the only thing
+        // that can narrow the listing.
+        let public_dps = vec![
+            "ops/dp/public/aws-us-west-2-c1".to_string(),
+            "ops/dp/public/gcp-us-central1-c2".to_string(),
+        ];
+        let bob_co_dps = vec![
+            "ops/dp/private/bobCo/aws-us-east-1-c1".to_string(),
+            "ops/dp/private/bobCo/az-eastus-c1".to_string(),
+            "ops/dp/private/bobCo/gcp-us-central1-c1".to_string(),
+        ];
+        let bob_co2_dps = vec!["ops/dp/private/bobCo2/aws-us-east-1-c1".to_string()];
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), None);
+
+        // Runs the `dataPlanes` query with the given `filter` argument.
+        async fn query(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> serde_json::Value {
+            server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        query($filter: DataPlanesFilter) {
+                            dataPlanes(filter: $filter) {
+                                edges { node { name isPublic } }
+                            }
+                        }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
+                    Some(token),
+                )
+                .await
+        }
+
+        // Collects the sorted set of returned data-plane names.
+        async fn names(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Vec<String> {
+            let response = query(server, token, filter).await;
+            let mut names: Vec<String> = response["data"]["dataPlanes"]["edges"]
+                .as_array()
+                .unwrap_or_else(|| panic!("expected edges, got: {response}"))
+                .iter()
+                .map(|e| e["node"]["name"].as_str().unwrap().to_string())
+                .collect();
+            names.sort();
+            names
+        }
+
+        // Sorted union of `public_dps` and the given private planes, which is
+        // the order the listing returns and `names` re-establishes.
+        fn flatten(expected_dps: &[&Vec<String>]) -> Vec<String> {
+            let mut want: Vec<String> = expected_dps.iter().copied().flatten().cloned().collect();
+            want.sort();
+            want
+        }
+
+        // Error case: a tenant filter must end with a slash
+        let response = query(&server, &token, serde_json::json!({ "tenant": "bobCo" })).await;
+        let error = response["errors"][0]["message"].as_str();
+        assert_eq!(
+            error.unwrap_or_default(),
+            "tenant filter must end with a slash"
+        );
+
+        // No filter: every readable plane, of both tenants.
+        let filter = serde_json::Value::Null;
+        let actual = names(&server, &token, filter.clone()).await;
+        let expected = flatten(&[&public_dps, &bob_co_dps, &bob_co2_dps]);
+        assert_eq!(actual, expected);
+
+        // A tenant keeps its own private planes and all public planes.
+        // Neither `bobCo/` nor `bobCo2/` picks up the other's, despite
+        // starting with the same prefix.
+        let filter = serde_json::json!({ "tenant": "bobCo/" });
+        let actual = names(&server, &token, filter.clone()).await;
+        let expected = flatten(&[&public_dps, &bob_co_dps]);
+        assert_eq!(actual, expected);
+        let filter = serde_json::json!({ "tenant": "bobCo2/" });
+        let actual = names(&server, &token, filter.clone()).await;
+        let expected = flatten(&[&public_dps, &bob_co2_dps]);
+        assert_eq!(actual, expected);
+
+        // A tenant with no private planes isn't an error: public planes are
+        // still shared with it.
+        let filter = serde_json::json!({ "tenant": "acmeCo/" });
+        let actual = names(&server, &token, filter.clone()).await;
+        let expected = public_dps.clone();
+        assert_eq!(actual, expected);
+
+        // Composing with `public` narrows to just the tenant's own planes.
+        let filter = serde_json::json!({ "tenant": "bobCo/", "public": { "eq": true } });
+        let actual = names(&server, &token, filter.clone()).await;
+        let expected = public_dps.clone();
+        assert_eq!(actual, expected);
+    }
+
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(
