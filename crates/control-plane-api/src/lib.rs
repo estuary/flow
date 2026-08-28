@@ -62,7 +62,7 @@ pub use authority::{
 // hoisted from the `server` module. For now, just re-export to minimize churn.
 pub(crate) use server::evaluate_names_authorization;
 pub use server::{
-    ApiError, App, AuthZRetry, build_router,
+    ApiError, App, AuthZRetry, DEFAULT_CAPABILITY_TOKEN_VALIDITY, build_router,
     snapshot::{self, Snapshot},
 };
 

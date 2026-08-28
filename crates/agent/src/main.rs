@@ -13,6 +13,12 @@ use futures::FutureExt;
 use sqlx::{ConnectOptions, Connection};
 use std::sync::Arc;
 
+/// The `--capability-token-validity` default, as the humantime string clap
+/// requires. A test welds it to the `Duration` the rest of the platform
+/// uses, `control_plane_api::DEFAULT_CAPABILITY_TOKEN_VALIDITY`, so the two
+/// spellings of the default cannot drift.
+const CAPABILITY_TOKEN_VALIDITY_DEFAULT: &str = "1h";
+
 /// Agent is a daemon which runs server-side tasks of the Flow control-plane.
 #[derive(Derivative, Parser)]
 #[derivative(Debug)]
@@ -95,6 +101,18 @@ struct Args {
     )]
     #[arg(value_parser = humantime::parse_duration)]
     heartbeat_timeout: std::time::Duration,
+    /// Validity window of access tokens minted by the `capability_token`
+    /// grant. The default matches the one-hour access tokens of the SQL
+    /// `generate_access_token` mint; raising it widens the exposure of a
+    /// leaked masked token and diverges from the SQL mint's fixed hour, so
+    /// overrides warrant care.
+    #[clap(
+        long = "capability-token-validity",
+        env = "CAPABILITY_TOKEN_VALIDITY",
+        default_value = CAPABILITY_TOKEN_VALIDITY_DEFAULT
+    )]
+    #[arg(value_parser = humantime::parse_duration)]
+    capability_token_validity: std::time::Duration,
 
     #[clap(long = "log-format", env = "LOG_FORMAT", default_value = "json")]
     log_format: LogFormat,
@@ -392,6 +410,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         publisher.clone(),
         snapshot_watch.clone(),
         args.stripe_webhook_secret,
+        args.capability_token_validity,
     ));
     let api_router = control_plane_api::build_router(
         api_app.clone(),
@@ -512,4 +531,19 @@ fn new_http_client() -> anyhow::Result<reqwest::Client> {
 
     let c = reqwest::Client::builder().default_headers(map).build()?;
     Ok(c)
+}
+
+#[cfg(test)]
+mod test {
+    /// The clap default string and the platform's `Duration` constant are two
+    /// spellings of one value; this pins them together — and pins that the
+    /// default parses at all, which clap otherwise validates only at the
+    /// first agent startup.
+    #[test]
+    fn test_capability_token_validity_default_welds() {
+        assert_eq!(
+            humantime::parse_duration(super::CAPABILITY_TOKEN_VALIDITY_DEFAULT).unwrap(),
+            control_plane_api::DEFAULT_CAPABILITY_TOKEN_VALIDITY,
+        );
+    }
 }
