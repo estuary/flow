@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/keyhash"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/proto"
@@ -261,7 +261,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 		{0xa08b7e30, "fub"}, // High (out of fixture range).
 	}
 	for _, tc := range tokenHashRegresionCheck {
-		require.Equal(t, tc.hash, flow.PackedKeyHash_HH64([]byte(tc.token)))
+		require.Equal(t, tc.hash, keyhash.PackedKeyHash_HH64([]byte(tc.token)))
 	}
 
 	var tokens = bytes.Split([]byte("foo bar qib ACK foo fub foo"), []byte{' '})

@@ -7,7 +7,7 @@ import (
 	"math/bits"
 	"sort"
 
-	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/keyhash"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -131,7 +131,7 @@ func (s subscribers) stageResponses(from *pr.ShuffleResponse) {
 			continue
 		}
 
-		var keyHash = flow.PackedKeyHash_HH64(from.Arena.Bytes(from.PackedKey[doc]))
+		var keyHash = keyhash.PackedKeyHash_HH64(from.Arena.Bytes(from.PackedKey[doc]))
 		var start, stop = s.keySpan(keyHash)
 		var rClock = rotateClock(uuid.Clock)
 

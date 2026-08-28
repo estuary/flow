@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/bits"
@@ -12,10 +11,10 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/estuary/flow/go/flow/keyhash"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/minio/highwayhash"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
@@ -151,7 +150,7 @@ func logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix []byte, hexKe
 	}
 	var pivot = len(b)
 
-	b = appendHex32(b, PackedKeyHash_HH64(msg.PackedKey))
+	b = appendHex32(b, keyhash.PackedKeyHash_HH64(msg.PackedKey))
 
 	return b[:pivot], b[pivot:], b
 }
@@ -246,12 +245,3 @@ func (m Mappable) MarshalJSONTo(bw *bufio.Writer) (int, error) {
 	var n, _ = bw.Write(m.Doc)
 	return n + 1, bw.WriteByte('\n')
 }
-
-// PackedKeyHash_HH64 builds a packed key hash from the top 32-bits of a
-// HighwayHash 64-bit checksum computed using a fixed key.
-func PackedKeyHash_HH64(packedKey []byte) uint32 {
-	return uint32(highwayhash.Sum64(packedKey, highwayHashKey) >> 32)
-}
-
-// highwayHashKey is a fixed 32 bytes (as required by HighwayHash) read from /dev/random.
-var highwayHashKey, _ = hex.DecodeString("ba737e89155238d47d8067c35aad4d25ecdd1c3488227e011ffa480c022bd3ba")

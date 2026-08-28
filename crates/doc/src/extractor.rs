@@ -197,7 +197,8 @@ impl Extractor {
     /// The hash is the top 32 bits of a HighwayHash over the tuple's bytes
     /// using a fixed public (non-cryptographic) key.
     ///
-    /// This routine's results are identical to Go's flow.PackedKeyHash_HH64.
+    /// This routine's results are identical to Go's keyhash.PackedKeyHash_HH64
+    /// (`go/flow/keyhash/keyhash.go`).
     pub fn packed_hash(packed_key: &[u8]) -> u32 {
         use highway::HighwayHash;
 
@@ -490,7 +491,7 @@ pub(crate) fn finalize_json_truncation_indicator(
 }
 
 /// Fixed 32-byte key used with HighwayHash to derive a canonical hash from
-/// a packed tuple encoding. Matches the Go implementation in go/flow/mapping.go.
+/// a packed tuple encoding. Matches the Go implementation in go/flow/keyhash/keyhash.go.
 pub const HIGHWAY_KEY: highway::Key = highway::Key([
     u64::from_le_bytes([0xba, 0x73, 0x7e, 0x89, 0x15, 0x52, 0x38, 0xd4]),
     u64::from_le_bytes([0x7d, 0x80, 0x67, 0xc3, 0x5a, 0xad, 0x4d, 0x25]),

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/keyhash"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -81,8 +81,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Observe only messages having {"a": 1, "aa": "1"}, and not 0 or 2.
 	var expectKey = tuple.Tuple{1, "1"}.Pack()
 	var range_ = pf.RangeSpec{
-		KeyBegin: flow.PackedKeyHash_HH64(expectKey),
-		KeyEnd:   flow.PackedKeyHash_HH64(expectKey) + 1,
+		KeyBegin: keyhash.PackedKeyHash_HH64(expectKey),
+		KeyEnd:   keyhash.PackedKeyHash_HH64(expectKey) + 1,
 		// Observe only even Clock values.
 		RClockBegin: 0,
 		RClockEnd:   1 << 31,
