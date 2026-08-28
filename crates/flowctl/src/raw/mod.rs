@@ -15,7 +15,7 @@ mod alerts;
 mod discover;
 mod materialize_fixture;
 mod oauth;
-mod preview_next;
+pub(crate) mod preview_next;
 mod shards;
 mod spec;
 mod split_shards;
@@ -82,8 +82,13 @@ pub enum Command {
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
-    /// Locally run and preview a capture, derivation, or materialization using
-    /// the V2 runtime.
+    /// Locally run and preview a capture, derivation, or materialization.
+    /// (Deprecated: use `flowctl preview` instead.)
+    // TODO(johnny): once #3416 has landed and split this module out to
+    // `crates/runtime-local`, move what remains of `raw/preview_next/` to
+    // `preview/`, migrate the in-repo callers of this alias (`tests/preview/*.py`
+    // and the `tests/soak/**` comments), and then remove the alias itself.
+    #[clap(hide = true)]
     PreviewNext(preview_next::Preview),
 }
 
