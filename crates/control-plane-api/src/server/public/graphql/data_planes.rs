@@ -14,6 +14,10 @@ pub struct DataPlanesFilter {
     /// Match data planes by id, such as a `LiveSpec`'s `dataPlaneId`.
     /// Unknown or unauthorized ids are silently dropped.
     pub id: Option<filters::IdFilter>,
+    /// Match data planes by tenant. Only data planes whose name prefix matches the tenant are returned.
+    /// All public data planes are considered to match all tenants. Unknown tenants are ignored and only
+    /// public data planes are returned.
+    pub tenant: Option<String>,
     /// Filter on the `closed` flag.
     pub closed: Option<filters::BoolFilter>,
     /// Filter on the `public` flag, which is derived from the data plane's
@@ -487,10 +491,25 @@ impl DataPlanesQuery {
         let claims = env.claims()?;
         let snapshot = env.snapshot();
 
-        let DataPlanesFilter { id, closed, public } = filter.unwrap_or_default();
+        let DataPlanesFilter {
+            id,
+            closed,
+            public,
+            tenant,
+        } = filter.unwrap_or_default();
+
         let id_in = id.and_then(|f| f.r#in);
         let closed_eq = closed.and_then(|f| f.eq);
         let public_eq = public.and_then(|f| f.eq);
+
+        // Tenant filter must end with a slash so that it captures the full tenant path segment in the
+        // private data plane names. This prevents the tenant filter from matching two tenants with the same
+        // starting characters (e.g. keeps "foo" from matching both "foo-bar" and "foo-baz").
+        if tenant.as_ref().is_some_and(|t| !t.ends_with("/")) {
+            return Err(async_graphql::Error::new(format!(
+                "tenant filter must end with a slash"
+            )));
+        }
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
@@ -504,6 +523,7 @@ impl DataPlanesQuery {
                     tracing::warn!(data_plane_name = %dp.data_plane_name, "skipping data plane with unparseable name");
                     return false;
                 };
+                // Filter to public/private planes, if requested.
                 if public_eq.is_some_and(|want| want != public) {
                     return false;
                 }
@@ -528,6 +548,18 @@ impl DataPlanesQuery {
         // snapshot, so this needs no database round-trip.
         if let Some(want_closed) = closed_eq {
             accessible_data_planes.retain(|dp| dp.closed == want_closed);
+        }
+
+        // Narrow the results based on the provided `tenant` filter. Public data planes are always included,
+        // and private data planes are included only if they match the tenant prefix. Do this here to ensure
+        // the grant check is done and user capabilities are attached to the correct data planes.
+        if let Some(tenant_str) = tenant.as_ref() {
+            let public_prefix = "ops/dp/public/".to_string();
+            let private_tenant_prefix = "ops/dp/private/".to_string() + tenant_str.as_str();
+            accessible_data_planes.retain(|dp| {
+                dp.data_plane_name.starts_with(&public_prefix)
+                    || dp.data_plane_name.starts_with(&private_tenant_prefix)
+            });
         }
 
         // Apply cursor-based pagination.

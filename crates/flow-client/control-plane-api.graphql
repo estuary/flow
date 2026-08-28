@@ -835,6 +835,12 @@ input DataPlanesFilter {
 	"""
 	id: IdFilter
 	"""
+	Match data planes by tenant. Only data planes whose name prefix matches the tenant are returned.
+	All public data planes are considered to match all tenants. Unknown tenants are ignored and only
+	public data planes are returned.
+	"""
+	tenant: String
+	"""
 	Filter on the `closed` flag.
 	"""
 	closed: BoolFilter
