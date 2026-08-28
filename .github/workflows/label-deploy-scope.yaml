@@ -8,9 +8,11 @@ name: Label deploy scope
 # deployed commits come from the deploy run's logs and the estuary/ops image
 # pin, changed files from the API, and manifests from the master checkout.
 #
-# OPS_READ_TOKEN must hold contents:read on estuary/ops: the `pending:agent`
-# baseline is that repo's pinned flow-agent image, and GITHUB_TOKEN cannot
-# read across repositories.
+# The `pending:agent` baseline is the flow-agent image pinned in estuary/ops,
+# and GITHUB_TOKEN cannot read across repositories. The OPS_READ_TOKEN secret
+# holds the private key of a GitHub App installed on estuary/ops (contents:
+# read); the OPS_APP_ID repository variable identifies that app, and a
+# short-lived installation token is minted from the two each run.
 on:
   push:
     branches: [master]
@@ -41,7 +43,6 @@ jobs:
       pull-requests: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      OPS_READ_TOKEN: ${{ secrets.OPS_READ_TOKEN }}
       # Only a Deploy agent-api run is a usable agent-api baseline; for any
       # other trigger the script finds the newest successful deploy itself.
       DEPLOY_RUN_ID: ${{ github.event.workflow_run.name == 'Deploy agent-api' && github.event.workflow_run.id || '' }}
@@ -55,7 +56,18 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      - name: Mint ops read token
+        id: ops-token
+        if: matrix.target == 'agent'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.OPS_APP_ID }}
+          private-key: ${{ secrets.OPS_READ_TOKEN }}
+          owner: estuary
+          repositories: ops
       - name: Reconcile labels
+        env:
+          OPS_READ_TOKEN: ${{ steps.ops-token.outputs.token }}
         run: |
           python3 .github/scripts/reconcile_deploy_labels.py \
             --only "${{ matrix.target }}" \
