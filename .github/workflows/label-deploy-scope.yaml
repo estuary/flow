@@ -50,12 +50,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # Blobless partial clone: the reconciler needs the full commit graph
-          # (git log <deployed>..HEAD) and the manifests at HEAD, but none of
-          # the historical file contents — a plain fetch-depth: 0 downloads
-          # multiple GB of blobs and dominates the run.
+          # and the manifests at HEAD, but none of the historical file
+          # contents — a plain fetch-depth: 0 downloads multiple GB of blobs
+          # and dominates the run. Credentials stay persisted so the reconcile
+          # step can fetch origin/master below.
           fetch-depth: 0
           filter: blob:none
-          persist-credentials: false
       - name: Mint ops read token
         id: ops-token
         if: matrix.target == 'agent'
@@ -69,6 +69,12 @@ jobs:
         env:
           OPS_READ_TOKEN: ${{ steps.ops-token.outputs.token }}
         run: |
+          # Enumerate merged PRs against real master, not the checked-out ref:
+          # a workflow_dispatch preview from a branch would otherwise treat
+          # every PR merged after the branch point as not-pending and strip
+          # its labels.
+          git fetch origin master
           python3 .github/scripts/reconcile_deploy_labels.py \
             --only "${{ matrix.target }}" \
+            --end-ref origin/master \
             ${DEPLOY_RUN_ID:+--deploy-run "$DEPLOY_RUN_ID"}
