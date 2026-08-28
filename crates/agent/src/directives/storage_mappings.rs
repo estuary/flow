@@ -323,3 +323,118 @@ This file is written to your storage bucket in order to test that we have the ne
 permissions to create and delete objects. If you're seeing this file stick around, then it's
 likely because we lacked the necessary permissions to delete it. You may remove this file at
 any time, and doing so will not impact the function of Estuary."#;
+
+#[cfg(test)]
+mod test {
+    use sqlx::Row as _;
+
+    /// Authorization cases of the storage-mappings directive. A mapping for
+    /// `mappingCo/` may be set only by an admin of the whole tenant: a new
+    /// mapping implicitly overrides storage for everything beneath it, so a
+    /// sub-prefix admin must be denied — the check is over the pinned
+    /// authorization Snapshot, whose walk requires admin of the tenant
+    /// itself, where the SQL `internal.user_roles()` gate it replaced
+    /// accepted any admin role beneath the tenant.
+    ///
+    /// The tenant admin's application still fails — later, at the bucket
+    /// access check, whose error text varies by environment — which is
+    /// exactly what proves the gate admitted them. We assert on the absence
+    /// of the capability denial rather than the bucket error's wording.
+    #[tokio::test]
+    async fn test_authorization_cases() {
+        let mut harness = crate::integration_tests::harness::TestHarness::init(
+            "storage-mappings directive authorization",
+        )
+        .await;
+
+        sqlx::query(
+            r#"
+        with p1 as (
+          insert into auth.users (id, email) values
+          ('43000000-0000-0000-0000-000000000001', 'tenant-admin@example.test'),
+          ('43000000-0000-0000-0000-000000000002', 'sub-admin@example.test'),
+          ('43000000-0000-0000-0000-000000000003', 'other-admin@example.test')
+        ),
+        p2 as (
+          insert into user_grants (user_id, object_role, capability) values
+          ('43000000-0000-0000-0000-000000000001', 'mappingCo/', 'admin'),
+          ('43000000-0000-0000-0000-000000000002', 'mappingCo/sub/', 'admin'),
+          ('43000000-0000-0000-0000-000000000003', 'otherCo/', 'admin')
+        ),
+        p3 as (
+          insert into directives (id, catalog_prefix, spec) values
+          ('cc00000000000000', 'ops/', '{"type":"storageMappings"}')
+        ),
+        p4 as (
+          delete from applied_directives -- Clear seed fixture
+        ),
+        p5 as (
+          insert into applied_directives (directive_id, user_id, user_claims) values
+          ('cc00000000000000', '43000000-0000-0000-0000-000000000001',
+           '{"addStore":{"provider":"GCS","bucket":"test-bucket"},"catalogPrefix":"mappingCo/"}'),
+          ('cc00000000000000', '43000000-0000-0000-0000-000000000002',
+           '{"addStore":{"provider":"GCS","bucket":"test-bucket"},"catalogPrefix":"mappingCo/"}'),
+          ('cc00000000000000', '43000000-0000-0000-0000-000000000003',
+           '{"addStore":{"provider":"GCS","bucket":"test-bucket"},"catalogPrefix":"mappingCo/"}')
+        )
+        select 1;
+        "#,
+        )
+        .execute(&harness.pool)
+        .await
+        .unwrap();
+
+        while harness
+            .run_automation_task(automations::task_types::APPLIED_DIRECTIVES)
+            .await
+            .is_some()
+        {
+            // Run tasks until we're done
+        }
+
+        let rows = sqlx::query(
+            r#"select
+                u.email,
+                d.job_status->>'type' as status,
+                coalesce(d.job_status->>'error', '') as error
+            from applied_directives d join auth.users u on u.id = d.user_id
+            order by d.id asc;"#,
+        )
+        .fetch_all(&harness.pool)
+        .await
+        .unwrap();
+
+        let by_email: std::collections::BTreeMap<String, (String, String)> = rows
+            .iter()
+            .map(|r| (r.get("email"), (r.get("status"), r.get("error"))))
+            .collect();
+        assert_eq!(by_email.len(), 3, "expected one resolution per user");
+
+        // The tenant admin clears the authorization gate. Their application
+        // then fails at the bucket access check — an environment-dependent
+        // error which must NOT be the capability denial.
+        let (status, error) = &by_email["tenant-admin@example.test"];
+        assert_eq!(status, "invalidClaims");
+        assert!(
+            !error.contains("capability"),
+            "tenant admin must pass the authorization gate, got: {error}"
+        );
+
+        // An admin of only a sub-prefix is denied: they don't admin the
+        // tenant whose mapping they're changing.
+        let (status, error) = &by_email["sub-admin@example.test"];
+        assert_eq!(status, "invalidClaims");
+        assert!(
+            error.contains("'admin' capability to 'mappingCo/'"),
+            "sub-prefix admin must be denied by the gate, got: {error}"
+        );
+
+        // An admin of an unrelated tenant is denied.
+        let (status, error) = &by_email["other-admin@example.test"];
+        assert_eq!(status, "invalidClaims");
+        assert!(
+            error.contains("'admin' capability to 'mappingCo/'"),
+            "unrelated admin must be denied by the gate, got: {error}"
+        );
+    }
+}
