@@ -136,31 +136,6 @@ where
     Ok((None, ()))
 }
 
-/// Evaluate whether the user identified by `claims` is an admin of the
-/// `ops/` role, which gates the `/admin/*` endpoints.
-/// Return a policy_result shape which fits Envelope::authorization_outcome.
-///
-/// This replaces a SQL gate over `internal.user_roles()`, whose grant walk
-/// is downward-only from the roles a user holds. The Snapshot walk also
-/// reaches grants held by *ancestors* of those roles, so an admin chain
-/// into `ops/` through an ancestor subject — which the SQL gate wrongly
-/// rejected — is authorized here.
-pub fn evaluate_ops_admin(snapshot: &Snapshot, claims: &crate::ControlClaims) -> AuthZResult<()> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
-    if !snapshot.is_user_authorized(*user_id, "ops/", models::Capability::Admin) {
-        return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not an admin of the 'ops/' tenant",
-        )));
-    }
-    Ok((None, ()))
-}
-
 /// Looks up the user's authorization grants for each item in
 /// `prefixes_or_names`, and calls the provided `attach` function with each
 /// item and its capability. The `Some` results are returned in a vec.
@@ -436,6 +411,7 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_server::snapshot_of_grants;
 
     fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
         models::authorizations::ControlClaims {
@@ -448,64 +424,36 @@ mod tests {
         }
     }
 
-    fn snapshot_of_grants(
-        user_grants: &[(uuid::Uuid, &str, models::Capability)],
-        role_grants: &[(&str, &str, models::Capability)],
-    ) -> Snapshot {
-        Snapshot::new(
-            Default::default(),
-            snapshot::SnapshotData {
-                collections: Vec::new(),
-                data_planes: Vec::new(),
-                migrations: Vec::new(),
-                role_grants: role_grants
-                    .iter()
-                    .map(|(sub, obj, cap)| tables::RoleGrant {
-                        subject_role: models::Prefix::new(*sub),
-                        object_role: models::Prefix::new(*obj),
-                        capability: *cap,
-                        bundles: Vec::new(),
-                    })
-                    .collect(),
-                user_grants: user_grants
-                    .iter()
-                    .map(|(id, obj, cap)| tables::UserGrant {
-                        user_id: *id,
-                        object_role: models::Prefix::new(*obj),
-                        capability: *cap,
-                        bundles: Vec::new(),
-                    })
-                    .collect(),
-                tasks: Vec::new(),
-            },
-        )
-    }
-
+    /// The `ops/` admin gate of the /admin/* endpoints, expressed as
+    /// evaluate_names_authorization over the Snapshot's grant walk.
     #[test]
-    fn test_evaluate_ops_admin() {
+    fn test_evaluate_ops_admin_gate() {
         use models::Capability::{Admin, Read};
         let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let evaluate = |snapshot: &Snapshot| {
+            evaluate_names_authorization(snapshot, &claims(user), Admin, ["ops/"])
+        };
 
         // A direct admin grant to `ops/` is authorized.
         let snapshot = snapshot_of_grants(&[(user, "ops/", Admin)], &[]);
-        assert!(evaluate_ops_admin(&snapshot, &claims(user)).is_ok());
+        assert!(evaluate(&snapshot).is_ok());
 
         // Admin of an unrelated tenant is denied.
         let snapshot = snapshot_of_grants(&[(user, "acmeCo/", Admin)], &[]);
-        let status = evaluate_ops_admin(&snapshot, &claims(user)).unwrap_err();
+        let status = evaluate(&snapshot).unwrap_err();
         assert_eq!(status.code(), tonic::Code::PermissionDenied);
         assert_eq!(
             status.message(),
-            "user@example.test is not an admin of the 'ops/' tenant"
+            "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
         );
 
         // A read grant to `ops/` is not admin.
         let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
-        assert!(evaluate_ops_admin(&snapshot, &claims(user)).is_err());
+        assert!(evaluate(&snapshot).is_err());
     }
 
-    /// Pins the deliberate semantic change from the replaced
-    /// `internal.user_roles()` gate: an admin chain reached through an
+    /// Pins the deliberate semantic change from the `internal.user_roles()`
+    /// SQL gate this check replaced: an admin chain reached through an
     /// *ancestor* subject role. The user admins `estuary/support/`, and
     /// `estuary/` (its ancestor) is granted admin of `ops/`. The SQL gate
     /// walked only downward from held roles and wrongly denied this; the
@@ -519,13 +467,29 @@ mod tests {
             &[(user, "estuary/support/", Admin)],
             &[("estuary/", "ops/", Admin)],
         );
-        assert!(evaluate_ops_admin(&snapshot, &claims(user)).is_ok());
+        assert!(
+            evaluate_names_authorization(
+                &snapshot,
+                &claims(user),
+                models::Capability::Admin,
+                ["ops/"]
+            )
+            .is_ok()
+        );
 
         // The same chain with a non-admin object grant is denied.
         let snapshot = snapshot_of_grants(
             &[(user, "estuary/support/", Admin)],
             &[("estuary/", "ops/", Read)],
         );
-        assert!(evaluate_ops_admin(&snapshot, &claims(user)).is_err());
+        assert!(
+            evaluate_names_authorization(
+                &snapshot,
+                &claims(user),
+                models::Capability::Admin,
+                ["ops/"]
+            )
+            .is_err()
+        );
     }
 }

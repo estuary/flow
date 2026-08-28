@@ -66,7 +66,12 @@ pub async fn create_data_plane(
     let claims = env.claims()?;
     let user_id = claims.sub;
 
-    let policy_result = super::evaluate_ops_admin(env.snapshot(), claims);
+    let policy_result = super::evaluate_names_authorization(
+        env.snapshot(),
+        claims,
+        models::Capability::Admin,
+        ["ops/"],
+    );
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let (data_plane_fqdn, base_name, pulumi_stack) = match &private {
@@ -327,8 +332,8 @@ mod test {
     /// exercised end-to-end: an authorized request proceeds into data-plane
     /// provisioning, which is out of scope for authorization tests (and would
     /// panic in the test server's NoopBuilder). The allowed cases — including
-    /// the ancestor-subject admin chain — are pinned by the unit tests of
-    /// `evaluate_ops_admin`.
+    /// the ancestor-subject admin chain — are pinned by the gate's unit
+    /// tests in the parent module.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "alice"))
@@ -364,7 +369,10 @@ mod test {
 
         let text = response.text().await.unwrap();
         assert!(
-            text.contains("is not an admin of the 'ops/' tenant"),
+            text.contains(
+                "alice@example.com is not authorized to access prefix or name 'ops/' \
+                 with required capability admin"
+            ),
             "unexpected denial body: {text}"
         );
     }
