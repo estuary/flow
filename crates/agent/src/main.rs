@@ -95,6 +95,17 @@ struct Args {
     )]
     #[arg(value_parser = humantime::parse_duration)]
     heartbeat_timeout: std::time::Duration,
+    /// Validity window of access tokens minted by the `capability_token`
+    /// grant. The default matches the one-hour access tokens of the SQL
+    /// `generate_access_token` mint; raising it widens the exposure of a
+    /// leaked masked token, so overrides warrant care.
+    #[clap(
+        long = "capability-token-validity",
+        env = "CAPABILITY_TOKEN_VALIDITY",
+        default_value = "1h"
+    )]
+    #[arg(value_parser = humantime::parse_duration)]
+    capability_token_validity: std::time::Duration,
 
     #[clap(long = "log-format", env = "LOG_FORMAT", default_value = "json")]
     log_format: LogFormat,
@@ -392,6 +403,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         publisher.clone(),
         snapshot_watch.clone(),
         args.stripe_webhook_secret,
+        args.capability_token_validity,
     ));
     let api_router = control_plane_api::build_router(
         api_app.clone(),

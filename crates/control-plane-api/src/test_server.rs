@@ -108,6 +108,8 @@ pub fn build_app(
         publisher,
         snapshot,
         Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
+        // The production default of the --capability-token-validity setting.
+        std::time::Duration::from_secs(3600),
     ))
 }
 

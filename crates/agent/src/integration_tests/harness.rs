@@ -1790,6 +1790,8 @@ impl TestHarness {
             self.publisher.clone(),
             snapshot_watch.clone(),
             None,
+            // The production default of the --capability-token-validity setting.
+            std::time::Duration::from_secs(3600),
         ));
 
         self.control_plane_app = Some(app);

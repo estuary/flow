@@ -1,9 +1,5 @@
 use std::sync::Arc;
 
-/// Validity of a minted capability token, matching the one-hour access
-/// tokens of the SQL `generate_access_token` mint.
-const CAPABILITY_TOKEN_VALIDITY_SECONDS: u64 = 3600;
-
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(tag = "grant_type")]
 pub enum TokenRequest {
@@ -61,12 +57,7 @@ pub async fn handle_post_token(
             Ok(axum::Json(response))
         }
         TokenRequest::CapabilityToken { capability_mask } => {
-            let response = mint_capability_token(
-                &envelope,
-                capability_mask,
-                &app.control_plane_jwt_encode_key,
-            )
-            .await?;
+            let response = mint_capability_token(&envelope, capability_mask, &app).await?;
             Ok(axum::Json(response))
         }
     }
@@ -87,7 +78,7 @@ pub async fn handle_post_token(
 async fn mint_capability_token(
     envelope: &crate::Envelope,
     capability_mask: Vec<String>,
-    encoding_key: &tokens::jwt::EncodingKey,
+    app: &crate::App,
 ) -> Result<TokenResponse, crate::ApiError> {
     let claims = envelope.claims()?;
 
@@ -98,15 +89,20 @@ async fn mint_capability_token(
         ));
     }
 
-    let access_token = sign_capability_token(claims, capability_mask, encoding_key)?;
+    let access_token = sign_capability_token(
+        claims,
+        capability_mask,
+        app.capability_token_validity,
+        &app.control_plane_jwt_encode_key,
+    )?;
     Ok(TokenResponse {
         access_token,
         refresh_token: None,
     })
 }
 
-/// Sign a one-hour access token which copies the caller's verified identity
-/// claims and carries `capability_mask` verbatim.
+/// Sign an access token, valid for `validity`, which copies the caller's
+/// verified identity claims and carries `capability_mask` verbatim.
 ///
 /// The identity claims (`sub`, `role`, `aud`, and `email` when the caller's
 /// token has it) are a pure copy-through, so the minted token is a fully
@@ -125,6 +121,7 @@ async fn mint_capability_token(
 fn sign_capability_token(
     caller: &models::authorizations::ControlClaims,
     capability_mask: Vec<String>,
+    validity: std::time::Duration,
     encoding_key: &tokens::jwt::EncodingKey,
 ) -> tonic::Result<String> {
     let iat = tokens::now().timestamp() as u64;
@@ -132,7 +129,7 @@ fn sign_capability_token(
     let claims = models::authorizations::ControlClaims {
         aud: caller.aud.clone(),
         iat,
-        exp: iat + CAPABILITY_TOKEN_VALIDITY_SECONDS,
+        exp: iat + validity.as_secs(),
         sub: caller.sub,
         role: caller.role.clone(),
         email: caller.email.clone(),
@@ -242,6 +239,37 @@ mod test {
         (unverified.claims().clone(), access_token)
     }
 
+    /// The configured validity drives the minted expiry: `exp` sits exactly
+    /// `--capability-token-validity` past `iat`, whatever that setting is.
+    /// The HTTP test below exercises only the harness-configured one-hour
+    /// default, so a non-default window is pinned here at the signing seam.
+    #[test]
+    fn test_validity_is_configurable() {
+        let caller = models::authorizations::ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 0,
+            exp: 0,
+            sub: ALICE,
+            role: "authenticated".to_string(),
+            email: None,
+            capability_mask: None,
+        };
+        let token = super::sign_capability_token(
+            &caller,
+            vec!["CatalogRead".to_string()],
+            std::time::Duration::from_secs(90),
+            &tokens::jwt::EncodingKey::from_secret(b"unit-test-secret"),
+        )
+        .unwrap();
+
+        let unverified = tokens::jwt::parse_unverified::<models::authorizations::ControlClaims>(
+            token.as_bytes(),
+        )
+        .unwrap();
+        let claims = unverified.claims();
+        assert_eq!(claims.exp, claims.iat + 90);
+    }
+
     /// Covers the capability_token grant end-to-end: the copy-through claim
     /// set of a successful mint (with a scoped-role, email-less bearer
     /// distinguishing copy-through from hardcoded values), verbatim mask
@@ -284,8 +312,9 @@ mod test {
         assert_eq!(status, reqwest::StatusCode::OK, "mint failed: {body}");
         let (claims, minted_token) = claims_of(&body);
 
-        // The validity window matches the SQL mint's one hour and `iat` is
-        // fresh; both are volatile, so the snapshot below redacts them.
+        // The validity window is the harness-configured hour — the
+        // production default, matching the SQL mint — and `iat` is fresh;
+        // both are volatile, so the snapshot below redacts them.
         assert_eq!(claims.exp, claims.iat + 3600);
         let now = tokens::now().timestamp() as u64;
         assert!(now - claims.iat < 60, "iat {} is fresh", claims.iat);

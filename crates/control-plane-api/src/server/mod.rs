@@ -35,6 +35,11 @@ pub enum Rejection {
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+    /// Validity window of access tokens minted by the `capability_token`
+    /// grant. The agent binary configures this via
+    /// `--capability-token-validity` / `CAPABILITY_TOKEN_VALIDITY`, whose
+    /// default of one hour matches the SQL `generate_access_token` mint.
+    pub capability_token_validity: std::time::Duration,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -55,10 +60,12 @@ impl App {
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         stripe_webhook_secret: Option<String>,
+        capability_token_validity: std::time::Duration,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
+            capability_token_validity,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,
