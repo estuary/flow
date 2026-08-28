@@ -5,10 +5,7 @@ use anyhow::Context;
 use control_plane_api::{
     directives::{
         Row,
-        storage_mappings::{
-            StorageMapping, fetch_storage_mappings, upsert_storage_mapping,
-            user_has_admin_capability,
-        },
+        storage_mappings::{StorageMapping, fetch_storage_mappings, upsert_storage_mapping},
     },
     jobs, logs,
 };
@@ -31,6 +28,7 @@ pub struct Claims {
 pub async fn apply(
     _: Directive,
     row: Row,
+    snapshot: &control_plane_api::Snapshot,
     logs_tx: &logs::Tx,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<JobStatus> {
@@ -38,7 +36,7 @@ pub async fn apply(
         "updated by user {} via applied directive {}",
         row.user_id, row.apply_id
     );
-    let (collection_data, recovery) = match validate(txn, logs_tx, row).await {
+    let (collection_data, recovery) = match validate(txn, snapshot, logs_tx, row).await {
         Ok(c) => c,
         Err(err) => {
             return Ok(JobStatus::invalid_claims(err));
@@ -73,6 +71,7 @@ fn add_store(stores: &mut models::StorageDef, store: models::Store) {
 
 async fn validate(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    snapshot: &control_plane_api::Snapshot,
     logs_tx: &logs::Tx,
     row: Row,
 ) -> anyhow::Result<(ProposedMapping, ProposedMapping)> {
@@ -94,13 +93,25 @@ async fn validate(
     // Note: we must assert that user has admin capability for the _entire tenant_, even if in the
     // future we allow for updating mappings of narrower prefixes. This is required because a new
     // storage mapping for `a/b/` may implicitly override the existing mapping for `a/`.
-    let user_has_admin =
-        user_has_admin_capability(row.user_id, &claims.catalog_prefix, txn).await?;
-    anyhow::ensure!(
-        user_has_admin,
-        "user does not have required 'admin' capability to '{}'",
-        claims.catalog_prefix
-    );
+    //
+    // The Snapshot walk enforces exactly that, where the SQL
+    // `internal.user_roles()` gate it replaced accepted any admin role
+    // beneath the tenant — a sub-prefix admin could rewrite storage for
+    // sibling prefixes they held nothing on.
+    if !snapshot.is_user_authorized(
+        row.user_id,
+        &claims.catalog_prefix,
+        models::Capability::Admin,
+    ) {
+        // The needed grant may postdate this Snapshot. Directives have no
+        // retry protocol, so nudge an early refresh: the user sees the
+        // denial in their applied directive's status and may re-apply.
+        snapshot.request_refresh();
+        anyhow::bail!(
+            "user does not have required 'admin' capability to '{}'",
+            claims.catalog_prefix
+        );
+    }
 
     // Check that we can actually access the storage bucket before fetching (and locking) the
     // existing `storage_mappings` rows, since this check requires multiple network round trips.
