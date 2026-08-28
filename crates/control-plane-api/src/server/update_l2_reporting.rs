@@ -32,20 +32,16 @@ pub async fn update_l2_reporting(
         dry_run,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
-    let crate::ControlClaims { sub: user_id, .. } = env.claims()?;
+    let claims = env.claims()?;
+    let user_id = claims.sub;
 
-    if let None = sqlx::query!(
-        "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
-        user_id,
-    )
-    .fetch_optional(&env.pg_pool)
-    .await?
-    {
-        return Err(tonic::Status::permission_denied(
-            "authenticated user is not an admin of the 'ops/' tenant",
-        )
-        .into());
-    }
+    let policy_result = super::evaluate_names_authorization(
+        env.snapshot(),
+        claims,
+        models::Capability::Admin,
+        ["ops/"],
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let template = include_str!("../../../../ops-catalog/reporting-L2-template.bundle.json");
     let tables::DraftCatalog { collections, .. } =
@@ -296,7 +292,7 @@ export class Derivation extends Types.IDerivation {"#
 
     let logs_token = uuid::Uuid::new_v4();
     let publication = DraftPublication {
-        user_id: *user_id,
+        user_id,
         logs_token,
         draft,
         dry_run,
@@ -362,4 +358,58 @@ fn camel_case(name: &str, mut upper: bool) -> String {
         }
     }
     w
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test_server;
+
+    /// Denial-path coverage of the `ops/` admin gate, mirroring the
+    /// create-data-plane tests: with the gate's policy shared, per-endpoint
+    /// wiring is what remains to regress. Only denials are exercised
+    /// end-to-end — an authorized request proceeds into the L2 template
+    /// publication, which is out of scope for authorization tests. Allowed
+    /// cases are pinned by the gate's unit tests in the parent module.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_ops_admin_gate_denials(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool, snapshot).await;
+
+        let body = serde_json::json!({"dryRun": true});
+
+        // A request without a bearer token is unauthenticated.
+        let response = server
+            .rest_client()
+            .post("/admin/update-l2-reporting", &body, None)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        // Alice admins aliceCo/ but holds nothing on ops/. The test Snapshot
+        // post-dates the request, so the denial is terminal rather than a
+        // 307 authorization retry.
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let token = server.make_access_token(alice, Some("alice@example.com"));
+        let response = server
+            .rest_client()
+            .post("/admin/update-l2-reporting", &body, Some(&token))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+        let text = response.text().await.unwrap();
+        assert!(
+            text.contains(
+                "alice@example.com is not authorized to access prefix or name 'ops/' \
+                 with required capability admin"
+            ),
+            "unexpected denial body: {text}"
+        );
+    }
 }
