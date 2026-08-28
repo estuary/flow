@@ -8,9 +8,11 @@ name: Label deploy scope
 # deployed commits come from the deploy run's logs and the estuary/ops image
 # pin, changed files from the API, and manifests from the master checkout.
 #
-# OPS_READ_TOKEN must hold contents:read on estuary/ops: the `pending:agent`
-# baseline is that repo's pinned flow-agent image, and GITHUB_TOKEN cannot
-# read across repositories.
+# The `pending:agent` baseline is the flow-agent image pinned in estuary/ops,
+# and GITHUB_TOKEN cannot read across repositories. The OPS_READ_TOKEN secret
+# holds the private key of a GitHub App installed on estuary/ops (contents:
+# read); the OPS_APP_ID repository variable identifies that app, and a
+# short-lived installation token is minted from the two each run.
 on:
   push:
     branches: [master]
@@ -26,8 +28,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   reconcile:
-    name: reconcile agent-api labels
+    name: ${{ matrix.target }}
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      # One job per target so a failing target is visible by name, and one
+      # target's failure does not cancel the others.
+      fail-fast: false
+      matrix:
+        target: [agent-api, agent, flowctl]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -35,7 +43,6 @@ jobs:
       pull-requests: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GH_TOKEN_OPS: ${{ secrets.OPS_READ_TOKEN }}
       # Only a Deploy agent-api run is a usable agent-api baseline; for any
       # other trigger the script finds the newest successful deploy itself.
       DEPLOY_RUN_ID: ${{ github.event.workflow_run.name == 'Deploy agent-api' && github.event.workflow_run.id || '' }}
@@ -43,13 +50,31 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # Blobless partial clone: the reconciler needs the full commit graph
-          # (git log <deployed>..HEAD) and the manifests at HEAD, but none of
-          # the historical file contents — a plain fetch-depth: 0 downloads
-          # multiple GB of blobs and dominates the run.
+          # and the manifests at HEAD, but none of the historical file
+          # contents — a plain fetch-depth: 0 downloads multiple GB of blobs
+          # and dominates the run. Credentials stay persisted so the reconcile
+          # step can fetch origin/master below.
           fetch-depth: 0
           filter: blob:none
-          persist-credentials: false
+      - name: Mint ops read token
+        id: ops-token
+        if: matrix.target == 'agent'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.OPS_APP_ID }}
+          private-key: ${{ secrets.OPS_READ_TOKEN }}
+          owner: estuary
+          repositories: ops
       - name: Reconcile labels
+        env:
+          OPS_READ_TOKEN: ${{ steps.ops-token.outputs.token }}
         run: |
+          # Enumerate merged PRs against real master, not the checked-out ref:
+          # a workflow_dispatch preview from a branch would otherwise treat
+          # every PR merged after the branch point as not-pending and strip
+          # its labels.
+          git fetch origin master
           python3 .github/scripts/reconcile_deploy_labels.py \
+            --only "${{ matrix.target }}" \
+            --end-ref origin/master \
             ${DEPLOY_RUN_ID:+--deploy-run "$DEPLOY_RUN_ID"}
