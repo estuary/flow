@@ -13,7 +13,7 @@ and the named deployment does not include its merge commit yet.
                      Its baseline is the image tag pinned in estuary/ops
                      env/estuary/combustable-cronut/main.jsonnet. Reading that
                      private repo from CI requires a token with contents:read
-                     on estuary/ops in the GH_TOKEN_OPS environment variable.
+                     on estuary/ops in the OPS_READ_TOKEN environment variable.
   pending:flowctl    the released flowctl CLI. Its baseline is the head commit
                      of the newest successful `Flowctl release` run — not the
                      release itself, whose publication merely starts the
@@ -119,7 +119,7 @@ def flowctl_release_commit(repo: str) -> str:
 def worker_commit(repo: str) -> str:
     """Baseline of the flow-agent k8s Deployment, from the estuary/ops pin."""
     env = None
-    if token := os.environ.get("GH_TOKEN_OPS"):
+    if token := os.environ.get("OPS_READ_TOKEN"):
         env = {"GH_TOKEN": token}
     try:
         content = run(
@@ -129,7 +129,7 @@ def worker_commit(repo: str) -> str:
     except subprocess.CalledProcessError as err:
         raise SystemExit(
             f"error: cannot read {OPS_REPO}/{OPS_PIN_PATH}: {err.stderr.strip()}\n"
-            "In CI this needs GH_TOKEN_OPS, a token with contents:read on "
+            "In CI this needs OPS_READ_TOKEN, a token with contents:read on "
             f"{OPS_REPO}."
         )
     jsonnet = base64.b64decode(content).decode()
@@ -253,7 +253,7 @@ def main() -> None:
 
     # key -> (target, closure, label, description, baseline). Baselines are
     # resolved lazily and each label reconciles independently: one target's
-    # failure — e.g. a missing GH_TOKEN_OPS — must not skip the others.
+    # failure — e.g. a missing OPS_READ_TOKEN — must not skip the others.
     targets = {
         "agent-api": (
             "agent", agent_dirs, "pending:agent-api",

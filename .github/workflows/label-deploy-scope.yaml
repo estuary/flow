@@ -41,7 +41,7 @@ jobs:
       pull-requests: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GH_TOKEN_OPS: ${{ secrets.OPS_READ_TOKEN }}
+      OPS_READ_TOKEN: ${{ secrets.OPS_READ_TOKEN }}
       # Only a Deploy agent-api run is a usable agent-api baseline; for any
       # other trigger the script finds the newest successful deploy itself.
       DEPLOY_RUN_ID: ${{ github.event.workflow_run.name == 'Deploy agent-api' && github.event.workflow_run.id || '' }}
