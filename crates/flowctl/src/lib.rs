@@ -15,7 +15,6 @@ mod local_specs;
 mod ops;
 mod output;
 mod poll;
-mod preview;
 pub mod raw;
 mod shuffle_read;
 mod version;
@@ -97,7 +96,9 @@ pub enum Command {
     /// WARNING: previews of captures and materializations make live changes
     /// to their configured endpoints. Be sure that your task does not conflict
     /// or collide with a live task running in the Flow managed service.
-    Preview(preview::Preview),
+    // Still homed under `raw` while `crates/runtime-local` is in flight; see
+    // the TODO on `raw::Command::PreviewNext`.
+    Preview(raw::preview_next::Preview),
     /// Work with your Flow catalog drafts.
     ///
     /// Drafts are in-progress specifications which are not yet "live".
