@@ -825,22 +825,10 @@ fn apply_initial_splits<'a>(
         );
     }
 
-    for pivot in 0..effective_splits {
-        let range = flow::RangeSpec {
-            key_begin: ((1 << 32) * (pivot + 0) / effective_splits) as u32,
-            key_end: (((1 << 32) * (pivot + 1) / effective_splits) - 1) as u32,
-            r_clock_begin: 0,
-            r_clock_end: u32::MAX,
-        };
-        let labels = labels::shard::encode_range_spec(LabelSet::default(), &range);
-        let id = format!(
-            "{}/{}",
-            template.shard.id,
-            labels::shard::id_suffix(&labels)?
-        );
+    for split in labels::shard::even_splits(&template.shard.id, effective_splits as u32, 1) {
         shards.push(ShardSplit {
-            id,
-            labels,
+            id: split.id,
+            labels: split.labels,
             mod_revision: 0,
             primary_hints: None,
         });

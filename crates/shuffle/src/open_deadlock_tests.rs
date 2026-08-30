@@ -75,32 +75,17 @@ fn serve(
 /// directory rooted under `dir` (created so a completing Log can open a Writer).
 fn build_shards(endpoints: &[&str], dir: &std::path::Path) -> Vec<shuffle::Shard> {
     let count = endpoints.len() as u32;
-    endpoints
-        .iter()
+    labels::shard::even_splits("open-deadlock", count, 1)
+        .into_iter()
+        .zip(endpoints)
         .enumerate()
-        .map(|(i, endpoint)| {
-            let i = i as u32;
-            let key_begin = if i == 0 {
-                0
-            } else {
-                ((i as u64 * (u32::MAX as u64 + 1)) / count as u64) as u32
-            };
-            let key_end = if i == count - 1 {
-                u32::MAX
-            } else {
-                (((i + 1) as u64 * (u32::MAX as u64 + 1)) / count as u64 - 1) as u32
-            };
+        .map(|(i, (split, endpoint))| {
             let directory = dir.join(format!("shard-{i:03}"));
             std::fs::create_dir_all(&directory).unwrap();
 
             shuffle::Shard {
-                id: format!("open-deadlock/shard-{i:03}"),
-                range: Some(flow::RangeSpec {
-                    key_begin,
-                    key_end,
-                    r_clock_begin: 0,
-                    r_clock_end: u32::MAX,
-                }),
+                id: split.id,
+                range: Some(split.range),
                 endpoint: endpoint.to_string(),
                 directory: directory.to_str().unwrap().to_string(),
                 ..Default::default()
