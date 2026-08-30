@@ -10,6 +10,30 @@ use proto_flow::{
     flow,
 };
 
+/// The URI of a stateless, session-scoped database. It's what a connector runs
+/// when the runtime threads no `sqlite_vfs_uri`.
+pub(crate) const MEMORY_URI: &str = ":memory:";
+
+/// Where a derivation's SQLite database lives, decided once by [`parse_open`]
+/// where the URI itself is chosen. Opened reports the recovered runtime
+/// checkpoint of a [`Database::Durable`] instance, and no checkpoint for a
+/// [`Database::Ephemeral`].
+enum Database {
+    /// A file-backed database whose recorded checkpoint is authoritative.
+    Durable(String),
+    /// A stateless, session-scoped [`MEMORY_URI`] database.
+    Ephemeral,
+}
+
+impl Database {
+    fn uri(&self) -> &str {
+        match self {
+            Database::Durable(uri) => uri,
+            Database::Ephemeral => MEMORY_URI,
+        }
+    }
+}
+
 pub fn connector<R>(request_rx: R) -> mpsc::Receiver<anyhow::Result<Response>>
 where
     R: futures::stream::Stream<Item = Request> + Send + 'static,
@@ -99,22 +123,23 @@ where
                 internal,
                 ..
             }) => {
-                let sqlite_uri: String;
-                (sqlite_uri, migrations, transforms) = parse_open(open, internal)?;
+                let database: Database;
+                (database, migrations, transforms) = parse_open(open, internal)?;
 
                 // Drop to close an open Database.
                 // This is required if we're re-opening the same database.
                 std::mem::drop(maybe_handle);
 
                 let (handle, runtime_checkpoint) =
-                    Handle::new(&sqlite_uri, &migrations, &transforms)?;
+                    Handle::new(database.uri(), &migrations, &transforms)?;
 
-                // Send Opened with our recovered runtime checkpoint.
+                // See [`Database`] for why an ephemeral instance reports none.
+                let runtime_checkpoint =
+                    matches!(database, Database::Durable(_)).then_some(runtime_checkpoint);
+
                 let _ = response_tx
                     .send(Ok(Response {
-                        opened: Some(response::Opened {
-                            runtime_checkpoint: Some(runtime_checkpoint),
-                        }),
+                        opened: Some(response::Opened { runtime_checkpoint }),
                         ..Default::default()
                     }))
                     .await;
@@ -173,7 +198,7 @@ where
                 ..
             }) => {
                 // Replace with a new :memory: database with the same configuration.
-                let (db, _runtime_checkpoint) = Handle::new(":memory:", &migrations, &transforms)?;
+                let (db, _runtime_checkpoint) = Handle::new(MEMORY_URI, &migrations, &transforms)?;
                 maybe_handle = Some(db);
             }
             Some(malformed) => Err(tonic::Status::invalid_argument(format!(
@@ -186,7 +211,7 @@ where
 fn parse_open(
     open: request::Open,
     internal: bytes::Bytes,
-) -> anyhow::Result<(String, Vec<String>, Vec<Transform>)> {
+) -> anyhow::Result<(Database, Vec<String>, Vec<Transform>)> {
     let request::Open {
         collection,
         range: _,
@@ -194,9 +219,9 @@ fn parse_open(
         version: _,
     } = open;
 
-    let sqlite_uri = if internal.is_empty() {
+    let database = if internal.is_empty() {
         // If DeriveRequestExt was not sent, then use a :memory: DB.
-        ":memory:".to_string()
+        Database::Ephemeral
     } else {
         // If it was sent, *require* that `sqlite_vfs_uri` is populated.
         let DeriveRequestExt { open: open_ext, .. } =
@@ -206,8 +231,11 @@ fn parse_open(
 
         if sqlite_vfs_uri.is_empty() {
             anyhow::bail!("DeriveRequestExt.open.sqlite_vfs_uri is not set and must be");
+        } else if sqlite_vfs_uri == MEMORY_URI {
+            Database::Ephemeral
+        } else {
+            Database::Durable(sqlite_vfs_uri)
         }
-        sqlite_vfs_uri
     };
 
     let flow::CollectionSpec { derivation, .. } = collection.unwrap();
@@ -254,7 +282,7 @@ fn parse_open(
         })
         .collect::<Result<_, anyhow::Error>>()?;
 
-    Ok((sqlite_uri, config.migrations, transforms))
+    Ok((database, config.migrations, transforms))
 }
 
 fn do_read<'db>(
@@ -349,5 +377,78 @@ impl Drop for Handle {
         let db: *const _ = self.conn as *const _;
         let db: *mut _ = db as *mut rusqlite::Connection;
         _ = unsafe { Box::from_raw(db) };
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{MEMORY_URI, connector};
+    use futures::StreamExt;
+    use proto_flow::runtime::{DeriveRequestExt, derive_request_ext};
+    use proto_flow::{
+        derive::{Request, request},
+        flow,
+    };
+
+    /// The minimal derivation a `parse_open` will accept: a SQLite config with
+    /// no migrations and no transforms.
+    fn open_request(sqlite_vfs_uri: Option<&str>) -> Request {
+        let collection = flow::CollectionSpec {
+            name: "acmeCo/thing".to_string(),
+            derivation: Some(flow::collection_spec::Derivation {
+                config_json: r#"{"migrations":[]}"#.into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut request = Request {
+            open: Some(request::Open {
+                collection: Some(collection),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        if let Some(sqlite_vfs_uri) = sqlite_vfs_uri {
+            request.set_internal(|ext: &mut DeriveRequestExt| {
+                ext.open = Some(derive_request_ext::Open {
+                    sqlite_vfs_uri: sqlite_vfs_uri.to_string(),
+                });
+            });
+        }
+        request
+    }
+
+    async fn opened_checkpoint(
+        sqlite_vfs_uri: Option<&str>,
+    ) -> Option<proto_flow::RuntimeCheckpoint> {
+        let request = open_request(sqlite_vfs_uri);
+        let mut responses = connector(futures::stream::once(async move { request }));
+
+        let opened = responses
+            .next()
+            .await
+            .expect("connector responds to Open")
+            .expect("Open succeeds")
+            .opened
+            .expect("response is Opened");
+
+        opened.runtime_checkpoint
+    }
+
+    /// A stateless instance has nothing authoritative to report, so it reports
+    /// nothing — which is what keeps the runtime from treating it as
+    /// remote-authoritative and deferring to state that doesn't survive the
+    /// session. A recorded database does report, even when freshly empty.
+    #[tokio::test]
+    async fn opened_checkpoint_tracks_database_durability() {
+        assert_eq!(opened_checkpoint(None).await, None);
+        assert_eq!(opened_checkpoint(Some(MEMORY_URI)).await, None);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("derive.db");
+        assert_eq!(
+            opened_checkpoint(Some(path.to_str().unwrap())).await,
+            Some(Default::default()),
+        );
     }
 }

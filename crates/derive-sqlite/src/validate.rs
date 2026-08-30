@@ -63,7 +63,7 @@ pub fn do_validate(
     migrations: &[String],
     transforms: &[Transform],
 ) -> anyhow::Result<response::Validated> {
-    let (conn, _checkpoint) = dbutil::open(":memory:", migrations)?;
+    let (conn, _checkpoint) = dbutil::open(crate::connector::MEMORY_URI, migrations)?;
     let transform_stacks = dbutil::build_transforms(&conn, &transforms)?;
 
     let mut generated_files: Vec<(String, String)> = Vec::new();
