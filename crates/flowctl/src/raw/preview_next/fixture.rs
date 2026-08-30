@@ -675,9 +675,7 @@ fn on_reclaimed(
     disk_backlog_bytes: &mut u64,
     disk_back_pressure: &mut bool,
 ) {
-    *disk_backlog_bytes = disk_backlog_bytes
-        .checked_sub(reclaimed)
-        .expect("disk_backlog_bytes underflow");
+    *disk_backlog_bytes = disk_backlog_bytes.saturating_sub(reclaimed);
 
     if *disk_back_pressure && *disk_backlog_bytes < disk_limit_bytes / 2 {
         *disk_back_pressure = false;
