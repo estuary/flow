@@ -328,31 +328,14 @@ fn build_shards(
     endpoint: &str,
     directory: &std::path::Path,
 ) -> Vec<shuffle::proto::Shard> {
-    (0..count)
-        .map(|i| {
-            let key_begin = if i == 0 {
-                0
-            } else {
-                ((i as u64 * (u32::MAX as u64 + 1)) / count as u64) as u32
-            };
-            let key_end = if i == count - 1 {
-                u32::MAX
-            } else {
-                (((i + 1) as u64 * (u32::MAX as u64 + 1)) / count as u64 - 1) as u32
-            };
-
-            shuffle::proto::Shard {
-                id: format!("scenario-fuzz/shard-{i:03}"),
-                range: Some(flow::RangeSpec {
-                    key_begin,
-                    key_end,
-                    r_clock_begin: 0,
-                    r_clock_end: u32::MAX,
-                }),
-                endpoint: endpoint.to_string(),
-                directory: directory.to_str().unwrap().to_string(),
-                ..Default::default()
-            }
+    labels::shard::even_splits("scenario-fuzz", count, 1)
+        .into_iter()
+        .map(|split| shuffle::proto::Shard {
+            id: split.id,
+            range: Some(split.range),
+            endpoint: endpoint.to_string(),
+            directory: directory.to_str().unwrap().to_string(),
+            ..Default::default()
         })
         .collect()
 }

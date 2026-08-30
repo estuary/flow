@@ -162,6 +162,59 @@ pub fn id_suffix(set: &LabelSet) -> Result<String, Error> {
     Ok(format!("{key_begin}-{rclock_begin}"))
 }
 
+/// One shard of an even split of the range space: its range, the LabelSet
+/// encoding that range, and its complete shard ID.
+pub struct EvenSplit {
+    pub range: flow::RangeSpec,
+    pub labels: LabelSet,
+    pub id: String,
+}
+
+/// Split the key and r-clock spaces into `key_splits` and `rclock_splits` even
+/// parts, and return the `key_splits * rclock_splits` shards which tile their
+/// cross product. Each is named by appending its [`id_suffix`] to `id_prefix`
+/// (a shard template ID, *without* a trailing '/').
+///
+/// Shards are ordered key-major, which is also the lexicographic order of their
+/// IDs. Production only ever splits on key — an r-clock split arises later, by
+/// subdividing an existing shard — so `rclock_splits` is one outside of tests
+/// which need a two-dimensional topology.
+pub fn even_splits(id_prefix: &str, key_splits: u32, rclock_splits: u32) -> Vec<EvenSplit> {
+    even_bounds(key_splits)
+        .flat_map(|(key_begin, key_end)| {
+            even_bounds(rclock_splits).map(move |(r_clock_begin, r_clock_end)| {
+                let range = flow::RangeSpec {
+                    key_begin,
+                    key_end,
+                    r_clock_begin,
+                    r_clock_end,
+                };
+                let labels = encode_range_spec(LabelSet::default(), &range);
+                let id = format!(
+                    "{id_prefix}/{}",
+                    id_suffix(&labels).expect("we just encoded the range spec")
+                );
+                EvenSplit { range, labels, id }
+            })
+        })
+        .collect()
+}
+
+/// The `count` inclusive [begin, end] bounds which evenly tile the full `u32`
+/// space, in ascending order. Empty if `count` is zero.
+fn even_bounds(count: u32) -> impl Iterator<Item = (u32, u32)> {
+    // Widths are computed in u64 so that the full `u32::MAX + 1` space is
+    // representable, and so that the arithmetic doesn't depend on usize width.
+    const SPACE: u64 = u32::MAX as u64 + 1;
+
+    (0..count as u64).map(move |i| {
+        (
+            (SPACE * i / count as u64) as u32,
+            (SPACE * (i + 1) / count as u64 - 1) as u32,
+        )
+    })
+}
+
 /// Extract a shard's templated ID prefix, *including* the trailing '/' which
 /// separates it from the key/r-clock suffix. Returns None if `name` has no '/'.
 ///
@@ -403,5 +456,209 @@ mod test {
         let set = crate::add_value(model.clone(), crate::SPLIT_TARGET, "split/target");
         insta::assert_json_snapshot!(case(set),
             @r###""both split-source split/source and split-target split/target are set but shouldn't be""###);
+    }
+
+    #[test]
+    fn test_even_splits() {
+        let case = |key_splits, rclock_splits| {
+            even_splits(
+                "derivation/acmeCo/thing/0000000000000000",
+                key_splits,
+                rclock_splits,
+            )
+            .into_iter()
+            .map(|s| {
+                (
+                    s.id,
+                    (s.range.key_begin, s.range.key_end),
+                    (s.range.r_clock_begin, s.range.r_clock_end),
+                )
+            })
+            .collect::<Vec<_>>()
+        };
+
+        // One shard spans the whole range space.
+        insta::assert_debug_snapshot!(case(1, 1), @r###"
+        [
+            (
+                "derivation/acmeCo/thing/0000000000000000/00000000-00000000",
+                (
+                    0,
+                    4294967295,
+                ),
+                (
+                    0,
+                    4294967295,
+                ),
+            ),
+        ]
+        "###);
+
+        // Three shards tile the key space without gap or overlap, and the last
+        // ends at u32::MAX (the division is exact, so no remainder is dropped).
+        insta::assert_debug_snapshot!(case(3, 1), @r###"
+        [
+            (
+                "derivation/acmeCo/thing/0000000000000000/00000000-00000000",
+                (
+                    0,
+                    1431655764,
+                ),
+                (
+                    0,
+                    4294967295,
+                ),
+            ),
+            (
+                "derivation/acmeCo/thing/0000000000000000/55555555-00000000",
+                (
+                    1431655765,
+                    2863311529,
+                ),
+                (
+                    0,
+                    4294967295,
+                ),
+            ),
+            (
+                "derivation/acmeCo/thing/0000000000000000/aaaaaaaa-00000000",
+                (
+                    2863311530,
+                    4294967295,
+                ),
+                (
+                    0,
+                    4294967295,
+                ),
+            ),
+        ]
+        "###);
+
+        // An r-clock split alone leaves every shard spanning the full key space,
+        // distinguished only by the second half of its ID suffix.
+        insta::assert_debug_snapshot!(case(1, 2), @r###"
+        [
+            (
+                "derivation/acmeCo/thing/0000000000000000/00000000-00000000",
+                (
+                    0,
+                    4294967295,
+                ),
+                (
+                    0,
+                    2147483647,
+                ),
+            ),
+            (
+                "derivation/acmeCo/thing/0000000000000000/00000000-80000000",
+                (
+                    0,
+                    4294967295,
+                ),
+                (
+                    2147483648,
+                    4294967295,
+                ),
+            ),
+        ]
+        "###);
+
+        // A 2x2 split tiles the two-dimensional space, key-major.
+        insta::assert_debug_snapshot!(case(2, 2), @r###"
+        [
+            (
+                "derivation/acmeCo/thing/0000000000000000/00000000-00000000",
+                (
+                    0,
+                    2147483647,
+                ),
+                (
+                    0,
+                    2147483647,
+                ),
+            ),
+            (
+                "derivation/acmeCo/thing/0000000000000000/00000000-80000000",
+                (
+                    0,
+                    2147483647,
+                ),
+                (
+                    2147483648,
+                    4294967295,
+                ),
+            ),
+            (
+                "derivation/acmeCo/thing/0000000000000000/80000000-00000000",
+                (
+                    2147483648,
+                    4294967295,
+                ),
+                (
+                    0,
+                    2147483647,
+                ),
+            ),
+            (
+                "derivation/acmeCo/thing/0000000000000000/80000000-80000000",
+                (
+                    2147483648,
+                    4294967295,
+                ),
+                (
+                    2147483648,
+                    4294967295,
+                ),
+            ),
+        ]
+        "###);
+
+        // Zero splits in either dimension is an empty cross product.
+        assert!(case(0, 3).is_empty());
+        assert!(case(3, 0).is_empty());
+
+        // Every combination tiles the two-dimensional space exactly.
+        for key_splits in [1, 2, 3, 5, 16] {
+            for rclock_splits in [1, 2, 3, 7, 100] {
+                let splits = even_splits("prefix", key_splits, rclock_splits);
+                assert_eq!(splits.len() as u32, key_splits * rclock_splits);
+
+                // Shards are key-major, so each contiguous run of
+                // `rclock_splits` shares one key range and tiles the r-clock
+                // space, and the runs themselves tile the key space.
+                let runs: Vec<_> = splits.chunks(rclock_splits as usize).collect();
+
+                assert_eq!(runs[0][0].range.key_begin, 0);
+                assert_eq!(runs[runs.len() - 1][0].range.key_end, u32::MAX);
+
+                for pair in runs.windows(2) {
+                    assert_eq!(
+                        pair[0][0].range.key_end + 1,
+                        pair[1][0].range.key_begin,
+                        "key gap or overlap at {key_splits}x{rclock_splits}"
+                    );
+                }
+
+                for run in runs {
+                    assert_eq!(run[0].range.r_clock_begin, 0);
+                    assert_eq!(run[run.len() - 1].range.r_clock_end, u32::MAX);
+
+                    for pair in run.windows(2) {
+                        assert_eq!(pair[0].range.key_begin, pair[1].range.key_begin);
+                        assert_eq!(pair[0].range.key_end, pair[1].range.key_end);
+                        assert_eq!(
+                            pair[0].range.r_clock_end + 1,
+                            pair[1].range.r_clock_begin,
+                            "r-clock gap or overlap at {key_splits}x{rclock_splits}"
+                        );
+                    }
+                    // Each ID agrees with the labels it was built from, so
+                    // shards sharing a key range are still distinctly named.
+                    for split in run {
+                        assert!(split.id.ends_with(&id_suffix(&split.labels).unwrap()));
+                    }
+                }
+            }
+        }
     }
 }
