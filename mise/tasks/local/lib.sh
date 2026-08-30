@@ -66,6 +66,7 @@ emit_common_vars() {
     cat <<EOF
 # Common build/runtime environment (generated; inlined per instance).
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR}"
+CONFIG_ENCRYPTION_URL="http://host.docker.internal:${FLOW_PORT_CONFIG_ENC}/v1/encrypt-config"
 CGO_CFLAGS="${CGO_CFLAGS}"
 CGO_CPPFLAGS="${CGO_CPPFLAGS}"
 CGO_LDFLAGS="${CGO_LDFLAGS}"

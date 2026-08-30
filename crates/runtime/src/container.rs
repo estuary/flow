@@ -156,7 +156,19 @@ pub async fn start(
             // this cannot race host-port allocations of other starting containers.
             format!("--publish=0.0.0.0::{CONNECTOR_INIT_PORT}"),
             "--publish-all".to_string(),
+            // Resolve `host.docker.internal` to the host, so that URLs
+            // pointing at host services (e.g. CONFIG_ENCRYPTION_URL) work
+            // under Linux docker as well as Docker Desktop.
+            "--add-host=host.docker.internal:host-gateway".to_string(),
         ]);
+    }
+
+    // Forward the config-encryption endpoint to the connector. Connectors which
+    // emit `configUpdate` events encrypt the restated config through this service,
+    // and otherwise fall back to Estuary's public one — which a local stack cannot
+    // decrypt, because it seals with different keys.
+    if let Ok(url) = std::env::var("CONFIG_ENCRYPTION_URL") {
+        docker_args.push(format!("--env=ENCRYPTION_URL={url}"));
     }
 
     if let Some(cgroup_parent) = std::env::var("CONNECTOR_CGROUP_PARENT").ok() {
