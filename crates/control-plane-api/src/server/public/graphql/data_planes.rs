@@ -496,14 +496,10 @@ impl DataPlanesQuery {
         let closed_eq = closed.and_then(|f| f.eq);
         let public_eq = public.and_then(|f| f.eq);
 
-        // Tenant filter must end with a slash so that it captures the full tenant path segment in the
-        // private data plane names. This prevents the tenant filter from matching two tenants with the same
-        // starting characters (e.g. keeps "foo" from matching both "foo-bar" and "foo-baz").
-        if tenant.as_ref().is_some_and(|t| !t.ends_with("/")) {
-            return Err(async_graphql::Error::new(format!(
-                "tenant filter must end with a slash"
-            )));
-        }
+        // The tenant must match a whole path segment of a private plane's name,
+        // so append the trailing slash when the caller omits it: a bare "foo"
+        // would otherwise match both "foo-bar/" and "foo-baz/".
+        let tenant = tenant.map(|t| if t.ends_with('/') { t } else { t + "/" });
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
@@ -1448,13 +1444,12 @@ mod tests {
             want
         }
 
-        // Error case: a tenant filter must end with a slash
-        let response = query(&server, &token, serde_json::json!({ "tenant": "bobCo" })).await;
-        let error = response["errors"][0]["message"].as_str();
-        assert_eq!(
-            error.unwrap_or_default(),
-            "tenant filter must end with a slash"
-        );
+        // A tenant missing its trailing slash is normalized, not rejected, and
+        // still doesn't reach the prefix-sharing `bobCo2/`.
+        let filter = serde_json::json!({ "tenant": "bobCo" });
+        let actual = names(&server, &token, filter.clone()).await;
+        let expected = flatten(&[&public_dps, &bob_co_dps]);
+        assert_eq!(actual, expected);
 
         // No filter: every readable plane, of both tenants.
         let filter = serde_json::Value::Null;
