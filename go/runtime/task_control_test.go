@@ -227,6 +227,17 @@ func TestTaskControlSyncNow(t *testing.T) {
 		require.Zero(t, stub.calls())
 	})
 
+	t.Run("malformed-task-is-not-found", func(t *testing.T) {
+		stub.script(scriptedOkStream(nil))
+		// A space would panic allocator.ItemKey; the prefix scan must treat
+		// it as any other unknown task.
+		var resp = postSyncNow(t, primary, token, `{"taskName": "acmeCo/test/not a task"}`)
+		defer resp.Body.Close()
+
+		require.Equal(t, http.StatusNotFound, resp.StatusCode)
+		require.Zero(t, stub.calls())
+	})
+
 	t.Run("capture-has-nothing-to-await", func(t *testing.T) {
 		stub.script(scriptedOkStream(nil))
 		var captureToken = mintTaskToken(t, primary,
