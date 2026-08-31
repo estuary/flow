@@ -19,13 +19,8 @@
 //!
 //! `source-soak` routes each document to `id % len(bindings)`, so one capture with
 //! two bindings would *partition* accounts between the two collections rather than
-//! writing both. Conservation would then hold only over the union of the two
-//! destinations, and standard-vs-delta agreement would be uncheckable — the two
-//! collections would describe disjoint accounts. Two single-binding captures give
-//! each collection a self-conserving population instead, so every invariant is
-//! checkable per binding and a failure localizes. The capture connector itself is
-//! reused unmodified either way.
-//!
+//! writing both. Two single-binding captures give
+//! each collection an independent population instead.
 //! # Reproducibility
 //!
 //! Nothing here is seeded, and it does not need to be. The capture and the
@@ -44,21 +39,13 @@ use anyhow::Context;
 /// resolve against that.
 const EVENTS_SCHEMA: &str = include_str!("../../../../tests/soak/capture/events.schema.json");
 
-/// The subject's resource config naming one of this run's destination tables.
-///
-/// Shared with the verification read, which addresses the same tables through the same
-/// connector and would otherwise construct this a second way.
 pub fn resource_config(
-    shape: Option<&crate::harness::subject::ResourceShape>,
+    shape: &crate::harness::subject::ResourceShape,
     names: &Names,
     table: &str,
     delta: bool,
 ) -> serde_json::Value {
-    let table = names.table(table);
-    match shape {
-        Some(shape) => shape.resource(&table, delta),
-        None => serde_json::json!({"table": table, "delta": delta}),
-    }
+    shape.resource(&names.table(table), delta)
 }
 
 /// Destination resource names, before any per-run suffix. See [`Names::table`].
@@ -117,14 +104,13 @@ impl Names {
         }
     }
 
-    /// This run's name for one of the destination tables.
     pub fn table(&self, base: &str) -> String {
         format!("{base}{}", self.table_suffix)
     }
 }
 
-/// How much workload a scenario runs against.
-pub struct Workload {
+/// How much data the captures produce, and how the runtime paces transactions over it.
+pub struct Capture {
     /// Documents per second, per collection.
     pub rate: f64,
     /// Width of the account-id window. A narrow window concentrates events on few
@@ -133,14 +119,7 @@ pub struct Workload {
     /// Lower bound on transaction duration. Together with the rate this shapes
     /// transaction size to roughly `rate × duration`; the runtime's document- and
     /// byte-count limits are not yet threaded through from the spec, so
-    /// transaction boundaries are approximate. Scenarios are keyed on protocol
-    /// events rather than document identity precisely because of that.
-    ///
-    /// It also sets the pace of every gate in a run. A scenario waits out a warmup and a
-    /// settle measured in *commits*, so transaction duration is most of a run's wall
-    /// clock — measured at 18.8s of a 35s run. Shortening it costs nothing in coverage,
-    /// for the same reason the boundaries are approximate: nothing here is keyed on how
-    /// many documents a transaction carries.
+    /// transaction boundaries are approximate.
     pub min_txn: std::time::Duration,
     /// Upper bound on transaction duration, which has to leave room for a subject that
     /// commits slowly: the runtime closes a transaction at this bound whether or not the
@@ -148,8 +127,8 @@ pub struct Workload {
     pub max_txn: std::time::Duration,
 }
 
-impl Default for Workload {
-    /// Shaped for a subject whose destination is local and commits in milliseconds.
+impl Default for Capture {
+    /// Defaults for a subject whose destination is local and commits in milliseconds.
     fn default() -> Self {
         Self {
             rate: 40.0,
@@ -160,18 +139,11 @@ impl Default for Workload {
     }
 }
 
-impl Workload {
-    /// Shaped for a subject that commits to a remote system.
-    ///
-    /// A real materialization does not commit in milliseconds: it stages files to object
-    /// storage and runs a MERGE on a warehouse, which is seconds to tens of seconds per
-    /// transaction. Asking such a connector for a transaction every 500ms — the local
-    /// default — does not make it faster, it makes it fall behind until the gates that
-    /// count commits time out, which is exactly how `materialize-databricks` failed here.
-    ///
-    /// So transactions are long and the rate is lower: fewer, larger transactions cover
-    /// the same protocol ground, and every scenario is keyed on protocol events rather
-    /// than on document counts, so nothing is lost by carrying less data.
+impl Capture {
+    /// Defaults for a subject that commits to a remote system, which takes seconds to tens
+    /// of seconds per transaction: transactions are long and the rate is lower, and since
+    /// scenarios are keyed on protocol events, fewer documents per transaction does not
+    /// affect what is verified.
     pub fn remote() -> Self {
         Self {
             rate: 10.0,
@@ -189,15 +161,14 @@ pub struct Plan<'a> {
     pub capture: &'a std::path::Path,
     pub run_dir: &'a std::path::Path,
     pub faults: &'a [FaultRule],
-    pub workload: &'a Workload,
+    pub capture_load: &'a Capture,
     /// Whether to materialize the merged collection with standard (merge) semantics
     /// in addition to the two delta bindings. See `Scenario::standard_binding`.
     pub standard_binding: bool,
-    /// Where the table name and delta flag live in the subject's resource config.
-    ///
-    /// The reference connector's own shape when absent. A real connector's is discovered
-    /// from its `spec`.
-    pub resource_shape: Option<&'a crate::harness::subject::ResourceShape>,
+    pub resource_shape: &'a crate::harness::subject::ResourceShape,
+    /// Whether the shim speaks protobuf to the connector. JSON is available only to the
+    /// reference connector, which reads whichever key field is set; see below.
+    pub protobuf: bool,
 }
 
 /// Build the whole catalog of a run.
@@ -299,12 +270,7 @@ fn collection(schema: serde_json::Value, key: &[&str]) -> anyhow::Result<models:
     })
 }
 
-/// A catalog that stops the workload and nothing else.
-///
-/// It carries only the two captures, disabled. Republishing the materialization
-/// here would bump its version and so drive an Apply and a fresh session over the
-/// very task under test — perturbing it at the exact moment the run has stopped
-/// perturbing it on purpose.
+/// A catalog that carries the two captures with `disable: true`.
 pub fn disable_captures(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
     let mut catalog = models::Catalog::default();
 
@@ -321,9 +287,9 @@ pub fn disable_captures(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
 
 fn capture(plan: &Plan<'_>, target: &str, disable: bool) -> anyhow::Result<models::CaptureDef> {
     let config = serde_json::json!({
-        "rate": plan.workload.rate,
+        "rate": plan.capture_load.rate,
         "docsPerCheckpoint": 10,
-        "idRange": plan.workload.id_range,
+        "idRange": plan.capture_load.id_range,
         // One resource, so every document lands in this capture's single
         // collection rather than being partitioned across several.
         "collections": ["events"],
@@ -356,13 +322,8 @@ fn capture(plan: &Plan<'_>, target: &str, disable: bool) -> anyhow::Result<model
     })
 }
 
-/// The scenario's catalog with the materialization *disabled*, and the captures left
-/// running.
-///
-/// Half of the escalation in `harness::restart_task`, which publishes this and then the enabled
-/// catalog again; that function carries the reasoning for why a restart is sometimes needed where
-/// unassigning is not enough.
-pub fn sink_disabled(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
+/// The scenario's catalog carrying the materialization with `disable: true`.
+pub fn disable_materialization(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
     let mut catalog = build(plan)?;
 
     for def in catalog.materializations.values_mut() {
@@ -382,42 +343,25 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
         serde_json::to_string(plan.faults).context("encoding fault rules")?,
     );
 
-    // Forwarded rather than set, so it is off unless a person asks for it.
-    //
-    // The reduction trace records every `Load` and `Store` of a merged key, plus each staged
-    // batch an `Acknowledge` applies — which is the only way to see *why* a reduced value came
-    // out wrong: the delivered rows say what the connector was told, never what it read before
-    // reducing onto it. Too voluminous to leave on, too useful to reinvent.
-    //
-    // Not recovery decisions, despite an earlier version of this comment: the counted channel's
-    // skip, decided in `open_counters`, is traced nowhere.
+    // Forwarded rather than set, so it is off unless a person asks for it. See
+    // `ENV_TRACE_REDUCE`.
     if std::env::var_os(ENV_TRACE_REDUCE).is_some() {
         env.insert(ENV_TRACE_REDUCE.to_string(), "1".to_string());
     }
 
     // Whatever the subject itself asked for, last so a caller can override the above knowingly.
-    // See `subject::ENV_SUBJECT_ENV` for why a connector needs this at all: run from its image it
-    // has an environment its Dockerfile built, and run as a `local:` binary it does not.
     env.extend(plan.subject.env.clone());
 
     // The shim is the catalog's connector; the real one is its argument. This is
     // the whole of the interposition: no change to Flow, and no change to the
     // connector under test.
-    // Protobuf against a real connector, JSON against the reference one.
     //
-    // The shim relays requests without transcoding, so runtime, shim and connector must
-    // agree on one codec — and a Go materialization connector cannot use JSON. Under the
-    // JSON codec the runtime populates `Load.key_json` and leaves `key_packed` empty, which
-    // is by design (see `Load` in `go/protocols/materialize/materialize.proto`: "the runtime
-    // populates exactly one of `key_json` or `key_packed` per the negotiated codec"). But
-    // `Request_Load.Validate` in `go/protocols/materialize/extensions.go` requires
-    // `KeyPacked` and carries the note "KeyJson is not checked yet", and the boilerplate
-    // reads only `KeyPacked` — so every `Load` and `Store` is rejected outright.
-    //
-    // So this is not a preference. JSON is available only to the reference connector, which
-    // is Rust and reads whichever field is set. The shim's `trace.jsonl` is human-readable
-    // either way, so nothing is lost by the fleet speaking protobuf.
-    let protobuf = plan.resource_shape.is_some();
+    // Protobuf against a real connector, JSON against the reference one. The shim relays
+    // requests without transcoding, so runtime, shim and connector must agree on one codec —
+    // and a Go materialization connector cannot use JSON: under the JSON codec the runtime
+    // populates `Load.key_json` and leaves `key_packed` empty, while the Go boilerplate
+    // reads only `KeyPacked`, so every `Load` and `Store` would be rejected.
+    let protobuf = plan.protobuf;
 
     let mut command = vec![plan.shim.to_string_lossy().to_string()];
     if protobuf {
@@ -461,12 +405,13 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
             .collect(),
         shards: models::ShardTemplate {
             log_level: Some("info".to_string()),
-            min_txn_duration: Some(plan.workload.min_txn),
-            max_txn_duration: Some(plan.workload.max_txn),
+            min_txn_duration: Some(plan.capture_load.min_txn),
+            max_txn_duration: Some(plan.capture_load.max_txn),
             ..runtime_v2()
         },
         expect_pub_id: None,
         triggers: None,
+        sync_schedule: None,
         delete: false,
         reset: false,
     })

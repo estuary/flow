@@ -36,6 +36,14 @@ pub struct ResourceShape {
 }
 
 impl ResourceShape {
+    /// The reference connector's own shape, as its `spec` annotates it.
+    pub fn reference() -> Self {
+        Self {
+            table: "table".to_string(),
+            delta: "delta".to_string(),
+        }
+    }
+
     /// A resource config for one binding of this connector.
     pub fn resource(&self, table: &str, delta: bool) -> serde_json::Value {
         let mut resource = serde_json::Map::new();

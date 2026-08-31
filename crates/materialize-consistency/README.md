@@ -142,6 +142,73 @@ which it is:
 The "Reading a failure" section of [`AGENT_README.md`](AGENT_README.md) has the
 full triage guide.
 
+## Glossary
+
+The suite introduces some terms of its own. In plain words:
+
+- **Scenario** — one experiment: run a materialization, break it at one precise
+  moment, and check the destination afterwards. Each row of the table above is a
+  scenario.
+- **Subject** — the connector being tested: the reference connector by default,
+  or a real one named through the environment.
+- **Reference connector** — a small connector built into this crate that writes
+  to a local SQLite file. It implements all four classes and can be run with
+  deliberate bugs, which is how the suite proves it can tell a good connector
+  from a bad one.
+- **Defect** — one of those deliberate bugs implemented in the reference
+  connector. Every scenario names the defect it must catch, and runs once clean
+  (must pass) and once with the defect switched on (must fail).
+- **Class** — the strategy the connector uses to commit its data (see the table
+  above). The subject declares its class, and the class decides which scenarios
+  apply to it.
+- **Shim** — a middleman process that poses as the connector. The runtime talks
+  to it, it talks to the real connector, and from that seat it watches every
+  protocol message and injects faults.
+- **Fault** — the injected mishap: crash the connector, stall a message, or
+  start a zombie. A fault is keyed on a counted protocol event ("the 4th
+  `Acknowledge`"), and *arming* it delays it until the task has committed a few
+  transactions first.
+- **Zombie** — a second copy of the connector, fed the same messages, frozen
+  right after it opens, and thawed later so its stale commit races the live
+  instance. It stands in for the "old process still running" hazard.
+- **Oracle** — the producer's own statement of the correct answer ("after this
+  event, account 7's balance is -38"), carried inside every document. It lets
+  the suite compute what the destination should hold rather than compare
+  against a recorded snapshot.
+- **Expectation** — a per-account summary of what the collections hold — which
+  sequences exist, what the balances sum to — built by reading the collections
+  directly. It is what the destination is compared against, and the connector
+  under test had no hand in producing it.
+- **Invariant** — a property the destination must satisfy after a run: nothing
+  lost, nothing delivered twice, every balance agreeing with its oracle,
+  sequences never going backwards, and so on. `invariants.rs` defines them.
+- **Violation** — one observed break of an invariant, e.g. "account 3: seq 17
+  reached the log binding twice".
+- **Exemption** — a declared, justified pass on one invariant for one scenario:
+  "this class duplicates on replay by design, so duplicates are not held
+  against it here."
+- **Suppression** — exemptions *suppress* the error caused by violations of
+  invariants: the violations are still counted and reported, but they do not
+  fail the run.
+- **Ceiling** — the most violations an exemption may suppress before the run
+  fails anyway. "One replayed transaction" explains twenty duplicates, not five
+  thousand.
+- **Runtime gap** — a known limitation of the Flow runtime, not of the
+  connector, that a scenario is expected to expose. The scenario fails on
+  purpose for the exposed class, and the failure measures the gap; an
+  unexpected pass is reported too, so the marker is removed when the gap
+  closes.
+- **Raced gap** — a runtime gap the scenario only sometimes reaches, because
+  hitting it depends on timing. A pass means the window was missed; a failure
+  is attributed to the runtime rather than the connector.
+- **Environment failure** — a run that failed for reasons that say nothing
+  about the connector: the stack would not publish, a collection could not be
+  read, a gate timed out before the fault fired. These never count as a caught
+  defect.
+- **Shortfall** — the destination stopped short of the collection documents:
+  either the documents got lost by the connector, or they were not delivered
+  yet. The run fails without a verdict instead of blaming the connector.
+
 ## More
 
 - [`AGENT_README.md`](AGENT_README.md) — the complete operating guide, written
