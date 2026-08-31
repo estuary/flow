@@ -99,12 +99,21 @@ pub struct Account {
 #[derive(Clone, Debug, Default)]
 pub struct Expectation {
     pub accounts: BTreeMap<i64, Account>,
+    /// Documents whose `(id, seq)` the read surfaced more than once.
+    ///
+    /// Recorded because the expectation folds them to one while a materialization
+    /// does not: an append binding writes a row per document it is given, and a
+    /// merge binding reduces each into the target key. So a non-zero count here
+    /// means the two sides are measuring different things, and a comparison
+    /// against a reducing binding is not sound until it is explained.
+    pub duplicated_documents: usize,
 }
 
 impl Expectation {
     /// Fold the collection's documents into a per-account expectation.
     pub fn from_documents(documents: impl IntoIterator<Item = Event>) -> Self {
         let mut accounts: BTreeMap<i64, Account> = BTreeMap::new();
+        let mut duplicated_documents = 0;
 
         for event in documents {
             let account = accounts.entry(event.id).or_default();
@@ -116,6 +125,8 @@ impl Expectation {
             // delivers.
             if account.seqs.insert(event.seq) {
                 account.total_delta += event.balance_delta;
+            } else {
+                duplicated_documents += 1;
             }
             if event.seq >= account.max_seq || account.by_seq.is_empty() {
                 account.max_seq = event.seq;
@@ -124,7 +135,10 @@ impl Expectation {
             account.by_seq.insert(event.seq, event);
         }
 
-        Self { accounts }
+        Self {
+            accounts,
+            duplicated_documents,
+        }
     }
 
     pub fn documents(&self) -> usize {

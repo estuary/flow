@@ -35,7 +35,7 @@
 //! crash-and-replay scenario therefore replays byte-identical input by
 //! construction.
 
-use crate::protocol::{ENV_FAULTS, ENV_RUN_DIR, FaultRule};
+use crate::protocol::{ENV_FAULTS, ENV_RUN_DIR, ENV_TRACE_REDUCE, FaultRule};
 use anyhow::Context;
 
 /// The wire contract of the workload, shared with the soak suite so there is one
@@ -90,6 +90,12 @@ pub struct Workload {
     /// byte-count limits are not yet threaded through from the spec, so
     /// transaction boundaries are approximate. Scenarios are keyed on protocol
     /// events rather than document identity precisely because of that.
+    ///
+    /// It also sets the pace of every gate in a run. A scenario waits out a warmup and a
+    /// settle measured in *commits*, so transaction duration is most of a run's wall
+    /// clock — measured at 18.8s of a 35s run. Shortening it costs nothing in coverage,
+    /// for the same reason the boundaries are approximate: nothing here is keyed on how
+    /// many documents a transaction carries.
     pub min_txn: std::time::Duration,
 }
 
@@ -98,7 +104,7 @@ impl Default for Workload {
         Self {
             rate: 40.0,
             id_range: 40,
-            min_txn: std::time::Duration::from_secs(1),
+            min_txn: std::time::Duration::from_millis(500),
         }
     }
 }
@@ -309,6 +315,16 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
         ENV_FAULTS.to_string(),
         serde_json::to_string(plan.faults).context("encoding fault rules")?,
     );
+
+    // Forwarded rather than set, so it is off unless a person asks for it.
+    //
+    // The reduction trace records every `Load` and `Store` of a merged key, plus each
+    // recovery decision, which is the only way to see *why* a reduced value came out
+    // wrong: the delivered rows say what the connector was told, never what it read
+    // before reducing onto it. Too voluminous to leave on, too useful to reinvent.
+    if std::env::var_os(ENV_TRACE_REDUCE).is_some() {
+        env.insert(ENV_TRACE_REDUCE.to_string(), "1".to_string());
+    }
 
     // The shim is the catalog's connector; the real one is its argument. This is
     // the whole of the interposition: no change to Flow, and no change to the

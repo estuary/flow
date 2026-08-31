@@ -91,29 +91,26 @@ impl Store {
              );
 
              CREATE TABLE IF NOT EXISTS _flow_staged (
-                 ord       INTEGER PRIMARY KEY AUTOINCREMENT,
-                 txn       INTEGER NOT NULL,
-                 shard     INTEGER NOT NULL,
-                 shard_end INTEGER NOT NULL,
-                 tbl       TEXT    NOT NULL,
-                 delta     INTEGER NOT NULL,
-                 key       TEXT    NOT NULL,
-                 doc       TEXT    NOT NULL,
-                 del       INTEGER NOT NULL
+                 ord   INTEGER PRIMARY KEY AUTOINCREMENT,
+                 batch TEXT    NOT NULL,
+                 tbl   TEXT    NOT NULL,
+                 key   TEXT    NOT NULL,
+                 doc   TEXT    NOT NULL,
+                 del   INTEGER NOT NULL
              );
+             CREATE INDEX IF NOT EXISTS _flow_staged_batch ON _flow_staged (batch, tbl);
 
              CREATE TABLE IF NOT EXISTS _flow_applied_row (
-                 tbl TEXT NOT NULL,
-                 key TEXT NOT NULL,
-                 doc TEXT NOT NULL,
+                 tbl   TEXT NOT NULL,
+                 key   TEXT NOT NULL,
+                 doc   TEXT NOT NULL,
+                 batch TEXT NOT NULL,
                  PRIMARY KEY (tbl, key, doc)
              );
 
-             CREATE TABLE IF NOT EXISTS _flow_applied_txn (
-                 shard     INTEGER NOT NULL,
-                 shard_end INTEGER NOT NULL,
-                 txn       INTEGER NOT NULL,
-                 PRIMARY KEY (shard, shard_end, txn)
+             CREATE TABLE IF NOT EXISTS _flow_suppressed (
+                 tbl  TEXT PRIMARY KEY,
+                 rows INTEGER NOT NULL
              );
 
              CREATE TABLE IF NOT EXISTS _flow_counter (
@@ -300,177 +297,166 @@ impl Store {
     ) -> anyhow::Result<()> {
         let txn = self.write_txn()?;
 
-        if check_fence {
-            let current: Option<i64> = txn
-                .query_row(
-                    "SELECT nonce FROM _flow_fence WHERE key_begin = ?1 AND key_end = ?2",
-                    (key_begin, key_end),
-                    |r| r.get(0),
-                )
-                .optional()?;
-
-            anyhow::ensure!(
-                current == Some(nonce),
-                "fenced off: destination holds nonce {current:?} but this session holds {nonce}"
-            );
-        }
-
         write_rows(&txn, rows)?;
 
-        if let Some(checkpoint) = checkpoint {
-            txn.execute(
-                "UPDATE _flow_fence SET checkpoint = ?3 WHERE key_begin = ?1 AND key_end = ?2",
-                (key_begin, key_end, checkpoint),
-            )?;
-        }
+        // The fence is checked *by* the update that writes the checkpoint, not by a
+        // read beside it — one statement whose `WHERE nonce = ?` makes ownership a
+        // condition of the write, and whose affected-row count is the verdict. This is
+        // what `materialize-postgres` does, queueing the fence update as the last
+        // statement of the same transaction and treating anything other than one
+        // affected row as having been fenced off.
+        //
+        // A read followed by a write would be two operations with a window between
+        // them: correct only because SQLite's `BEGIN IMMEDIATE` happens to serialise
+        // writers, and wrong on any store that does not.
+        let updated = txn.execute(
+            "UPDATE _flow_fence SET checkpoint = COALESCE(?4, checkpoint)
+             WHERE key_begin = ?1 AND key_end = ?2 AND (?3 IS NULL OR nonce = ?3)",
+            (key_begin, key_end, check_fence.then_some(nonce), checkpoint),
+        )?;
+
+        anyhow::ensure!(
+            updated == 1,
+            "fenced off: no fence row for [{key_begin:08x}, {key_end:08x}] still holds \
+             nonce {nonce}, so another session has claimed this range",
+        );
+
         txn.commit()?;
         Ok(())
     }
 
     /// Durably stage `rows` against `txn_id` without making them visible in the
     /// destination tables. The post-commit-apply class's `Store` path.
-    pub fn stage(
-        &self,
-        shard: u32,
-        shard_end: u32,
-        txn_id: i64,
-        rows: &[(Table, Row)],
-    ) -> anyhow::Result<()> {
+    /// Durably record `rows` under `batch` without making them visible.
+    ///
+    /// The analogue of a real connector uploading a staged file: the data lands
+    /// somewhere durable and inert, named by something the connector can put in its
+    /// checkpoint and act on later.
+    pub fn stage(&self, batch: &str, rows: &[(Table, Row)]) -> anyhow::Result<()> {
         let txn = self.write_txn()?;
         {
             let mut stmt = txn.prepare(
-                "INSERT INTO _flow_staged (txn, shard, shard_end, tbl, delta, key, doc, del)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO _flow_staged (batch, tbl, key, doc, del)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
             )?;
             for (table, row) in rows {
-                stmt.execute((
-                    txn_id,
-                    shard,
-                    shard_end,
-                    &table.name,
-                    table.delta as i64,
-                    &row.key,
-                    &row.doc,
-                    row.delete as i64,
-                ))?;
+                stmt.execute((batch, &table.name, &row.key, &row.doc, row.delete as i64))?;
             }
         }
         txn.commit()?;
         Ok(())
     }
 
-    /// Apply this shard's rows staged for `txn_id` to their tables.
+    /// Run the statements of one checkpoint entry, as a single transaction.
     ///
-    /// With `idempotent`, a claim on `(shard, txn)` is taken first — skipping the
-    /// whole apply if it already exists — and the staged rows are then forgotten.
-    /// Together those make a replayed `Acknowledge` a no-op, which the runtime is
-    /// entitled to rely on.
-    ///
-    /// Without it, the rows are applied and *left in place*: no claim to notice
-    /// that they have already landed, and no deletion to make a second attempt
-    /// find nothing. That is the `non-idempotent-acknowledge` defect, and it models
-    /// the real-world shape of it — staged files that the connector forgets to
-    /// retire — rather than a contrived one.
-    pub fn apply_staged(
-        &self,
-        key_begin: u32,
-        key_end: u32,
-        txn_id: i64,
-        idempotent: bool,
-    ) -> anyhow::Result<bool> {
+    /// The statements come from connector state, which is what makes this the whole of
+    /// the apply: nothing here inspects the destination to decide what to do. Running
+    /// them together is what makes the entry idempotent — the last statement retires
+    /// the batch, so a re-run finds nothing staged and changes nothing.
+    pub fn execute(&self, queries: &[String]) -> anyhow::Result<()> {
         let txn = self.write_txn()?;
-
-        if idempotent {
-            let claimed = txn.execute(
-                "INSERT OR IGNORE INTO _flow_applied_txn (shard, shard_end, txn)
-                 VALUES (?1, ?2, ?3)",
-                (key_begin, key_end, txn_id),
-            )?;
-            if claimed == 0 {
-                txn.commit()?;
-                return Ok(false);
-            }
-        }
-
-        let rows = {
-            let mut stmt = txn.prepare(
-                "SELECT tbl, delta, key, doc, del FROM _flow_staged
-                 WHERE shard = ?1 AND shard_end = ?2 AND txn = ?3 ORDER BY ord",
-            )?;
-            let rows = stmt
-                .query_map((key_begin, key_end, txn_id), |r| {
-                    Ok((
-                        Table {
-                            name: r.get::<_, String>(0)?,
-                            delta: r.get::<_, i64>(1)? != 0,
-                        },
-                        Row {
-                            binding: 0,
-                            key: r.get(2)?,
-                            doc: r.get(3)?,
-                            delete: r.get::<_, i64>(4)? != 0,
-                        },
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows
-        };
-
-        write_rows_deduplicated(&txn, &rows, idempotent)?;
-
-        if idempotent {
-            txn.execute(
-                "DELETE FROM _flow_staged
-                 WHERE shard = ?1 AND shard_end = ?2 AND txn = ?3",
-                (key_begin, key_end, txn_id),
-            )?;
+        for query in queries {
+            txn.execute_batch(query)
+                .with_context(|| format!("executing staged statement: {query}"))?;
         }
         txn.commit()?;
-
-        Ok(!rows.is_empty())
+        Ok(())
     }
 
-    /// Discard staged rows of transactions after `txn_id` — work of a
-    /// transaction that never committed to the recovery log, and so must never
-    /// become visible.
-    pub fn discard_staged_after(
-        &self,
-        key_begin: u32,
-        key_end: u32,
-        txn_id: i64,
-    ) -> anyhow::Result<usize> {
-        let n = self.conn.execute(
-            "DELETE FROM _flow_staged
-             WHERE shard = ?1 AND shard_end = ?2 AND txn > ?3",
-            (key_begin, key_end, txn_id),
-        )?;
-        Ok(n)
+    /// Statements which apply `batch` of `table` into the destination, for the
+    /// checkpoint to carry.
+    ///
+    /// Built here and stored in connector state, exactly as `materialize-databricks`
+    /// renders `MERGE`/`COPY INTO` at `Store` and keeps them in its checkpoint. The
+    /// last statement retires the batch, which is what makes the whole entry
+    /// idempotent: re-running it finds nothing staged and does nothing.
+    ///
+    /// `deduplicate` is off under the `non-idempotent-acknowledge` defect, which leaves
+    /// the batch in place so a second run appends it again — the real shape of the bug,
+    /// staged files the connector forgets to retire.
+    pub fn apply_statements(batch: &str, table: &Table, deduplicate: bool) -> Vec<String> {
+        let (b, t) = (quote(batch), quote(&table.name));
+        let ident = table.name.replace('"', "\"\"");
+        let mut queries = Vec::new();
+
+        if table.delta {
+            // A real destination recognises a staged file it has already loaded, so a
+            // re-delivered row is absorbed rather than appended twice. SQLite offers no
+            // such guarantee, so the ledger stands in for it — claimed atomically, and
+            // stamped with the batch that won, so "rows this batch may append" is
+            // expressible as a join rather than inferred afterwards.
+            queries.push(format!(
+                "INSERT OR IGNORE INTO _flow_applied_row (tbl, key, doc, batch)
+                 SELECT tbl, key, doc, {b} FROM _flow_staged
+                 WHERE batch = {b} AND tbl = {t};"
+            ));
+            // Count what the ledger refused before the batch is retired: absorbing a
+            // re-delivery is correct, but a run that absorbed nothing has demonstrated
+            // nothing, and the destination's contents cannot tell the two apart.
+            queries.push(format!(
+                "INSERT INTO _flow_suppressed (tbl, rows)
+                 SELECT s.tbl, COUNT(*) FROM _flow_staged s
+                 WHERE s.batch = {b} AND s.tbl = {t} AND NOT EXISTS (
+                     SELECT 1 FROM _flow_applied_row r
+                     WHERE r.tbl = s.tbl AND r.key = s.key AND r.doc = s.doc
+                       AND r.batch = {b})
+                 GROUP BY s.tbl
+                 ON CONFLICT (tbl) DO UPDATE SET rows = rows + excluded.rows;"
+            ));
+            queries.push(format!(
+                "INSERT INTO \"{ident}\" (key, doc)
+                 SELECT s.key, s.doc FROM _flow_staged s
+                 WHERE s.batch = {b} AND s.tbl = {t} AND EXISTS (
+                     SELECT 1 FROM _flow_applied_row r
+                     WHERE r.tbl = s.tbl AND r.key = s.key AND r.doc = s.doc
+                       AND r.batch = {b})
+                 ORDER BY s.ord;"
+            ));
+        } else {
+            queries.push(format!(
+                "DELETE FROM \"{ident}\" WHERE key IN (
+                     SELECT key FROM _flow_staged
+                     WHERE batch = {b} AND tbl = {t} AND del != 0);"
+            ));
+            // An absolute upsert, so applying it twice writes the same value — the
+            // reason a merged binding needs no ledger.
+            queries.push(format!(
+                "INSERT INTO \"{ident}\" (key, doc)
+                 SELECT key, doc FROM _flow_staged
+                 WHERE batch = {b} AND tbl = {t} AND del = 0
+                 ORDER BY ord
+                 ON CONFLICT (key) DO UPDATE SET doc = excluded.doc;"
+            ));
+        }
+
+        if deduplicate {
+            queries.push(format!(
+                "DELETE FROM _flow_staged WHERE batch = {b} AND tbl = {t};"
+            ));
+        }
+        queries
     }
 
+    /// Distinct table names present in a staged batch.
+    pub fn staged_tables(&self, batch: &str) -> anyhow::Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT tbl FROM _flow_staged WHERE batch = ?1")?;
+        let names = stmt
+            .query_map((batch,), |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(names)
+    }
+
+    /// Delete staged batches no checkpoint entry names.
+    ///
+    /// Staging whose batch appears in no entry belongs to a transaction that never
+    /// committed: the runtime replays that input, so the rows must never be applied.
+    /// Garbage-collecting by what state *does* reference is the only safe test —
+    /// leftover rows themselves cannot say whether they were abandoned.
     /// Shards holding staged rows. `Apply` has no range of its own, so this is
     /// how it finds the pending work it must drain.
-    pub fn staged_shard_keys(&self) -> anyhow::Result<Vec<(u32, u32)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT shard, shard_end FROM _flow_staged ORDER BY shard, shard_end",
-        )?;
-        let ranges = stmt
-            .query_map((), |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(ranges)
-    }
-
     /// Every transaction with staged rows for this shard, oldest first.
-    pub fn staged_txns(&self, key_begin: u32, key_end: u32) -> anyhow::Result<Vec<i64>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT txn FROM _flow_staged
-             WHERE shard = ?1 AND shard_end = ?2 ORDER BY txn",
-        )?;
-        let txns = stmt
-            .query_map((key_begin, key_end), |r| r.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(txns)
-    }
-
     /// Append `rows` to their (delta) tables and advance the destination's
     /// committed append count, in one transaction. The document-counter class's
     /// `Store` path: rows become visible immediately, and the count is the
@@ -568,33 +554,11 @@ impl Store {
 /// `deduplicate` is false only for the `non-idempotent-acknowledge` defect, which must
 /// still be able to double-apply — otherwise the destination would repair the very fault
 /// the scenario injects.
-fn write_rows_deduplicated(
-    txn: &rusqlite::Transaction<'_>,
-    rows: &[(Table, Row)],
-    deduplicate: bool,
-) -> anyhow::Result<()> {
-    if !deduplicate {
-        return write_rows(txn, rows);
-    }
-
-    let mut fresh = Vec::with_capacity(rows.len());
-
-    for (table, row) in rows {
-        // A merge binding is idempotent already: its write is an upsert keyed by `key`,
-        // so applying it twice leaves the same state. Only appends need the ledger.
-        if !table.delta {
-            fresh.push((table.clone(), row.clone()));
-            continue;
-        }
-        let accepted = txn.execute(
-            "INSERT OR IGNORE INTO _flow_applied_row (tbl, key, doc) VALUES (?1, ?2, ?3)",
-            (&table.name, &row.key, &row.doc),
-        )?;
-        if accepted != 0 {
-            fresh.push((table.clone(), row.clone()));
-        }
-    }
-    write_rows(txn, &fresh)
+/// A SQL string literal. The values quoted here are batch ids and table names the
+/// connector generated itself, but the statements are persisted in state and later run
+/// verbatim, so they are escaped rather than trusted.
+fn quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn write_rows(txn: &rusqlite::Transaction<'_>, rows: &[(Table, Row)]) -> anyhow::Result<()> {
@@ -621,6 +585,25 @@ fn write_rows(txn: &rusqlite::Transaction<'_>, rows: &[(Table, Row)]) -> anyhow:
         }
     }
     Ok(())
+}
+
+impl Store {
+    /// Transactions with staged rows for a range, oldest first. **Tests only.**
+    ///
+    /// Deliberately not available to the connector: what is staged and committed is
+    /// recorded in connector state, and re-deriving it from leftover rows here cannot
+    /// distinguish a transaction awaiting application from one that was abandoned.
+    #[cfg(test)]
+    pub fn staged_txns(&self, key_begin: u32, key_end: u32) -> anyhow::Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT txn FROM _flow_staged
+             WHERE shard = ?1 AND shard_end = ?2 ORDER BY txn",
+        )?;
+        let txns = stmt
+            .query_map((key_begin, key_end), |r| r.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(txns)
+    }
 }
 
 #[cfg(test)]
@@ -703,56 +686,43 @@ mod test {
         let fenced = store.commit(0, u32::MAX, nonce, None, &[], true);
         assert!(fenced.is_err(), "a stale nonce must be refused");
 
-        // Staging is invisible until applied, and applying twice is a no-op.
+        // Staging is invisible until its statements run, and running them twice is a
+        // no-op because the last one retires the batch.
         store
             .stage(
-                0,
-                u32::MAX,
-                7,
+                "batch-7",
                 &[(delta.clone(), row("[1,1]", r#"{"id":1,"seq":1}"#))],
             )
             .unwrap();
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
-        assert_eq!(store.staged_txns(0, u32::MAX).unwrap(), vec![7]);
 
-        assert!(store.apply_staged(0, u32::MAX, 7, true).unwrap());
+        let apply_7 = Store::apply_statements("batch-7", &delta, true);
+        store.execute(&apply_7).unwrap();
         assert_eq!(store.read_all(&delta).unwrap().len(), 2);
-        assert!(!store.apply_staged(0, u32::MAX, 7, true).unwrap());
+        store.execute(&apply_7).unwrap();
         assert_eq!(store.read_all(&delta).unwrap().len(), 2);
 
-        // Several transactions can be staged and committed without being applied — a
-        // session fenced mid-flight leaves exactly that — so recovery has to see all of
-        // them, not just the newest. Applying only the newest strands the others: the
-        // discard path never reclaims them either, because it only removes transactions
-        // *after* the committed one.
+        // Several batches can be staged and unapplied at once — a session that died
+        // between committing and acknowledging leaves exactly that — so every entry the
+        // checkpoint carries has to be applied, not merely the newest.
         store
-            .stage(
-                0,
-                u32::MAX,
-                8,
-                &[(delta.clone(), row("[2,0]", r#"{"id":2}"#))],
-            )
+            .stage("batch-8", &[(delta.clone(), row("[2,0]", r#"{"id":2}"#))])
             .unwrap();
         store
-            .stage(
-                0,
-                u32::MAX,
-                9,
-                &[(delta.clone(), row("[3,0]", r#"{"id":3}"#))],
-            )
+            .stage("batch-9", &[(delta.clone(), row("[3,0]", r#"{"id":3}"#))])
             .unwrap();
-        assert_eq!(store.staged_txns(0, u32::MAX).unwrap(), vec![8, 9]);
 
         let before = store.read_all(&delta).unwrap().len();
-        for txn in store.staged_txns(0, u32::MAX).unwrap() {
-            store.apply_staged(0, u32::MAX, txn, true).unwrap();
+        for batch in ["batch-8", "batch-9"] {
+            store
+                .execute(&Store::apply_statements(batch, &delta, true))
+                .unwrap();
         }
         assert_eq!(
             store.read_all(&delta).unwrap().len(),
             before + 2,
-            "every staged transaction must be applied, not only the newest",
+            "every staged batch must be applied, not only the newest",
         );
-        assert!(store.staged_txns(0, u32::MAX).unwrap().is_empty());
 
         // The append counter is the destination's own record of how far it got.
         store
@@ -763,73 +733,6 @@ mod test {
             )
             .unwrap();
         assert_eq!(store.appended(0, u32::MAX, &delta.name).unwrap(), 1);
-    }
-
-    /// Staged work is identified by its whole key range, so a split child can tell an
-    /// ancestor's leftovers from a live sibling's in-flight work.
-    ///
-    /// Keying on `key_begin` alone cannot: after a two-way split the low child shares
-    /// its begin with the departed parent, so "shard 0's staging" names both the
-    /// ancestor's and the sibling's. Acting on that ambiguity means discarding a
-    /// sibling's uncommitted transaction — the exact loss this suite exists to catch.
-    #[test]
-    fn staged_work_distinguishes_an_ancestor_from_a_sibling() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
-
-        let table = Table {
-            name: "events".to_string(),
-            delta: true,
-        };
-        store.ensure_table(&table).unwrap();
-
-        let row = |key: &str| Row {
-            binding: 0,
-            key: key.to_string(),
-            doc: format!(r#"{{"k":"{key}"}}"#),
-            delete: false,
-        };
-
-        // The parent staged a transaction and departed. Both children of the split
-        // share nothing with each other; the low child shares `key_begin` with the
-        // parent.
-        const PARENT: (u32, u32) = (0, u32::MAX);
-        const LOW: (u32, u32) = (0, 0x7fff_ffff);
-        const HIGH: (u32, u32) = (0x8000_0000, u32::MAX);
-
-        store
-            .stage(PARENT.0, PARENT.1, 4, &[(table.clone(), row("[1]"))])
-            .unwrap();
-        store
-            .stage(LOW.0, LOW.1, 1, &[(table.clone(), row("[2]"))])
-            .unwrap();
-
-        // Each range sees only its own staging, even where begins coincide.
-        assert_eq!(store.staged_txns(PARENT.0, PARENT.1).unwrap(), vec![4]);
-        assert_eq!(store.staged_txns(LOW.0, LOW.1).unwrap(), vec![1]);
-        assert!(store.staged_txns(HIGH.0, HIGH.1).unwrap().is_empty());
-
-        // The high child discarding its ancestor's uncommitted work must not touch the
-        // low child's, though the two share a `key_begin`.
-        store.discard_staged_after(PARENT.0, PARENT.1, 3).unwrap();
-        assert!(store.staged_txns(PARENT.0, PARENT.1).unwrap().is_empty());
-        assert_eq!(
-            store.staged_txns(LOW.0, LOW.1).unwrap(),
-            vec![1],
-            "a sibling's in-flight staging must survive",
-        );
-
-        // And an applied transaction is claimed per range, so the same number under a
-        // different range is a different transaction.
-        store
-            .stage(HIGH.0, HIGH.1, 1, &[(table.clone(), row("[3]"))])
-            .unwrap();
-        assert!(store.apply_staged(LOW.0, LOW.1, 1, true).unwrap());
-        assert!(
-            store.apply_staged(HIGH.0, HIGH.1, 1, true).unwrap(),
-            "txn 1 of one range must not be mistaken for txn 1 of another",
-        );
-        assert_eq!(store.read_all(&table).unwrap().len(), 2);
     }
 
     /// A split subdivides a range that has never been opened, so the child has to
@@ -861,14 +764,75 @@ mod test {
         assert!(high >= low);
     }
 
-    /// Applying the same documents twice must not append them twice, even when the second
-    /// apply comes from a different shard under a different transaction number.
+    /// Applying a checkpoint entry repeatedly must leave the destination exactly as one
+    /// application would.
     ///
-    /// This is the post-commit-apply contract: the destinations this class targets
-    /// deduplicate loads themselves, so `Acknowledge` is idempotent for append-only
-    /// bindings as well as merged ones. After a split the same documents are re-delivered
-    /// to a child, which stages them under its own identity — so the identity that must
-    /// match is the row, not the staging batch.
+    /// This is the whole contract of the class: the crashed session is gone rather than
+    /// competing, so what matters is that whoever holds the checkpoint can finish its
+    /// work — more than once, and from a shard that did not stage it — without inventing
+    /// or losing anything. The last statement retires the batch, which is what makes the
+    /// repeat a no-op.
+    #[test]
+    fn applying_staged_work_repeatedly_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        let merged = Table {
+            name: "accounts".to_string(),
+            delta: false,
+        };
+        let appended = Table {
+            name: "events".to_string(),
+            delta: true,
+        };
+        store.ensure_table(&merged).unwrap();
+        store.ensure_table(&appended).unwrap();
+
+        let row = |key: &str, doc: &str| Row {
+            binding: 0,
+            key: key.to_string(),
+            doc: doc.to_string(),
+            delete: false,
+        };
+
+        store
+            .stage(
+                "batch-1",
+                &[
+                    (merged.clone(), row("[1]", r#"{"balance":10}"#)),
+                    (appended.clone(), row("[1,1]", r#"{"id":1,"seq":1}"#)),
+                ],
+            )
+            .unwrap();
+
+        // Ten applications, from the statements the checkpoint carries.
+        for _ in 0..10 {
+            for table in [&merged, &appended] {
+                store
+                    .execute(&Store::apply_statements("batch-1", table, true))
+                    .unwrap();
+            }
+        }
+
+        assert_eq!(
+            store.read_all(&merged).unwrap(),
+            vec![r#"{"balance":10}"#.to_string()],
+            "a merged key holds one value, whatever the apply count",
+        );
+        assert_eq!(
+            store.read_all(&appended).unwrap().len(),
+            1,
+            "an append appears once, whatever the apply count",
+        );
+    }
+
+    /// The same document, re-delivered and staged again under a different batch, must not
+    /// append twice — and the suppression must be counted.
+    ///
+    /// Real destinations recognise a staged file they have already loaded, so an
+    /// `Acknowledge` is idempotent for append-only bindings too. SQLite offers no such
+    /// guarantee, so the row ledger stands in for it, claimed atomically inside the same
+    /// transaction as the append.
     #[test]
     fn applying_the_same_rows_from_another_shard_does_not_append_twice() {
         let dir = tempfile::tempdir().unwrap();
@@ -887,24 +851,37 @@ mod test {
             delete: false,
         };
 
-        // The pre-split parent stages and applies it.
+        // The pre-split shard stages and applies it.
         store
-            .stage(0, u32::MAX, 1, &[(table.clone(), row.clone())])
+            .stage("parent-1", &[(table.clone(), row.clone())])
             .unwrap();
-        assert!(store.apply_staged(0, u32::MAX, 1, true).unwrap());
+        store
+            .execute(&Store::apply_statements("parent-1", &table, true))
+            .unwrap();
 
-        // A split child is re-delivered the same document, stages it under its own range
-        // and transaction number, and applies that.
-        let mid = u32::MAX / 2;
-        store.stage(0, mid, 1, &[(table.clone(), row)]).unwrap();
-        store.apply_staged(0, mid, 1, true).unwrap();
+        // A split child is re-delivered the same document and stages it as its own.
+        store.stage("child-1", &[(table.clone(), row)]).unwrap();
+        store
+            .execute(&Store::apply_statements("child-1", &table, true))
+            .unwrap();
 
-        let rows = store.read_all(&table).unwrap();
         assert_eq!(
-            rows.len(),
+            store.read_all(&table).unwrap().len(),
             1,
-            "the destination recognised a load it had already accepted",
+            "the destination recognised a row it had already accepted",
         );
+
+        // Suppressing it is what makes the count correct, so it must be visible: a run
+        // that absorbed nothing has demonstrated nothing.
+        let suppressed: Vec<(String, i64)> = store
+            .conn
+            .prepare("SELECT tbl, rows FROM _flow_suppressed")
+            .unwrap()
+            .query_map((), |r| Ok((r.get(0).unwrap(), r.get(1).unwrap())))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(suppressed, vec![("events".to_string(), 1)]);
     }
 
     /// A `Load` reads applied state, and nothing else.
@@ -933,7 +910,7 @@ mod test {
         };
 
         store
-            .stage(0, u32::MAX, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
+            .stage("batch-1", &[(table.clone(), row(r#"{"balance":10}"#))])
             .unwrap();
         assert_eq!(
             store.load(&table, "[1]").unwrap(),
@@ -941,7 +918,9 @@ mod test {
             "staged but unapplied work is not yet part of the destination",
         );
 
-        assert!(store.apply_staged(0, u32::MAX, 1, true).unwrap());
+        store
+            .execute(&Store::apply_statements("batch-1", &table, true))
+            .unwrap();
         assert_eq!(
             store.load(&table, "[1]").unwrap().as_deref(),
             Some(r#"{"balance":10}"#),
