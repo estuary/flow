@@ -395,6 +395,11 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
         env.insert(ENV_TRACE_REDUCE.to_string(), "1".to_string());
     }
 
+    // Whatever the subject itself asked for, last so a caller can override the above knowingly.
+    // See `subject::ENV_SUBJECT_ENV` for why a connector needs this at all: run from its image it
+    // has an environment its Dockerfile built, and run as a `local:` binary it does not.
+    env.extend(plan.subject.env.clone());
+
     // The shim is the catalog's connector; the real one is its argument. This is
     // the whole of the interposition: no change to Flow, and no change to the
     // connector under test.

@@ -85,6 +85,41 @@ FLOW_CONSISTENCY_SUBJECT_NAME=materialize-databricks \
 All five are required together; setting some alone is an error rather than a silent fall back
 to the reference connector.
 
+**The config has to be plain JSON with `_sops` suffixes stripped.** A connector's checked-in
+`testdata/config.local.yaml` is sops-encrypted, and `sops -d` alone is not enough: Estuary's
+convention marks an encrypted field by suffixing its *name*, so a decrypted config still carries
+`personal_access_token_sops`, which the connector rejects as an unknown field — a `buildFailed`
+publication with `json: unknown field "..._sops"` in the build log. Strip the suffix from every
+key recursively, and convert to JSON:
+
+```bash
+sops -d materialize-yourthing/testdata/config.local.yaml \
+  | python3 -c 'import sys,json,yaml
+def strip(n):
+    if isinstance(n, dict): return {k.removesuffix("_sops"): strip(v) for k, v in n.items()}
+    if isinstance(n, list): return [strip(v) for v in n]
+    return n
+json.dump(strip(yaml.safe_load(sys.stdin)), sys.stdout)' > /tmp/subject-config.json
+```
+
+**A subject driven through a shard split also needs multi-shard operation enabled**, which for
+`materialize-databricks` means adding `scale_out` to `advanced.feature_flags` in that config —
+off by default, and the suite cannot know a given connector's flag names. Without it the connector
+refuses to open a partial-range shard at all and the task crash-loops — a failure that is the
+configuration's doing, not the connector's.
+
+**A subject may need environment its image would have given it.** `FLOW_CONSISTENCY_SUBJECT_ENV`
+takes a JSON object and sets it on the materialization's `local:` endpoint:
+
+```bash
+FLOW_CONSISTENCY_SUBJECT_ENV='{"SNOWPIPE_SIDECAR_PYTHON":"/tmp/snowpipe-venv/bin/python"}'
+```
+
+Optional, unlike the five above. `materialize-snowflake`'s Snowpipe Streaming v2 path is the case
+that needed it: it spawns a Python sidecar from `/opt/venv/bin/python`, which exists only inside
+its image. Do not put credentials here — the value lands in a published catalog spec, which the
+control plane stores and serves back. Endpoint config is where those belong.
+
 **Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
 drives; `testctl` is separate, and is how verification reads the destination back and how a run
 drops the tables it created. `FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the
@@ -120,11 +155,18 @@ exactly-once class even though the counted channel cannot pass it. A gap that st
 is recorded as a `RuntimeGap` naming that class, so the scenario still runs for the others and
 its passing there is the evidence that the gap is the runtime's rather than an impossible ask.
 
-That gap is reached **intermittently**, which matters for reading a result: the hazard needs the
-runtime to hand a range over mid-transaction and it usually does not, so the scenario is red
-either way — it fails with a violation count on a run that hits the gap, and as an *unexpected
-pass* on one that does not. Do not remove the declaration on the strength of a passing run; the
-scenario's own comment records two attempts to force the overlap that both suppressed it.
+That gap is now reached **deterministically**, which was not always so. The scenario used to stall
+a transaction and hope the split landed inside it; a stall cannot produce the state, because the
+runtime cancels the term gracefully and lets the transaction finish. Crashing on the
+`StartedCommit` response does produce it — the destination has committed what the runtime has not
+recorded — and the split then changes the range before anything reconciles. Against
+`materialize-snowflake`'s Snowpipe Streaming v2 path it trips every run.
+
+A gap may also manifest as a task that cannot run rather than as a violation count: a subject
+facing state it cannot safely attribute is right to refuse, and a refusing connector never commits
+again. That is reported as the expected failure too — see the clean-run arm in
+`tests/scenarios.rs`, which excludes only `Environment` failures, so a flaky stack cannot
+manufacture it.
 
 A skipped scenario prints `not-applicable` and still counts as a passing test, so read
 those lines to see what was and was not verified. Declaring the wrong class does not
@@ -166,8 +208,11 @@ how to add one; a connector still in `package main` needs converting first.
 operation.** Where that is behind a feature flag the harness cannot know its name, and a
 connector run multi-shard without it will fail in ways that look like defects but are not:
 `materialize-databricks` gates its coordinator behaviour on `advanced.feature_flags:
-scale_out`, off by default, and without it two shards contend over one table. Set whatever
-the connector requires in the config you pass.
+scale_out`, off by default, and its `validateShardRange` now *refuses* to open a shard covering
+less than the whole keyspace without the flag — so the task crash-loops rather than corrupting
+anything. (It contended over one table and lost documents silently before that check existed,
+which is how two invalid issues came to be filed against it; see the design document.) Set
+whatever the connector requires in the config you pass.
 
 **Timing scales with the subject.** A remote destination commits in tens of seconds where
 the reference connector commits in milliseconds, so a named subject gets longer

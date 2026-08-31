@@ -34,10 +34,20 @@ pub struct Exemption {
     /// exemption also absorbs a subject that re-delivered the entire workload, which is a
     /// different failure wearing the same justification.
     ///
-    /// `None` where the cause has no principled bound to write down. That is not laziness: the
-    /// reordering seen around membership changes is observed but unexplained, so any number here
-    /// would be invented, and an invented ceiling produces intermittent failures that teach the
-    /// reader to raise it. Better to leave it off and say so.
+    /// `None` where a ceiling would say nothing, and there are two such cases — neither of them
+    /// "the cause is not understood". The membership-change reordering *is* unexplained and still
+    /// carries a ceiling (`REORDERING_CEILING`), because an unexplained cause still has an
+    /// observed volume, and uncapped it was the widest blind spot in the suite: against a
+    /// destination read as an ordered table, a defect shuffling thousands of rows while keeping
+    /// the set exactly right was absorbed in full.
+    ///
+    /// Leave it off when:
+    ///
+    /// - the invariant is not recoverable through this subject's read at all, so no volume of
+    ///   violations means anything — the blanket monotonicity exemption a remotely-read
+    ///   destination carries; or
+    /// - the *checker* already bounds the count, in which case a ceiling measures the workload
+    ///   rather than the subject. See below.
     ///
     /// A ceiling is also worthless where the *checker* bounds the count for it. `OracleAgreement`
     /// reports at most three violations per account in `check_standard` and two in
@@ -59,6 +69,20 @@ pub struct Exemption {
     /// evaluated over the raw violations, before exemption, because a duplicate that this
     /// scenario exempts is still a duplicate that happened.
     pub conditional_on: Option<Invariant>,
+    /// Classes this exemption applies to; `None` for all of them.
+    ///
+    /// An exemption's justification is usually a statement about *a class* — "at-least-once by
+    /// construction: this class commits during `Store` with no record of what it applied" — and a
+    /// scenario runs against every class that should pass it. Unscoped, that licence reached
+    /// subjects it was never written about: `at-least-once-never-loses` runs for every class, so
+    /// it was excusing up to five hundred duplicates from connectors whose whole contract is that
+    /// they produce none. It passed `materialize-snowflake` with zero duplicates, which was the
+    /// connector being right rather than the suite checking.
+    ///
+    /// Scoped, the same scenario asks a *stronger* question of a stronger class: crash at
+    /// `StartedCommit` and lose nothing — and duplicate nothing either, because nothing licenses
+    /// otherwise.
+    pub classes: Option<&'static [crate::reference::Class]>,
 }
 
 /// Marker in the error chain of a run that failed for a reason that says nothing about the subject.
@@ -128,6 +152,14 @@ pub struct Outcome {
     /// Violations an exemption suppressed, kept so a run can report what it chose
     /// not to hold the connector to.
     pub exempted: Vec<Violation>,
+    /// The exemptions that actually applied: the scenario's own, minus those scoped to another
+    /// class, plus the blanket ones a real subject's read earns it.
+    ///
+    /// Reported by the caller, which cannot re-derive it — the caller sees `scenario.exempt` and
+    /// not the blanket monotonicity exemption added here. Printing "held in full" from the
+    /// scenario's list alone said exactly that about a subject whose monotonicity was still
+    /// blanket-exempt.
+    pub exemptions: Vec<Exemption>,
     /// Faults the shim reports having injected. A scenario whose fault never
     /// fired proved nothing, so the runner refuses to pass one.
     pub faults_fired: usize,
@@ -299,7 +331,18 @@ pub async fn run(
 
     let outcome = result?;
 
-    if outcome.passed() {
+    // A scenario declaring a runtime gap keeps its directory even when it passes, because *that*
+    // is the case someone has to inspect: the caller fails such a run as an unexpected pass, and
+    // whether the perturbation actually reached the gap's window is a question only the trace can
+    // answer. Removing it here left the one interesting outcome with nothing behind it.
+    // `FLOW_CONSISTENCY_KEEP_RUNS` retains the trace of a *passing* run too, which is what an
+    // experiment needs: whether a perturbation reached the state it was aiming at is answerable
+    // only from the trace, and a pass alone cannot tell "the subject survived the hazard" from
+    // "the hazard never landed". Off by default — a suite run that keeps every directory fills a
+    // disk with evidence nobody reads.
+    let keep = std::env::var_os("FLOW_CONSISTENCY_KEEP_RUNS").is_some();
+
+    if outcome.passed() && scenario.known_limitation.is_none() && !keep {
         let _ = std::fs::remove_dir_all(&run_dir);
     } else {
         tracing::warn!(?run_dir, "left the run directory in place for inspection");
@@ -593,6 +636,10 @@ async fn execute(
     //
     // The set-based checks — no-loss, no-duplicates, conservation and oracle agreement —
     // carry the exactly-once claim, and none of them depends on arrival order.
+    // The class actually under test: what the subject declared, or what the scenario configures
+    // the reference connector as. Exemptions written about one class do not apply to another.
+    let subject_class = external.map_or(scenario.class, |e| e.class);
+
     let mut exempt = scenario.exempt.clone();
     if external.is_some() {
         exempt.push(Exemption {
@@ -607,6 +654,7 @@ async fn execute(
             // volume of disorder that would mean anything.
             max_suppressed: None,
             conditional_on: None,
+            classes: None,
         });
     }
 
@@ -628,7 +676,8 @@ async fn execute(
         .context(Environment::UnsoundWorkload));
     }
 
-    let (violations, exempted) = partition_exempt(invariants::check(&bindings), &exempt);
+    let (violations, exempted, exemptions) =
+        partition_exempt(invariants::check(&bindings), &exempt, subject_class);
 
     // A failure writes down everything it judged, next to the trace.
     //
@@ -646,6 +695,7 @@ async fn execute(
         scenario: scenario.name,
         violations,
         exempted,
+        exemptions,
         faults_fired,
         documents,
         run_dir: run_dir.to_path_buf(),
@@ -703,26 +753,33 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
 fn partition_exempt(
     violations: Vec<Violation>,
     exemptions: &[Exemption],
-) -> (Vec<Violation>, Vec<Violation>) {
+    subject: crate::reference::Class,
+) -> (Vec<Violation>, Vec<Violation>, Vec<Exemption>) {
     // `DocumentIntegrity` is not exemptable, and this is where that is enforced rather than left
     // to review. A connector may deliver a document twice or in a surprising order and still be
     // doing its declared job; none has a reason to *alter* one in transit. The check used to be
     // filed under `OracleAgreement`, where `at-least-once-never-loses`'s duplication exemption
     // silenced it — which is how a corruption check came to be switched off by a scenario about
     // duplication.
-    assert!(
-        !exemptions
-            .iter()
-            .any(|e| e.invariant == Invariant::DocumentIntegrity),
-        "a scenario declares an exemption for {}, which nothing may exempt",
-        Invariant::DocumentIntegrity,
-    );
+    //
+    // `NoFabrication` joins it for the same reason and by the same route: all three checkers used
+    // to file a row for a key the collection does not hold under `NoDuplicates`, which
+    // `at-least-once-never-loses` exempts because a replay *re-delivers*. A replay can only
+    // re-deliver what the collection contains, so that exemption was absorbing invented rows too.
+    for invariant in [Invariant::DocumentIntegrity, Invariant::NoFabrication] {
+        assert!(
+            !exemptions.iter().any(|e| e.invariant == invariant),
+            "a scenario declares an exemption for {invariant}, which nothing may exempt",
+        );
+    }
 
-    // An exemption whose stated cause did not occur does not apply. See
-    // [`Exemption::conditional_on`]: evaluated over the raw violations, so a duplicate this
-    // scenario also exempts still counts as having happened.
+    // An exemption applies only to the classes it was written about, and only if its stated cause
+    // occurred. See [`Exemption::classes`] and [`Exemption::conditional_on`] — the latter is
+    // evaluated over the raw violations, so a duplicate this scenario also exempts still counts as
+    // having happened.
     let exemptions: Vec<&Exemption> = exemptions
         .iter()
+        .filter(|e| e.classes.is_none_or(|classes| classes.contains(&subject)))
         .filter(|e| match e.conditional_on {
             None => true,
             Some(cause) => violations.iter().any(|v| v.invariant == cause),
@@ -790,7 +847,7 @@ fn partition_exempt(
         });
     }
 
-    (held, exempted)
+    (held, exempted, exemptions.into_iter().cloned().collect())
 }
 
 /// The soak capture, reused unmodified as this suite's workload generator.
@@ -1482,9 +1539,14 @@ mod test {
             justification: "at-least-once by construction".to_string(),
             max_suppressed: None,
             conditional_on: None,
+            classes: None,
         }];
 
-        let (held, exempt) = partition_exempt(violations, &exemptions);
+        let (held, exempt, _) = partition_exempt(
+            violations,
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].invariant, Invariant::NoLoss);
         assert_eq!(exempt.len(), 1);
@@ -1503,11 +1565,49 @@ mod test {
             justification: "one replayed transaction".to_string(),
             max_suppressed: Some(2),
             conditional_on: None,
+            classes: None,
         }];
 
         // All three revert, plus the violation naming the overrun.
-        let (held, exempt) = partition_exempt(violations, &exemptions);
+        let (held, exempt, _) = partition_exempt(
+            violations,
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 4);
+        assert!(exempt.is_empty());
+    }
+
+    /// An exemption written about one class does not excuse another.
+    ///
+    /// `at-least-once-never-loses` runs for every class, and its duplication exemption describes
+    /// `AtLeastOnce` alone. Unscoped it excused up to five hundred duplicates from connectors
+    /// whose contract forbids any — which is the whole question the scenario should be asking a
+    /// stronger class.
+    #[test]
+    fn an_exemption_does_not_reach_a_class_it_was_not_written_about() {
+        use crate::reference::Class;
+
+        let duplicated = || Violation {
+            invariant: Invariant::NoDuplicates,
+            detail: "delivered twice".to_string(),
+        };
+        let exemptions = vec![Exemption {
+            invariant: Invariant::NoDuplicates,
+            justification: "at-least-once by construction".to_string(),
+            max_suppressed: None,
+            conditional_on: None,
+            classes: Some(&[Class::AtLeastOnce]),
+        }];
+
+        let (held, exempt, _) =
+            partition_exempt(vec![duplicated()], &exemptions, Class::AtLeastOnce);
+        assert!(held.is_empty(), "the class it was written about is excused");
+        assert_eq!(exempt.len(), 1);
+
+        let (held, exempt, _) =
+            partition_exempt(vec![duplicated()], &exemptions, Class::DocumentCounter);
+        assert_eq!(held.len(), 1, "an exactly-once class is held to it");
         assert!(exempt.is_empty());
     }
 
@@ -1528,10 +1628,15 @@ mod test {
             justification: "a duplicated document leaves the balance disagreeing".to_string(),
             max_suppressed: None,
             conditional_on: Some(Invariant::NoDuplicates),
+            classes: None,
         }];
 
         // Nothing was duplicated, so the licence does not apply and the subject is held.
-        let (held, exempt) = partition_exempt(vec![oracle()], &exemptions);
+        let (held, exempt, _) = partition_exempt(
+            vec![oracle()],
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 1);
         assert!(exempt.is_empty());
 
@@ -1541,7 +1646,11 @@ mod test {
             invariant: Invariant::NoDuplicates,
             detail: "delivered twice".to_string(),
         };
-        let (held, exempt) = partition_exempt(vec![oracle(), duplicated], &exemptions);
+        let (held, exempt, _) = partition_exempt(
+            vec![oracle(), duplicated],
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert_eq!(held.len(), 1, "the duplicate itself is not exempt here");
         assert_eq!(held[0].invariant, Invariant::NoDuplicates);
         assert_eq!(exempt.len(), 1);
@@ -1563,16 +1672,22 @@ mod test {
                 justification: "one replayed transaction".to_string(),
                 max_suppressed: Some(2),
                 conditional_on: None,
+                classes: None,
             },
             Exemption {
                 invariant: Invariant::Monotonicity,
                 justification: "this destination is read as an unordered table".to_string(),
                 max_suppressed: None,
                 conditional_on: None,
+                classes: None,
             },
         ];
 
-        let (held, exempt) = partition_exempt(violations, &exemptions);
+        let (held, exempt, _) = partition_exempt(
+            violations,
+            &exemptions,
+            crate::reference::Class::AtLeastOnce,
+        );
         assert!(held.is_empty());
         assert_eq!(exempt.len(), 3);
     }
