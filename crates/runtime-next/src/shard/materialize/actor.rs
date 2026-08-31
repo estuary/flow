@@ -389,7 +389,7 @@ impl Actor {
         let verify = crate::verify("Materialize", "leader message", "leader");
         let msg = verify.not_eof(msg)?;
 
-        if let Some(proto::Stopped {}) = msg.stopped {
+        if msg.stopped.is_some() {
             return Ok((phase, true));
         } else if let Some(synced) = msg.synced {
             // Relay unmodified: the controller drives the sync-now barrier.
@@ -1075,7 +1075,7 @@ mod tests {
         // 8) L:Stopped + leader EOF → serve completes, returning the DB.
         leader_to_actor_tx
             .send(Ok(proto::Materialize {
-                stopped: Some(proto::Stopped {}),
+                stopped: Some(proto::Stopped::default()),
                 ..Default::default()
             }))
             .unwrap();

@@ -134,8 +134,19 @@ async fn serve_session_loop<R, P: crate::PublisherFactory, L: crate::LoggerFacto
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
-    let proto::SessionLoop { rocksdb_descriptor } = session_loop;
+    let proto::SessionLoop {
+        rocksdb_descriptor,
+        initial_connector_state_json,
+        report_final_state,
+    } = session_loop;
     let mut db = crate::shard::RocksDB::open(rocksdb_descriptor).await?;
+
+    if !initial_connector_state_json.is_empty() {
+        db = db
+            .put_connector_state_base(&initial_connector_state_json)
+            .await
+            .context("applying SessionLoop initial connector state")?;
+    }
 
     // Shard zero forwards this producer to the leader, so its Publisher identity
     // is held constant across every session of the loop. Non-zero shards select
@@ -155,6 +166,7 @@ where
                     db,
                     join,
                     leader_producer,
+                    report_final_state,
                 )
                 .await?;
             }
@@ -183,6 +195,7 @@ async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     db: crate::shard::RocksDB,
     join: proto::Join,
     leader_producer: proto_gazette::uuid::Producer,
+    report_final_state: bool,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
@@ -199,6 +212,7 @@ where
         db,
         join,
         leader_producer,
+        report_final_state,
         handler,
     )
     .instrument(span)
@@ -212,6 +226,7 @@ async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFact
     db: crate::shard::RocksDB,
     join: proto::Join,
     leader_producer: proto_gazette::uuid::Producer,
+    report_final_state: bool,
     mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
@@ -335,8 +350,9 @@ where
         }
     };
 
+    let (db, stopped) = crate::shard::stopped_message(db, report_final_state).await?;
     _ = controller_tx.send(Ok(proto::Materialize {
-        stopped: Some(proto::Stopped {}),
+        stopped: Some(stopped),
         ..Default::default()
     }));
 
@@ -369,6 +385,7 @@ mod test {
             .send(Ok(proto::Materialize {
                 session_loop: Some(proto::SessionLoop {
                     rocksdb_descriptor: None,
+                    ..Default::default()
                 }),
                 ..Default::default()
             }))

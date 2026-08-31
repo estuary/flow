@@ -115,6 +115,12 @@ pub struct ShuffleResponse {
     #[prost(message, repeated, tag = "10")]
     pub packed_key: ::prost::alloc::vec::Vec<super::flow::Slice>,
 }
+/// RocksDBDescriptor names a RocksDB database which a runtime should open.
+///
+/// On the `Shard` service (`SessionLoop.rocksdb_descriptor`) a `rocksdb_path`
+/// *transfers ownership of the directory* to the shard; see that field for the
+/// full contract. The legacy V1 `*RequestExt.rocksdb_descriptor` fields carry no
+/// such contract: there the directory remains the sender's.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RocksDbDescriptor {
     /// Instrumented RocksDB environment which should be opened.
@@ -831,8 +837,15 @@ pub struct Stop {}
 /// Stopped confirms the session has shut down. The leader sends Stopped
 /// to each shard followed by EOF; each shard then forwards Stopped to its
 /// controller and EOFs.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct Stopped {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Stopped {
+    /// Reduced connector state as of the session's final commit, read from the
+    /// shard's RocksDB. Set only on the Shard→Controller hop, and only when this
+    /// stream's `SessionLoop.report_final_state` was set. The leader never
+    /// populates it.
+    #[prost(bytes = "bytes", tag = "1")]
+    pub connector_state_json: ::prost::bytes::Bytes,
+}
 /// SessionLoop is sent as the first message of a session-loop stream on
 /// the Shard service. It carries process-level configuration that
 /// outlives the cycle of leader sessions on this stream. The Leader
@@ -842,8 +855,28 @@ pub struct SessionLoop {
     /// RocksDB context opened for this Shard stream and reused across all
     /// of its leader sessions. Absent for non-zero materialize/derive
     /// shards, which don't host a recovery log.
+    ///
+    /// **A `rocksdb_path` gives the directory away.** Once the shard's serve loop
+    /// consumes this SessionLoop it removes that directory on every exit path — a
+    /// graceful stop, a session error, and a failed open alike — always after the
+    /// RocksDB is torn down. Senders must neither remove it themselves while the
+    /// stream lives, nor retain the path for post-stream use. A descriptor sent
+    /// onto a stream that died before the loop consumed it remains the sender's.
     #[prost(message, optional, tag = "1")]
     pub rocksdb_descriptor: ::core::option::Option<RocksDbDescriptor>,
+    /// Connector state to establish as the base document of the shard's RocksDB.
+    /// It is applied at SessionLoop time, before any recovery scan can observe it,
+    /// so the first session recovers it exactly as if a prior session had
+    /// persisted it, and a connector's later state patches merge atop it.
+    ///
+    /// Empty in production, which leaves the runtime's own `{}` base in place.
+    #[prost(bytes = "bytes", tag = "2")]
+    pub initial_connector_state_json: ::prost::bytes::Bytes,
+    /// Attach the shard's reduced connector state to every `Stopped` it sends its
+    /// controller. Off in production; set by harnesses which report a run's final
+    /// state, such as `flowctl preview --output-state`.
+    #[prost(bool, tag = "3")]
+    pub report_final_state: bool,
 }
 /// Capture is the bidirectional message type for capture sessions. Exactly one
 /// field is set per message.

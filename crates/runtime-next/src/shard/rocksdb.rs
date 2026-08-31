@@ -9,22 +9,61 @@ use tokio::runtime;
 pub use super::recovery::DecodeError;
 
 /// RocksDB database used for task state.
+///
+/// `db` is declared before `_dir` so struct field drop order closes the
+/// database before the directory holding it is removed.
 pub struct RocksDB {
     db: rocksdb::DB,
-    _tmp: Option<tempfile::TempDir>,
+    _dir: OwnedDir,
+}
+
+/// The directory a [`RocksDB`] lives in, which this process owns and removes as
+/// the guard drops — always after the `RocksDB` above it.
+///
+/// Both variants are owned: an explicit `RocksDBDescriptor.rocksdb_path` is
+/// handed to us by its sender (see the proto's `SessionLoop.rocksdb_descriptor`),
+/// and an absent descriptor means we made the directory ourselves. Owning it
+/// unconditionally is what makes `RocksDB` — and so the whole shard serve loop —
+/// drop-safe.
+enum OwnedDir {
+    Temp(tempfile::TempDir),
+    Explicit(std::path::PathBuf),
+}
+
+impl Drop for OwnedDir {
+    fn drop(&mut self) {
+        let path = match self {
+            // `TempDir`'s own drop removes it.
+            Self::Temp(dir) => {
+                return tracing::debug!(path = ?dir.path(), "dropping temporary RocksDB directory");
+            }
+            Self::Explicit(path) => path,
+        };
+
+        match std::fs::remove_dir_all(path.as_path()) {
+            Ok(()) => tracing::debug!(?path, "removed owned RocksDB directory"),
+            // Already gone is the outcome we wanted.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            // A leaked directory costs disk, not correctness, and this often
+            // runs while unwinding a more informative error. Don't panic.
+            Err(err) => {
+                tracing::error!(?path, %err, "failed to remove owned RocksDB directory")
+            }
+        }
+    }
 }
 
 impl RocksDB {
     /// Open a RocksDB from an optional descriptor.
     pub async fn open(desc: Option<RocksDbDescriptor>) -> anyhow::Result<Self> {
-        let (opts, path, _tmp) = unpack_descriptor(desc)?;
+        let (opts, path, _dir) = unpack_descriptor(desc)?;
 
         let db = runtime::Handle::current()
             .spawn_blocking(move || Self::open_blocking(opts, path))
             .await
             .unwrap()?;
 
-        Ok(Self { db, _tmp })
+        Ok(Self { db, _dir })
     }
 
     fn open_blocking(
@@ -122,9 +161,10 @@ impl RocksDB {
     /// `Recover.connector_state_json`.
     ///
     /// Shared by [`Self::seed_connector_state`], which seeds `{}` during the
-    /// runtime's own recovery scan, and by the `flowctl preview
-    /// --initial-state` harness, which seeds an arbitrary base by opening shard
-    /// zero's RocksDB by path before any Recover scan observes it.
+    /// runtime's own recovery scan, and by `SessionLoop`'s
+    /// `initial_connector_state_json`, which a harness such as `flowctl preview
+    /// --initial-state` uses to establish an arbitrary base at SessionLoop time,
+    /// before any Recover scan observes it.
     pub async fn put_connector_state_base(self, base: &[u8]) -> anyhow::Result<Self> {
         let mut wb = rocksdb::WriteBatch::default();
         wb.put(recovery::KEY_CONNECTOR_STATE, base);
@@ -135,6 +175,26 @@ impl RocksDB {
         self.write_opt(wb, wo)
             .await
             .context("RocksDB connector-state base write")
+    }
+
+    /// Read just the reduced connector-state document at
+    /// [`recovery::KEY_CONNECTOR_STATE`], empty if none was ever persisted.
+    ///
+    /// A RocksDB `Get` runs the full-merge operator over the base document and
+    /// any un-compacted patches, so this yields exactly the bytes
+    /// [`Self::scan`] reports as `Recover.connector_state_json`, without a scan.
+    pub async fn get_connector_state(self) -> anyhow::Result<(Self, bytes::Bytes)> {
+        runtime::Handle::current()
+            .spawn_blocking(move || {
+                let state = self
+                    .db
+                    .get(recovery::KEY_CONNECTOR_STATE)
+                    .context("RocksDB connector-state read")?;
+
+                Ok((self, state.map(bytes::Bytes::from).unwrap_or_default()))
+            })
+            .await
+            .unwrap()
     }
 
     /// Scan the entire DB into a [`proto::Recover`] using a blocking
@@ -287,16 +347,13 @@ impl RocksDB {
     }
 }
 
-// Unpack a RocksDbDescriptor into its rocksdb::Options and path.
-// If the descriptor does not include an explicit path, a TempDir to use is
-// created and returned for the caller to keep alive alongside the DB.
+// Unpack a RocksDbDescriptor into its rocksdb::Options, path, and the
+// directory-ownership guard the opened DB must be paired with. An absent
+// descriptor gets a fresh TempDir; an explicit path is taken over from its
+// sender.
 fn unpack_descriptor(
     desc: Option<RocksDbDescriptor>,
-) -> anyhow::Result<(
-    rocksdb::Options,
-    std::path::PathBuf,
-    Option<tempfile::TempDir>,
-)> {
+) -> anyhow::Result<(rocksdb::Options, std::path::PathBuf, OwnedDir)> {
     Ok(match desc {
         Some(RocksDbDescriptor {
             rocksdb_path,
@@ -305,7 +362,7 @@ fn unpack_descriptor(
             tracing::debug!(
                 ?rocksdb_path,
                 ?rocksdb_env_memptr,
-                "opening hooked RocksDB database"
+                "opening hooked RocksDB database, taking ownership of its directory"
             );
             let mut opts = rocksdb::Options::default();
 
@@ -317,7 +374,8 @@ fn unpack_descriptor(
                 };
                 opts.set_env(&env);
             }
-            (opts, std::path::PathBuf::from(rocksdb_path), None)
+            let path = std::path::PathBuf::from(rocksdb_path);
+            (opts, path.clone(), OwnedDir::Explicit(path))
         }
         None => {
             let dir = tempfile::TempDir::new().context("failed to create RocksDB tempdir")?;
@@ -328,7 +386,7 @@ fn unpack_descriptor(
                 "opening temporary RocksDB database"
             );
 
-            (opts, dir.path().to_owned(), Some(dir))
+            (opts, dir.path().to_owned(), OwnedDir::Temp(dir))
         }
     })
 }
@@ -633,6 +691,48 @@ mod test {
             let actual: serde_json::Value = serde_json::from_slice(&result).unwrap();
             assert_eq!(actual, expected, "partial+full merge at max_count={mc}");
         }
+    }
+
+    /// A descriptor with an explicit path hands us the directory: dropping the
+    /// `RocksDB` removes it.
+    #[tokio::test]
+    async fn explicit_path_is_removed_on_drop() {
+        let parent = tempfile::tempdir().unwrap();
+        let path = parent.path().join("recovery-dir");
+        std::fs::create_dir(&path).unwrap();
+
+        let db = RocksDB::open(Some(RocksDbDescriptor {
+            rocksdb_path: path.to_string_lossy().into_owned(),
+            rocksdb_env_memptr: 0,
+        }))
+        .await
+        .unwrap();
+
+        assert!(path.join("CURRENT").exists(), "the DB opened in `path`");
+        std::mem::drop(db);
+        assert!(!path.exists(), "dropping the RocksDB removed {path:?}");
+    }
+
+    /// The guard is built before the open is attempted, so a directory whose
+    /// open fails is removed rather than stranded.
+    #[tokio::test]
+    async fn explicit_path_is_removed_when_open_fails() {
+        let parent = tempfile::tempdir().unwrap();
+        let path = parent.path().join("recovery-dir");
+        std::fs::create_dir(&path).unwrap();
+        // CURRENT names the live MANIFEST; garbage in it fails the open.
+        std::fs::write(path.join("CURRENT"), b"MANIFEST-not-a-file\n").unwrap();
+
+        let result = RocksDB::open(Some(RocksDbDescriptor {
+            rocksdb_path: path.to_string_lossy().into_owned(),
+            rocksdb_env_memptr: 0,
+        }))
+        .await;
+
+        let Err(err) = result else {
+            panic!("a corrupt CURRENT must fail the open");
+        };
+        assert!(!path.exists(), "a failed open removed {path:?}: {err:#}");
     }
 
     #[tokio::test]

@@ -9838,9 +9838,23 @@ impl serde::Serialize for SessionLoop {
         if self.rocksdb_descriptor.is_some() {
             len += 1;
         }
+        if !self.initial_connector_state_json.is_empty() {
+            len += 1;
+        }
+        if self.report_final_state {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.SessionLoop", len)?;
         if let Some(v) = self.rocksdb_descriptor.as_ref() {
             struct_ser.serialize_field("rocksdbDescriptor", v)?;
+        }
+        if !self.initial_connector_state_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("initialConnectorState", &crate::as_raw_json(&self.initial_connector_state_json)?)?;
+        }
+        if self.report_final_state {
+            struct_ser.serialize_field("reportFinalState", &self.report_final_state)?;
         }
         struct_ser.end()
     }
@@ -9854,11 +9868,17 @@ impl<'de> serde::Deserialize<'de> for SessionLoop {
         const FIELDS: &[&str] = &[
             "rocksdb_descriptor",
             "rocksdbDescriptor",
+            "initial_connector_state_json",
+            "initialConnectorState",
+            "report_final_state",
+            "reportFinalState",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RocksdbDescriptor,
+            InitialConnectorStateJson,
+            ReportFinalState,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -9882,6 +9902,8 @@ impl<'de> serde::Deserialize<'de> for SessionLoop {
                     {
                         match value {
                             "rocksdbDescriptor" | "rocksdb_descriptor" => Ok(GeneratedField::RocksdbDescriptor),
+                            "initialConnectorState" | "initial_connector_state_json" => Ok(GeneratedField::InitialConnectorStateJson),
+                            "reportFinalState" | "report_final_state" => Ok(GeneratedField::ReportFinalState),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -9902,6 +9924,8 @@ impl<'de> serde::Deserialize<'de> for SessionLoop {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut rocksdb_descriptor__ = None;
+                let mut initial_connector_state_json__ = None;
+                let mut report_final_state__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RocksdbDescriptor => {
@@ -9910,6 +9934,20 @@ impl<'de> serde::Deserialize<'de> for SessionLoop {
                             }
                             rocksdb_descriptor__ = map_.next_value()?;
                         }
+                        GeneratedField::InitialConnectorStateJson => {
+                            if initial_connector_state_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("initialConnectorState"));
+                            }
+                            initial_connector_state_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
+                        GeneratedField::ReportFinalState => {
+                            if report_final_state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reportFinalState"));
+                            }
+                            report_final_state__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -9917,6 +9955,8 @@ impl<'de> serde::Deserialize<'de> for SessionLoop {
                 }
                 Ok(SessionLoop {
                     rocksdb_descriptor: rocksdb_descriptor__,
+                    initial_connector_state_json: initial_connector_state_json__.unwrap_or_default(),
+                    report_final_state: report_final_state__.unwrap_or_default(),
                 })
             }
         }
@@ -10550,8 +10590,16 @@ impl serde::Serialize for Stopped {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let len = 0;
-        let struct_ser = serializer.serialize_struct("runtime.Stopped", len)?;
+        let mut len = 0;
+        if !self.connector_state_json.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.Stopped", len)?;
+        if !self.connector_state_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("connectorState", &crate::as_raw_json(&self.connector_state_json)?)?;
+        }
         struct_ser.end()
     }
 }
@@ -10562,10 +10610,13 @@ impl<'de> serde::Deserialize<'de> for Stopped {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "connector_state_json",
+            "connectorState",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            ConnectorStateJson,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -10587,7 +10638,10 @@ impl<'de> serde::Deserialize<'de> for Stopped {
                     where
                         E: serde::de::Error,
                     {
-                            Ok(GeneratedField::__SkipField__)
+                        match value {
+                            "connectorState" | "connector_state_json" => Ok(GeneratedField::ConnectorStateJson),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -10605,10 +10659,24 @@ impl<'de> serde::Deserialize<'de> for Stopped {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map_.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                let mut connector_state_json__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ConnectorStateJson => {
+                            if connector_state_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectorState"));
+                            }
+                            connector_state_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
                 }
                 Ok(Stopped {
+                    connector_state_json: connector_state_json__.unwrap_or_default(),
                 })
             }
         }

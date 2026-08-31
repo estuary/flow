@@ -366,7 +366,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         // co-located shuffle Log RPC so the Session topology can drain.
         for tx in &self.shard_tx {
             let _ = tx.send(Ok(proto::Materialize {
-                stopped: Some(proto::Stopped {}),
+                stopped: Some(proto::Stopped::default()),
                 ..Default::default()
             }));
         }

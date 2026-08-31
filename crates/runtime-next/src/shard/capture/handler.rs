@@ -151,7 +151,19 @@ async fn serve_session_loop<R, P: crate::PublisherFactory, L: crate::LoggerFacto
 where
     R: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
 {
-    let mut db = crate::shard::RocksDB::open(session_loop.rocksdb_descriptor).await?;
+    let proto::SessionLoop {
+        rocksdb_descriptor,
+        initial_connector_state_json,
+        report_final_state,
+    } = session_loop;
+    let mut db = crate::shard::RocksDB::open(rocksdb_descriptor).await?;
+
+    if !initial_connector_state_json.is_empty() {
+        db = db
+            .put_connector_state_base(&initial_connector_state_json)
+            .await
+            .context("applying SessionLoop initial connector state")?;
+    }
     let verify = crate::verify("Capture", "Join", "controller");
 
     // Inferred document shapes are held only in memory and accumulate across
@@ -185,6 +197,7 @@ where
             db,
             join,
             producer,
+            report_final_state,
             &mut shapes_by_key,
         )
         .await?;
@@ -200,6 +213,7 @@ async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     db: crate::shard::RocksDB,
     join: proto::Join,
     producer: proto_gazette::uuid::Producer,
+    report_final_state: bool,
     shapes_by_key: &mut BTreeMap<String, doc::Shape>,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
@@ -217,6 +231,7 @@ where
         db,
         join,
         producer,
+        report_final_state,
         shapes_by_key,
         handler,
     )
@@ -231,6 +246,7 @@ async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFact
     db: crate::shard::RocksDB,
     join: proto::Join,
     producer: proto_gazette::uuid::Producer,
+    report_final_state: bool,
     shapes_by_key: &mut BTreeMap<String, doc::Shape>,
     handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<crate::shard::RocksDB>
@@ -433,8 +449,9 @@ where
 
     *shapes_by_key = task.shapes_by_key(shapes);
 
+    let (db, stopped) = crate::shard::stopped_message(db, report_final_state).await?;
     _ = controller_tx.send(Ok(proto::Capture {
-        stopped: Some(proto::Stopped {}),
+        stopped: Some(stopped),
         ..Default::default()
     }));
     Ok(db)
@@ -618,6 +635,7 @@ mod test {
             .send(Ok(proto::Capture {
                 session_loop: Some(proto::SessionLoop {
                     rocksdb_descriptor: None,
+                    ..Default::default()
                 }),
                 ..Default::default()
             }))
