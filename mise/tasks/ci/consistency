@@ -15,7 +15,7 @@ ensure_stack_env
 
 FILTER="${usage_filter:-}"
 # No default: unset means the `consistency` nextest profile's `test-threads` governs.
-# A default here silently overrode it, so one of the two settings was always dead.
+#
 CONCURRENCY="${usage_concurrency:-}"
 DEBUG="${usage_debug:-false}"
 
@@ -45,7 +45,7 @@ fi
 # stack — can delete its specs while leaving these behind. They look harmless until the
 # build artifact they reference is collected, and then they are not: gazette's
 # `completeRecovery` nil-dereferences instead of erroring, the reactor segfaults on every
-# promotion attempt, and it crash-loops. One such loop reached 7,581 restarts, which takes
+# promotion attempt, and it crash-loops which takes
 # the whole data plane down — nothing can publish, because validating a derivation needs a
 # reactor to connect to. This is a worse failure than the partition leak: it wedges the
 # stack rather than degrading it, and the cause is invisible from the suite's own output.
@@ -54,11 +54,8 @@ fi
 # cannot reach these: `user_task_admin` authorizes a journal client for the task's own
 # prefix, while ops journals live under `ops/`, which no grant available to the test user
 # covers — and a journal listing outside that scope comes back empty rather than
-# unauthorized, so a tool built this way would appear to work while doing nothing. A local
-# stack's own test suite may tidy its own data plane; a connector-facing tool may not.
-#
-# The right long-term fix is for the control plane to delete a task's shards and ops
-# partitions when it deletes the task. Until then this keeps the suite from degrading itself.
+# unauthorized
+
 purge_orphan_gazette_items() {
     local endpoint="localhost:${FLOW_PORT_ETCD}"
 
@@ -68,8 +65,7 @@ purge_orphan_gazette_items() {
     # Matched as a *substring* of the key rather than by parsing a catalog name out of it.
     # Key shapes differ by kind — `<kind>/<name>/<hex>/<range>` for a shard,
     # `recovery/<kind>/<name>/<hex>/<range>` for its log, `.../name=<url-encoded>/...` for an
-    # ops partition — and a parser that mishandled one shape would delete a live task's
-    # state. Substring matching errs the other way: it can only ever keep debris.
+    # ops partition
     local live
     live=$(psql "${FLOW_PG_URL}" -tAc \
         "SELECT catalog_name FROM live_specs WHERE catalog_name LIKE '${FLOW_TEST_TENANT}/consistency/%'")
@@ -78,9 +74,7 @@ purge_orphan_gazette_items() {
     local root keys key rel name encoded claimed
     for root in "/gazette/${FLOW_CLUSTER}" "/flow/${FLOW_CLUSTER}"; do
         # Only ever consider keys naming this suite's own prefix, in either the plain or the
-        # URL-encoded form. This bound is what makes the whole function safe: whatever the
-        # matching below decides, it cannot reach another tenant or the data plane's own
-        # tasks.
+        # URL-encoded form.
         keys=$(ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" get --prefix --keys-only \
             "${root}/items/" 2>/dev/null \
             | grep -E "${FLOW_TEST_TENANT}(/|%2F)consistency(/|%2F)" || true)
@@ -119,11 +113,7 @@ echo "Provisioning the test tenant..."
 mise run local:test-tenant
 source "${FLOW_STACK_DIR}/test-tenant-test.env" # Default tenant is 'test'.
 
-# Shard administration — splitting a task, and unassigning a shard a crash fault
-# left FAILED — is authorized at Admin capability, which the control plane grants
-# only to a user holding `estuary_support/`. These are support-level operations and
-# that gate is correct; the suite needs them, so grant it here rather than widening
-# what `local:test-tenant` hands every test.
+# Shard administration — splitting a task, and unassigning a shard is authorized at Admin capability
 echo "Granting ${FLOW_TEST_USER_EMAIL} support access (needed to split and unassign shards)..."
 psql "${FLOW_PG_URL}" -qtAc "
     INSERT INTO public.user_grants (user_id, object_role, capability, detail)

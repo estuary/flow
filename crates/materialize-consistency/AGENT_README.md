@@ -140,20 +140,24 @@ created; sweeping enumerates what is actually there.
 durability with the runtime is a property of its implementation that `spec` does not report.
 
 It decides which scenarios run. Most scenarios run for most classes — a fault a connector
-must survive is rarely a property of its class — but three exclusions are worth knowing, and
-`Scenario::applies_to` is the authority:
+must survive is rarely a property of its class — and only two exclusions remain, with
+`Scenario::applies_to` the authority:
 
 - an at-least-once subject skips every exactly-once scenario, which it never claimed to uphold;
 - `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the shim orders the
   two racing instances by their `Open` fences and a class that does not fence gives it nothing
-  to order them by;
-- `split-during-store`, `split-during-commit`, `split-after-commit-before-apply` and
-  `join-after-split` skip `documentCounter`, because each lands a membership change on a live
-  transaction and whether that reaches the counted channel's exposure is a race — see
-  `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+  to order them by.
 
-So a `documentCounter` subject skips **five** scenarios, not one. Read the run's
-`not-applicable` lines rather than counting on this list to stay current.
+So a `documentCounter` subject skips **one** scenario. Read the run's `not-applicable` lines
+rather than counting on this list to stay current.
+
+The four split and join scenarios used to be excluded from `documentCounter` as well, because a
+membership change reaches a counted channel's exposure only by race. They now run for it, asserted in one
+direction only: a pass is accepted and noted, because missing the window is the common case and
+says nothing, while a failure fails the run as `RUNTIME GAP OBSERVED` with the runtime named as the
+cause rather than the connector. So a `documentCounter` subject will fail one of these on the runs
+that hit the window — deliberately, since a green build over a real occurrence is the silence
+excluding them used to buy. See `RuntimeGap::raced`.
 
 Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every
 exactly-once class even though the counted channel cannot pass it. A gap that stops one class
@@ -227,6 +231,21 @@ per scenario rather than tens of seconds.
 **Monotonicity is exempted** for such a subject: the order rows come back from a table is
 not guaranteed to be the order they were stored in, so there is no delivery order to check.
 The set-based invariants carry the exactly-once claim.
+
+## Why a zombie fault must be keyed at `Open`
+
+The zombie is spawned when a session opens and is handed every request from then on, so a freeze
+keyed any later leaves it running — and a fenced instance does not survive being run: its first
+`StartCommit` is refused by the destination and the process exits. The freeze would then suspend a
+corpse, the thaw would resume nothing, and the scenario would report a pass for a race that never
+happened. Keyed at `Open`, the zombie has taken its fence and done nothing else, which is the one
+point where it is guaranteed alive. `Shim::new` rejects any zombie rule keyed elsewhere.
+
+The race therefore carries whichever transaction is the session's first. Sessions are per term
+rather than per assignment — a spec update restarts one in place, an expiring credential can
+request a graceful restart, and `max_transactions` rotates them — so a run may offer more than one
+`Open`. That does no harm: the fired marker makes the zombie one-shot, which is what
+`zombie_action` consults.
 
 ## Reading a failure
 

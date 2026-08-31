@@ -5,11 +5,6 @@
 //! beneath this seam is covered transitively: shim framing, trace parsing, the
 //! invariant checkers, split driving, task publication, destination reads.
 //!
-//! Unit seams below this one exist only where something can be wrong in a way that makes a
-//! scenario *pass* — the invariant checkers above all. What is deliberately absent is a seam
-//! that would let a scenario be replaced by unit coverage, which is how a suite ends up with
-//! green units and a blind end-to-end result.
-//!
 //! These tests need a running local stack and are excluded from the default
 //! nextest profile. Run them with `mise run ci:consistency`.
 
@@ -27,12 +22,8 @@ fn init_tracing() {
         .try_init();
 }
 
-/// A scenario nobody runs is worse than a missing scenario: the table says it is covered. This
-/// is how an earlier split scenario was caught having no test at all.
-///
-/// `COVERED` comes from `scenario_tests!` at the foot of this file, so it names exactly the
-/// scenarios that have a test. What remains for this guard is the other direction: a scenario
-/// added to `scenarios::all()` and never given a test.
+// Verify that every scenario actually has tests and that every test is part of a scenario, i.e.
+// there are no orphan scenarios or tests.
 #[test]
 fn every_scenario_is_reached_by_a_test() {
     for scenario in scenarios::all() {
@@ -54,15 +45,15 @@ fn every_scenario_is_reached_by_a_test() {
     //
     // - the *harness* cannot stage the perturbation for another class — `zombie-at-start-commit`
     //   orders its racing instances by their `Open` fences, which a non-fencing class lacks;
-    // - the perturbation reaches a class's exposure only by *race*, so asking would report the
-    //   runtime's gap as the connector's defect on some runs — `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+    // - a class the perturbation only sometimes exposes is not excluded at all: it runs, and a
+    //   failure is attributed to the runtime gap rather than to the connector. See
+    //   `RuntimeGap::raced`.
     //
     // Where a class provably cannot pass, `blocked_on_runtime` is used instead: it excuses that
     // class while still running the scenario against every other.
     //
-    // This pin covers single-class narrowings only. A two-class narrowing like
-    // `MEMBERSHIP_CHANGE_FAIRLY_ASKED` is invisible to it, which is why the README lists the
-    // exclusions and a run prints its own `not-applicable` lines.
+    // This pin only catches a scenario narrowed to *one* class. A narrowing to two, as the split
+    // scenarios use, passes it — so read a run's `not-applicable` lines to see what was skipped.
     const SINGLE_CLASS: &[&str] = &["zombie-at-start-commit"];
     for scenario in scenarios::all() {
         assert_eq!(
@@ -86,10 +77,6 @@ fn scenario(name: &str) -> Scenario {
 
 /// Run one scenario clean, then against its paired defect, asserting the outcome
 /// flips.
-///
-/// The negative case runs in the same test rather than a separate one on purpose:
-/// a checker that goes blind through refactoring then fails a test instead of
-/// quietly passing everything.
 async fn both_ways(name: &str) {
     init_tracing();
 
@@ -98,26 +85,20 @@ async fn both_ways(name: &str) {
 
     // A real connector named in the environment is run *once*. The second pass exists to
     // prove the harness can tell a good subject from a bad one, and it can only do that
-    // against the reference connector, whose defects are switchable. Running a real
-    // connector twice would double the cost of every scenario to learn nothing: there is
-    // no defective build of it to compare against.
+    // against the reference connector, whose defects are switchable.
     let external = harness::subject::external()
         .await
         .expect("resolving the subject named in the environment");
 
     // Scenarios run against every class expected to pass them, which is nearly all of
-    // them against nearly every class — see `Scenario::applies_to`. A scenario is skipped
-    // only where its own class is the only one that can succeed, because there the failure
-    // would measure the mismatch rather than the connector.
+    // them against nearly every class — see `Scenario::applies_to`.
     if let Some(external) = &external {
         let forced = std::env::var_os(harness::subject::ENV_RUN_INAPPLICABLE).is_some();
 
         if forced && !scenario.applies_to.contains(&external.class) {
             eprintln!(
                 "EXPLORATORY: {} does not apply to {:?} and is being run anyway because {} is \
-                 set. A pass is weak evidence — the perturbation reaches this class's exposure \
-                 only by race — and a failure may be the runtime gap rather than the subject. \
-                 Do not read either as a verdict.",
+                 set.",
                 scenario.name,
                 external.class,
                 harness::subject::ENV_RUN_INAPPLICABLE,
@@ -127,7 +108,7 @@ async fn both_ways(name: &str) {
         if !forced && !scenario.applies_to.contains(&external.class) {
             eprintln!(
                 "not-applicable: {} can only be upheld by {:?}; the subject named in \
-                 {} implements {:?}. Nothing was run.",
+                 {} implements {:?}.",
                 scenario.name,
                 scenario.applies_to,
                 harness::subject::ENV_SUBJECT_CLASS,
@@ -159,14 +140,9 @@ async fn both_ways(name: &str) {
         }
     };
 
-    // A gap can manifest as a task that cannot run at all, and that has to count as the gap.
-    //
-    // The marker below asserts on the *invariant verdict*, which presumes the run produced one. A
-    // subject facing state it cannot safely attribute is right to refuse rather than guess, and a
-    // refusing connector never commits again — so the task wedges, no destination is ever compared,
-    // and `harness::run` returns an error before the marker is consulted. That made a gap which
-    // manifests as a stall structurally unreportable while one that corrupts data was reportable,
-    // which is backwards: refusing is the better behaviour of the two.
+    // A gap can manifest as a task that cannot run at all, so it produces no invariant
+    // violations. This still counts as a gap, which is why the error is examined here rather than
+    // left to the marker below: that marker reads an invariant verdict, and this run has none.
     //
     // An `Environment` failure is still excluded. Those say nothing about the subject, so counting
     // one as the gap would let a flaky stack manufacture the expected failure.
@@ -176,6 +152,24 @@ async fn both_ways(name: &str) {
             let environmental = err.chain().any(|e| e.is::<harness::Environment>());
 
             match &scenario.known_limitation {
+                // Reached only by race, so the failure is *attributed* to the runtime rather
+                // than the connector — and still fails the run. An observation nobody is forced
+                // to read is one nobody reads: the gap is real when it lands.
+                //
+                // The cost is accepted deliberately: a `documentCounter` subject will fail this
+                // scenario on the runs where the window is hit, and the message says why so the
+                // failure is not mistaken for a connector defect. See `RuntimeGap::raced`.
+                Some(gap)
+                    if gap.raced && gap.classes.contains(&subject_class) && !environmental =>
+                {
+                    panic!(
+                        "RUNTIME GAP OBSERVED — not a connector defect, and not this scenario's \
+                         fault either. The task could not run to a verdict:\n  {err:#}\n\n\
+                         This scenario reaches the gap only by race, and this run reached it. \
+                         Declared for {:?}, of which the subject is {subject_class:?}.\n\n{}",
+                        gap.classes, gap.detail,
+                    );
+                }
                 Some(gap) if gap.classes.contains(&subject_class) && !environmental => panic!(
                     "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
                      The task could not run to a verdict, which is how this gap manifests for a \
@@ -192,18 +186,11 @@ async fn both_ways(name: &str) {
     };
 
     // Printed with the count each one suppressed, because an exemption that never fires is
-    // paperwork rather than a weakened guarantee — and until this was reported there was no
-    // way to tell the two apart.
-    //
-    // Trust these counts on a *reference* run only. A real subject also gets the blanket
-    // monotonicity exemption, which matches the same violations, so a scenario-level
-    // monotonicity exemption is credited for work the blanket one would have done anyway.
+    // paperwork rather than a weakened guarantee.
     //
     // And a zero is not on its own grounds to delete an exemption: it may mean the violation
     // is *rare* rather than impossible. Deleting needs an argument that the violation cannot
-    // occur, with the count as corroboration — `at-least-once-never-loses`'s conservation
-    // exemption measures zero on most runs and is still load-bearing, while the two removed
-    // in 5525ae9c19f were unreachable by construction as well as unmeasured.
+    // occur, with the count as corroboration.
     for exempt in &scenario.exempt {
         // An exemption written about another class did not apply, and saying so is the point: it
         // means this subject was held to *more* than the scenario's own class is, which a silent
@@ -212,7 +199,7 @@ async fn both_ways(name: &str) {
         // Whether it is held *in full* is a different question, and is read from the run's
         // effective exemptions rather than assumed: a real subject also carries the blanket
         // monotonicity exemption its read earns it, so scoping the scenario's own out leaves that
-        // invariant exempt anyway. Claiming otherwise from this list alone was wrong.
+        // invariant exempt anyway.
         if let Some(classes) = exempt.classes {
             if !classes.contains(&subject_class) {
                 let covered = clean
@@ -239,9 +226,7 @@ async fn both_ways(name: &str) {
             .count();
         // A ceiling is reported only when it is actually enforced. Ceilings are per invariant and
         // the broadest claim governs, so an unbounded exemption for the same invariant lifts this
-        // one's — which is exactly what a real subject does, carrying the blanket monotonicity
-        // exemption alongside a scenario's capped one. Printing "295 of at most 500" there
-        // described a limit nothing was applying, and read as a near miss.
+        // one's.
         let lifted_by_broader = scenario
             .exempt
             .iter()
@@ -280,6 +265,28 @@ async fn both_ways(name: &str) {
     // suite would keep printing the old diagnosis of a run that no longer matches it, and the
     // declaration would never be removed. So a pass here fails too, with the opposite message.
     if let Some(gap) = &scenario.known_limitation {
+        if gap.raced && gap.classes.contains(&subject_class) {
+            // A raced gap is not asserted in the *pass* direction — missing the window is the
+            // common case and says nothing — but violations mean the window was hit, and that
+            // fails the run with the gap named as the cause.
+            assert!(
+                clean.passed(),
+                "RUNTIME GAP OBSERVED — not a connector defect, and not this scenario's fault \
+                 either. This scenario reaches the gap only by race, and this run reached it.\n\
+                 {}\n\n\
+                 Declared for {:?}, of which the subject is {subject_class:?}.\n\n{}",
+                clean.summary(),
+                gap.classes,
+                gap.detail,
+            );
+            eprintln!(
+                "gap not reached this run: {} declares a raced runtime gap for \
+                 {subject_class:?} and this run missed the window, so the pass is evidence \
+                 about this run only.",
+                scenario.name,
+            );
+            return;
+        }
         if gap.classes.contains(&subject_class) {
             assert!(
                 !clean.passed(),
@@ -348,15 +355,9 @@ async fn both_ways(name: &str) {
             let _ = std::fs::remove_dir_all(&defective.run_dir);
         }
         // A run that *failed* can still be the defect being caught — `ignore-key-range` leaves
-        // two shards fencing each other so neither commits, and insisting on a violation list
-        // would turn a detected defect into a harness error. But that only holds once the fault
+        // two shards fencing each other so neither commits. But that only holds once the fault
         // has fired. Before it, a failure is the environment: a publish the stack refused, a
         // warmup gate that timed out, a split that never landed, a fault that never fired.
-        //
-        // Both are typed, so this asks for evidence rather than accepting the absence of a
-        // clean result as evidence. That default was the wrong way round: a stack degrading
-        // between the clean and defective halves silently vacated the pairing, which is the
-        // exact regression the pairing exists to detect.
         Err(err) => {
             let unexercised = err
                 .chain()
@@ -377,14 +378,7 @@ async fn both_ways(name: &str) {
 /// One test per scenario, and the covered-names list, from a single declaration.
 ///
 /// Each scenario needs its own test function so that it gets its own pass/fail line and can be
-/// run alone by name — but written out by hand, that was one identical body per scenario beside a
-/// separately-maintained list of the same names. The list could then claim a scenario was
-/// covered while no test existed to run it, which `every_scenario_is_reached_by_a_test` could
-/// not detect: it compared the list against the scenario table, and the test functions were
-/// nowhere in the comparison.
-///
-/// Emitting both from one place makes that unrepresentable. A name cannot appear in `COVERED`
-/// without the test that runs it, because the same macro invocation produces both.
+/// run alone by name.
 macro_rules! scenario_tests {
     ($($name:literal => $test:ident,)*) => {
         const COVERED: &[&str] = &[$($name),*];

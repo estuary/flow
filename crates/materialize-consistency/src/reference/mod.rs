@@ -190,25 +190,19 @@ pub struct Session {
     /// Load keys staged by this transaction, read when `Flush` arrives. See
     /// [`stage_load`] for why the read cannot happen sooner.
     pending_loads: Vec<(u32, String)>,
-    /// Work staged by the transaction in progress, not yet published in a checkpoint.
-    /// Work whose transaction the log has confirmed, awaiting release.
+    /// Work that has been checkpointed and whose transaction the recovery log has committed —
+    /// its `Acknowledge` arrived — already applied to the destination.
     ///
-    /// Applied on *every* `Acknowledge` until released, because the runtime may replay one — and
-    /// the statements are idempotent, since the trailing `DELETE` retires the batch, so a re-run
-    /// changes nothing. Replay means *across sessions*: within one, the boilerplate's shared loop
-    /// treats a misplaced `Acknowledge` as an error and the connector exits, so this is slightly
-    /// more tolerant than the fleet rather than modelling something it does. Released at the next `StartCommit`, by which
-    /// point the clearing patch has had its chance to commit. A connector that skipped the
+    /// Kept until the next `StartCommit` rather than dropped after applying, because the
+    /// runtime may replay the `Acknowledge`: the replay re-applies these statements, which is
+    /// harmless since the trailing `DELETE` retires the batch. A connector that skipped the
     /// retirement would duplicate on the retry, which is the `non-idempotent-acknowledge`
-    /// defect and is what makes it observable.
+    /// defect.
     confirmed: BTreeMap<String, PendingApply>,
     /// Published-but-unacknowledged work: the transaction whose `StartCommit` has been
     /// answered but whose `Acknowledge` has not arrived.
     ///
-    /// At most one, so an `Option` rather than the queue this used to be. The *protocol*
-    /// permits a connector to acknowledge early, and this defends against applying N+1's work
-    /// before the log holds it — but the runtime cannot produce that interleaving:
-    /// `Flush(N+1)` waits on `Tail::Done`, which requires every shard's `Acknowledged(N)`, so
+    /// At most one: `Flush(N+1)` waits on every shard's `Acknowledged(N)`, so
     /// `Acknowledge(N)` always precedes `StartCommit(N+1)`.
     published: Option<BTreeMap<String, PendingApply>>,
     /// Pending work of *other* ranges — peers of this transaction, and ranges left by
@@ -219,18 +213,6 @@ pub struct Session {
     /// Only the primary applies, which is how `materialize-databricks` keeps two shards
     /// from contending over one binding's table. It learns of its peers' work from the
     /// aggregated state patches the runtime delivers with `Acknowledge`.
-    ///
-    /// Two deliberate divergences from that connector, both worth knowing:
-    ///
-    /// Databricks tests `keyBegin == 0` alone; this also requires `r_clock_begin == 0`, so a
-    /// shard split on *clock* rather than key cannot produce two shards each believing it is
-    /// the primary. That is arguably the more correct test, but it is a divergence, not a
-    /// faithful copy.
-    ///
-    /// And databricks' coordinator behaviour is gated behind its `scale_out` feature flag;
-    /// with the flag off its state is a whole document rather than a merge patch and no
-    /// shard defers to a primary. The reference models flag-on unconditionally, because
-    /// flag-off is single-shard behaviour and these scenarios are about membership changes.
     primary: bool,
     /// `begin-end` of the range this session owns, as its key in connector state.
     range_key: String,
@@ -371,9 +353,7 @@ fn spec() -> materialize::Response {
             "table": {"type": "string", "title": "Destination table", "x-collection-name": true},
             // `x-delta-updates` for the same reason `table` carries `x-collection-name`: the
             // suite's discovery reads both annotations to learn how a subject spells its
-            // resource config. Discovery runs only for an *external* subject, so this one was
-            // absent and harmless — and the reference connector would have been refused by the
-            // suite's own discovery path, which is not a state to leave sitting there.
+            // resource config.
             "delta": {"type": "boolean", "title": "Delta updates", "default": false, "x-delta-updates": true},
         },
     });
@@ -452,31 +432,14 @@ fn validate_bindings(
 
 /// `Apply` performs the destination's DDL, and nothing else.
 ///
-/// This connector drains nothing here, and that is a **declared divergence** from the fleet,
-/// not the fleet's behaviour.
+/// This connector drains nothing here, which is a declared divergence from the fleet:
+/// `materialize-databricks` does drain at `Apply` when a binding's resource is altered in
+/// place and `Apply.state_json` is non-empty. Staged work is instead finished by whoever
+/// holds the checkpoint that describes it, in `Acknowledge` — the path every transaction
+/// already takes. The consequence: no scenario exercises a crash during `Apply`. See the
+/// design document's "Deferred".
 ///
-/// `materialize-databricks` does drain at `Apply`: it runs through `boilerplate.RunApply`, whose
-/// `drainPendingState` invokes the connector's own `Acknowledge` restricted to the affected state
-/// keys, whenever a binding's resource is altered in place and `Apply.state_json` is non-empty —
-/// which is exactly the use `materialize.proto` documents for that field. The drain is
-/// conditional: destructive backfills deliberately skip it.
-///
-/// So the divergence is narrow but real, and it is here rather than in the model because of what
-/// the destination cannot say. A transaction that died mid-commit leaves the same trace as one
-/// that committed and was not yet applied, and an earlier version of this connector drained on
-/// that basis and applied abandoned work — landing on exactly the recovery
-/// `split-during-commit` exercises. Reaching the same safety through `state_json` would mean a
-/// second reconciliation path, exercised only when a runtime fills the field, where
-/// `Acknowledge` is the path every transaction already takes.
-///
-/// The consequence worth knowing: **no scenario exercises a crash during `Apply`**, and a real
-/// connector's `Apply`-drain does run during perturbed scenarios, because `recover` escalates to
-/// republishing the task. That path is therefore unfaulted and unverified. See the design
-/// document's "Deferred".
-///
-/// Staged work is finished by whoever holds the checkpoint that describes it, in
-/// `Acknowledge`. `Apply` may be called more than once for a version, so the DDL here
-/// is idempotent.
+/// `Apply` may be called more than once for a version, so the DDL here is idempotent.
 fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize::Response> {
     let materialization = apply
         .materialization
@@ -486,36 +449,13 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
         .context("parsing endpoint configuration")?;
     let store = Store::open(std::path::Path::new(&config.path))?;
 
-    let mut actions = Vec::new();
-
-    let tables = bindings_of(materialization)?;
-    let last: Vec<Table> = match &apply.last_materialization {
-        Some(last) => bindings_of(last)?,
-        None => Vec::new(),
-    };
-
-    for binding in &tables {
+    for binding in &bindings_of(materialization)? {
         store.ensure_table(binding)?;
-    }
-
-    // A binding that has gone away takes its table with it — and nothing asked for that.
-    // `RunApply` never deletes a removed binding's resource, and the connectors repository calls
-    // doing so indefensible, because destroying a user's data as a side effect of a catalog edit
-    // is not a connector's decision to make. This is a *harness* convenience: the suite creates
-    // per-run tables and wants them gone, and its destination belongs to nobody else.
-    //
-    // A real connector must not copy it, which is why the tables a real subject creates are
-    // dropped by the harness at the end of a run rather than by the connector under test.
-    for table in last {
-        if !tables.iter().any(|b| b.name == table.name) {
-            store.drop_table(&table)?;
-            actions.push(format!("dropped {}", table.name));
-        }
     }
 
     Ok(materialize::Response {
         applied: Some(materialize::response::Applied {
-            action_description: actions.join("; "),
+            action_description: String::new(),
             state: None,
         }),
         ..Default::default()
@@ -572,13 +512,9 @@ fn open_session(
     };
     let shard_state = state.shards.get(&range_key).cloned().unwrap_or_default();
 
-    // A non-primary shard recovers no pending work at all.
-    //
-    // Following `materialize-databricks`: the primary replays the whole consolidated
-    // state document, so a non-primary that also kept recovered entries and re-emitted
-    // them would have the primary run them a second time — after the staged batch they
-    // consume was already retired. Recovering nothing makes that impossible rather than
-    // merely unlikely.
+    // A non-primary shard recovers no pending work at all, following `materialize-databricks`:
+    // the primary replays the whole consolidated state document, so a non-primary that also
+    // re-emitted recovered entries would have the primary run them a second time.
     let (pending, peers) = if !primary {
         (BTreeMap::new(), BTreeMap::new())
     } else {
@@ -615,30 +551,13 @@ fn open_session(
     };
 
     let runtime_checkpoint = match session.class {
-        // Only shard zero may propose a runtime checkpoint.
-        //
-        // Under V2 the non-zero shards of a leaderful task are *stateless*: they have no
-        // recovery log and acquire everything through the leader protocol, so the leader
-        // accepts a non-default `Opened` only from shard zero and fails the whole task
-        // otherwise (`recv_opened`, runtime-next). A destination-authoritative connector
-        // therefore has to gate its checkpoint on being shard zero, however authoritative
-        // its destination is for the *data*.
+        // Only shard zero may propose a runtime checkpoint: under V2 the non-zero shards of
+        // a leaderful task are stateless, and the leader accepts a non-default `Opened` only
+        // from shard zero, failing the whole task otherwise (`recv_opened`, runtime-next).
         Class::RemoteAuthoritative if primary => decode_checkpoint(checkpoint.as_deref())?,
         Class::RemoteAuthoritative => None,
-        Class::PostCommitApply => {
-            // Nothing is reclaimed or inspected here.
-            //
-            // Staging that no checkpoint entry names is inert: applying is driven purely
-            // by the statements in state, so unreferenced rows are never run. They are
-            // the exact analogue of a staged file a real connector abandoned, and a real
-            // connector leaves those alone too.
-            //
-            // Sweeping them at `Open` would also be a race the deleter cannot win: a peer
-            // may have staged a batch and emitted its patch moments ago, and a primary
-            // reading a state snapshot from just before that would delete work it is about
-            // to be told to apply.
-            None
-        }
+        // Post-commit-apply connectors do not modify the runtime checkpoint.
+        Class::PostCommitApply => None,
         Class::DocumentCounter => {
             open_counters(&mut session, &shard_state)?;
             None
@@ -769,8 +688,7 @@ fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i
     }
     // Opt-in, because this writes two lines per merge-binding document and a measured run
     // should not pay for it. Set `FLOW_CONSISTENCY_TRACE_REDUCE=1` to investigate a wrong
-    // stored sum. Parsed once: the two fields came from two separate parses of the same
-    // document.
+    // stored sum.
     let parsed = doc.and_then(|doc| serde_json::from_str::<serde_json::Value>(doc).ok());
     let field = |name: &str| {
         parsed
@@ -793,27 +711,12 @@ fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i
 /// Stage a load key. The destination is *not* read here.
 ///
 /// This is what the staging connectors do: `materialize-databricks`, `-snowflake` and
-/// `-bigquery` write keys to a staging file inside the `it.Next()` loop, and
-/// `materialize-postgres` queues them into a temp table — and only after the loop, once
-/// `Flush` has arrived, do they join against the target table.
-///
-/// It is not the only legal shape. `materialize-elasticsearch`, `-bigtable` and
-/// `-google-sheets` instead call `it.WaitForAcknowledged()` once before the loop and then read
-/// per key, which is equally correct *for them* because the wait still precedes any read and
-/// none of them coordinates across shards. It does not generalise: `WaitForAcknowledged` waits
-/// for this shard's own acknowledgement, not for its peers', so a coordinating connector that
-/// took the pattern at face value would read a destination its primary has not yet applied to —
-/// which is the defect `split-during-commit` exists to catch.
-/// `materialize-clickhouse` looks like that from the outside but belongs with the stagers: it
-/// waits up front because `Acknowledge` is what creates its load tables, then stages keys into
-/// them inside the loop and joins afterwards. What matters throughout is the ordering, not the
-/// batching.
-///
-/// That is not merely a batching convenience: `Flush` is the runtime's signal that the
-/// previous transaction was acknowledged **by every shard**. A connector where one shard
-/// applies staged work on behalf of its peers has no other way to know that. Reading the
-/// destination as each `Load` arrives would read a base that the applying shard has not
-/// finished writing, and a merged binding reduced onto that base loses the difference.
+/// `-bigquery` write keys to a staging file inside the `it.Next()` loop, and join against
+/// the target table only once `Flush` has arrived. `Flush` is the runtime's signal that the
+/// previous transaction was acknowledged by **every shard** — a connector where one shard
+/// applies staged work on behalf of its peers has no other way to know that, and reading
+/// the destination as each `Load` arrives would read a base the applying shard has not
+/// finished writing.
 fn stage_load(session: &mut Session, load: materialize::request::Load) -> anyhow::Result<()> {
     anyhow::ensure!(
         (load.binding as usize) < session.bindings.len(),
@@ -1011,9 +914,8 @@ fn start_commit_txn(
             session.confirmed.clear();
 
             let patch = pending_patch(&session.range_key, &publishing);
-            // Asserted rather than assumed: a second entry would mean the runtime had
-            // pipelined an `Acknowledge` past a `StartCommit`, which the field's doc explains
-            // it cannot. Losing one silently would be a duplicate nobody could explain.
+            // A second entry would mean the runtime pipelined an `Acknowledge` past a
+            // `StartCommit`, which it cannot; see `published`.
             debug_assert!(
                 session.published.is_none(),
                 "a transaction was published while another was still unacknowledged",
@@ -1030,19 +932,12 @@ fn start_commit_txn(
                     .append_counted(session.key_begin, session.key_end, &rows)?;
             }
 
-            // Read each channel's offset back *from the destination* rather than
-            // reporting a count the connector kept itself.
-            //
-            // The destination is the authority: it increments the offset atomically
-            // with accepting the row, and recovery works by comparing that offset
-            // against the one this checkpoint records. A connector-side mirror of it
-            // would be a second copy of the only number that matters, and its drift
-            // is invisible precisely in the situation the class exists to survive —
-            // a process that died between accepting a row and noting that it had.
-            //
-            // Recording it here is what makes it trustworthy: this state rides in
-            // `StartedCommit` and so commits atomically with the recovery log.
-            // Dropping it is the `drop-document-counter` defect.
+            // Read each channel's offset back *from the destination* rather than keeping a
+            // connector-side count: the destination increments the offset atomically with
+            // accepting the row, and recovery works by comparing that offset against the
+            // one this checkpoint records. This state rides in `StartedCommit`, so it
+            // commits atomically with the recovery log. Dropping it is the
+            // `drop-document-counter` defect.
             let appended = if session.has(Defect::DropDocumentCounter) {
                 BTreeMap::new()
             } else {
@@ -1150,23 +1045,16 @@ fn acknowledge(
     }
 
     // Own work first, then every other range's, oldest range first for determinism.
-    // Predecessors are finished *here* rather than at `Open`: the contract is that a
-    // recovered checkpoint's staged update is re-applied as part of `Acknowledge`, and
-    // doing it here means it happens under the same rules as ordinary work instead of on
-    // a separate path that only recovery exercises.
+    // Predecessors are finished *here* rather than at `Open`: a recovered checkpoint's
+    // staged update is re-applied as part of `Acknowledge`, under the same rules as
+    // ordinary work.
     let mut cleared: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     // This `Acknowledge` confirms one more transaction has reached the recovery log, so
-    // promote exactly one — the oldest still unconfirmed.
-    //
-    // A retry finds nothing left to promote and simply re-applies what is confirmed, which
-    // is a no-op for a connector that retires its batches and a duplicate for one that does
-    // not. That is what makes `non-idempotent-acknowledge` observable.
-    //
-    // The residual hazard is a retry arriving *after* the next `StartCommit`, which would
-    // promote a transaction the log has not confirmed. The connector cannot tell that case
-    // apart: `Acknowledge` carries no transaction identity, only the aggregated patches of
-    // whichever transaction it confirms. Closing it needs the protocol to say which.
+    // promote exactly one — the oldest still unconfirmed. A retry finds nothing left to
+    // promote and simply re-applies what is confirmed: a no-op for a connector that retires
+    // its batches, a duplicate for one that does not, which is what makes
+    // `non-idempotent-acknowledge` observable.
     if let Some(promoted) = session.published.take() {
         session.confirmed.extend(promoted);
     }
