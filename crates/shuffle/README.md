@@ -345,6 +345,18 @@ computes its hash, and routes to target Log shard(s) using
 `filter_r_clocks` additionally filters by the rotated clock value,
 distributing reads across shards in the r_clock dimension.
 
+Key routing is deliberately "mostly solid": within `route_to_shards()`, a
+small fixed fraction of keys (`routing::REMAP_THRESHOLD / REMAP_BUCKETS`,
+selected by the key hash's low bits) route by a remapped hash — the hash's
+16-bit halves swapped — landing them across the key space rather than in
+their own range. This puts a
+trickle of every Slice's documents into every Log, so a lagging Log's
+clock-ordered merge (§8) back-pressures a Slice that has raced ahead,
+bounding how far shards' wall-clocks can diverge within a transaction. The
+remap is a pure function of the key hash, so every Slice agrees on it, and
+it is internal to routing: the key hash that connectors and log entries
+observe is always the true hash of the packed key.
+
 The document, its packed key, metadata, and journal context are sent
 as an `Append` message to each target Log. Journal names are
 delta-encoded across consecutive sends to minimize wire overhead.
