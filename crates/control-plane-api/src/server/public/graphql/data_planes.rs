@@ -435,32 +435,26 @@ fn paginate_by_name<T>(
         return (Vec::new(), false, false);
     }
 
+    let total = sorted.len();
+
     if before.is_some() || last.is_some() {
-        // Backward pagination
-        let filtered: Vec<T> = sorted
-            .into_iter()
-            .filter(|t| {
-                before
-                    .as_ref()
-                    .map(|b| name(t) < b.as_str())
-                    .unwrap_or(true)
-            })
-            .collect();
-
-        let total = filtered.len();
-        let skip = total.saturating_sub(limit);
-        let rows: Vec<T> = filtered.into_iter().skip(skip).collect();
-        (rows, skip > 0, before.is_some())
+        // Backward: the window ends at the first row not before the cursor.
+        let end = match before.as_ref() {
+            Some(b) => sorted.partition_point(|t| name(t) < b.as_str()),
+            None => total,
+        };
+        let skip = end.saturating_sub(limit);
+        let rows: Vec<T> = sorted.into_iter().take(end).skip(skip).collect();
+        (rows, skip > 0, end < total)
     } else {
-        // Forward pagination
-        let rows: Vec<T> = sorted
-            .into_iter()
-            .filter(|t| after.as_ref().map(|a| name(t) > a.as_str()).unwrap_or(true))
-            .take(limit)
-            .collect();
-
+        // Forward: the window starts just past the cursor.
+        let start = match after.as_ref() {
+            Some(a) => sorted.partition_point(|t| name(t) <= a.as_str()),
+            None => 0,
+        };
+        let rows: Vec<T> = sorted.into_iter().skip(start).take(limit).collect();
         let has_next = rows.len() == limit;
-        (rows, after.is_some(), has_next)
+        (rows, start > 0, has_next)
     }
 }
 
@@ -2050,6 +2044,24 @@ mod tests {
             page(None, None, None, None),
             (vec!["a", "b", "c", "d"], false, false)
         );
+
+        // empty `after` cursor should return the first page
+        assert_eq!(
+            page(Some(""), None, Some(10), None),
+            (vec!["a", "b", "c", "d"], false, false)
+        );
+        // `after` cursor that is before the first element should return the first page
+        assert_eq!(
+            page(Some("0"), None, Some(2), None),
+            (vec!["a", "b"], false, true)
+        );
+        // a `before` cursor past the last row excludes nothing
+        assert_eq!(
+            page(None, Some("z"), None, Some(2)),
+            (vec!["c", "d"], true, false)
+        );
+        // empty `before` cursor should exclude all results
+        assert_eq!(page(None, Some(""), None, Some(2)), (vec![], false, true));
     }
 
     #[test]
