@@ -65,39 +65,39 @@ and the fault lands mid-split instead. A `Scenario` may also carry
 violation count, which is the measurement of a runtime gap, and the marker is removed
 when the gap closes.
 
-## Where a run can go wrong that is not the connector's fault
+## Reading a failure
 
-Most of the debugging this suite has cost has been here rather than in a connector,
-so the roadmap says it plainly.
+A failing scenario is not necessarily a failing connector. These are the gates a run
+passes through, and what each one's failure means.
 
-**Recovery.** `harness::recover` is the only gate that matters after a perturbation:
-it unassigns FAILED shards until the task commits again, and after a third of its
-budget escalates to republishing the task disabled-then-enabled. Nothing waits on
-shard *status* after a perturbation — a crashed shard is what most scenarios inject,
-so an `await_primary` there fails before recovery is attempted.
+**Recovery.** `harness::recover` is the gate after a perturbation: it unassigns FAILED
+shards until the task commits again, and after a third of its budget escalates to
+republishing the task disabled-then-enabled. Nothing in a run waits on shard *status* —
+progress over the shim's trace is the measure instead, because a crashed shard is what most
+scenarios inject and a shard reported primary may still be doing nothing.
 
 **Completion.** The two collections need different measures, because they are keyed
-differently. `log` is keyed `[/id, /seq]`, so every document is its own row and a row
-count is exact. `merged` is keyed `[/id]` and reduced, so the runtime delivers one row
-per key per *transaction*: its row count is always below the document count.
-Completion there is per-account — every account must reach its highest expected `seq`.
-Getting this wrong has produced both false losses and a gate that could never be met.
+differently. `log` is keyed `[/id, /seq]`, so every document is its own row and a row count
+is exact. `merged` is keyed `[/id]` and reduced, so the runtime delivers one row per key per
+*transaction* and its row count is always below the document count; completion there is
+per-account — every account must reach its highest expected `seq`.
 
-**A short drain is reported as a shortfall, not as violations.** If the destination
-stops short, whether the connector lost those documents or the runner stopped waiting
-cannot be told apart, so `drain` fails naming the shortfall rather than handing an
-incomplete destination to the checkers.
+**A short drain is a shortfall, not a violation.** If the destination stops short, whether
+the connector lost those documents or the runner stopped waiting cannot be told apart, so
+`drain` fails naming the shortfall rather than handing an incomplete destination to the
+checkers. `log 610/610, merged accounts behind 3 of 40` is a shortfall; a violation list is
+a verdict.
 
-**Faults must arm after the warmup.** The warmup gate has no recovery step, so a
-crash landing inside it wedges the run. A unit test enforces this for every `Crash`
-rule; other actions leave the shard running and are exempt.
+**Faults arm after the warmup.** The warmup gate has no recovery step, so a crash landing
+inside it would wedge the run. A unit test enforces this for every `Crash` rule; other
+actions leave the shard running and are exempt.
 
-**The environment.** Two symptoms are worth recognising on sight, because both look
-like connector faults and neither is: `etcdserver: mvcc: database space exceeded`
-stops shards reaching primary, with no shard error to explain it — compact and defrag
-(the database reached 2.1 GB of stale revisions once, and compacted to 3.5 MB); and a
-crash-looping systemd unit rebuilds from source in `ExecStartPre`, so a restart loop
-is a compile loop and can drive load high enough to expire etcd leases.
+**The environment.** Two symptoms present as connector faults and are not. `etcdserver:
+mvcc: database space exceeded` in the reactor's log means etcd has hit its quota and can no
+longer accept shard-status writes, so tasks publish and then never reach primary with
+nothing in their own logs to explain it — compact, and defrag to reclaim the disk. And a
+crash-looping systemd unit recompiles in `ExecStartPre`, so a restart loop is a compile loop
+and can drive load high enough to expire etcd leases.
 
 ## The two rules
 

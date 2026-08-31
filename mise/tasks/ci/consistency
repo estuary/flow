@@ -29,21 +29,19 @@ fi
 
 # Purge ops journals of scenario tasks that no longer exist.
 #
-# A task's ops log and stats partitions are not deleted when its specification is —
-# they belong to the data plane's shared `ops/tasks/...` collections — so this suite
-# leaks a pair per task, about two hundred per full run. That is not cosmetic: at
-# roughly fourteen hundred partitions this data plane's four brokers ran out of
-# assignment slots, newly published journals got no primary broker at all, and every
-# scenario failed waiting for a capture that had published fine and could never
-# append. One whole suite run was lost to it, and every symptom pointed at the
-# connector rather than at the leak.
+# A task's ops log and stats partitions are not deleted when its specification is — they
+# belong to the data plane's shared `ops/tasks/...` collections — so this suite accumulates
+# a pair per task, about two hundred per full run. That is not cosmetic: a four-broker data
+# plane runs out of assignment slots at around fourteen hundred partitions, after which
+# newly published journals get no primary broker at all and every scenario fails waiting for
+# a capture that published fine and can never append.
 #
-# Done here, against etcd, rather than in the harness, because a task-scoped
-# authorization cannot reach these: `user_task_admin` authorizes a journal client for
-# the task's own prefix, while ops journals live under `ops/`, which no grant available
-# to the test user covers. Four attempts to do it through `flowctl` silently matched
-# nothing for that reason. A local stack's own test suite may tidy its own data plane;
-# a connector-facing tool may not, and should not.
+# Done here, against etcd, rather than in the harness, because a task-scoped authorization
+# cannot reach these: `user_task_admin` authorizes a journal client for the task's own
+# prefix, while ops journals live under `ops/`, which no grant available to the test user
+# covers — and a journal listing outside that scope comes back empty rather than
+# unauthorized, so a tool built this way would appear to work while doing nothing. A local
+# stack's own test suite may tidy its own data plane; a connector-facing tool may not.
 #
 # The right long-term fix is for the control plane to delete a task's ops partitions
 # when it deletes the task. Until then this keeps the suite from degrading itself.

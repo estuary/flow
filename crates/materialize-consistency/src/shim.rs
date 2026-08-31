@@ -29,9 +29,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// the kernel serialises against the file's end.
 ///
 /// `writeln!` does not give one syscall. It is `write_fmt`, which issues a write per
-/// format fragment — the line, then the newline — so two processes could interleave
-/// between them, and one did: a trace came back with `Extra data: line 1 column 99`,
-/// two records spliced into one line. Hence the explicit newline and `write_all`.
+/// format fragment — the line, then the newline — leaving a window for another process to
+/// append between the two and splice two records into one line. Hence the explicit newline
+/// and a single `write_all`.
 pub struct Trace {
     file: Mutex<std::fs::File>,
 }
@@ -260,11 +260,11 @@ impl Shim {
         // the connector's status: the runtime may close our stdin at any time.
         let status = live.child.wait().await.context("waiting for connector")?;
 
-        // Record how the connector died, because the reactor's account of it —
-        // "connector exited with no log output" — is identical whether the shim killed
-        // it for a fault or it fell over by itself. Three suite runs were spent unable
-        // to tell those apart. A rule that fired is already in the trace, so a `died`
-        // with no preceding `fault` from this process is the connector's own doing.
+        // Record how the connector died. The reactor's account of it — "connector exited
+        // with no log output" — is identical whether the shim killed it for a fault or it
+        // fell over by itself, and the difference matters when reading a failure. A rule
+        // that fired is already in the trace, so a death with no preceding `fault` from
+        // this process is the connector's own doing.
         if !status.success() {
             shim.trace.log(Event::Failed {
                 error: match std::os::unix::process::ExitStatusExt::signal(&status) {
