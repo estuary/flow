@@ -232,7 +232,7 @@ impl ShuffleSession for FixtureCheckpoints {
 }
 
 /// A parsed fixture transaction: documents and their source collection names.
-type Transaction = Vec<(String, serde_json::Value)>;
+type Transaction = Vec<(String, String)>;
 
 /// A materialized fixture, ready to drive a preview run.
 pub struct FixturePlan {
@@ -264,8 +264,10 @@ pub fn build(
     base_dir: &std::path::Path,
     requested_targets: &[u32],
     n_shards: u32,
+    validate: bool,
 ) -> anyhow::Result<FixturePlan> {
-    let (bindings, sources, mut validators, collection_bindings) = task_bindings(task)?;
+    let (bindings, sources, validators, collection_bindings) = task_bindings(task)?;
+    let mut ctx = PrepareCtx::new(validators);
 
     let mut transactions = parse(path)?;
     // A session bounded by `max_transactions` can't run zero transactions, so
@@ -290,7 +292,6 @@ pub fn build(
     let shards = fixture_shards(n_shards);
     let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
-    let mut packed_key = bytes::BytesMut::new();
     let mut transactions = transactions.into_iter();
 
     for (session_index, &budget) in session_targets.iter().enumerate() {
@@ -310,16 +311,16 @@ pub fn build(
 
             frontiers.push(write_transaction(
                 &transaction,
+                &mut ctx,
+                validate,
                 &bindings,
                 &sources,
-                &mut validators,
                 &collection_bindings,
                 &shards,
                 &mut writers,
                 &mut keepalive._sealed,
                 &mut txn_ordinal,
                 &mut journal_offsets,
-                &mut packed_key,
                 &mut last_lsns,
             )?);
         }
@@ -392,12 +393,18 @@ pub fn start_streaming(
     path: Option<std::path::PathBuf>,
     base_dir: &std::path::Path,
     n_shards: u32,
+    validate: bool,
     limits: StreamLimits,
     frontier_tx: tokio::sync::mpsc::UnboundedSender<FixtureItem>,
     eof_stop: tokio_util::sync::CancellationToken,
     hold: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<(String, tokio::task::JoinHandle<anyhow::Result<()>>)> {
     let (bindings, sources, validators, collection_bindings) = task_bindings(task)?;
+    let mut ctxs = vec![PrepareCtx::new(validators)];
+    for _ in 1..fixture_workers() {
+        let (_, _, validators, _) = task_bindings(task)?;
+        ctxs.push(PrepareCtx::new(validators));
+    }
 
     // The session reads from its own directory, mirroring the eager per-session
     // layout.
@@ -421,7 +428,8 @@ pub fn start_streaming(
     let handle = tokio::spawn(feed_stream(
         bindings,
         sources,
-        validators,
+        ctxs,
+        validate,
         collection_bindings,
         path,
         fixture_shards(n_shards),
@@ -437,7 +445,8 @@ pub fn start_streaming(
 async fn feed_stream(
     bindings: Vec<shuffle::Binding>,
     sources: Vec<shuffle::Source>,
-    mut validators: Vec<doc::Validator>,
+    mut ctxs: Vec<PrepareCtx>,
+    validate: bool,
     collection_bindings: HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: Vec<shuffle::proto::Shard>,
@@ -451,7 +460,8 @@ async fn feed_stream(
     let result = feed_lines(
         &bindings,
         &sources,
-        &mut validators,
+        &mut ctxs,
+        validate,
         &collection_bindings,
         path,
         &shards,
@@ -493,7 +503,8 @@ async fn feed_stream(
 async fn feed_lines(
     bindings: &[shuffle::Binding],
     sources: &[shuffle::Source],
-    validators: &mut [doc::Validator],
+    ctxs: &mut [PrepareCtx],
+    validate: bool,
     collection_bindings: &HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
     shards: &[shuffle::proto::Shard],
@@ -521,13 +532,14 @@ async fn feed_lines(
 
     let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
-    let mut packed_key = bytes::BytesMut::new();
     let mut last_lsns = vec![shuffle::log::Lsn::ZERO; writers.len()];
 
     let mut txn = TxnState::new(writers.len(), txn_ordinal);
     txn_ordinal += 1;
     let mut committed = 0usize;
     let mut lineno = 0usize;
+    let mut batch: Vec<(usize, String)> = Vec::new();
+    let mut batch_bytes = 0usize;
 
     let mut rolled = Vec::new();
     let mut disk_backlog_bytes = 0u64;
@@ -579,50 +591,84 @@ async fn feed_lines(
         };
         lineno += 1;
 
-        match parse_line(&line, lineno)? {
-            None => (),
-            Some(Line::Doc(collection, doc)) => push_doc(
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+        } else if !is_commit_line(trimmed) {
+            batch_bytes += line.len();
+            batch.push((lineno, line));
+            if batch.len() >= FIXTURE_BATCH_DOCS || batch_bytes >= FIXTURE_BATCH_BYTES {
+                push_batch(
+                    &mut txn,
+                    &mut batch,
+                    ctxs,
+                    validate,
+                    bindings,
+                    sources,
+                    collection_bindings,
+                    shards,
+                    writers,
+                    &mut rolled,
+                    &mut journal_offsets,
+                    &mut last_lsns,
+                )?;
+                batch_bytes = 0;
+            }
+        } else {
+            push_batch(
                 &mut txn,
-                &collection,
-                &doc,
+                &mut batch,
+                ctxs,
+                validate,
                 bindings,
                 sources,
-                validators,
                 collection_bindings,
                 shards,
                 writers,
                 &mut rolled,
                 &mut journal_offsets,
-                &mut packed_key,
                 &mut last_lsns,
-            )?,
-            Some(Line::Commit) => {
-                let closing =
-                    std::mem::replace(&mut txn, TxnState::new(writers.len(), txn_ordinal));
-                txn_ordinal += 1;
+            )?;
+            batch_bytes = 0;
 
-                let frontier = finish_txn(
-                    closing,
-                    writers,
-                    &mut rolled,
-                    &journal_offsets,
-                    &mut last_lsns,
-                )?;
-                committed += 1;
+            let closing = std::mem::replace(&mut txn, TxnState::new(writers.len(), txn_ordinal));
+            txn_ordinal += 1;
 
-                if frontier_tx.send(FixtureItem::Frontier(frontier)).is_err() {
-                    return Ok(()); // The consumer went away.
-                }
-                on_sealed(
-                    &mut rolled,
-                    sealed,
-                    limits.disk_limit_bytes,
-                    &mut disk_backlog_bytes,
-                    &mut disk_back_pressure,
-                );
+            let frontier = finish_txn(
+                closing,
+                writers,
+                &mut rolled,
+                &journal_offsets,
+                &mut last_lsns,
+            )?;
+            committed += 1;
+
+            if frontier_tx.send(FixtureItem::Frontier(frontier)).is_err() {
+                return Ok(()); // The consumer went away.
             }
+            on_sealed(
+                &mut rolled,
+                sealed,
+                limits.disk_limit_bytes,
+                &mut disk_backlog_bytes,
+                &mut disk_back_pressure,
+            );
         }
     }
+
+    push_batch(
+        &mut txn,
+        &mut batch,
+        ctxs,
+        validate,
+        bindings,
+        sources,
+        collection_bindings,
+        shards,
+        writers,
+        &mut rolled,
+        &mut journal_offsets,
+        &mut last_lsns,
+    )?;
 
     // Trailing documents without a final commit marker form a final
     // transaction, and an entirely-empty stream still runs one empty
@@ -768,94 +814,149 @@ fn fixture_producers() -> HashMap<uuid::Producer, u16> {
 /// each one's block and appending any block which has met its threshold.
 /// Documents route to shards by their packed shuffle-key hash, exactly as the
 /// live slice routes them.
-fn push_doc(
-    state: &mut TxnState,
+struct PrepareCtx {
+    parser: simd_doc::Parser,
+    alloc: doc::Allocator,
+    validators: Vec<doc::Validator>,
+    packed_key: bytes::BytesMut,
+}
+
+impl PrepareCtx {
+    fn new(validators: Vec<doc::Validator>) -> Self {
+        Self {
+            parser: simd_doc::Parser::new(),
+            alloc: doc::HeapNode::new_allocator(),
+            validators,
+            packed_key: bytes::BytesMut::new(),
+        }
+    }
+}
+
+/// A fixture document prepared for one binding, ready to route.
+struct PreparedDoc {
+    journal: String,
+    meta: shuffle::log::BlockMeta,
+    key: bytes::Bytes,
+    doc_bytes: bytes::Bytes,
+    shard_indices: Vec<usize>,
+    doc_clock: uuid::Clock,
+}
+
+/// Parse, stamp, archive, validate and key a fixture line for every binding its
+/// collection feeds. Depends only on `ctx`, so lines prepare in parallel.
+fn prepare_doc(
+    ctx: &mut PrepareCtx,
     collection: &str,
-    doc: &serde_json::Value,
+    doc: &str,
+    doc_clock: uuid::Clock,
+    validate: bool,
     bindings: &[shuffle::Binding],
     sources: &[shuffle::Source],
-    validators: &mut [doc::Validator],
     collection_bindings: &HashMap<String, Vec<usize>>,
     shards: &[shuffle::proto::Shard],
-    writers: &mut [shuffle::log::Writer],
-    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
-    journal_offsets: &mut HashMap<(String, u16), i64>,
-    packed_key: &mut bytes::BytesMut,
-    last_lsns: &mut [shuffle::log::Lsn],
-) -> anyhow::Result<()> {
-    // One clock per fixture line, shared by every binding it feeds — as a
-    // single published document is. Lines whose collection isn't sourced
-    // still consume a clock, so a fixture yields identical document clocks
-    // for every task it drives — matching the legacy harness.
-    let doc_clock = uuid::Clock::from_unix(state.doc_seconds, 0);
-    state.doc_seconds += 1;
-    state.docs += 1;
-
+) -> anyhow::Result<Vec<PreparedDoc>> {
     let Some(binding_indices) = collection_bindings.get(collection) else {
-        return Ok(()); // Collection isn't a source of this task.
+        return Ok(Vec::new()); // Collection isn't a source of this task.
     };
 
+    let mut out = Vec::with_capacity(binding_indices.len());
     for &bi in binding_indices {
         let binding = &bindings[bi];
         let source = &sources[binding.source as usize];
-        let journal = fixture_journal(&source.collection);
+
+        ctx.alloc.reset();
+        let alloc = &ctx.alloc;
+        let mut heap = ctx
+            .parser
+            .parse_one(doc.as_bytes(), alloc)
+            .context("parsing fixture document")?;
 
         // Inject a synthetic UUID at the collection's UUID pointer.
-        let mut doc = doc.clone();
         let synthetic_uuid = uuid::build(FIXTURE_PRODUCER, doc_clock, uuid::Flags::OUTSIDE_TXN);
-        *json::ptr::create_value(&source.uuid_ptr, &mut doc)
-            .context("creating fixture UUID location in document")? =
-            serde_json::json!(synthetic_uuid.as_hyphenated().to_string());
-
-        let alloc = doc::HeapNode::new_allocator();
-        let heap =
-            doc::HeapNode::from_serde(&doc, &alloc).context("allocating fixture document")?;
+        let uuid_str = doc::BumpStr::from_str(&synthetic_uuid.as_hyphenated().to_string(), alloc);
+        if heap
+            .try_set(&source.uuid_ptr, doc::HeapNode::String(uuid_str), alloc)
+            .is_err()
+        {
+            anyhow::bail!("creating fixture UUID location in document");
+        }
         let archive = heap.to_archive();
         let archived = doc::ArchivedNode::from_archive(archive.as_slice());
 
         // Mirror the slice: set the schema-valid flag from validation and
         // pack the shuffle key from the archived document.
         let mut flags = uuid::Flags::OUTSIDE_TXN.0;
-        if validators[binding.source as usize].is_valid(archived) {
+        if !validate || ctx.validators[binding.source as usize].is_valid(archived) {
             flags |= shuffle::FLAGS_SCHEMA_VALID;
         }
 
-        packed_key.clear();
+        ctx.packed_key.clear();
         doc::Extractor::extract_all(
             archived,
             &binding.key_extractors,
             doc::Encoding::Packed,
-            packed_key,
+            &mut ctx.packed_key,
             None,
         );
 
         let doc_bytes = bytes::Bytes::from(archive.to_vec());
-        let source_len = doc_bytes.len() as u32;
+        let key_hash = doc::Extractor::packed_hash(&ctx.packed_key);
+        let r_clock = shuffle::slice::routing::rotate_clock(doc_clock);
+        let key = ctx.packed_key.split().freeze();
 
+        out.push(PreparedDoc {
+            journal: fixture_journal(&source.collection),
+            meta: shuffle::log::BlockMeta {
+                binding: binding.index,
+                journal_bid: 0,
+                producer_bid: 0,
+                flags,
+                clock: doc_clock.as_u64(),
+            },
+            key,
+            doc_bytes,
+            shard_indices: shuffle::slice::routing::route_to_shards(
+                key_hash,
+                r_clock,
+                binding.filter_r_clocks,
+                shards,
+            )
+            .into_iter()
+            .collect(),
+            doc_clock,
+        });
+    }
+    Ok(out)
+}
+
+/// Route one line's prepared documents to their shards, in fixture order.
+fn push_prepared(
+    state: &mut TxnState,
+    prepared: Vec<PreparedDoc>,
+    writers: &mut [shuffle::log::Writer],
+    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+    last_lsns: &mut [shuffle::log::Lsn],
+) -> anyhow::Result<()> {
+    for mut p in prepared {
         let journal_bid = {
             let next = state.block_journals.len() as u16;
-            *state.block_journals.entry(journal.clone()).or_insert(next)
+            *state
+                .block_journals
+                .entry(p.journal.clone())
+                .or_insert(next)
         };
+        p.meta.journal_bid = journal_bid;
+        let source_len = p.doc_bytes.len() as u32;
 
-        let key_hash = doc::Extractor::packed_hash(packed_key);
-        let r_clock = shuffle::slice::routing::rotate_clock(doc_clock);
-        let key = packed_key.split().freeze();
-
-        let meta = shuffle::log::BlockMeta {
-            binding: binding.index,
-            journal_bid,
-            producer_bid: 0,
-            flags,
-            clock: doc_clock.as_u64(),
-        };
-        for shard_index in shuffle::slice::routing::route_to_shards(
-            key_hash,
-            r_clock,
-            binding.filter_r_clocks,
-            shards,
-        ) {
-            state.entries[shard_index].push((meta, source_len, key.clone(), doc_bytes.clone()));
-            state.entries_bytes[shard_index] += doc_bytes.len();
+        for shard_index in p.shard_indices {
+            state.entries[shard_index].push((
+                p.meta,
+                source_len,
+                p.key.clone(),
+                p.doc_bytes.clone(),
+            ));
+            state.entries_bytes[shard_index] += p.doc_bytes.len();
 
             if state.entries[shard_index].len() >= FIXTURE_BLOCK_ENTRIES
                 || state.entries_bytes[shard_index] >= FIXTURE_BLOCK_BYTES
@@ -877,16 +978,136 @@ fn push_doc(
             }
         }
 
+        let binding_index = p.meta.binding;
         let acc = state
             .frontier_acc
-            .entry((journal.clone(), binding.index))
+            .entry((p.journal.clone(), binding_index))
             .or_insert((uuid::Clock::from_u64(0), 0));
-        acc.0 = acc.0.max(doc_clock);
+        acc.0 = acc.0.max(p.doc_clock);
         acc.1 += source_len as i64;
-        *journal_offsets.entry((journal, binding.index)).or_insert(0) += source_len as i64;
+        *journal_offsets
+            .entry((p.journal, binding_index))
+            .or_insert(0) += source_len as i64;
     }
-
     Ok(())
+}
+
+fn push_doc(
+    state: &mut TxnState,
+    collection: &str,
+    doc: &str,
+    ctx: &mut PrepareCtx,
+    validate: bool,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [shuffle::log::Writer],
+    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+    last_lsns: &mut [shuffle::log::Lsn],
+) -> anyhow::Result<()> {
+    // One clock per fixture line, shared by every binding it feeds — as a
+    // single published document is. Lines whose collection isn't sourced
+    // still consume a clock, so a fixture yields identical document clocks
+    // for every task it drives — matching the legacy harness.
+    let doc_clock = uuid::Clock::from_unix(state.doc_seconds, 0);
+    state.doc_seconds += 1;
+    state.docs += 1;
+
+    let prepared = prepare_doc(
+        ctx,
+        collection,
+        doc,
+        doc_clock,
+        validate,
+        bindings,
+        sources,
+        collection_bindings,
+        shards,
+    )?;
+    push_prepared(state, prepared, writers, sealed, journal_offsets, last_lsns)
+}
+
+const FIXTURE_BATCH_DOCS: usize = 16 * 1024;
+const FIXTURE_BATCH_BYTES: usize = 64 << 20;
+
+/// Prepare a batch of lines on `ctxs` worker threads and push the results in
+/// fixture order, so blocks and clocks match a serial feeder.
+fn push_batch(
+    state: &mut TxnState,
+    batch: &mut Vec<(usize, String)>,
+    ctxs: &mut [PrepareCtx],
+    validate: bool,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [shuffle::log::Writer],
+    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+    last_lsns: &mut [shuffle::log::Lsn],
+) -> anyhow::Result<()> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+    let base = state.doc_seconds;
+    let workers = ctxs.len().min(batch.len()).max(1);
+    let chunk = batch.len().div_ceil(workers);
+
+    let results: Vec<anyhow::Result<Vec<Vec<PreparedDoc>>>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = batch
+            .chunks(chunk)
+            .zip(ctxs.iter_mut())
+            .enumerate()
+            .map(|(w, (lines, ctx))| {
+                let offset = w * chunk;
+                scope.spawn(move || {
+                    lines
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (lineno, line))| {
+                            let (collection, doc) = split_line(line, *lineno)?;
+                            prepare_doc(
+                                ctx,
+                                &collection,
+                                doc.get(),
+                                uuid::Clock::from_unix(base + (offset + i) as u64, 0),
+                                validate,
+                                bindings,
+                                sources,
+                                collection_bindings,
+                                shards,
+                            )
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("fixture prepare worker panicked"))
+            .collect()
+    });
+
+    for per_worker in results {
+        for prepared in per_worker? {
+            state.doc_seconds += 1;
+            state.docs += 1;
+            push_prepared(state, prepared, writers, sealed, journal_offsets, last_lsns)?;
+        }
+    }
+    batch.clear();
+    Ok(())
+}
+
+/// Cores less two for the shard actors, at most sixteen.
+fn fixture_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .saturating_sub(2)
+        .clamp(1, 16)
 }
 
 /// Close a transaction: append each shard's remaining documents and return the
@@ -958,16 +1179,16 @@ fn finish_txn(
 /// frontier: a `begin -> push_doc* -> finish_txn` sequence over its documents.
 fn write_transaction(
     transaction: &Transaction,
+    ctx: &mut PrepareCtx,
+    validate: bool,
     bindings: &[shuffle::Binding],
     sources: &[shuffle::Source],
-    validators: &mut [doc::Validator],
     collection_bindings: &HashMap<String, Vec<usize>>,
     shards: &[shuffle::proto::Shard],
     writers: &mut [shuffle::log::Writer],
     sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
     txn_ordinal: &mut u64,
     journal_offsets: &mut HashMap<(String, u16), i64>,
-    packed_key: &mut bytes::BytesMut,
     last_lsns: &mut [shuffle::log::Lsn],
 ) -> anyhow::Result<shuffle::Frontier> {
     let mut state = TxnState::new(writers.len(), *txn_ordinal);
@@ -978,15 +1199,15 @@ fn write_transaction(
             &mut state,
             collection,
             doc,
+            ctx,
+            validate,
             bindings,
             sources,
-            validators,
             collection_bindings,
             shards,
             writers,
             sealed,
             journal_offsets,
-            packed_key,
             last_lsns,
         )?;
     }
@@ -1055,7 +1276,13 @@ fn parse_content(content: &str) -> anyhow::Result<Vec<Transaction>> {
 /// One parsed fixture line: a transaction boundary or a sourced document.
 enum Line {
     Commit,
-    Doc(String, serde_json::Value),
+    Doc(String, String),
+}
+
+/// Split a document line into its collection and the document's JSON text.
+fn split_line(line: &str, lineno: usize) -> anyhow::Result<(String, &serde_json::value::RawValue)> {
+    serde_json::from_str(line.trim())
+        .with_context(|| format!("fixture line {lineno} is not [collection, document]: {line}"))
 }
 
 /// Parse a single fixture line (`None` for blank lines); `lineno` is 1-based.
@@ -1067,13 +1294,16 @@ fn parse_line(line: &str, lineno: usize) -> anyhow::Result<Option<Line>> {
     if is_commit_line(line) {
         return Ok(Some(Line::Commit));
     }
-    let (collection, doc): (String, serde_json::Value) = serde_json::from_str(line)
+    let (collection, doc): (String, &serde_json::value::RawValue) = serde_json::from_str(line)
         .with_context(|| format!("fixture line {lineno} is not [collection, document]: {line}"))?;
-    Ok(Some(Line::Doc(collection, doc)))
+    Ok(Some(Line::Doc(collection, doc.get().to_owned())))
 }
 
 /// True if `line` is a `{"commit": true}` transaction boundary marker.
 fn is_commit_line(line: &str) -> bool {
+    if !line.starts_with('{') {
+        return false;
+    }
     serde_json::from_str::<serde_json::Value>(line)
         .ok()
         .as_ref()
@@ -1207,7 +1437,10 @@ mod test {
         assert_eq!(txns[0][0].0, "a/coll");
         assert_eq!(txns[1].len(), 1);
         assert_eq!(txns[2].len(), 1);
-        assert_eq!(txns[2][0].1, serde_json::json!({"k": 4}));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&txns[2][0].1).unwrap(),
+            serde_json::json!({"k": 4})
+        );
     }
 
     /// A Task with no bindings: fixture documents are skipped (no collection is
@@ -1243,6 +1476,7 @@ mod test {
             Some(path),
             tmp.path(),
             1,
+            true,
             StreamLimits::default(),
             frontier_tx,
             eof_stop.clone(),
@@ -1344,6 +1578,7 @@ mod test {
             Some(path.clone()),
             tmp.path(),
             1,
+            true,
             StreamLimits::default(),
             frontier_tx,
             eof_stop.clone(),
@@ -1505,6 +1740,7 @@ mod test {
             Some(path.clone()),
             tmp.path(),
             1,
+            true,
             limits,
             frontier_tx,
             eof_stop,
@@ -1603,6 +1839,7 @@ mod test {
             Some(path.clone()),
             tmp.path(),
             1,
+            true,
             StreamLimits::default(),
             frontier_tx,
             eof_stop,

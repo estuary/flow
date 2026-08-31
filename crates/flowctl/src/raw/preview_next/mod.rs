@@ -80,6 +80,10 @@ pub struct Preview {
     /// session which stops gracefully at stream EOF.
     #[clap(long)]
     fixture: Option<String>,
+    /// Validate fixture documents against their collection schema. Disable for
+    /// documents known to be valid, such as generated benchmark fixtures.
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set)]
+    fixture_validate: bool,
     /// Artificial delay between transactions, simulating back-pressure and
     /// encouraging reductions. The delay raises the task's minimum transaction
     /// duration, so each transaction batches at least `delay` of live input.
@@ -145,6 +149,7 @@ impl Preview {
             timeout,
             sessions,
             fixture,
+            fixture_validate,
             delay,
             network,
             initial_state,
@@ -271,6 +276,7 @@ impl Preview {
                             task: Some(shuffle::proto::task::Task::Materialization(spec.clone())),
                         },
                         fixture,
+                        *fixture_validate,
                         delay,
                         session_targets,
                         &stop_token,
@@ -316,6 +322,7 @@ impl Preview {
                             task: Some(shuffle::proto::task::Task::Derivation(spec.clone())),
                         },
                         fixture,
+                        *fixture_validate,
                         delay,
                         session_targets,
                         &stop_token,
@@ -375,6 +382,7 @@ fn prepare_sessions<S>(
     shard_template: impl FnOnce(&mut S) -> Option<&mut proto_gazette::consumer::ShardSpec>,
     build_task: impl FnOnce(&S) -> shuffle::proto::Task,
     fixture: Option<&str>,
+    fixture_validate: bool,
     delay: Option<std::time::Duration>,
     session_targets: Vec<u32>,
     stop_token: &tokio_util::sync::CancellationToken,
@@ -413,6 +421,7 @@ fn prepare_sessions<S>(
             source,
             std::path::Path::new(&run.shuffle_log_dir),
             run.n_shards,
+            fixture_validate,
             fixture::StreamLimits::default(),
             frontier_tx,
             session_stop.clone(),
@@ -429,7 +438,7 @@ fn prepare_sessions<S>(
         ));
     }
 
-    let (targets, dirs, plan) = start_fixtures(run, task, path, session_targets)?;
+    let (targets, dirs, plan) = start_fixtures(run, task, path, fixture_validate, session_targets)?;
     Ok((
         targets,
         dirs,
@@ -626,6 +635,7 @@ fn start_fixtures(
     run: &services::Run,
     task: shuffle::proto::Task,
     fixture_path: &str,
+    fixture_validate: bool,
     requested_targets: Vec<u32>,
 ) -> anyhow::Result<(Vec<u32>, Vec<String>, fixture::FixturePlan)> {
     let mut plan = fixture::build(
@@ -634,6 +644,7 @@ fn start_fixtures(
         std::path::Path::new(&run.shuffle_log_dir),
         &requested_targets,
         run.n_shards,
+        fixture_validate,
     )?;
     let session_targets = plan.session_targets.clone();
     let session_dirs = plan.session_dirs.clone();
