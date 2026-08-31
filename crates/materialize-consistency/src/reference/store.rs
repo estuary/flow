@@ -160,12 +160,21 @@ impl Store {
     /// real and is why the join scenarios assert only on the destination, never
     /// on which checkpoint the connector chose.
     ///
-    /// Run for *every* class, deliberately, though only `remoteAuthoritative` and
-    /// `documentCounter` consult the nonce it returns. Two classes not reading a fence is a
-    /// property of those classes, not a reason for the destination to behave differently under
-    /// them: keeping one `Open` path means a scenario cannot pass because its class happened to
-    /// skip the bookkeeping, and the checkpoint inheritance above is wanted by all four. Do not
-    /// "optimise" this into a per-class branch.
+    /// Run for *every* class, deliberately, though only one class truly fences. Precisely:
+    /// `remoteAuthoritative` passes the nonce and has it checked; `atLeastOnce` passes one with
+    /// checking hardwired off, which is part of what makes it at-least-once; `documentCounter`
+    /// passes none at all, since its `append_counted` path takes no nonce; and
+    /// `postCommitApply` never commits through this path. Only `remoteAuthoritative` reads or
+    /// writes the fence checkpoint.
+    ///
+    /// An earlier version of this comment said `documentCounter` consulted the nonce. It does
+    /// not, and someone auditing fence coverage for that class would have been misled.
+    ///
+    /// It still runs for all four, because a class not reading a fence is a property of that
+    /// class, not a reason for the destination to behave differently under it: one `Open` path
+    /// means a scenario cannot pass merely because its class skipped the bookkeeping, and the
+    /// checkpoint inheritance above is wanted by every class that resumes. Do not "optimise"
+    /// this into a per-class branch.
     pub fn fence(&self, key_begin: u32, key_end: u32) -> anyhow::Result<(i64, Option<Vec<u8>>)> {
         let txn = self.write_txn()?;
 
@@ -186,8 +195,8 @@ impl Store {
         // range key was last used by the *pre-split parent*, whose row is still here
         // with a checkpoint from before the split. Adopting it hands the runtime a
         // close-clock from a superseded history, which recovery rejects outright —
-        // `connector_checkpoint has clock ... which doesn't match Recover's
-        // committed_close or hinted_close` — and the shard then crash-loops rather
+        // `connector_checkpoint has clock ... which doesn't match committed_close (...) or
+        // hinted_close (...)` — and the shard then crash-loops rather
         // than resuming. Falling back to the recovery log is the correct resume point,
         // because two ranges collapsing into one leaves no single range that contained
         // the result.
@@ -277,10 +286,13 @@ impl Store {
         Ok(())
     }
 
-    pub fn drop_table(&self, name: &str) -> anyhow::Result<()> {
+    /// Takes a `Table` rather than a name so it quotes through `ident` like every other
+    /// statement here. Interpolating the raw name worked for the names this suite generates and
+    /// contradicted the one-spelling rule two screens up, which is how the next odd name gets in.
+    pub fn drop_table(&self, table: &Table) -> anyhow::Result<()> {
         self.conn
-            .execute_batch(&format!("DROP TABLE IF EXISTS \"{name}\""))
-            .with_context(|| format!("dropping table {name}"))?;
+            .execute_batch(&format!("DROP TABLE IF EXISTS {}", table.ident()))
+            .with_context(|| format!("dropping table {}", table.name))?;
         Ok(())
     }
     /// Read a key's current document, from applied state only.
@@ -728,7 +740,7 @@ mod test {
     /// competing, so what matters is that whoever holds the checkpoint can finish its
     /// work — more than once, and from a shard that did not stage it — without inventing
     /// or losing anything. The last statement retires the batch, which is what makes the
-    /// repeat a no-op.
+    /// repeat a no-op — and what the `non-idempotent-acknowledge` defect breaks by not retiring.
     #[test]
     fn applying_staged_work_repeatedly_changes_nothing() {
         let dir = tempfile::tempdir().unwrap();
@@ -833,41 +845,6 @@ mod test {
         );
     }
 
-    /// Re-running one entry is a no-op, because its own last statement retired the batch.
-    /// This is what makes `Acknowledge` idempotent, and what the
-    /// `non-idempotent-acknowledge` defect breaks by not retiring.
-    #[test]
-    fn applying_the_same_batch_twice_appends_once() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
-
-        let table = Table {
-            name: "events".to_string(),
-            delta: true,
-        };
-        store.ensure_table(&table).unwrap();
-
-        store
-            .stage(
-                "batch-1",
-                &[(
-                    table.clone(),
-                    Row {
-                        key: "[1,7]".to_string(),
-                        doc: r#"{"id":1,"seq":7}"#.to_string(),
-                        delete: false,
-                    },
-                )],
-            )
-            .unwrap();
-
-        let statements = Store::apply_statements("batch-1", &table, true);
-        store.execute(&statements).unwrap();
-        store.execute(&statements).unwrap();
-
-        assert_eq!(store.read_all(&table).unwrap().len(), 1);
-    }
-
     /// A `Load` reads applied state, and nothing else.
     ///
     /// The protocol's contract is that a connector *waits* for the previous transaction to
@@ -913,8 +890,8 @@ mod test {
     /// A join's survivor must adopt no checkpoint, even though a row for its exact range
     /// exists — that row belongs to the pre-split parent and its close-clock comes from a
     /// history the split superseded. The runtime rejects such a checkpoint outright
-    /// (`connector_checkpoint has clock ... which doesn't match Recover's committed_close
-    /// or hinted_close`) and the shard then crash-loops rather than resuming.
+    /// (`connector_checkpoint has clock ... which doesn't match committed_close (...) or
+    /// hinted_close (...)`) and the shard then crash-loops rather than resuming.
     #[test]
     fn a_join_survivor_adopts_no_checkpoint() {
         let dir = tempfile::tempdir().unwrap();

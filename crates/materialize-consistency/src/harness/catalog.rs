@@ -359,12 +359,9 @@ fn capture(plan: &Plan<'_>, target: &str, disable: bool) -> anyhow::Result<model
 /// The scenario's catalog with the materialization *disabled*, and the captures left
 /// running.
 ///
-/// This is the escalation behind `harness::restart_task`. A crash in either shard of a
-/// split V2 task fails the whole task — the surviving shard reports `expected leader
-/// message ... unexpected EOF` whichever one died — and repeatedly unassigning the
-/// failed shards does not reliably bring it back. Disabling the materialization tears
-/// its shards down; republishing the enabled catalog builds them again from the
-/// recovery log, which is a restart rather than a reschedule.
+/// Half of the escalation in `harness::restart_task`, which publishes this and then the enabled
+/// catalog again; that function carries the reasoning for why a restart is sometimes needed where
+/// unassigning is not enough.
 pub fn sink_disabled(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
     let mut catalog = build(plan)?;
 
@@ -387,10 +384,13 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
 
     // Forwarded rather than set, so it is off unless a person asks for it.
     //
-    // The reduction trace records every `Load` and `Store` of a merged key, plus each
-    // recovery decision, which is the only way to see *why* a reduced value came out
-    // wrong: the delivered rows say what the connector was told, never what it read
-    // before reducing onto it. Too voluminous to leave on, too useful to reinvent.
+    // The reduction trace records every `Load` and `Store` of a merged key, plus each staged
+    // batch an `Acknowledge` applies — which is the only way to see *why* a reduced value came
+    // out wrong: the delivered rows say what the connector was told, never what it read before
+    // reducing onto it. Too voluminous to leave on, too useful to reinvent.
+    //
+    // Not recovery decisions, despite an earlier version of this comment: the counted channel's
+    // skip, decided in `open_counters`, is traced nowhere.
     if std::env::var_os(ENV_TRACE_REDUCE).is_some() {
         env.insert(ENV_TRACE_REDUCE.to_string(), "1".to_string());
     }

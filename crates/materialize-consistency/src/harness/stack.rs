@@ -1,13 +1,17 @@
-//! Everything the harness needs from the local stack, all of it through
-//! `flowctl`.
+//! Everything the harness needs from the local stack, through other people's binaries rather
+//! than linked clients.
 //!
-//! Driving the stack through the CLI rather than linking the control-plane and
-//! data-plane clients is deliberate: publishing, deleting, listing shards,
-//! reading a collection and splitting a task are all already single `flowctl`
-//! subcommands whose output is JSON, and the auth plumbing behind them — user
-//! tokens exchanged for data-plane authorizations — lives inside `flowctl` and is
-//! not exported. Re-deriving it here would be a second copy of something with no
-//! test of its own.
+//! `flowctl` for most of it: publishing, deleting, listing shards, reading a collection and
+//! splitting a task are all already single subcommands whose output is JSON, and the auth
+//! plumbing behind them — user tokens exchanged for data-plane authorizations — lives inside
+//! `flowctl` and is not exported. Re-deriving it here would be a second copy of something with
+//! no test of its own.
+//!
+//! Two things are not `flowctl`, and the module used to claim otherwise. Unassigning a shard and
+//! joining a task's shards go through `gazctl`, via the scripts under `scripts/`, because neither
+//! is a `flowctl` subcommand. And reading a destination back goes through the connector's own
+//! code — its `read` subcommand for the reference connector, `testctl` for a real subject — see
+//! [`ReadVia`].
 
 use crate::invariants::Event;
 use anyhow::Context;
@@ -23,23 +27,6 @@ pub struct Stack {
     auth_token: String,
     ca_cert: String,
 }
-
-/// Marker in the error chain of a publication that would not land.
-///
-/// Present so that a caller can distinguish a stack that refused to publish from a task
-/// that published fine and then failed. The defective half of a scenario treats a failed
-/// *run* as the defect being caught; a failed *publish* is the environment, and counting
-/// it as a catch would let a flaky control plane silently vacate a defect pairing.
-#[derive(Debug)]
-pub struct PublishFailed;
-
-impl std::fmt::Display for PublishFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the stack would not publish the catalog")
-    }
-}
-
-impl std::error::Error for PublishFailed {}
 
 /// Run a command to completion under a deadline, returning its stdout.
 ///
@@ -238,7 +225,7 @@ impl Stack {
         }
 
         Err(last.expect("at least one attempt was made"))
-            .context(PublishFailed)
+            .context(super::Environment::PublishFailed)
             .context("publishing the scenario's catalog")
     }
 
@@ -282,11 +269,9 @@ impl Stack {
     /// A single listing with no waiting, used only as `drain`'s health signal — to tell
     /// a task that has genuinely gone quiet from one that has fallen over.
     ///
-    /// Nothing *waits* on shard status any more. A blocking version existed and was
-    /// removed: it failed both after a perturbation, by catching the crash the scenario
-    /// had just injected, and before one, because a task starts processing the moment it
-    /// is activated and could crash while the harness was still checking a sibling.
-    /// Progress — `await_commits` over the shim's trace — is the gate instead.
+    /// A single listing is all this is: nothing in the suite *waits* on shard status, and the
+    /// reasoning for that — why a blocking version was unsafe in either position — is stated once
+    /// at the top of `harness::execute`.
     pub async fn all_primary(&self, task: &str) -> anyhow::Result<bool> {
         use proto_gazette::consumer::replica_status::Code;
 
@@ -296,6 +281,36 @@ impl Stack {
             && shards
                 .iter()
                 .all(|s| s.status.iter().any(|s| s.code() == Code::Primary)))
+    }
+
+    /// Whether `task` has stopped writing: every shard disabled in the data plane, and none
+    /// of them still primary.
+    ///
+    /// This is how the suite knows a disabled task has actually stopped, rather than been
+    /// *asked* to. Publishing with `shards.disable` returns once the spec is stored, and
+    /// activation carries it to the data plane afterwards, so between the two the task is
+    /// still running and its collection still growing.
+    ///
+    /// Both halves are needed. The spec is what makes it authoritative — it says the runtime
+    /// has been told — and it is checked rather than the shard's *absence*, because a
+    /// disabled shard is not deleted: its spec stays listed with `disable: true`, so waiting
+    /// for an empty listing waits forever. And the disabled spec alone is not enough, because
+    /// the allocator drops the assignment afterwards and the primary finishes the transaction
+    /// it is in; only when no shard reports primary is the last append behind us.
+    pub async fn is_stopped(&self, task: &str) -> anyhow::Result<bool> {
+        use proto_gazette::consumer::replica_status::Code;
+
+        let shards = self.shards(task).await?;
+
+        // `!is_empty` for the same reason `all_primary` has it: `all` over nothing is true, so an
+        // anomalous empty listing would read as "stopped" and send the run off to read an
+        // expectation from a collection still growing. A disabled task keeps its shard specs, so
+        // an empty listing here is not the expected steady state — it is a listing to disbelieve.
+        Ok(!shards.is_empty()
+            && shards.iter().all(|shard| {
+                shard.spec.as_ref().is_some_and(|spec| spec.disable)
+                    && !shard.status.iter().any(|s| s.code() == Code::Primary)
+            }))
     }
 
     /// Read every committed document of a collection.
@@ -354,6 +369,11 @@ impl Stack {
         collection: &str,
         timeout: std::time::Duration,
     ) -> anyhow::Result<Vec<Event>> {
+        // A plateau confirms rather than decides: the caller waits for the capture's shards to
+        // be gone first, after which nothing can append to this collection. What is left for
+        // this loop is the read itself being consistent — a `collections read` that returns
+        // mid-append, or against a broker still catching up.
+        //
         // Bounded by attempts as well as by the clock, because the two limits fail for
         // different reasons and only one of them means the capture is still writing.
         //
@@ -435,11 +455,10 @@ impl Stack {
 
     /// Run the suite's shard tooling, which drives `gazctl` rather than `flowctl`.
     ///
-    /// Unassigning a shard and joining a task's shards are local test affordances, not
-    /// things an operator or connector author needs from the CLI, so they are scripts in
-    /// this crate instead of `flowctl` subcommands. `gazctl` already implements both; the
-    /// only missing piece was pointing it at a Flow data plane, which
-    /// `flowctl raw gazctl-env` supplies.
+    /// `gazctl` already implements both operations; the only missing piece was pointing it at a
+    /// Flow data plane, which `flowctl raw gazctl-env` supplies. Why they are scripts rather than
+    /// new `flowctl` subcommands is a design decision, recorded under that heading in
+    /// `docs/materialize/consistency-testing.md`.
     async fn shard_tool(&self, args: &[&str]) -> anyhow::Result<String> {
         // Resolved from the crate's own source directory, not from the target directory:
         // a build may put artefacts far outside the checkout, but the scripts ship beside

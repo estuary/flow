@@ -344,7 +344,13 @@ batch, keyed by binding — not a pointer to work the destination is asked to re
 because leftover staging cannot say whether its transaction committed or was abandoned. Only
 the **primary** shard runs them, learning of its peers' staged work from the aggregated state
 patches the runtime delivers with `Acknowledge`, so two shards never contend for one
-binding's table; `Apply` deliberately drains nothing — not because it cannot, since
+binding's table. That describes steady state only: a replay session sends no `Acknowledge` for
+the transaction it is recovering, so committed-but-unapplied work reaches the connector in
+`Open.state_json` rather than as a re-delivered patch — which is the path
+`split-after-commit-before-apply` exercises. The reference connector reads both; only this
+sentence used to describe one.
+
+`Apply` is the third detail: `Apply` deliberately drains nothing — not because it cannot, since
 `Apply.state_json` exists and runtime-next populates it, but because draining there would add a
 second reconciliation path exercised only by some runtimes, where `Acknowledge` is the path
 every transaction already takes. And the load is deferred until `Flush`,
@@ -371,8 +377,9 @@ destination *behind* the checkpoint is impossible and is refused rather than gue
 
 It also has to be **delta-updates only**. An offset counts rows the destination accepted,
 which says nothing about an upsert; Snowpipe v2 supports only delta bindings, so the
-reference class refuses a merge binding rather than emulating something no such connector
-does. Scenarios therefore choose their binding set, and a subject without a standard
+reference class is never *given* a merge binding rather than emulating something no such
+connector does — the scenario decides the binding set, and nothing in the connector refuses
+one. Scenarios therefore choose their binding set, and a subject without a standard
 binding is still held to per-document cardinality, running-sum-against-oracle and
 monotonicity — the sharpest checks here.
 
@@ -398,6 +405,21 @@ departing channel's counter, skips too few, and duplicates.
 It does **not** reach a class that only stages during `Store`. Nothing of a prepared
 transaction is in the destination when the split lands, so the children have nothing to
 append twice; they inherit the staged work and a merge that runs again is a no-op.
+
+**The failure is intermittent, and the reason is worth knowing before reading a result.** The
+hazard needs the runtime to hand the range over *mid*-transaction, and it usually does not — it
+finishes the transaction it is in and hands over at a quiet point, which is a committed
+transaction and no hazard. So the run either lands in the window or does not, and when it lands
+it lands narrowly: a caught run delivered 2072 log rows against 2070 documents — two rows twice,
+both of them documents the expectation holds.
+
+Forcing the overlap does not work, and two attempts to do so are recorded in the scenario because
+both made it *pass*: issuing the split only once the stall had begun, and lengthening the stall.
+Given a shard that will hold still, the runtime takes the quiet point. Asking it to hand over at a
+moment of the harness's choosing is asking for the guarantee under test, so the overlap is left
+unsynchronized on purpose. Read a passing run as evidence about that run and nothing more —
+`split-during-commit` reaches the same destination state deterministically by crashing instead, so
+coverage does not rest on this race.
 
 `split-lands-on-prepared-transaction` carries this as a `blocked_on_runtime` gap scoped to
 `DocumentCounter`, and runs for every exactly-once class. For the counted channel it is the
@@ -463,6 +485,62 @@ source shard's primary off its recovery log and then unassigns it.
 pubsub, kafka, pinecone, sheets, and the csv/parquet file materializations — have
 no destination-reading method and are out of scope until they migrate. Most are
 at-least-once by design and would be exempt regardless.
+
+**Deletions, entirely.** The workload only ever inserts and updates: `source-soak` emits no
+tombstones, so nothing in the suite exercises a delete. Every question about them is therefore
+open — whether a replayed delete is idempotent, whether a document deleted before a crash stays
+deleted after one, whether a delete and a later insert of the same key survive reordering. This is
+the largest single gap by surface area, and closing it needs a workload change rather than a
+scenario.
+
+**A wedged split is ambiguous, by construction.** For `split-during-commit` and
+`split-after-commit-before-apply`, mutually-fencing children *are* the paired defect's signature —
+and for `crash-in-split-leader` and `crash-in-split-non-leader`, whose defects duplicate rather
+than wedge, the same wedge would be environmental. Both reach the post-split recovery gate before
+their fault fires, so neither reading can be chosen positionally, and the gate is left unmarked:
+an environmental wedge in one of the latter two scores as a defect caught. Distinguishing them
+needs evidence the split actually landed — the trace carries it, in the narrowed ranges of the
+children's `Opened` events — which is a check worth writing when something makes it matter.
+
+**Protocol surfaces no scenario perturbs.** Each is reachable in principle and none is
+covered, so they are listed rather than left to be rediscovered:
+
+- **A crash during `Apply`.** Every scenario's fault lands in the transaction loop, so a
+  connector interrupted midway through creating or altering its tables is never tested — and
+  `Apply` is where a connector is least likely to be idempotent, since it is written as though it
+  runs once.
+- **A backfill counter bump, and a binding disabled and re-enabled.** Both change what a
+  binding means between sessions while its resource stays put, and both are ordinary user
+  actions. Neither appears in any scenario's catalog.
+- **A second crash during a replay.** Every crash scenario fires once, so recovery itself is
+  never interrupted. The fired-marker that makes a fault one-shot is what stands in the way; a
+  rule would need to distinguish "the nth occurrence in this process" from "in this run".
+
+**Mid-history loss on the merged path, which the arithmetic cannot name as loss.** The merged
+bindings detect divergence arithmetically — a reduced balance against the oracle that names it, and
+a delta history that must accumulate to the same figure — and arithmetic over a signed quantity
+cannot say which way it went. It is tempting to read a total below the collection's as loss and one
+above it as duplication, which would take merged-path loss out from behind the exemptions that
+license duplication, and it does not hold: `balanceDelta` is mixed-sign within an account, so
+omitting a subset moves the total by whichever sign that subset carries. One measured account
+showed both directions at once — rows missing, total *below* the collection's at the account level
+and *above* the oracle at an intermediate sequence.
+
+Two consequences. A shortfall confined to a merged binding is reported, but as an oracle
+disagreement, so a scenario exempting that invariant for duplication also absorbs it. And losing
+two documents of one account whose deltas cancel
+is invisible there at all.
+
+What *is* sound on these bindings is sequence coverage, because a sequence only advances: both
+merged checkers hold an account's delivered rows to reaching the collection's latest sequence, and
+file a shortfall as loss. That catches a missing tail and not a missing middle. The log binding holds a row per document and settles it exactly, which is why
+every scenario has one and why a subject without delta-updates support is refused outright. What
+remains uncovered is a connector that loses on the *merged* path only, with a cancelling
+coincidence. Two fixes were considered and both cost more than the hole: a summed `docs: 1` on
+every event makes the count exact but changes the soak fixture this suite deliberately reuses
+unmodified, and reducing `set` with the `set` strategy to check it against `oracle.set` compares
+an order-dependent value, which around a membership change would need a reordering exemption as
+broad as the one monotonicity already carries — trading an exact check for a suppressed one.
 
 ## Rules for future scenario authors
 

@@ -48,6 +48,7 @@ test-threads = 4
 [[profile.consistency.overrides]]
 filter = '''
     test(split_during_store) + test(split_during_commit) + test(join_after_split)
+    + test(split_after_commit_before_apply)
     + test(split_lands_on_prepared_transaction)
     + test(crash_in_split_leader) + test(crash_in_split_non_leader)
 '''

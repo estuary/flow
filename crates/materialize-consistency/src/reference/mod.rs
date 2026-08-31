@@ -367,7 +367,12 @@ fn spec() -> materialize::Response {
         "required": ["table"],
         "properties": {
             "table": {"type": "string", "title": "Destination table", "x-collection-name": true},
-            "delta": {"type": "boolean", "title": "Delta updates", "default": false},
+            // `x-delta-updates` for the same reason `table` carries `x-collection-name`: the
+            // suite's discovery reads both annotations to learn how a subject spells its
+            // resource config. Discovery runs only for an *external* subject, so this one was
+            // absent and harmless — and the reference connector would have been refused by the
+            // suite's own discovery path, which is not a state to leave sitting there.
+            "delta": {"type": "boolean", "title": "Delta updates", "default": false, "x-delta-updates": true},
         },
     });
 
@@ -445,16 +450,27 @@ fn validate_bindings(
 
 /// `Apply` performs the destination's DDL, and nothing else.
 ///
-/// This connector drains nothing here, and the reason is a choice rather than an impossibility:
-/// `Apply.state_json` exists (`materialize.proto`) and runtime-next populates it, though the
-/// classic runtime sends `{}`. Draining at `Apply` would mean a second path to reconcile staged
-/// work, exercised only by whichever runtime fills the field — where `Acknowledge` is the path
-/// every transaction already takes. `materialize-databricks` does the same. So: it could know
-/// which staged work committed, and deliberately does not ask —
-/// and the destination cannot tell it: a transaction that died mid-commit leaves the
-/// same trace as one that committed and was not yet applied. Draining on that basis
-/// applied abandoned work, and because splitting a task republishes its spec, that
-/// landed on exactly the recovery `split-during-commit` exercises.
+/// This connector drains nothing here, and that is a **declared divergence** from the fleet,
+/// not the fleet's behaviour.
+///
+/// `materialize-databricks` does drain at `Apply`: it runs through `boilerplate.RunApply`, whose
+/// `drainPendingState` invokes the connector's own `Acknowledge` restricted to the affected state
+/// keys, whenever a binding's resource is altered in place and `Apply.state_json` is non-empty —
+/// which is exactly the use `materialize.proto` documents for that field. The drain is
+/// conditional: destructive backfills deliberately skip it.
+///
+/// So the divergence is narrow but real, and it is here rather than in the model because of what
+/// the destination cannot say. A transaction that died mid-commit leaves the same trace as one
+/// that committed and was not yet applied, and an earlier version of this connector drained on
+/// that basis and applied abandoned work — landing on exactly the recovery
+/// `split-during-commit` exercises. Reaching the same safety through `state_json` would mean a
+/// second reconciliation path, exercised only when a runtime fills the field, where
+/// `Acknowledge` is the path every transaction already takes.
+///
+/// The consequence worth knowing: **no scenario exercises a crash during `Apply`**, and a real
+/// connector's `Apply`-drain does run during perturbed scenarios, because `recover` escalates to
+/// republishing the task. That path is therefore unfaulted and unverified. See the design
+/// document's "Deferred".
 ///
 /// Staged work is finished by whoever holds the checkpoint that describes it, in
 /// `Acknowledge`. `Apply` may be called more than once for a version, so the DDL here
@@ -480,13 +496,17 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
         store.ensure_table(binding)?;
     }
 
-    // A binding that has gone away takes its table with it. Note `Apply` drains nothing —
-    // by choice, not because it cannot: see `apply_spec`. So this drops the table without any
-    // claim that staged work for it has landed. Dropping is what the runtime asked for;
-    // reconciling staged work is `Acknowledge`'s job.
+    // A binding that has gone away takes its table with it — and nothing asked for that.
+    // `RunApply` never deletes a removed binding's resource, and the connectors repository calls
+    // doing so indefensible, because destroying a user's data as a side effect of a catalog edit
+    // is not a connector's decision to make. This is a *harness* convenience: the suite creates
+    // per-run tables and wants them gone, and its destination belongs to nobody else.
+    //
+    // A real connector must not copy it, which is why the tables a real subject creates are
+    // dropped by the harness at the end of a run rather than by the connector under test.
     for table in last {
         if !tables.iter().any(|b| b.name == table.name) {
-            store.drop_table(&table.name)?;
+            store.drop_table(&table)?;
             actions.push(format!("dropped {}", table.name));
         }
     }
@@ -704,10 +724,6 @@ fn decode_checkpoint(
     Ok(Some(checkpoint))
 }
 
-/// Record an application: whose entry, which binding, and the batches it consumes.
-///
-/// The owner range matters and the session's own range does not: the question a failing
-/// merged value raises is *whose* staged absolute was written, and when.
 /// Append one line to `reduce.jsonl`, if the trace is enabled.
 ///
 /// Both tracers gate on the same variable, resolve the same directory and open the same file in
@@ -731,6 +747,10 @@ fn trace_line(value: serde_json::Value) {
     }
 }
 
+/// Record an application: whose entry, which binding, and the batches it consumes.
+///
+/// The *owner* range is what matters, not the session's own: the question a wrong merged value
+/// raises is whose staged work was applied, and when.
 fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
     trace_line(serde_json::json!({
         "event": "apply-pending",
@@ -775,10 +795,17 @@ fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i
 /// `materialize-postgres` queues them into a temp table — and only after the loop, once
 /// `Flush` has arrived, do they join against the target table.
 ///
-/// It is not the only legal shape. `materialize-clickhouse`, `-elasticsearch`, `-bigtable`
-/// and `-google-sheets` instead call `it.WaitForAcknowledged()` once before the loop and then
-/// read per key, which is equally correct because the wait still precedes any read. What matters is
-/// the ordering, not the batching.
+/// It is not the only legal shape. `materialize-elasticsearch`, `-bigtable` and
+/// `-google-sheets` instead call `it.WaitForAcknowledged()` once before the loop and then read
+/// per key, which is equally correct *for them* because the wait still precedes any read and
+/// none of them coordinates across shards. It does not generalise: `WaitForAcknowledged` waits
+/// for this shard's own acknowledgement, not for its peers', so a coordinating connector that
+/// took the pattern at face value would read a destination its primary has not yet applied to —
+/// which is the defect `split-during-commit` exists to catch.
+/// `materialize-clickhouse` looks like that from the outside but belongs with the stagers: it
+/// waits up front because `Acknowledge` is what creates its load tables, then stages keys into
+/// them inside the loop and joins afterwards. What matters throughout is the ordering, not the
+/// batching.
 ///
 /// That is not merely a batching convenience: `Flush` is the runtime's signal that the
 /// previous transaction was acknowledged **by every shard**. A connector where one shard

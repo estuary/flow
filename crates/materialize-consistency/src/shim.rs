@@ -397,7 +397,20 @@ impl Zombie {
         let _ = self.instance.stdin.flush().await;
     }
 
-    fn freeze(&mut self) {
+    /// Suspend the zombie, so everything after this point is queued for replay.
+    ///
+    /// A dead zombie here means the scenario raced nothing, so it is recorded. It cannot happen
+    /// while the freeze is at `Open` — see [`Action::Zombie`] for why the freeze has to be there
+    /// — and this is the check that says so if a future rule moves it.
+    fn freeze(&mut self, trace: &Trace) {
+        if self.instance.child.is_finished() {
+            trace.log(Event::Failed {
+                error: "the zombie exited before it was frozen, so nothing raced the live \
+                        instance: this scenario verified only that a stale writer dies on its \
+                        own"
+                .to_string(),
+            });
+        }
         self.frozen = true;
         self.instance.signal(libc::SIGSTOP);
     }
@@ -617,7 +630,7 @@ where
 
             if fire_faults(&shim, trigger, nth, live_pid).await.is_some() {
                 if let Some(z) = &mut zombie {
-                    z.freeze();
+                    z.freeze(&shim.trace);
                     shim.counters.lock().unwrap().thaw_countdown = Some(z.thaw_after_commits);
                 }
             }

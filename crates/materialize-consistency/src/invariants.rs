@@ -137,18 +137,36 @@ pub enum Invariant {
     NoDuplicates,
     /// A key's sequence only ever advances at the sink.
     Monotonicity,
+    /// A document that arrived carries the values the collection holds for it.
+    ///
+    /// Separate from [`Invariant::OracleAgreement`] because it is a different claim, and because
+    /// filing it there made it exemptable: `at-least-once-never-loses` declares an oracle
+    /// exemption for duplication, and content corruption was silenced by it. No connector has a
+    /// reason to alter a document in transit, whatever else it gets wrong, so nothing should
+    /// exempt this.
+    ///
+    /// **Not byte-for-byte, and the difference is worth knowing.** It compares the fields
+    /// [`Event`] parses — the balance delta and the oracle's sequence and balance — because those
+    /// are the fields every checker here reasons about. The workload's `set` operation, its
+    /// `transfer` correlation object, `ts`, and `oracle.set` are parsed by nothing and so verified
+    /// nowhere: a connector that mangled the set column or truncated a string would pass every
+    /// scenario. Widening this means widening `Event`, and for `oracle.set` it also means
+    /// comparing an order-dependent reduction — see the design doc's Deferred section, where that
+    /// trade is set out.
+    DocumentIntegrity,
     /// The latest delta row per key reconstructs the standard row.
     StandardDeltaAgreement,
 }
 
 impl Invariant {
     /// Every invariant, so anything enumerating them cannot fall behind the enum.
-    pub const ALL: [Invariant; 6] = [
+    pub const ALL: [Invariant; 7] = [
         Invariant::Conservation,
         Invariant::OracleAgreement,
         Invariant::NoLoss,
         Invariant::NoDuplicates,
         Invariant::Monotonicity,
+        Invariant::DocumentIntegrity,
         Invariant::StandardDeltaAgreement,
     ];
 }
@@ -161,6 +179,7 @@ impl std::fmt::Display for Invariant {
             Self::NoLoss => "no-loss",
             Self::NoDuplicates => "no-duplicates",
             Self::Monotonicity => "monotonicity",
+            Self::DocumentIntegrity => "document-integrity",
             Self::StandardDeltaAgreement => "standard-delta-agreement",
         };
         f.write_str(name)
@@ -198,11 +217,15 @@ pub struct Expectation {
     pub accounts: BTreeMap<i64, Account>,
     /// Documents whose `(id, seq)` the read surfaced more than once.
     ///
-    /// Recorded because the expectation folds them to one while a materialization
+    /// Counted because the expectation folds them to one while a materialization
     /// does not: an append binding writes a row per document it is given, and a
     /// merge binding reduces each into the target key. So a non-zero count here
     /// means the two sides are measuring different things, and a comparison
-    /// against a reducing binding is not sound until it is explained.
+    /// against a reducing binding is not sound.
+    ///
+    /// A non-zero count therefore *fails the run* — with an "unsound workload" error rather than a
+    /// violation, since the fault is in what the harness was given to compare and not in the
+    /// subject. See the caller in `harness`.
     pub duplicated_documents: usize,
 }
 
@@ -350,6 +373,12 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
         // and a duplicated credit above it. The counting checks over the
         // append-only bindings settle duplicate-versus-loss unambiguously; this one
         // reports that the arithmetic does not hold.
+        //
+        // And being arithmetic, it has one blind spot: two lost documents of one account whose
+        // deltas cancel leave the sum right. The log binding holds a row per document and settles
+        // that exactly — which is why every run has one — so what escapes here is a connector
+        // losing on the merged path alone, with a cancelling coincidence. See the design doc's
+        // Deferred section for the two fixes weighed and why neither was taken.
         if row.balance_delta != account.total_delta {
             out.push(Violation {
                 invariant: Invariant::OracleAgreement,
@@ -368,11 +397,24 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
                 ),
             });
         }
-        if row.seq != account.max_seq {
+        // Behind the collection is *loss*, and is filed as such. It used to be reported as an
+        // oracle disagreement, which put it behind an exemption `at-least-once-never-loses`
+        // declares — so a connector losing merged-path documents passed a scenario named "never
+        // loses", as long as no account vanished entirely. An invariant should be chosen by what
+        // the violation means, not by which checker happened to notice it.
+        if row.seq < account.max_seq {
+            out.push(Violation {
+                invariant: Invariant::NoLoss,
+                detail: format!(
+                    "account {id}: reduced seq {} is behind the collection's latest {}",
+                    row.seq, account.max_seq
+                ),
+            });
+        } else if row.seq > account.max_seq {
             out.push(Violation {
                 invariant: Invariant::OracleAgreement,
                 detail: format!(
-                    "account {id}: reduced seq {} but the collection's latest is {}",
+                    "account {id}: reduced seq {} is ahead of the collection's latest {}",
                     row.seq, account.max_seq
                 ),
             });
@@ -399,40 +441,48 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
     }
 }
 
-/// The append-only collection materialized as deltas: the sharpest detector in
-/// the suite, because every document has a distinct key and so a duplicate
-/// delivery is an extra row rather than an invisible re-reduction.
-fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
-    let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
+/// A key's delivered sequence must not go backwards, per account, in arrival order.
+///
+/// Shared by both delta checkers, because they must score a regression identically: a run's
+/// suppression counts are read as evidence about which exemptions carry weight, and two scoring
+/// rules make that evidence incomparable. They had drifted apart twice before this existed.
+///
+/// `<` rather than `<=`, because a *repeated* seq is not a regression of order — it is a
+/// duplicate, and `NoDuplicates` owns that. Scoring it here as well reported one fault twice,
+/// under two invariants, one of which is frequently exempt.
+///
+/// And the baseline advances to what was just delivered rather than holding a high-water mark,
+/// so a replay is one violation rather than one per row it replays: after 1..10 then 8, 9, 10,
+/// the 8 is the regression and the 9 and 10 following it are in order.
+fn check_monotonic(rows: &[Event], binding: &str, out: &mut Vec<Violation>) {
     let mut last_seq: BTreeMap<i64, i64> = BTreeMap::new();
 
     for row in rows {
-        *seen.entry((row.id, row.seq)).or_default() += 1;
-
-        // Strictly less-than, and the baseline always advances to what was just delivered.
-        // Both match `check_merged_delta`, and the two must agree because a run's suppression
-        // counts are read as evidence about which exemptions are load-bearing — two checkers
-        // counting the same event differently makes that evidence incomparable.
-        //
-        // `<` rather than `<=` because a *repeated* seq is not a regression of order; it is a
-        // duplicate, which `NoDuplicates` below owns. Counting it here too reported one fault
-        // as two, under two different invariants, one of which is often exempt.
-        //
-        // And tracking the last delivered seq rather than a high-water mark means a replay is
-        // one violation rather than one per row it replays: after 1..10 then 8, 9, 10, the 8 is
-        // the regression and the 9 and 10 that follow it are in order.
         if let Some(previous) = last_seq.get(&row.id) {
             if row.seq < *previous {
                 out.push(Violation {
                     invariant: Invariant::Monotonicity,
                     detail: format!(
-                        "account {}: the log binding delivered seq {} after {previous}",
+                        "account {}: {binding} delivered seq {} after {previous}",
                         row.id, row.seq
                     ),
                 });
             }
         }
         last_seq.insert(row.id, row.seq);
+    }
+}
+
+/// The append-only collection materialized as deltas: the sharpest detector in
+/// the suite, because every document has a distinct key and so a duplicate
+/// delivery is an extra row rather than an invisible re-reduction.
+fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
+    let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
+
+    check_monotonic(rows, "the log binding", out);
+
+    for row in rows {
+        *seen.entry((row.id, row.seq)).or_default() += 1;
 
         // A faithfully transported document is still itself.
         if let Some(document) = expected
@@ -442,7 +492,7 @@ fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
         {
             if document.oracle != row.oracle || document.balance_delta != row.balance_delta {
                 out.push(Violation {
-                    invariant: Invariant::OracleAgreement,
+                    invariant: Invariant::DocumentIntegrity,
                     detail: format!(
                         "account {} seq {}: the log binding holds {:?} but the collection holds {:?}",
                         row.id, row.seq, row, document
@@ -486,7 +536,6 @@ fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
 /// twice leaves the running sum ahead of the oracle from that row onward.
 fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
     let mut running: BTreeMap<i64, i64> = BTreeMap::new();
-    let mut last_seq: BTreeMap<i64, i64> = BTreeMap::new();
     let mut reported: BTreeSet<i64> = BTreeSet::new();
     let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
 
@@ -527,20 +576,7 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
         }
     }
 
-    for row in delivery {
-        if let Some(previous) = last_seq.get(&row.id) {
-            if row.seq < *previous {
-                out.push(Violation {
-                    invariant: Invariant::Monotonicity,
-                    detail: format!(
-                        "account {}: the delta binding delivered seq {} after {previous}",
-                        row.id, row.seq
-                    ),
-                });
-            }
-        }
-        last_seq.insert(row.id, row.seq);
-    }
+    check_monotonic(delivery, "the delta binding", out);
 
     for ((id, seq), n) in &seen {
         if *n > 1 {
@@ -554,12 +590,66 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
         }
     }
 
+    // The highest sequence each account's rows reached, which is a *sound* loss signal where the
+    // sums below are not: a sequence only advances, so a delta binding whose rows stop short of
+    // the collection is missing the tail, whoever else agrees.
+    //
+    // Not redundant with the drain gate, which waits for every account to reach its highest
+    // expected sequence: the gate reads the standard binding when the subject has one, so a delta
+    // binding can be short behind a complete standard one and the run proceeds. It is redundant
+    // for a subject with no standard binding, where the gate reads this binding — a check being
+    // unreachable for some subjects is not a reason to leave it out for the others.
+    //
+    // It leans on one property of the reduction, worth knowing before reading a failure here.
+    // `seq` is last-write-wins, so a row carries the sequence of the *last* document reduced into
+    // it rather than the highest — and this suite has observed delivery order not advancing
+    // monotonically across a membership change without explaining why. If the very last document
+    // of an account were reduced other than last, no row would carry its sequence and this would
+    // report loss that had not happened. Taking the maximum across all of an account's rows rather
+    // than its final row's makes that need the last *transaction* to be the reordered one, which
+    // is why it is measured rather than assumed: the three scenarios that suppress the most
+    // monotonicity violations were run against this check and none of them fired it.
+    let mut highest: BTreeMap<i64, i64> = BTreeMap::new();
+    for row in delivery {
+        let seen = highest.entry(row.id).or_insert(row.seq);
+        *seen = (*seen).max(row.seq);
+    }
+
     for (id, account) in &expected.accounts {
+        if let Some(seq) = highest.get(id) {
+            if *seq < account.max_seq {
+                out.push(Violation {
+                    invariant: Invariant::NoLoss,
+                    detail: format!(
+                        "account {id}: the delta binding's rows stop at seq {seq}, behind the \
+                         collection's latest {}",
+                        account.max_seq
+                    ),
+                });
+            }
+        }
+
         match running.get(id) {
             None => out.push(Violation {
                 invariant: Invariant::NoLoss,
                 detail: format!("account {id} is absent from the delta binding"),
             }),
+            // Filed as an oracle disagreement in *either* direction, and deliberately not
+            // sign-split the way the sequence checks are.
+            //
+            // The temptation is to read a total below the collection's as loss and one above it as
+            // duplication, which would take loss out from behind the exemptions that license
+            // duplication. It does not hold: `balanceDelta` is signed and mixed-sign within an
+            // account — every document is one leg of a transfer, negative on the sender and
+            // positive on the receiver, and an account is both across its history — so omitting a
+            // subset moves the total by whichever sign that subset happens to carry. One measured
+            // account makes the point twice over: a run missing rows summed to -703 against a
+            // collection's -671, *below* it, while the running-sum check on the same account
+            // reported -319 against an oracle's -358, *above* it. Same shortfall, both directions.
+            //
+            // So mid-history loss on this binding is genuinely ambiguous here and is exemptable
+            // along with duplication. What settles it is the log binding, which holds a row per
+            // document; see the design doc's Deferred section.
             Some(total) if *total != account.total_delta => out.push(Violation {
                 invariant: Invariant::OracleAgreement,
                 detail: format!(
@@ -568,6 +658,22 @@ fn check_merged_delta(expected: &Expectation, rows: &[Event], out: &mut Vec<Viol
                 ),
             }),
             Some(_) => {}
+        }
+    }
+
+    // Rows for an account the collection does not hold. Both other checkers report their
+    // leftovers and this one did not, which mattered most for the class least able to spare it: a
+    // `documentCounter` subject has no standard binding, so this checker was the merged path's only
+    // extra-row detector and it had no such check at all.
+    for (id, seq) in highest {
+        if !expected.accounts.contains_key(&id) {
+            out.push(Violation {
+                invariant: Invariant::NoDuplicates,
+                detail: format!(
+                    "the delta binding holds account {id} (up to seq {seq}), which the collection \
+                     does not"
+                ),
+            });
         }
     }
 }
@@ -772,15 +878,14 @@ mod test {
         }
     }
 
-    /// The two monotonicity checkers must count a regression the same way, because a run's
-    /// suppression counts are read as evidence about which exemptions carry weight — and two
-    /// checkers scoring the same event differently makes that evidence incomparable.
+    /// A replay is one regression, not one per replayed row.
     ///
-    /// They disagreed twice: `check_log` treated a repeated seq as a regression (it is a
-    /// duplicate, which `NoDuplicates` owns) and held a high-water mark, so one replay of
-    /// `8, 9, 10` after `10` scored three violations where the delta checker scored one.
+    /// Both checkers now share `check_monotonic`, so their *agreement* is structural and needs no
+    /// test. What still needs one is the scoring rule itself, which two earlier versions got
+    /// wrong in opposite directions: counting a repeated seq (a duplicate, which `NoDuplicates`
+    /// owns) and holding a high-water mark, so `8, 9, 10` after `10` scored three.
     #[test]
-    fn both_monotonicity_checkers_score_a_regression_the_same() {
+    fn a_replay_is_one_monotonicity_violation() {
         // 0, 1, 2, then a replay of 1, 2 — one regression, at the replayed 1.
         let replayed = vec![
             event(1, 0, -1, -1),

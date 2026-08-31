@@ -26,6 +26,7 @@ use crate::reference::{Class, Defect};
 ///
 /// The harness overwrites `path` for the reference connector, whose destination belongs
 /// to the run; a real connector's config is passed through untouched.
+#[derive(Clone)]
 pub struct Subject {
     pub connector: Vec<String>,
     pub config: serde_json::Value,
@@ -54,14 +55,6 @@ pub struct Scenario {
     /// it for a guarantee it never made; the scenarios that do hold it to something opt it
     /// back in. Narrow this further only where one class alone can succeed — and say why.
     pub applies_to: &'static [Class],
-    /// Whether the task materializes a standard (merge) binding as well as the two
-    /// delta ones.
-    ///
-    /// The document-counter class cannot take one: a counted channel's offset is a
-    /// count of rows the destination *accepted*, which says nothing about an upsert.
-    /// Snowpipe Streaming v2 handles delta-updates bindings only, and folding a merge
-    /// binding into that model would emulate something no such connector does.
-    pub standard_binding: bool,
     pub faults: Vec<FaultRule>,
     /// The defect this scenario must catch. `None` only for the baseline, whose
     /// job is to fail when the harness itself is miswired — it has no defect to
@@ -115,9 +108,23 @@ pub struct RuntimeGap {
     pub detail: &'static str,
 }
 
+/// Most reordering a membership-change exemption may absorb.
+///
+/// Uncapped, these would have been the suite's widest blind spot, and on precisely the scenarios
+/// where reordering bugs live. Against the reference connector order *is* recoverable — its tables
+/// carry an autoincrementing `ord`, so a read replays the sequence of appends — so a defect that
+/// shuffled thousands of rows while keeping the set exactly right would be absorbed in full.
+///
+/// 500 against a measured 9-54 per run: an order-of-magnitude guard, not a tight bound, chosen the
+/// same way and for the same reason as the duplication ceiling in `at-least-once-never-loses`. It
+/// binds only on the reference connector: a remotely-read subject also carries the blanket
+/// monotonicity exemption, which is unbounded because order is not recoverable through a table
+/// scan at all, and an unbounded exemption lifts a narrower ceiling for the same invariant.
+const REORDERING_CEILING: usize = 500;
+
 /// Why a membership change is not held to delivery order.
 ///
-/// Stated once and shared: three scenarios reconfigure shards and every one of them owes
+/// Stated once and shared: four scenarios reconfigure shards and every one of them owes
 /// the same explanation, so a copy per scenario would only give the wording room to drift.
 ///
 /// The wording is deliberately about what is *observed*. An earlier version asserted the
@@ -160,13 +167,20 @@ const APPENDS_DURING_STORE_REORDERS: &str = "This class appends during Store, so
 /// Excludes the counted channel, which writes during `Store`: when a membership change lands
 /// on a transaction whose rows are already in the destination, the children open channels at
 /// offset zero and append the replay a second time. That is the runtime gap discussion 2581
-/// names, and `split-lands-on-prepared-transaction` measures it — deterministically, by
-/// stalling a live prepared transaction.
+/// names, and `split-lands-on-prepared-transaction` is where it is measured.
 ///
-/// These three scenarios reach the same state, but only by race: a split lands mid-transaction
-/// nearly always rather than always, and only once a batch has been appended. Asking a counted
-/// channel a question whose answer is a coin flip would report the runtime's gap as the
-/// connector's defect on some runs and pass it on others, which is worse than not asking.
+/// The four scenarios excluded here reach that state only by race — a split lands
+/// mid-transaction nearly always rather than always, and only once a batch has been appended.
+/// Asking a counted channel a question whose answer is a coin flip would report the runtime's
+/// gap as the connector's defect on some runs and pass it on others, which is worse than not
+/// asking. Two of them — `split-during-commit` and `split-after-commit-before-apply` — split
+/// while the task is *down* after a crash, which is deterministic in when the split lands but
+/// not in what the counted channel had already appended before dying, so the coin flip is the
+/// same one.
+///
+/// And `split-lands-on-prepared-transaction` is no more deterministic; it simply carries the
+/// gap declaration instead. Its own comment records the two attempts to force the overlap that
+/// both suppressed it.
 ///
 /// Note this is *not* true of `crash-in-split-leader` and `crash-in-split-non-leader`: they
 /// crash after the split has settled, so the replay happens under stable membership, and a
@@ -197,7 +211,6 @@ impl Scenario {
             verifies,
             class,
             applies_to: EXACTLY_ONCE,
-            standard_binding: !matches!(class, Class::DocumentCounter),
             faults: Vec::new(),
             defect: None,
             split_shards: false,
@@ -208,6 +221,19 @@ impl Scenario {
             exempt: Vec::new(),
             known_limitation: None,
         }
+    }
+
+    /// Whether the task materializes a standard (merge) binding as well as the two delta ones.
+    ///
+    /// Derived from the class rather than stored, because it was only ever assigned from the
+    /// class — and a stored copy invited a guard asserting the two agreed, which could not fail.
+    ///
+    /// The document-counter class cannot take one: a counted channel's offset is a count of rows
+    /// the destination *accepted*, which says nothing about an upsert. Snowpipe Streaming v2
+    /// handles delta-updates bindings only, and folding a merge binding into that model would
+    /// emulate something no such connector does.
+    pub fn standard_binding(&self) -> bool {
+        !matches!(self.class, Class::DocumentCounter)
     }
 
     /// See [`Scenario::applies_to`]. Widens or narrows which classes the scenario runs
@@ -233,8 +259,13 @@ impl Scenario {
         self
     }
 
-    /// As [`Scenario::splitting`], but the split waits for the fault to fire — so the task is
-    /// scaled out while it is down, and comes back with more shards than staged its work.
+    /// As [`Scenario::splitting`], but the split is issued only once the fault has fired — so the
+    /// task is scaled out while it is *down*, and comes back with more shards than staged its work.
+    ///
+    /// For a crash, which is the only fault this is used with. It is not a general way to order a
+    /// split against a fault: pairing it with a stall closed the window it was meant to open,
+    /// because a runtime handed a shard that will hold still finishes the transaction and hands
+    /// over at a quiet point. See `split-lands-on-prepared-transaction`.
     fn splitting_after_fault(mut self, settle_commits: u64) -> Self {
         self.split_after_fault = true;
         self.splitting(settle_commits)
@@ -301,6 +332,7 @@ pub fn all() -> Vec<Scenario> {
         crash_at_flush(),
         split_during_store(),
         split_during_commit(),
+        split_after_commit_before_apply(),
         split_lands_on_prepared_transaction(),
         join_after_split(),
         zombie_at_start_commit(),
@@ -394,45 +426,87 @@ fn split_during_store() -> Scenario {
     )
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
     .splitting(5)
 }
 
-/// A transaction dies mid-commit, the task is scaled out while it is down, and the
-/// staged work is finished by a *different* set of shards than staged it.
+/// A transaction dies *before* committing, the task is scaled out while it is down, and the
+/// replay is finished by a larger set of shards than staged it.
 ///
-/// The connector crashes inside `StartCommit`, so a transaction is staged with its fate
-/// undecided. Only then is the task split, and only then does it restart — with more
-/// shards than existed when the work was staged. So this scenario is not a race: it is
-/// the deterministic question of whether an `Acknowledge` is idempotent enough to be
-/// finished by shards that did not begin it.
+/// Read the fault carefully, because the name misleads. The shim fires a fault *before*
+/// forwarding the request that triggered it, so a `Crash` on a request trigger kills the
+/// connector before it receives that request — see [`Trigger`]. So "crash at `StartCommit` #4"
+/// means the connector never sees `StartCommit` #4: rows of transaction 4 are staged (in whole
+/// batches of 64; the remainder was in memory and died with the process), no statements were
+/// rendered, and no state patch was published. Nothing in any checkpoint names those rows.
 ///
-/// Post-commit-apply needs no fence for this. Its authority is the recovery log, and the
-/// crashed session is gone rather than competing — what it needs is for applying staged
-/// work to be repeatable, in any order, by whoever inherits it.
+/// What that verifies is still worth having, and it is not what the old wording claimed. It is
+/// the abandoned-staging hazard: staging whose transaction never committed must never be applied,
+/// and the destination cannot distinguish it from staging awaiting application. An earlier version
+/// of this connector decided by inspecting the destination and applied abandoned work — landing on
+/// exactly this recovery. The replayed transaction must then be delivered exactly once by shards
+/// that did not stage it.
 ///
-/// What makes it pass is the rule every real connector of this class follows: stage load
-/// keys as `Load` requests arrive, and read the destination only once `Flush` has come.
-/// `Flush` is the runtime's signal that the previous transaction was acknowledged by
-/// *every* shard — the guarantee a coordinating connector needs and cannot obtain any other
-/// way, because one shard applies staged work on behalf of its peers, so a peer reading
-/// earlier would reduce onto a base that shard has not finished writing.
+/// For committed-but-unapplied work crossing a membership change, see
+/// [`split_after_commit_before_apply`]. That is a different state and needs its own scenario;
+/// this one cannot reach it, because the transaction it interrupts never commits.
+///
+/// Post-commit-apply needs no fence for either. Its authority is the recovery log, and the
+/// crashed session is gone rather than competing — what it needs is for applying staged work to
+/// be repeatable, in any order, by whoever inherits it.
+///
+/// What makes it pass is the rule every real connector of this class follows: stage load keys as
+/// `Load` requests arrive, and read the destination only once `Flush` has come. `Flush` is the
+/// runtime's signal that the previous transaction was acknowledged by *every* shard — the
+/// guarantee a coordinating connector needs and cannot obtain any other way, because one shard
+/// applies staged work on behalf of its peers, so a peer reading earlier would reduce onto a base
+/// that shard has not finished writing.
 fn split_during_commit() -> Scenario {
     Scenario::new(
         "split-during-commit",
-        "staged work committed by one shard is applied exactly once by the larger set \
-         of shards that replaces it",
+        "staging whose transaction never committed is never applied, and the replay is \
+         delivered exactly once by the larger set of shards that replaces it",
         Class::PostCommitApply,
     )
-    .fault(FaultRule {
-        on: Trigger::StartCommit,
-        nth: 4,
-        arm_after: 0,
-        shard: ShardTarget::Any,
-        action: Action::Crash,
-    })
+    .fault(FaultRule::crash_at(Trigger::StartCommit, 4))
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
+    .splitting_after_fault(5)
+}
+
+/// Work the log has committed but nobody has applied, crossing a membership change.
+///
+/// The state `split-during-commit` cannot reach, and until this existed no scenario did — which
+/// left the predecessor-inheritance machinery untested: `peers` recovery at `Open`,
+/// `merge_peer_patches`, and `apply_pending` over a range that no longer exists.
+///
+/// The fault is keyed on the `Acknowledge` *request*, and the timing is worth spelling out. The
+/// runtime's cycle is `Acknowledge → Flush → Store → StartCommit → Persist`, so an `Acknowledge`
+/// opens each transaction and confirms the one before it. Since the shim fires before forwarding,
+/// crashing at `Acknowledge` #4 leaves transaction *3* in exactly the state wanted: its statements
+/// were rendered at `StartCommit`, its state patch went into the recovery log at `Persist`, and
+/// the apply that `Acknowledge` #4 would have performed never happened. The connector's in-memory
+/// record of it died with the process, so recovery has only the checkpoint — which is the point.
+///
+/// Then the split. The pending entry is filed under the *departed parent's* range key, so each
+/// child sees it as a peer's rather than its own, and only the primary may run it. Exactly once is
+/// the claim, and `ignore-key-range` breaks it in the way that matters here: with every shard
+/// claiming the whole keyspace, both children compute themselves primary, both find the entry
+/// under their own range key, and both apply it.
+fn split_after_commit_before_apply() -> Scenario {
+    Scenario::new(
+        "split-after-commit-before-apply",
+        "staged work the log has committed is applied exactly once by the larger set of \
+         shards that replaces the one which staged it",
+        Class::PostCommitApply,
+    )
+    .fault(FaultRule::crash_at(Trigger::Acknowledge, 4))
+    .catches(Defect::IgnoreKeyRange)
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
     .splitting_after_fault(5)
 }
@@ -454,6 +528,24 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          neither loses nor duplicates its documents",
         Class::DocumentCounter,
     )
+    // The overlap between this stall and the split is *not* synchronized, and cannot usefully be.
+    // That was reviewed as a flaw and measured instead, and the measurements say the race is the
+    // scenario rather than a defect in it.
+    //
+    // Two attempts to force the overlap both *closed* the window. Waiting for the stall to begin
+    // before issuing the split, and lengthening the stall to twenty seconds, each made the run
+    // pass — because a runtime handed a shard that will hold still finishes the stalled
+    // transaction and hands over at a quiet point, which is a committed transaction and no hazard
+    // at all. Asking the runtime to hand over at a moment of the harness's choosing is asking for
+    // the very guarantee under test, so this is back to four seconds and an unordered split, the
+    // configuration with observed hits.
+    //
+    // And when it does hit, it hits *narrowly*: a caught run delivered 2072 log rows against 2070
+    // documents — two rows delivered twice, both of them documents the expectation holds, with
+    // nothing ahead of it. So the gap below is intermittent, not per-run, and a passing run is
+    // evidence about that run only. `split-during-commit` reaches the same destination state
+    // deterministically by crashing rather than stalling, so coverage of the
+    // prepared-but-uncommitted state does not rest on winning this race.
     .fault(FaultRule {
         on: Trigger::StartCommit,
         nth: 4,
@@ -471,6 +563,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
     // measures the gap. For a real subject of another class the blanket external monotonicity
     // exemption would cover the same violations anyway.
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .at_most(REORDERING_CEILING)
     // Written against the counted-channel class, which the gap below leaves unable to pass
     // it, but the perturbation is not class-specific: a split landing on a prepared
     // transaction is something every class must survive. A class that only *stages* during
@@ -478,7 +571,10 @@ fn split_lands_on_prepared_transaction() -> Scenario {
     // expected to pass — and this is the scenario that says so.
     .blocked_on_runtime(
         &[Class::DocumentCounter],
-        "The runtime does not yet guarantee that a transaction started under a given shard \
+        "Intermittently — the runtime usually completes the transaction it is in before handing \
+         the range over, so this fails on some runs and not others, and a caught run duplicated \
+         two rows of 2070. Read a pass as evidence about that run and nothing more. \
+         The runtime does not yet guarantee that a transaction started under a given shard \
          split is replayed under that same split before a scale up or down takes effect, a \
          capability named as a requirement in estuary/flow discussion 2581. A counted \
          channel cannot work around it: it writes during Store, so the rows of a prepared \
@@ -508,15 +604,16 @@ fn join_after_split() -> Scenario {
     )
     .catches(Defect::IgnoreKeyRange)
     .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED)
     // Settles longer than a split alone: this waits out a split, then a join, and each
     // membership change costs the task a recovery.
     .splitting_then_joining(8)
 }
 
-/// Fencing under real concurrency rather than in isolation: two real connector
-/// processes, both handling real runtime messages, the older one thawed after the
-/// newer has committed.
+/// Fencing under real concurrency rather than in isolation: two real connector processes over one
+/// destination, both fed the runtime's own messages, the older thawed to commit a transaction the
+/// newer has already superseded.
 fn zombie_at_start_commit() -> Scenario {
     Scenario::new(
         "zombie-at-start-commit",
@@ -524,10 +621,20 @@ fn zombie_at_start_commit() -> Scenario {
          destination",
         Class::RemoteAuthoritative,
     )
+    // Frozen at `Open` because that is the only point a fenced instance is certainly still
+    // alive; see `Action::Zombie`. It was keyed at `Store` #10 of the second transaction, which
+    // read as "let the zombie work for a while first" and was in fact "freeze whatever is left of
+    // it": the zombie had been refused at the first transaction's commit and exited, so the freeze
+    // suspended nothing and the thaw resumed nothing. The scenario passed by racing no one.
+    //
+    // Frozen at `Open` it has taken its fence and nothing more, and everything the runtime sends
+    // afterwards is queued up to the first `StartCommit`. On thaw it replays that transaction
+    // whole — loads and stores against a destination that has moved on two commits — and only
+    // then attempts the commit its fence must refuse.
     .fault(FaultRule {
-        on: Trigger::Store,
-        nth: 10,
-        arm_after: 1,
+        on: Trigger::Open,
+        nth: 1,
+        arm_after: 0,
         shard: ShardTarget::Any,
         action: Action::Zombie {
             thaw_after_commits: 2,
@@ -587,7 +694,7 @@ fn recovery_reconciles_with_destination() -> Scenario {
     // No monotonicity exemption, for the same reason as `destination-ahead-of-checkpoint`.
 }
 
-/// The one membership-change scenario whose class can actually survive it.
+/// The two membership-change scenarios a counted channel can actually survive.
 ///
 /// A counted channel resumes by asking the *destination* how far it got, so a shard
 /// that has just been created — with a fresh channel and therefore a zero offset —
@@ -625,6 +732,7 @@ fn crash_in_split_leader() -> Scenario {
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitLeader))
     .catches(Defect::DropDocumentCounter)
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .splitting(5)
 }
 
@@ -650,6 +758,7 @@ fn crash_in_split_non_leader() -> Scenario {
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitNonLeader))
     .catches(Defect::DropDocumentCounter)
     .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    .at_most(REORDERING_CEILING)
     .splitting(5)
 }
 
@@ -672,6 +781,28 @@ fn at_least_once_never_loses() -> Scenario {
     .applies_to(EVERY_CLASS)
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocuments)
+    // Every exemption below is licensed by *one* replayed transaction, and all four are therefore
+    // tied to `NoDuplicates` with `caused_by`: a replay that re-delivers documents leaves duplicate
+    // rows, so if no duplicate row appears anywhere in the run then nothing was replayed and a
+    // divergence has some other cause. Without that tie, this scenario licensed an oracle
+    // disagreement from *any* cause — and a subject whose replay path corrupted merged values
+    // while emitting no extra rows broke only oracle agreement and conservation, both exempt,
+    // and passed the entire suite.
+    //
+    // Only the duplicate count carries a ceiling, and that is the other half of the same lesson.
+    // One transaction is tens of documents: reference runs measure 20-69 duplicates, scaling with
+    // how much the run wrote, so 500 is an order-of-magnitude guard — far above any single replay,
+    // far below the systematic re-delivery of a whole workload.
+    //
+    // The tie to `NoDuplicates` does assume the replay re-delivers *something*, which is what makes
+    // the count non-zero on every run measured so far. A crash landing in a transaction that
+    // carried no documents for any account would duplicate nothing, and then a divergence from
+    // some other cause would be held rather than exempt — a failure in the safe direction, and
+    // loud, but a flake if it ever happens. The oracle-agreement count cannot be bounded
+    // usefully because the *checker* bounds it: at most three violations per account in
+    // `check_standard` and two in `check_merged_delta` over forty accounts, so nothing above ~200
+    // can ever bind and the 500 that used to sit there was decoration. Monotonicity is per-row and
+    // could carry one, but its cause is now stated exactly, which is the stronger claim.
     .declaring(
         Invariant::NoDuplicates,
         "At-least-once by construction: this class commits during Store with no \
@@ -679,6 +810,7 @@ fn at_least_once_never_loses() -> Scenario {
          replay. Declared rather than fixed, because the weaker guarantee is the one \
          the connector offers.",
     )
+    .at_most(500)
     .declaring(
         Invariant::Conservation,
         "Conservation is arithmetic over delivered documents, so a duplicate can break it \
@@ -691,16 +823,19 @@ fn at_least_once_never_loses() -> Scenario {
          impossible, and this exemption measures zero on most runs. Zero here means rare, \
          not unnecessary: removing it would make this scenario fail intermittently.",
     )
+    .caused_by(Invariant::NoDuplicates)
     .declaring(
         Invariant::OracleAgreement,
         "A duplicated document leaves the reduced balance disagreeing with its own \
          oracle. Same cause as the duplication exemption above.",
     )
+    .caused_by(Invariant::NoDuplicates)
     .declaring(
         Invariant::Monotonicity,
         "Re-applying an interrupted transaction re-delivers sequences the sink has \
          already seen. Same cause as the duplication exemption above.",
     )
+    .caused_by(Invariant::NoDuplicates)
 }
 
 impl Scenario {
@@ -711,8 +846,34 @@ impl Scenario {
         self.exempt.push(Exemption {
             invariant,
             justification: justification.to_string(),
+            max_suppressed: None,
+            conditional_on: None,
         });
         self
+    }
+
+    /// Bound the exemption just declared; see [`Exemption::max_suppressed`].
+    ///
+    /// Worth setting only where the *checker* does not already bound the count. A per-account
+    /// invariant cannot exceed the workload's forty accounts however wrong the subject is, so a
+    /// ceiling there measures the workload rather than the subject.
+    fn at_most(mut self, max_suppressed: usize) -> Self {
+        self.last_exemption().max_suppressed = Some(max_suppressed);
+        self
+    }
+
+    /// Hold the exemption just declared to its stated cause; see [`Exemption::conditional_on`].
+    fn caused_by(mut self, invariant: Invariant) -> Self {
+        self.last_exemption().conditional_on = Some(invariant);
+        self
+    }
+
+    /// Panics rather than erroring: a modifier with nothing to modify is a typo in this file, not
+    /// a condition a run could encounter.
+    fn last_exemption(&mut self) -> &mut Exemption {
+        self.exempt
+            .last_mut()
+            .expect("a modifier follows the `declaring` whose exemption it modifies")
     }
 }
 
@@ -751,19 +912,9 @@ mod test {
         }
     }
 
-    /// A join needs more than one shard, and a task starts with one.
-    #[test]
-    fn a_join_scenario_splits_first() {
-        for scenario in all() {
-            if scenario.join_shards {
-                assert!(
-                    scenario.split_shards,
-                    "scenario {} joins without splitting, so it has nothing to join",
-                    scenario.name,
-                );
-            }
-        }
-    }
+    // No test that a joining scenario splits first, though a join does need more than one shard
+    // and a task starts with one. `splitting_then_joining` is the only way to set `join_shards`
+    // and it sets `split_shards` too, so the property holds by construction.
 
     /// No fault may be able to fire before the warmup gate is satisfied.
     ///
@@ -782,7 +933,7 @@ mod test {
             for rule in &scenario.faults {
                 // Only a crash matters. A stall or a zombie leaves the shard
                 // running, so the warmup gate keeps making progress through them —
-                // `zombie-at-start-commit` fires in the second transaction and is fine.
+                // `zombie-at-start-commit` fires at the session's `Open` and is fine.
                 if rule.action != Action::Crash {
                     continue;
                 }
@@ -845,17 +996,34 @@ mod test {
         }
     }
 
-    /// The document-counter class models a connector that handles delta-updates
-    /// bindings only, so no scenario may hand it a merge binding.
+    // No test that the counted-channel class never takes a merge binding:
+    // `Scenario::standard_binding` derives it from the class, so the property holds by
+    // construction and a test of it could not fail. It used to be a stored field, and the test
+    // read as a real guard while asserting that one line of `new` did what it says.
+
+    /// A zombie rule must fire at `Open`, and this is where that is enforced.
+    ///
+    /// `Action::Zombie` documents it, and documentation is not enough: the freeze was keyed at a
+    /// `Store` for a long time, which reads as letting the zombie work first and is in fact
+    /// freezing whatever is left of it. A fenced instance does not survive being run — its first
+    /// commit is refused and the process exits — so the freeze suspended a corpse, the thaw
+    /// resumed nothing, and the clean half of the scenario raced no one while still passing.
+    ///
+    /// The shim logs that case to its trace, which is read only when a gate times out, so on a
+    /// vacuous pass nobody sees it. This fails at compile-and-test time instead.
     #[test]
-    fn the_counter_class_never_takes_a_standard_binding() {
+    fn a_zombie_is_frozen_at_open() {
         for scenario in all() {
-            if scenario.class == Class::DocumentCounter {
-                assert!(
-                    !scenario.standard_binding,
-                    "scenario {} gives the counted-channel class a merge binding",
-                    scenario.name,
-                );
+            for rule in &scenario.faults {
+                if matches!(rule.action, Action::Zombie { .. }) {
+                    assert_eq!(
+                        (rule.on, rule.nth),
+                        (Trigger::Open, 1),
+                        "{}: a zombie must be frozen at the session's Open, where it has taken \
+                         its fence and cannot yet have been refused a commit",
+                        scenario.name,
+                    );
+                }
             }
         }
     }
