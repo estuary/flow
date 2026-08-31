@@ -340,6 +340,7 @@ pub fn all() -> Vec<Scenario> {
         split_during_store(),
         split_during_commit(),
         split_after_commit_before_apply(),
+        recovery_applies_committed_work(),
         split_lands_on_prepared_transaction(),
         join_after_split(),
         zombie_at_start_commit(),
@@ -514,6 +515,34 @@ fn split_during_commit() -> Scenario {
 /// the claim, and `ignore-key-range` breaks it in the way that matters here: with every shard
 /// claiming the whole keyspace, both children compute themselves primary, both find the entry
 /// under their own range key, and both apply it.
+/// A committed-but-unapplied checkpoint, applied exactly once by the process that inherits it —
+/// with no membership change involved.
+///
+/// The same window as `split-after-commit-before-apply` and deliberately without its split. The
+/// runtime's cycle is `Acknowledge → Flush → Store → StartCommit → Persist`, so an `Acknowledge`
+/// confirms the transaction before it; crashing at the *request* means the connector never
+/// receives it, leaving the previous transaction's statements rendered, its state patch durable in
+/// the recovery log, and the apply never run. The connector's in-memory record of it dies with the
+/// process, so recovery has only the checkpoint.
+///
+/// Worth having on its own, because with the split there are two reasons a run can fail and no way
+/// to tell them apart: inheriting the checkpoint, or reconciling across a range change. This one
+/// isolates the first. It is also what a connector *upgrade* looks like from the destination's
+/// point of view — one version stages and commits, another applies — which is what makes it the
+/// scenario to point a two-version subject at.
+fn recovery_applies_committed_work() -> Scenario {
+    Scenario::new(
+        "recovery-applies-committed-work",
+        "staged work the log has committed is applied exactly once by the process which \
+         inherits the checkpoint",
+        Class::PostCommitApply,
+    )
+    // No split, so the default settle of three commits is enough to show the task recovered
+    // rather than merely stopped.
+    .fault(FaultRule::crash_at(Trigger::Acknowledge, 4))
+    .catches(Defect::NonIdempotentAcknowledge)
+}
+
 fn split_after_commit_before_apply() -> Scenario {
     Scenario::new(
         "split-after-commit-before-apply",
