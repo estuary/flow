@@ -610,9 +610,9 @@ pub struct CaptureSpec {
     #[prost(bytes = "bytes", tag = "10")]
     pub redact_salt: ::prost::bytes::Bytes,
     /// Date on which this task was created, as a UTC date in RFC 3339
-    /// "full-date" format (YYYY-MM-DD). Empty during a task's first build,
-    /// before its creation is committed: the task is brand new, and a
-    /// connector should assume a current date.
+    /// "full-date" format (YYYY-MM-DD). Stamped when the task is first built,
+    /// and immutable thereafter. May be empty in older builds which predate
+    /// this field, and a connector should then assume a current date.
     #[prost(string, tag = "11")]
     pub created_at: ::prost::alloc::string::String,
     /// Table of collections referenced by `collection_index` of this capture's
@@ -728,9 +728,9 @@ pub struct MaterializationSpec {
     #[prost(bytes = "bytes", tag = "10")]
     pub triggers_json: ::prost::bytes::Bytes,
     /// Date on which this task was created, as a UTC date in RFC 3339
-    /// "full-date" format (YYYY-MM-DD). Empty during a task's first build,
-    /// before its creation is committed: the task is brand new, and a
-    /// connector should assume a current date.
+    /// "full-date" format (YYYY-MM-DD). Stamped when the task is first built,
+    /// and immutable thereafter. May be empty in older builds which predate
+    /// this field, and a connector should then assume a current date.
     #[prost(string, tag = "11")]
     pub created_at: ::prost::alloc::string::String,
     /// JSON-encoded sync schedule for this materialization, if configured.
