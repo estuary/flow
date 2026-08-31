@@ -14,7 +14,9 @@ ensure_stack_env
 # checkout or a worktree, and several agents can run it concurrently.
 
 FILTER="${usage_filter:-}"
-CONCURRENCY="${usage_concurrency:-2}"
+# No default: unset means the `consistency` nextest profile's `test-threads` governs.
+# A default here silently overrode it, so one of the two settings was always dead.
+CONCURRENCY="${usage_concurrency:-}"
 DEBUG="${usage_debug:-false}"
 
 echo "Building flowctl, the shim, and the reference connector..."
@@ -27,14 +29,26 @@ if [ ! -x "$(flow_repo_root)/.venv/bin/python" ]; then
     poetry install --no-root
 fi
 
-# Purge ops journals of scenario tasks that no longer exist.
+# Purge gazette state of scenario tasks that no longer exist.
 #
-# A task's ops log and stats partitions are not deleted when its specification is — they
-# belong to the data plane's shared `ops/tasks/...` collections — so this suite accumulates
-# a pair per task, about two hundred per full run. That is not cosmetic: a four-broker data
-# plane runs out of assignment slots at around fourteen hundred partitions, after which
-# newly published journals get no primary broker at all and every scenario fails waiting for
-# a capture that published fine and can never append.
+# Two kinds leak, in two different etcd roots, and both are load-bearing:
+#
+# **Ops partitions**, under `/gazette/<cluster>/items/ops/tasks`. A task's ops log and stats
+# partitions are not deleted when its specification is — they belong to the data plane's
+# shared `ops/tasks/...` collections — so the suite accumulates a pair per task, about two
+# hundred per full run. A four-broker data plane runs out of assignment slots at around
+# fourteen hundred partitions, after which newly published journals get no primary broker and
+# every scenario fails waiting for a capture that published fine and can never append.
+#
+# **Task shards and their recovery logs**, under `/flow/<cluster>/items` and
+# `/gazette/<cluster>/items` respectively. A run killed mid-flight — a CI timeout, a wedged
+# stack — can delete its specs while leaving these behind. They look harmless until the
+# build artifact they reference is collected, and then they are not: gazette's
+# `completeRecovery` nil-dereferences instead of erroring, the reactor segfaults on every
+# promotion attempt, and it crash-loops. One such loop reached 7,581 restarts, which takes
+# the whole data plane down — nothing can publish, because validating a derivation needs a
+# reactor to connect to. This is a worse failure than the partition leak: it wedges the
+# stack rather than degrading it, and the cause is invisible from the suite's own output.
 #
 # Done here, against etcd, rather than in the harness, because a task-scoped authorization
 # cannot reach these: `user_task_admin` authorizes a journal client for the task's own
@@ -43,40 +57,61 @@ fi
 # unauthorized, so a tool built this way would appear to work while doing nothing. A local
 # stack's own test suite may tidy its own data plane; a connector-facing tool may not.
 #
-# The right long-term fix is for the control plane to delete a task's ops partitions
-# when it deletes the task. Until then this keeps the suite from degrading itself.
-purge_orphan_ops_journals() {
-    local root="/gazette/${FLOW_CLUSTER}"
+# The right long-term fix is for the control plane to delete a task's shards and ops
+# partitions when it deletes the task. Until then this keeps the suite from degrading itself.
+purge_orphan_gazette_items() {
     local endpoint="localhost:${FLOW_PORT_ETCD}"
 
-    # Tasks the suite currently has published. Anything else naming this tenant's
-    # consistency prefix is debris from a finished run.
+    # Tasks the suite currently has published. Anything else under this tenant's consistency
+    # prefix is debris from a finished run.
+    #
+    # Matched as a *substring* of the key rather than by parsing a catalog name out of it.
+    # Key shapes differ by kind — `<kind>/<name>/<hex>/<range>` for a shard,
+    # `recovery/<kind>/<name>/<hex>/<range>` for its log, `.../name=<url-encoded>/...` for an
+    # ops partition — and a parser that mishandled one shape would delete a live task's
+    # state. Substring matching errs the other way: it can only ever keep debris.
     local live
     live=$(psql "${FLOW_PG_URL}" -tAc \
-        "SELECT catalog_name FROM live_specs WHERE catalog_name LIKE '${FLOW_TEST_TENANT}/consistency/%'" \
-        | sed 's|/|%2F|g')
-
-    local keys
-    keys=$(ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" get --prefix --keys-only \
-        "${root}/items/ops/tasks" 2>/dev/null | grep "${FLOW_TEST_TENANT}%2Fconsistency%2F" || true)
+        "SELECT catalog_name FROM live_specs WHERE catalog_name LIKE '${FLOW_TEST_TENANT}/consistency/%'")
 
     local removed=0
-    local key rel name
-    for key in ${keys}; do
-        # The partition's `name=` path segment holds the task, URL-encoded.
-        name=$(printf '%s' "${key}" | sed -n 's|.*/name=\([^/]*\)/.*|\1|p')
-        if [ -n "${name}" ] && printf '%s\n' "${live}" | grep -qxF "${name}"; then
-            continue # Still published; its partitions are in use.
-        fi
+    local root keys key rel name encoded claimed
+    for root in "/gazette/${FLOW_CLUSTER}" "/flow/${FLOW_CLUSTER}"; do
+        # Only ever consider keys naming this suite's own prefix, in either the plain or the
+        # URL-encoded form. This bound is what makes the whole function safe: whatever the
+        # matching below decides, it cannot reach another tenant or the data plane's own
+        # tasks.
+        keys=$(ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" get --prefix --keys-only \
+            "${root}/items/" 2>/dev/null \
+            | grep -E "${FLOW_TEST_TENANT}(/|%2F)consistency(/|%2F)" || true)
 
-        rel=${key#"${root}/items/"}
-        ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del "${key}" >/dev/null 2>&1
-        ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del --prefix "${root}/assign/${rel}" >/dev/null 2>&1
-        removed=$((removed + 1))
+        for key in ${keys}; do
+            # A here-string rather than a pipe, so the flag survives the loop.
+            claimed=false
+            while read -r name; do
+                [ -n "${name}" ] || continue
+                encoded=${name//\//%2F}
+                case "${key}" in
+                *"${name}"* | *"${encoded}"*)
+                    claimed=true
+                    break
+                    ;;
+                esac
+            done <<<"${live}"
+
+            if [ "${claimed}" = true ]; then
+                continue # Still published; its state is in use.
+            fi
+
+            rel=${key#"${root}/items/"}
+            ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del "${key}" >/dev/null 2>&1
+            ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del --prefix "${root}/assign/${rel}" >/dev/null 2>&1
+            removed=$((removed + 1))
+        done
     done
 
     if [ "${removed}" -gt 0 ]; then
-        echo "Purged ${removed} ops journal(s) of finished scenario tasks."
+        echo "Purged ${removed} gazette item(s) of finished scenario tasks."
     fi
 }
 
@@ -118,7 +153,7 @@ if [ "${WARM_CODE}" != "200" ]; then
     exit 1
 fi
 
-purge_orphan_ops_journals
+purge_orphan_gazette_items
 
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
 
@@ -137,11 +172,11 @@ echo "Running consistency scenarios..."
 TEST_EXIT_CODE=0
 if [ -n "${FILTER}" ]; then
     cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
-        --ignore-default-filter \
+        --ignore-default-filter ${CONCURRENCY:+-j "${CONCURRENCY}"} \
         -E "binary_id(/materialize-consistency::scenarios/) and test(${FILTER})" || TEST_EXIT_CODE=$?
 else
     cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
-        -j "${CONCURRENCY}" --no-fail-fast || TEST_EXIT_CODE=$?
+        ${CONCURRENCY:+-j "${CONCURRENCY}"} --no-fail-fast || TEST_EXIT_CODE=$?
 fi
 
 if [ "${TEST_EXIT_CODE}" -ne 0 ]; then

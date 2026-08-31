@@ -17,8 +17,11 @@ pub const ENV_RUN_DIR: &str = "FLOW_CONSISTENCY_RUN_DIR";
 /// is what the baseline scenario relies on.
 pub const ENV_FAULTS: &str = "FLOW_CONSISTENCY_FAULTS";
 
-/// Set to anything to have the reference connector trace every `Load` and `Store`
-/// of a merged key, and every recovery decision, into `reduce.jsonl`.
+/// Set to anything to have the reference connector trace every `Load` and `Store` of a merged
+/// key, and each staged batch it applies, into `reduce.jsonl`.
+///
+/// Not *every* recovery decision: the counted channel's skip, decided in `open_counters`, is
+/// not traced.
 ///
 /// Off by default and forwarded from the suite's own environment, because it is the
 /// only record of what a reduction *read* before writing — the delivered rows show
@@ -47,12 +50,15 @@ pub enum Trigger {
     /// A `Response.StartedCommit` — the connector has committed, and the
     /// runtime is about to commit its recovery log.
     StartedCommit,
-    /// A `Request.Acknowledge` — the runtime's recovery log has committed.
-    /// Faulting here is the crash-between-commits case: the connector's
-    /// destination work for the transaction is durable-but-unapplied, and only
-    /// an idempotent replay on restart can repair it.
+    /// A `Request.Acknowledge` — the runtime's recovery log has committed, and the
+    /// connector may now apply the transaction's staged work.
     Acknowledge,
-    /// A `Response.Acknowledged`.
+    /// A `Response.Acknowledged` — the connector has finished applying.
+    ///
+    /// This, not `Acknowledge`, is where `crash-between-commits` faults: it is the only
+    /// point at which the connector has applied a transaction and the shim can still kill
+    /// it before the runtime records that fact. The restart replays the same `Acknowledge`,
+    /// and only an idempotent one leaves the destination unchanged.
     Acknowledged,
 }
 
@@ -65,11 +71,6 @@ pub enum Action {
     Crash,
     /// Delay the matched message. Extends a transaction without failing it.
     Stall { millis: u64 },
-    /// Forward the matched message to the connector `times` extra times,
-    /// swallowing the duplicate responses. Only meaningful for `Acknowledge`,
-    /// which the runtime is free to retry and which must be a no-op after the
-    /// first.
-    Replay { times: u32 },
     /// Run a second connector process against the same messages, frozen at the
     /// match point while the live instance proceeds, then thawed so its stale
     /// commit races. The zombie opened first, so it holds the older fence.
@@ -158,7 +159,11 @@ impl ShardTarget {
 }
 
 impl FaultRule {
-    /// Crash on the `nth` occurrence of `on` in the first transaction.
+    /// Crash on the `nth` occurrence of `on`, with no arming delay.
+    ///
+    /// `nth` counts occurrences within the session, not within a transaction — an
+    /// `Acknowledged` with `nth` of 5 fires in the fifth transaction. Callers that need the
+    /// fault to land after some committed work add `arm_after`.
     pub fn crash_at(on: Trigger, nth: u64) -> Self {
         Self {
             on,
@@ -199,7 +204,8 @@ pub struct TraceEvent {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Event {
-    /// A session opened over `[key_begin, key_end)`. Shard identity as the
+    /// A session opened over `[key_begin, key_end]`, inclusive at both ends as Flow's
+    /// ranges are (`flow.proto`: "[begin, end] inclusive"). Shard identity as the
     /// connector sees it, which is how the harness correlates a trace with a
     /// shard split.
     Opened {

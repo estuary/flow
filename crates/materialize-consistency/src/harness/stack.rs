@@ -24,6 +24,41 @@ pub struct Stack {
     ca_cert: String,
 }
 
+/// Marker in the error chain of a publication that would not land.
+///
+/// Present so that a caller can distinguish a stack that refused to publish from a task
+/// that published fine and then failed. The defective half of a scenario treats a failed
+/// *run* as the defect being caught; a failed *publish* is the environment, and counting
+/// it as a catch would let a flaky control plane silently vacate a defect pairing.
+#[derive(Debug)]
+pub struct PublishFailed;
+
+impl std::fmt::Display for PublishFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the stack would not publish the catalog")
+    }
+}
+
+impl std::error::Error for PublishFailed {}
+
+/// Which reader a destination is read through.
+///
+/// `Copy`, because a drain reads three resources per poll and passing it by value each time
+/// reads better than borrowing a borrow.
+#[derive(Clone, Copy)]
+pub enum ReadVia<'a> {
+    /// The reference connector's own `read` subcommand. It lives in this repository and is run
+    /// by nothing but this suite, so a subcommand there costs nothing.
+    Reference {
+        connector: &'a std::path::Path,
+        config: &'a serde_json::Value,
+    },
+    /// `tests/materialize/testctl` from the connectors repository, which calls the same
+    /// `Materializer.SnapshotTestResource` and `DeleteResource` the connectors' own integration
+    /// tests call. A production connector therefore grows no subcommand for this suite.
+    Testctl(&'a super::subject::External),
+}
+
 impl Stack {
     /// Resolve the stack from the environment `mise` provides.
     ///
@@ -94,7 +129,7 @@ impl Stack {
 
     /// Every flowctl invocation is bounded, because none of the scenario deadlines
     /// bound *this*: they guard the wait loops, and a subprocess that never returns
-    /// sits under all of them. `counter-resumes-from-destination` hit nextest's 960s
+    /// sits under all of them. `destination-ahead-of-checkpoint` hit nextest's 960s
     /// ceiling having logged only its publish line — a `catalog publish` had blocked,
     /// and with four publish retries a single hang multiplies.
     ///
@@ -192,6 +227,7 @@ impl Stack {
         }
 
         Err(last.expect("at least one attempt was made"))
+            .context(PublishFailed)
             .context("publishing the scenario's catalog")
     }
 
@@ -342,14 +378,13 @@ impl Stack {
     /// does the unassigning directly, so recovery is immediate and does not perturb
     /// the specification of the task under test.
     ///
-    /// Unconditionally, not `--only-failed`: gazette declines to unassign a shard
-    /// whose *primary* has failed under that filter, which is exactly the case here —
-    /// it reports zero shards unassigned and the task stays down. Unassigning a
-    /// healthy shard costs a brief reassignment, and the harness only calls this
-    /// while it is already waiting for a task that is not making progress.
+    /// Every shard, not only the failed ones. Gazette does remove a FAILED assignment
+    /// under `--failed`; what that filter skips is a shard whose primary is merely
+    /// *wedged* and has not been marked FAILED — which is precisely the state the stall
+    /// detection in `recover` fires on, so filtering would report zero shards unassigned
+    /// and leave the task down. Unassigning a healthy shard costs a brief reassignment,
+    /// and this is only called while already waiting on a task making no progress.
     pub async fn unassign_shards(&self, task: &str) -> anyhow::Result<()> {
-        // Every shard, not only the failed ones. A crash leaves its shard FAILED, but a
-        // *primary* that is merely wedged is not, and `--failed` skipped exactly those.
         self.shard_tool(&["unassign", task])
             .await
             .with_context(|| format!("unassigning shards of {task}"))?;
@@ -424,57 +459,112 @@ impl Stack {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    /// Read a materialized resource back through the connector binary.
+    /// Every row of one materialized resource, as newline-delimited JSON objects keyed by
+    /// column name.
     ///
-    /// Reading through the connector rather than reaching into the destination is
-    /// what lets one harness serve every connector: retrieving all rows of a
-    /// resource is already a required method of the shared materializer interface,
-    /// and `materialize-boilerplate` exposes it as this same subcommand.
+    /// Read through connector code rather than by reaching into the destination: the harness
+    /// has no client for an arbitrary endpoint and should not grow one.
     pub async fn read_destination(
         &self,
-        connector: &std::path::Path,
-        config: &serde_json::Value,
-        table: &str,
-        delta: bool,
+        via: ReadVia<'_>,
+        resource: &serde_json::Value,
     ) -> anyhow::Result<Vec<Event>> {
-        let mut cmd = async_process::Command::new(connector);
-        cmd.arg("read")
-            .arg("--config")
-            .arg(config.to_string())
-            .arg("--table")
-            .arg(table);
-        if delta {
-            cmd.arg("--delta");
-        }
+        let stdout = self.read_rows(via, resource, "snapshot").await?;
 
-        // Bounded for the same reason as a collection read, and separately, because
-        // this spawns the connector rather than flowctl: a connector that hangs
-        // reading its own destination would otherwise sit under every deadline the
-        // scenario has.
+        // Rows of columns rather than the documents that produced them, which is what a
+        // materialized resource actually holds — a standard binding need not carry a root
+        // document at all.
+        let mut events = Vec::new();
+        for line in stdout.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            events.push(
+                Event::from_row(line)
+                    .with_context(|| format!("parsing a row of {resource}: {line}"))?,
+            );
+        }
+        Ok(events)
+    }
+
+    /// Remove one materialized resource, through `testctl`.
+    ///
+    /// Only for a real subject: the reference connector's destination is a file inside the run
+    /// directory, deleted with it.
+    pub async fn drop_resource(
+        &self,
+        external: &super::subject::External,
+        resource: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        self.read_rows(ReadVia::Testctl(external), resource, "drop")
+            .await
+            .map(|_| ())
+    }
+
+    /// Run whichever reader the subject needs, returning its stdout.
+    ///
+    /// Configurations go in temporary files rather than on the command line, because an
+    /// endpoint config carries credentials and an argument vector is readable by anyone who can
+    /// list processes — which is also why `testctl` takes paths.
+    async fn read_rows(
+        &self,
+        via: ReadVia<'_>,
+        resource: &serde_json::Value,
+        mode: &str,
+    ) -> anyhow::Result<String> {
+        let dir = tempfile::tempdir().context("creating a directory for the read's configs")?;
+        let config_path = dir.path().join("config.json");
+        let resource_path = dir.path().join("resource.json");
+
+        let config = match via {
+            ReadVia::Reference { config, .. } => config,
+            ReadVia::Testctl(external) => &external.config,
+        };
+        std::fs::write(&config_path, config.to_string()).context("writing the read's config")?;
+        std::fs::write(&resource_path, resource.to_string())
+            .context("writing the read's resource")?;
+
+        let mut cmd = match via {
+            ReadVia::Reference { connector, .. } => {
+                let mut cmd = async_process::Command::new(connector);
+                cmd.arg("read")
+                    .arg("--config")
+                    .arg(&config_path)
+                    .arg("--resource")
+                    .arg(&resource_path);
+                cmd
+            }
+            ReadVia::Testctl(external) => {
+                let mut cmd = async_process::Command::new(&external.tool);
+                cmd.arg("-connector")
+                    .arg(&external.name)
+                    .arg("-config")
+                    .arg(&config_path)
+                    .arg("-resource")
+                    .arg(&resource_path)
+                    .arg("-mode")
+                    .arg(mode);
+                cmd
+            }
+        };
+
+        // Bounded because this spawns a process that talks to the endpoint: one that hangs
+        // would otherwise sit under every deadline the scenario has.
         let output = tokio::time::timeout(Self::READ_TIMEOUT, async_process::output(&mut cmd))
             .await
             .map_err(|_| {
                 anyhow::anyhow!(
-                    "the connector did not finish reading {table} within {}s",
+                    "reading {resource} did not finish within {}s",
                     Self::READ_TIMEOUT.as_secs(),
                 )
             })?
-            .with_context(|| format!("reading destination resource {table}"))?;
+            .with_context(|| format!("reading {resource}"))?;
 
         anyhow::ensure!(
             output.status.success(),
-            "reading destination resource {table} failed:\n{}",
-            String::from_utf8_lossy(&output.stderr),
+            "reading {resource} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim(),
         );
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut events = Vec::new();
-        for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
-            events.push(
-                serde_json::from_str(line)
-                    .with_context(|| format!("parsing a row of {table}: {line}"))?,
-            );
-        }
-        Ok(events)
+        String::from_utf8(output.stdout).context("the reader produced invalid UTF-8")
     }
 }

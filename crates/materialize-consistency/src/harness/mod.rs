@@ -2,6 +2,7 @@
 
 pub mod catalog;
 pub mod stack;
+pub mod subject;
 
 use crate::invariants::{self, Expectation, Invariant, Violation};
 use crate::protocol::{Event, RunDir, TraceEvent, Trigger};
@@ -19,59 +20,13 @@ use std::io::BufRead;
 /// is to downgrade the claim, and a connector that silently regresses to a weaker
 /// class gets reclassified and passes. This way the pressure runs the other way,
 /// and the set of exemptions reads as a map of where the fleet is actually weak.
-#[derive(serde::Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Exemption {
     pub invariant: Invariant,
     /// Why this is a reviewed property of the destination rather than a defect.
     /// Required, and not defaulted: an exemption without a rationale is a defect
     /// with better paperwork.
     pub justification: String,
-    /// What the exemption covers. A connector's class is not always a per-connector
-    /// constant — a delta-updates binding is push-only even inside a
-    /// post-commit-apply connector, and enabling scale-out changes the contract — so
-    /// an exemption that could not be narrowed would overstate the weakness.
-    #[serde(default)]
-    pub scope: Scope,
-}
-
-#[derive(serde::Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum Scope {
-    /// Every binding, under every configuration.
-    #[default]
-    Connector,
-    /// Only bindings materializing combined delta updates.
-    DeltaBindings,
-    /// Only when these feature flags are set.
-    FeatureFlags(Vec<String>),
-}
-
-impl Exemption {
-    /// Load a connector's exemptions.
-    ///
-    /// They live beside the connector rather than in the harness, so that a
-    /// weakened guarantee shows up in review of the connector that weakened it. The
-    /// file is JSON rather than YAML only because the harness has no YAML
-    /// dependency; it holds a bare array of exemptions.
-    pub fn load(path: &std::path::Path) -> anyhow::Result<Vec<Self>> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading exemptions {path:?}"))?;
-
-        let exemptions: Vec<Self> =
-            serde_json::from_str(&raw).with_context(|| format!("parsing exemptions {path:?}"))?;
-
-        for exemption in &exemptions {
-            anyhow::ensure!(
-                exemption.justification.trim().len() >= 40,
-                "the exemption for {} in {path:?} has no real justification. An exemption \
-                 records a reviewed property of the destination, so say which property and \
-                 why it is inherent rather than a defect.",
-                exemption.invariant,
-            );
-        }
-        Ok(exemptions)
-    }
 }
 
 /// What a run produced.
@@ -92,7 +47,12 @@ pub struct Outcome {
     /// scenario that survived re-delivery and one that never saw any. A split scenario
     /// passing with zero of these has demonstrated nothing about idempotency, however
     /// green it looks — the same vacuity the paired-defect rule exists to prevent.
-    pub suppressed_rows: i64,
+    /// `None` for a real subject: this is the reference connector's own bookkeeping, read
+    /// from its SQLite destination, and a real connector exposes no equivalent. Reporting a
+    /// hard `0` there would say "this scenario absorbed no re-delivery" — which by this
+    /// suite's own rule means it demonstrated nothing — when the truth is that it was not
+    /// measured.
+    pub suppressed_rows: Option<i64>,
     /// Where the shim's trace and the destination were left. Retained on failure
     /// and removed on success — a caller that *expected* the failure (the defective
     /// half of every scenario) removes it itself.
@@ -111,7 +71,13 @@ impl Outcome {
             return format!(
                 "{}: upheld every invariant over {} documents \
                  ({} faults injected, {} re-delivered rows absorbed)",
-                self.scenario, self.documents, self.faults_fired, self.suppressed_rows,
+                self.scenario,
+                self.documents,
+                self.faults_fired,
+                match self.suppressed_rows {
+                    Some(rows) => rows.to_string(),
+                    None => "an unmeasurable number of".to_string(),
+                },
             );
         }
         let mut lines = vec![format!(
@@ -121,7 +87,10 @@ impl Outcome {
             self.violations.len(),
             self.documents,
             self.faults_fired,
-            self.suppressed_rows,
+            match self.suppressed_rows {
+                Some(rows) => rows.to_string(),
+                None => "an unmeasurable number of".to_string(),
+            },
         )];
         // Bounded: a lost account produces a violation per account, and the first
         // few say everything the rest would.
@@ -151,11 +120,18 @@ fn run_id() -> String {
 }
 
 /// Run one scenario against one subject.
-pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outcome> {
+///
+/// `external` carries a real connector's discovered resource shape; `None` means the
+/// reference connector, whose shape the harness knows.
+pub async fn run(
+    scenario: &Scenario,
+    subject: &Subject,
+    external: Option<&subject::External>,
+) -> anyhow::Result<Outcome> {
     let stack = stack::Stack::from_env()?;
     let run_id = run_id();
 
-    let names = catalog::Names::new(&stack.tenant, scenario.name, &run_id);
+    let names = catalog::Names::new(&stack.tenant, scenario.name, &run_id, external.is_some());
     let run_dir = stack
         .stack_dir
         .join("consistency")
@@ -166,16 +142,23 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
     let shim = stack.binary("consistency-shim")?;
     let capture = capture_command()?;
 
-    // The destination lives in the run directory, so it is deleted with the rest
-    // of the run's debris and two concurrent runs cannot see each other's rows.
+    // The reference connector's destination lives in the run directory, so it is deleted
+    // with the rest of the run's debris and two concurrent runs cannot see each other's
+    // rows. A real connector's config is its own and must not be edited: `path` means
+    // nothing to it, and connectors parse their configs strictly.
     let mut config = subject.config.clone();
-    config["path"] = serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
+    if external.is_none() {
+        config["path"] = serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
+    }
 
-    let subject_config = catalog::Subject {
+    let subject_config = Subject {
         connector: subject.connector.clone(),
         config,
     };
-    let workload = catalog::Workload::default();
+    let workload = match external {
+        Some(_) => catalog::Workload::remote(),
+        None => catalog::Workload::default(),
+    };
 
     let plan = catalog::Plan {
         names: &names,
@@ -185,15 +168,30 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
         run_dir: &run_dir,
         faults: &scenario.faults,
         workload: &workload,
-        standard_binding: scenario.standard_binding,
+        // A scenario's own class decides this for the reference connector. For a real
+        // subject the *subject's* class decides it: a counted channel is delta-only by
+        // definition, so handing one a merge binding would test a shape it never claimed
+        // to support, and the guard that enforces this for the reference path
+        // (`the_counter_class_never_takes_a_standard_binding`) does not reach here.
+        standard_binding: scenario.standard_binding
+            && external.map_or(true, |e| {
+                e.class != crate::reference::Class::DocumentCounter
+            }),
+        resource_shape: external.map(|e| &e.shape),
     };
 
     tracing::info!(scenario = scenario.name, %run_id, verifies = scenario.verifies, "publishing");
 
+    // The size guard watches the reference connector's destination, which is a file in the
+    // run directory. A real subject's destination is remote and unbounded by anything the
+    // harness can see, so there the watcher would poll a path that never exists.
     let destination = run_dir.join("destination.sqlite");
-    let result = tokio::select! {
-        result = execute(&stack, scenario, &names, &run_dir, &plan) => result,
-        err = watch_destination_size(&destination) => Err(err),
+    let result = match external {
+        None => tokio::select! {
+            result = execute(&stack, scenario, &names, &run_dir, &plan, external) => result,
+            err = watch_destination_size(&destination) => Err(err),
+        },
+        Some(_) => execute(&stack, scenario, &names, &run_dir, &plan, external).await,
     };
 
     // Clean up whether or not the scenario passed, so repeated runs do not
@@ -201,6 +199,35 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
     // the only record of what the shim actually did.
     if let Err(err) = stack.delete_prefix(&names.prefix).await {
         tracing::error!(%err, prefix = %names.prefix, "failed to delete the run's tasks");
+    }
+
+    // A real subject's tables outlive its specifications too, and unlike the ops journals
+    // the harness *can* reach these — through `testctl`, which calls the same
+    // `Materializer.DeleteResource` the connectors' own integration tests call. The harness
+    // has no client for an arbitrary endpoint and should not grow one.
+    //
+    // Best-effort and deliberately not fatal: a warehouse refusing a `DROP` says nothing
+    // about the connector's consistency, and letting it fail a scenario that passed would
+    // trade a real signal for a housekeeping one. It is also unconditional on the outcome,
+    // unlike the run directory kept below for inspection — a failing scenario's evidence is
+    // already in its violation report, so the table itself is not needed afterwards.
+    //
+    // Table names carry the run id, so every run would otherwise leave three per scenario in
+    // someone's warehouse, holding data nobody reads again.
+    if let Some(external) = external {
+        for (table, delta) in [
+            (catalog::TABLE_STANDARD, false),
+            (catalog::TABLE_MERGED_DELTA, true),
+            (catalog::TABLE_LOG, true),
+        ] {
+            if table == catalog::TABLE_STANDARD && !plan.standard_binding {
+                continue; // Never materialized, so never created.
+            }
+            let resource = catalog::resource_config(Some(&external.shape), &names, table, delta);
+            if let Err(err) = stack.drop_resource(external, &resource).await {
+                tracing::warn!(%err, table = %names.table(table), "could not drop the run's table");
+            }
+        }
     }
 
     // The run's ops log and stats partitions outlive its specifications, and nothing
@@ -232,9 +259,9 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
 /// Never resolves while the destination is a sane size, so it composes as the losing arm
 /// of a `select!`.
 async fn watch_destination_size(destination: &std::path::Path) -> anyhow::Error {
-    /// Roughly ten times the largest destination a passing scenario has produced, which
-    /// is enough headroom that tripping this means "runaway", not "a big run".
-    const LIMIT: u64 = 4 << 30;
+    /// 4 GiB — roughly ten times the largest destination a passing scenario has produced,
+    /// which is enough headroom that tripping this means "runaway", not "a big run".
+    const LIMIT: u64 = 4 * 1024 * 1024 * 1024;
 
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -261,16 +288,32 @@ async fn execute(
     names: &catalog::Names,
     run_dir: &std::path::Path,
     plan: &catalog::Plan<'_>,
+    external: Option<&subject::External>,
 ) -> anyhow::Result<Outcome> {
     let published = std::time::Instant::now();
     stack.publish(&catalog::build(plan)?).await?;
     tracing::info!(elapsed = ?published.elapsed(), "published");
 
-    let deadline = std::time::Duration::from_secs(180);
+    // Scaled to the subject, because every gate here counts *commits*: a remote
+    // destination takes tens of seconds per transaction, so a budget sized for a local
+    // one expires while the connector is working correctly.
+    // The external figure is measured rather than guessed: against a remote warehouse the
+    // scenarios that pass take 200-600s, and every scenario that failed at 900s failed by
+    // running out of budget mid-phase — one having committed 2 of 3 transactions, another
+    // never reaching a fault keyed on the second post-split commit. A perturbed scenario
+    // needs several times the budget of an unperturbed one, because a split doubles the
+    // shards committing to the same warehouse and recovery republishes the task.
+    let deadline = match external {
+        Some(_) => std::time::Duration::from_secs(1800),
+        None => std::time::Duration::from_secs(180),
+    };
 
-    /// Longer than the general deadline, because settling a collection means *reading*
-    /// it repeatedly and a read of a large one can take a minute under contention.
-    const FINALITY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+    // Longer than the general deadline, because settling a collection means *reading*
+    // it repeatedly and a read of a large one can take a minute under contention.
+    let finality_timeout = match external {
+        Some(_) => std::time::Duration::from_secs(2400),
+        None => std::time::Duration::from_secs(600),
+    };
 
     let trace = RunDir::new(run_dir);
 
@@ -377,7 +420,7 @@ async fn execute(
     // stack-wide, which is what makes a shared stack safe for concurrent runs.
     tracing::info!("disabling the workload to reach quiescence");
     let quiesced = std::time::Instant::now();
-    stack.publish(&catalog::quiesce(plan)?).await?;
+    stack.publish(&catalog::disable_captures(plan)?).await?;
     tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
     let connector = std::path::PathBuf::from(
@@ -395,21 +438,31 @@ async fn execute(
     // own contents stop growing, so serialising them doubled the wait for nothing.
     let read = std::time::Instant::now();
     let (merged_expected, log_expected) = tokio::try_join!(
-        stack.read_collection_when_final(&names.merged, FINALITY_TIMEOUT),
-        stack.read_collection_when_final(&names.log, FINALITY_TIMEOUT),
+        stack.read_collection_when_final(&names.merged, finality_timeout),
+        stack.read_collection_when_final(&names.log, finality_timeout),
     )?;
     let merged_expected = Expectation::from_documents(merged_expected);
     let log_expected = Expectation::from_documents(log_expected);
     tracing::info!(elapsed = ?read.elapsed(), "read the collections");
 
     let drained = std::time::Instant::now();
+    // The reference connector reads its own destination; a real one is read through
+    // `testctl`, which calls the same functions the connectors' integration tests do.
+    let via = match external {
+        Some(external) => stack::ReadVia::Testctl(external),
+        None => stack::ReadVia::Reference {
+            connector: &connector,
+            config: &plan.subject.config,
+        },
+    };
+
     let destination = drain(
         stack,
-        &connector,
-        &plan.subject.config,
-        &names.sink,
+        via,
+        names,
         (&merged_expected, &log_expected),
         plan.standard_binding,
+        external.map(|e| &e.shape),
         deadline,
     )
     .await?;
@@ -425,7 +478,33 @@ async fn execute(
     };
     let documents = bindings.log_expected.documents() + bindings.merged_expected.documents();
 
-    let (violations, exempted) = partition_exempt(invariants::check(&bindings), &scenario.exempt);
+    // Monotonicity is exempted for a subject read as a table, because the order rows come
+    // back in is not guaranteed to be the order they were stored in — not merely unobserved
+    // but unguaranteeable, since a distributed destination is free to return rows from any
+    // partition or file in any order. There is no ordering to recover: a commit timestamp
+    // ties every row of a transaction, and inventing a total order out of that would
+    // manufacture violations rather than find them.
+    //
+    // The reference connector is the exception the check was written against — its tables
+    // carry an autoincrementing `ord`, so a read replays the sequence of appends — which is
+    // why the assumption survived until a real connector was pointed at.
+    //
+    // The set-based checks — no-loss, no-duplicates, conservation and oracle agreement —
+    // carry the exactly-once claim, and none of them depends on arrival order.
+    let mut exempt = scenario.exempt.clone();
+    if external.is_some() {
+        exempt.push(Exemption {
+            invariant: Invariant::Monotonicity,
+            justification: "This subject's destination is read as a table, and the order rows are \
+                 returned in is not guaranteed to be the order they were stored in — a \
+                 distributed destination may return rows from any partition or file in any \
+                 order. Delivery order is therefore not recoverable, and the set-based \
+                 invariants carry the exactly-once claim."
+                .to_string(),
+        });
+    }
+
+    let (violations, exempted) = partition_exempt(invariants::check(&bindings), &exempt);
 
     // A failure writes down everything it judged, next to the trace.
     //
@@ -441,9 +520,15 @@ async fn execute(
 
     // Read before the run directory is cleaned up, and on every path: a passing run is
     // exactly the one where this number decides whether anything was proved.
-    let suppressed_rows = suppressed_rows(run_dir)
-        .map(|rows| rows.iter().map(|(_, n)| n).sum())
-        .unwrap_or(0);
+    let suppressed_rows = match external {
+        // The reference connector's own ledger, in its own destination. See the field.
+        None => Some(
+            suppressed_rows_of(run_dir)
+                .map(|rows| rows.iter().map(|(_, n)| n).sum())
+                .unwrap_or(0),
+        ),
+        Some(_) => None,
+    };
 
     Ok(Outcome {
         scenario: scenario.name,
@@ -456,15 +541,13 @@ async fn execute(
     })
 }
 
-/// Write what a failing run compared, so the next reader does not have to guess
-/// which side was wrong.
 /// Append rows the destination recognised as already applied, per table.
 ///
 /// Read straight from the destination rather than through the connector, because it is
 /// the connector's own bookkeeping rather than a binding's contents. A non-zero count
 /// says a document was handed to the connector twice — which the delivered rows cannot
 /// say, since suppressing the second copy is precisely what makes them look correct.
-fn suppressed_rows(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
+fn suppressed_rows_of(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
     let conn = rusqlite::Connection::open_with_flags(
         run_dir.join("destination.sqlite"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -502,7 +585,7 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
                 "log": b.log_expected.duplicated_documents,
             },
         },
-        "suppressedAppendRows": suppressed_rows(run_dir)
+        "suppressedAppendRows": suppressed_rows_of(run_dir)
             .unwrap_or_else(|err| vec![(format!("unreadable: {err:#}"), -1)]),
         "delivered": {
             "standard": &b.standard,
@@ -674,11 +757,6 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
         .count() as u64)
 }
 
-/// Nudge a failed shard back into service until it is committing again.
-///
-/// Polled rather than done once: the unassign has to land *after* the shard has
-/// reached FAILED, and a fault fires a moment before that. Retrying is simpler and
-/// more robust than trying to observe that transition.
 /// Take the task down and bring it back, for a fault that failed the whole task
 /// rather than one shard.
 ///
@@ -689,6 +767,7 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
 /// materialization tears its shards down; republishing the enabled catalog builds them
 /// again from the recovery log. A restart rather than a reschedule, and what an operator
 /// would do.
+///
 /// Deliberately does *not* wait for a primary. The caller's recovery loop is the resilient
 /// step — it unassigns until the task is committing again — so waiting here would only add
 /// a way to fail before that loop gets its turn, on the surviving shard's `expected leader
@@ -733,12 +812,43 @@ async fn recover(
     let escalate_after = timeout / 3;
     let mut restarted = false;
 
+    // How long without a commit before the task counts as stuck, and how often to look.
+    //
+    // Proportional to the subject's own transaction pace, not a constant. Unassigning is a
+    // *remedy* — it takes the shard from its reactor so a failed one is rescheduled — and
+    // applying it to a task that is merely mid-transaction interrupts work that was going
+    // to succeed. Three transaction-lengths is long enough that a connector committing on
+    // schedule is never touched, and short enough to rescue one that has genuinely died.
+    //
+    // A fixed threshold cannot do both: 20s is ample for a subject committing in
+    // milliseconds and less than one commit for a subject committing to a warehouse, which
+    // is why `materialize-databricks` was being yanked every 20s while working correctly.
+    let pace = plan.workload.max_txn;
+    let stalled_after = pace * 3;
+    let poll = std::cmp::max(std::time::Duration::from_secs(5), pace / 3);
+
+    let mut last_commits = count_commits(run)?;
+    let mut stalled_since = std::time::Instant::now();
+
     loop {
-        if count_commits(run)? >= target {
+        let commits = count_commits(run)?;
+        if commits >= target {
             return Ok(());
         }
-        if let Err(err) = stack.unassign_shards(task).await {
-            tracing::debug!(%err, %task, "unassign did not apply");
+
+        if commits != last_commits {
+            last_commits = commits;
+            stalled_since = std::time::Instant::now();
+        } else if stalled_since.elapsed() > stalled_after {
+            stalled_since = std::time::Instant::now();
+            tracing::info!(
+                %task,
+                stalled_secs = stalled_after.as_secs(),
+                "no commit within three transaction lengths; unassigning",
+            );
+            if let Err(err) = stack.unassign_shards(task).await {
+                tracing::debug!(%err, %task, "unassign did not apply");
+            }
         }
         if !restarted && started.elapsed() > escalate_after {
             restarted = true;
@@ -757,7 +867,7 @@ async fn recover(
             "{task} never resumed committing after its fault{}",
             trace_failures(run),
         );
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(poll).await;
     }
 }
 
@@ -869,18 +979,6 @@ struct Contents {
     log: Vec<invariants::Event>,
 }
 
-/// Poll the destination until it holds everything the collections do, or stops
-/// changing.
-///
-/// Quiescence is required, not merely convenient: the document-counter class
-/// appends during `Store`, so a mid-flight read would report a violation where none
-/// exists.
-///
-/// Progress is measured per binding. For the append-only binding that is its row
-/// count. For the merged binding it is the sum of `seq + 1` over its rows: sequences
-/// are contiguous from zero, so that counts the documents reduced into it — and it
-/// counts *progress* rather than correctness, since `seq` is last-write-wins and a
-/// duplicate does not inflate it.
 /// The highest sequence delivered for an account, from the standard binding when the
 /// task has one and the merged delta binding otherwise.
 ///
@@ -900,13 +998,17 @@ fn delivered_max_seq(contents: &Contents, id: i64) -> Option<i64> {
 
 async fn drain(
     stack: &stack::Stack,
-    connector: &std::path::Path,
-    config: &serde_json::Value,
-    task: &str,
+    via: stack::ReadVia<'_>,
+    names: &catalog::Names,
     (merged_expected, log_expected): (&Expectation, &Expectation),
     standard_binding: bool,
+    shape: Option<&subject::ResourceShape>,
     timeout: std::time::Duration,
 ) -> anyhow::Result<Contents> {
+    // Named exactly as the catalog named them when it built the bindings, so a read asks
+    // for the resource the connector was actually given.
+    let resource = |table: &str, delta: bool| catalog::resource_config(shape, names, table, delta);
+
     let deadline = std::time::Instant::now() + timeout;
     let mut unchanged_for = 0;
     let mut stuck_for = 0;
@@ -917,8 +1019,8 @@ async fn drain(
     /// Ten, at three seconds each, because a plateau is weak evidence and a short one
     /// is worthless: transactions land every one to two seconds, so five polls was
     /// fifteen seconds — a gap a task takes just by restarting after a fault, or by
-    /// being starved on a loaded stack. `replayed-acknowledge` was failed by exactly
-    /// that, reporting 229 undelivered documents as invariant violations.
+    /// being starved on a loaded stack. A scenario was once failed by exactly that,
+    /// reporting 229 still-undelivered documents as invariant violations.
     const QUIET_POLLS: usize = 10;
 
     /// Consecutive polls of an *unhealthy* destination going nowhere before the wait ends.
@@ -935,7 +1037,7 @@ async fn drain(
         let standard = match standard_binding {
             true => Some(
                 stack
-                    .read_destination(connector, config, catalog::TABLE_STANDARD, false)
+                    .read_destination(via, &resource(catalog::TABLE_STANDARD, false))
                     .await?,
             ),
             false => None,
@@ -944,10 +1046,10 @@ async fn drain(
         let contents = Contents {
             standard,
             merged_delta: stack
-                .read_destination(connector, config, catalog::TABLE_MERGED_DELTA, true)
+                .read_destination(via, &resource(catalog::TABLE_MERGED_DELTA, true))
                 .await?,
             log: stack
-                .read_destination(connector, config, catalog::TABLE_LOG, true)
+                .read_destination(via, &resource(catalog::TABLE_LOG, true))
                 .await?,
         };
 
@@ -999,7 +1101,7 @@ async fn drain(
         // work, and every membership-change scenario becomes flaky in the direction
         // of falsely reporting loss.
         let total = contents.log.len() + merged_delivered;
-        let healthy = stack.all_primary(task).await.unwrap_or(false);
+        let healthy = stack.all_primary(&names.sink).await.unwrap_or(false);
 
         unchanged_for = if total == previous && healthy {
             unchanged_for + 1
@@ -1085,49 +1187,6 @@ async fn drain(
 mod test {
     use super::*;
 
-    fn write(contents: &str) -> tempfile::NamedTempFile {
-        let file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        std::fs::write(file.path(), contents).unwrap();
-        file
-    }
-
-    #[test]
-    fn an_exemption_file_round_trips() {
-        let file = write(
-            r#"[
-              {
-                "invariant": "monotonicity",
-                "scope": "deltaBindings",
-                "justification": "Rows become visible before the Flow transaction commits, because this connector appends to the destination's channel during Store. Recovery skips them rather than re-sending."
-              }
-            ]"#,
-        );
-
-        let exemptions = Exemption::load(file.path()).unwrap();
-        assert_eq!(exemptions.len(), 1);
-        assert_eq!(exemptions[0].invariant, Invariant::Monotonicity);
-        assert_eq!(exemptions[0].scope, Scope::DeltaBindings);
-    }
-
-    /// The point of the compliance model is that a weaker guarantee costs an
-    /// explanation. A one-word justification would make the exemption list useless
-    /// as the map of the fleet's weaknesses it is supposed to be.
-    #[test]
-    fn an_exemption_without_a_real_justification_is_refused() {
-        let file = write(r#"[{"invariant": "no-duplicates", "justification": "wontfix"}]"#);
-
-        let err = Exemption::load(file.path()).unwrap_err().to_string();
-        assert!(err.contains("no real justification"), "{err}");
-    }
-
-    #[test]
-    fn an_unknown_invariant_is_refused_rather_than_ignored() {
-        let file = write(
-            r#"[{"invariant": "eventual-consistency", "justification": "a long enough string to pass the length check on justifications"}]"#,
-        );
-        assert!(Exemption::load(file.path()).is_err());
-    }
-
     /// Exemptions filter by invariant, and only by invariant: a connector exempt
     /// from duplicate-freedom is still held to everything else.
     #[test]
@@ -1145,7 +1204,6 @@ mod test {
         let exemptions = vec![Exemption {
             invariant: Invariant::NoDuplicates,
             justification: "at-least-once by construction".to_string(),
-            scope: Scope::Connector,
         }];
 
         let (held, exempt) = partition_exempt(violations, &exemptions);
