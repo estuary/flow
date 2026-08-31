@@ -726,7 +726,11 @@ async fn walk_materialization<C: Connectors>(
         network_ports,
         inactive_bindings,
         triggers_json,
-        created_at: crate::created_at_date(control_id),
+        created_at: crate::created_at_date(
+            live_spec.map(|s| s.created_at.as_str()),
+            control_id,
+            pub_id,
+        ),
         sync_schedule_json,
         linked_collections: Vec::new(),
     };

@@ -1,13 +1,11 @@
 //! Tests of task `created_at` stamping: built capture and materialization
-//! specs carry the task's creation date (UTC, YYYY-MM-DD), derived from the
-//! timestamp embedded in the task's control-plane Id. A first build — which
-//! runs before the control-plane Id is assigned — leaves it empty, and the
-//! task's next build stamps it. See issue #3131.
+//! specs carry the task's creation date (UTC, YYYY-MM-DD), stamped by the
+//! task's first build from the creating publication's Id, and carried forward
+//! unchanged by every build thereafter. See issue #3131.
 use crate::integration_tests::harness::{TestHarness, draft_catalog};
 
-/// A new task's first built spec has an empty created_at, its next (touch)
-/// build stamps its creation date from its control-plane Id, and the date is
-/// thereafter stable.
+/// A new task's first built spec stamps its creation date from the creating
+/// publication's Id, and later (touch) builds carry it forward unchanged.
 #[tokio::test]
 async fn created_at_is_stamped_and_stable_across_touches() {
     let mut harness = TestHarness::init("created_at_is_stamped_and_stable_across_touches").await;
@@ -50,14 +48,15 @@ async fn created_at_is_stamped_and_stable_across_touches() {
         .await;
     assert!(result.status.is_success(), "{:?}", result);
 
-    // The very first build of each task leaves created_at empty: the
-    // control-plane Id is assigned only as the publication commits, and the
-    // connector of a brand-new task assumes a current date.
+    // The very first build of each task stamps created_at from the creating
+    // publication's Id: the control-plane Id is assigned only as the
+    // publication commits, and the two are minted moments apart, so their
+    // dates agree.
     let capture = fetch_created_at(&harness, "wombats/capture").await;
-    assert_eq!("", capture.spec_created_at);
+    assert_eq!(capture.id_date(), capture.spec_created_at);
 
     let materialization = fetch_created_at(&harness, "wombats/materialize").await;
-    assert_eq!("", materialization.spec_created_at);
+    assert_eq!(materialization.id_date(), materialization.spec_created_at);
 
     harness.run_pending_controllers(None).await;
 
@@ -78,11 +77,10 @@ async fn created_at_is_stamped_and_stable_across_touches() {
         harness.run_pending_controller(name).await;
     }
 
-    // Touches re-built both specs, stamping (exactly) from the stable
-    // control-plane Id.
+    // Touches re-built both specs, carrying forward the first build's stamp.
     let touched_capture = fetch_created_at(&harness, "wombats/capture").await;
     assert_ne!(capture.last_build_id, touched_capture.last_build_id);
-    assert_eq!(touched_capture.id_date(), touched_capture.spec_created_at);
+    assert_eq!(capture.spec_created_at, touched_capture.spec_created_at);
 
     let touched_materialization = fetch_created_at(&harness, "wombats/materialize").await;
     assert_ne!(
@@ -90,7 +88,7 @@ async fn created_at_is_stamped_and_stable_across_touches() {
         touched_materialization.last_build_id
     );
     assert_eq!(
-        touched_materialization.id_date(),
+        materialization.spec_created_at,
         touched_materialization.spec_created_at
     );
 }
@@ -146,6 +144,59 @@ async fn created_at_is_backfilled_by_touch_publications() {
 
     let backfilled = fetch_created_at(&harness, "yaks/capture").await;
     assert_eq!(backfilled.id_date(), backfilled.spec_created_at);
+}
+
+/// A stamped `createdAt` is immutable: a re-build carries it forward verbatim
+/// rather than re-deriving it, even when it disagrees with the dates embedded
+/// in the task's Ids.
+#[tokio::test]
+async fn created_at_is_immutable_once_stamped() {
+    let mut harness = TestHarness::init("created_at_is_immutable_once_stamped").await;
+    let user_id = harness.setup_tenant("marmots").await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "marmots/capture": {
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "name": "colonies" }, "target": "marmots/colonies" }
+                ]
+            },
+        },
+        "collections": {
+            "marmots/colonies": {
+                "schema": {
+                    "type": "object",
+                    "properties": { "id": { "type": "string" } }
+                },
+                "key": ["/id"]
+            },
+        },
+    }));
+    let result = harness
+        .user_publication(user_id, "initial publication", draft)
+        .await;
+    assert!(result.status.is_success(), "{:?}", result);
+    harness.run_pending_controllers(None).await;
+
+    // Plant a stamp which disagrees with the dates of the task's Ids, and
+    // make a periodic touch come due.
+    sqlx::query!(
+        r#"update live_specs set
+            built_spec = jsonb_set(built_spec::jsonb, '{createdAt}', '"2021-03-04"')::json,
+            updated_at = now() - '21days'::interval
+        where catalog_name = 'marmots/capture'
+        returning 1 as "must_exist!: bool";"#,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+    harness.run_pending_controller("marmots/capture").await;
+
+    let touched = fetch_created_at(&harness, "marmots/capture").await;
+    assert_eq!("2021-03-04", touched.spec_created_at);
 }
 
 /// Discover requests carry the task's creation date when it exists — the

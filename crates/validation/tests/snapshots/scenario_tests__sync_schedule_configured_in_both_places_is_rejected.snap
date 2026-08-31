@@ -160,7 +160,7 @@ Outcome {
                 network_ports: [],
                 inactive_bindings: [],
                 triggers_json: b"",
-                created_at: "",
+                created_at: "2029-06-12",
                 sync_schedule_json: b"{\"baseInterval\":\"15m\"}",
                 linked_collections: [],
             },

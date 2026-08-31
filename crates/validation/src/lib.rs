@@ -638,15 +638,16 @@ where
 
 // The task creation date (UTC, YYYY-MM-DD) which is stamped into built task
 // specs, resolving connector feature-flag defaults as-of task creation.
-// A task's creation time is embedded in its control-plane Id. A task being
-// created has no control-plane Id yet — it's assigned only as the publication
-// commits — and its first build leaves the date empty: the task is brand new,
-// and its connector assumes a current date. The task's next build stamps it.
-fn created_at_date(control_id: models::Id) -> String {
-    if control_id.is_zero() {
-        String::new()
-    } else {
-        control_id.timestamp().date_naive().to_string()
+// Once stamped it's immutable: later builds carry it forward, so that a
+// connector's flag resolution can never change under a running task.
+// A build which must stamp it fresh uses the timestamp embedded in the
+// task's control-plane Id — or in the publication's Id during the task's
+// first build, which runs before its control-plane Id is assigned.
+fn created_at_date(prior: Option<&str>, control_id: models::Id, pub_id: models::Id) -> String {
+    match prior {
+        Some(date) if !date.is_empty() => date.to_string(),
+        _ if !control_id.is_zero() => control_id.timestamp().date_naive().to_string(),
+        _ => pub_id.timestamp().date_naive().to_string(),
     }
 }
 

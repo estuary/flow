@@ -1174,9 +1174,9 @@ type CaptureSpec struct {
 	// Salt used for redacting sensitive fields in captured documents.
 	RedactSalt []byte `protobuf:"bytes,10,opt,name=redact_salt,json=redactSalt,proto3" json:"redact_salt,omitempty"`
 	// Date on which this task was created, as a UTC date in RFC 3339
-	// "full-date" format (YYYY-MM-DD). Empty during a task's first build,
-	// before its creation is committed: the task is brand new, and a
-	// connector should assume a current date.
+	// "full-date" format (YYYY-MM-DD). Stamped when the task is first built,
+	// and immutable thereafter. May be empty in older builds which predate
+	// this field, and a connector should then assume a current date.
 	CreatedAt string `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Table of collections referenced by `collection_index` of this capture's
 	// bindings, in place of an inlined `collection` (the "indirect" form).
@@ -1312,9 +1312,9 @@ type MaterializationSpec struct {
 	// JSON-encoded trigger configurations for this materialization.
 	TriggersJson encoding_json.RawMessage `protobuf:"bytes,10,opt,name=triggers_json,json=triggers,proto3,casttype=encoding/json.RawMessage" json:"triggers_json,omitempty"`
 	// Date on which this task was created, as a UTC date in RFC 3339
-	// "full-date" format (YYYY-MM-DD). Empty during a task's first build,
-	// before its creation is committed: the task is brand new, and a
-	// connector should assume a current date.
+	// "full-date" format (YYYY-MM-DD). Stamped when the task is first built,
+	// and immutable thereafter. May be empty in older builds which predate
+	// this field, and a connector should then assume a current date.
 	CreatedAt string `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// JSON-encoded sync schedule for this materialization, if configured.
 	// Decoded as a models::SyncSchedule and enforced by runtime-next to pace
