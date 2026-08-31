@@ -73,9 +73,6 @@ struct Counters {
     seen: BTreeMap<Trigger, u64>,
     /// Documents stored per binding since the last `StartCommit`.
     stored: Vec<u64>,
-    /// `Acknowledged` responses still owed to a `Replay` action, to be
-    /// swallowed rather than forwarded.
-    swallow_acknowledged: u32,
     /// Live-instance `StartedCommit`s remaining before a frozen zombie thaws;
     /// `None` when no zombie is frozen.
     thaw_countdown: Option<u64>,
@@ -86,7 +83,6 @@ impl Counters {
         Self {
             seen: BTreeMap::new(),
             stored: Vec::new(),
-            swallow_acknowledged: 0,
             thaw_countdown: None,
         }
     }
@@ -130,11 +126,25 @@ struct Instance {
     stdout: Option<async_process::ChildStdio>,
 }
 
+/// The value `materialize-boilerplate` expects in `FLOW_RUNTIME_CODEC`.
+///
+/// The shim relays between runtime and connector without transcoding, so both sides must
+/// use one codec. A connector built on the boilerplate reads this variable and defaults to
+/// protobuf when it is unset — which is why every real connector failed here while the
+/// reference one, which hardcodes JSON, did not.
+fn codec_name(codec: connector_init::Codec) -> &'static str {
+    match codec {
+        connector_init::Codec::Proto => "proto",
+        connector_init::Codec::Json => "json",
+    }
+}
+
 impl Instance {
     /// Spawn `command`, inheriting stderr so the connector's own logs reach the
     /// runtime unaltered — the shim is transparent to logging.
-    fn spawn(command: &[String]) -> anyhow::Result<Self> {
+    fn spawn(command: &[String], codec: connector_init::Codec) -> anyhow::Result<Self> {
         let mut child: async_process::Child = connector_init::rpc::new_command(command)
+            .env("FLOW_RUNTIME_CODEC", codec_name(codec))
             .stdin(async_process::Stdio::piped())
             .stdout(async_process::Stdio::piped())
             .stderr(async_process::Stdio::inherit())
@@ -229,11 +239,21 @@ impl Shim {
         out
     }
 
+    /// The zombie rule, if one is declared and has not already fired.
+    ///
+    /// The fired marker is consulted for the same reason a crash consults it: this runs on
+    /// every `Open`, and a session can open again for reasons of its own. Without the check,
+    /// a live instance dying *after* the zombie had already raced would bring up a second
+    /// zombie fed by the runtime for the rest of the run. Fencing makes that survivable for
+    /// the one class this scenario applies to, which is exactly why it would go unnoticed.
     fn zombie_action(&self) -> Option<FaultRule> {
         self.faults
             .iter()
-            .find(|r| matches!(r.action, Action::Zombie { .. }))
-            .cloned()
+            .enumerate()
+            .find(|(idx, r)| {
+                matches!(r.action, Action::Zombie { .. }) && !self.run.fired(*idx).exists()
+            })
+            .map(|(_, r)| r.clone())
     }
 
     /// Proxy one session (or one unary RPC) between our stdio and the connector,
@@ -241,7 +261,7 @@ impl Shim {
     pub async fn run(self, command: Vec<String>) -> anyhow::Result<std::process::ExitStatus> {
         let shim = Arc::new(self);
 
-        let mut live = Instance::spawn(&command)?;
+        let mut live = Instance::spawn(&command, shim.codec)?;
         let live_pid = live.pid();
         let live_stdout = live.stdout.take().expect("stdout was piped");
         let live_stdin = live.stdin;
@@ -293,11 +313,11 @@ struct Zombie {
     /// Resolves once the zombie has written its first response.
     ///
     /// The live instance's `Open` waits on this, and that wait is what makes the
-    /// scenario deterministic rather than a coin flip: both instances fence on
-    /// `Open`, so whichever reaches the destination first holds the *newer* nonce.
-    /// If the live instance won that race it would be the stale one, its commits
-    /// would be refused, and the scenario would be testing the opposite of what it
-    /// claims.
+    /// scenario deterministic rather than a coin flip: both instances fence on `Open`,
+    /// so whichever reaches the destination *second* holds the newer nonce. The zombie
+    /// is handed `Open` first precisely so that it ends up holding the older one. If the
+    /// live instance opened first it would be the stale one, its commits would be
+    /// refused, and the scenario would be testing the opposite of what it claims.
     opened: Option<tokio::sync::oneshot::Receiver<()>>,
     /// Requests to replay on thaw. Buffered rather than written straight
     /// through: a SIGSTOPped process stops draining its stdin, and a blocking
@@ -311,12 +331,16 @@ struct Zombie {
 }
 
 impl Zombie {
-    fn spawn(command: &[String], rule: FaultRule) -> anyhow::Result<Self> {
+    fn spawn(
+        command: &[String],
+        rule: FaultRule,
+        codec: connector_init::Codec,
+    ) -> anyhow::Result<Self> {
         let Action::Zombie { thaw_after_commits } = rule.action else {
             unreachable!("caller matched a Zombie action")
         };
 
-        let mut instance = Instance::spawn(command)?;
+        let mut instance = Instance::spawn(command, codec)?;
         let mut stdout = instance.stdout.take().expect("stdout was piped");
         let (opened_tx, opened_rx) = tokio::sync::oneshot::channel();
 
@@ -480,9 +504,11 @@ where
             shim.codec.encode(&req, &mut encoded);
 
             let Some(trigger) = request_trigger(&req) else {
-                // Spec / Validate / Apply pass through untouched, and get no
-                // zombie: they are separate invocations of the shim, and a second
-                // process re-running someone's DDL buys the suite nothing.
+                // Spec / Validate / Apply pass through untouched, and get no zombie: a
+                // second process re-running someone's DDL buys the suite nothing. Note they
+                // are not all separate sessions — under runtime-next only `Validate` is,
+                // while `Spec` is the first request of the session that later gets `Open`
+                // and `Apply` runs over shard zero's same stream.
                 to_connector.write_all(&encoded).await?;
                 to_connector.flush().await?;
                 continue;
@@ -508,7 +534,7 @@ where
             // the one holding the older.
             if trigger == Trigger::Open {
                 if let Some(rule) = shim.zombie_action() {
-                    let mut z = Zombie::spawn(&command, rule)?;
+                    let mut z = Zombie::spawn(&command, rule, shim.codec)?;
                     shim.zombie_pid
                         .store(z.instance.pid(), std::sync::atomic::Ordering::Relaxed);
 
@@ -552,7 +578,6 @@ where
                 shim.trace.log(Event::Phase { trigger, nth });
             }
 
-            let mut replay = 0;
             for (idx, action) in shim.matched(trigger, nth) {
                 shim.trace.log(Event::Fault {
                     rule: idx,
@@ -563,10 +588,6 @@ where
                     Action::Crash => crash(&shim, live_pid),
                     Action::Stall { millis } => {
                         tokio::time::sleep(std::time::Duration::from_millis(millis)).await
-                    }
-                    Action::Replay { times } => {
-                        replay = times;
-                        shim.counters.lock().unwrap().swallow_acknowledged += times;
                     }
                     Action::Zombie { .. } => {
                         if let Some(z) = &mut zombie {
@@ -594,9 +615,6 @@ where
             }
 
             to_connector.write_all(&encoded).await?;
-            for _ in 0..replay {
-                to_connector.write_all(&encoded).await?;
-            }
             to_connector.flush().await?;
         }
     }
@@ -630,13 +648,6 @@ async fn pump_responses(
             let nth = {
                 let mut counters = shim.counters.lock().unwrap();
 
-                // A replayed Acknowledge produces extra Acknowledgeds. The
-                // runtime expects exactly one per transaction, so the
-                // duplicates are swallowed here rather than confusing it.
-                if trigger == Trigger::Acknowledged && counters.swallow_acknowledged > 0 {
-                    counters.swallow_acknowledged -= 1;
-                    continue;
-                }
                 if trigger == Trigger::StartedCommit {
                     if let Some(remaining) = &mut counters.thaw_countdown {
                         *remaining = remaining.saturating_sub(1);
@@ -662,7 +673,7 @@ async fn pump_responses(
                         tokio::time::sleep(std::time::Duration::from_millis(millis)).await
                     }
                     // Only meaningful against a request.
-                    Action::Replay { .. } | Action::Zombie { .. } => {}
+                    Action::Zombie { .. } => {}
                 }
             }
 

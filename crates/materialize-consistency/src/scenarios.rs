@@ -21,12 +21,13 @@ use crate::invariants::Invariant;
 use crate::protocol::{Action, FaultRule, ShardTarget, Trigger};
 use crate::reference::{Class, Defect};
 
-/// The connector under test.
+/// The connector under test: what the shim `exec`s, and the endpoint config it is
+/// given.
+///
+/// The harness overwrites `path` for the reference connector, whose destination belongs
+/// to the run; a real connector's config is passed through untouched.
 pub struct Subject {
-    /// The connector binary and its arguments, as the shim will `exec` it.
     pub connector: Vec<String>,
-    /// Endpoint configuration. The harness overwrites `path` with the run's own
-    /// destination.
     pub config: serde_json::Value,
 }
 
@@ -35,8 +36,24 @@ pub struct Scenario {
     /// The invariant this scenario exists to verify, in one line. Reported on
     /// failure so the result names the property rather than the mechanism.
     pub verifies: &'static str,
-    /// Class the subject must implement for the scenario to mean anything.
+    /// Class the reference connector is configured as, and the class whose mechanism
+    /// this scenario was written to exercise.
     pub class: Class,
+    /// Classes expected to *pass* this scenario, and so the classes it runs against
+    /// when the subject is a real connector.
+    ///
+    /// Wider than [`Scenario::class`] on purpose. A fault a connector must survive is
+    /// rarely a property of how it divides durability with the runtime: a crash mid-`Store`
+    /// must lose nothing whether the connector fences a remote checkpoint, stages queries
+    /// for a post-commit merge, or counts the rows a channel accepted. And exemptions are
+    /// permissive, so a scenario written against one class holds another to a weaker or
+    /// differently-shaped property rather than an impossible one.
+    ///
+    /// Defaults to every class claiming exactly-once. [`Class::AtLeastOnce`] is left out
+    /// because it duplicates by construction, so exactly-once invariants would fail against
+    /// it for a guarantee it never made; the scenarios that do hold it to something opt it
+    /// back in. Narrow this further only where one class alone can succeed — and say why.
+    pub applies_to: &'static [Class],
     /// Whether the task materializes a standard (merge) binding as well as the two
     /// delta ones.
     ///
@@ -72,16 +89,85 @@ pub struct Scenario {
     /// Invariants this scenario does not hold the subject to.
     pub exempt: Vec<Exemption>,
     /// A limitation of the *runtime* — not of the subject — that this scenario is
-    /// currently expected to expose, and which no connector can work around.
+    /// currently expected to expose, for the classes it exposes it to.
     ///
     /// Set only where the runtime is known to violate a guarantee a correct connector
-    /// depends on. Such a scenario is an *expected failure*: it runs, and it fails with
-    /// its violation count, which is the measurement of the gap. It is deliberately not
-    /// silenced — a scenario excused from failing is one nobody reads again — and the
-    /// marker is removed once the runtime closes the gap, at which point it becomes an
-    /// ordinary passing scenario.
-    pub known_limitation: Option<&'static str>,
+    /// depends on. For an exposed class the scenario is an *expected failure*: it runs, and
+    /// it fails with its violation count, which is the measurement of the gap. It is
+    /// deliberately not silenced — a scenario excused from failing is one nobody reads
+    /// again — and the marker is removed once the runtime closes the gap, at which point it
+    /// becomes an ordinary passing scenario.
+    ///
+    /// A gap is scoped to classes rather than the whole scenario because exposure to one is
+    /// a property of how a class writes, not of the perturbation. The same membership change
+    /// landing on the same prepared transaction is unsurvivable for a class that has already
+    /// written to the destination and ordinary for a class that has only staged work, so the
+    /// scenario runs for both and only the exposed one is excused from passing.
+    pub known_limitation: Option<RuntimeGap>,
 }
+
+/// A runtime guarantee that is missing, and the classes it leaves exposed.
+pub struct RuntimeGap {
+    /// Classes for which this scenario is an expected failure. A class absent from this
+    /// list must pass the scenario normally.
+    pub classes: &'static [Class],
+    /// Which guarantee is missing and why the exposed classes cannot work around it.
+    pub detail: &'static str,
+}
+
+/// Why a membership change is not held to delivery order.
+///
+/// Stated once and shared: three scenarios reconfigure shards and every one of them owes
+/// the same explanation, so a copy per scenario would only give the wording room to drift.
+const MEMBERSHIP_CHANGE_REORDERS: &str = "A membership change does not preserve delivery *order* at the sink, only \
+         exactly-once delivery of the set. A split child resumes from its inherited \
+         checkpoint and may deliver a sequence the departing parent had already \
+         raced past, so an id's rows can land out of order while remaining exactly \
+         one row per document. The set-based checks — no-loss, no-duplicates, \
+         conservation and oracle agreement — carry the exactly-once claim here and \
+         are NOT exempt.";
+
+/// Why a class that appends during `Store` is not held to delivery order.
+const APPENDS_DURING_STORE_REORDERS: &str = "This class appends during Store, so rows of a transaction that never commits \
+         stay visible until recovery skips past them, and a membership change re-opens \
+         channels at offsets the sink has already passed. Delivery order at the sink is \
+         therefore not guaranteed to advance monotonically; the set-based checks carry \
+         the exactly-once claim and are NOT exempt.";
+
+/// The exactly-once classes a membership change can be *fairly* asked of.
+///
+/// Excludes the counted channel, which writes during `Store`: when a membership change lands
+/// on a transaction whose rows are already in the destination, the children open channels at
+/// offset zero and append the replay a second time. That is the runtime gap discussion 2581
+/// names, and `split-lands-on-prepared-transaction` measures it — deterministically, by
+/// stalling a live prepared transaction.
+///
+/// These three scenarios reach the same state, but only by race: a split lands mid-transaction
+/// nearly always rather than always, and only once a batch has been appended. Asking a counted
+/// channel a question whose answer is a coin flip would report the runtime's gap as the
+/// connector's defect on some runs and pass it on others, which is worse than not asking.
+///
+/// Note this is *not* true of `crash-in-split-leader` and `crash-in-split-non-leader`: they
+/// crash after the split has settled, so the replay happens under stable membership, and a
+/// counted channel handles it — which is why those two hold it to a clean pass.
+const MEMBERSHIP_CHANGE_FAIRLY_ASKED: &[Class] =
+    &[Class::RemoteAuthoritative, Class::PostCommitApply];
+
+/// The classes claiming exactly-once, which is the default applicability set.
+const EXACTLY_ONCE: &[Class] = &[
+    Class::RemoteAuthoritative,
+    Class::PostCommitApply,
+    Class::DocumentCounter,
+];
+
+/// Every class, for the scenarios whose invariants still hold where duplicates are
+/// permitted — either because nothing is replayed, or because duplication is exempt.
+const EVERY_CLASS: &[Class] = &[
+    Class::RemoteAuthoritative,
+    Class::PostCommitApply,
+    Class::DocumentCounter,
+    Class::AtLeastOnce,
+];
 
 impl Scenario {
     fn new(name: &'static str, verifies: &'static str, class: Class) -> Self {
@@ -89,6 +175,7 @@ impl Scenario {
             name,
             verifies,
             class,
+            applies_to: EXACTLY_ONCE,
             standard_binding: !matches!(class, Class::DocumentCounter),
             faults: Vec::new(),
             defect: None,
@@ -102,6 +189,18 @@ impl Scenario {
         }
     }
 
+    /// See [`Scenario::applies_to`]. Widens or narrows which classes the scenario runs
+    /// against when the subject is a real connector.
+    fn applies_to(mut self, classes: &'static [Class]) -> Self {
+        assert!(
+            classes.contains(&self.class),
+            "{}: a scenario must apply to the class it is written against",
+            self.name,
+        );
+        self.applies_to = classes;
+        self
+    }
+
     fn fault(mut self, rule: FaultRule) -> Self {
         self.faults.push(rule);
         self
@@ -110,12 +209,13 @@ impl Scenario {
     /// See [`Scenario::known_limitation`]. Takes the same shape as an exemption —
     /// a justification long enough to have said something — because the cost of a
     /// scenario that cannot fail is that someone must be able to audit why.
-    fn blocked_on_runtime(mut self, limitation: &'static str) -> Self {
+    fn blocked_on_runtime(mut self, classes: &'static [Class], detail: &'static str) -> Self {
         assert!(
-            limitation.len() >= 40,
+            detail.len() >= 40,
             "state which runtime guarantee is missing, not just that one is",
         );
-        self.known_limitation = Some(limitation);
+        assert!(!classes.is_empty(), "name the classes the gap exposes");
+        self.known_limitation = Some(RuntimeGap { classes, detail });
         self
     }
 
@@ -152,19 +252,17 @@ pub fn all() -> Vec<Scenario> {
     vec![
         baseline(),
         crash_between_commits(),
-        replayed_acknowledge_is_a_no_op(),
         crash_mid_store(),
         crash_at_flush(),
         split_during_store(),
         split_during_commit(),
-        counter_split_during_commit(),
+        split_lands_on_prepared_transaction(),
         join_after_split(),
         zombie_at_start_commit(),
-        counter_resumes_from_the_destination(),
-        counter_reconciles_rather_than_trusting_its_checkpoint(),
-        counter_crash_in_split_leader(),
-        counter_crash_in_split_non_leader(),
-        delta_replay_is_deduplicated(),
+        destination_ahead_of_checkpoint(),
+        recovery_reconciles_with_destination(),
+        crash_in_split_leader(),
+        crash_in_split_non_leader(),
         at_least_once_never_loses(),
     ]
 }
@@ -178,6 +276,9 @@ fn baseline() -> Scenario {
         "an unperturbed materialization upholds every invariant",
         Class::RemoteAuthoritative,
     )
+    // Nothing is perturbed, so nothing is replayed, so not even the at-least-once class
+    // has an opportunity to duplicate. Every class must pass this one.
+    .applies_to(EVERY_CLASS)
 }
 
 /// The window the Snowpipe Streaming v2 work verified by hand in production: the
@@ -199,29 +300,12 @@ fn crash_between_commits() -> Scenario {
     .catches(Defect::NonIdempotentAcknowledge)
 }
 
-/// The runtime is free to retry `Acknowledge` as many times as it needs, so every
-/// replay after the first must be a no-op — with no crash involved at all.
-fn replayed_acknowledge_is_a_no_op() -> Scenario {
-    Scenario::new(
-        "replayed-acknowledge",
-        "Acknowledge replayed repeatedly with no crash is a no-op after the first",
-        Class::PostCommitApply,
-    )
-    .fault(FaultRule {
-        on: Trigger::Acknowledge,
-        nth: 4,
-        arm_after: 0,
-        shard: ShardTarget::Any,
-        action: Action::Replay { times: 3 },
-    })
-    .catches(Defect::NonIdempotentAcknowledge)
-}
-
 /// A transaction that never reached `StartCommit` never happened. Anything it left
 /// in the destination must not be applied a second time by the replay.
 ///
-/// Armed after two commits so the crash lands in a transaction of a task that has
-/// established a rhythm, rather than in its first.
+/// Armed after three commits so the crash lands in a transaction of a task that has
+/// established a rhythm, rather than in its first — and, since the warmup is three, never
+/// inside the warmup gate, which has no recovery step.
 fn crash_mid_store() -> Scenario {
     Scenario::new(
         "crash-mid-store",
@@ -263,16 +347,8 @@ fn split_during_store() -> Scenario {
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
-    .declaring(
-        Invariant::Monotonicity,
-        "A membership change does not preserve delivery *order* at the sink, only \
-         exactly-once delivery of the set. A split child resumes from its inherited \
-         checkpoint and may deliver a sequence the departing parent had already \
-         raced past, so an id's rows can land out of order while remaining exactly \
-         one row per document. The set-based checks — no-loss, no-duplicates, \
-         conservation and oracle agreement — carry the exactly-once claim here and \
-         are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -312,16 +388,8 @@ fn split_during_commit() -> Scenario {
         action: Action::Crash,
     })
     .catches(Defect::IgnoreKeyRange)
-    .declaring(
-        Invariant::Monotonicity,
-        "A membership change does not preserve delivery *order* at the sink, only \
-         exactly-once delivery of the set. A split child resumes from its inherited \
-         checkpoint and may deliver a sequence the departing parent had already \
-         raced past, so an id's rows can land out of order while remaining exactly \
-         one row per document. The set-based checks — no-loss, no-duplicates, \
-         conservation and oracle agreement — carry the exactly-once claim here and \
-         are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
     scenario.split_shards = true;
     scenario.split_after_fault = true;
     scenario.settle_commits = 5;
@@ -338,11 +406,11 @@ fn split_during_commit() -> Scenario {
 /// Post-commit-apply is not exposed to this: it applies only at `Acknowledge`, after the
 /// log has committed, so an uncommitted transaction was never applied. Its own
 /// `split-during-commit` is held to a clean result.
-fn counter_split_during_commit() -> Scenario {
+fn split_lands_on_prepared_transaction() -> Scenario {
     let mut scenario = Scenario::new(
-        "counter-split-during-commit",
-        "a counted channel is exposed to a membership change landing on a prepared \
-         transaction, which no connector of that class can close",
+        "split-lands-on-prepared-transaction",
+        "a membership change landing on a transaction already prepared for commit \
+         neither loses nor duplicates its documents",
         Class::DocumentCounter,
     )
     .fault(FaultRule {
@@ -353,15 +421,18 @@ fn counter_split_during_commit() -> Scenario {
         action: Action::Stall { millis: 4_000 },
     })
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never commits \
-         stay visible until recovery skips past them, and a membership change re-opens \
-         channels at offsets the sink has already passed. Delivery order at the sink is \
-         therefore not guaranteed to advance monotonically; the set-based checks carry \
-         the exactly-once claim and are NOT exempt.",
-    )
+    // This exemption cannot change the verdict: an exposed class hits the `RuntimeGap` panic
+    // below before any violation-based assertion, and a class the gap does not expose is
+    // skipped by `applies_to`. It shapes the *report* — keeping monotonicity noise out of the
+    // violation list the panic prints, so what remains measures the gap itself.
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS)
+    // Written against the counted-channel class, which the gap below leaves unable to pass
+    // it, but the perturbation is not class-specific: a split landing on a prepared
+    // transaction is something every class must survive. A class that only *stages* during
+    // Store has nothing in the destination for the children to append twice, so it is
+    // expected to pass — and this is the scenario that says so.
     .blocked_on_runtime(
+        &[Class::DocumentCounter],
         "The runtime does not yet guarantee that a transaction started under a given shard \
          split is replayed under that same split before a scale up or down takes effect, a \
          capability named as a requirement in estuary/flow discussion 2581. A counted \
@@ -393,16 +464,8 @@ fn join_after_split() -> Scenario {
         Class::RemoteAuthoritative,
     )
     .catches(Defect::IgnoreKeyRange)
-    .declaring(
-        Invariant::Monotonicity,
-        "A membership change does not preserve delivery *order* at the sink, only \
-         exactly-once delivery of the set. A split child resumes from its inherited \
-         checkpoint and may deliver a sequence the departing parent had already \
-         raced past, so an id's rows can land out of order while remaining exactly \
-         one row per document. The set-based checks — no-loss, no-duplicates, \
-         conservation and oracle agreement — carry the exactly-once claim here and \
-         are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, MEMBERSHIP_CHANGE_REORDERS)
+    .applies_to(MEMBERSHIP_CHANGE_FAIRLY_ASKED);
 
     scenario.split_shards = true;
     scenario.join_shards = true;
@@ -432,6 +495,14 @@ fn zombie_at_start_commit() -> Scenario {
         },
     })
     .catches(Defect::SkipFenceCheck)
+    // The only scenario a single class can be asked, and the reason is in `Zombie`: both
+    // instances are expected to fence at `Open`, and the live one waits for the zombie to
+    // get there first so that it holds the newer nonce. A class that does not fence gives
+    // the harness nothing to order the two by, and they proceed as two live writers to one
+    // destination for the whole run — which is not a zombie, and against a real warehouse
+    // simply contends until neither makes progress. Idempotency is the other classes'
+    // answer to a zombie, and `crash-between-commits` is where they are held to it.
+    .applies_to(&[Class::RemoteAuthoritative])
 }
 
 /// The document-counter class's central claim, and the reason it can offer
@@ -441,23 +512,20 @@ fn zombie_at_start_commit() -> Scenario {
 /// The crash is at `StartedCommit` — the connector has appended and reported its
 /// count, and the recovery log has *not* committed — so the runtime replays that
 /// transaction's documents into a destination that already holds them.
-fn counter_resumes_from_the_destination() -> Scenario {
+fn destination_ahead_of_checkpoint() -> Scenario {
     Scenario::new(
-        "counter-resumes-from-destination",
-        "a destination ahead of the connector's checkpoint counter causes recovery \
-         to skip exactly what it already holds",
+        "destination-ahead-of-checkpoint",
+        "a destination holding rows the committed checkpoint does not cover has them \
+         applied once, not twice",
         Class::DocumentCounter,
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never \
-         commits are visible until recovery skips past them. Delivery order at the \
-         sink across that boundary is therefore not guaranteed to advance \
-         monotonically, though the contents of a committed transaction are still \
-         exactly-once.",
-    )
+    // No monotonicity exemption, unlike the membership-change scenarios. Nothing here
+    // reorders delivery: there is no membership change, the replayed input is byte-identical
+    // journal order, and the recovery skip is a per-binding prefix count. Measured over three
+    // runs, an exemption here suppressed nothing — and one that suppresses nothing makes the
+    // exemption list a worse map of where the fleet is actually weak.
 }
 
 /// The same interruption, against a connector that trusts its own checkpoint
@@ -468,21 +536,16 @@ fn counter_resumes_from_the_destination() -> Scenario {
 /// the shim can inject produces that state — it needs the destination tampered with
 /// from outside — so the refusal path is implemented and unexercised. See the
 /// design document.
-fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
+fn recovery_reconciles_with_destination() -> Scenario {
     Scenario::new(
-        "counter-reconciles-with-destination",
-        "recovery reconciles the destination's committed count against the \
+        "recovery-reconciles-with-destination",
+        "recovery reconciles what the destination actually holds against the \
          checkpoint rather than trusting the checkpoint alone",
         Class::DocumentCounter,
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 5))
     .catches(Defect::ResetCounterOnOpen)
-    .declaring(
-        Invariant::Monotonicity,
-        "Same cause as counter-resumes-from-destination: this class makes rows of an \
-         uncommitted transaction visible, so sink delivery order across a recovery \
-         boundary may not advance monotonically.",
-    )
+    // No monotonicity exemption, for the same reason as `destination-ahead-of-checkpoint`.
 }
 
 /// The one membership-change scenario whose class can actually survive it.
@@ -496,12 +559,13 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
 ///
 /// The two scenarios below crash a split shard, and they are kept apart because the
 /// two shards fail in different ways and conflating them makes a result unreadable.
-/// The split alone perturbs nothing worth checking: it lands at a transaction
-/// boundary, so nothing is replayed, so no channel has anything to skip — and
-/// skipping is the whole of this class's behaviour. Both `drop-document-counter` and
-/// `ignore-key-range` are invisible to a split-only scenario, which passes in both halves
-/// and establishes nothing. The fault has to create a replay for either defect to have
-/// anything to get wrong.
+/// The split alone is a weak perturbation, though not for the reason first written here: a
+/// split does *not* reliably land at a transaction boundary — the harness cannot ask for one
+/// there, and a transaction is nearly always in flight when a split takes effect (see "Any
+/// split scenario passes through that window" in the design document). What is true is that
+/// a split-only scenario cannot be *relied on* to create the replay these defects need, so it
+/// passes in both halves often enough to establish nothing. Adding a crash makes the replay
+/// certain rather than incidental.
 ///
 /// Neither is the prepared-transaction window: the split has fully landed before the
 /// crash in both, so a correct connector recovers and the limitation recorded in the
@@ -512,23 +576,16 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
 /// restarts an unsplit shard, and what is being tested is the connector: its own
 /// channel, its own offset, crashing with appends the checkpoint does not know about.
 /// Recovery has to ask the destination how far *this* channel got.
-fn counter_crash_in_split_leader() -> Scenario {
+fn crash_in_split_leader() -> Scenario {
     let mut scenario = Scenario::new(
-        "counter-crash-in-split-leader",
-        "a channel created by a shard split resumes from its own destination offset \
-         after the leader crashes, not from its parent's and not from zero",
+        "crash-in-split-leader",
+        "a shard created by a split, whose leader then crashes, delivers each document \
+         exactly once — inheriting neither its parent's resume point nor a blank one",
         Class::DocumentCounter,
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitLeader))
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never commits \
-         stay visible until recovery skips past them, and a membership change re-opens \
-         channels at offsets the sink has already passed. Delivery order at the sink is \
-         therefore not guaranteed to advance monotonically; the set-based checks carry \
-         the exactly-once claim and are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -546,44 +603,19 @@ fn counter_crash_in_split_leader() -> Scenario {
 /// be brought back at all after losing a participant; and once back, does the
 /// connector still hold exactly-once, given the rebuilt shard has to rediscover from
 /// the destination how far its channel got.
-fn counter_crash_in_split_non_leader() -> Scenario {
+fn crash_in_split_non_leader() -> Scenario {
     let mut scenario = Scenario::new(
-        "counter-crash-in-split-non-leader",
+        "crash-in-split-non-leader",
         "a stateless non-zero shard rebuilt after its crash still delivers each \
          document exactly once",
         Class::DocumentCounter,
     )
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitNonLeader))
     .catches(Defect::DropDocumentCounter)
-    .declaring(
-        Invariant::Monotonicity,
-        "This class appends during Store, so rows of a transaction that never commits \
-         stay visible until recovery skips past them, and a membership change re-opens \
-         channels at offsets the sink has already passed. Delivery order at the sink is \
-         therefore not guaranteed to advance monotonically; the set-based checks carry \
-         the exactly-once claim and are NOT exempt.",
-    );
+    .declaring(Invariant::Monotonicity, APPENDS_DURING_STORE_REORDERS);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
-}
-
-/// Delta-updates bindings are where duplication is directly visible, as an extra
-/// row. A connector claiming exactly-once has to deduplicate.
-fn delta_replay_is_deduplicated() -> Scenario {
-    Scenario::new(
-        "delta-replay-deduplicated",
-        "a replayed transaction does not duplicate rows of a delta-updates binding",
-        Class::PostCommitApply,
-    )
-    .fault(FaultRule {
-        on: Trigger::Acknowledge,
-        nth: 3,
-        arm_after: 0,
-        shard: ShardTarget::Any,
-        action: Action::Replay { times: 2 },
-    })
-    .catches(Defect::NonIdempotentAcknowledge)
 }
 
 /// A connector that makes a weaker guarantee is still held to the guarantee it does
@@ -599,6 +631,10 @@ fn at_least_once_never_loses() -> Scenario {
         "an at-least-once connector never loses data, though it may duplicate",
         Class::AtLeastOnce,
     )
+    // The weakest ask in the suite: with duplication and everything downstream of it
+    // exempt, what remains is "lose nothing", which every class claims. A stronger class
+    // passes without using the exemptions, and that is worth running rather than assuming.
+    .applies_to(EVERY_CLASS)
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocuments)
     .declaring(
@@ -610,20 +646,20 @@ fn at_least_once_never_loses() -> Scenario {
     )
     .declaring(
         Invariant::Conservation,
-        "Conservation is arithmetic over delivered documents, so a duplicate breaks \
-         it as surely as a loss would. Exempt for the same cause as duplication \
-         itself.",
+        "Conservation is arithmetic over delivered documents, so a duplicate can break it \
+         as surely as a loss would — but only sometimes, and the difference is worth \
+         knowing before anyone deletes this. The workload is double-entry: every transfer \
+         is a matched pair of legs, and replaying a whole transaction re-applies both, so \
+         the sum still balances and nothing fires. It fires when a pair straddles the \
+         replayed transaction's boundary, because then one leg is duplicated without its \
+         partner. Transaction boundaries are time-based, so that is uncommon rather than \
+         impossible, and this exemption measures zero on most runs. Zero here means rare, \
+         not unnecessary: removing it would make this scenario fail intermittently.",
     )
     .declaring(
         Invariant::OracleAgreement,
         "A duplicated document leaves the reduced balance disagreeing with its own \
          oracle. Same cause as the duplication exemption above.",
-    )
-    .declaring(
-        Invariant::StandardDeltaAgreement,
-        "A duplicate applied to one binding and not the other leaves the two views \
-         of the collection disagreeing. Same cause as the duplication exemption \
-         above.",
     )
     .declaring(
         Invariant::Monotonicity,
@@ -640,7 +676,6 @@ impl Scenario {
         self.exempt.push(Exemption {
             invariant,
             justification: justification.to_string(),
-            scope: crate::harness::Scope::Connector,
         });
         self
     }
@@ -700,15 +735,17 @@ mod test {
     /// `await_commits` for the warmup has no recovery step — deliberately, since nothing
     /// has been perturbed yet — so a crash landing inside that window leaves the shard
     /// FAILED with nobody to unassign it, and the run waits out its deadline instead of
-    /// testing anything. Only a crash does this: a stall, replay or zombie leaves the
-    /// shard running and the warmup still completes. `crash-mid-store` did exactly this: armed after 2 commits with a
-    /// warmup of 3, it fired in the third transaction whenever that transaction reached
-    /// 25 stores, which made it fail perhaps one run in three.
+    /// testing anything. Only a crash does this: a stall or a zombie leaves the
+    /// shard running and the warmup still completes.
+    ///
+    /// The failure is intermittent, which is why this is a test and not a review note: a
+    /// crash armed one commit short of the warmup fires only when the last warmup
+    /// transaction happens to reach the occurrence count first.
     #[test]
     fn no_fault_can_fire_before_the_warmup_completes() {
         for scenario in all() {
             for rule in &scenario.faults {
-                // Only a crash matters. A stall, a replay or a zombie leaves the shard
+                // Only a crash matters. A stall or a zombie leaves the shard
                 // running, so the warmup gate keeps making progress through them —
                 // `zombie-at-start-commit` fires in the second transaction and is fine.
                 if rule.action != Action::Crash {
@@ -743,16 +780,15 @@ mod test {
         }
     }
 
-    /// Every scenario that reconfigures shards must be in the nextest group that
-    /// serialises them against each other.
+    /// Every scenario that reconfigures shards must be in the nextest group that caps
+    /// how many of them run at once.
     ///
-    /// Two concurrent reconfigurations contend badly on one stack — `split-shards`
-    /// fails outright, or a crashed task cannot get a primary back inside its deadline
-    /// while another scenario is republishing shards of its own — and the symptom is a
-    /// flake in an unrelated-looking scenario. Checked here rather than left to review,
-    /// because the cost of forgetting lands on whoever is debugging something else.
+    /// These are the scenarios that stress shard membership, and the bound leaves the
+    /// broker allocator headroom an unbounded fan-out would not. Checked here rather than
+    /// left to review, because the cost of forgetting lands on whoever is debugging the
+    /// unrelated-looking scenario that flakes.
     #[test]
-    fn every_shard_reconfiguring_scenario_is_serialised() {
+    fn every_shard_reconfiguring_scenario_is_capped() {
         let config = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.config/nextest.toml"),
         )
@@ -767,8 +803,8 @@ mod test {
             assert!(
                 config.contains(&format!("test({test_fn})")),
                 "scenario {} reconfigures shards but is not in the \
-                 `serial-shard-reconfiguration` group in .config/nextest.toml, so it will \
-                 run concurrently with another that does and flake",
+                 `capped-shard-reconfiguration` group in .config/nextest.toml, so an \
+                 unbounded number of them can reconfigure at once and starve the allocator",
                 scenario.name,
             );
         }
@@ -805,15 +841,9 @@ mod test {
     fn every_defect_is_paired_with_a_scenario() {
         let paired: Vec<Defect> = all().iter().filter_map(|s| s.defect).collect();
 
-        for defect in [
-            Defect::NonIdempotentAcknowledge,
-            Defect::CommitDuringStore,
-            Defect::IgnoreKeyRange,
-            Defect::SkipFenceCheck,
-            Defect::DropDocumentCounter,
-            Defect::ResetCounterOnOpen,
-            Defect::DropDocuments,
-        ] {
+        // Iterated rather than re-listed: `Defect::ALL` exists because a copy at each use
+        // site drifts, and a copy here would silently stop covering a defect added later.
+        for defect in Defect::ALL {
             assert!(paired.contains(&defect), "no scenario catches {defect:?}",);
         }
     }

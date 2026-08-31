@@ -16,7 +16,7 @@
 //! | --- | --- | --- | --- |
 //! | `remoteAuthoritative` | `StartCommit` | destination checkpoint | nonce table |
 //! | `postCommitApply` | `Acknowledge`, from durable staging | recovery log | — |
-//! | `documentCounter` | `Store`, appending to a fenced channel | destination count | nonce table |
+//! | `documentCounter` | `Store`, appending to a counted channel | destination count | — |
 //! | `atLeastOnce` | `Store` | recovery log | — |
 
 pub mod store;
@@ -42,6 +42,12 @@ pub enum Class {
     /// accepted; recovery skips whatever the destination already holds. Rows
     /// become visible before the Flow transaction commits — a real, declared
     /// deviation rather than a defect.
+    ///
+    /// This models the **production** Snowpipe Streaming v2 design, not any connector in
+    /// the repository. The in-repo snowflake streaming path stages blobs during `Store` and
+    /// registers them at `Acknowledge`, so its rows are not destination-visible during
+    /// `Store` and its recovery is blob/token-sequenced rather than a row count. Where
+    /// comments elsewhere say "Snowpipe Streaming v2", they mean that production design.
     DocumentCounter,
     /// Commits during `Store` with no deduplication. Never loses data, and makes
     /// no claim about duplicates.
@@ -77,6 +83,21 @@ pub enum Defect {
     /// class that already commits during `Store` cannot be made to commit during
     /// `Store`, so at-least-once would otherwise have no defect to be held against.
     DropDocuments,
+}
+
+impl Defect {
+    /// Every defect, for the `spec` schema and for anything else that must enumerate
+    /// them. A literal list here rather than at each use site, so adding a defect
+    /// cannot leave a stale copy behind.
+    pub const ALL: [Defect; 7] = [
+        Defect::NonIdempotentAcknowledge,
+        Defect::CommitDuringStore,
+        Defect::IgnoreKeyRange,
+        Defect::SkipFenceCheck,
+        Defect::DropDocumentCounter,
+        Defect::ResetCounterOnOpen,
+        Defect::DropDocuments,
+    ];
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -197,6 +218,13 @@ pub struct Session {
     /// `StartedCommit(N+1)` — so "everything currently staged" is the wrong thing to
     /// apply: it would commit N+1's work before the recovery log holds it, and a replay
     /// of N+1 would then reduce its documents onto a destination that already counts them.
+    ///
+    /// The *protocol* permits a connector to acknowledge early, which is what this defends
+    /// against. The runtime as it stands cannot produce the interleaving: `Flush(N+1)` waits
+    /// on `Tail::Done`, which requires every shard's `Acknowledged(N)`, so `Acknowledge(N)`
+    /// always precedes `StartCommit(N+1)` and this deque never holds more than one entry.
+    /// Kept because the guarantee it relies on is the runtime's scheduling, not the protocol's
+    /// contract.
     published: std::collections::VecDeque<BTreeMap<String, PendingApply>>,
     /// Pending work of *other* ranges — peers of this transaction, and ranges left by
     /// previous shard topologies. Tracked and executed only by the primary.
@@ -206,6 +234,18 @@ pub struct Session {
     /// Only the primary applies, which is how `materialize-databricks` keeps two shards
     /// from contending over one binding's table. It learns of its peers' work from the
     /// aggregated state patches the runtime delivers with `Acknowledge`.
+    ///
+    /// Two deliberate divergences from that connector, both worth knowing:
+    ///
+    /// Databricks tests `keyBegin == 0` alone; this also requires `r_clock_begin == 0`, so a
+    /// shard split on *clock* rather than key cannot produce two shards each believing it is
+    /// the primary. That is arguably the more correct test, but it is a divergence, not a
+    /// faithful copy.
+    ///
+    /// And databricks' coordinator behaviour is gated behind its `scale_out` feature flag;
+    /// with the flag off its state is a whole document rather than a merge patch and no
+    /// shard defers to a primary. The reference models flag-on unconditionally, because
+    /// flag-off is single-shard behaviour and these scenarios are about membership changes.
     primary: bool,
     /// `begin-end` of the range this session owns, as its key in connector state.
     range_key: String,
@@ -330,10 +370,12 @@ fn spec() -> materialize::Response {
             "defects": {
                 "type": "array",
                 "title": "Defects to enable",
-                "items": {"type": "string", "enum": [
-                    "nonIdempotentAcknowledge", "commitDuringStore", "ignoreKeyRange",
-                    "skipFenceCheck", "dropDocumentCounter", "resetCounterOnOpen", "noApplyDrain",
-                ]},
+                // Generated from the enum rather than written out, which a hand-kept copy
+                // cannot stay in step with.
+                "items": {"type": "string", "enum": Defect::ALL
+                    .iter()
+                    .map(|d| serde_json::json!(d))
+                    .collect::<Vec<_>>()},
             },
         },
     });
@@ -458,8 +500,6 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
             actions.push(format!("dropped {}", table.name));
         }
     }
-
-    store.record_applied_spec(&apply.version, &actions.join("; "))?;
 
     Ok(materialize::Response {
         applied: Some(materialize::response::Applied {
@@ -677,14 +717,6 @@ fn decode_checkpoint(
     Ok(Some(checkpoint))
 }
 
-/// Record what a merge binding was handed as a reduction base, and what came back.
-///
-/// Only for non-delta tables, because they are the only ones whose stored value depends
-/// on what `Load` returned: the runtime reduces new documents onto that base and stores
-/// the result. A wrong base is invisible in the delivered *set* and shows up only as a
-/// wrong sum, which is exactly the failure this exists to explain — the merge binding
-/// disagreeing with its collection while the delta binding over the same collection
-/// agrees.
 /// Record an application: whose entry, which binding, and the batches it consumes.
 ///
 /// The owner range matters and the session's own range does not: the question a failing
@@ -757,10 +789,15 @@ fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i
 
 /// Stage a load key. The destination is *not* read here.
 ///
-/// Every real connector of every class does it this way — `materialize-databricks`,
-/// `-snowflake` and `-bigquery` write keys to a staging file inside the `it.Next()` loop,
-/// and `materialize-postgres` queues them into a temp table — and only after the loop, once
+/// This is what the staging connectors do: `materialize-databricks`, `-snowflake` and
+/// `-bigquery` write keys to a staging file inside the `it.Next()` loop, and
+/// `materialize-postgres` queues them into a temp table — and only after the loop, once
 /// `Flush` has arrived, do they join against the target table.
+///
+/// It is not the only legal shape. `materialize-clickhouse`, `-elasticsearch`, `-bigtable`
+/// and `-google-sheets` instead call `it.WaitForAcknowledged()` once before the loop and then
+/// read per key, which is equally correct because the wait still precedes any read. What matters is
+/// the ordering, not the batching.
 ///
 /// That is not merely a batching convenience: `Flush` is the runtime's signal that the
 /// previous transaction was acknowledged **by every shard**. A connector where one shard
@@ -1027,17 +1064,6 @@ fn start_commit_txn(
     })
 }
 
-/// Apply committed staging that belongs to a range other than this session's.
-///
-/// This is the coordinating half of post-commit-apply, and it runs at `Open` rather than on
-/// every `Acknowledge` for two reasons. It is rare — only a membership change leaves work
-/// under a range with no owner — and it must complete before the session writes anything,
-/// since inherited staging is older than whatever comes next and applying it afterwards
-/// would overwrite newer values.
-///
-/// Applying it on the hot path instead, with writers waiting for a single applier, collapses
-/// throughput: the task stays healthy but stops keeping up, and the destination ends the run
-/// behind its collection.
 /// Fold the peers' aggregated state patches into the primary's bookkeeping.
 ///
 /// The runtime delivers every shard's just-committed `StartedCommit` patch here, which is
@@ -1190,14 +1216,6 @@ fn apply_pending(
     Ok(executed)
 }
 
-/// A merge patch carrying only this shard's entry.
-/// The post-commit-apply state patch: what this session has staged and applied, plus
-/// every departed range it finished at `Open`.
-///
-/// Carrying the predecessors is what retires them. Their entries outlive the shards that
-/// wrote them — the runtime consolidates state and has no notion that a range is gone —
-/// so without this, every later session would walk the same ranges forever, and the
-/// record of "staged work awaiting application" would never become empty.
 /// The batch this transaction stages into, creating it on first use.
 ///
 /// Unique per session and transaction, standing in for a staged file's path.
