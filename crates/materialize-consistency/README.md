@@ -172,6 +172,18 @@ class is executable before any production connector adopts it.
 | `documentCounter` | `Store`, appending to a counted channel | destination count | nonce table |
 | `atLeastOnce` | `Store` | recovery log | — |
 
+Two details of `postCommitApply` are load-bearing and follow `materialize-databricks`
+rather than being invented here. Its checkpoint carries the *statements* which apply a
+staged batch, keyed by binding — not a pointer to work the destination is asked to
+rediscover, because leftover staging cannot say whether its transaction committed or was
+abandoned. And only the **primary** shard runs them, learning of its peers' staged work
+from the aggregated state patches the runtime delivers with `Acknowledge`, so that two
+shards never contend for one binding's table. `Apply` deliberately drains nothing: it is
+handed no connector state, so it has no basis for deciding what committed.
+
+That arrangement is also why `split-during-commit` is an expected failure — see the two
+runtime gaps in `docs/materialize/consistency-testing.md`.
+
 ## Compliance model
 
 Default-strict. Every connector is held to every invariant, and anything weaker is

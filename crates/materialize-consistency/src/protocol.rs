@@ -17,6 +17,14 @@ pub const ENV_RUN_DIR: &str = "FLOW_CONSISTENCY_RUN_DIR";
 /// is what the baseline scenario relies on.
 pub const ENV_FAULTS: &str = "FLOW_CONSISTENCY_FAULTS";
 
+/// Set to anything to have the reference connector trace every `Load` and `Store`
+/// of a merged key, and every recovery decision, into `reduce.jsonl`.
+///
+/// Off by default and forwarded from the suite's own environment, because it is the
+/// only record of what a reduction *read* before writing — the delivered rows show
+/// what the connector was told, never the base it reduced onto.
+pub const ENV_TRACE_REDUCE: &str = "FLOW_CONSISTENCY_TRACE_REDUCE";
+
 /// A protocol event the shim can key a fault on.
 ///
 /// Triggers name *events the shim observes*, never documents: which documents

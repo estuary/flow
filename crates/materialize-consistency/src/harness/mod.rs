@@ -86,6 +86,13 @@ pub struct Outcome {
     /// fired proved nothing, so the runner refuses to pass one.
     pub faults_fired: usize,
     pub documents: usize,
+    /// Append rows the destination recognised as already applied.
+    ///
+    /// Reported on success as well as failure, because it is the difference between a
+    /// scenario that survived re-delivery and one that never saw any. A split scenario
+    /// passing with zero of these has demonstrated nothing about idempotency, however
+    /// green it looks — the same vacuity the paired-defect rule exists to prevent.
+    pub suppressed_rows: i64,
     /// Where the shim's trace and the destination were left. Retained on failure
     /// and removed on success — a caller that *expected* the failure (the defective
     /// half of every scenario) removes it itself.
@@ -102,16 +109,19 @@ impl Outcome {
     pub fn summary(&self) -> String {
         if self.violations.is_empty() {
             return format!(
-                "{}: upheld every invariant over {} documents ({} faults injected)",
-                self.scenario, self.documents, self.faults_fired
+                "{}: upheld every invariant over {} documents \
+                 ({} faults injected, {} re-delivered rows absorbed)",
+                self.scenario, self.documents, self.faults_fired, self.suppressed_rows,
             );
         }
         let mut lines = vec![format!(
-            "{}: {} violation(s) over {} documents ({} faults injected)",
+            "{}: {} violation(s) over {} documents \
+             ({} faults injected, {} re-delivered rows absorbed)",
             self.scenario,
             self.violations.len(),
             self.documents,
-            self.faults_fired
+            self.faults_fired,
+            self.suppressed_rows,
         )];
         // Bounded: a lost account produces a violation per account, and the first
         // few say everything the rest would.
@@ -180,7 +190,11 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
 
     tracing::info!(scenario = scenario.name, %run_id, verifies = scenario.verifies, "publishing");
 
-    let result = execute(&stack, scenario, &names, &run_dir, &plan).await;
+    let destination = run_dir.join("destination.sqlite");
+    let result = tokio::select! {
+        result = execute(&stack, scenario, &names, &run_dir, &plan) => result,
+        err = watch_destination_size(&destination) => Err(err),
+    };
 
     // Clean up whether or not the scenario passed, so repeated runs do not
     // accumulate debris. The run directory is left behind on failure: its trace is
@@ -206,6 +220,41 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
     Ok(outcome)
 }
 
+/// Fail a run whose destination is growing without bound, before it fills the disk.
+///
+/// A subject carrying an append-side defect writes a row per replayed `Acknowledge`, and
+/// the runtime will replay for as long as the connector keeps refusing to make progress.
+/// Left alone that is unbounded: one such run reached 40 GiB and wedged every later run
+/// on the machine, because a scenario killed by the test runner's timeout never reaches
+/// any cleanup this crate could write. So the bound is enforced while the file grows
+/// rather than after the run ends.
+///
+/// Never resolves while the destination is a sane size, so it composes as the losing arm
+/// of a `select!`.
+async fn watch_destination_size(destination: &std::path::Path) -> anyhow::Error {
+    /// Roughly ten times the largest destination a passing scenario has produced, which
+    /// is enough headroom that tripping this means "runaway", not "a big run".
+    const LIMIT: u64 = 4 << 30;
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let Ok(meta) = std::fs::metadata(destination) else {
+            continue; // Not yet created, or already cleaned up.
+        };
+        if meta.len() > LIMIT {
+            // Keep the traces, which say what the shim did, and drop only the bulk.
+            let _ = std::fs::remove_file(destination);
+            return anyhow::anyhow!(
+                "the destination grew past {} GiB, so the run was abandoned before it \
+                 could fill the disk; the subject is appending without ever making \
+                 progress, which is the defect this run was checking for",
+                LIMIT >> 30,
+            );
+        }
+    }
+}
+
 async fn execute(
     stack: &stack::Stack,
     scenario: &Scenario,
@@ -213,7 +262,9 @@ async fn execute(
     run_dir: &std::path::Path,
     plan: &catalog::Plan<'_>,
 ) -> anyhow::Result<Outcome> {
+    let published = std::time::Instant::now();
     stack.publish(&catalog::build(plan)?).await?;
+    tracing::info!(elapsed = ?published.elapsed(), "published");
 
     let deadline = std::time::Duration::from_secs(180);
 
@@ -239,7 +290,31 @@ async fn execute(
     // keyed on the third StartCommit could fire while the first binding is still
     // being applied, and the scenario would be testing startup rather than what it
     // claims to.
+    // Split activation from cadence: the first traced message means the sink's connector
+    // is up and being spoken to, so everything before it is the runtime scheduling a shard
+    // and starting a process, and everything after is transactions.
+    let activating = std::time::Instant::now();
+    await_first_message(&trace, deadline).await?;
+    tracing::info!(elapsed = ?activating.elapsed(), "sink connector started");
+
+    // The gap between the connector being spoken to and its first *non-empty* transaction
+    // is the sink sitting idle while its captures activate and produce. Measured
+    // separately because it, not the commit cadence, is what varies between runs.
+    let feeding = std::time::Instant::now();
+    await_first_documents(&trace, deadline).await?;
+    tracing::info!(elapsed = ?feeding.elapsed(), "workload feeding the sink");
+
+    let warmed = std::time::Instant::now();
     await_commits(&trace, scenario.warmup_commits, deadline).await?;
+    tracing::info!(elapsed = ?warmed.elapsed(), commits = scenario.warmup_commits, "warmed up");
+
+    // A scenario that scales out *because of* the fault has to see it land first,
+    // or the two race and the run is no longer testing the sequence it describes.
+    // The crash leaves the task down, so the split lands while nothing is writing
+    // and the work is finished by the larger set of shards that replaces it.
+    if scenario.split_after_fault {
+        await_faults(&trace, scenario.faults.len(), deadline).await?;
+    }
 
     if scenario.split_shards {
         tracing::info!(task = %names.sink, "splitting shards");
@@ -291,15 +366,19 @@ async fn execute(
     // Unconditional, including for the split scenarios that inject no fault: a
     // split can fail a shard too, and unassigning a healthy one is a no-op, so
     // there is nothing to gain by predicting which perturbations need it.
+    let settled = std::time::Instant::now();
     let after = count_commits(&trace)? + scenario.settle_commits;
     recover(stack, plan, &names.sink, &trace, after, deadline).await?;
     await_commits(&trace, after, deadline).await?;
+    tracing::info!(elapsed = ?settled.elapsed(), commits = scenario.settle_commits, "settled");
 
     // Stop the workload and let the materialization drain. Only this run's own
     // captures are touched; scenarios never disable or restart anything
     // stack-wide, which is what makes a shared stack safe for concurrent runs.
     tracing::info!("disabling the workload to reach quiescence");
+    let quiesced = std::time::Instant::now();
     stack.publish(&catalog::quiesce(plan)?).await?;
+    tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
     let connector = std::path::PathBuf::from(
         plan.subject
@@ -312,17 +391,18 @@ async fn execute(
     // while after the publication that disables it, and an expectation read one
     // document early would report the materialization as having duplicated
     // something it merely delivered on time.
-    let merged_expected = Expectation::from_documents(
-        stack
-            .read_collection_when_final(&names.merged, FINALITY_TIMEOUT)
-            .await?,
-    );
-    let log_expected = Expectation::from_documents(
-        stack
-            .read_collection_when_final(&names.log, FINALITY_TIMEOUT)
-            .await?,
-    );
+    // Concurrently: the two collections are independent, and each read loops until its
+    // own contents stop growing, so serialising them doubled the wait for nothing.
+    let read = std::time::Instant::now();
+    let (merged_expected, log_expected) = tokio::try_join!(
+        stack.read_collection_when_final(&names.merged, FINALITY_TIMEOUT),
+        stack.read_collection_when_final(&names.log, FINALITY_TIMEOUT),
+    )?;
+    let merged_expected = Expectation::from_documents(merged_expected);
+    let log_expected = Expectation::from_documents(log_expected);
+    tracing::info!(elapsed = ?read.elapsed(), "read the collections");
 
+    let drained = std::time::Instant::now();
     let destination = drain(
         stack,
         &connector,
@@ -333,6 +413,8 @@ async fn execute(
         deadline,
     )
     .await?;
+
+    tracing::info!(elapsed = ?drained.elapsed(), "drained the destination");
 
     let bindings = invariants::Bindings {
         merged_expected,
@@ -357,10 +439,17 @@ async fn execute(
         }
     }
 
+    // Read before the run directory is cleaned up, and on every path: a passing run is
+    // exactly the one where this number decides whether anything was proved.
+    let suppressed_rows = suppressed_rows(run_dir)
+        .map(|rows| rows.iter().map(|(_, n)| n).sum())
+        .unwrap_or(0);
+
     Ok(Outcome {
         scenario: scenario.name,
         violations,
         exempted,
+        suppressed_rows,
         faults_fired,
         documents,
         run_dir: run_dir.to_path_buf(),
@@ -369,6 +458,24 @@ async fn execute(
 
 /// Write what a failing run compared, so the next reader does not have to guess
 /// which side was wrong.
+/// Append rows the destination recognised as already applied, per table.
+///
+/// Read straight from the destination rather than through the connector, because it is
+/// the connector's own bookkeeping rather than a binding's contents. A non-zero count
+/// says a document was handed to the connector twice — which the delivered rows cannot
+/// say, since suppressing the second copy is precisely what makes them look correct.
+fn suppressed_rows(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
+    let conn = rusqlite::Connection::open_with_flags(
+        run_dir.join("destination.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    let mut stmt = conn.prepare("SELECT tbl, rows FROM _flow_suppressed ORDER BY tbl")?;
+    let rows = stmt
+        .query_map((), |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow::Result<()> {
     let expectation = |e: &Expectation| -> Vec<serde_json::Value> {
         e.accounts
@@ -390,7 +497,13 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
         "expected": {
             "merged": expectation(&b.merged_expected),
             "log": expectation(&b.log_expected),
+            "duplicatedSourceDocuments": {
+                "merged": b.merged_expected.duplicated_documents,
+                "log": b.log_expected.duplicated_documents,
+            },
         },
+        "suppressedAppendRows": suppressed_rows(run_dir)
+            .unwrap_or_else(|err| vec![(format!("unreadable: {err:#}"), -1)]),
         "delivered": {
             "standard": &b.standard,
             "mergedDelta": &b.merged_delta,
@@ -669,6 +782,45 @@ async fn await_commits(
     }
 }
 
+/// Wait until the shim has traced anything at all, which is the sink's connector being
+/// spoken to for the first time.
+async fn await_first_message(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        if !read_trace(run)?.is_empty() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for the sink's connector to be started",
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
+/// Wait until a transaction has carried at least one document, which means the captures
+/// are producing and the sink is being fed.
+async fn await_first_documents(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        let fed = read_trace(run)?.iter().any(|e| match &e.event {
+            Event::Stored { per_binding } => per_binding.iter().any(|n| *n != 0),
+            _ => false,
+        });
+        if fed {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for the workload to feed the sink{}",
+            trace_failures(run),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
 async fn await_faults(
     run: &RunDir,
     expected: usize,
@@ -757,6 +909,7 @@ async fn drain(
 ) -> anyhow::Result<Contents> {
     let deadline = std::time::Instant::now() + timeout;
     let mut unchanged_for = 0;
+    let mut stuck_for = 0;
     let mut previous = usize::MAX;
 
     /// Consecutive quiet polls before a destination counts as settled.
@@ -767,6 +920,16 @@ async fn drain(
     /// being starved on a loaded stack. `replayed-acknowledge` was failed by exactly
     /// that, reporting 229 undelivered documents as invariant violations.
     const QUIET_POLLS: usize = 10;
+
+    /// Consecutive polls of an *unhealthy* destination going nowhere before the wait ends.
+    ///
+    /// Twice `QUIET_POLLS`, because "unhealthy" covers both a shard restarting — which
+    /// resolves in a poll or two — and a task that can never run again, which is how
+    /// several defects surface. Without a bound of its own the second case can only end at
+    /// the deadline, and that dominated the suite: `split-during-store`'s defective half
+    /// spent 150 of its 180 seconds waiting for a task whose two shards were fencing each
+    /// other off and were never going to progress.
+    const STUCK_POLLS: usize = 20;
 
     loop {
         let standard = match standard_binding {
@@ -843,15 +1006,23 @@ async fn drain(
         } else {
             0
         };
+        stuck_for = if total == previous && !healthy {
+            stuck_for + 1
+        } else {
+            0
+        };
         previous = total;
 
         let quiet = unchanged_for >= QUIET_POLLS;
+        let stuck = stuck_for >= STUCK_POLLS;
         let expired = std::time::Instant::now() >= deadline;
 
-        if quiet || expired {
-            // Which of the two ended the wait matters when reading a failure: "quiet"
-            // means the task stopped writing while still short, which is a finding;
-            // "deadline" means the runner ran out of patience, which is not.
+        if quiet || stuck || expired {
+            // Which of the three ended the wait matters when reading a failure. "quiet"
+            // means a healthy task stopped writing while still short, which is a finding.
+            // "stuck unhealthy" means it cannot run at all — the shape several defects
+            // take, and not a shortfall to reason about. "deadline" means the runner ran
+            // out of patience, which is neither.
             // Reported as the *delta* row count, the same figure the completion gate
             // uses. The seq-derived `merged_delivered` belongs in the plateau check and
             // nowhere else: it read "1020/997" — complete — for a destination whose
@@ -898,7 +1069,11 @@ async fn drain(
             anyhow::bail!(
                 "the destination stopped short of the collections ({short}); \
                  reason={}, task healthy={healthy}",
-                if quiet { "went quiet" } else { "deadline" },
+                match (quiet, stuck) {
+                    (true, _) => "went quiet",
+                    (_, true) => "stuck unhealthy",
+                    _ => "deadline",
+                },
             );
         }
 

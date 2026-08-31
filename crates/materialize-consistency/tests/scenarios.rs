@@ -39,6 +39,7 @@ const COVERED: &[&str] = &[
     "crash-at-flush",
     "split-during-store",
     "split-during-commit",
+    "counter-split-during-commit",
     "join-after-split",
     "zombie-at-start-commit",
     "counter-resumes-from-destination",
@@ -190,6 +191,11 @@ async fn split_during_store() {
 #[tokio::test]
 async fn split_during_commit() {
     both_ways("split-during-commit").await
+}
+
+#[tokio::test]
+async fn counter_split_during_commit() {
+    both_ways("counter-split-during-commit").await
 }
 
 #[tokio::test]

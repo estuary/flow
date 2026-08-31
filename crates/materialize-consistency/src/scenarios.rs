@@ -52,6 +52,13 @@ pub struct Scenario {
     pub defect: Option<Defect>,
     /// Split every shard of the task in two, after the warmup.
     pub split_shards: bool,
+    /// Split only once the fault has fired, rather than while the task is healthy.
+    ///
+    /// Turns a race into a sequence: the fault crashes the connector, the task is scaled
+    /// out while it is down, and it comes back with more shards than staged the work. A
+    /// scenario that splits a *running* task is asking a different question, so this is
+    /// opt-in rather than the default.
+    pub split_after_fault: bool,
     /// Join the task's shards pairwise, after the split has settled.
     ///
     /// Only meaningful together with `split_shards`: a task starts with one shard,
@@ -86,6 +93,7 @@ impl Scenario {
             faults: Vec::new(),
             defect: None,
             split_shards: false,
+            split_after_fault: false,
             join_shards: false,
             warmup_commits: 3,
             settle_commits: 3,
@@ -149,6 +157,7 @@ pub fn all() -> Vec<Scenario> {
         crash_at_flush(),
         split_during_store(),
         split_during_commit(),
+        counter_split_during_commit(),
         join_after_split(),
         zombie_at_start_commit(),
         counter_resumes_from_the_destination(),
@@ -269,13 +278,30 @@ fn split_during_store() -> Scenario {
     scenario
 }
 
-/// The same, with the split landing while a transaction is being committed rather
-/// than accumulated — the rule the scale-out design depends on.
+/// A transaction dies mid-commit, the task is scaled out while it is down, and the
+/// staged work is finished by a *different* set of shards than staged it.
+///
+/// The connector crashes inside `StartCommit`, so a transaction is staged with its fate
+/// undecided. Only then is the task split, and only then does it restart — with more
+/// shards than existed when the work was staged. So this scenario is not a race: it is
+/// the deterministic question of whether an `Acknowledge` is idempotent enough to be
+/// finished by shards that did not begin it.
+///
+/// Post-commit-apply needs no fence for this. Its authority is the recovery log, and the
+/// crashed session is gone rather than competing — what it needs is for applying staged
+/// work to be repeatable, in any order, by whoever inherits it.
+///
+/// What makes it pass is the rule every real connector of this class follows: stage load
+/// keys as `Load` requests arrive, and read the destination only once `Flush` has come.
+/// `Flush` is the runtime's signal that the previous transaction was acknowledged by
+/// *every* shard — the guarantee a coordinating connector needs and cannot obtain any other
+/// way, because one shard applies staged work on behalf of its peers, so a peer reading
+/// earlier would reduce onto a base that shard has not finished writing.
 fn split_during_commit() -> Scenario {
     let mut scenario = Scenario::new(
         "split-during-commit",
-        "a transaction prepared under one shard split is replayed under that same \
-         split before a membership change takes effect",
+        "staged work committed by one shard is applied exactly once by the larger set \
+         of shards that replaces it",
         Class::PostCommitApply,
     )
     .fault(FaultRule {
@@ -283,7 +309,7 @@ fn split_during_commit() -> Scenario {
         nth: 4,
         arm_after: 0,
         shard: ShardTarget::Any,
-        action: Action::Stall { millis: 4_000 },
+        action: Action::Crash,
     })
     .catches(Defect::IgnoreKeyRange)
     .declaring(
@@ -295,18 +321,55 @@ fn split_during_commit() -> Scenario {
          one row per document. The set-based checks — no-loss, no-duplicates, \
          conservation and oracle agreement — carry the exactly-once claim here and \
          are NOT exempt.",
+    );
+    scenario.split_shards = true;
+    scenario.split_after_fault = true;
+    scenario.settle_commits = 5;
+    scenario
+}
+
+/// The same window, against a counted channel — and this one cannot survive it.
+///
+/// A counted channel writes during `Store`, before the transaction commits, so rows of a
+/// prepared-but-uncommitted transaction are already in the destination and cannot be taken
+/// back. When the split lands inside that window the children open fresh channels at offset
+/// zero, replay the same input, and append it a second time.
+///
+/// Post-commit-apply is not exposed to this: it applies only at `Acknowledge`, after the
+/// log has committed, so an uncommitted transaction was never applied. Its own
+/// `split-during-commit` is held to a clean result.
+fn counter_split_during_commit() -> Scenario {
+    let mut scenario = Scenario::new(
+        "counter-split-during-commit",
+        "a counted channel is exposed to a membership change landing on a prepared \
+         transaction, which no connector of that class can close",
+        Class::DocumentCounter,
+    )
+    .fault(FaultRule {
+        on: Trigger::StartCommit,
+        nth: 4,
+        arm_after: 3,
+        shard: ShardTarget::Any,
+        action: Action::Stall { millis: 4_000 },
+    })
+    .catches(Defect::DropDocumentCounter)
+    .declaring(
+        Invariant::Monotonicity,
+        "This class appends during Store, so rows of a transaction that never commits \
+         stay visible until recovery skips past them, and a membership change re-opens \
+         channels at offsets the sink has already passed. Delivery order at the sink is \
+         therefore not guaranteed to advance monotonically; the set-based checks carry \
+         the exactly-once claim and are NOT exempt.",
     )
     .blocked_on_runtime(
         "The runtime does not yet guarantee that a transaction started under a given shard \
-         split is replayed under that same split before a scale up or down takes effect — \
-         a capability named as a requirement in estuary/flow discussion 2581, and not \
-         specific to any one strategy. This scenario stalls StartCommit and splits inside \
-         that window, so documents already applied under the pre-split shard are \
-         re-delivered to its children. An append-only binding survives it, because the \
-         destination recognises a load it has already accepted; a merge binding cannot, \
-         because the runtime recomputes the reduced value from a Load that already \
-         reflects them, and stores a sum that counts them twice. No connector can close \
-         that from its side.",
+         split is replayed under that same split before a scale up or down takes effect, a \
+         capability named as a requirement in estuary/flow discussion 2581. A counted \
+         channel cannot work around it: it writes during Store, so the rows of a prepared \
+         transaction are already in the destination when the split lands, and the children \
+         open fresh channels at offset zero and append them again. Scaling down has the \
+         mirror image — a survivor reads one departing channel's counter, skips too few, \
+         and duplicates.",
     );
     scenario.split_shards = true;
     scenario.settle_commits = 5;
