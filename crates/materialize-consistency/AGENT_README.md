@@ -107,12 +107,6 @@ def strip(n):
 json.dump(strip(yaml.safe_load(sys.stdin)), sys.stdout)' > /tmp/subject-config.json
 ```
 
-**A subject driven through a shard split also needs multi-shard operation enabled**, which for
-`materialize-databricks` means adding `scale_out` to `advanced.feature_flags` in that config —
-off by default, and the suite cannot know a given connector's flag names. Without it the connector
-refuses to open a partial-range shard at all and the task crash-loops — a failure that is the
-configuration's doing, not the connector's.
-
 **A subject may need environment its image would have given it.** `FLOW_CONSISTENCY_SUBJECT_ENV`
 takes a JSON object and sets it on the materialization's `local:` endpoint:
 
@@ -214,14 +208,13 @@ whose package is importable — `package connector` with `func main` under `cmd/
 how to add one; a connector still in `package main` needs converting first.
 
 **A scenario that splits or joins shards needs the subject configured for multi-shard
-operation.** Where that is behind a feature flag the harness cannot know its name, and a
-connector run multi-shard without it will fail in ways that look like defects but are not:
-`materialize-databricks` gates its coordinator behaviour on `advanced.feature_flags:
-scale_out`, off by default, and its `validateShardRange` now *refuses* to open a shard covering
-less than the whole keyspace without the flag — so the task crash-loops rather than corrupting
-anything. (It contended over one table and lost documents silently before that check existed,
-which is how two invalid issues came to be filed against it; see the design document.) Set
-whatever the connector requires in the config you pass.
+operation.** Where a connector gates that behind a feature flag the harness cannot know the
+flag's name, and a connector run multi-shard without it fails in ways that look like defects
+but are not — so set whatever the connector requires in the config you pass.
+`materialize-databricks` is no longer such a case: its `scale_out` flag is gone and multi-shard
+operation is always on. It is still why the rule is here, though — before its shard-range check
+existed it contended over one table and lost documents silently, which is how two invalid
+issues came to be filed against it; see the design document.
 
 **Timing scales with the subject.** A remote destination commits in tens of seconds where
 the reference connector commits in milliseconds, so a named subject gets longer
