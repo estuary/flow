@@ -97,7 +97,13 @@ impl Event {
     }
 }
 
-/// Place `value` at the `/`-delimited `path` within `object`, creating objects as needed.
+/// Place `value` at the `/`- or `_`-delimited `path` within `object`, creating objects as needed.
+///
+/// Both delimiters, because a destination that will not accept `/` in an identifier substitutes
+/// `_`: BigQuery returns the `oracle/seq` column as `oracle_seq`. Splitting on `_` also splits a
+/// name carrying one of its own — `flow_published_at` folds into three nested objects — which is
+/// harmless, because no invariant reads those columns. The fields the invariants do read carry
+/// no underscore.
 ///
 /// A conflict is a path descending through a value that is already a scalar. It happens only
 /// when a destination has both a column `x` and a column `x/y`, which no projection produces.
@@ -111,7 +117,7 @@ fn insert_pointer(
     path: &str,
     value: serde_json::Value,
 ) {
-    let mut segments = path.split('/');
+    let mut segments = path.split(['/', '_']);
     let mut leaf = segments.next().unwrap_or(path).to_string();
     let mut cursor = object;
 
@@ -707,6 +713,24 @@ mod test {
         assert_eq!(event.id, 0);
         assert_eq!(event.seq, 29);
         assert_eq!(event.balance_delta, -139);
+        assert_eq!(
+            event.oracle,
+            Oracle {
+                seq: 29,
+                balance: -178
+            }
+        );
+    }
+
+    /// A BigQuery row: the destination will not hold a `/` in a column name and substitutes `_`,
+    /// so the pointer-named columns arrive as `oracle_seq` and `oracle_balance`.
+    #[test]
+    fn a_row_parses_when_the_destination_substituted_underscores() {
+        let row = r#"{"id":0,"seq":29,"balancedelta":-139,"flow_published_at":"2026-08-16T01:55:04Z",
+            "oracle_balance":-178,"oracle_seq":29,"set_remove":["b"],"transfer_amount":22}"#;
+
+        let event = Event::from_row(row).expect("an underscore-flattened row is still a document");
+        assert_eq!((event.id, event.seq, event.balance_delta), (0, 29, -139));
         assert_eq!(
             event.oracle,
             Oracle {
