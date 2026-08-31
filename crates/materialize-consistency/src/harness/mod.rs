@@ -41,18 +41,6 @@ pub struct Outcome {
     /// fired proved nothing, so the runner refuses to pass one.
     pub faults_fired: usize,
     pub documents: usize,
-    /// Append rows the destination recognised as already applied.
-    ///
-    /// Reported on success as well as failure, because it is the difference between a
-    /// scenario that survived re-delivery and one that never saw any. A split scenario
-    /// passing with zero of these has demonstrated nothing about idempotency, however
-    /// green it looks — the same vacuity the paired-defect rule exists to prevent.
-    /// `None` for a real subject: this is the reference connector's own bookkeeping, read
-    /// from its SQLite destination, and a real connector exposes no equivalent. Reporting a
-    /// hard `0` there would say "this scenario absorbed no re-delivery" — which by this
-    /// suite's own rule means it demonstrated nothing — when the truth is that it was not
-    /// measured.
-    pub suppressed_rows: Option<i64>,
     /// Where the shim's trace and the destination were left. Retained on failure
     /// and removed on success — a caller that *expected* the failure (the defective
     /// half of every scenario) removes it itself.
@@ -69,28 +57,16 @@ impl Outcome {
     pub fn summary(&self) -> String {
         if self.violations.is_empty() {
             return format!(
-                "{}: upheld every invariant over {} documents \
-                 ({} faults injected, {} re-delivered rows absorbed)",
-                self.scenario,
-                self.documents,
-                self.faults_fired,
-                match self.suppressed_rows {
-                    Some(rows) => rows.to_string(),
-                    None => "an unmeasurable number of".to_string(),
-                },
+                "{}: upheld every invariant over {} documents ({} faults injected)",
+                self.scenario, self.documents, self.faults_fired,
             );
         }
         let mut lines = vec![format!(
-            "{}: {} violation(s) over {} documents \
-             ({} faults injected, {} re-delivered rows absorbed)",
+            "{}: {} violation(s) over {} documents ({} faults injected)",
             self.scenario,
             self.violations.len(),
             self.documents,
             self.faults_fired,
-            match self.suppressed_rows {
-                Some(rows) => rows.to_string(),
-                None => "an unmeasurable number of".to_string(),
-            },
         )];
         // Bounded: a lost account produces a violation per account, and the first
         // few say everything the rest would.
@@ -369,7 +345,7 @@ async fn execute(
             plan,
             &names.sink,
             &trace,
-            count_commits(&trace)? + 1,
+            count_commits(&read_trace(&trace)?) + 1,
             deadline,
         )
         .await?;
@@ -390,7 +366,7 @@ async fn execute(
             plan,
             &names.sink,
             &trace,
-            count_commits(&trace)? + 1,
+            count_commits(&read_trace(&trace)?) + 1,
             deadline,
         )
         .await?;
@@ -410,7 +386,7 @@ async fn execute(
     // split can fail a shard too, and unassigning a healthy one is a no-op, so
     // there is nothing to gain by predicting which perturbations need it.
     let settled = std::time::Instant::now();
-    let after = count_commits(&trace)? + scenario.settle_commits;
+    let after = count_commits(&read_trace(&trace)?) + scenario.settle_commits;
     recover(stack, plan, &names.sink, &trace, after, deadline).await?;
     await_commits(&trace, after, deadline).await?;
     tracing::info!(elapsed = ?settled.elapsed(), commits = scenario.settle_commits, "settled");
@@ -423,11 +399,13 @@ async fn execute(
     stack.publish(&catalog::disable_captures(plan)?).await?;
     tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
+    // Panic, not an error: a `Subject` with no argv cannot be constructed by anything here, so
+    // this is an impossible state rather than a condition to report up the stack.
     let connector = std::path::PathBuf::from(
         plan.subject
             .connector
             .first()
-            .context("the subject names no connector binary")?,
+            .expect("a Subject always names its connector binary"),
     );
 
     // Read each collection until it stops growing. A capture keeps producing for a
@@ -518,47 +496,18 @@ async fn execute(
         }
     }
 
-    // Read before the run directory is cleaned up, and on every path: a passing run is
-    // exactly the one where this number decides whether anything was proved.
-    let suppressed_rows = match external {
-        // The reference connector's own ledger, in its own destination. See the field.
-        None => Some(
-            suppressed_rows_of(run_dir)
-                .map(|rows| rows.iter().map(|(_, n)| n).sum())
-                .unwrap_or(0),
-        ),
-        Some(_) => None,
-    };
-
     Ok(Outcome {
         scenario: scenario.name,
         violations,
         exempted,
-        suppressed_rows,
         faults_fired,
         documents,
         run_dir: run_dir.to_path_buf(),
     })
 }
 
-/// Append rows the destination recognised as already applied, per table.
-///
-/// Read straight from the destination rather than through the connector, because it is
-/// the connector's own bookkeeping rather than a binding's contents. A non-zero count
-/// says a document was handed to the connector twice — which the delivered rows cannot
-/// say, since suppressing the second copy is precisely what makes them look correct.
-fn suppressed_rows_of(run_dir: &std::path::Path) -> anyhow::Result<Vec<(String, i64)>> {
-    let conn = rusqlite::Connection::open_with_flags(
-        run_dir.join("destination.sqlite"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?;
-    let mut stmt = conn.prepare("SELECT tbl, rows FROM _flow_suppressed ORDER BY tbl")?;
-    let rows = stmt
-        .query_map((), |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
-}
-
+/// Write what a failing run compared, so the next reader does not have to guess which side
+/// was wrong — the destination, or the expectation read from the collection.
 fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow::Result<()> {
     let expectation = |e: &Expectation| -> Vec<serde_json::Value> {
         e.accounts
@@ -585,8 +534,6 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
                 "log": b.log_expected.duplicated_documents,
             },
         },
-        "suppressedAppendRows": suppressed_rows_of(run_dir)
-            .unwrap_or_else(|err| vec![(format!("unreadable: {err:#}"), -1)]),
         "delivered": {
             "standard": &b.standard,
             "mergedDelta": &b.merged_delta,
@@ -653,16 +600,30 @@ fn read_trace(run: &RunDir) -> anyhow::Result<Vec<TraceEvent>> {
         Err(err) => return Err(err).context("opening the trace"),
     };
 
+    // Only the *final* line may be partial, and only because a concurrent append can leave it
+    // that way — it will be complete on the next poll. An unparseable line anywhere else is a
+    // torn write from two shims appending at once, and swallowing it silently is how a lost
+    // event turns into a gate that times out for no visible reason. So it is a warning naming
+    // the line, and the read continues: a partial trace still answers most gates.
     let mut events = Vec::new();
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.context("reading the trace")?;
+    let lines: Vec<String> = std::io::BufReader::new(file)
+        .lines()
+        .collect::<std::io::Result<_>>()
+        .context("reading the trace")?;
+    let last = lines.len().saturating_sub(1);
+
+    for (n, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
-        // A concurrent append can leave a partial final line; it will be complete
-        // on the next poll.
-        if let Ok(event) = serde_json::from_str(&line) {
-            events.push(event);
+        match serde_json::from_str(line) {
+            Ok(event) => events.push(event),
+            Err(_) if n == last => break, // Being appended to right now.
+            Err(err) => tracing::warn!(
+                line = %n + 1,
+                %err,
+                "a trace line could not be parsed; a gate may now time out without cause"
+            ),
         }
     }
     Ok(events)
@@ -679,11 +640,9 @@ fn read_trace(run: &RunDir) -> anyhow::Result<Vec<TraceEvent>> {
 ///
 /// Restarts are folded together: a shard that crashed and came back is one shard, and
 /// the commits of both its processes count towards its total.
-fn commits_per_split_shard(run: &RunDir) -> anyhow::Result<BTreeMap<(u32, u32), u64>> {
-    let events = read_trace(run)?;
-
+fn commits_per_split_shard(events: &[TraceEvent]) -> BTreeMap<(u32, u32), u64> {
     let mut range_of: BTreeMap<u32, (u32, u32)> = BTreeMap::new();
-    for event in &events {
+    for event in events {
         if let Event::Opened {
             key_begin, key_end, ..
         } = event.event
@@ -693,7 +652,7 @@ fn commits_per_split_shard(run: &RunDir) -> anyhow::Result<BTreeMap<(u32, u32), 
     }
 
     let mut commits: BTreeMap<(u32, u32), u64> = BTreeMap::new();
-    for event in &events {
+    for event in events {
         let Event::Phase {
             trigger: Trigger::StartedCommit,
             ..
@@ -710,7 +669,7 @@ fn commits_per_split_shard(run: &RunDir) -> anyhow::Result<BTreeMap<(u32, u32), 
         }
         *commits.entry(range).or_default() += 1;
     }
-    Ok(commits)
+    commits
 }
 
 /// Wait until every shard a split produced has committed `each` transactions of its
@@ -721,29 +680,25 @@ async fn await_commits_each_shard(
     each: u64,
     timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
+    poll_trace(run, timeout, std::time::Duration::from_secs(2), |trace| {
+        let commits = commits_per_split_shard(trace);
 
-    loop {
-        let commits = commits_per_split_shard(run)?;
-        let ready = commits.len() >= shards && commits.values().all(|&n| n >= each);
-
-        if ready {
-            tracing::info!(?commits, "every split shard has committed for itself");
-            return Ok(());
+        match commits.len() >= shards && commits.values().all(|&n| n >= each) {
+            true => {
+                tracing::info!(?commits, "every split shard has committed for itself");
+                Ok(())
+            }
+            false => Err(format!(
+                "timed out waiting for {shards} shards to commit {each} transactions each; \
+                 saw {commits:?}"
+            )),
         }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {shards} shards to commit {each} transactions each; \
-             saw {commits:?}{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
+    })
+    .await
 }
 
-fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
-    let events = read_trace(run)?;
-    Ok(events
+fn count_commits(events: &[TraceEvent]) -> u64 {
+    events
         .iter()
         .filter(|e| {
             matches!(
@@ -754,7 +709,7 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
                 }
             )
         })
-        .count() as u64)
+        .count() as u64
 }
 
 /// Take the task down and bring it back, for a fault that failed the whole task
@@ -827,11 +782,11 @@ async fn recover(
     let stalled_after = pace * 3;
     let poll = std::cmp::max(std::time::Duration::from_secs(5), pace / 3);
 
-    let mut last_commits = count_commits(run)?;
+    let mut last_commits = count_commits(&read_trace(run)?);
     let mut stalled_since = std::time::Instant::now();
 
     loop {
-        let commits = count_commits(run)?;
+        let commits = count_commits(&read_trace(run)?);
         if commits >= target {
             return Ok(());
         }
@@ -871,64 +826,86 @@ async fn recover(
     }
 }
 
+/// Poll the shim's trace until it satisfies `decide`, or the deadline passes.
+///
+/// Every gate below is this shape — read the trace, decide from it, sleep — and the only
+/// thing that genuinely differs is what a timeout *means*, which is why the message is the
+/// caller's. Any failure the shim recorded is appended to it: a gate that timed out because
+/// the connector died should say so rather than report only the count it wanted.
+async fn poll_trace<T>(
+    run: &RunDir,
+    timeout: std::time::Duration,
+    interval: std::time::Duration,
+    mut decide: impl FnMut(&[TraceEvent]) -> Result<T, String>,
+) -> anyhow::Result<T> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        let trace = read_trace(run)?;
+        let unmet = match decide(&trace) {
+            Ok(value) => return Ok(value),
+            Err(unmet) => unmet,
+        };
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "{unmet}{}",
+            trace_failures(run),
+        );
+        tokio::time::sleep(interval).await;
+    }
+}
+
 async fn await_commits(
     run: &RunDir,
     target: u64,
     timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        let commits = count_commits(run)?;
-        if commits >= target {
-            return Ok(());
+    poll_trace(run, timeout, std::time::Duration::from_secs(2), |trace| {
+        let commits = count_commits(trace);
+        match commits >= target {
+            true => Ok(()),
+            false => Err(format!(
+                "timed out waiting for {target} committed transactions; saw {commits}"
+            )),
         }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {target} committed transactions; saw {commits}{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
+    })
+    .await
 }
 
 /// Wait until the shim has traced anything at all, which is the sink's connector being
 /// spoken to for the first time.
 async fn await_first_message(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        if !read_trace(run)?.is_empty() {
-            return Ok(());
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for the sink's connector to be started",
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
+    poll_trace(
+        run,
+        timeout,
+        std::time::Duration::from_millis(250),
+        |trace| match trace.is_empty() {
+            false => Ok(()),
+            true => Err("timed out waiting for the sink's connector to be started".to_string()),
+        },
+    )
+    .await
 }
 
 /// Wait until a transaction has carried at least one document, which means the captures
 /// are producing and the sink is being fed.
 async fn await_first_documents(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        let fed = read_trace(run)?.iter().any(|e| match &e.event {
-            Event::Stored { per_binding } => per_binding.iter().any(|n| *n != 0),
-            _ => false,
-        });
-        if fed {
-            return Ok(());
-        }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for the workload to feed the sink{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
+    poll_trace(
+        run,
+        timeout,
+        std::time::Duration::from_millis(250),
+        |trace| {
+            let fed = trace.iter().any(|e| match &e.event {
+                Event::Stored { per_binding } => per_binding.iter().any(|n| *n != 0),
+                _ => false,
+            });
+            match fed {
+                true => Ok(()),
+                false => Err("timed out waiting for the workload to feed the sink".to_string()),
+            }
+        },
+    )
+    .await
 }
 
 async fn await_faults(
@@ -939,24 +916,19 @@ async fn await_faults(
     if expected == 0 {
         return Ok(0); // The baseline scenario injects nothing.
     }
-    let deadline = std::time::Instant::now() + timeout;
-
-    loop {
-        let fired = read_trace(run)?
+    poll_trace(run, timeout, std::time::Duration::from_secs(2), |trace| {
+        let fired = trace
             .iter()
             .filter(|e| matches!(e.event, Event::Fault { .. }))
             .count();
-
-        if fired >= expected {
-            return Ok(fired);
+        match fired >= expected {
+            true => Ok(fired),
+            false => Err(format!(
+                "timed out waiting for {expected} fault(s) to fire; {fired} did"
+            )),
         }
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {expected} fault(s) to fire; {fired} did{}",
-            trace_failures(run),
-        );
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    }
+    })
+    .await
 }
 
 /// Whatever the shim said went wrong, appended to a timeout message so the
@@ -1101,7 +1073,17 @@ async fn drain(
         // work, and every membership-change scenario becomes flaky in the direction
         // of falsely reporting loss.
         let total = contents.log.len() + merged_delivered;
-        let healthy = stack.all_primary(&names.sink).await.unwrap_or(false);
+        // A listing that *errors* is not evidence the task is unhealthy, but it has to be
+        // treated as such to make progress — so it is logged. Folded silently into `false`, a
+        // persistently failing listing reported as "stuck unhealthy", which is a real state
+        // with a different cause and sends the reader looking in the wrong place.
+        let healthy = match stack.all_primary(&names.sink).await {
+            Ok(healthy) => healthy,
+            Err(err) => {
+                tracing::warn!(%err, task = %names.sink, "could not list shards; assuming unhealthy");
+                false
+            }
+        };
 
         unchanged_for = if total == previous && healthy {
             unchanged_for + 1

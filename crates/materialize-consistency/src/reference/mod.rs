@@ -10,14 +10,9 @@
 //! document-counter class is executable before any production connector adopts
 //! it.
 //!
-//! The classes follow the four patterns from the scale-out strategies discussion:
-//!
-//! | Class | Commits during | Authority | Fenced by |
-//! | --- | --- | --- | --- |
-//! | `remoteAuthoritative` | `StartCommit` | destination checkpoint | nonce table |
-//! | `postCommitApply` | `Acknowledge`, from durable staging | recovery log | — |
-//! | `documentCounter` | `Store`, appending to a counted channel | destination count | — |
-//! | `atLeastOnce` | `Store` | recovery log | — |
+//! The classes follow the four patterns from the scale-out strategies discussion, and are
+//! tabulated in `docs/materialize/consistency-testing.md`; the
+//! per-variant docs on [`Class`] below are the authority for what each one does here.
 
 pub mod store;
 
@@ -171,15 +166,10 @@ struct ShardState {
 struct PendingApply {
     /// Statements which apply the staged batch, run in order as one transaction.
     queries: Vec<String>,
-    /// Staged batches these statements consume, for reporting and for garbage
-    /// collection of staging that no entry claims.
+    /// Staged batches these statements consume. Reporting only — the trace uses it to say
+    /// which batches an apply retired. It collects no garbage: each batch is retired by the
+    /// trailing `DELETE` of its own statements.
     to_delete: Vec<String>,
-}
-
-/// A binding of the open session. The connector treats a document's key as
-/// opaque text, so the table shape is all it needs to remember.
-struct Binding {
-    table: Table,
 }
 
 /// The open session: everything a transaction needs, and nothing that outlives
@@ -188,7 +178,7 @@ pub struct Session {
     store: Store,
     class: Class,
     defects: Vec<Defect>,
-    bindings: Vec<Binding>,
+    bindings: Vec<Table>,
     /// Range this session owns, as the fence and staging key. Distinct from the
     /// range the runtime sent when the `ignore-key-range` defect is on.
     key_begin: u32,
@@ -201,7 +191,6 @@ pub struct Session {
     /// [`stage_load`] for why the read cannot happen sooner.
     pending_loads: Vec<(u32, String)>,
     /// Work staged by the transaction in progress, not yet published in a checkpoint.
-    pending: BTreeMap<String, PendingApply>,
     /// Work whose transaction the log has confirmed, awaiting release.
     ///
     /// Applied on *every* `Acknowledge` until released, because the runtime may retry an
@@ -211,21 +200,15 @@ pub struct Session {
     /// retirement would duplicate on the retry, which is the `non-idempotent-acknowledge`
     /// defect and is what makes it observable.
     confirmed: BTreeMap<String, PendingApply>,
-    /// Published-but-unacknowledged work, oldest transaction first.
+    /// Published-but-unacknowledged work: the transaction whose `StartCommit` has been
+    /// answered but whose `Acknowledge` has not arrived.
     ///
-    /// One entry per `StartCommit`, released by the matching `Acknowledge`. The protocol
-    /// pipelines — an `Acknowledge` confirming transaction N can arrive after
-    /// `StartedCommit(N+1)` — so "everything currently staged" is the wrong thing to
-    /// apply: it would commit N+1's work before the recovery log holds it, and a replay
-    /// of N+1 would then reduce its documents onto a destination that already counts them.
-    ///
-    /// The *protocol* permits a connector to acknowledge early, which is what this defends
-    /// against. The runtime as it stands cannot produce the interleaving: `Flush(N+1)` waits
-    /// on `Tail::Done`, which requires every shard's `Acknowledged(N)`, so `Acknowledge(N)`
-    /// always precedes `StartCommit(N+1)` and this deque never holds more than one entry.
-    /// Kept because the guarantee it relies on is the runtime's scheduling, not the protocol's
-    /// contract.
-    published: std::collections::VecDeque<BTreeMap<String, PendingApply>>,
+    /// At most one, so an `Option` rather than the queue this used to be. The *protocol*
+    /// permits a connector to acknowledge early, and this defends against applying N+1's work
+    /// before the log holds it — but the runtime cannot produce that interleaving:
+    /// `Flush(N+1)` waits on `Tail::Done`, which requires every shard's `Acknowledged(N)`, so
+    /// `Acknowledge(N)` always precedes `StartCommit(N+1)`.
+    published: Option<BTreeMap<String, PendingApply>>,
     /// Pending work of *other* ranges — peers of this transaction, and ranges left by
     /// previous shard topologies. Tracked and executed only by the primary.
     peers: BTreeMap<String, BTreeMap<String, PendingApply>>,
@@ -462,7 +445,12 @@ fn validate_bindings(
 
 /// `Apply` performs the destination's DDL, and nothing else.
 ///
-/// It is handed no connector state, so it cannot know which staged work committed —
+/// This connector drains nothing here, and the reason is a choice rather than an impossibility:
+/// `Apply.state_json` exists (`materialize.proto`) and runtime-next populates it, though the
+/// classic runtime sends `{}`. Draining at `Apply` would mean a second path to reconcile staged
+/// work, exercised only by whichever runtime fills the field — where `Acknowledge` is the path
+/// every transaction already takes. `materialize-databricks` does the same. So: it could know
+/// which staged work committed, and deliberately does not ask —
 /// and the destination cannot tell it: a transaction that died mid-commit leaves the
 /// same trace as one that committed and was not yet applied. Draining on that basis
 /// applied abandoned work, and because splitting a task republishes its spec, that
@@ -484,18 +472,20 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
 
     let tables = bindings_of(materialization)?;
     let last: Vec<Table> = match &apply.last_materialization {
-        Some(last) => bindings_of(last)?.into_iter().map(|b| b.table).collect(),
+        Some(last) => bindings_of(last)?,
         None => Vec::new(),
     };
 
     for binding in &tables {
-        store.ensure_table(&binding.table)?;
+        store.ensure_table(binding)?;
     }
 
-    // A binding that has gone away takes its table with it. Reaching here having
-    // drained means its staged work has already landed.
+    // A binding that has gone away takes its table with it. Note `Apply` drains nothing —
+    // by choice, not because it cannot: see `apply_spec`. So this drops the table without any
+    // claim that staged work for it has landed. Dropping is what the runtime asked for;
+    // reconciling staged work is `Acknowledge`'s job.
     for table in last {
-        if !tables.iter().any(|b| b.table.name == table.name) {
+        if !tables.iter().any(|b| b.name == table.name) {
             store.drop_table(&table.name)?;
             actions.push(format!("dropped {}", table.name));
         }
@@ -510,17 +500,15 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
     })
 }
 
-fn bindings_of(spec: &flow::MaterializationSpec) -> anyhow::Result<Vec<Binding>> {
+fn bindings_of(spec: &flow::MaterializationSpec) -> anyhow::Result<Vec<Table>> {
     spec.bindings
         .iter()
         .map(|binding| {
             let resource: ResourceConfig = serde_json::from_slice(&binding.resource_config_json)
                 .context("parsing resource configuration")?;
-            Ok(Binding {
-                table: Table {
-                    name: resource.table,
-                    delta: binding.delta_updates,
-                },
+            Ok(Table {
+                name: resource.table,
+                delta: binding.delta_updates,
             })
         })
         .collect()
@@ -591,11 +579,10 @@ fn open_session(
         nonce,
         buffered: Vec::new(),
         pending_loads: Vec::new(),
-        pending: BTreeMap::new(),
         // Recovered work is known committed, so it is releasable from the first
         // `Acknowledge` — which the protocol delivers before this session's first `Load`.
         confirmed: pending,
-        published: std::collections::VecDeque::new(),
+        published: None,
         peers,
         primary,
         range_key,
@@ -670,10 +657,10 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
         let destination =
             session
                 .store
-                .appended(session.key_begin, session.key_end, &binding.table.name)?;
+                .appended(session.key_begin, session.key_end, &binding.name)?;
         let checkpointed = shard_state
             .appended
-            .get(&binding.table.name)
+            .get(&binding.name)
             .copied()
             .unwrap_or(0);
 
@@ -692,7 +679,7 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
                 "destination holds {destination} appends of {} but the committed checkpoint \
                  claims {checkpointed}: the destination cannot be behind the checkpoint, so \
                  refusing to guess",
-                binding.table.name,
+                binding.name,
             );
         };
 
@@ -721,22 +708,18 @@ fn decode_checkpoint(
 ///
 /// The owner range matters and the session's own range does not: the question a failing
 /// merged value raises is *whose* staged absolute was written, and when.
-fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
+/// Append one line to `reduce.jsonl`, if the trace is enabled.
+///
+/// Both tracers gate on the same variable, resolve the same directory and open the same file in
+/// the same mode; only the object differs. Best-effort throughout: this is a post-mortem aid,
+/// and a scenario must not fail because a diagnostic could not be written.
+fn trace_line(value: serde_json::Value) {
     if std::env::var_os(crate::protocol::ENV_TRACE_REDUCE).is_none() {
         return;
     }
     let Ok(dir) = std::env::var(crate::protocol::ENV_RUN_DIR) else {
         return;
     };
-    let line = serde_json::json!({
-        "event": "apply-pending",
-        "owner": owner,
-        "binding": binding,
-        "batches": batches,
-        "pid": std::process::id(),
-    })
-    .to_string()
-        + "\n";
 
     use std::io::Write;
     if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -744,47 +727,45 @@ fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
         .append(true)
         .open(std::path::Path::new(&dir).join("reduce.jsonl"))
     {
-        let _ = file.write_all(line.as_bytes());
+        let _ = file.write_all(format!("{value}\n").as_bytes());
     }
+}
+
+fn trace_apply(owner: &str, binding: &str, batches: &[String]) {
+    trace_line(serde_json::json!({
+        "event": "apply-pending",
+        "owner": owner,
+        "binding": binding,
+        "batches": batches,
+        "pid": std::process::id(),
+    }));
 }
 
 fn trace_reduce(event: &str, table: &Table, key: &str, doc: Option<&str>, txn: i64) {
     if table.delta {
         return;
     }
-    // Opt-in: this writes two lines per merge-binding document, and a measured run should
-    // not pay for it. Set `FLOW_CONSISTENCY_TRACE_REDUCE=1` when running the suite
-    // environment to investigate a wrong stored sum.
-    if std::env::var_os(crate::protocol::ENV_TRACE_REDUCE).is_none() {
-        return;
-    }
-    let Ok(dir) = std::env::var(crate::protocol::ENV_RUN_DIR) else {
-        return;
+    // Opt-in, because this writes two lines per merge-binding document and a measured run
+    // should not pay for it. Set `FLOW_CONSISTENCY_TRACE_REDUCE=1` to investigate a wrong
+    // stored sum. Parsed once: the two fields came from two separate parses of the same
+    // document.
+    let parsed = doc.and_then(|doc| serde_json::from_str::<serde_json::Value>(doc).ok());
+    let field = |name: &str| {
+        parsed
+            .as_ref()
+            .and_then(|v| v.get(name))
+            .and_then(|v| v.as_i64())
     };
-    let delta = doc.and_then(|doc| {
-        serde_json::from_str::<serde_json::Value>(doc)
-            .ok()
-            .and_then(|v| v.get("balanceDelta").and_then(|d| d.as_i64()))
-    });
-    let seq = doc.and_then(|doc| {
-        serde_json::from_str::<serde_json::Value>(doc)
-            .ok()
-            .and_then(|v| v.get("seq").and_then(|d| d.as_i64()))
-    });
 
-    let line = serde_json::json!({
-        "event": event, "table": table.name, "key": key,
-        "balanceDelta": delta, "seq": seq, "txn": txn, "pid": std::process::id(),
-    });
-
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(std::path::Path::new(&dir).join("reduce.jsonl"))
-    {
-        use std::io::Write;
-        let _ = file.write_all(format!("{line}\n").as_bytes());
-    }
+    trace_line(serde_json::json!({
+        "event": event,
+        "table": table.name,
+        "key": key,
+        "balanceDelta": field("balanceDelta"),
+        "seq": field("seq"),
+        "txn": txn,
+        "pid": std::process::id(),
+    }));
 }
 
 /// Stage a load key. The destination is *not* read here.
@@ -822,7 +803,7 @@ fn flush_loads(session: &mut Session) -> anyhow::Result<Vec<materialize::Respons
     let mut responses = Vec::new();
 
     for (binding, key) in std::mem::take(&mut session.pending_loads) {
-        let table = session.bindings[binding as usize].table.clone();
+        let table = session.bindings[binding as usize].clone();
         let loaded = session.store.load(&table, &key)?;
 
         trace_reduce(
@@ -867,9 +848,8 @@ fn store_document(session: &mut Session, store: materialize::request::Store) -> 
         .get(binding_index)
         .context("Store names an unknown binding")?;
 
-    let table = binding.table.clone();
+    let table = binding.clone();
     let row = Row {
-        binding: binding_index,
         key: std::str::from_utf8(&store.key_json)
             .context("Store key is not UTF-8")?
             .to_string(),
@@ -986,11 +966,12 @@ fn start_commit_txn(
             // `Acknowledge` — this session's or a successor's — needs nothing but these.
             let deduplicate = !session.has(Defect::NonIdempotentAcknowledge);
 
+            let mut publishing: BTreeMap<String, PendingApply> = BTreeMap::new();
             for table in match staged_anything {
                 true => staged_tables(&batch, session)?,
                 false => Vec::new(),
             } {
-                let entry = session.pending.entry(table.name.clone()).or_default();
+                let entry = publishing.entry(table.name.clone()).or_default();
                 entry
                     .queries
                     .extend(Store::apply_statements(&batch, &table, deduplicate));
@@ -1000,9 +981,15 @@ fn start_commit_txn(
             // Whatever was confirmed has been applied and its clearing patch emitted.
             session.confirmed.clear();
 
-            let publishing = std::mem::take(&mut session.pending);
             let patch = pending_patch(&session.range_key, &publishing);
-            session.published.push_back(publishing);
+            // Asserted rather than assumed: a second entry would mean the runtime had
+            // pipelined an `Acknowledge` past a `StartCommit`, which the field's doc explains
+            // it cannot. Losing one silently would be a duplicate nobody could explain.
+            debug_assert!(
+                session.published.is_none(),
+                "a transaction was published while another was still unacknowledged",
+            );
+            session.published = Some(publishing);
             Some(patch)
         }
 
@@ -1033,11 +1020,11 @@ fn start_commit_txn(
                 let mut offsets = BTreeMap::new();
                 for binding in &session.bindings {
                     offsets.insert(
-                        binding.table.name.clone(),
+                        binding.name.clone(),
                         session.store.appended(
                             session.key_begin,
                             session.key_end,
-                            &binding.table.name,
+                            &binding.name,
                         )?,
                     );
                 }
@@ -1126,7 +1113,7 @@ fn acknowledge(
     // bookkeeping — mirroring the clearing the primary emits for them.
     if !session.primary {
         session.confirmed.clear();
-        session.published.pop_front();
+        session.published = None;
         return Ok(materialize::Response {
             acknowledged: Some(materialize::response::Acknowledged { state: None }),
             ..Default::default()
@@ -1151,7 +1138,7 @@ fn acknowledge(
     // promote a transaction the log has not confirmed. The connector cannot tell that case
     // apart: `Acknowledge` carries no transaction identity, only the aggregated patches of
     // whichever transaction it confirms. Closing it needs the protocol to say which.
-    if let Some(promoted) = session.published.pop_front() {
+    if let Some(promoted) = session.published.take() {
         session.confirmed.extend(promoted);
     }
 
@@ -1202,7 +1189,7 @@ fn apply_pending(
     let mut executed = Vec::new();
 
     for (state_key, item) in pending {
-        if !session.bindings.iter().any(|b| &b.table.name == state_key) {
+        if !session.bindings.iter().any(|b| &b.name == state_key) {
             continue;
         }
         session
@@ -1241,7 +1228,7 @@ fn staged_tables(batch: &str, session: &Session) -> anyhow::Result<Vec<Table>> {
     Ok(session
         .bindings
         .iter()
-        .map(|b| b.table.clone())
+        .map(|b| b.clone())
         .filter(|t| names.contains(&t.name))
         .collect())
 }
@@ -1296,10 +1283,9 @@ fn shard_patch(key_begin: u32, key_end: u32, state: ShardState) -> flow::Connect
 
 /// Emit every row of a materialized resource as newline-delimited JSON.
 ///
-/// The harness reads destinations through the connector binary rather than
-/// reaching into them, so that the same code path serves the reference connector
-/// and real ones (where it is `materialize-boilerplate`'s `read` subcommand over
-/// an interface every SQL destination already implements).
+/// Backs this connector's own `read` subcommand. A real subject is read through
+/// `tests/materialize/testctl`, which calls `Materializer.SnapshotTestResource` — two
+/// deliberately separate paths, since this one is Rust and `testctl` cannot drive it.
 pub fn read(config: &EndpointConfig, table: &str, delta: bool) -> anyhow::Result<()> {
     use std::io::Write;
 

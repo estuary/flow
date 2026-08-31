@@ -154,22 +154,28 @@ checkpoint the connector chose.
 **A membership change preserves exactly-once delivery of the *set*, but not delivery
 *order* at the sink.**
 
-A split child resumes from its inherited checkpoint and may deliver a sequence that
-the departing parent had already raced past, so an id's rows can land out of order
-while remaining exactly one row per document. The suite observes exactly that shape: no
-loss, no duplicates, conservation intact and oracle agreement intact, alongside a crop of
-monotonicity complaints.
+The suite observes exactly that shape, repeatably: no loss, no duplicates, conservation
+intact and oracle agreement intact, alongside a crop of monotonicity complaints — 9 to 33 per
+run on the reconfiguration scenarios, and 40 to 54 on the counted channel's, measured after the
+two monotonicity checkers were made to score a regression the same way.
 
-So the reconfiguration scenarios declare a monotonicity exemption, with the
-set-based checks explicitly *not* exempt. Those four carry the exactly-once claim,
-and they are the ones a split has to keep.
+**The mechanism is not understood, and this document used to claim it was.** The natural
+explanation — a split child delivering a sequence the departing parent had already raced past —
+does not survive reading the code: on the delta paths these classes use, a parent write past a
+child's resume point is either refused by the fence or lands as a duplicate, and duplicates are
+*not* exempt, so such a run would fail on `NoDuplicates` regardless. Something else reorders
+delivery, and naming it is open work.
 
-This is the compliance model earning its keep in the direction it was designed for:
-the weaker property is declared and justified in one place, and the connector is
-still held to everything else. The document-counter class needed the same exemption
-for a different reason — rows of an uncommitted transaction stay visible until
-recovery skips past them — which is a hint that sink ordering is simply not a
-property the runtime offers whenever sessions can overlap.
+So the reconfiguration scenarios declare a monotonicity exemption, with the set-based checks
+explicitly *not* exempt. Those four carry the exactly-once claim, and they are the ones a split
+has to keep — which is what makes an unexplained ordering deviation tolerable: whatever causes
+it, it demonstrably does not cost or duplicate a document.
+
+This is the compliance model earning its keep, and also showing its limit. The weaker property
+is declared in one place and everything else is still held — but a justification is only as good
+as its reasoning, and this one is now honest about having none. Two exemptions were deleted
+during review for describing mechanisms that could not fire *and* suppressing nothing; these
+suppress a great deal, so they stay, with the observation recorded instead of a story.
 
 ### Only shard zero may propose a runtime checkpoint
 
@@ -338,8 +344,10 @@ batch, keyed by binding — not a pointer to work the destination is asked to re
 because leftover staging cannot say whether its transaction committed or was abandoned. Only
 the **primary** shard runs them, learning of its peers' staged work from the aggregated state
 patches the runtime delivers with `Acknowledge`, so two shards never contend for one
-binding's table; `Apply` deliberately drains nothing, since it is handed no connector state
-and so has no basis for deciding what committed. And the load is deferred until `Flush`,
+binding's table; `Apply` deliberately drains nothing — not because it cannot, since
+`Apply.state_json` exists and runtime-next populates it, but because draining there would add a
+second reconciliation path exercised only by some runtimes, where `Acknowledge` is the path
+every transaction already takes. And the load is deferred until `Flush`,
 which is what makes `split-during-commit` pass rather than the expected failure it once was —
 see "Why a coordinating connector must not read at `Load`" below.
 
@@ -477,11 +485,11 @@ nothing rather than replayed from a log.
 Three properties shape how these scenarios are written, and each is a constraint rather
 than a preference.
 
-**A split alone perturbs nothing a counted channel can get wrong.** It lands at a
-transaction boundary, so nothing is replayed, so no channel has anything to skip — and
-skipping is the whole of the class's behaviour. Both scenarios therefore inject a crash as
-well: without a replay, a defect about skipping wrongly has no opportunity to misbehave,
-and the scenario would pass in both halves while establishing nothing.
+**A split alone is too weak a perturbation to rely on.** Not because it lands at a transaction
+boundary — it does not, as "Any split scenario passes through that window" below explains — but
+because whether it creates the replay these defects need is a race. So a split-only scenario
+passes in both halves often enough to establish nothing, and both scenarios inject a crash as
+well, which makes the replay certain rather than incidental.
 
 **A fault cannot be aimed after a membership change by occurrence count.** `arm_after`
 counts a session's own committed transactions, and a split child's count starts at zero, so

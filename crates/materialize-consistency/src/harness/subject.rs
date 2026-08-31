@@ -201,21 +201,19 @@ pub const ENV_SUBJECT_CONFIG: &str = "FLOW_CONSISTENCY_SUBJECT_CONFIG";
 /// how a connector divides durability with the runtime is a property of its
 /// implementation, not of its configuration schema.
 ///
-/// It excludes much less than it might: nearly every scenario applies to nearly every
-/// class, because a fault a connector must survive is rarely a property of how it divides
-/// durability with the runtime. See [`crate::scenarios::Scenario::applies_to`] for what
-/// this actually gates, which is one scenario the harness cannot stage for another class
-/// plus the exactly-once scenarios against an at-least-once subject.
+/// Most scenarios apply to most classes, because a fault a connector must survive is rarely a
+/// property of how it divides durability with the runtime. What it does exclude is listed in
+/// the crate README and enforced by [`crate::scenarios::Scenario::applies_to`], which is the
+/// authority — a `documentCounter` subject currently skips four scenarios. Read a run's
+/// `not-applicable` lines rather than any prose, including this.
 pub const ENV_SUBJECT_CLASS: &str = "FLOW_CONSISTENCY_SUBJECT_CLASS";
 
 /// Path to a built `tests/materialize/testctl` from the connectors repository.
 ///
-/// Reading a destination back and dropping a resource are not in the materialization
-/// protocol, and deliberately not: there is no request that reads a destination, and removing
-/// a binding leaves its table in place because destroying a user's data as a side effect of a
-/// catalog edit would be indefensible. `testctl` reaches both the way the connectors' own
-/// integration tests do — `Materializer.SnapshotTestResource` and `DeleteResource` — from
-/// outside the connector, so no connector grows a subcommand for this suite's benefit.
+/// Reads a destination back and drops a resource, neither of which the materialization
+/// protocol offers. See "Destination reads go through connector code" in
+/// `docs/materialize/consistency-testing.md` for why it is a separate program rather than a
+/// connector subcommand.
 pub const ENV_SUBJECT_TOOL: &str = "FLOW_CONSISTENCY_SUBJECT_TOOL";
 
 /// The name `testctl` knows the connector by, e.g. `materialize-databricks`.

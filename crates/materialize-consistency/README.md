@@ -54,7 +54,7 @@ credentials and no cloud spend.
 | `invariants.rs` | The checkers, as pure functions over documents. Unit-tested here. |
 | `harness/mod.rs` | The runner: publish, perturb, quiesce, verify, clean up. |
 | `harness/catalog.rs` | The catalog a run publishes, and why the workload is shaped as it is. |
-| `harness/stack.rs` | Everything needed from the stack, all through `flowctl`. |
+| `harness/stack.rs` | Everything needed from the stack: `flowctl`, plus `gazctl` via `scripts/` for shard surgery. |
 | `tests/scenarios.rs` | The suite's one seam: every scenario, run clean and then defective. |
 
 `FaultRule` carries a `ShardTarget` — `Any`, `SplitLeader` or `SplitNonLeader` —
@@ -86,17 +86,10 @@ All five are required together; setting some alone is an error rather than a sil
 to the reference connector.
 
 **Two artifacts, not one.** The connector binary is what the shim `exec`s and the runtime
-drives. `testctl` is separate, and is how verification reads the destination back and how a
-run drops the tables it created. Neither capability is in the materialization protocol —
-there is no request that reads a destination, and removing a binding deliberately leaves its
-table in place — so `testctl` reaches them the way the connectors' own integration tests do,
-through `Materializer.SnapshotTestResource` and `DeleteResource`. No connector grows a
-subcommand for this suite's benefit.
-
-`FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the connector by, which is not
-derivable from the binary's file name. `testctl` drives a connector whose package is
-importable — `package connector` with `func main` under `cmd/connector` — so a connector that
-is still `package main` cannot be a subject until it is converted.
+drives; `testctl` is separate, and is how verification reads the destination back and how a run
+drops the tables it created. `FLOW_CONSISTENCY_SUBJECT_NAME` is the name `testctl` knows the
+connector by, which is not derivable from the binary's file name. Why it is a separate program
+rather than a connector subcommand is in the design document.
 
 **Tables are named to be sweepable.** Each carries the run id *and*
 `_flow_test_<unix>`, the connectors repository's convention, so `testctl -mode sweep` can
@@ -106,13 +99,20 @@ created; sweeping enumerates what is actually there.
 **The class is declared rather than discovered**, because how a connector divides
 durability with the runtime is a property of its implementation that `spec` does not report.
 
-It decides which scenarios run, but it excludes far less than you might expect: a fault a
-connector must survive is rarely a property of its class, so nearly every scenario runs
-against nearly every class. See `Scenario::applies_to`. Only two things are excluded — an
-at-least-once subject skips the exactly-once scenarios, which it never claimed to uphold,
-and `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the harness orders
-the two racing instances by their `Open` fences and a class that does not fence gives it
-nothing to order them by.
+It decides which scenarios run. Most scenarios run for most classes — a fault a connector
+must survive is rarely a property of its class — but three exclusions are worth knowing, and
+`Scenario::applies_to` is the authority:
+
+- an at-least-once subject skips every exactly-once scenario, which it never claimed to uphold;
+- `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the shim orders the
+  two racing instances by their `Open` fences and a class that does not fence gives it nothing
+  to order them by;
+- `split-during-commit`, `split-during-store` and `join-after-split` skip `documentCounter`,
+  because each lands a membership change on a live transaction and whether that reaches the
+  counted channel's exposure is a race — see `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+
+So a `documentCounter` subject skips **four** scenarios, not one. Read the run's
+`not-applicable` lines rather than counting on this list to stay current.
 
 Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every
 exactly-once class even though the counted channel cannot pass it. A gap that stops one class
@@ -150,10 +150,10 @@ its delta ones: a duplicate applied to a merge binding is an idempotent upsert a
 invisible, so accepting one would leave every scenario passing with the suite's sharpest check
 disabled and nothing saying so.
 
-`testctl` and the importable-package change it needs are estuary/connectors#4981, **not yet
-merged**. So "runs against any connector" is the design, and "runs against any connector
-`testctl` can drive" is the present tense — see that PR's `tests/materialize/testctl/README.md`
-for the current list.
+**Which connectors can be a subject** is whatever `testctl` can drive, which is a connector
+whose package is importable — `package connector` with `func main` under `cmd/connector`. See
+`tests/materialize/testctl/README.md` in the connectors repository for the current list and for
+how to add one; a connector still in `package main` needs converting first.
 
 **A scenario that splits or joins shards needs the subject configured for multi-shard
 operation.** Where that is behind a feature flag the harness cannot know its name, and a

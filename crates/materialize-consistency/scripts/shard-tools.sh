@@ -8,8 +8,8 @@
 # `flowctl raw gazctl-env` provides.
 #
 # Usage:
-#   shard-tools.sh unassign <task> [--failed]
-#   shard-tools.sh join     <task> [--dry-run]
+#   shard-tools.sh unassign <task>
+#   shard-tools.sh join     <task>
 set -euo pipefail
 
 usage() {
@@ -22,15 +22,17 @@ COMMAND=$1
 TASK=$2
 shift 2
 
-# Resolved rather than assumed: the suite spawns this with a minimal environment, so
-# neither tool is necessarily on PATH. `go install` puts gazctl under GOPATH/bin, which
-# is where a checkout that has run `mise run local:stack` will have it.
+# Resolved rather than assumed: the suite spawns this with a minimal environment, so neither
+# tool is necessarily on PATH. Both are built into this stack's own GOBIN by
+# `mise run local:stack`, which is checked first; the GOPATH and ~/go/bin fallbacks are for a
+# manual invocation outside a stack.
 resolve() {
     local var=$1 name=$2
     if [ -n "${!var:-}" ]; then echo "${!var}"; return; fi
     if command -v "${name}" >/dev/null 2>&1; then command -v "${name}"; return; fi
     local candidate
-    for candidate in "$(go env GOPATH 2>/dev/null)/bin/${name}" "${HOME}/go/bin/${name}"; do
+    for candidate in "${GOBIN:-}/${name}" "$(go env GOPATH 2>/dev/null)/bin/${name}" \
+        "${HOME}/go/bin/${name}"; do
         [ -x "${candidate}" ] && { echo "${candidate}"; return; }
     done
     echo "error: ${name} not found; set ${var} to its path" >&2
@@ -54,9 +56,11 @@ authorize() {
 case "${COMMAND}" in
 unassign)
     authorize
-    # `--failed` limits it to shards the allocator has given up on, which is the usual
-    # case after an injected crash. Without it, every shard is rescheduled.
-    "${GAZCTL}" shards unassign --selector "${SELECTOR}" "$@"
+    # Every shard, deliberately not `--failed`. Gazette does remove a FAILED assignment
+    # under that filter; what it skips is a shard whose primary is merely *wedged* and has
+    # not been marked FAILED, which is precisely the state the harness's stall detection
+    # fires on. Filtering would report zero shards unassigned and leave the task down.
+    "${GAZCTL}" shards unassign --selector "${SELECTOR}"
     ;;
 
 join)
@@ -66,18 +70,10 @@ join)
 
     "${GAZCTL}" shards list --selector "${SELECTOR}" -o yaml >"${SPECS}.orig"
 
-    DRY_RUN=false
-    for arg in "$@"; do
-        [ "${arg}" = "--dry-run" ] && DRY_RUN=true
-    done
-
+    # No dry-run flag: nothing calls it, and a human wanting to see the plan can run
+    # `join-shards.py <listing> /dev/stdout` directly.
     python3 "$(dirname "$0")/join-shards.py" "${SPECS}.orig" "${SPECS}"
     rm -f "${SPECS}.orig"
-
-    if [ "${DRY_RUN}" = true ]; then
-        cat "${SPECS}"
-        exit 0
-    fi
     "${GAZCTL}" shards apply --specs "${SPECS}"
     ;;
 

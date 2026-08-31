@@ -141,6 +141,18 @@ pub enum Invariant {
     StandardDeltaAgreement,
 }
 
+impl Invariant {
+    /// Every invariant, so anything enumerating them cannot fall behind the enum.
+    pub const ALL: [Invariant; 6] = [
+        Invariant::Conservation,
+        Invariant::OracleAgreement,
+        Invariant::NoLoss,
+        Invariant::NoDuplicates,
+        Invariant::Monotonicity,
+        Invariant::StandardDeltaAgreement,
+    ];
+}
+
 impl std::fmt::Display for Invariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
@@ -397,18 +409,30 @@ fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
     for row in rows {
         *seen.entry((row.id, row.seq)).or_default() += 1;
 
-        match last_seq.get(&row.id) {
-            Some(previous) if row.seq <= *previous => out.push(Violation {
-                invariant: Invariant::Monotonicity,
-                detail: format!(
-                    "account {}: the log binding delivered seq {} after {previous}",
-                    row.id, row.seq
-                ),
-            }),
-            _ => {
-                last_seq.insert(row.id, row.seq);
+        // Strictly less-than, and the baseline always advances to what was just delivered.
+        // Both match `check_merged_delta`, and the two must agree because a run's suppression
+        // counts are read as evidence about which exemptions are load-bearing — two checkers
+        // counting the same event differently makes that evidence incomparable.
+        //
+        // `<` rather than `<=` because a *repeated* seq is not a regression of order; it is a
+        // duplicate, which `NoDuplicates` below owns. Counting it here too reported one fault
+        // as two, under two different invariants, one of which is often exempt.
+        //
+        // And tracking the last delivered seq rather than a high-water mark means a replay is
+        // one violation rather than one per row it replays: after 1..10 then 8, 9, 10, the 8 is
+        // the regression and the 9 and 10 that follow it are in order.
+        if let Some(previous) = last_seq.get(&row.id) {
+            if row.seq < *previous {
+                out.push(Violation {
+                    invariant: Invariant::Monotonicity,
+                    detail: format!(
+                        "account {}: the log binding delivered seq {} after {previous}",
+                        row.id, row.seq
+                    ),
+                });
             }
         }
+        last_seq.insert(row.id, row.seq);
 
         // A faithfully transported document is still itself.
         if let Some(document) = expected
@@ -728,6 +752,61 @@ mod test {
 
         let kinds = kinds(&bindings);
         assert!(kinds.contains(&Invariant::NoLoss), "{kinds:?}");
+    }
+
+    /// The name an invariant prints and the name it deserializes from must be the same string.
+    ///
+    /// There are two mappings — serde's `kebab-case` rename and the `Display` impl — and an
+    /// exemption is written with one and reported with the other, so a drift between them
+    /// would silently stop an exemption from matching the violations it names.
+    #[test]
+    fn every_invariant_name_round_trips() {
+        for invariant in Invariant::ALL {
+            let printed = invariant.to_string();
+            let parsed: Invariant = serde_json::from_value(serde_json::json!(printed))
+                .unwrap_or_else(|err| panic!("{printed:?} does not deserialize: {err}"));
+            assert_eq!(
+                parsed, invariant,
+                "{printed:?} round-trips to a different variant"
+            );
+        }
+    }
+
+    /// The two monotonicity checkers must count a regression the same way, because a run's
+    /// suppression counts are read as evidence about which exemptions carry weight — and two
+    /// checkers scoring the same event differently makes that evidence incomparable.
+    ///
+    /// They disagreed twice: `check_log` treated a repeated seq as a regression (it is a
+    /// duplicate, which `NoDuplicates` owns) and held a high-water mark, so one replay of
+    /// `8, 9, 10` after `10` scored three violations where the delta checker scored one.
+    #[test]
+    fn both_monotonicity_checkers_score_a_regression_the_same() {
+        // 0, 1, 2, then a replay of 1, 2 — one regression, at the replayed 1.
+        let replayed = vec![
+            event(1, 0, -1, -1),
+            event(1, 1, -1, -2),
+            event(1, 2, -1, -3),
+            event(1, 1, -1, -2),
+            event(1, 2, -1, -3),
+        ];
+
+        let count = |violations: Vec<Violation>| {
+            violations
+                .iter()
+                .filter(|v| v.invariant == Invariant::Monotonicity)
+                .count()
+        };
+
+        let expected = Expectation::from_documents(replayed.clone());
+
+        let mut log = Vec::new();
+        check_log(&expected, &replayed, &mut log);
+
+        let mut delta = Vec::new();
+        check_merged_delta(&expected, &replayed, &mut delta);
+
+        assert_eq!(count(log), 1, "the log checker scores one regression");
+        assert_eq!(count(delta), 1, "and so does the delta checker");
     }
 }
 
