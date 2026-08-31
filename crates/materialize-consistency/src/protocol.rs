@@ -47,18 +47,27 @@ pub enum Trigger {
     Store,
     /// A `Request.StartCommit`.
     StartCommit,
-    /// A `Response.StartedCommit` — the connector has committed, and the
-    /// runtime is about to commit its recovery log.
+    /// A `Response.StartedCommit` — the connector has *started* committing, and the runtime is
+    /// about to commit its recovery log.
+    ///
+    /// Started, not finished: the proto says the driver "has started to commit its transaction
+    /// (if it has one)", and a Go connector's `StartCommitFunc` may still be running in the
+    /// background when it returns. A fault here therefore lands somewhere in a window rather
+    /// than at a point — which is fine for the scenarios that use it, since the window is a
+    /// superset of the instant they want, but it is not a guarantee the protocol offers.
     StartedCommit,
     /// A `Request.Acknowledge` — the runtime's recovery log has committed, and the
     /// connector may now apply the transaction's staged work.
     Acknowledge,
     /// A `Response.Acknowledged` — the connector has finished applying.
     ///
-    /// This, not `Acknowledge`, is where `crash-between-commits` faults: it is the only
-    /// point at which the connector has applied a transaction and the shim can still kill
-    /// it before the runtime records that fact. The restart replays the same `Acknowledge`,
-    /// and only an idempotent one leaves the destination unchanged.
+    /// This, not `Acknowledge`, is where `crash-between-commits` faults: it is the earliest and
+    /// most targeted point at which the connector has applied a transaction and the shim can
+    /// still kill it before the runtime records that fact. Not the *only* one — a crash
+    /// anywhere up to the next recovery-log commit replays the same `Acknowledge`, which is
+    /// what `crash-mid-store` also does — but the earliest, so the least is happening around
+    /// it. The restart replays that `Acknowledge`, and only an idempotent one leaves the
+    /// destination unchanged.
     Acknowledged,
 }
 
@@ -161,9 +170,11 @@ impl ShardTarget {
 impl FaultRule {
     /// Crash on the `nth` occurrence of `on`, with no arming delay.
     ///
-    /// `nth` counts occurrences within the session, not within a transaction — an
-    /// `Acknowledged` with `nth` of 5 fires in the fifth transaction. Callers that need the
-    /// fault to land after some committed work add `arm_after`.
+    /// `nth` is counted per [`FaultRule::nth`]'s two regimes: `Store` and `Load` within the
+    /// current transaction, everything else within the session. So an `Acknowledged` with `nth`
+    /// of 5 fires in the fifth transaction, while a `Store` with `nth` of 25 fires at the 25th
+    /// store of whichever transaction is running — which is what `crash-mid-store` relies on.
+    /// Callers needing the fault to land after some committed work add `arm_after`.
     pub fn crash_at(on: Trigger, nth: u64) -> Self {
         Self {
             on,

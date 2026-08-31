@@ -22,8 +22,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Append-only protocol trace, shared by every connector process of a run.
 ///
-/// Concurrent processes — a live instance and its zombie, or a crashed instance and
-/// its replacement — must interleave whole lines rather than corrupting each other.
+/// Concurrent writers — the shims of a split task's shards, or a crashed instance's shim and
+/// its replacement — must interleave whole lines rather than corrupting each other. (Not the
+/// zombie: its responses are drained and discarded, and it writes no trace of its own.)
 /// The mutex is not what buys that: it is per-process, and these are separate
 /// processes. What buys it is `O_APPEND` plus **one** `write` syscall per line, which
 /// the kernel serialises against the file's end.
@@ -454,9 +455,13 @@ fn response_trigger(resp: &materialize::Response) -> Option<Trigger> {
 fn crash(shim: &Shim, live_pid: libc::pid_t) -> ! {
     unsafe { libc::kill(live_pid, libc::SIGKILL) };
 
-    // A stopped process does not act on SIGKILL until it is continued, and this
-    // exit runs no destructors — so a frozen zombie left here would outlive the run
-    // holding a lock on the destination, and wedge every later scenario.
+    // A zombie is killed too, because this exit runs no destructors: nothing else will reap it,
+    // and one left holding the destination would wedge every later scenario.
+    //
+    // The SIGCONT is not needed for that — SIGKILL is the documented exception in signal(7) and
+    // kills a stopped process outright — but it is kept so that the process is running when the
+    // kill lands, which is what makes its exit status observable rather than reported as
+    // "stopped".
     let zombie = shim.zombie_pid.load(std::sync::atomic::Ordering::Relaxed);
     if zombie != 0 {
         unsafe { libc::kill(zombie, libc::SIGCONT) };
@@ -467,6 +472,38 @@ fn crash(shim: &Shim, live_pid: libc::pid_t) -> ! {
         error: "crash fault injected".to_string(),
     });
     std::process::exit(1);
+}
+
+/// Fire whatever faults match `trigger`/`nth`, returning a matched `Zombie` for the caller.
+///
+/// Crash and stall are the same whichever side of the stream they land on, so they live here.
+/// The zombie is meaningful only against a *request* — the request pump owns the instance and
+/// its stdin — so it is handed back rather than acted on.
+async fn fire_faults(
+    shim: &Arc<Shim>,
+    trigger: Trigger,
+    nth: u64,
+    live_pid: libc::pid_t,
+) -> Option<Action> {
+    let mut zombie = None;
+
+    for (idx, action) in shim.matched(trigger, nth) {
+        shim.trace.log(Event::Fault {
+            rule: idx,
+            action: action.clone(),
+        });
+
+        match action {
+            // On `StartedCommit` this models the window between the connector's commit and
+            // the runtime's: the connector is done, the recovery log is not.
+            Action::Crash => crash(shim, live_pid),
+            Action::Stall { millis } => {
+                tokio::time::sleep(std::time::Duration::from_millis(millis)).await
+            }
+            action @ Action::Zombie { .. } => zombie = Some(action),
+        }
+    }
+    zombie
 }
 
 async fn pump_requests<R>(
@@ -505,10 +542,10 @@ where
 
             let Some(trigger) = request_trigger(&req) else {
                 // Spec / Validate / Apply pass through untouched, and get no zombie: a
-                // second process re-running someone's DDL buys the suite nothing. Note they
-                // are not all separate sessions — under runtime-next only `Validate` is,
-                // while `Spec` is the first request of the session that later gets `Open`
-                // and `Apply` runs over shard zero's same stream.
+                // second process re-running someone's DDL buys the suite nothing. That is the
+                // whole reason — earlier versions of this comment also asserted how the
+                // runtime groups these into sessions, twice, and were wrong both times. The
+                // pass-through does not depend on it, so it is not claimed here.
                 to_connector.write_all(&encoded).await?;
                 to_connector.flush().await?;
                 continue;
@@ -578,24 +615,10 @@ where
                 shim.trace.log(Event::Phase { trigger, nth });
             }
 
-            for (idx, action) in shim.matched(trigger, nth) {
-                shim.trace.log(Event::Fault {
-                    rule: idx,
-                    action: action.clone(),
-                });
-
-                match action {
-                    Action::Crash => crash(&shim, live_pid),
-                    Action::Stall { millis } => {
-                        tokio::time::sleep(std::time::Duration::from_millis(millis)).await
-                    }
-                    Action::Zombie { .. } => {
-                        if let Some(z) = &mut zombie {
-                            z.freeze();
-                            shim.counters.lock().unwrap().thaw_countdown =
-                                Some(z.thaw_after_commits);
-                        }
-                    }
+            if fire_faults(&shim, trigger, nth, live_pid).await.is_some() {
+                if let Some(z) = &mut zombie {
+                    z.freeze();
+                    shim.counters.lock().unwrap().thaw_countdown = Some(z.thaw_after_commits);
                 }
             }
 
@@ -658,24 +681,8 @@ async fn pump_responses(
 
             shim.trace.log(Event::Phase { trigger, nth });
 
-            for (idx, action) in shim.matched(trigger, nth) {
-                shim.trace.log(Event::Fault {
-                    rule: idx,
-                    action: action.clone(),
-                });
-
-                match action {
-                    // Crashing on `StartedCommit` models the window between the
-                    // connector's commit and the runtime's: the connector is
-                    // done, the recovery log is not.
-                    Action::Crash => crash(&shim, live_pid),
-                    Action::Stall { millis } => {
-                        tokio::time::sleep(std::time::Duration::from_millis(millis)).await
-                    }
-                    // Only meaningful against a request.
-                    Action::Zombie { .. } => {}
-                }
-            }
+            // A zombie matched here is ignored: it is meaningful only against a request.
+            let _ = fire_faults(&shim, trigger, nth, live_pid).await;
 
             encoded.clear();
             shim.codec.encode(&resp, &mut encoded);

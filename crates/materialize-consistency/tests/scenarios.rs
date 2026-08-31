@@ -66,13 +66,21 @@ fn every_scenario_is_reached_by_a_test() {
             "{name} is listed as covered but is not a scenario",
         );
     }
-    // A scenario narrowed to fewer classes than can pass it is coverage silently lost:
-    // against a real connector it reports as a passing test having run nothing. No scenario
-    // needs narrowing except one: a perturbation worth injecting is usually one every class
-    // must survive, and where a class provably cannot, `blocked_on_runtime` excuses that
-    // class from passing while still running the scenario against it. Narrowing is for the
-    // rarer case where the *harness* cannot stage the perturbation for another class at all.
-    // Adding a name here has to be a deliberate edit with the reasoning at the definition.
+    // A scenario narrowed to fewer classes than can pass it is coverage silently lost: against
+    // a real connector it reports as a passing test having run nothing. Two reasons to narrow
+    // are accepted, and both are stated at the definition:
+    //
+    // - the *harness* cannot stage the perturbation for another class — `zombie-at-start-commit`
+    //   orders its racing instances by their `Open` fences, which a non-fencing class lacks;
+    // - the perturbation reaches a class's exposure only by *race*, so asking would report the
+    //   runtime's gap as the connector's defect on some runs — `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+    //
+    // Where a class provably cannot pass, `blocked_on_runtime` is used instead: it excuses that
+    // class while still running the scenario against every other.
+    //
+    // This pin covers single-class narrowings only. A two-class narrowing like
+    // `MEMBERSHIP_CHANGE_FAIRLY_ASKED` is invisible to it, which is why the README lists the
+    // exclusions and a run prints its own `not-applicable` lines.
     const SINGLE_CLASS: &[&str] = &["zombie-at-start-commit"];
     for scenario in scenarios::all() {
         assert_eq!(

@@ -131,24 +131,9 @@ psql "${FLOW_PG_URL}" -qtAc "
             'materialization consistency suite: shard split and unassign')
     ON CONFLICT (user_id, object_role) DO UPDATE SET capability = 'admin';" >/dev/null
 
-# The agent authorizes from an in-memory snapshot of grants that it refreshes only
-# every 20s-5m, so the grant above is not visible to it yet. One authorize request
-# with `startedUnix: 0` takes the 307-redirect path, forcing a refresh that blocks
-# until the new snapshot lands — the same trick `local:test-tenant` uses.
-DATA_PLANE=$(psql "${FLOW_PG_URL}" -tAqc "
-    SELECT data_plane_name FROM public.data_planes
-    WHERE starts_with(data_plane_name, 'ops/dp/public/')
-    ORDER BY data_plane_name LIMIT 1")
-
-WARM_CODE=$(curl -sS -L --max-time 120 -o /dev/null -w '%{http_code}' \
-    -X POST "http://localhost:${FLOW_PORT_AGENT}/authorize/user/prefix" \
-    -H "Authorization: Bearer ${FLOW_AUTH_TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{\"prefix\":\"${FLOW_TEST_TENANT}/\",\"dataPlane\":\"${DATA_PLANE}\",\"capability\":\"admin\",\"startedUnix\":0}" \
-    || echo "000")
-
-if [ "${WARM_CODE}" != "200" ]; then
-    echo "Error: the agent would not authorize admin capability on ${FLOW_TEST_TENANT}/ (HTTP ${WARM_CODE})." >&2
+# The grant above is not yet visible to the agent, which authorizes from a snapshot it
+# refreshes only every 20s-5m. See `warm_authorization` in local/lib.sh.
+if ! warm_authorization "${FLOW_PG_URL}" "${FLOW_PORT_AGENT}" "${FLOW_TEST_TENANT}/" admin; then
     echo "       Shard splits and crash recovery both need it; see the grant above." >&2
     exit 1
 fi
@@ -172,7 +157,7 @@ echo "Running consistency scenarios..."
 TEST_EXIT_CODE=0
 if [ -n "${FILTER}" ]; then
     cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
-        --ignore-default-filter ${CONCURRENCY:+-j "${CONCURRENCY}"} \
+        --ignore-default-filter --no-fail-fast ${CONCURRENCY:+-j "${CONCURRENCY}"} \
         -E "binary_id(/materialize-consistency::scenarios/) and test(${FILTER})" || TEST_EXIT_CODE=$?
 else
     cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \

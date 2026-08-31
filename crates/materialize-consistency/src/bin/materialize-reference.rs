@@ -17,9 +17,12 @@ struct Args {
 enum Command {
     /// Read every row of a materialized resource as newline-delimited JSON.
     ///
-    /// The harness reads destinations through the connector rather than reaching
-    /// into them, mirroring `materialize-boilerplate`'s `read` subcommand so that
-    /// one code path serves the reference connector and real ones alike.
+    /// The harness reads destinations through connector code rather than reaching into them,
+    /// because it has no client for an arbitrary endpoint and should not grow one. This
+    /// subcommand serves *this* connector only: a real subject is read through
+    /// `tests/materialize/testctl` in the connectors repository, so there are deliberately two
+    /// paths — see `harness::stack::ReadVia`. A subcommand is fine here because this binary
+    /// lives in the flow repository and nothing but this suite runs it.
     Read {
         /// Path to the endpoint configuration, as JSON or YAML.
         #[arg(long)]
@@ -36,10 +39,11 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(err) => {
-            // As one structured line, because the reactor parses a connector's stderr as
-            // logs and discards anything that is not: an `anyhow` chain printed plainly
-            // reaches nobody, and the failure surfaces two layers up as the far less
-            // useful "connector exited with no log output".
+            // As one structured line, because that is what the reactor's log decoder can
+            // attribute: a plain `anyhow` chain is not discarded, but each of its lines is
+            // wrapped as a separate warning, so the cause arrives shredded across several
+            // entries with the level lost. One JSON object keeps the chain and the level
+            // together.
             let line = serde_json::json!({
                 "level": "error",
                 "msg": "the reference connector failed",
@@ -53,12 +57,14 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-/// Report a panic as one structured line, for the same reason errors are: the reactor
-/// parses a connector's stderr as logs and drops what is not, so the default hook's
-/// plain text is discarded and the death surfaces as "connector exited with no log
-/// output" — indistinguishable from an injected crash. `at-least-once-never-loses`
-/// failed three consecutive suite runs with exactly that message, at a point where its
-/// crash fault could not yet have armed.
+/// Report a panic as one structured line, for the same reason errors are: the default hook's
+/// multi-line output arrives as a series of unattributed warnings rather than one failure with
+/// a cause.
+///
+/// Note "connector exited with no log output" is a *different* symptom, and not this: it fires
+/// only when stderr carried nothing at all, which is what a SIGKILL produces — so a scenario
+/// reporting it was killed, most likely by this suite's own crash fault, rather than having
+/// logged something the reactor threw away.
 fn install_panic_hook() {
     let default = std::panic::take_hook();
 

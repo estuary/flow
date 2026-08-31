@@ -98,3 +98,40 @@ print_stack_card() {
     echo "  mise run local:stack-info          # full port map, units, and commands"
     echo "  mise run local:test-tenant         # provision tenant credentials"
 }
+
+# Force the agent to refresh its authorization snapshot, and block until it has.
+#
+# The agent authorizes from an in-memory snapshot it refreshes every 20s-5m, so a grant
+# committed a moment ago is not yet visible: a request can be authorized against a snapshot
+# older than the grant and be rejected. One request with `startedUnix: 0` takes the
+# 307-redirect path, which `curl -L` follows, forcing a refresh that blocks until the new
+# snapshot lands.
+#
+# Shared because two callers need it for different grants — `local:test-tenant` for its
+# tenant's `read`, `ci:consistency` for the support-level `admin` that shard surgery needs — and
+# the mechanism, not the capability, is what was duplicated.
+#
+# Usage: warm_authorization <pg-url> <agent-port> <prefix> <capability>
+warm_authorization() {
+    local pgurl=$1 agent_port=$2 prefix=$3 capability=$4
+
+    local data_plane
+    data_plane=$(psql "${pgurl}" -tAqc "
+        SELECT data_plane_name FROM public.data_planes
+        WHERE starts_with(data_plane_name, 'ops/dp/public/')
+        ORDER BY data_plane_name LIMIT 1")
+
+    local code
+    code=$(curl -sS -L --max-time 120 -o /dev/null -w '%{http_code}' \
+        -X POST "http://localhost:${agent_port}/authorize/user/prefix" \
+        -H "Authorization: Bearer ${FLOW_AUTH_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"prefix\":\"${prefix}\",\"dataPlane\":\"${data_plane}\",\"capability\":\"${capability}\",\"startedUnix\":0}" \
+        || echo "000")
+
+    if [ "${code}" != "200" ]; then
+        echo "Error: the agent would not authorize ${capability} on ${prefix} (HTTP ${code})." >&2
+        echo "       Its authorization snapshot does not reflect the grant just made." >&2
+        return 1
+    fi
+}
