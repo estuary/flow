@@ -78,11 +78,21 @@ impl SealedSegment {
                     match result {
                         Ok(new_size) => {
                             // A segment's lifetime credits must total exactly the
-                            // `size` its owner debited when it was sealed. The min
-                            // guards that identity: `try_compress` never adopts a
-                            // larger file, so this is defensive only.
-                            let new_size = new_size.min(sealed.size);
-                            let reclaimed = sealed.size - new_size;
+                            // `size` its owner debited when it was sealed, and
+                            // `try_compress` never adopts a file larger than the one
+                            // it read. A failed subtraction therefore means that
+                            // guard regressed, so fail here rather than silently
+                            // drift the owner's backlog measure.
+                            let Some(reclaimed) = sealed.size.checked_sub(new_size) else {
+                                return Some((
+                                    Err(anyhow::anyhow!(
+                                        "compression expanded sealed segment {:?} from {} to {new_size} bytes",
+                                        sealed.path,
+                                        sealed.size,
+                                    )),
+                                    State::Done,
+                                ));
+                            };
                             sealed.size = new_size;
                             Some((Ok(reclaimed), State::Compressed(sealed)))
                         }
