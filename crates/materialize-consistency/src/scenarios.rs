@@ -297,12 +297,16 @@ fn split_during_commit() -> Scenario {
          are NOT exempt.",
     )
     .blocked_on_runtime(
-        "The runtime does not yet guarantee that a prepared transaction is finished under \
-         the same shard split it was prepared under, through to the commit of the driver \
-         checkpoint. This scenario stalls StartCommit and splits inside exactly that \
-         window, so the connector is asked to reconcile a transaction whose ownership \
-         changed underneath it — which no connector can do correctly. See \
-         docs/materialize/consistency-testing.md.",
+        "The runtime does not yet guarantee that a transaction started under a given shard \
+         split is replayed under that same split before a scale up or down takes effect — \
+         a capability named as a requirement in estuary/flow discussion 2581, and not \
+         specific to any one strategy. This scenario stalls StartCommit and splits inside \
+         that window, so documents already applied under the pre-split shard are \
+         re-delivered to its children. An append-only binding survives it, because the \
+         destination recognises a load it has already accepted; a merge binding cannot, \
+         because the runtime recomputes the reduced value from a Load that already \
+         reflects them, and stores a sum that counts them twice. No connector can close \
+         that from its side.",
     );
     scenario.split_shards = true;
     scenario.settle_commits = 5;
@@ -432,9 +436,9 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
 /// The split alone perturbs nothing worth checking: it lands at a transaction
 /// boundary, so nothing is replayed, so no channel has anything to skip — and
 /// skipping is the whole of this class's behaviour. Both `drop-document-counter` and
-/// `ignore-key-range` were paired with a split-only scenario in turn, and each time
-/// the clean run passed and the defective run passed too, over three runs each. The
-/// fault has to create a replay for either defect to have anything to get wrong.
+/// `ignore-key-range` are invisible to a split-only scenario, which passes in both halves
+/// and establishes nothing. The fault has to create a replay for either defect to have
+/// anything to get wrong.
 ///
 /// Neither is the prepared-transaction window: the split has fully landed before the
 /// crash in both, so a correct connector recovers and the limitation recorded in the

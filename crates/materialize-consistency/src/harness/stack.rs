@@ -115,11 +115,10 @@ impl Stack {
 
     /// Attempts at a read before giving up.
     ///
-    /// A read does not merely run slowly under contention, it *hangs*: a
-    /// `collections read` of an unremarkable 1200-document collection sat for the full
-    /// 600s bound and failed the baseline scenario. Whatever stalls it — a broker
-    /// reassignment mid-read is the likeliest — clears, so a fresh attempt succeeds where
-    /// waiting longer does not. Raising the bound instead just makes the failure slower.
+    /// A read does not merely run slowly under contention, it can hang outright, and for
+    /// long enough that no bound distinguishes a hang from a large read. Whatever stalls it
+    /// — a broker reassignment mid-read is the likeliest — clears, so a fresh attempt
+    /// succeeds where waiting longer does not.
     const READ_ATTEMPTS: usize = 3;
 
     async fn run(&self, args: &[&str]) -> anyhow::Result<String> {
@@ -308,10 +307,9 @@ impl Stack {
         // different reasons and only one of them means the capture is still writing.
         //
         // A read of this collection can take a minute under contention, so a wall-clock
-        // deadline alone can expire having compared only two or three samples — and it
-        // then reports "still growing", which reads as a capture that would not stop
-        // when it is really a runner that did not get to look. Both `split-during-store`
-        // and `delta-replay-deduplicated` failed that way.
+        // deadline alone can expire having compared only two or three samples — and it then
+        // reports "still growing", which reads as a capture that would not stop when it is
+        // really a runner that did not get to look twice in a row.
         const ATTEMPTS: usize = 8;
 
         let deadline = std::time::Instant::now() + timeout;

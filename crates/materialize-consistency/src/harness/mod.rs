@@ -228,14 +228,12 @@ async fn execute(
     // that is committing is by definition being served, while a shard reported primary
     // may still be doing nothing.
     //
-    // Status checks were tried in both positions and failed in both. After a
-    // perturbation, an `await_primary` catches the crash the scenario just injected and
-    // times out with the unassign that would have cleared it never attempted. And even
-    // before one — as a startup check — it is unsafe, because a task begins processing
-    // the moment it is activated: while the harness waited for the two *captures* to
-    // report primary, the materialization reached its fourth `Flush`, crashed on the
-    // fault keyed there, and the sink's own check then found a FAILED shard with
-    // recovery still far below. Two scenarios of one run died that way.
+    // A status check is unsafe in either position. After a perturbation it catches the
+    // crash the scenario just injected and fails before recovery is attempted. And before
+    // one it is no safer, because a task begins processing the moment it is activated: a
+    // fault keyed on an early protocol event can fire in the materialization while the
+    // harness is still checking a capture, leaving the sink's own check to find a FAILED
+    // shard with the recovery machinery still far below it.
 
     // Let the task establish a rhythm before perturbing it. Without this a fault
     // keyed on the third StartCommit could fire while the first binding is still
@@ -571,20 +569,17 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
 /// Take the task down and bring it back, for a fault that failed the whole task
 /// rather than one shard.
 ///
-/// `recover` unassigns failed shards and waits for the allocator to reschedule them,
-/// which is right for a single-shard crash. It is not enough for a split task: a crash
-/// in *either* shard fails both — whichever died, the survivor reports `expected leader
-/// message ... unexpected EOF` — and unassigning on a 5-second loop for three minutes
-/// brought the task back only about two runs in three. Disabling the materialization
-/// tears its shards down; republishing the enabled catalog builds them again from the
-/// recovery log. That is a restart rather than a reschedule, and it is also what an
-/// operator would do.
-/// Deliberately does *not* wait for a primary. `recover` runs immediately after and is
-/// the resilient step — it unassigns on a loop until the task is committing again — so
-/// waiting here only adds a way to fail before that loop gets its turn. Which is exactly
-/// what happened: the republish would land, this await would time out on the surviving
-/// shard's `expected leader message ... unexpected EOF`, and the run failed with the
-/// unassign that would have cleared it never attempted.
+/// Unassigning failed shards and waiting for the allocator to reschedule them is right
+/// for a single-shard crash, and not sufficient for a split task: a crash in *either*
+/// shard fails both, since the survivor reports `expected leader message ... unexpected
+/// EOF`, and unassigning restores such a task only about two runs in three. Disabling the
+/// materialization tears its shards down; republishing the enabled catalog builds them
+/// again from the recovery log. A restart rather than a reschedule, and what an operator
+/// would do.
+/// Deliberately does *not* wait for a primary. The caller's recovery loop is the resilient
+/// step — it unassigns until the task is committing again — so waiting here would only add
+/// a way to fail before that loop gets its turn, on the surviving shard's `expected leader
+/// message ... unexpected EOF`.
 async fn restart_task(
     stack: &stack::Stack,
     plan: &catalog::Plan<'_>,
@@ -819,8 +814,8 @@ async fn drain(
         // `merged` is keyed [/id] and reduced, so the runtime delivers one document per
         // key per *transaction* — several source documents for one account combine into
         // one delivered row. Its row count is therefore always below the collection's
-        // document count and a row-count gate can never be met: the unperturbed baseline
-        // sat at 349 of 400 forever. Completion there is per-account instead — every
+        // document count, and a row-count gate there could never be met at all.
+        // Completion is per-account instead — every
         // account must have reached its highest expected `seq`, which is exact because
         // `seq` is last-write-wins and no duplicate can push it past the collection's.
         let merged_complete = merged_expected.accounts.iter().all(|(id, account)| {

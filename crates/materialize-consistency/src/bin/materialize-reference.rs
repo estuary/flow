@@ -38,11 +38,10 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(err) => {
-            // As one structured line, because the reactor parses a connector's stderr
-            // as logs and discards anything that is not — so an `anyhow` chain printed
-            // plainly reaches nobody, and the failure surfaces two layers up as
-            // "connector exited with no log output". That is how 21 restarts of this
-            // connector were observed without ever seeing why it died.
+            // As one structured line, because the reactor parses a connector's stderr as
+            // logs and discards anything that is not: an `anyhow` chain printed plainly
+            // reaches nobody, and the failure surfaces two layers up as the far less
+            // useful "connector exited with no log output".
             let line = serde_json::json!({
                 "level": "error",
                 "msg": "the reference connector failed",
