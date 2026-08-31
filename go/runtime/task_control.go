@@ -137,7 +137,10 @@ func taskShardZero(state *allocator.State, claims pb.Claims, taskName string) (*
 
 	var spec *pc.ShardSpec
 	for _, taskType := range []string{"capture", "derivation", "materialize"} {
-		var prefix = allocator.ItemKey(state.KS, taskType+"/"+taskName+"/")
+		// Not allocator.ItemKey, which panics on characters (such as a space)
+		// that a malformed user-supplied task name could contain. A prefix
+		// built from such a name simply matches nothing.
+		var prefix = state.KS.Root + allocator.ItemsPrefix + taskType + "/" + taskName + "/"
 		for _, kv := range state.Items.Prefixed(prefix) {
 			var candidate = kv.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
 			if candidate.LabelSet.ValueOf(labels.TaskName) == taskName {
