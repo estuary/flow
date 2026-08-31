@@ -150,8 +150,10 @@ else
     OUTPUT_FLAGS="--failure-output=immediate --success-output=final"
 fi
 
-# Each scenario runs twice — clean, then against the defect it must catch — so a
-# green result means the checkers can still see a real regression.
+# Against the reference connector each scenario runs twice — clean, then against the defect it
+# must catch — so a green result means the checkers can still see a real regression. Against a
+# real subject named by FLOW_CONSISTENCY_SUBJECT* it runs once: only the reference connector has
+# defects to switch on.
 echo "Running consistency scenarios..."
 
 TEST_EXIT_CODE=0

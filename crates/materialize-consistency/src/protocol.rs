@@ -34,6 +34,21 @@ pub const ENV_TRACE_REDUCE: &str = "FLOW_CONSISTENCY_TRACE_REDUCE";
 /// land in which transaction varies between runs (transaction boundaries are
 /// shaped by the runtime's duration policy and a rate-paced capture, not by
 /// document count), so a rule keyed on document identity would be a flake.
+///
+/// **A crash means different things on the two sides of the stream, and a scenario has to be read
+/// with that in mind.** The shim fires a fault before forwarding the message that triggered it, so:
+///
+/// - on a *request* trigger (`Open`, `Load`, `Flush`, `Store`, `StartCommit`, `Acknowledge`) the
+///   connector is killed **before it receives** that request. "Crash at `StartCommit`" therefore
+///   means *instead of* the commit, not during it — the connector never renders its statements and
+///   never publishes its state patch.
+/// - on a *response* trigger (`StartedCommit`, `Acknowledged`) the connector has already done the
+///   work and produced the response, and the crash stops the *runtime* from recording it. That is
+///   the window `destination-ahead-of-checkpoint` and `crash-between-commits` depend on.
+///
+/// The asymmetry is right — the two windows are genuinely different and both are wanted — but it
+/// once left a scenario named for a state it did not reach. If a fault is keyed on a request and
+/// the scenario's claim is about work the connector *did*, the claim is wrong.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum Trigger {
@@ -61,6 +76,14 @@ pub enum Trigger {
     Acknowledge,
     /// A `Response.Acknowledged` — the connector has finished applying.
     ///
+    /// **"Acknowledged means applied" is a property of the fleet, not of the protocol.** The proto
+    /// is explicit that `Acknowledged` is *not* a direct response to `Request.Acknowledge` and that
+    /// the two "may be written in either order" — so a conforming connector could acknowledge
+    /// before applying, and against one of those this trigger would fire earlier than the scenario
+    /// intends and test less than it claims. Every connector in the fleet applies and then
+    /// acknowledges, which is what makes `crash-between-commits` mean what it says; a subject that
+    /// does otherwise needs its own reasoning rather than this one.
+    ///
     /// This, not `Acknowledge`, is where `crash-between-commits` faults: it is the earliest and
     /// most targeted point at which the connector has applied a transaction and the shim can
     /// still kill it before the runtime records that fact. Not the *only* one — a crash
@@ -83,6 +106,18 @@ pub enum Action {
     /// Run a second connector process against the same messages, frozen at the
     /// match point while the live instance proceeds, then thawed so its stale
     /// commit races. The zombie opened first, so it holds the older fence.
+    ///
+    /// **Key this at `Open`.** The zombie is spawned when a session opens and is handed every
+    /// request from then on, so a freeze keyed any later leaves it running — and a fenced
+    /// instance does not survive being run: its first `StartCommit` is refused by the
+    /// destination and the process exits. The freeze would then suspend a corpse, the thaw
+    /// would resume nothing, and the scenario would report a pass for a race that never
+    /// happened. Keyed at `Open`, the zombie has taken its fence and done nothing else, which
+    /// is the one point where it is guaranteed alive.
+    ///
+    /// This is also why the race carries the session's *first* transaction rather than a
+    /// later one: the runtime opens a materialization session once per shard assignment, so
+    /// the only `Open` a run offers is the one at startup.
     Zombie {
         /// Live-instance `StartedCommit` responses to await before thawing.
         thaw_after_commits: u64,
@@ -100,6 +135,11 @@ pub struct FaultRule {
     #[serde(default = "one")]
     pub nth: u64,
     /// Transactions the session must have committed before this rule is armed.
+    ///
+    /// "Committed" as the shim can see it, which is `StartedCommit` responses: the connector has
+    /// started committing and the runtime is about to commit its recovery log, so the count runs
+    /// slightly ahead of durability. Every use is for spacing a fault away from startup, which
+    /// that serves exactly.
     ///
     /// This is why `Store` and `Load` count per transaction rather than per
     /// session: `nth` only ever rises, so a rule not yet armed when occurrence
@@ -150,6 +190,11 @@ pub enum ShardTarget {
 
 impl ShardTarget {
     /// Whether a session over this range may fire a rule aimed at `self`.
+    ///
+    /// A split is detected on the *key* axis alone, which is narrower than the type reads: a
+    /// shard split on its r-clock while keeping the whole keyspace would classify here as
+    /// unsplit. Every split this suite drives is a key split, so the two agree today — but a
+    /// future scenario that splits on the clock needs this widened rather than trusted.
     ///
     /// Shard zero is the origin of both axes. A split has happened when the range is
     /// narrower than the whole keyspace — which has to be tested on *both* bounds:
@@ -216,7 +261,12 @@ pub struct TraceEvent {
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum Event {
     /// A session opened over `[key_begin, key_end]`, inclusive at both ends as Flow's
-    /// ranges are (`flow.proto`: "[begin, end] inclusive"). Shard identity as the
+    /// ranges are (`flow.proto`: "[begin, end] inclusive").
+    ///
+    /// `materialize.proto` contradicts itself on this within two sentences — the fencing
+    /// paragraph says `[key_begin, key_end)` and then, two lines later, `[key_begin, key_end]` —
+    /// so the citation above is `flow.proto`, and the side taken is the one every real fence
+    /// implementation takes. Noted so the next reader need not re-run the audit. Shard identity as the
     /// connector sees it, which is how the harness correlates a trace with a
     /// shard split.
     Opened {

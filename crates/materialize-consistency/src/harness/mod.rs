@@ -27,7 +27,98 @@ pub struct Exemption {
     /// Required, and not defaulted: an exemption without a rationale is a defect
     /// with better paperwork.
     pub justification: String,
+    /// Most violations this exemption may absorb before the run fails anyway.
+    ///
+    /// An exemption is a statement about a *cause* — "one replayed transaction re-delivers what
+    /// it already stored" — and every such cause implies a volume. Without a ceiling the
+    /// exemption also absorbs a subject that re-delivered the entire workload, which is a
+    /// different failure wearing the same justification.
+    ///
+    /// `None` where the cause has no principled bound to write down. That is not laziness: the
+    /// reordering seen around membership changes is observed but unexplained, so any number here
+    /// would be invented, and an invented ceiling produces intermittent failures that teach the
+    /// reader to raise it. Better to leave it off and say so.
+    ///
+    /// A ceiling is also worthless where the *checker* bounds the count for it. `OracleAgreement`
+    /// reports at most three violations per account in `check_standard` and two in
+    /// `check_merged_delta`, over a forty-account workload — so any ceiling above about two hundred
+    /// can never bind, and one below it is measuring the account count rather than the subject.
+    /// Only the per-document counts, `NoDuplicates` above all, carry volume information at all.
+    pub max_suppressed: Option<usize>,
+    /// An invariant that must *also* have been violated for this exemption to apply.
+    ///
+    /// This is what makes an exemption say what its justification says. "A duplicated document
+    /// leaves the reduced balance disagreeing with its own oracle" licenses an oracle disagreement
+    /// *caused by duplication* — and as a bare exemption it licensed one from any cause, including
+    /// a replay path that corrupted merged values while emitting no extra rows at all. Such a
+    /// subject broke oracle agreement and conservation, both exempt, while the per-document counts
+    /// stayed clean, and it passed the whole suite.
+    ///
+    /// Naming `NoDuplicates` here ties the licence to its stated cause: no duplicate row anywhere
+    /// in the run means nothing was duplicated, so a divergence is unexplained and held. It is
+    /// evaluated over the raw violations, before exemption, because a duplicate that this
+    /// scenario exempts is still a duplicate that happened.
+    pub conditional_on: Option<Invariant>,
 }
+
+/// Marker in the error chain of a run that failed for a reason that says nothing about the subject.
+///
+/// The defective half of a scenario treats a failed run as the defect being caught, which is
+/// right for a defect that wedges the task — `ignore-key-range` leaves two shards fencing each
+/// other and neither can commit — and wrong for everything else that can go wrong on the way. A
+/// gate that timed out during warmup, a split that never landed, a capture slow to deactivate, a
+/// collection read that could not settle: none is evidence about the subject, and counting one
+/// silently vacates the pairing the scenario exists to provide.
+///
+/// So every such cause is *named* here rather than left as an untyped `anyhow` string, and the
+/// pairing guard asks for evidence rather than accepting the absence of a clean result as evidence.
+/// Four of these variants were untyped until a review pointed out that each one lands *after* the
+/// fault fires — so a stack degrading between the two halves scored as a catch, which is the exact
+/// regression the typing exists to prevent.
+#[derive(Debug)]
+pub enum Environment {
+    /// The control plane would not publish the scenario's catalog.
+    PublishFailed,
+    /// A gate before the run's perturbation timed out.
+    ///
+    /// The line is drawn at the perturbation, and for four scenarios that is *not* the fault: a
+    /// membership change is a perturbation in its own right, and `split-during-store` and
+    /// `join-after-split` inject no fault at all. Their line sits at the split — before it, a
+    /// failure is setup; after it, a failure may be the defect, since `ignore-key-range` leaves
+    /// children fencing each other off and that is what stops a task committing.
+    ///
+    /// Hence the asymmetry in what is annotated: the call that *issues* the split carries this,
+    /// because a perturbation that never happened is setup failing, while the gates waiting on its
+    /// consequences do not. The join does not carry it either, for the same reason those gates do
+    /// not — it comes after the split, which is already `join-after-split`'s perturbation, so a
+    /// join that cannot be issued may be the defect's doing rather than the environment's.
+    BeforePerturbation,
+    /// A capture was still running well after being published as disabled.
+    WorkloadWouldNotStop,
+    /// A collection would not settle, so no expectation could be read from it.
+    CollectionUnread,
+    /// The collection held a repeated `(id, seq)`, so the comparison the run would have made is
+    /// not sound. The fault is in what the harness was given, not in what the subject did.
+    UnsoundWorkload,
+    /// The destination was still short of the collection when the runner ran out of patience —
+    /// as distinct from having *stopped* short, which is a finding and is not this.
+    DrainDeadline,
+}
+
+impl std::fmt::Display for Environment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::PublishFailed => "the stack would not publish the catalog",
+            Self::BeforePerturbation => "the run failed before its perturbation was applied",
+            Self::WorkloadWouldNotStop => "the workload would not stop",
+            Self::CollectionUnread => "a collection would not settle to be read",
+            Self::UnsoundWorkload => "the workload was unsound for this run",
+            Self::DrainDeadline => "the runner ran out of patience waiting for the destination",
+        })
+    }
+}
+
+impl std::error::Error for Environment {}
 
 /// What a run produced.
 pub struct Outcome {
@@ -122,15 +213,11 @@ pub async fn run(
     // with the rest of the run's debris and two concurrent runs cannot see each other's
     // rows. A real connector's config is its own and must not be edited: `path` means
     // nothing to it, and connectors parse their configs strictly.
-    let mut config = subject.config.clone();
+    let mut subject_config = subject.clone();
     if external.is_none() {
-        config["path"] = serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
+        subject_config.config["path"] =
+            serde_json::json!(run_dir.join("destination.sqlite").to_string_lossy());
     }
-
-    let subject_config = Subject {
-        connector: subject.connector.clone(),
-        config,
-    };
     let workload = match external {
         Some(_) => catalog::Workload::remote(),
         None => catalog::Workload::default(),
@@ -144,12 +231,10 @@ pub async fn run(
         run_dir: &run_dir,
         faults: &scenario.faults,
         workload: &workload,
-        // A scenario's own class decides this for the reference connector. For a real
-        // subject the *subject's* class decides it: a counted channel is delta-only by
-        // definition, so handing one a merge binding would test a shape it never claimed
-        // to support, and the guard that enforces this for the reference path
-        // (`the_counter_class_never_takes_a_standard_binding`) does not reach here.
-        standard_binding: scenario.standard_binding
+        // A scenario's own class decides this for the reference connector. For a real subject the
+        // *subject's* class decides it: a counted channel is delta-only by definition, so handing
+        // one a merge binding would test a shape it never claimed to support.
+        standard_binding: scenario.standard_binding()
             && external.map_or(true, |e| {
                 e.class != crate::reference::Class::DocumentCounter
             }),
@@ -164,10 +249,10 @@ pub async fn run(
     let destination = run_dir.join("destination.sqlite");
     let result = match external {
         None => tokio::select! {
-            result = execute(&stack, scenario, &names, &run_dir, &plan, external) => result,
+            result = execute(&stack, scenario, &plan, external) => result,
             err = watch_destination_size(&destination) => Err(err),
         },
-        Some(_) => execute(&stack, scenario, &names, &run_dir, &plan, external).await,
+        Some(_) => execute(&stack, scenario, &plan, external).await,
     };
 
     // Clean up whether or not the scenario passed, so repeated runs do not
@@ -261,11 +346,13 @@ async fn watch_destination_size(destination: &std::path::Path) -> anyhow::Error 
 async fn execute(
     stack: &stack::Stack,
     scenario: &Scenario,
-    names: &catalog::Names,
-    run_dir: &std::path::Path,
     plan: &catalog::Plan<'_>,
     external: Option<&subject::External>,
 ) -> anyhow::Result<Outcome> {
+    // Taken from the plan rather than passed alongside it: the plan already carries both, and
+    // two ways to reach the same value is two values to keep in step.
+    let (names, run_dir) = (plan.names, plan.run_dir);
+
     let published = std::time::Instant::now();
     stack.publish(&catalog::build(plan)?).await?;
     tracing::info!(elapsed = ?published.elapsed(), "published");
@@ -313,18 +400,24 @@ async fn execute(
     // is up and being spoken to, so everything before it is the runtime scheduling a shard
     // and starting a process, and everything after is transactions.
     let activating = std::time::Instant::now();
-    await_first_message(&trace, deadline).await?;
+    await_first_message(&trace, deadline)
+        .await
+        .context(Environment::BeforePerturbation)?;
     tracing::info!(elapsed = ?activating.elapsed(), "sink connector started");
 
     // The gap between the connector being spoken to and its first *non-empty* transaction
     // is the sink sitting idle while its captures activate and produce. Measured
     // separately because it, not the commit cadence, is what varies between runs.
     let feeding = std::time::Instant::now();
-    await_first_documents(&trace, deadline).await?;
+    await_first_documents(&trace, deadline)
+        .await
+        .context(Environment::BeforePerturbation)?;
     tracing::info!(elapsed = ?feeding.elapsed(), "workload feeding the sink");
 
     let warmed = std::time::Instant::now();
-    await_commits(&trace, scenario.warmup_commits, deadline).await?;
+    await_commits(&trace, scenario.warmup_commits, deadline)
+        .await
+        .context(Environment::BeforePerturbation)?;
     tracing::info!(elapsed = ?warmed.elapsed(), commits = scenario.warmup_commits, "warmed up");
 
     // A scenario that scales out *because of* the fault has to see it land first,
@@ -332,14 +425,21 @@ async fn execute(
     // The crash leaves the task down, so the split lands while nothing is writing
     // and the work is finished by the larger set of shards that replaces it.
     if scenario.split_after_fault {
-        await_faults(&trace, scenario.faults.len(), deadline).await?;
+        await_faults(&trace, scenario.faults.len(), deadline)
+            .await
+            .context(Environment::BeforePerturbation)?;
     }
 
     if scenario.split_shards {
         tracing::info!(task = %names.sink, "splitting shards");
-        stack.split_shards(&names.sink).await?;
+        // Marked, unlike the gates below it: this is the split being *issued*, and a failure here
+        // means the perturbation never happened at all.
+        stack
+            .split_shards(&names.sink)
+            .await
+            .context(Environment::BeforePerturbation)?;
         // Both children must come up before the run can continue; a split that
-        // wedges is itself a finding.
+        // wedges is itself a finding — which is why this carries no marker. See [`Environment`].
         recover(
             stack,
             plan,
@@ -352,11 +452,15 @@ async fn execute(
     }
 
     if scenario.join_shards {
-        // Every child must commit *for itself* before the join, not merely two commits
-        // between them. The survivor keeps its recovery log through the join, and if it
-        // has not yet written a checkpoint of its own, that log still holds the
-        // parent's — whose clock predates the log's close, which recovery refuses. That
-        // is what wedged this scenario in a 33-restart loop.
+        // Every child must commit *for itself* before the join, not merely two commits between
+        // them; `commits_per_split_shard` is where that requirement is explained.
+        //
+        // Unmarked, and that is the correction rather than an oversight: this gate runs *after*
+        // the split, and the only scenario that joins injects no fault, so the split is its
+        // perturbation. It pairs `ignore-key-range`, whose signature is children fencing each
+        // other off — exactly the state that stops them committing for themselves. Marked, the
+        // defective half would report a caught defect as "the run failed before its fault fired",
+        // i.e. as the environment's doing. See [`Environment`].
         await_commits_each_shard(&trace, 2, 2, deadline).await?;
 
         tracing::info!(task = %names.sink, "joining shards");
@@ -373,7 +477,9 @@ async fn execute(
     }
 
     // The fault must actually have fired, or the scenario is vacuous.
-    let faults_fired = await_faults(&trace, scenario.faults.len(), deadline).await?;
+    let faults_fired = await_faults(&trace, scenario.faults.len(), deadline)
+        .await
+        .context(Environment::BeforePerturbation)?;
 
     // Recover the shard, then require it to keep committing.
     //
@@ -387,8 +493,10 @@ async fn execute(
     // there is nothing to gain by predicting which perturbations need it.
     let settled = std::time::Instant::now();
     let after = count_commits(&read_trace(&trace)?) + scenario.settle_commits;
+    // `recover` returns only once the task has reached `after`, so it is the gate — an
+    // `await_commits(after)` here was a guaranteed no-op, and reading like a second check made
+    // the first look weaker than it is.
     recover(stack, plan, &names.sink, &trace, after, deadline).await?;
-    await_commits(&trace, after, deadline).await?;
     tracing::info!(elapsed = ?settled.elapsed(), commits = scenario.settle_commits, "settled");
 
     // Stop the workload and let the materialization drain. Only this run's own
@@ -397,6 +505,23 @@ async fn execute(
     tracing::info!("disabling the workload to reach quiescence");
     let quiesced = std::time::Instant::now();
     stack.publish(&catalog::disable_captures(plan)?).await?;
+
+    // Then wait for the captures to have actually *stopped*, not merely been asked to.
+    //
+    // The publication returns once the spec is stored, and activation carries it to the data
+    // plane afterwards, so the capture is still writing at that moment.
+    // `read_collection_when_final` guarded this with a plateau — two equal reads three seconds
+    // apart — and a capture that paused across that window read as finished. The destination then
+    // held 74 documents the expectation did not, which looks exactly like a connector delivering
+    // them twice: 131 violations against a materialization that was right. Once the capture is
+    // stopped nothing can append, so the plateau below is confirming rather than deciding.
+    await_stopped(
+        stack,
+        &[&names.source_merged, &names.source_log],
+        finality_timeout,
+    )
+    .await
+    .context(Environment::WorkloadWouldNotStop)?;
     tracing::info!(elapsed = ?quiesced.elapsed(), "quiesced");
 
     // Panic, not an error: a `Subject` with no argv cannot be constructed by anything here, so
@@ -418,7 +543,8 @@ async fn execute(
     let (merged_expected, log_expected) = tokio::try_join!(
         stack.read_collection_when_final(&names.merged, finality_timeout),
         stack.read_collection_when_final(&names.log, finality_timeout),
-    )?;
+    )
+    .context(Environment::CollectionUnread)?;
     let merged_expected = Expectation::from_documents(merged_expected);
     let log_expected = Expectation::from_documents(log_expected);
     tracing::info!(elapsed = ?read.elapsed(), "read the collections");
@@ -437,10 +563,8 @@ async fn execute(
     let destination = drain(
         stack,
         via,
-        names,
+        plan,
         (&merged_expected, &log_expected),
-        plan.standard_binding,
-        external.map(|e| &e.shape),
         deadline,
     )
     .await?;
@@ -479,7 +603,29 @@ async fn execute(
                  order. Delivery order is therefore not recoverable, and the set-based \
                  invariants carry the exactly-once claim."
                 .to_string(),
+            // Uncapped: order is not recoverable at all through this read, so there is no
+            // volume of disorder that would mean anything.
+            max_suppressed: None,
+            conditional_on: None,
         });
+    }
+
+    // A duplicate in the *collection* is not a connector defect and must not be reported as one:
+    // it means the harness's own comparison has stopped being sound, because the expectation folds
+    // a repeated `(id, seq)` to one document while a reducing binding would sum it twice. Every
+    // count that follows would then be wrong in a direction that looks exactly like a connector
+    // over-delivering. This is refused rather than recorded, so a run can never quietly conclude
+    // "exactly-once" from numbers it could not have compared.
+    let duplicated =
+        bindings.merged_expected.duplicated_documents + bindings.log_expected.duplicated_documents;
+    if duplicated != 0 {
+        let _ = dump_evidence(run_dir, &bindings);
+        return Err(anyhow::anyhow!(
+            "the collection read surfaced {duplicated} repeated (id, seq) document(s), which the \
+             expectation folds to one but a reducing binding would count twice. No invariant can \
+             be judged against it; see evidence.json in {run_dir:?}",
+        )
+        .context(Environment::UnsoundWorkload));
     }
 
     let (violations, exempted) = partition_exempt(invariants::check(&bindings), &exempt);
@@ -558,9 +704,93 @@ fn partition_exempt(
     violations: Vec<Violation>,
     exemptions: &[Exemption],
 ) -> (Vec<Violation>, Vec<Violation>) {
-    violations
-        .into_iter()
-        .partition(|v| !exemptions.iter().any(|e| e.invariant == v.invariant))
+    // `DocumentIntegrity` is not exemptable, and this is where that is enforced rather than left
+    // to review. A connector may deliver a document twice or in a surprising order and still be
+    // doing its declared job; none has a reason to *alter* one in transit. The check used to be
+    // filed under `OracleAgreement`, where `at-least-once-never-loses`'s duplication exemption
+    // silenced it — which is how a corruption check came to be switched off by a scenario about
+    // duplication.
+    assert!(
+        !exemptions
+            .iter()
+            .any(|e| e.invariant == Invariant::DocumentIntegrity),
+        "a scenario declares an exemption for {}, which nothing may exempt",
+        Invariant::DocumentIntegrity,
+    );
+
+    // An exemption whose stated cause did not occur does not apply. See
+    // [`Exemption::conditional_on`]: evaluated over the raw violations, so a duplicate this
+    // scenario also exempts still counts as having happened.
+    let exemptions: Vec<&Exemption> = exemptions
+        .iter()
+        .filter(|e| match e.conditional_on {
+            None => true,
+            Some(cause) => violations.iter().any(|v| v.invariant == cause),
+        })
+        .collect();
+
+    // Ceilings are per *invariant*, not per exemption, because a run can carry more than one
+    // exemption for the same invariant — a scenario's own, plus the blanket monotonicity exemption
+    // a remotely-read destination gets — and the broadest claim has to govern. So an unbounded
+    // exemption removes the ceiling: it says order is not recoverable through this read at all,
+    // after which no volume of disorder means anything, and failing the run on the narrower
+    // exemption's ceiling would hold a subject to a claim nobody made about it.
+    let mut ceilings: BTreeMap<Invariant, Option<usize>> = BTreeMap::new();
+    for exemption in &exemptions {
+        ceilings
+            .entry(exemption.invariant)
+            .and_modify(|ceiling| {
+                *ceiling = match (*ceiling, exemption.max_suppressed) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                }
+            })
+            .or_insert(exemption.max_suppressed);
+    }
+
+    // An exemption that has absorbed more than it claimed stops absorbing anything: the whole
+    // invariant reverts to being held, so the run fails with every one of those violations in its
+    // report rather than with a count. Dropping only the excess would be arbitrary — the
+    // violations are a set and nothing distinguishes the ones "within budget" — and would hide the
+    // shape of what happened behind whichever ones survived the cut.
+    let overrun: Vec<(Invariant, usize, usize)> = ceilings
+        .iter()
+        .filter_map(|(invariant, ceiling)| {
+            let max = (*ceiling)?;
+            let count = violations
+                .iter()
+                .filter(|v| v.invariant == *invariant)
+                .count();
+            (count > max).then_some((*invariant, count, max))
+        })
+        .collect();
+
+    let (mut held, exempted) = violations.into_iter().partition::<Vec<_>, _>(|v| {
+        !ceilings.contains_key(&v.invariant)
+            || overrun
+                .iter()
+                .any(|(invariant, _, _)| *invariant == v.invariant)
+    });
+
+    // Named as its own violation so the report says *why* an exempted invariant is being held,
+    // which the reverted violations alone would not explain.
+    for (invariant, count, max) in overrun {
+        held.push(Violation {
+            invariant,
+            detail: format!(
+                "this scenario exempts {invariant} for at most {max} violation(s) and the run \
+                 produced {count}, which is more than its justification accounts for: {}",
+                exemptions
+                    .iter()
+                    .filter(|e| e.invariant == invariant)
+                    .map(|e| e.justification.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" / "),
+            ),
+        });
+    }
+
+    (held, exempted)
 }
 
 /// The soak capture, reused unmodified as this suite's workload generator.
@@ -635,7 +865,7 @@ fn read_trace(run: &RunDir) -> anyhow::Result<Vec<TraceEvent>> {
 /// two commits can both come from one child while the other has committed none. The
 /// survivor of a join is then widened while its recovery log still holds the *parent's*
 /// connector checkpoint, and recovery refuses it — `connector_checkpoint has clock ...
-/// which doesn't match Recover's committed_close or hinted_close`, 26 times in a
+/// which doesn't match committed_close (...) or hinted_close (...)`, 26 times in a
 /// restart loop, because the checkpoint predates the log's close.
 ///
 /// Restarts are folded together: a shard that crashed and came back is one shard, and
@@ -745,10 +975,8 @@ async fn restart_task(
 ///
 /// Two remedies, in order of cost. Unassigning a FAILED shard is enough for most faults:
 /// the allocator will not reschedule a shard it has given up on, and unassigning clears
-/// that. But some do not come back that way — a crash in either shard of a split task
-/// fails the whole task, and even a single-shard crash sometimes sat FAILED for the full
-/// deadline — so after a third of the budget this republishes the task, disabled then
-/// enabled, which tears the shards down and rebuilds them from the recovery log.
+/// that. After a third of the budget it escalates to [`restart_task`], which is where the
+/// reasoning for that heavier remedy lives.
 ///
 /// The escalation lives here rather than behind a per-scenario flag because it is not a
 /// property of the scenario: any crash can land a shard somewhere unassigning will not
@@ -872,6 +1100,33 @@ async fn await_commits(
     .await
 }
 
+/// Wait until every named task has stopped writing; see [`stack::Stack::is_stopped`].
+async fn await_stopped(
+    stack: &stack::Stack,
+    tasks: &[&str],
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        let mut running = Vec::new();
+        for task in tasks {
+            if !stack.is_stopped(task).await? {
+                running.push(*task);
+            }
+        }
+        if running.is_empty() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "these tasks were still running {timeout:?} after being disabled: {}",
+            running.join(", "),
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+}
+
 /// Wait until the shim has traced anything at all, which is the sink's connector being
 /// spoken to for the first time.
 async fn await_first_message(run: &RunDir, timeout: std::time::Duration) -> anyhow::Result<()> {
@@ -971,15 +1226,17 @@ fn delivered_max_seq(contents: &Contents, id: i64) -> Option<i64> {
 async fn drain(
     stack: &stack::Stack,
     via: stack::ReadVia<'_>,
-    names: &catalog::Names,
+    plan: &catalog::Plan<'_>,
     (merged_expected, log_expected): (&Expectation, &Expectation),
-    standard_binding: bool,
-    shape: Option<&subject::ResourceShape>,
     timeout: std::time::Duration,
 ) -> anyhow::Result<Contents> {
-    // Named exactly as the catalog named them when it built the bindings, so a read asks
-    // for the resource the connector was actually given.
-    let resource = |table: &str, delta: bool| catalog::resource_config(shape, names, table, delta);
+    // The plan, rather than the three fields of it this needs: it is the same plan the catalog
+    // was built from, which is the point — a read asks for the resource the connector was
+    // actually given, named exactly as the catalog named it.
+    let (names, standard_binding) = (plan.names, plan.standard_binding);
+    let resource = |table: &str, delta: bool| {
+        catalog::resource_config(plan.resource_shape, names, table, delta)
+    };
 
     let deadline = std::time::Instant::now() + timeout;
     let mut unchanged_for = 0;
@@ -1059,7 +1316,24 @@ async fn drain(
             delivered_max_seq(&contents, *id).is_some_and(|seq| seq >= account.max_seq)
         });
 
-        if contents.log.len() >= log_expected.documents() && merged_complete {
+        // The delta binding's row count is in here as well as its seq-derived progress, because
+        // the two see different things: `merged_delivered` is derived from the highest sequence
+        // reached, so rows arriving that do *not* advance any sequence — which is exactly what a
+        // duplicate looks like — left the total unchanged and read as settled. Free, and strictly
+        // more than the gate saw before.
+        let total = contents.log.len() + merged_delivered + contents.merged_delta.len();
+
+        // Complete, and then confirmed unchanged by one further poll before the contents are
+        // handed to the checkers.
+        //
+        // The gate is "at least as many as the collection holds", so it is met the moment the
+        // last expected document lands — and returning there hands over a destination that a
+        // duplicate still in flight has yet to reach. Every duplication check would then be
+        // racing the very thing it looks for, and would win the race exactly when the connector
+        // is slow. One quiet poll is not proof that nothing more is coming, but it is the
+        // difference between "we looked after it settled" and "we looked at the first moment it
+        // could have passed".
+        if total == previous && contents.log.len() >= log_expected.documents() && merged_complete {
             return Ok(contents);
         }
 
@@ -1072,7 +1346,6 @@ async fn drain(
         // shard that is mid-restart looks identical to one that has finished its
         // work, and every membership-change scenario becomes flaky in the direction
         // of falsely reporting loss.
-        let total = contents.log.len() + merged_delivered;
         // A listing that *errors* is not evidence the task is unhealthy, but it has to be
         // treated as such to make progress — so it is logged. Folded silently into `false`, a
         // persistently failing listing reported as "stuck unhealthy", which is a real state
@@ -1100,6 +1373,18 @@ async fn drain(
         let quiet = unchanged_for >= QUIET_POLLS;
         let stuck = stuck_for >= STUCK_POLLS;
         let expired = std::time::Instant::now() >= deadline;
+
+        // A complete destination that will not hold still is not a shortfall, and must not be
+        // reported as one. It is what a connector writing without end looks like, and the
+        // duplication checks are the right place to say so — reaching them needs the contents,
+        // so the deadline hands them over rather than erroring.
+        if expired && contents.log.len() >= log_expected.documents() && merged_complete {
+            tracing::warn!(
+                log = contents.log.len(),
+                "the destination was complete but never settled; verifying it anyway"
+            );
+            return Ok(contents);
+        }
 
         if quiet || stuck || expired {
             // Which of the three ended the wait matters when reading a failure. "quiet"
@@ -1150,7 +1435,12 @@ async fn drain(
             // binding that was perfect at 1020 of 1020. The defective half of a scenario
             // counts an `Err` as caught, so a defect that genuinely loses data is still
             // reported as caught rather than passing.
-            anyhow::bail!(
+            //
+            // Of the three ways to get here only two are findings. "Went quiet" and "stuck
+            // unhealthy" are states the subject put the task in; the *deadline* is the runner
+            // running out of patience, which says nothing about the subject and must not be
+            // scored as a defect caught — so it alone is tagged as the environment.
+            let err = anyhow::anyhow!(
                 "the destination stopped short of the collections ({short}); \
                  reason={}, task healthy={healthy}",
                 match (quiet, stuck) {
@@ -1159,6 +1449,10 @@ async fn drain(
                     _ => "deadline",
                 },
             );
+            return Err(match quiet || stuck {
+                true => err,
+                false => err.context(Environment::DrainDeadline),
+            });
         }
 
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -1186,11 +1480,100 @@ mod test {
         let exemptions = vec![Exemption {
             invariant: Invariant::NoDuplicates,
             justification: "at-least-once by construction".to_string(),
+            max_suppressed: None,
+            conditional_on: None,
         }];
 
         let (held, exempt) = partition_exempt(violations, &exemptions);
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].invariant, Invariant::NoLoss);
         assert_eq!(exempt.len(), 1);
+    }
+
+    #[test]
+    fn an_exemption_over_its_ceiling_holds_the_invariant_after_all() {
+        let violations = (0..3)
+            .map(|i| Violation {
+                invariant: Invariant::NoDuplicates,
+                detail: format!("duplicated {i}"),
+            })
+            .collect();
+        let exemptions = vec![Exemption {
+            invariant: Invariant::NoDuplicates,
+            justification: "one replayed transaction".to_string(),
+            max_suppressed: Some(2),
+            conditional_on: None,
+        }];
+
+        // All three revert, plus the violation naming the overrun.
+        let (held, exempt) = partition_exempt(violations, &exemptions);
+        assert_eq!(held.len(), 4);
+        assert!(exempt.is_empty());
+    }
+
+    /// An exemption licensed by duplication does not apply to a run that duplicated nothing.
+    ///
+    /// This is the hole it closes: a subject whose replay path corrupts merged values without
+    /// emitting extra rows breaks oracle agreement and conservation, both of which
+    /// `at-least-once-never-loses` exempts, while every per-document count stays clean — so it
+    /// passed the whole suite.
+    #[test]
+    fn an_exemption_does_not_apply_without_its_stated_cause() {
+        let oracle = || Violation {
+            invariant: Invariant::OracleAgreement,
+            detail: "reduced balance disagrees with its oracle".to_string(),
+        };
+        let exemptions = vec![Exemption {
+            invariant: Invariant::OracleAgreement,
+            justification: "a duplicated document leaves the balance disagreeing".to_string(),
+            max_suppressed: None,
+            conditional_on: Some(Invariant::NoDuplicates),
+        }];
+
+        // Nothing was duplicated, so the licence does not apply and the subject is held.
+        let (held, exempt) = partition_exempt(vec![oracle()], &exemptions);
+        assert_eq!(held.len(), 1);
+        assert!(exempt.is_empty());
+
+        // A duplicate did occur, so the same divergence is licensed. Counted over the raw
+        // violations, so a duplicate the scenario also exempts still counts as having happened.
+        let duplicated = Violation {
+            invariant: Invariant::NoDuplicates,
+            detail: "delivered twice".to_string(),
+        };
+        let (held, exempt) = partition_exempt(vec![oracle(), duplicated], &exemptions);
+        assert_eq!(held.len(), 1, "the duplicate itself is not exempt here");
+        assert_eq!(held[0].invariant, Invariant::NoDuplicates);
+        assert_eq!(exempt.len(), 1);
+    }
+
+    /// The case a real subject hits: its blanket exemption is unbounded, and a scenario's
+    /// narrower ceiling for the same invariant must not fail it.
+    #[test]
+    fn an_unbounded_exemption_lifts_a_narrower_ceiling() {
+        let violations = (0..3)
+            .map(|i| Violation {
+                invariant: Invariant::Monotonicity,
+                detail: format!("out of order {i}"),
+            })
+            .collect();
+        let exemptions = vec![
+            Exemption {
+                invariant: Invariant::Monotonicity,
+                justification: "one replayed transaction".to_string(),
+                max_suppressed: Some(2),
+                conditional_on: None,
+            },
+            Exemption {
+                invariant: Invariant::Monotonicity,
+                justification: "this destination is read as an unordered table".to_string(),
+                max_suppressed: None,
+                conditional_on: None,
+            },
+        ];
+
+        let (held, exempt) = partition_exempt(violations, &exemptions);
+        assert!(held.is_empty());
+        assert_eq!(exempt.len(), 3);
     }
 }

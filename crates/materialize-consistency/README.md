@@ -107,17 +107,24 @@ must survive is rarely a property of its class — but three exclusions are wort
 - `zombie-at-start-commit` runs for `remoteAuthoritative` alone, because the shim orders the
   two racing instances by their `Open` fences and a class that does not fence gives it nothing
   to order them by;
-- `split-during-commit`, `split-during-store` and `join-after-split` skip `documentCounter`,
-  because each lands a membership change on a live transaction and whether that reaches the
-  counted channel's exposure is a race — see `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
+- `split-during-store`, `split-during-commit`, `split-after-commit-before-apply` and
+  `join-after-split` skip `documentCounter`, because each lands a membership change on a live
+  transaction and whether that reaches the counted channel's exposure is a race — see
+  `MEMBERSHIP_CHANGE_FAIRLY_ASKED`.
 
-So a `documentCounter` subject skips **four** scenarios, not one. Read the run's
+So a `documentCounter` subject skips **five** scenarios, not one. Read the run's
 `not-applicable` lines rather than counting on this list to stay current.
 
 Note what is *not* excluded: `split-lands-on-prepared-transaction` runs for every
 exactly-once class even though the counted channel cannot pass it. A gap that stops one class
 is recorded as a `RuntimeGap` naming that class, so the scenario still runs for the others and
 its passing there is the evidence that the gap is the runtime's rather than an impossible ask.
+
+That gap is reached **intermittently**, which matters for reading a result: the hazard needs the
+runtime to hand a range over mid-transaction and it usually does not, so the scenario is red
+either way — it fails with a violation count on a run that hits the gap, and as an *unexpected
+pass* on one that does not. Do not remove the declaration on the strength of a passing run; the
+scenario's own comment records two attempts to force the overlap that both suppressed it.
 
 A skipped scenario prints `not-applicable` and still counts as a passing test, so read
 those lines to see what was and was not verified. Declaring the wrong class does not
@@ -194,9 +201,11 @@ the connector lost those documents or the runner stopped waiting cannot be told 
 checkers. `log 610/610, merged accounts behind 3 of 40` is a shortfall; a violation list is
 a verdict.
 
-**Faults arm after the warmup.** The warmup gate has no recovery step, so a crash landing
-inside it would wedge the run. A unit test enforces this for every `Crash` rule; other
-actions leave the shard running and are exempt.
+**Faults arm after the warmup.** The warmup gate has no recovery step, so a crash landing inside
+it would wedge the run. A unit test enforces this, with two exemptions rather than one: a stall or
+a zombie leaves the shard running, so the warmup still completes; and a rule aimed at a *split*
+shard cannot fire before the warmup anyway, because the shard it names does not exist until the
+split, which happens afterwards.
 
 **The environment.** Two symptoms present as connector faults and are not. `etcdserver:
 mvcc: database space exceeded` in the reactor's log means etcd has hit its quota and can no
