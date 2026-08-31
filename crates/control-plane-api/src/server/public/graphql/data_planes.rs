@@ -499,7 +499,8 @@ impl DataPlanesQuery {
         // The tenant must match a whole path segment of a private plane's name,
         // so append the trailing slash when the caller omits it: a bare "foo"
         // would otherwise match both "foo-bar/" and "foo-baz/".
-        let tenant = tenant.map(|t| if t.ends_with('/') { t } else { t + "/" });
+        let tenant_prefix = tenant.map(|t| if t.ends_with('/') { t } else { t + "/" });
+        let private_tenant_prefix = tenant_prefix.map(|t| format!("ops/dp/private/{t}"));
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
@@ -517,6 +518,14 @@ impl DataPlanesQuery {
                 if public_eq.is_some_and(|want| want != public) {
                     return false;
                 }
+                // Narrow private data planes to the specified tenant, if requested. Public planes are shared
+                // with every tenant, so are not impacted by this filter.
+                if !public && let Some(prefix) = private_tenant_prefix.as_ref() {
+                    if !dp.data_plane_name.starts_with(prefix.as_str()) {
+                        return false;
+                    }
+                }
+
                 if let Some(ids) = id_in.as_ref() {
                     if !ids.contains(&dp.control_id) {
                         return false;
@@ -538,18 +547,6 @@ impl DataPlanesQuery {
         // snapshot, so this needs no database round-trip.
         if let Some(want_closed) = closed_eq {
             accessible_data_planes.retain(|dp| dp.closed == want_closed);
-        }
-
-        // Narrow the results based on the provided `tenant` filter. Public data planes are always included,
-        // and private data planes are included only if they match the tenant prefix. Do this here to ensure
-        // the grant check is done and user capabilities are attached to the correct data planes.
-        if let Some(tenant_str) = tenant.as_ref() {
-            let public_prefix = "ops/dp/public/".to_string();
-            let private_tenant_prefix = "ops/dp/private/".to_string() + tenant_str.as_str();
-            accessible_data_planes.retain(|dp| {
-                dp.data_plane_name.starts_with(&public_prefix)
-                    || dp.data_plane_name.starts_with(&private_tenant_prefix)
-            });
         }
 
         // Apply cursor-based pagination.
@@ -1476,7 +1473,7 @@ mod tests {
         let expected = public_dps.clone();
         assert_eq!(actual, expected);
 
-        // Composing with `public` narrows to just the tenant's own planes.
+        // Composing with `public` just returns public planes.
         let filter = serde_json::json!({ "tenant": "bobCo/", "public": { "eq": true } });
         let actual = names(&server, &token, filter.clone()).await;
         let expected = public_dps.clone();
