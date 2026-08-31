@@ -1,0 +1,40 @@
+[package]
+name = "materialize-consistency"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+connector-init = { path = "../connector-init" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+
+anyhow = { workspace = true }
+async-process = { path = "../async-process" }
+clap = { workspace = true }
+libc = { workspace = true }
+prost = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# tempfile is also a regular dependency; named here for the doc-visible reason
+# that tests write exemption fixtures.
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "consistency-shim"
+path = "src/bin/consistency-shim.rs"
+
+[[bin]]
+name = "materialize-reference"
+path = "src/bin/materialize-reference.rs"

@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run materialization consistency scenarios against this checkout's stack"
+#USAGE flag "--filter <filter>" help="Scenario name pattern for nextest (e.g. zombie)"
+#USAGE flag "--concurrency <concurrency>" help="How many scenarios to run at once"
+#USAGE flag "--debug" help="Enable debug logging and show all test output"
+
+source "$(dirname "$0")/../local/lib.sh"
+ensure_stack_env
+
+# Every scenario publishes only its own tasks, with a random suffix, and reads
+# the stack's identity at runtime — so this runs against any stack, the primary
+# checkout or a worktree, and several agents can run it concurrently.
+
+FILTER="${usage_filter:-}"
+CONCURRENCY="${usage_concurrency:-2}"
+DEBUG="${usage_debug:-false}"
+
+echo "Building flowctl, the shim, and the reference connector..."
+cargo build -p flowctl -p materialize-consistency --quiet
+
+# The workload is the soak capture, run unmodified out of the repository's
+# in-project poetry venv.
+if [ ! -x "$(flow_repo_root)/.venv/bin/python" ]; then
+    echo "Installing the workload capture's Python dependencies..."
+    poetry install --no-root
+fi
+
+# Purge ops journals of scenario tasks that no longer exist.
+#
+# A task's ops log and stats partitions are not deleted when its specification is —
+# they belong to the data plane's shared `ops/tasks/...` collections — so this suite
+# leaks a pair per task, about two hundred per full run. That is not cosmetic: at
+# roughly fourteen hundred partitions this data plane's four brokers ran out of
+# assignment slots, newly published journals got no primary broker at all, and every
+# scenario failed waiting for a capture that had published fine and could never
+# append. One whole suite run was lost to it, and every symptom pointed at the
+# connector rather than at the leak.
+#
+# Done here, against etcd, rather than in the harness, because a task-scoped
+# authorization cannot reach these: `user_task_admin` authorizes a journal client for
+# the task's own prefix, while ops journals live under `ops/`, which no grant available
+# to the test user covers. Four attempts to do it through `flowctl` silently matched
+# nothing for that reason. A local stack's own test suite may tidy its own data plane;
+# a connector-facing tool may not, and should not.
+#
+# The right long-term fix is for the control plane to delete a task's ops partitions
+# when it deletes the task. Until then this keeps the suite from degrading itself.
+purge_orphan_ops_journals() {
+    local root="/gazette/${FLOW_CLUSTER}"
+    local endpoint="localhost:${FLOW_PORT_ETCD}"
+
+    # Tasks the suite currently has published. Anything else naming this tenant's
+    # consistency prefix is debris from a finished run.
+    local live
+    live=$(psql "${FLOW_PG_URL}" -tAc \
+        "SELECT catalog_name FROM live_specs WHERE catalog_name LIKE '${FLOW_TEST_TENANT}/consistency/%'" \
+        | sed 's|/|%2F|g')
+
+    local keys
+    keys=$(ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" get --prefix --keys-only \
+        "${root}/items/ops/tasks" 2>/dev/null | grep "${FLOW_TEST_TENANT}%2Fconsistency%2F" || true)
+
+    local removed=0
+    local key rel name
+    for key in ${keys}; do
+        # The partition's `name=` path segment holds the task, URL-encoded.
+        name=$(printf '%s' "${key}" | sed -n 's|.*/name=\([^/]*\)/.*|\1|p')
+        if [ -n "${name}" ] && printf '%s\n' "${live}" | grep -qxF "${name}"; then
+            continue # Still published; its partitions are in use.
+        fi
+
+        rel=${key#"${root}/items/"}
+        ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del "${key}" >/dev/null 2>&1
+        ETCDCTL_API=3 etcdctl --endpoints="${endpoint}" del --prefix "${root}/assign/${rel}" >/dev/null 2>&1
+        removed=$((removed + 1))
+    done
+
+    if [ "${removed}" -gt 0 ]; then
+        echo "Purged ${removed} ops journal(s) of finished scenario tasks."
+    fi
+}
+
+echo "Provisioning the test tenant..."
+mise run local:test-tenant
+source "${FLOW_STACK_DIR}/test-tenant-test.env" # Default tenant is 'test'.
+
+# Shard administration — splitting a task, and unassigning a shard a crash fault
+# left FAILED — is authorized at Admin capability, which the control plane grants
+# only to a user holding `estuary_support/`. These are support-level operations and
+# that gate is correct; the suite needs them, so grant it here rather than widening
+# what `local:test-tenant` hands every test.
+echo "Granting ${FLOW_TEST_USER_EMAIL} support access (needed to split and unassign shards)..."
+psql "${FLOW_PG_URL}" -qtAc "
+    INSERT INTO public.user_grants (user_id, object_role, capability, detail)
+    VALUES ('${FLOW_TEST_USER_ID}'::uuid, 'estuary_support/', 'admin',
+            'materialization consistency suite: shard split and unassign')
+    ON CONFLICT (user_id, object_role) DO UPDATE SET capability = 'admin';" >/dev/null
+
+# The agent authorizes from an in-memory snapshot of grants that it refreshes only
+# every 20s-5m, so the grant above is not visible to it yet. One authorize request
+# with `startedUnix: 0` takes the 307-redirect path, forcing a refresh that blocks
+# until the new snapshot lands — the same trick `local:test-tenant` uses.
+DATA_PLANE=$(psql "${FLOW_PG_URL}" -tAqc "
+    SELECT data_plane_name FROM public.data_planes
+    WHERE starts_with(data_plane_name, 'ops/dp/public/')
+    ORDER BY data_plane_name LIMIT 1")
+
+WARM_CODE=$(curl -sS -L --max-time 120 -o /dev/null -w '%{http_code}' \
+    -X POST "http://localhost:${FLOW_PORT_AGENT}/authorize/user/prefix" \
+    -H "Authorization: Bearer ${FLOW_AUTH_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"prefix\":\"${FLOW_TEST_TENANT}/\",\"dataPlane\":\"${DATA_PLANE}\",\"capability\":\"admin\",\"startedUnix\":0}" \
+    || echo "000")
+
+if [ "${WARM_CODE}" != "200" ]; then
+    echo "Error: the agent would not authorize admin capability on ${FLOW_TEST_TENANT}/ (HTTP ${WARM_CODE})." >&2
+    echo "       Shard splits and crash recovery both need it; see the grant above." >&2
+    exit 1
+fi
+
+purge_orphan_ops_journals
+
+export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
+
+if [ "${DEBUG}" = "true" ]; then
+    export RUST_LOG="materialize_consistency=debug"
+    OUTPUT_FLAGS="--no-capture"
+else
+    export RUST_LOG="${RUST_LOG:-materialize_consistency=info}"
+    OUTPUT_FLAGS="--failure-output=immediate --success-output=final"
+fi
+
+# Each scenario runs twice — clean, then against the defect it must catch — so a
+# green result means the checkers can still see a real regression.
+echo "Running consistency scenarios..."
+
+TEST_EXIT_CODE=0
+if [ -n "${FILTER}" ]; then
+    cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
+        --ignore-default-filter \
+        -E "binary_id(/materialize-consistency::scenarios/) and test(${FILTER})" || TEST_EXIT_CODE=$?
+else
+    cargo nextest run --profile consistency -p materialize-consistency ${OUTPUT_FLAGS} \
+        -j "${CONCURRENCY}" --no-fail-fast || TEST_EXIT_CODE=$?
+fi
+
+if [ "${TEST_EXIT_CODE}" -ne 0 ]; then
+    REACTOR_PORT=$((FLOW_PLANE_BASE + 99))
+    echo ""
+    echo "A scenario failed. The run directories of failed scenarios are kept under"
+    echo "  ${FLOW_STACK_DIR}/consistency/"
+    echo "each holding the shim's protocol trace (trace.jsonl) and the destination."
+    echo ""
+    echo "Reactor logs:"
+    echo "  journalctl --user -u flow-reactor@${FLOW_CLUSTER}-${REACTOR_PORT} --since '15 min ago'"
+    echo ""
+    echo "Leftover tasks from a crashed run:"
+    echo "  flowctl catalog list --prefix test/consistency/"
+    exit "${TEST_EXIT_CODE}"
+fi
