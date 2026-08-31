@@ -186,6 +186,30 @@ impl Shim {
             _ => Vec::new(),
         };
 
+        // A zombie rule is only meaningful in one shape, and this refuses every other rather than
+        // degrading quietly. `zombie_action` consults the fired marker alone — not `nth`,
+        // `arm_after` or `shard` — so a rule keyed anywhere else would spawn a second *live*
+        // instance at every session open and never freeze it, and one keyed on a response trigger
+        // would be matched, marked fired and traced as a fault before being discarded, leaving the
+        // scenario to pass having raced no one. The scenario table is guarded by a unit test, but
+        // `FLOW_CONSISTENCY_FAULTS` is arbitrary JSON, and nothing else validated it.
+        for (idx, rule) in faults.iter().enumerate() {
+            if !matches!(rule.action, Action::Zombie { .. }) {
+                continue;
+            }
+            anyhow::ensure!(
+                (rule.on, rule.nth, rule.arm_after, rule.shard)
+                    == (Trigger::Open, 1, 0, crate::protocol::ShardTarget::Any),
+                "fault rule {idx} is a zombie keyed on {:?} #{} (arm_after {}, shard {:?}); a \
+                 zombie must be keyed on Open #1 with no arming and no shard restriction, which \
+                 is the only point a fenced instance is certainly still alive — see Action::Zombie",
+                rule.on,
+                rule.nth,
+                rule.arm_after,
+                rule.shard,
+            );
+        }
+
         Ok(Self {
             run,
             faults,
@@ -374,14 +398,26 @@ impl Zombie {
     }
 
     /// Await the zombie's first response, so that it has taken its fence before the
-    /// live instance takes one. Bounded, because a connector that never responds to
-    /// `Open` must not wedge the live path — a scenario that then fails is reported
-    /// with the shim's trace rather than hanging.
-    async fn await_opened(&mut self) {
+    /// live instance takes one.
+    ///
+    /// Bounded, because a connector that never responds to `Open` must not wedge the live path —
+    /// and the bound *must not* be a silent fall-through, which is what it was. Proceeding without
+    /// the confirmation forwards the live `Open` anyway, so the zombie may fence *second* and hold
+    /// the newer nonce: then it is the live instance whose commits are refused, and the scenario
+    /// asserts the exact opposite of what it claims while looking like a connector defect.
+    ///
+    /// So a timeout here is fatal rather than tolerated. Thirty seconds is far outside any real
+    /// `Open` — the reference connector answers in milliseconds — so this cannot flake; it means
+    /// the subject is wedged, and failing loudly beats racing backwards or passing vacuously.
+    /// Returns whether the zombie opened; the caller crashes the session if it did not.
+    #[must_use]
+    async fn await_opened(&mut self) -> bool {
         let Some(opened) = self.opened.take() else {
-            return;
+            return true;
         };
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), opened).await;
+        tokio::time::timeout(std::time::Duration::from_secs(30), opened)
+            .await
+            .is_ok()
     }
 
     async fn offer(&mut self, encoded: &[u8], is_start_commit: bool) {
@@ -422,8 +458,10 @@ impl Zombie {
             let _ = self.instance.stdin.write_all(&msg).await;
         }
         let _ = self.instance.stdin.flush().await;
-        // Closing its stdin ends the zombie's session once it has tried to
-        // commit, rather than leaving it idle until the live instance exits.
+        // `shutdown` on a `ChildStdio` — a `tokio::fs::File` — flushes; it does not close the
+        // pipe, so this does not end the zombie's session and the comment here used to say it
+        // did. What actually ends the session is the fence refusing its commit, which is the
+        // scenario. The pipe closes later, when the request pump returns and drops the file.
         let _ = self.instance.stdin.shutdown().await;
         self.frozen = false;
         self.sealed = true;
@@ -538,8 +576,9 @@ where
             buffer.reserve(1);
         }
         if from_runtime.read_buf(&mut buffer).await? == 0 {
-            // The runtime closed our stdin; pass that on so the connector can
-            // finish its session.
+            // The runtime closed our stdin. Flush what the connector has been given so it can
+            // finish its session — the pipe itself closes when this function returns and the
+            // stdio handles drop, which is what the connector sees as EOF.
             let _ = to_connector.shutdown().await;
             if let Some(z) = &mut zombie {
                 if !z.frozen {
@@ -589,7 +628,18 @@ where
                         .store(z.instance.pid(), std::sync::atomic::Ordering::Relaxed);
 
                     z.offer(&encoded, false).await;
-                    z.await_opened().await;
+
+                    if !z.await_opened().await {
+                        shim.trace.log(Event::Failed {
+                            error: "the zombie did not answer Open within 30s, so it could not be \
+                                    ordered ahead of the live instance; failing rather than \
+                                    racing in the wrong direction"
+                                .to_string(),
+                        });
+                        shim.zombie_pid
+                            .store(z.instance.pid(), std::sync::atomic::Ordering::Relaxed);
+                        crash(&shim, live_pid);
+                    }
                     zombie = Some(z);
                 }
             }

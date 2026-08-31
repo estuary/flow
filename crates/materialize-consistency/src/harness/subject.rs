@@ -221,6 +221,34 @@ pub const ENV_SUBJECT_TOOL: &str = "FLOW_CONSISTENCY_SUBJECT_TOOL";
 /// Not derived from the subject's file name, which is whatever the person building it chose.
 pub const ENV_SUBJECT_NAME: &str = "FLOW_CONSISTENCY_SUBJECT_NAME";
 
+/// Environment for the subject's process, as a JSON object of name to value. Optional.
+///
+/// A connector run from an image gets an environment its Dockerfile built; run as a `local:`
+/// binary it gets whatever the reactor had, which is not the same thing. `materialize-snowflake`'s
+/// Snowpipe Streaming v2 path is the case that forced this: it spawns a Python sidecar from
+/// `/opt/venv/bin/python`, a path that exists only inside its image, and reads
+/// `SNOWPIPE_SIDECAR_PYTHON` to be told otherwise.
+///
+/// Set on the *materialization's* `local:` endpoint rather than exported into the reactor, because
+/// a scenario must not touch stack-wide state — two concurrent runs may name different subjects,
+/// and a variable exported into the reactor would reach both.
+///
+/// This is deliberately not a way to pass credentials: it lands in a published catalog spec, which
+/// is stored in the control plane and readable from it. Endpoint config is the place for those.
+pub const ENV_SUBJECT_ENV: &str = "FLOW_CONSISTENCY_SUBJECT_ENV";
+
+/// Set to anything to run scenarios the subject's class says do not apply to it.
+///
+/// For deliberate experiment, never for a verdict. The four membership-change scenarios are
+/// excluded from the counted-channel class because whether the split lands inside the hazard —
+/// mid-transaction, after rows are already appended — is a race the harness cannot force. Most
+/// runs miss it and pass; the ones that hit it fail, and that failure is the runtime gap of
+/// estuary/flow discussion 2581 rather than anything the connector did wrong.
+///
+/// So a pass here is weak evidence and a failure is ambiguous, which is why applicability is the
+/// default and this is opt-in. What it is good for is *measuring* how often the gap bites.
+pub const ENV_RUN_INAPPLICABLE: &str = "FLOW_CONSISTENCY_RUN_INAPPLICABLE";
+
 /// A real connector to run scenarios against, if one was named.
 #[derive(Debug, Clone)]
 pub struct External {
@@ -230,6 +258,8 @@ pub struct External {
     /// A built `testctl`, and the name it knows this connector by. See [`ENV_SUBJECT_TOOL`].
     pub tool: std::path::PathBuf,
     pub name: String,
+    /// Extra environment for the subject's process. See [`ENV_SUBJECT_ENV`].
+    pub env: std::collections::BTreeMap<String, String>,
     /// The class it implements. Scenarios not in whose `applies_to` set it falls are
     /// skipped.
     pub class: crate::reference::Class,
@@ -302,6 +332,15 @@ pub async fn external() -> anyhow::Result<Option<External>> {
         .into_string()
         .map_err(|raw| anyhow::anyhow!("{ENV_SUBJECT_NAME}={raw:?} is not valid unicode"))?;
 
+    // Optional, and separate from the all-or-none group above: most subjects need none, and one
+    // that does is telling the harness about its own packaging rather than naming itself.
+    let env: std::collections::BTreeMap<String, String> = match std::env::var(ENV_SUBJECT_ENV) {
+        Err(_) => Default::default(),
+        Ok(raw) => serde_json::from_str(&raw).with_context(|| {
+            format!("parsing {ENV_SUBJECT_ENV}, which must be a JSON object of name to value")
+        })?,
+    };
+
     let shape = resource_shape(&connector).await?;
 
     Ok(Some(External {
@@ -311,5 +350,6 @@ pub async fn external() -> anyhow::Result<Option<External>> {
         class,
         tool,
         name,
+        env,
     }))
 }

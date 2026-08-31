@@ -30,6 +30,9 @@ use crate::reference::{Class, Defect};
 pub struct Subject {
     pub connector: Vec<String>,
     pub config: serde_json::Value,
+    /// Extra environment for the connector's process, from `FLOW_CONSISTENCY_SUBJECT_ENV`.
+    /// Empty for the reference connector, which needs none.
+    pub env: std::collections::BTreeMap<String, String>,
 }
 
 pub struct Scenario {
@@ -115,7 +118,7 @@ pub struct RuntimeGap {
 /// carry an autoincrementing `ord`, so a read replays the sequence of appends — so a defect that
 /// shuffled thousands of rows while keeping the set exactly right would be absorbed in full.
 ///
-/// 500 against a measured 9-54 per run: an order-of-magnitude guard, not a tight bound, chosen the
+/// 500 against a measured 9-93 per run: an order-of-magnitude guard, not a tight bound, chosen the
 /// same way and for the same reason as the duplication ceiling in `at-least-once-never-loses`. It
 /// binds only on the reference connector: a remotely-read subject also carries the blanket
 /// monotonicity exemption, which is unbounded because order is not recoverable through a table
@@ -124,24 +127,27 @@ const REORDERING_CEILING: usize = 500;
 
 /// Why a membership change is not held to delivery order.
 ///
-/// Stated once and shared: four scenarios reconfigure shards and every one of them owes
-/// the same explanation, so a copy per scenario would only give the wording room to drift.
+/// Stated once and shared by the four scenarios that use it, so a copy per scenario would only
+/// give the wording room to drift. (Seven scenarios reconfigure shards; the other three describe
+/// a class that appends during `Store` and use `APPENDS_DURING_STORE_REORDERS`.)
 ///
 /// The wording is deliberately about what is *observed*. An earlier version asserted the
 /// interleaving — a split child delivering a sequence the departing parent had raced past —
 /// and review could not construct it: on these classes' delta paths a parent write past a
 /// child's resume point is either fence-refused or a duplicate, and `NoDuplicates` is not
-/// exempt, so the run would fail regardless. Yet these exemptions suppress 9-33 violations
-/// per run, measured after the two monotonicity checkers were made to agree, so the
-/// reordering is real. Rather than keep a mechanism nobody has demonstrated, the
+/// exempt, so the run would fail regardless. Yet these exemptions suppress 9-93 violations per
+/// run against a locally-read destination and several hundred against a remotely-read one — 295
+/// measured against `materialize-databricks` — so the reordering is real. Rather than keep a mechanism nobody has demonstrated, the
 /// justification records the observation and says the cause is unknown.
 const MEMBERSHIP_CHANGE_REORDERS: &str = "A membership change does not preserve delivery *order* at the sink, only \
          exactly-once delivery of the set: rows of an id are observed landing out of \
          order across a split while remaining exactly one row per document. The \
          mechanism is NOT understood — the obvious candidate, a parent delivering past \
          a child's resume point, is either fenced off or a duplicate, and duplicates are \
-         not exempt. What is established is the observation: 9-33 such violations per \
-         run, with the set-based checks passing. Those checks — no-loss, no-duplicates, \
+         not exempt. What is established is the observation: 9-93 such violations per \
+         run against a locally-read destination, and several hundred against one read as a \
+         remote table, where arrival order is not recoverable at all — 295 measured against \
+         materialize-databricks. Either way the set-based checks pass. Those checks — no-loss, no-duplicates, \
          conservation and oracle agreement — carry the exactly-once claim here and are \
          NOT exempt, which is why an unexplained ordering deviation can be tolerated \
          without weakening what the scenario proves.";
@@ -319,6 +325,7 @@ impl Scenario {
                 "class": self.class,
                 "defects": defects,
             }),
+            env: Default::default(),
         }
     }
 }
@@ -414,10 +421,20 @@ fn crash_at_flush() -> Scenario {
     .catches(Defect::DropDocuments)
 }
 
-/// Scale-out during the store phase. A split also manufactures a zombie by design:
-/// the runtime fences the source shard's primary off its recovery log during the
-/// children's recovery and then unassigns it, so this exercises the runtime's
-/// fencing alongside the connector's.
+/// Scale-out during the store phase.
+///
+/// This used to claim the split "manufactures a zombie by design", fencing the source primary
+/// off its recovery log so the scenario exercised the runtime's fencing as well as the
+/// connector's. That is the *legacy* consumer-layer split workflow, which engages only for a
+/// shard labelled `estuary.dev/split-source` (`go/runtime/split_workflow.go`). The suite splits
+/// via `flowctl raw split-shards`, which builds children directly through
+/// `activate::map_shard_to_split` — no such label, `primary_hints: None`, children explicitly
+/// stateless — so that workflow never runs and no primary is fenced off a log. Handover goes
+/// through the V2 term contract instead: the spec update cancels the term and the session stops
+/// gracefully.
+///
+/// The scenario's checks and its defect pairing are unaffected, but the extra coverage it claimed
+/// does not exist. The only zombie this suite exercises is the shim's own.
 fn split_during_store() -> Scenario {
     Scenario::new(
         "split-during-store",
@@ -484,7 +501,8 @@ fn split_during_commit() -> Scenario {
 /// `merge_peer_patches`, and `apply_pending` over a range that no longer exists.
 ///
 /// The fault is keyed on the `Acknowledge` *request*, and the timing is worth spelling out. The
-/// runtime's cycle is `Acknowledge → Flush → Store → StartCommit → Persist`, so an `Acknowledge`
+/// runtime's cycle is `Acknowledge → Flush → Store → StartCommit → Persist` (abbreviated — a
+/// hint-Persist sits between `Flush` and `Store`, which nothing here turns on), so an `Acknowledge`
 /// opens each transaction and confirms the one before it. Since the shim fires before forwarding,
 /// crashing at `Acknowledge` #4 leaves transaction *3* in exactly the state wanted: its statements
 /// were rendered at `StartCommit`, its state patch went into the recovery log at `Persist`, and
@@ -528,31 +546,39 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          neither loses nor duplicates its documents",
         Class::DocumentCounter,
     )
-    // The overlap between this stall and the split is *not* synchronized, and cannot usefully be.
+    // Keyed on the `StartedCommit` *response*, and that is the whole of what makes this scenario
+    // work — it was a `Stall` at `StartCommit` for a long time and could not reach the state it
+    // asserts about.
+    //
+    // The guard this exists to trip fires when the destination has committed appends the runtime's
+    // checkpoint does not record *and* the key range has changed. A stall produces neither: the
+    // runtime cancels the term gracefully and lets the in-flight transaction finish, so the
+    // counters agree at handover and nothing is outstanding. Measured, not reasoned — across 60
+    // runs of the membership scenarios the key-range guard fired zero times.
+    //
+    // A crash on the response does produce it. The counted channel awaits the destination's commit
+    // inside `StartCommit` before checkpointing its counter, so killing as the response is
+    // forwarded leaves the destination committed and the runtime unaware. `splitting_after_fault`
+    // then changes the range before anything can reconcile, and the child cannot attribute what
+    // the destination holds. Against `materialize-snowflake`'s Snowpipe Streaming v2 path this
+    // trips it every run — 56 refusals over the first two, where the stall version had never
+    // tripped it once.
+    //
+    // Note how close this is to `destination-ahead-of-checkpoint`: same fault, and deliberately so.
+    // That scenario establishes the destination-ahead state *without* a membership change and
+    // requires the skip to work; this one adds the split, so the skip is refused. The pair is the
+    // difference between "the counter reconciles" and "the counter cannot reconcile across a range
+    // change", which is the gap.
+    //
+    // The overlap between the fault and the split is *not* synchronized, and cannot usefully be.
     // That was reviewed as a flaw and measured instead, and the measurements say the race is the
     // scenario rather than a defect in it.
     //
-    // Two attempts to force the overlap both *closed* the window. Waiting for the stall to begin
-    // before issuing the split, and lengthening the stall to twenty seconds, each made the run
-    // pass — because a runtime handed a shard that will hold still finishes the stalled
-    // transaction and hands over at a quiet point, which is a committed transaction and no hazard
-    // at all. Asking the runtime to hand over at a moment of the harness's choosing is asking for
-    // the very guarantee under test, so this is back to four seconds and an unordered split, the
-    // configuration with observed hits.
-    //
-    // And when it does hit, it hits *narrowly*: a caught run delivered 2072 log rows against 2070
-    // documents — two rows delivered twice, both of them documents the expectation holds, with
-    // nothing ahead of it. So the gap below is intermittent, not per-run, and a passing run is
-    // evidence about that run only. `split-during-commit` reaches the same destination state
-    // deterministically by crashing rather than stalling, so coverage of the
-    // prepared-but-uncommitted state does not rest on winning this race.
-    .fault(FaultRule {
-        on: Trigger::StartCommit,
-        nth: 4,
-        arm_after: 3,
-        shard: ShardTarget::Any,
-        action: Action::Stall { millis: 4_000 },
-    })
+    // Two earlier attempts to force it with a stall both *closed* the window — ordering the split
+    // after the stall began, and lengthening the stall — because a runtime handed a shard that will
+    // hold still takes the quiet point. That is recorded because it reads as the obvious fix and is
+    // the opposite of one: the way to reach the hazard is to remove the shard, not to slow it.
+    .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocumentCounter)
     // This exemption shapes the *report* rather than any verdict, and the reasoning is worth
     // stating exactly because it is easy to get wrong. This scenario does **not** narrow
@@ -571,10 +597,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
     // expected to pass — and this is the scenario that says so.
     .blocked_on_runtime(
         &[Class::DocumentCounter],
-        "Intermittently — the runtime usually completes the transaction it is in before handing \
-         the range over, so this fails on some runs and not others, and a caught run duplicated \
-         two rows of 2070. Read a pass as evidence about that run and nothing more. \
-         The runtime does not yet guarantee that a transaction started under a given shard \
+        "The runtime does not yet guarantee that a transaction started under a given shard \
          split is replayed under that same split before a scale up or down takes effect, a \
          capability named as a requirement in estuary/flow discussion 2581. A counted \
          channel cannot work around it: it writes during Store, so the rows of a prepared \
@@ -583,7 +606,7 @@ fn split_lands_on_prepared_transaction() -> Scenario {
          mirror image — a survivor reads one departing channel's counter, skips too few, \
          and duplicates.",
     )
-    .splitting(5)
+    .splitting_after_fault(5)
 }
 
 /// Scaling back down. A join is not a split run backwards: one shard absorbs
@@ -781,8 +804,18 @@ fn at_least_once_never_loses() -> Scenario {
     .applies_to(EVERY_CLASS)
     .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
     .catches(Defect::DropDocuments)
-    // Every exemption below is licensed by *one* replayed transaction, and all four are therefore
-    // tied to `NoDuplicates` with `caused_by`: a replay that re-delivers documents leaves duplicate
+    // Every exemption below is scoped to `AtLeastOnce` with `only_for`, because every one of them
+    // is a statement about *that* class: it commits during `Store` with no record of what it
+    // applied, so an interrupted transaction is re-applied. Nothing about that describes a
+    // connector whose contract is exactly-once, and unscoped these excused up to five hundred
+    // duplicates from one. The scenario still runs for every class — that is the point of it, the
+    // weakest ask in the suite — but a stronger class now answers a stronger question: crash at
+    // `StartedCommit`, lose nothing, *and* duplicate nothing. `materialize-snowflake` passed it
+    // with zero duplicates before this scoping, so the guarantee was real; it just was not being
+    // checked.
+    //
+    // Every exemption below is also licensed by *one* replayed transaction, and all four are
+    // therefore tied to `NoDuplicates` with `caused_by`: a replay that re-delivers documents leaves duplicate
     // rows, so if no duplicate row appears anywhere in the run then nothing was replayed and a
     // divergence has some other cause. Without that tie, this scenario licensed an oracle
     // disagreement from *any* cause — and a subject whose replay path corrupted merged values
@@ -811,6 +844,7 @@ fn at_least_once_never_loses() -> Scenario {
          the connector offers.",
     )
     .at_most(500)
+    .only_for(&[Class::AtLeastOnce])
     .declaring(
         Invariant::Conservation,
         "Conservation is arithmetic over delivered documents, so a duplicate can break it \
@@ -824,18 +858,21 @@ fn at_least_once_never_loses() -> Scenario {
          not unnecessary: removing it would make this scenario fail intermittently.",
     )
     .caused_by(Invariant::NoDuplicates)
+    .only_for(&[Class::AtLeastOnce])
     .declaring(
         Invariant::OracleAgreement,
         "A duplicated document leaves the reduced balance disagreeing with its own \
          oracle. Same cause as the duplication exemption above.",
     )
     .caused_by(Invariant::NoDuplicates)
+    .only_for(&[Class::AtLeastOnce])
     .declaring(
         Invariant::Monotonicity,
         "Re-applying an interrupted transaction re-delivers sequences the sink has \
          already seen. Same cause as the duplication exemption above.",
     )
     .caused_by(Invariant::NoDuplicates)
+    .only_for(&[Class::AtLeastOnce])
 }
 
 impl Scenario {
@@ -848,7 +885,15 @@ impl Scenario {
             justification: justification.to_string(),
             max_suppressed: None,
             conditional_on: None,
+            classes: None,
         });
+        self
+    }
+
+    /// Restrict the exemption just declared to the classes it was written about; see
+    /// [`Exemption::classes`]. A justification that begins "this class ..." wants this.
+    fn only_for(mut self, classes: &'static [Class]) -> Self {
+        self.last_exemption().classes = Some(classes);
         self
     }
 

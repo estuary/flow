@@ -14,6 +14,7 @@
 //! nextest profile. Run them with `mise run ci:consistency`.
 
 use materialize_consistency::harness;
+use materialize_consistency::invariants::Invariant;
 use materialize_consistency::scenarios::{self, Scenario, Subject};
 
 fn init_tracing() {
@@ -109,7 +110,21 @@ async fn both_ways(name: &str) {
     // only where its own class is the only one that can succeed, because there the failure
     // would measure the mismatch rather than the connector.
     if let Some(external) = &external {
-        if !scenario.applies_to.contains(&external.class) {
+        let forced = std::env::var_os(harness::subject::ENV_RUN_INAPPLICABLE).is_some();
+
+        if forced && !scenario.applies_to.contains(&external.class) {
+            eprintln!(
+                "EXPLORATORY: {} does not apply to {:?} and is being run anyway because {} is \
+                 set. A pass is weak evidence — the perturbation reaches this class's exposure \
+                 only by race — and a failure may be the runtime gap rather than the subject. \
+                 Do not read either as a verdict.",
+                scenario.name,
+                external.class,
+                harness::subject::ENV_RUN_INAPPLICABLE,
+            );
+        }
+
+        if !forced && !scenario.applies_to.contains(&external.class) {
             eprintln!(
                 "not-applicable: {} can only be upheld by {:?}; the subject named in \
                  {} implements {:?}. Nothing was run.",
@@ -132,6 +147,7 @@ async fn both_ways(name: &str) {
             Subject {
                 connector: vec![external.connector.to_string_lossy().to_string()],
                 config: external.config.clone(),
+                env: external.env.clone(),
             },
         ),
         None => {
@@ -143,9 +159,37 @@ async fn both_ways(name: &str) {
         }
     };
 
-    let clean = harness::run(&scenario, &subject, external.as_ref())
-        .await
-        .expect("the clean run completes");
+    // A gap can manifest as a task that cannot run at all, and that has to count as the gap.
+    //
+    // The marker below asserts on the *invariant verdict*, which presumes the run produced one. A
+    // subject facing state it cannot safely attribute is right to refuse rather than guess, and a
+    // refusing connector never commits again — so the task wedges, no destination is ever compared,
+    // and `harness::run` returns an error before the marker is consulted. That made a gap which
+    // manifests as a stall structurally unreportable while one that corrupts data was reportable,
+    // which is backwards: refusing is the better behaviour of the two.
+    //
+    // An `Environment` failure is still excluded. Those say nothing about the subject, so counting
+    // one as the gap would let a flaky stack manufacture the expected failure.
+    let clean = match harness::run(&scenario, &subject, external.as_ref()).await {
+        Ok(clean) => clean,
+        Err(err) => {
+            let environmental = err.chain().any(|e| e.is::<harness::Environment>());
+
+            match &scenario.known_limitation {
+                Some(gap) if gap.classes.contains(&subject_class) && !environmental => panic!(
+                    "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
+                     The task could not run to a verdict, which is how this gap manifests for a \
+                     subject that refuses rather than guesses:\n  {err:#}\n\n\
+                     Expected to fail for {:?}, of which the subject is {subject_class:?}.\n\n\
+                     {}\n\n\
+                     Remove `blocked_on_runtime` from this scenario once the runtime upholds the \
+                     guarantee above.",
+                    gap.classes, gap.detail,
+                ),
+                _ => panic!("the clean run completes: {err:#}"),
+            }
+        }
+    };
 
     // Printed with the count each one suppressed, because an exemption that never fires is
     // paperwork rather than a weakened guarantee — and until this was reported there was no
@@ -161,15 +205,55 @@ async fn both_ways(name: &str) {
     // exemption measures zero on most runs and is still load-bearing, while the two removed
     // in 5525ae9c19f were unreachable by construction as well as unmeasured.
     for exempt in &scenario.exempt {
+        // An exemption written about another class did not apply, and saying so is the point: it
+        // means this subject was held to *more* than the scenario's own class is, which a silent
+        // omission would leave looking like the exemption simply never fired.
+        //
+        // Whether it is held *in full* is a different question, and is read from the run's
+        // effective exemptions rather than assumed: a real subject also carries the blanket
+        // monotonicity exemption its read earns it, so scoping the scenario's own out leaves that
+        // invariant exempt anyway. Claiming otherwise from this list alone was wrong.
+        if let Some(classes) = exempt.classes {
+            if !classes.contains(&subject_class) {
+                let covered = clean
+                    .exemptions
+                    .iter()
+                    .any(|e| e.invariant == exempt.invariant);
+                eprintln!(
+                    "held: [{}] is exempt only for {:?}, and the subject is {subject_class:?} — {}",
+                    exempt.invariant,
+                    classes,
+                    match covered {
+                        false => "so it was held to this invariant in full".to_string(),
+                        true => "though another exemption still covers this invariant".to_string(),
+                    },
+                );
+                continue;
+            }
+        }
+
         let suppressed = clean
             .exempted
             .iter()
             .filter(|v| v.invariant == exempt.invariant)
             .count();
+        // A ceiling is reported only when it is actually enforced. Ceilings are per invariant and
+        // the broadest claim governs, so an unbounded exemption for the same invariant lifts this
+        // one's — which is exactly what a real subject does, carrying the blanket monotonicity
+        // exemption alongside a scenario's capped one. Printing "295 of at most 500" there
+        // described a limit nothing was applying, and read as a near miss.
+        let lifted_by_broader = scenario
+            .exempt
+            .iter()
+            .any(|e| e.invariant == exempt.invariant && e.max_suppressed.is_none())
+            || external.is_some() && exempt.invariant == Invariant::Monotonicity;
+
         eprintln!(
             "exempt: [{}] suppressed {suppressed}{} violation(s): {}",
             exempt.invariant,
             match exempt.max_suppressed {
+                Some(_) if lifted_by_broader =>
+                    " (ceiling lifted by a broader exemption)".to_string(),
                 Some(max) => format!(" of at most {max}"),
                 None => String::new(),
             },

@@ -428,11 +428,15 @@ impl Stack {
 
     /// Split every shard of a task in two, on shuffled key.
     ///
-    /// The split workflow lives at the shared consumer layer and runs before the
-    /// v1/v2 dispatch, so it applies to V2 tasks. It also manufactures a zombie by
-    /// design: the source shard's primary is fenced off its recovery log during
-    /// the children's recovery and then unassigned, so these scenarios exercise
-    /// fencing for free alongside the shim-driven zombie.
+    /// `flowctl raw split-shards` builds the children directly, through
+    /// `activate::map_shard_to_split`: the parent's labels with re-encoded ranges,
+    /// `primary_hints: None`, and children that are stateless because a V2 task's non-zero
+    /// shards acquire state through the leader protocol.
+    ///
+    /// It is therefore *not* the legacy consumer-layer split workflow, which requires an
+    /// `estuary.dev/split-source` label and is where the old claim about this fencing the source
+    /// primary off its recovery log came from. Nothing here fences anything; the parent hands over
+    /// because the spec update cancels its term.
     pub async fn split_shards(&self, task: &str) -> anyhow::Result<()> {
         self.run(&["raw", "split-shards", "--task", task])
             .await
