@@ -185,7 +185,7 @@ made, and fail.
 **The subject must be a built binary**, not a container image — the shim `exec`s it. Cross
 compiling is often blocked by cgo dependencies, so build it where the stack runs.
 
-**The config is the connector's own endpoint configuration**, JSON or YAML. Every connector
+**The config is the connector's own endpoint configuration**, as YAML. Every connector
 in the connectors repository keeps one for its integration tests, usually
 `materialize-$name/testdata/config.local.yaml`. Those are sops-encrypted, and decrypting
 them is two steps, not one: `sops -d` recovers the values, and the `encrypted_suffix`

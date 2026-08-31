@@ -17,10 +17,10 @@ struct Args {
 enum Command {
     /// Read every row of a materialized resource as newline-delimited JSON.
     Read {
-        /// Path to the endpoint configuration, as JSON or YAML.
+        /// Path to a YAML file holding the endpoint configuration.
         #[arg(long)]
         config: String,
-        /// Path to the resource configuration, as JSON or YAML.
+        /// Path to a YAML file holding the resource configuration.
         #[arg(long)]
         resource: String,
     },
@@ -32,11 +32,9 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(err) => {
-            // As one structured line, because that is what the reactor's log decoder can
-            // attribute: a plain `anyhow` chain is not discarded, but each of its lines is
-            // wrapped as a separate warning, so the cause arrives shredded across several
-            // entries with the level lost. One JSON object keeps the chain and the level
-            // together.
+            // Report the failure as one structured line. The reactor reads each stderr line as
+            // a separate warning, so here we accumulate all of the error and emit the whole
+            // multi-line error as a JSON object in a single line to keep it tidy.
             let line = serde_json::json!({
                 "level": "error",
                 "msg": "the reference connector failed",
@@ -72,8 +70,8 @@ fn run() -> anyhow::Result<()> {
 
     match args.command {
         Some(Command::Read { config, resource }) => {
-            let config = load_json::<reference::EndpointConfig>(&config)?;
-            let resource: reference::ResourceConfig = load_json(&resource)?;
+            let config = load_config::<reference::EndpointConfig>(&config)?;
+            let resource: reference::ResourceConfig = load_config(&resource)?;
             reference::read(&config, &resource.table, resource.delta)
         }
         // No subcommand: serve the materialization protocol on stdio.
@@ -81,12 +79,8 @@ fn run() -> anyhow::Result<()> {
     }
 }
 
-/// Load a config file as JSON or YAML.
-///
-/// YAML because that is how the connectors repository writes the endpoint configs its
-/// integration tests use, and because it subsumes JSON — so the same reader serves a
-/// harness passing a temporary JSON file and a person passing `config.local.yaml`.
-fn load_json<T: serde::de::DeserializeOwned>(path: &str) -> anyhow::Result<T> {
+/// Load a YAML configuration file.
+fn load_config<T: serde::de::DeserializeOwned>(path: &str) -> anyhow::Result<T> {
     let raw = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
     serde_yaml::from_str(&raw).with_context(|| format!("parsing {path}"))
 }
