@@ -361,7 +361,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let verify = crate::verify("Derive", "leader message", "leader");
         let msg = verify.not_eof(msg)?;
 
-        if let Some(proto::Stopped {}) = msg.stopped {
+        if msg.stopped.is_some() {
             return Ok((phase, true));
         } else if let Some(proto::derive::Load {
             frontier: Some(frontier),
@@ -894,7 +894,7 @@ mod tests {
         // 7) L:Stopped + leader EOF → serve completes, returning the DB.
         leader_to_actor_tx
             .send(Ok(proto::Derive {
-                stopped: Some(proto::Stopped {}),
+                stopped: Some(proto::Stopped::default()),
                 ..Default::default()
             }))
             .unwrap();

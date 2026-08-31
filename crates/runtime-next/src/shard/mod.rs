@@ -6,8 +6,37 @@ pub mod rocksdb;
 mod service;
 pub mod split_policy;
 
+use anyhow::Context;
 use rocksdb::RocksDB;
 pub use service::Service;
+
+/// Build the `Stopped` a shard sends its controller at a graceful stop.
+///
+/// `report_final_state` is the stream's `SessionLoop.report_final_state`: when
+/// set, the shard's reduced connector state rides along. The session's final
+/// Persist has necessarily landed by the time a handler reaches here (a
+/// capture's actor persists before returning `db`; a derive or materialize
+/// shard fails outright if the leader concludes a session with a Persist still
+/// in flight), so the reported state reflects the last committed transaction.
+pub(crate) async fn stopped_message(
+    db: RocksDB,
+    report_final_state: bool,
+) -> anyhow::Result<(RocksDB, crate::proto::Stopped)> {
+    if !report_final_state {
+        return Ok((db, crate::proto::Stopped::default()));
+    }
+    let (db, connector_state_json) = db
+        .get_connector_state()
+        .await
+        .context("reading final connector state for Stopped")?;
+
+    Ok((
+        db,
+        crate::proto::Stopped {
+            connector_state_json,
+        },
+    ))
+}
 
 /// Feed one transaction's per-journal append-throttle samples into the shard's
 /// long-lived [`SplitPolicy`]. Called once per transaction at the commit/drain

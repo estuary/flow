@@ -89,6 +89,10 @@ func newMaterializeAppV2(host *FlowConsumer, shard consumer.Shard, recorder *rec
 	// SessionLoop is the first message of the stream and lasts its lifetime.
 	// It carries the RocksDB handle that runtime-next opens and reuses across
 	// every leader session within this stream.
+	//
+	// The descriptor gives the recorder's directory away: the Rust shard
+	// removes it as this stream ends. Never cache recorder.Dir() for
+	// post-stream use.
 	var rocksDBDescriptor *pr.RocksDBDescriptor
 	if recorder != nil {
 		rocksDBDescriptor = bindings.NewRocksDBDescriptor(recorder)

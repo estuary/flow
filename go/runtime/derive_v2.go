@@ -118,6 +118,11 @@ func newDeriveAppV2(host *FlowConsumer, shard consumer.Shard, recorder *recovery
 	// tempdir): the authoritative checkpoint is recovered from the connector at
 	// Open. A non-SQLite shard zero records into the recovery log; non-zero
 	// shards (nil recorder) always use an ephemeral tempdir.
+	//
+	// A descriptor gives the recorder's directory away: the Rust shard removes
+	// it as this stream ends. Never cache recorder.Dir() for post-stream use.
+	// derive-sqlite is the exception which keeps the directory, reaching Rust
+	// through Task.sqlite_vfs_uri instead.
 	var rocksDBDescriptor *pr.RocksDBDescriptor
 	if recorder != nil && !isSqlite {
 		rocksDBDescriptor = bindings.NewRocksDBDescriptor(recorder)

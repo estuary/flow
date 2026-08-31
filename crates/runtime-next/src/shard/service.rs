@@ -9,6 +9,14 @@
 //!
 //! `Service` is monomorphized over its [`PublisherFactory`](crate::PublisherFactory)
 //! `P`, so the publish path is statically dispatched.
+//!
+//! **Only the `spawn_*` adapters below may put an `Err` on a response stream,
+//! and only after `serve` has returned.** Failing a session means returning the
+//! error up the stack and letting the loop unwind; these adapters then report
+//! it. The rule buys two things: a response stream's `Err` is unambiguously the
+//! whole loop's outcome (never a recoverable per-session hiccup), and a
+//! controller reading to termination sees the shard's *last* word rather than
+//! racing a session error against a still-running loop.
 
 use crate::proto;
 use futures::Stream;
@@ -93,7 +101,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
         tokio::spawn(async move {
             if let Err(err) = super::materialize::serve(service, controller_rx, controller_tx).await
             {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(err)));
+                let _ = error_tx.send(Err(crate::anyhow_to_status(err))); // The ONLY send of Err.
             }
         });
         response_rx
@@ -113,7 +121,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
 
         tokio::spawn(async move {
             if let Err(err) = super::capture::serve(service, controller_rx, controller_tx).await {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(err)));
+                let _ = error_tx.send(Err(crate::anyhow_to_status(err))); // The ONLY send of Err.
             }
         });
         response_rx
@@ -133,7 +141,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
 
         tokio::spawn(async move {
             if let Err(err) = super::derive::serve(service, controller_rx, controller_tx).await {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(err)));
+                let _ = error_tx.send(Err(crate::anyhow_to_status(err))); // The ONLY send of Err.
             }
         });
         response_rx

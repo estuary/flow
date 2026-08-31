@@ -210,8 +210,16 @@ func (t *taskBase[TaskSpec]) drop() {
 }
 
 // removeRecoveryDir reclaims the shard's recovery-log playback directory.
-// Call only after drop(): the Rust runtime holds RocksDB open until its task
-// service is dropped.
+//
+// A stream which sent a RocksDBDescriptor gave the directory away: the Rust
+// shard removes it as the stream ends, and RemoveAll is a no-op. What remains
+// are the cases with no such handover — derive-sqlite (a nil descriptor; the
+// directory travels through Task.sqlite_vfs_uri instead), a task which failed
+// before its SessionLoop was sent, and a SessionLoop the serve loop never
+// consumed.
+//
+// Call only after drop(): derive-sqlite's directory is never handed away, so
+// the Rust runtime's SQLite handles on it live until its task service drops.
 func (t *taskBase[TaskSpec]) removeRecoveryDir() {
 	if t.recorder == nil {
 		return // Shards may run without a recovery log.

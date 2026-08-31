@@ -51,6 +51,9 @@ func newCaptureAppV2(host *FlowConsumer, shard consumer.Shard, recorder *recover
 		return nil, fmt.Errorf("opening V2 Shard.Capture stream: %w", err)
 	}
 
+	// The descriptor gives the recorder's directory away: the Rust shard
+	// removes it as this stream ends. Never cache recorder.Dir() for
+	// post-stream use.
 	var rocksDBDescriptor *pr.RocksDBDescriptor
 	if recorder != nil {
 		rocksDBDescriptor = bindings.NewRocksDBDescriptor(recorder)

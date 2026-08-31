@@ -183,6 +183,17 @@ documented inline in the proto.
 - **`shard/rocksdb.rs` is the single Persist application path.** Capture
   reuses it by synthesizing `Persist` messages locally rather than receiving
   them from a leader.
+- **A shard owns the storage its `SessionLoop` names.** A
+  `RocksDBDescriptor.rocksdb_path` transfers the directory to the serve loop,
+  which removes it on every exit path — clean stop, session error, and failed
+  open alike — always after the RocksDB is torn down
+  (`shard::rocksdb::OwnedDir`). An absent descriptor gets a tempdir the shard
+  makes and owns identically.
+- **Only the `spawn_*` adapters send `Err` on a response stream, and only after
+  `serve` returned.** Errors are ALWAYS passed up the stack rather than sent
+  into channels. So a response stream's `Err` is the whole loop's outcome, and a
+  controller which drops its request stream and reads through to `Err` or EOF
+  sees the shard's last word. See `shard/service.rs`.
 - **A `Stop` may outrun the session it addresses.** The controller sends
   `Stop` when it observes its task term cancelled, and it selects over that
   cancellation and our `Stopped` concurrently — so the two cross on the wire
