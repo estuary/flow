@@ -197,7 +197,7 @@ mod test {
 /// through the environment instead:
 ///
 /// - `FLOW_CONSISTENCY_SUBJECT` — path to the connector binary.
-/// - `FLOW_CONSISTENCY_SUBJECT_CONFIG` — path to its endpoint config, JSON or YAML. Every
+/// - `FLOW_CONSISTENCY_SUBJECT_CONFIG` — path to its endpoint config, as YAML. Every
 ///   connector in the connectors repository keeps one for its integration tests, usually
 ///   `materialize-$name/testdata/config.local.yaml`.
 pub const ENV_SUBJECT: &str = "FLOW_CONSISTENCY_SUBJECT";
@@ -326,7 +326,7 @@ pub async fn external() -> anyhow::Result<Option<External>> {
     let raw = std::fs::read_to_string(&config)
         .with_context(|| format!("reading {ENV_SUBJECT_CONFIG} at {config:?}"))?;
 
-    // Parsed as YAML, which subsumes JSON and is how these files are written.
+    // Parsed as YAML, which is how these files are written.
     let config: serde_json::Value = serde_yaml::from_str(&raw)
         .with_context(|| format!("parsing {ENV_SUBJECT_CONFIG} at {config:?}"))?;
 

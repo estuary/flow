@@ -2,11 +2,8 @@
 //!
 //! Every check here is an externally observable property of the destination,
 //! expressed in the workload's own vocabulary — conservation, oracle agreement,
-//! cardinality, monotonicity. None of them inspects connector internals: not
-//! staged file names, not checkpoint contents, not the shape of a connector state
-//! document. Those legitimately differ across the four connector classes, so a
-//! test that asserted on them would pass or fail for reasons unrelated to
-//! consistency and would obstruct the very refactors it should protect.
+//! cardinality, monotonicity. None of them inspects connector internals; internals
+//! differ across the four connector classes.
 //!
 //! The correct answer is *computed*, not recorded. Each workload document carries
 //! an `oracle`: the producer's authoritative truth for that account after that
@@ -17,16 +14,12 @@
 //! ## Row order is not given
 //!
 //! Rows reach these checks in the order the destination returned them, which for a table
-//! read with `SELECT *` is no order at all — only the reference connector's own tables
-//! replay the order rows were appended in.
+//! read with `SELECT *` is no order at all, so any check whose meaning depends on order
+//! must establish that order itself, from `seq`.
 //!
-//! So any check whose meaning depends on order must establish that order itself, from
-//! `seq`. Getting this wrong reports violations against a correct connector, which is the
-//! worst thing this suite can do.
-//!
-//! The monotonicity checks are the deliberate exceptions — `check_merged_delta`'s and
-//! `check_log`'s — because they are *about* arrival order rather than merely computed in it.
-//! Both are exempted for subjects whose destination cannot preserve it.
+//! The monotonicity checks (`check_merged_delta` and `check_log`) are exceptions to the
+//! ordering rule because they are *about* arrival order. Both are exempted for a connector
+//! under test whose delivery order the harness cannot recover from the destination.
 
 use anyhow::Context;
 use serde::Deserialize;
@@ -51,18 +44,27 @@ pub struct Event {
 impl Event {
     /// Parse one row as a destination returned it.
     ///
-    /// Two shapes arrive here and both are legitimate. A connector that stores documents
-    /// whole — the reference one — yields the collection document itself. A SQL
-    /// destination yields *columns*, and Flow names each column by the JSON pointer of
-    /// the field it projects, so the nested `oracle` object arrives flattened as
-    /// `oracle/seq` and `oracle/balance`. A materialized table is columns, and a standard
-    /// binding need not carry a root document at all (see the connectors'
-    /// `no_flow_document` option), so there is nothing to parse whole.
+    /// Two shapes arrive here, and both are legitimate:
     ///
-    /// Pointer-named columns are therefore folded back into the object they came from.
-    /// Unrelated columns — `flow_published_at`, the workload's `set/` and `transfer/`
-    /// fields — fold harmlessly and are then ignored, because nothing here is required to
-    /// understand every projection a connector chose to materialize.
+    /// 1. **A whole document**, from a connector that stores documents as they are — the
+    ///    reference one. The nested `oracle` is a nested object:
+    ///    `{"id":7,"seq":3,"balanceDelta":-25,"oracle":{"seq":3,"balance":100}}`
+    /// 2. **Columns**, from a SQL destination. Flow names each column by the JSON pointer of
+    ///    the field it projects, so the same `oracle` arrives flattened into two columns:
+    ///    `{"id":7,"seq":3,"balanceDelta":-25,"oracle/seq":3,"oracle/balance":100}`
+    ///
+    /// Shape 2 is not a fallback for shape 1: a materialized table *is* columns, and a
+    /// standard binding need not carry a root document at all (see the connectors'
+    /// `no_flow_document` option), so often there is nothing to parse whole.
+    ///
+    /// Both shapes are therefore reduced to shape 1 — pointer-named columns are folded back
+    /// into the object they came from — and parsed once.
+    ///
+    /// A row carries more columns than the four fields [`Event`] declares. The connector adds its
+    /// own — `flow_published_at`, `flow_document` — and the workload writes fields no
+    /// invariant reads, such as `set/add` and `transfer/amount`. All of them fold harmlessly
+    /// and are then ignored, because nothing here is required to understand every projection
+    /// a connector chose to materialize.
     ///
     /// **Names are folded to lower case, because a destination's identifier casing is its own.**
     /// Snowflake upper-cases an unquoted identifier, so the same document arrives as `ID`, `SEQ`
@@ -97,10 +99,13 @@ impl Event {
 
 /// Place `value` at the `/`-delimited `path` within `object`, creating objects as needed.
 ///
-/// A conflict — a path descending through a value that is already a scalar — leaves the
-/// scalar alone rather than discarding it. That only happens when a destination has both a
-/// column `x` and a column `x/y`, which no projection produces, and silently dropping
-/// data would be the worse failure of the two.
+/// A conflict is a path descending through a value that is already a scalar. It happens only
+/// when a destination has both a column `x` and a column `x/y`, which no projection produces.
+///
+/// One of the two columns must lose, and this keeps the scalar. Descending would have to
+/// replace `x` with an object, and a scalar `oracle` is the JSON-text form that
+/// [`Event::from_row`] re-parses into the whole object — so it carries at least as much as the
+/// `oracle/seq` being dropped, and possibly more.
 fn insert_pointer(
     object: &mut serde_json::Map<String, serde_json::Value>,
     path: &str,
@@ -216,8 +221,12 @@ pub struct Account {
 #[derive(Clone, Debug, Default)]
 pub struct Expectation {
     pub accounts: BTreeMap<i64, Account>,
-    /// Documents whose `(id, seq)` the read surfaced more than once. `accounts` folds
-    /// duplicates into one, so this count is how a caller knows duplicates were present.
+    /// How many times the read surfaced an `(id, seq)` it had already seen. A document
+    /// surfaced three times counts twice, because both repeats are surplus.
+    ///
+    /// [`Account::seqs`] is a set, so a repeat fails its insert and changes nothing else —
+    /// the balance is not added twice, and `by_seq` overwrites at the same key. This counter
+    /// is therefore the only place a caller can learn that the read held duplicates.
     pub duplicated_documents: usize,
 }
 
@@ -308,9 +317,12 @@ pub fn check(b: &Bindings) -> Vec<Violation> {
     violations
 }
 
-/// The expectation itself must conserve. This is the baseline guard: a wiring
-/// problem that made the harness read an empty or torn collection shows up here
-/// as a failure rather than as a vacuous pass everywhere else.
+/// The expectation itself must hold: it must name at least one account, and its accounts'
+/// balances must sum to exactly zero. Every transfer is a matched pair of legs, so the
+/// collection cannot sum to anything else.
+///
+/// This is the baseline guard. A wiring problem that made the harness read an empty or torn
+/// collection shows up here as a failure, rather than as a vacuous pass everywhere else.
 fn check_workload(expected: &Expectation, out: &mut Vec<Violation>) {
     if expected.accounts.is_empty() {
         out.push(Violation {
@@ -418,23 +430,22 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
     }
 }
 
-/// A key's delivered sequence must not go backwards, per account, in arrival order.
+/// Walk each account's rows in the order the destination delivered them. Its `seq` must never
+/// decrease along that walk.
 ///
-/// Shared by both delta checkers, because they must score a regression identically: a run's
-/// suppression counts are read as evidence about which exemptions carry weight, and two scoring
-/// rules make that evidence incomparable.
-///
-/// `<` rather than `<=`, because a *repeated* seq is not a regression of order — it is a
-/// duplicate, and `NoDuplicates` owns that.
-///
-/// And the baseline advances to what was just delivered rather than holding a high-water mark,
-/// so a replay is one violation rather than one per row it replays: after 1..10 then 8, 9, 10,
-/// the 8 is the regression and the 9 and 10 following it are in order.
+/// Shared by both delta checkers, because they must count a regression identically. A run
+/// counts the violations each exemption suppressed, and those counts are what the
+/// `max_suppressed` ceilings are set from. `scenarios::REORDERING_CEILING` is 500 because
+/// membership-change runs were each observed to suppress between 9 and 93 of these
+/// violations. Both checkers feed that one ceiling, so if they counted a replay differently
+/// the ceiling would be set from two different units.
 fn check_monotonic(rows: &[Event], binding: &str, out: &mut Vec<Violation>) {
     let mut last_seq: BTreeMap<i64, i64> = BTreeMap::new();
 
     for row in rows {
         if let Some(previous) = last_seq.get(&row.id) {
+            // `<` rather than `<=`, because a *repeated* seq is not a regression
+            // of order, it is a duplicate, and `NoDuplicates` owns that.
             if row.seq < *previous {
                 out.push(Violation {
                     invariant: Invariant::Monotonicity,
@@ -445,13 +456,22 @@ fn check_monotonic(rows: &[Event], binding: &str, out: &mut Vec<Violation>) {
                 });
             }
         }
+        // The baseline advances to what was just delivered rather than holding a high-water
+        // mark, so a replay is one violation rather than one per row it replays: after
+        // 1..10 then 8, 9, 10, the 8 is the regression and the 9 and 10 after it are in order.
         last_seq.insert(row.id, row.seq);
     }
 }
 
-/// The append-only collection materialized as deltas: the sharpest detector in
-/// the suite, because every document has a distinct key and so a duplicate
-/// delivery is an extra row rather than an invisible re-reduction.
+/// Check the append-only collection, materialized with delta-updates.
+///
+/// That collection is keyed `[/id, /seq]`, so every document holds a distinct key and gets its
+/// own row. A duplicate delivery is therefore a second row, which is counted directly. The
+/// merged collection cannot do this. A duplicate there is summed into the reduced balance,
+/// where only arithmetic reveals it.
+///
+/// Row counts settle loss, duplication and fabrication. The row's own fields settle integrity,
+/// and arrival order settles monotonicity.
 fn check_log(expected: &Expectation, rows: &[Event], out: &mut Vec<Violation>) {
     let mut seen: BTreeMap<(i64, i64), usize> = BTreeMap::new();
 

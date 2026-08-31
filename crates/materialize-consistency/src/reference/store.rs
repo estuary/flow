@@ -61,15 +61,11 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(30))
             .context("setting the busy timeout")?;
 
-        // Switch to WAL only if the file is not already in it: changing journal mode needs
-        // a brief exclusive lock, and SQLite fails that outright rather than consulting the
-        // busy handler — so an unconditional `PRAGMA journal_mode = WAL` dies with
-        // "database is locked" whenever a sibling shard has the destination open. Journal
-        // mode is a durable property of the file, so the first opener sets it and everyone
-        // after reads `wal` and leaves it alone.
-        //
-        // Both statements go through `query_row` rather than the batch below because
-        // they *return* the mode, which `execute_batch` refuses.
+        // Switch journal mode to WAL if needed. Setting it unconditionally would fail with
+        // "database is locked" whenever a sibling shard has the destination open, because
+        // changing the mode takes a brief exclusive lock that SQLite refuses outright rather
+        // than waiting on the busy handler. The mode is a durable property of the file, so
+        // only the first opener has to set it.
         let mode: String = conn
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
             .context("reading the journal mode")?;
@@ -115,12 +111,6 @@ impl Store {
     }
 
     /// Begin a write transaction, taking the write lock up front.
-    ///
-    /// `BEGIN IMMEDIATE`, not the default `DEFERRED`: every transaction here reads and then
-    /// writes, and in WAL mode a deferred transaction that upgrades its read lock after
-    /// another connection has written returns SQLITE_BUSY_SNAPSHOT immediately, without
-    /// consulting the busy handler. Taking the write lock at `BEGIN` means contention waits
-    /// out the busy timeout instead, which is what a destination shared by two shards needs.
     fn write_txn(&self) -> rusqlite::Result<rusqlite::Transaction<'_>> {
         rusqlite::Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)
     }
@@ -249,16 +239,6 @@ impl Store {
     }
 
     /// Read a key's current document, from applied state only.
-    ///
-    /// A connector does not need to consult its own pending work here, because the
-    /// protocol lets it wait instead: `LoadIterator::WaitForAcknowledged` blocks until the
-    /// previous transaction has been fully acknowledged, and only then may loads be issued,
-    /// at which point the destination already holds everything committed. This connector
-    /// processes requests in order and applies at `Acknowledge`, so it has that property
-    /// without an explicit wait. Work left pending by a previous session is applied at this
-    /// session's first `Acknowledge` — deliberately not at `Open`, which reclaims and
-    /// inspects nothing — and a load cannot precede that `Acknowledge`, so it still sees
-    /// applied state.
     pub fn load(&self, table: &Table, key: &str) -> anyhow::Result<Option<String>> {
         let doc = self
             .conn

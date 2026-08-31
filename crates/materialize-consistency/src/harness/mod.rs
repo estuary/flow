@@ -29,12 +29,7 @@ pub struct Exemption {
     /// exemption also absorbs a subject that re-delivered the entire workload, which is a
     /// different failure wearing the same justification.
     ///
-    /// `None` where no count is meaningful. That is the case when the violation cannot be
-    /// observed at all — a real connector's destination is read back as a table, which returns
-    /// rows in no particular order, so no number of monotonicity violations says anything — and
-    /// when the checker emits a fixed number of violations however wrong the subject is, such
-    /// as one per account: a ceiling there would measure the workload's account count rather
-    /// than the subject.
+    /// `None` where no count is meaningful.
     pub max_suppressed: Option<usize>,
     /// An invariant that must *also* have been violated for this exemption to apply.
     ///
@@ -48,13 +43,7 @@ pub struct Exemption {
     pub classes: Option<&'static [crate::reference::Class]>,
 }
 
-/// Marker in the error chain of a run that failed for a reason that says nothing about the subject.
-///
-/// The defective half of a scenario treats a failed run as the defect being caught, which is
-/// right for a defect that wedges the task (e.g. `ignore-key-range` leaves two shards fencing
-/// each other and neither can commit) but we should not treat environmental issues as defects: a
-/// gate that timed out during warmup, a split that never landed, a capture slow to deactivate, a
-/// collection read that could not settle.
+/// Marks a run that failed for reasons unrelated to the subject.
 #[derive(Debug)]
 pub enum Environment {
     /// The control plane would not publish the scenario's catalog.

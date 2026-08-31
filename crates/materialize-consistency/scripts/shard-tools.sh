@@ -22,11 +22,11 @@ COMMAND=$1
 TASK=$2
 shift 2
 
-# Resolved rather than assumed: the suite spawns this with a minimal environment, so neither
-# tool is necessarily on PATH. Both are built into this stack's own GOBIN by
-# `mise run local:stack`, which is checked first; the GOPATH and ~/go/bin fallbacks are for a
-# manual invocation outside a stack.
-resolve() {
+# Resolves the path of a CLI implemented in Go, rather than assuming it is on PATH: the
+# suite spawns this script with a minimal environment. `mise run local:stack` builds both
+# tools into this stack's own GOBIN, which is checked first; the GOPATH and ~/go/bin
+# fallbacks are for a manual invocation outside a stack.
+resolve_tool_path() {
     local var=$1 name=$2
     if [ -n "${!var:-}" ]; then echo "${!var}"; return; fi
     if command -v "${name}" >/dev/null 2>&1; then command -v "${name}"; return; fi
@@ -39,13 +39,12 @@ resolve() {
     exit 1
 }
 
-FLOWCTL=$(resolve FLOWCTL flowctl)
-GAZCTL=$(resolve GAZCTL gazctl)
+FLOWCTL=$(resolve_tool_path FLOWCTL flowctl)
+GAZCTL=$(resolve_tool_path GAZCTL gazctl)
 SELECTOR="estuary.dev/task-name=${TASK}"
 
 # Authorize gazctl against the task's data plane. `--name` resolves the data plane from
-# the catalog name, so the task must still exist; `--admin` is required because both
-# operations mutate.
+# the catalog name, so the task must exist.
 authorize() {
     local env
     env=$("${FLOWCTL}" raw gazctl-env --name "${TASK}" --admin)
