@@ -34,8 +34,6 @@ pub struct LiveSpec {
     pub built_spec: Option<TextJson<Box<RawValue>>>,
     pub inferred_schema_md5: Option<String>,
     // Capabilities of the specification with respect to other roles.
-    // User capability to `catalog_name` is deliberately absent: it's evaluated
-    // in-process against the authorization Snapshot, never synthesized onto rows.
     pub spec_capabilities: Json<Vec<RoleGrant>>,
     pub dependency_hash: Option<String>,
 }
