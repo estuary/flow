@@ -24,8 +24,11 @@ DP2_BASE=$((FLOW_PLANE_BASE + 200))
 DEKAF1_KAFKA_PORT=$((FLOW_PLANE_BASE + 50))
 DEKAF2_KAFKA_PORT=$((DP2_BASE + 50))
 
-echo "Building flowctl..."
-cargo build -p flowctl --quiet
+# The shared package set (see mise/tasks/build/local-rust), for when this task
+# is run by hand; a running stack has already built it. It does not cover the
+# test binary below -- ci:dekaf-e2e-build does.
+echo "Building Rust binaries..."
+mise run build:local-rust
 
 # ${FLOW_CLUSTER} with Dekaf is expected to already be running from
 # local:stack --dekaf. Bring up a second plane BEFORE provisioning the tenant so

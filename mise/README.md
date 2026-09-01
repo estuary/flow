@@ -314,6 +314,7 @@ mise tasks
 | `build:rust-protobufs` | Generate Rust protobuf bindings            |
 | `build:gazette`        | Build gazette binaries                     |
 | `build:flowctl-go`     | Build flowctl-go binary                    |
+| `build:local-rust`     | Build Rust binaries for local-stack units  |
 
 ### Local Stack Tasks
 
@@ -334,14 +335,16 @@ mise tasks
 
 ### CI Tasks
 
-| Task                | Description                       |
-| ------------------- | --------------------------------- |
-| `ci:platform-test`  | Run full test suite (mirrors CI)  |
-| `ci:platform-build` | Run full build suite (mirrors CI) |
-| `ci:sql-tap`        | Run pgTAP SQL tests               |
-| `ci:nextest-run`    | Run Rust tests via nextest        |
-| `ci:gotest`         | Run Go tests                      |
-| `ci:dekaf-e2e`      | Run Dekaf E2E tests               |
+| Task                 | Description                       |
+| -------------------- | --------------------------------- |
+| `ci:platform-test`   | Run full test suite (mirrors CI)  |
+| `ci:platform-build`  | Run full build suite (mirrors CI) |
+| `ci:sql-tap`         | Run pgTAP SQL tests               |
+| `ci:nextest-build`   | Build Rust test binaries          |
+| `ci:nextest-run`     | Run Rust tests via nextest        |
+| `ci:gotest`          | Run Go tests                      |
+| `ci:dekaf-e2e-build` | Build the Dekaf E2E test binary   |
+| `ci:dekaf-e2e-run`   | Run Dekaf E2E tests               |
 
 ### VM Tasks
 

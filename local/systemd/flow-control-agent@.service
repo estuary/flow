@@ -13,7 +13,7 @@ TimeoutStartSec=600
 
 EnvironmentFile=%h/flow-local/env/agent-%i.env
 
-ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p agent'
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/local-rust'
 # Two CORS allow-origins: the global external UI (FLOW_DASHBOARD_ORIGIN,
 # http://localhost:3000), plus the optional per-stack UI at base+5. Both vars
 # come from the EnvironmentFile above.

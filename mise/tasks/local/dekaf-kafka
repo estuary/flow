@@ -21,17 +21,23 @@ link_unit flow-dekaf-kafka@.service
 systemctl --user daemon-reload
 systemctl --user start "flow-dekaf-kafka@${NAME}"
 
-# Wait for Kafka to be ready
+# The budget covers a cold `docker pull` of confluentinc/cp-kafka -- several
+# hundred MB, pulled implicitly by `docker run` on a fresh CI runner -- and not
+# just broker startup, which takes seconds. Observed cold waits are 1m40s to
+# 4m32s. It is measured against the clock: each pass also costs however long the
+# probe takes to fail, so counting passes would denominate the budget in
+# something that varies with why we are waiting.
 echo "Waiting for Kafka to be ready on :${FLOW_PORT_KAFKA}..."
-TIMEOUT=60
-ELAPSED=0
+TIMEOUT=300
+DEADLINE=$(( SECONDS + TIMEOUT ))
 until docker exec "dekaf-kafka-${NAME}" kafka-broker-api-versions \
     --bootstrap-server "localhost:${FLOW_PORT_KAFKA}" > /dev/null 2>&1; do
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
-        echo "Error: Kafka failed to start within ${TIMEOUT} seconds"
+    if [ "${SECONDS}" -ge "${DEADLINE}" ]; then
+        echo "Error: Kafka not ready on :${FLOW_PORT_KAFKA} within ${TIMEOUT}s."
+        echo "       If the log below is still pulling layers, the image download"
+        echo "       -- not the broker -- exceeded the budget."
         journalctl --user -u "flow-dekaf-kafka@${NAME}" --no-pager -n 50
         exit 1
     fi
+    sleep 1
 done

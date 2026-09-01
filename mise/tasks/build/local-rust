@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Build the Rust binaries that a local stack's systemd units run"
+#MISE depends=["build:rocksdb"]
+
+# `bindings` links librocksdb, so units that never needed it (config-encryption,
+# dekaf, runtime-sidecar) do now. systemd runs this script directly and so does
+# not honor the `#MISE depends` above; every `mise run` path here already does.
+if [ ! -f "${ROCKSDB_LIB_DIR:-}/librocksdb.a" ]; then
+    echo "Error: librocksdb.a not found under ROCKSDB_LIB_DIR=${ROCKSDB_LIB_DIR:-<unset>}." >&2
+    echo "       Run \`mise run build:rocksdb\` first; local:stack and friends do." >&2
+    exit 1
+fi
+
+# One package set, built by one invocation, shared by every `cargo build` for a
+# local stack: the ExecStartPre of each local/systemd/flow-*@.service, and the
+# Dekaf CI job. Add a binary here rather than building it on its own.
+#
+# Cargo resolves features over the set of packages named on the command line, so
+# `-p agent -p dekaf` and `-p dekaf` resolve differently, and that difference
+# lands in each dependency's `-C metadata` hash. Builds naming different sets
+# share no artifacts and recompile each other's dependencies.
+#
+# Test builds cannot join: `cargo test` unifies dev-dependency features and
+# `cargo build` does not, so ci:dekaf-e2e-build resolves its own way whatever
+# packages it names.
+#
+# `--locked` holds every consumer to the checked-in Cargo.lock. Editing a
+# Cargo.toml dependency fails here until the lock is updated too.
+#
+# SQLX_OFFLINE lets this run before Supabase is up: `agent` and its dependents
+# verify queries at compile time against the checked-in `.sqlx`. Add or change a
+# query and run `mise run build:sqlx-prepare`, which `ci:sqlx-check` enforces.
+SQLX_OFFLINE=true \
+cargo build \
+    --locked \
+    -p agent \
+    -p bindings \
+    -p config-encryption \
+    -p data-plane-controller \
+    -p dekaf \
+    -p flowctl \
+    -p runtime-sidecar

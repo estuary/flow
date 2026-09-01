@@ -4,7 +4,12 @@ Documentation=https://github.com/estuary/flow
 
 [Service]
 Type=simple
-TimeoutStartSec=300
+# This budget covers `supabase start`'s cold pull of ~8 container images in
+# ExecStartPre, not the edge-function server in ExecStart, which Type=simple
+# considers started as soon as it forks. CI has failed the unit at 300s with the
+# machine idle, and callers now start it with --no-block so the pull overlaps a
+# full `cargo build`.
+TimeoutStartSec=900
 
 # One consolidated env file per stack. Its FLOW_* vars are what config.toml's
 # env() references resolve against (project id, ports, site url), and PATH lets

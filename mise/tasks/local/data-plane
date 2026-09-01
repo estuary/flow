@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start data plane with gazette brokers and reactors (for this stack)"
-#MISE depends=["build:connector-init", "build:rocksdb", "local:tls-cert", "local:etcd"]
+#MISE depends=["build:connector-init", "build:local-rust", "build:rocksdb", "local:tls-cert", "local:etcd"]
 #USAGE arg "<data_plane>" help="Name of the data plane"
 #USAGE arg "<base_port>" help="Base port block for data plane services (multiple of 100, within this stack's decade)"
 #USAGE flag "--num-brokers <num_brokers>" help="Number of broker instances"
@@ -72,8 +72,6 @@ fi
 if [ "${DEKAF}" = "true" ]; then
     # Dekaf requires upstream Kafka for consumer group management (per-stack).
     mise run local:dekaf-kafka
-
-    cargo build -p dekaf --quiet
 
     DATA_PLANE_FQDN="${DATA_PLANE}.dp.estuary-data.com"
 

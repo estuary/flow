@@ -11,7 +11,7 @@ capped-shard-reconfiguration = { max-threads = 3 }
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 # Exclude e2e tests from Dekaf by default because they require special setup.
-# See mise/tasks/ci/dekaf-e2e for details. The materialization consistency
+# See mise/tasks/ci/dekaf-e2e-run for details. The materialization consistency
 # scenarios are excluded for the same reason: each one publishes tasks to a
 # running local stack. See mise/tasks/ci/consistency.
 default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/)'

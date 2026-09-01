@@ -170,6 +170,21 @@ at `FLOW_PLANE_BASE` with 4 brokers, 1 reactor, and link, then publishes
 `ops-catalog/local-view.bundle.json`, waits for the stack to actually serve
 (next section), and prints the stack card. Add `--dekaf` for the Kafka shim.
 
+### One package set builds every Rust binary
+
+`build:local-rust` builds agent, bindings, config-encryption,
+data-plane-controller, dekaf, flowctl, and runtime-sidecar in a single `cargo
+build`. Every `cargo build` for a local stack goes through it: the
+`ExecStartPre` of each `flow-*@.service`, and the Dekaf CI job. Cargo resolves
+features over the set of packages you name, and that resolution reaches every
+dependency's `-C metadata` hash, so builds naming different sets share no
+artifacts. It is a dependency of `local:control-plane`, `local:data-plane`, and
+`local:data-plane-controller`, so on a cold checkout it runs once, concurrently
+with Supabase's and BigTable's Docker startup, before anything is asked to serve.
+
+Test binaries cannot share the set and are built by `ci:dekaf-e2e-build`. See
+`mise/tasks/build/local-rust`, which is where you add a binary.
+
 ### Unit state is NOT a readiness signal
 
 Every `flow-*@.service` is `Type=simple` and builds in `ExecStartPre` (cargo/go).
@@ -179,7 +194,8 @@ Two consequences that will mislead you if you script against systemd state:
   port. `active` means "launched", not "serving".
 - `flow-plane@<dp>.target` aggregates its members with `Wants=`, so the target
   reports `active` even while a member is still in `activating (start-pre)`
-  compiling. On a cold checkout that takes *minutes*.
+  compiling. Through `local:stack` that is brief, since `build:local-rust` ran
+  first; starting a unit directly on a cold checkout takes *minutes*.
 
 `local:stack-wait` is a readiness check - it enumerates this stack's
 loaded units, maps each to its port, and blocks until all accept connections:
