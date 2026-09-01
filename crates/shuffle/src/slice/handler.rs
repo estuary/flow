@@ -68,9 +68,15 @@ where
     handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("opening");
 
-    let metrics = super::Metrics::new(shard_id);
     let task = task.context("Open must include task")?;
     let (bindings, sources, validators) = crate::Binding::from_task(&task)?;
+
+    let num_cohorts = bindings
+        .iter()
+        .map(|b| b.cohort as usize + 1)
+        .max()
+        .unwrap_or(0);
+    let metrics = super::Metrics::new(shard_id, num_cohorts);
 
     service_kit::event!(
         tracing::Level::INFO,

@@ -319,6 +319,14 @@ Before processing the heap top, the Slice gates on wall-clock time: if
 sleeps until the clock catches up. This is how read delays impose
 cross-transform ordering guarantees.
 
+Each dequeue also records the document's clock on the
+`shuffle_slice_last_source_published_at_time_seconds` gauge, labeled by
+cohort: how far this shard's shuffled read has progressed in source
+published-at time. `time() - gauge` is the shard's read lag, and max - min
+across sibling shards is their skew — the measure of how tightly remapped
+routing (§7) actually couples shards. Clocks are only comparable within a
+cohort: bindings of differing priority or read delay legitimately diverge.
+
 ### 6. Document Sequencing
 
 The top document is sequenced against per-producer state using
