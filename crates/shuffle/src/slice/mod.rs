@@ -60,10 +60,17 @@ pub(crate) struct Metrics {
     replays_started: metrics::Counter,
     /// Replays that have either completed or failed.
     replays_stopped: metrics::Counter,
+    /// Unix time (seconds) of the last document dequeued from the ready-read
+    /// heap, indexed by cohort: how far this shard's shuffled read has
+    /// progressed in source published-at time. `time() - gauge` in PromQL is
+    /// the shard's read lag, and max - min across sibling shards' series is
+    /// their skew. Clocks are only comparable within a cohort (bindings of
+    /// differing priority or read delay legitimately diverge), hence the label.
+    last_source_published_at: Vec<metrics::Gauge>,
 }
 
 impl Metrics {
-    fn new(shard_id: &str) -> Self {
+    fn new(shard_id: &str, num_cohorts: usize) -> Self {
         static DESCRIBE: std::sync::Once = std::sync::Once::new();
         DESCRIBE.call_once(|| {
             metrics::describe_counter!(
@@ -106,6 +113,11 @@ impl Metrics {
                 metrics::Unit::Count,
                 "replays that stopped running (historical read completed, benign journal removal, or session teardown)",
             );
+            metrics::describe_gauge!(
+                "shuffle_slice_last_source_published_at_time_seconds",
+                metrics::Unit::Seconds,
+                "unix time of the last document dequeued from the ready-read heap, by cohort",
+            );
         });
 
         Self {
@@ -117,6 +129,15 @@ impl Metrics {
             stalled_reads: metrics::gauge!("shuffle_slice_stalled_reads", "shard_id" => shard_id.to_string()),
             replays_started: metrics::counter!("shuffle_slice_replays_started", "shard_id" => shard_id.to_string()),
             replays_stopped: metrics::counter!("shuffle_slice_replays_stopped", "shard_id" => shard_id.to_string()),
+            last_source_published_at: (0..num_cohorts)
+                .map(|cohort| {
+                    metrics::gauge!(
+                        "shuffle_slice_last_source_published_at_time_seconds",
+                        "shard_id" => shard_id.to_string(),
+                        "cohort" => cohort.to_string(),
+                    )
+                })
+                .collect(),
         }
     }
 }

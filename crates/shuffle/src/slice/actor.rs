@@ -849,6 +849,10 @@ impl SliceActor {
             // Copy so the `binding` borrow can end below, freeing &mut self for re-borrow.
             let (cohort, read_delay) = (binding.cohort, binding.read_delay);
 
+            let (clock_seconds, clock_nanos) = clock.to_unix();
+            self.metrics.last_source_published_at[cohort as usize]
+                .set(clock_seconds as f64 + clock_nanos as f64 / 1_000_000_000.0);
+
             if sequenced.is_commit {
                 if flags.is_ack() {
                     // This ACK is (binding, journal)-scoped: it commits only
