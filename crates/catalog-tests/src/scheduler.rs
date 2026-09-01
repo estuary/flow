@@ -40,8 +40,7 @@ pub trait Driver {
     async fn advance(&mut self, delta: TestTime) -> anyhow::Result<()>;
 }
 
-/// Run one test case using the given `graph` and `driver`. Returns the scope of
-/// the last step reached (used for error reporting), on success.
+/// Run one test case using the given `graph` and `driver`.
 ///
 /// On failure the graph is still quiesced before returning: a case which fails
 /// partway leaves reads pending (and possibly delayed into the future), and
@@ -52,7 +51,7 @@ pub async fn run_test_case<D: Driver>(
     graph: &mut Graph,
     driver: &mut D,
     test: &TestSpec,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<()> {
     let result = run_steps(graph, driver, test).await;
     let Err(err) = &result else {
         return result;
@@ -94,10 +93,9 @@ async fn run_steps<D: Driver>(
     graph: &mut Graph,
     driver: &mut D,
     test: &TestSpec,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<()> {
     let initial = graph.write_clock().clone();
     let mut test_step = 0usize;
-    let mut scope = String::new();
 
     loop {
         let (ready, next_ready, next_name) = graph.pop_ready_reads();
@@ -115,9 +113,6 @@ async fn run_steps<D: Driver>(
         }
 
         let step = test.steps.get(test_step);
-        if let Some(step) = step {
-            scope = step.step_scope.clone();
-        }
 
         // Ingest steps always run immediately.
         if let Some(step) = step
@@ -157,7 +152,7 @@ async fn run_steps<D: Driver>(
         }
 
         assert_eq!(test_step, test.steps.len(), "unexpected test steps remain",);
-        return Ok(scope);
+        return Ok(());
     }
 }
 
