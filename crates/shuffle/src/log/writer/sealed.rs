@@ -33,7 +33,9 @@ impl SealedSegment {
     /// 1. If the reader unlinks the file before compression, yields the original
     ///    size and terminates.
     /// 2. If the file survives past `COMPRESS_AFTER`, yields bytes saved by
-    ///    compression (`old_size - new_size`), then continues polling.
+    ///    compression (`old_size - new_size`), then continues polling. When
+    ///    compression would grow the file (incompressible payloads), the
+    ///    original is kept and zero bytes are yielded.
     /// 3. When the (now compressed) file is eventually unlinked by the reader,
     ///    yields the compressed size and terminates.
     ///
@@ -75,7 +77,22 @@ impl SealedSegment {
 
                     match result {
                         Ok(new_size) => {
-                            let reclaimed = sealed.size.saturating_sub(new_size);
+                            // A segment's lifetime credits must total exactly the
+                            // `size` its owner debited when it was sealed, and
+                            // `try_compress` never adopts a file larger than the one
+                            // it read. A failed subtraction therefore means that
+                            // guard regressed, so fail here rather than silently
+                            // drift the owner's backlog measure.
+                            let Some(reclaimed) = sealed.size.checked_sub(new_size) else {
+                                return Some((
+                                    Err(anyhow::anyhow!(
+                                        "compression expanded sealed segment {:?} from {} to {new_size} bytes",
+                                        sealed.path,
+                                        sealed.size,
+                                    )),
+                                    State::Done,
+                                ));
+                            };
                             sealed.size = new_size;
                             Some((Ok(reclaimed), State::Compressed(sealed)))
                         }
@@ -146,7 +163,13 @@ fn is_not_found(err: &anyhow::Error) -> bool {
 
 /// Compress an uncompressed segment by rewriting it with LZ4-compressed block
 /// payloads, then atomically replace the original file.
-/// Returns the new (compressed) file size.
+/// Returns the resulting file size.
+///
+/// LZ4 expands incompressible input, so each block is written in whichever
+/// encoding is smaller, and a block kept raw carries an `lz4_len` of zero. The
+/// rewrite therefore never exceeds the original size. That bound matters
+/// because sealed-segment accounting debits a segment's size once at seal time
+/// and expects its lifetime credits to total the same.
 fn try_compress(path: &std::path::Path) -> anyhow::Result<u64> {
     let mut segment = log::reader::Segment::open(path)?;
 
@@ -176,10 +199,17 @@ fn try_compress(path: &std::path::Path) -> anyhow::Result<u64> {
         let raw = segment.read_block_payload(payload_offset, raw_len, lz4_len)?;
         let compressed = log::lz4_compress(&raw)?;
 
-        let lz4_len: u32 = compressed
-            .len()
-            .try_into()
-            .context("compressed block exceeds u32::MAX bytes")?;
+        // LZ4 expands incompressible input, so keep whichever encoding of this
+        // block is smaller. A retained raw payload carries an `lz4_len` of zero.
+        let (payload, lz4_len) = if compressed.len() < raw.len() {
+            let len: u32 = compressed
+                .len()
+                .try_into()
+                .context("compressed block exceeds u32::MAX bytes")?;
+            (&compressed[..], len)
+        } else {
+            (&raw[..], 0)
+        };
 
         let raw_len = raw_len.to_be_bytes();
         let lz4_len = lz4_len.to_be_bytes();
@@ -188,8 +218,8 @@ fn try_compress(path: &std::path::Path) -> anyhow::Result<u64> {
             raw_len[0], raw_len[1], raw_len[2], raw_len[3], // Raw length u32, big-endian.
             lz4_len[0], lz4_len[1], lz4_len[2], lz4_len[3], // LZ4 length u32, big-endian.
         ])?;
-        tmp_file.write_all(&compressed)?;
-        new_size += (log::BLOCK_HEADER_LEN + compressed.len()) as u64;
+        tmp_file.write_all(payload)?;
+        new_size += (log::BLOCK_HEADER_LEN + payload.len()) as u64;
 
         offset = payload_offset
             .checked_add(payload_len)
@@ -364,6 +394,141 @@ mod test {
             .unwrap();
         let archived2 = rkyv::access::<block::ArchivedBlock, rkyv::rancor::Error>(&buf2).unwrap();
         assert_eq!(archived2.meta[0].clock.to_native(), 200);
+    }
+
+    /// LZ4 expands incompressible payloads, so a segment of them must keep
+    /// every block raw and report an unchanged size. A larger rewrite would
+    /// waste disk, and its size would over-credit sealed-segment accounting,
+    /// because the owner debits `SealedSegment::size` once at seal time and an
+    /// inflated terminal credit underflows the backlog counter
+    /// (`disk_backlog_bytes underflow`).
+    #[test]
+    fn test_try_compress_keeps_every_block_raw_when_expanding() {
+        use crate::log::block::BlockMeta;
+        use proto_gazette::uuid;
+        use std::collections::HashMap;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer = log::Writer::with_thresholds(dir.path(), 0, usize::MAX, u64::MAX).unwrap();
+
+        // Incompressible document bytes from a plain LCG.
+        let mut rng = 1u64;
+        let mut noise = |n: usize| -> bytes::Bytes {
+            (0..n)
+                .map(|_| {
+                    rng = rng
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    (rng >> 56) as u8
+                })
+                .collect::<Vec<u8>>()
+                .into()
+        };
+
+        let journals: HashMap<String, u16> = [("j/one".to_string(), 0)].into();
+        let producers: HashMap<uuid::Producer, u16> =
+            [(uuid::Producer([1, 0, 0, 0, 0, 1]), 0)].into();
+
+        for clock in 0..4 {
+            let entries = vec![(
+                BlockMeta {
+                    binding: 0,
+                    journal_bid: 0,
+                    producer_bid: 0,
+                    flags: 0x8000,
+                    clock,
+                },
+                1024u32,
+                noise(32),
+                noise(64 * 1024),
+            )];
+            writer
+                .append_block(journals.clone(), producers.clone(), entries)
+                .unwrap();
+        }
+
+        let seg_path = log::segment_path(dir.path(), 0, 1);
+        let original_size = std::fs::metadata(&seg_path).unwrap().len();
+
+        let new_size = try_compress(&seg_path).unwrap();
+
+        // Nothing grew, so the reported and on-disk sizes are unchanged and
+        // the first block is still uncompressed (lz4_len == 0).
+        assert_eq!(new_size, original_size);
+        assert_eq!(std::fs::metadata(&seg_path).unwrap().len(), original_size);
+
+        let seg = Segment::open(&seg_path).unwrap();
+        let (raw_len, lz4_len) = seg.read_block_header(0).unwrap().unwrap();
+        assert_eq!(lz4_len, 0, "original uncompressed block must survive");
+        assert!(raw_len > 0);
+    }
+
+    /// A segment of mixed blocks must shrink by the blocks that do compress,
+    /// while keeping the incompressible ones raw. Choosing per block, rather
+    /// than accepting or discarding the whole rewrite, is what lets such a
+    /// segment gain at all without spending disk on the blocks that expand.
+    #[test]
+    fn test_try_compress_keeps_incompressible_blocks_raw() {
+        use crate::log::block::BlockMeta;
+        use proto_gazette::uuid;
+        use std::collections::HashMap;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer = log::Writer::with_thresholds(dir.path(), 0, usize::MAX, u64::MAX).unwrap();
+
+        let journals: HashMap<String, u16> = [("j/one".to_string(), 0)].into();
+        let producers: HashMap<uuid::Producer, u16> =
+            [(uuid::Producer([1, 0, 0, 0, 0, 1]), 0)].into();
+
+        let mut append = |clock: u64, doc: bytes::Bytes| {
+            let entries = vec![(
+                BlockMeta {
+                    binding: 0,
+                    journal_bid: 0,
+                    producer_bid: 0,
+                    flags: 0x8000,
+                    clock,
+                },
+                1024u32,
+                bytes::Bytes::from_static(b"packed_key_______"),
+                doc,
+            )];
+            writer
+                .append_block(journals.clone(), producers.clone(), entries)
+                .unwrap();
+        };
+
+        // First block is one byte repeated; second is incompressible LCG noise.
+        append(100, bytes::Bytes::from(vec![b'a'; 64 * 1024]));
+
+        let mut rng = 1u64;
+        let noise: Vec<u8> = (0..64 * 1024)
+            .map(|_| {
+                rng = rng
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (rng >> 56) as u8
+            })
+            .collect();
+        append(200, bytes::Bytes::from(noise));
+
+        let seg_path = log::segment_path(dir.path(), 0, 1);
+        let original_size = std::fs::metadata(&seg_path).unwrap().len();
+
+        let new_size = try_compress(&seg_path).unwrap();
+        assert!(new_size < original_size);
+        assert_eq!(std::fs::metadata(&seg_path).unwrap().len(), new_size);
+
+        let seg = Segment::open(&seg_path).unwrap();
+
+        let (raw_len, lz4_len) = seg.read_block_header(0).unwrap().unwrap();
+        assert!(lz4_len > 0, "compressible block must be compressed");
+        assert!(lz4_len < raw_len);
+
+        let offset = BLOCK_HEADER_LEN as u32 + lz4_len;
+        let (raw_len, lz4_len) = seg.read_block_header(offset).unwrap().unwrap();
+        assert_eq!(lz4_len, 0, "incompressible block must stay raw");
+        assert!(raw_len > 0);
     }
 
     #[test]
