@@ -455,7 +455,7 @@ fn paginate_by_name<T>(
             None => 0,
         };
         let rows: Vec<T> = sorted.into_iter().skip(start).take(limit).collect();
-        let has_next = rows.len() == limit;
+        let has_next = (total - start) > limit;
         (rows, start > 0, has_next)
     }
 }
@@ -2012,7 +2012,7 @@ mod tests {
         );
         assert_eq!(
             page(Some("b"), None, Some(2), None),
-            (vec!["c", "d"], true, true)
+            (vec!["c", "d"], true, false)
         );
         assert_eq!(
             page(Some("b"), None, Some(10), None),
