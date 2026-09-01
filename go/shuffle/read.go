@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/keyhash"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
@@ -622,7 +623,7 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, shuffles []shuffle,
 					return fmt.Errorf("parsing shuffle key from partition fields: %w", err)
 				}
 				// Identify shards that cover the key's shuffle hash.
-				var keyHash = flow.PackedKeyHash_HH64(key.Pack())
+				var keyHash = keyhash.PackedKeyHash_HH64(key.Pack())
 				start, stop = rangeSpan(members, keyHash, keyHash)
 
 				if index < start || index >= stop {
@@ -728,7 +729,7 @@ func rangeSpan(s []shuffleMember, begin, end uint32) (start, stop int) {
 func hrwHash(s string) uint32 {
 	// We use HH64 for convenience. This could be any reasonable hash function
 	// and is unrelated to the hash applied to shuffle keys.
-	return flow.PackedKeyHash_HH64([]byte(s))
+	return keyhash.PackedKeyHash_HH64([]byte(s))
 }
 
 func pickHRW(h uint32, from []shuffleMember, start, stop int) int {
