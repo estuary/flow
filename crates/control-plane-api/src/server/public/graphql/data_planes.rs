@@ -1,3 +1,5 @@
+use crate::server::public::graphql::tenant::validate_tenant_name;
+
 use super::filters;
 use async_graphql::{
     ComplexObject, Context, SimpleObject,
@@ -17,7 +19,7 @@ pub struct DataPlanesFilter {
     /// Match data planes by tenant. Only data planes whose name prefix matches the tenant are returned.
     /// All public data planes are considered to match all tenants. Unknown tenants are ignored and only
     /// public data planes are returned.
-    pub tenant: Option<String>,
+    pub tenant: Option<filters::StringFilter>,
     /// Filter on the `closed` flag.
     pub closed: Option<filters::BoolFilter>,
     /// Filter on the `public` flag, which is derived from the data plane's
@@ -495,12 +497,15 @@ impl DataPlanesQuery {
         let id_in = id.and_then(|f| f.r#in);
         let closed_eq = closed.and_then(|f| f.eq);
         let public_eq = public.and_then(|f| f.eq);
+        let tenant_eq = tenant.and_then(|f| f.eq);
 
-        // The tenant must match a whole path segment of a private plane's name,
-        // so append the trailing slash when the caller omits it: a bare "foo"
-        // would otherwise match both "foo-bar/" and "foo-baz/".
-        let tenant_prefix = tenant.map(|t| if t.ends_with('/') { t } else { t + "/" });
-        let private_tenant_prefix = tenant_prefix.map(|t| format!("ops/dp/private/{t}"));
+        // The tenant must be a valid tenant prefix. Tenant filtering only applies
+        // to private data planes, so prepend the private scope prefix before filtering.
+        let tenant_prefix = tenant_eq
+            .as_deref()
+            .map(|s| validate_tenant_name(s))
+            .transpose()?
+            .map(|s| format!("ops/dp/private/{s}"));
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
@@ -520,7 +525,7 @@ impl DataPlanesQuery {
                 }
                 // Narrow private data planes to the specified tenant, if requested. Public planes are shared
                 // with every tenant, so are not impacted by this filter.
-                if !public && let Some(prefix) = private_tenant_prefix.as_ref() {
+                if !public && let Some(prefix) = tenant_prefix.as_ref() {
                     if !dp.data_plane_name.starts_with(prefix.as_str()) {
                         return false;
                     }
@@ -1441,12 +1446,11 @@ mod tests {
             want
         }
 
-        // A tenant missing its trailing slash is normalized, not rejected, and
-        // still doesn't reach the prefix-sharing `bobCo2/`.
-        let filter = serde_json::json!({ "tenant": "bobCo" });
-        let actual = names(&server, &token, filter.clone()).await;
-        let expected = flatten(&[&public_dps, &bob_co_dps]);
-        assert_eq!(actual, expected);
+        // Error case: invalid tenant name passed in as the filter.
+        let filter = serde_json::json!({ "tenant": { "eq": "bobCo"}});
+        let response = query(&server, &token, filter).await;
+        let error = response["errors"][0]["message"].as_str();
+        assert!(error.unwrap_or_default().contains("invalid tenant name"));
 
         // No filter: every readable plane, of both tenants.
         let filter = serde_json::Value::Null;
@@ -1457,24 +1461,24 @@ mod tests {
         // A tenant keeps its own private planes and all public planes.
         // Neither `bobCo/` nor `bobCo2/` picks up the other's, despite
         // starting with the same prefix.
-        let filter = serde_json::json!({ "tenant": "bobCo/" });
+        let filter = serde_json::json!({ "tenant": { "eq": "bobCo/" }});
         let actual = names(&server, &token, filter.clone()).await;
         let expected = flatten(&[&public_dps, &bob_co_dps]);
         assert_eq!(actual, expected);
-        let filter = serde_json::json!({ "tenant": "bobCo2/" });
+        let filter = serde_json::json!({ "tenant": { "eq": "bobCo2/" }});
         let actual = names(&server, &token, filter.clone()).await;
         let expected = flatten(&[&public_dps, &bob_co2_dps]);
         assert_eq!(actual, expected);
 
         // A tenant with no private planes isn't an error: public planes are
         // still shared with it.
-        let filter = serde_json::json!({ "tenant": "acmeCo/" });
+        let filter = serde_json::json!({ "tenant": { "eq": "acmeCo/" }});
         let actual = names(&server, &token, filter.clone()).await;
         let expected = public_dps.clone();
         assert_eq!(actual, expected);
 
         // Composing with `public` just returns public planes.
-        let filter = serde_json::json!({ "tenant": "bobCo/", "public": { "eq": true } });
+        let filter = serde_json::json!({ "tenant": { "eq": "bobCo/"}, "public": { "eq": true } });
         let actual = names(&server, &token, filter.clone()).await;
         let expected = public_dps.clone();
         assert_eq!(actual, expected);

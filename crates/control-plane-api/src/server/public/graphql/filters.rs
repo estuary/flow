@@ -6,6 +6,11 @@ pub struct BoolFilter {
 }
 
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct StringFilter {
+    pub eq: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct DateFilter {
     pub gt: Option<NaiveDate>,
     pub lt: Option<NaiveDate>,

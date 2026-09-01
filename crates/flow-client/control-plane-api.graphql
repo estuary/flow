@@ -839,7 +839,7 @@ input DataPlanesFilter {
 	All public data planes are considered to match all tenants. Unknown tenants are ignored and only
 	public data planes are returned.
 	"""
-	tenant: String
+	tenant: StringFilter
 	"""
 	Filter on the `closed` flag.
 	"""
@@ -2444,6 +2444,10 @@ input StorageMappingsFilter {
 	the caller's authorized read prefixes.
 	"""
 	catalogPrefix: PrefixFilter
+}
+
+input StringFilter {
+	eq: String
 }
 
 type Tenant {
