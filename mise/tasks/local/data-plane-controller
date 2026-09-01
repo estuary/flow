@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start data-plane-controller (service + job) in dry-run mode via systemd (for this stack)"
-#MISE depends=["local:supabase"]
+#MISE depends=["build:local-rust", "local:supabase"]
 
 source "$(dirname "$0")/lib.sh"
 ensure_stack_env

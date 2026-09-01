@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start control plane agent via systemd (for this stack)"
-#MISE depends=["local:tls-cert", "local:supabase", "local:bigtable"]
+#MISE depends=["build:local-rust", "local:tls-cert", "local:supabase", "local:bigtable"]
 
 source "$(dirname "$0")/lib.sh"
 ensure_stack_env

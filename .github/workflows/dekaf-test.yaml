@@ -3,6 +3,14 @@ permissions:
     contents: read
 
 on:
+    # GitHub scopes a cache to the ref that wrote it, readable by that ref, its
+    # descendants, and the default branch. This job runs on master so pull
+    # requests have a master-scoped entry to restore; without it they all start
+    # cold. rust-cache keys on ${GITHUB_JOB}, so no other workflow warms it.
+    push:
+        branches: [master]
+        paths-ignore:
+            - "site/**"
     pull_request:
         branches: [master]
         paths-ignore:
@@ -10,7 +18,8 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+    # A cancelled run saves no cache, and master runs exist to save one.
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
     SCCACHE_VERSION: v0.12.0
@@ -35,6 +44,17 @@ jobs:
                   # CI's single checkout registers as index 0 / `flow`, so the
                   # per-stack target dir is ../../../cargo-target/flow.
                   workspaces: ". -> ../../../cargo-target/flow"
+                  # Restore on every run, save only from master. The key ends
+                  # in a hash of Cargo.lock and the Cargo.tomls, so a pull
+                  # request that leaves dependencies alone computes the key
+                  # master already holds; its save is a private copy whose only
+                  # effect is to evict the shared entry. One that does change
+                  # them restores master's through the restore-key prefix.
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  # rust-cache saves only on success by default, and master's
+                  # is now the only entry -- a failing master run would leave
+                  # pull requests cold.
+                  cache-on-failure: true
 
             - name: Cache RocksDB
               uses: actions/cache@v4
@@ -55,15 +75,23 @@ jobs:
                   version: ${{ env.SCCACHE_VERSION }}
             - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
             - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
+            # Supabase's container pull and start is slow. Start it now to
+            # overlap the builds below; `local:stack` blocks on it before the
+            # agent needs a database.
+            - run: mise run local:supabase --no-block
             - run: mise run build:rocksdb
             - run: mise run ci:musl-dev
-            - run: mise run ci:gnu-dev
+            # Supersedes `ci:gnu-dev` here: one package set for every Rust
+            # binary this job needs, so `local:stack` finds them already built
+            # rather than compiling them inside systemd (see local/README.md).
+            - run: mise run build:local-rust
             - run: mise run build:gazette
             - run: mise run build:flowctl-go
+            - run: mise run ci:dekaf-e2e-build
             - run: mise run local:stack --dekaf
-            - run: mise run ci:dekaf-e2e
+            - run: mise run ci:dekaf-e2e-run
 
-            # `ci:dekaf-e2e` dumps logs for the services a test failure implicates,
+            # `ci:dekaf-e2e-run` dumps logs for the services a test failure implicates,
             # but a failure while bringing the stack up leaves no diagnostics at
             # all. Dump every unit's state and journal so those are debuggable
             # from the run alone.

@@ -3,6 +3,14 @@ permissions:
   contents: read
 
 on:
+  # GitHub scopes a cache to the ref that wrote it, readable by that ref, its
+  # descendants, and the default branch. These jobs run on master so pull
+  # requests have a master-scoped entry to restore; without it they all start
+  # cold. rust-cache keys on ${GITHUB_JOB}, so no other workflow warms them.
+  push:
+    branches: [master]
+    paths-ignore:
+      - "site/**"
   pull_request:
     branches: [master]
     paths-ignore:
@@ -10,7 +18,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A cancelled run saves no cache, and master runs exist to save one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   SCCACHE_VERSION: v0.12.0
@@ -44,6 +53,16 @@ jobs:
         uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
         with:
           workspaces: ". -> ../../../cargo-target/flow"
+          # Restore on every run, save only from master. The key ends in a hash
+          # of Cargo.lock and the Cargo.tomls, so a pull request that leaves
+          # dependencies alone computes the key master already holds; its save is
+          # a private copy whose only effect is to evict the shared entry. One
+          # that does change them restores master's through the restore-key
+          # prefix and rebuilds just what changed.
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          # rust-cache saves only on success by default, and master's is now the
+          # only entry -- a failing master run would leave pull requests cold.
+          cache-on-failure: true
 
       - name: Cache RocksDB
         uses: actions/cache@v4
@@ -95,6 +114,9 @@ jobs:
         uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
         with:
           workspaces: ". -> ../../../cargo-target/flow"
+          # See the note on the job above.
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          cache-on-failure: true
 
       - name: Cache RocksDB
         uses: actions/cache@v4

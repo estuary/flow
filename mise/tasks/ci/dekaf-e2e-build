@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Build the Dekaf E2E test binary"
+
+# The --no-run half of ci:dekaf-e2e-run's test command; profile and package must
+# match it, or that run compiles the binary itself against an idle stack. It
+# resolves its own feature set rather than build:local-rust's, so a cold target
+# directory pays for both.
+cargo nextest run --locked --profile dekaf-e2e -p dekaf --no-run

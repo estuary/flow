@@ -12,14 +12,14 @@ fn test_namespace_prefix() -> String {
 
 /// The running stack's default data-plane name (FLOW_CLUSTER, set by
 /// mise/tasks/local/stack-env). Local-stack identity is dynamic per checkout,
-/// so these tests must be run via `mise run ci:dekaf-e2e`.
+/// so these tests must be run via `mise run ci:dekaf-e2e-run`.
 pub fn cluster_name() -> String {
     std::env::var("FLOW_CLUSTER")
-        .expect("FLOW_CLUSTER must be set — run via 'mise run ci:dekaf-e2e'")
+        .expect("FLOW_CLUSTER must be set — run via 'mise run ci:dekaf-e2e-run'")
 }
 
 /// The second data-plane used by migration tests (`${FLOW_CLUSTER}-2`, matching
-/// the ci:dekaf-e2e task's `local:data-plane "${FLOW_CLUSTER}-2"`).
+/// the ci:dekaf-e2e-run task's `local:data-plane "${FLOW_CLUSTER}-2"`).
 pub fn cluster_name_2() -> String {
     format!("{}-2", cluster_name())
 }
@@ -59,7 +59,7 @@ fn flowctl_command() -> anyhow::Result<async_process::Command> {
     // ambient under mise, but pass it explicitly so the command doesn't depend
     // on env inheritance.
     let profile = std::env::var("FLOW_STACK_NAME")
-        .expect("FLOW_STACK_NAME must be set — run via 'mise run ci:dekaf-e2e'");
+        .expect("FLOW_STACK_NAME must be set — run via 'mise run ci:dekaf-e2e-run'");
 
     let mut cmd = async_process::Command::new(flowctl);
     cmd.env("FLOW_AUTH_TOKEN", auth_token);
@@ -616,7 +616,7 @@ pub async fn db_pool() -> anyhow::Result<&'static sqlx::PgPool> {
 
     // Stack Postgres port is dynamic; FLOW_PG_URL is set by stack-env.
     let pg_url = std::env::var("FLOW_PG_URL")
-        .expect("FLOW_PG_URL must be set — run via 'mise run ci:dekaf-e2e'");
+        .expect("FLOW_PG_URL must be set — run via 'mise run ci:dekaf-e2e-run'");
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .connect(&pg_url)

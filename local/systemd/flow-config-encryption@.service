@@ -8,7 +8,7 @@ TimeoutStartSec=300
 
 EnvironmentFile=%h/flow-local/env/config-encryption-%i.env
 
-ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p config-encryption'
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/local-rust'
 ExecStart=sh -c 'exec ${CARGO_TARGET_DIR}/debug/flow-config-encryption'
 
 Restart=on-failure

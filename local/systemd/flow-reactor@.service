@@ -13,7 +13,7 @@ TimeoutStartSec=600
 # Instance format: <cluster>-<port> (e.g., foobar-9000)
 EnvironmentFile=%h/flow-local/env/reactor-%i.env
 
-ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p bindings'
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/local-rust'
 ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/flowctl-go'
 # Two CORS allow-origins (CONSUMER_ALLOW_ORIGIN env var takes only one): the
 # global external UI, plus the optional per-stack UI at base+5. Both vars come
