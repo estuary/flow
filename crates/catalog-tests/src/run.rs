@@ -189,7 +189,7 @@ async fn run_cases(
         let case_failed = result.is_err();
 
         outcomes.push(match result {
-            Ok(_) => TestOutcome {
+            Ok(()) => TestOutcome {
                 name: test.name.clone(),
                 scope: step_scope(test).to_string(),
                 status: TestStatus::Passed,
