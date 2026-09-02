@@ -67,6 +67,50 @@ pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watc
     tokens::watch(source).ready_owned().await
 }
 
+/// A snapshot watch serving a single empty Snapshot. For tests which never
+/// evaluate authorization — such as extractor tests — and so never await a
+/// refresh (the gated source panics if refreshed again).
+pub async fn empty_snapshot() -> Arc<dyn tokens::Watch<Snapshot>> {
+    let source = GatedSnapshot {
+        gate: true,
+        actual: None,
+    };
+    tokens::watch(source).ready_owned().await
+}
+
+/// Build a wired App over the given pool and snapshot, with a Publisher that
+/// panics if used. This is the assembly path for tests which drive a router
+/// or the GraphQL schema directly, without a listening TestServer.
+pub fn build_app(
+    pg_pool: sqlx::PgPool,
+    snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+) -> Arc<crate::App> {
+    // TODO(johnny): Aggregate into a sink?
+    let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(1);
+
+    // Build an invalid Publisher that will blow up if used.
+    let publisher = crate::publications::Publisher::new(
+        std::path::PathBuf::from("/invalid"),
+        &url::Url::parse("file:///invalid").unwrap(),
+        &"invalid",
+        &logs_tx,
+        pg_pool.clone(),
+        models::IdGenerator::new(0),
+        Box::new(NoopBuilder),
+    );
+
+    Arc::new(crate::App::new(
+        models::IdGenerator::new(0),
+        billing_provider,
+        b"test-jwt-secret-for-integration-tests",
+        pg_pool,
+        publisher,
+        snapshot,
+        Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
+    ))
+}
+
 pub struct TestServer {
     pub addr: std::net::SocketAddr,
     pub encoding_key: tokens::jwt::EncodingKey,
@@ -105,29 +149,8 @@ impl TestServer {
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        // TODO(johnny): Aggregate into a sink?
-        let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(1);
 
-        // Build an invalid Publisher that will blow up if used.
-        let publisher = crate::publications::Publisher::new(
-            std::path::PathBuf::from("/invalid"),
-            &url::Url::parse("file:///invalid").unwrap(),
-            &"invalid",
-            &logs_tx,
-            pg_pool.clone(),
-            models::IdGenerator::new(0),
-            Box::new(NoopBuilder),
-        );
-
-        let app = Arc::new(crate::App::new(
-            models::IdGenerator::new(0),
-            billing_provider,
-            b"test-jwt-secret-for-integration-tests",
-            pg_pool.clone(),
-            publisher,
-            snapshot,
-            Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
-        ));
+        let app = build_app(pg_pool, snapshot, billing_provider);
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
