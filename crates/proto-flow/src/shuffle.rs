@@ -269,6 +269,8 @@ pub struct SliceRequest {
     pub start_read: ::core::option::Option<slice_request::StartRead>,
     #[prost(message, optional, tag = "4")]
     pub progress: ::core::option::Option<slice_request::Progress>,
+    #[prost(message, optional, tag = "5")]
+    pub initial_reads_started: ::core::option::Option<slice_request::InitialReadsStarted>,
 }
 /// Nested message and enum types in `SliceRequest`.
 pub mod slice_request {
@@ -325,6 +327,12 @@ pub mod slice_request {
     /// available, the response is immediate.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Progress {}
+    /// InitialReadsStarted tells the Slice that the Session has sent a StartRead
+    /// for every journal in the bindings' initial listing snapshots, all of which
+    /// precede this message on the stream. The Slice opens its heap-drain gate on
+    /// receipt.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct InitialReadsStarted {}
 }
 /// SliceResponse is sent by each Slice back to the Session.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -338,6 +346,8 @@ pub struct SliceResponse {
     /// flush cycle has completed since the prior Progressed.
     #[prost(message, optional, tag = "3")]
     pub progressed: ::core::option::Option<Frontier>,
+    #[prost(message, optional, tag = "4")]
+    pub listing_snapshot_complete: ::core::option::Option<slice_response::ListingSnapshotComplete>,
 }
 /// Nested message and enum types in `SliceResponse`.
 pub mod slice_response {
@@ -362,6 +372,16 @@ pub mod slice_response {
         /// Current route of the journal, as an initial advisory hint.
         #[prost(message, optional, tag = "5")]
         pub route: ::core::option::Option<::proto_gazette::broker::Route>,
+    }
+    /// ListingSnapshotComplete tells the Session that a binding's initial journal
+    /// listing snapshot is fully delivered: one ListingAdded per journal it held,
+    /// and none at all for an empty snapshot. The Session waits for one from every
+    /// binding that a Slice lists before it sends InitialReadsStarted.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ListingSnapshotComplete {
+        /// Binding index of the listing.
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
     }
 }
 /// LogRequest is sent by Slices to each shard's Log.
