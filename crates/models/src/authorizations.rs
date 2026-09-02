@@ -330,7 +330,7 @@ mod test {
         // variant is added.
         for (claim, mask) in &outcomes {
             if claim.is_none() {
-                assert_eq!(*mask, CapabilityMask::UNMASKED);
+                assert_eq!(*mask, CapabilityMask::ALL_CAPABILITIES);
             }
         }
         let bounded: Vec<_> = outcomes
@@ -485,9 +485,9 @@ mod test {
 
         // A populated mask serializes its names verbatim — including names
         // this binary doesn't recognize — and they survive a round trip
-        // intact. Carry-through is load-bearing: an upgrade token's
-        // unrecognized names must re-mint unchanged rather than being
-        // dropped by whichever instance happens to re-sign it.
+        // intact. Carry-through is load-bearing in a mixed-version fleet:
+        // names minted by a newer instance must pass through an older one
+        // unchanged rather than being silently dropped.
         let masked = ControlClaims {
             capability_mask: Some(vec!["SpecEdit".to_string(), "FutureCapability".to_string()]),
             ..masked

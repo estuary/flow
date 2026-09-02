@@ -19,13 +19,18 @@ pub(super) fn authorized_prefixes(
 
     // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
     // so the parent-prune step below can run directly on it.
-    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, user_id)
-        .into_iter()
-        .filter(|(prefix, _)| {
-            prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
-        })
-        .filter(|(_, (bits, _))| bits.is_superset(min_bits))
-        .map(|(prefix, _)| prefix.to_string());
+    let prefixes = tables::UserGrant::reachable_prefixes(
+        role_grants,
+        user_grants,
+        user_id,
+        models::authz::CapabilityMask::ALL_CAPABILITIES,
+    )
+    .into_iter()
+    .filter(|(prefix, _)| {
+        prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
+    })
+    .filter(|(_, (bits, _))| bits.is_superset(min_bits))
+    .map(|(prefix, _)| prefix.to_string());
 
     let mut pruned: Vec<String> = Vec::new();
     for p in prefixes {
@@ -237,7 +242,12 @@ mod tests {
         ]);
         let rg = tables::RoleGrants::new();
 
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        let reachable = tables::UserGrant::reachable_prefixes(
+            &rg,
+            &ug,
+            ALICE,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
+        );
         assert_eq!(
             reachable["acmeCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -274,7 +284,12 @@ mod tests {
             },
         ]);
 
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        let reachable = tables::UserGrant::reachable_prefixes(
+            &rg,
+            &ug,
+            ALICE,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
+        );
         assert_eq!(
             reachable["sharedCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
