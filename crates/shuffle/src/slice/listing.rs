@@ -89,6 +89,7 @@ pub fn spawn_listing(
 
     let list_watch = async move {
         tokio::pin!(list_watch);
+        let mut sent_snapshot_complete = false;
 
         loop {
             match list_watch.next().await {
@@ -102,6 +103,22 @@ pub fn spawn_listing(
                         removed,
                         "collection listing updated",
                     );
+
+                    // The watch's first yield completes the initial snapshot:
+                    // every journal it held was already sent as ListingAdded.
+                    if !sent_snapshot_complete {
+                        sent_snapshot_complete = true;
+                        let _ = tx
+                            .send(Ok(shuffle::SliceResponse {
+                                listing_snapshot_complete: Some(
+                                    shuffle::slice_response::ListingSnapshotComplete {
+                                        binding: binding as u32,
+                                    },
+                                ),
+                                ..Default::default()
+                            }))
+                            .await;
+                    }
                 }
                 Some(Err(gazette::RetryError {
                     attempt,
