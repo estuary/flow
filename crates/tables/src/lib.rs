@@ -421,6 +421,28 @@ pub struct NodeRef<'a> {
     pub legacy: models::Capability,
 }
 
+/// A user's resolved authorization for one object role or name — the reduction
+/// of every covering [`NodeRef`] that `UserGrant::get_user_authorization`
+/// returns.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct UserAuthorization {
+    /// Mask-attenuated effective capability bits, accumulated additively
+    /// across covering grant paths: the only authorization decision input.
+    pub bits: models::authz::CapabilitySet,
+    /// Max legacy `capability` column among covering grants that carry one:
+    /// un-attenuated reporting metadata, `None` when coverage comes entirely
+    /// from `bundles`-column grants.
+    pub legacy: Option<models::Capability>,
+}
+
+impl UserAuthorization {
+    /// The legacy label as listing APIs report it: the literal column value,
+    /// with `none` standing in for bundles-only coverage.
+    pub fn legacy_label(&self) -> models::Capability {
+        self.legacy.unwrap_or(models::Capability::None)
+    }
+}
+
 /// Attempts to parse a catalog type and name from a URL in the form of:
 /// `flow://<catalog-type>/<catalog-name>`. Returns None if the URL doesn't
 /// have a valid `CatalogType`, or if the scheme doesn't match.

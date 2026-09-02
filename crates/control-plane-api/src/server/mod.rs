@@ -145,13 +145,9 @@ where
     Ok((None, ()))
 }
 
-/// Looks up the user's authorization grants for each item in
+/// Looks up the user's `tables::UserAuthorization` for each item in
 /// `prefixes_or_names`, and calls the provided `attach` function with each
-/// item and its capability. The `Some` results are returned in a vec.
-///
-/// Grant reachability is evaluated under the bearer's capability `mask`;
-/// the legacy capability of a reached grant passes through un-attenuated
-/// (see `tables::UserGrant::get_user_capability`).
+/// item and its authorization. The `Some` results are returned in a vec.
 pub fn attach_user_capabilities<I, F, T>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
@@ -161,19 +157,19 @@ pub fn attach_user_capabilities<I, F, T>(
 ) -> Vec<T>
 where
     I: IntoIterator<Item = String>,
-    F: FnMut(String, Option<models::Capability>) -> Option<T>,
+    F: FnMut(String, tables::UserAuthorization) -> Option<T>,
 {
     prefixes_or_names
         .into_iter()
         .flat_map(|prefix| {
-            let capability = tables::UserGrant::get_user_capability(
+            let authorization = tables::UserGrant::get_user_authorization(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 claims.sub,
                 &prefix,
                 mask,
             );
-            attach(prefix, capability)
+            attach(prefix, authorization)
         })
         .collect()
 }

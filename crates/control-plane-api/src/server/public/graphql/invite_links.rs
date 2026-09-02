@@ -83,7 +83,7 @@ impl InviteLinksQuery {
                 &snapshot.user_grants,
                 env.claims()?.sub,
                 super::bearer_mask(ctx)?,
-                models::Capability::Admin,
+                models::authz::CapabilityBundle::Admin,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
             )?;
