@@ -759,18 +759,7 @@ pub(super) async fn verify_not_service_account(
     pg_pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
 ) -> async_graphql::Result<()> {
-    let is_service_account = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM internal.service_accounts WHERE user_id = $1
-        ) AS "is_service_account!"
-        "#,
-        user_id,
-    )
-    .fetch_one(pg_pool)
-    .await?;
-
-    if is_service_account {
+    if crate::grants::is_service_account(pg_pool, user_id).await? {
         return Err(async_graphql::Error::new(
             "service accounts cannot manage refresh tokens: their API keys are \
              administered via createApiKey and revokeApiKey",

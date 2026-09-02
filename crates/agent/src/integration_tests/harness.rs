@@ -1790,6 +1790,7 @@ impl TestHarness {
             self.publisher.clone(),
             snapshot_watch.clone(),
             None,
+            control_plane_api::DEFAULT_CAPABILITY_TOKEN_VALIDITY,
         ));
 
         self.control_plane_app = Some(app);

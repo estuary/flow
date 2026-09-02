@@ -8,6 +8,19 @@ pub enum TokenRequest {
         refresh_token_id: models::Id,
         secret: String,
     },
+    /// Mint an access token whose authority is limited to a selected set of
+    /// capabilities. The caller authenticates with a normal full-authority
+    /// bearer token; the minted token identifies the same user and carries
+    /// `capability_mask` as a claim, which authorization intersects with the
+    /// user's live grants at use time.
+    #[serde(rename = "capability_token")]
+    CapabilityToken {
+        /// Capability-bundle names to mask the minted token's authority to.
+        /// Names are opaque here: unrecognized names are carried through and
+        /// are inert at use, and an empty list is valid — it mints an
+        /// identity-only token.
+        capability_mask: Vec<String>,
+    },
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -27,9 +40,15 @@ pub struct RefreshTokenResponse {
 
 pub async fn handle_post_token(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
+    crate::Authority { envelope, .. }: crate::Authority,
     axum::Json(req): axum::Json<TokenRequest>,
 ) -> Result<axum::Json<TokenResponse>, crate::ApiError> {
     match req {
+        // The refresh_token grant is unauthenticated: the credential is the
+        // (id, secret) pair in the body, and `envelope` goes unused. A request
+        // which nonetheless presents an Authorization bearer has it verified
+        // by extraction above, so a broken bearer is rejected regardless of
+        // grant.
         TokenRequest::RefreshToken {
             refresh_token_id,
             secret,
@@ -37,7 +56,91 @@ pub async fn handle_post_token(
             let response = generate_access_token(&app.pg_pool, refresh_token_id, &secret).await?;
             Ok(axum::Json(response))
         }
+        TokenRequest::CapabilityToken { capability_mask } => {
+            let response = mint_capability_token(&envelope, capability_mask, &app).await?;
+            Ok(axum::Json(response))
+        }
     }
+}
+
+/// Mint a capability-masked access token for the authenticated caller.
+///
+/// The `capability_token` grant requires an unmasked, human caller:
+/// - A missing or invalid bearer is `401 Unauthorized`.
+/// - A masked bearer is `403 unmasked_token_required`: the mint is brokered
+///   by a holder of the user's full-authority token, and a reduced token
+///   must not be able to widen or re-mint itself by calling this exchange.
+/// - A service-account bearer is `403 service_account_forbidden`: masked
+///   tokens are a human-delegation mechanism, and service accounts hold
+///   admin-issued API keys instead. The lookup cost lives here at the mint
+///   only — enforcement needs no such check, because a mask only ever
+///   narrows authority.
+async fn mint_capability_token(
+    envelope: &crate::Envelope,
+    capability_mask: Vec<String>,
+    app: &crate::App,
+) -> Result<TokenResponse, crate::ApiError> {
+    let claims = envelope.claims()?;
+
+    if claims.capability_mask.is_some() {
+        return Err(crate::ApiError::Forbidden(
+            crate::Forbidden::unmasked_token_required(),
+        ));
+    }
+    if crate::grants::is_service_account(&envelope.pg_pool, claims.sub).await? {
+        return Err(crate::ApiError::Forbidden(
+            crate::Forbidden::service_account_forbidden(),
+        ));
+    }
+
+    let access_token = sign_capability_token(
+        claims,
+        capability_mask,
+        app.capability_token_validity,
+        &app.control_plane_jwt_encode_key,
+    )?;
+    Ok(TokenResponse {
+        access_token,
+        refresh_token: None,
+    })
+}
+
+/// Sign an access token, valid for `validity`, which copies the caller's
+/// verified identity claims and carries `capability_mask` verbatim.
+///
+/// The identity claims (`sub`, `role`, `aud`, and `email` when the caller's
+/// token has it) are a pure copy-through, so the minted token is a fully
+/// functional access token everywhere its bearer's identity is what
+/// matters — including Supabase/PostgREST, which reads `sub` and `role` and
+/// ignores claims it doesn't know. Aside from `email` and `capability_mask`,
+/// this is the claim set of the SQL `generate_access_token` mint, whose
+/// shape is pinned by the pgTAP tests in
+/// `supabase/tests/scoped_ci_tokens.test.sql`; the two mint paths must not
+/// drift.
+///
+/// The mask is deliberately not validated: enforcement recognizes the
+/// bundle names it knows and ignores the rest, which is what makes unknown
+/// names inert and mixed-version fleets safe. See
+/// `models::authorizations::ControlClaims::capability_mask`.
+fn sign_capability_token(
+    caller: &models::authorizations::ControlClaims,
+    capability_mask: Vec<String>,
+    validity: std::time::Duration,
+    encoding_key: &tokens::jwt::EncodingKey,
+) -> tonic::Result<String> {
+    let iat = tokens::now().timestamp() as u64;
+
+    let claims = models::authorizations::ControlClaims {
+        aud: caller.aud.clone(),
+        iat,
+        exp: iat + validity.as_secs(),
+        sub: caller.sub,
+        role: caller.role.clone(),
+        email: caller.email.clone(),
+        capability_mask: Some(capability_mask),
+    };
+
+    tokens::jwt::sign(&claims, encoding_key)
 }
 
 // Exchange a refresh token for an access token by calling the SQL
@@ -90,4 +193,375 @@ pub(crate) async fn generate_access_token(
         );
         tonic::Status::internal("invalid token response")
     })
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test_server;
+
+    const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
+
+    async fn post_token(
+        server: &test_server::TestServer,
+        body: &serde_json::Value,
+        bearer: Option<&str>,
+    ) -> (reqwest::StatusCode, String) {
+        let response = server
+            .rest_client()
+            .post("/api/v1/auth/token", body, bearer)
+            .send()
+            .await
+            .unwrap();
+        (response.status(), response.text().await.unwrap())
+    }
+
+    fn capability_request(mask: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "grant_type": "capability_token",
+            "capability_mask": mask,
+        })
+    }
+
+    /// Decode a minted token's claims without signature verification. The
+    /// signature itself is proven by presenting the token back to the server
+    /// as a bearer, which routes it through real Envelope verification.
+    fn claims_of(body: &str) -> (models::authorizations::ControlClaims, String) {
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        let access_token = body["access_token"].as_str().unwrap().to_string();
+
+        // The capability_token grant mints no refresh credential, so the
+        // response carries exactly the access_token.
+        assert_eq!(
+            body.as_object().unwrap().keys().collect::<Vec<_>>(),
+            vec!["access_token"],
+        );
+
+        let unverified = tokens::jwt::parse_unverified::<models::authorizations::ControlClaims>(
+            access_token.as_bytes(),
+        )
+        .unwrap();
+        (unverified.claims().clone(), access_token)
+    }
+
+    /// The configured validity drives the minted expiry: `exp` sits exactly
+    /// `--capability-token-validity` past `iat`, whatever that setting is.
+    /// The HTTP test below exercises only the harness-configured one-hour
+    /// default, so a non-default window is pinned here at the signing seam.
+    #[test]
+    fn test_validity_is_configurable() {
+        let caller = models::authorizations::ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 0,
+            exp: 0,
+            sub: ALICE,
+            role: "authenticated".to_string(),
+            email: None,
+            capability_mask: None,
+        };
+        let token = super::sign_capability_token(
+            &caller,
+            vec!["CatalogRead".to_string()],
+            std::time::Duration::from_secs(90),
+            &tokens::jwt::EncodingKey::from_secret(b"unit-test-secret"),
+        )
+        .unwrap();
+
+        let unverified = tokens::jwt::parse_unverified::<models::authorizations::ControlClaims>(
+            token.as_bytes(),
+        )
+        .unwrap();
+        let claims = unverified.claims();
+        assert_eq!(claims.exp, claims.iat + 90);
+    }
+
+    /// Covers the capability_token grant end-to-end: the copy-through claim
+    /// set of a successful mint (with a scoped-role, email-less bearer
+    /// distinguishing copy-through from hardcoded values), verbatim mask
+    /// stamping, the identity-only empty mask, and minted names driving real
+    /// enforcement at a RequireViewer route; every refusal — missing bearer,
+    /// masked caller, service-account caller, and the mask refusal preceding
+    /// the service-account lookup when a bearer is both — plus the bearer
+    /// handling of the endpoint as a whole (an invalid bearer is rejected
+    /// regardless of grant) and the typed extractor's rejection of
+    /// structurally invalid requests.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_capability_token_mint(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+        let alice_token = server.make_access_token(ALICE, Some("alice@example.com"));
+
+        // === A full-authority caller mints a masked token ===
+        // The mask is stamped verbatim: unrecognized names and duplicates
+        // carry through, because enforcement (not the mint) decides what a
+        // name enables.
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!([
+                "CatalogRead",
+                "Viewer",
+                "NotARealBundle",
+                "CatalogRead"
+            ])),
+            Some(&alice_token),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::OK, "mint failed: {body}");
+        let (claims, minted_token) = claims_of(&body);
+
+        // The validity window is the harness-configured default — the SQL
+        // mint's hour — and `iat` is fresh; both are volatile, so the
+        // snapshot below redacts them.
+        assert_eq!(
+            claims.exp,
+            claims.iat + crate::DEFAULT_CAPABILITY_TOKEN_VALIDITY.as_secs()
+        );
+        let now = tokens::now().timestamp() as u64;
+        assert!(now - claims.iat < 60, "iat {} is fresh", claims.iat);
+
+        // The full serialized claim set: identity claims are a pure
+        // copy-through of the caller's, the mask is stamped verbatim
+        // (unrecognized names and duplicates included), and the key set is
+        // exactly the SQL `generate_access_token` mint's plus `email` and
+        // `capability_mask`. This is the Rust half of the two-snapshot claim
+        // parity; pgTAP pins the SQL half in `supabase/tests/`.
+        let mut redacted = serde_json::to_value(&claims).unwrap();
+        redacted["iat"] = serde_json::json!("[iat]");
+        redacted["exp"] = serde_json::json!("[iat+3600]");
+        insta::assert_json_snapshot!(redacted, @r###"
+        {
+          "aud": "authenticated",
+          "capability_mask": [
+            "CatalogRead",
+            "Viewer",
+            "NotARealBundle",
+            "CatalogRead"
+          ],
+          "email": "alice@example.com",
+          "exp": "[iat+3600]",
+          "iat": "[iat]",
+          "role": "authenticated",
+          "sub": "11111111-1111-1111-1111-111111111111"
+        }
+        "###);
+
+        // === A masked caller cannot mint (and so cannot widen itself) ===
+        // Presenting the minted token as the bearer also proves its
+        // signature: the refusal below requires Envelope verification of the
+        // token to have succeeded.
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!(["Admin"])),
+            Some(&minted_token),
+        )
+        .await;
+        insta::assert_snapshot!(
+            format!("{status}: {body}"),
+            @r###"403 Forbidden: {"error":"unmasked_token_required","message":"this operation requires a full-authority token, but the bearer token carries a capability mask","missing_capabilities":[]}"###
+        );
+
+        // === An empty mask mints a valid identity-only token ===
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!([])),
+            Some(&alice_token),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::OK, "empty-mask mint: {body}");
+        let (claims, identity_token) = claims_of(&body);
+        assert_eq!(claims.capability_mask, Some(vec![]));
+
+        // "Masked" is the claim's presence, never its value: the
+        // identity-only token is refused as a mint caller like any other
+        // masked bearer.
+        let (status, _body) = post_token(
+            &server,
+            &capability_request(serde_json::json!([])),
+            Some(&identity_token),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
+
+        // === Minted names are enforcement's vocabulary ===
+        // The mask is opaque at mint, so nothing above proves that a name the
+        // mint stamps is a name enforcement recognizes — a token whose names
+        // enforcement couldn't parse would round-trip every claim assertion
+        // and still be functionally identity-only. Driving a
+        // RequireViewer route with minted tokens closes that seam through
+        // real extraction: the Viewer-bearing mask passes the requirement
+        // gate (the 307 is the walk's provisional denial under the test's
+        // empty first Snapshot — extraction is already behind it), while the
+        // identity-only mask is the structured shortfall 403.
+        let no_redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let probe_status = |bearer: String| {
+            let url = server.base_url().join("/api/v1/catalog/status").unwrap();
+            let no_redirect = no_redirect.clone();
+            async move {
+                let response = no_redirect
+                    .get(url)
+                    .query(&[("name", "aliceCo/thing")])
+                    .bearer_auth(bearer)
+                    .send()
+                    .await
+                    .unwrap();
+                (response.status(), response.text().await.unwrap())
+            }
+        };
+
+        let (status, body) = probe_status(minted_token.clone()).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::TEMPORARY_REDIRECT,
+            "a minted Viewer mask clears the requirement gate: {body}"
+        );
+
+        let (status, body) = probe_status(identity_token.clone()).await;
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{body}");
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(body["error"], "missing_capabilities");
+        assert!(
+            !body["missing_capabilities"].as_array().unwrap().is_empty(),
+            "the shortfall names the Viewer capabilities: {body}"
+        );
+
+        // === Identity claims are copied, not assumed ===
+        // Every other bearer in this test carries role "authenticated" and an
+        // email, which a hardcoded role literal and an invented email would
+        // satisfy equally well. A scoped role — the shape of a pg_role CI
+        // credential — distinguishes copy-through (role fidelity is what
+        // keeps a minted token authorizing as its caller does against
+        // Supabase/PostgREST's SET ROLE), and the same bearer's absent email
+        // pins that the mint carries `None` rather than inventing a value.
+        let scoped_role_token = {
+            let now = tokens::now();
+            let claims = models::authorizations::ControlClaims {
+                iat: now.timestamp() as u64,
+                exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
+                sub: ALICE,
+                role: "github_action_connector_refresh".to_string(),
+                aud: "authenticated".to_string(),
+                email: None,
+                capability_mask: None,
+            };
+            jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &server.encoding_key,
+            )
+            .unwrap()
+        };
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!(["CatalogRead"])),
+            Some(&scoped_role_token),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::OK, "scoped-role mint: {body}");
+        let (claims, _token) = claims_of(&body);
+        assert_eq!(claims.role, "github_action_connector_refresh");
+        assert_eq!(claims.email, None);
+
+        // === The grant requires an authenticated caller ===
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!(["CatalogRead"])),
+            None,
+        )
+        .await;
+        insta::assert_snapshot!(
+            format!("{status}: {body}"),
+            @"401 Unauthorized: This is an authenticated API but the request is missing a required Authorization: Bearer token"
+        );
+
+        // === A service-account caller is refused ===
+        let svc_user = uuid::Uuid::from_bytes([0x77; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'svc@example.com')")
+            .bind(svc_user)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO internal.service_accounts (user_id, catalog_name, created_by) \
+             VALUES ($1, 'aliceCo/service-account', $2)",
+        )
+        .bind(svc_user)
+        .bind(ALICE)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let svc_token = server.make_access_token(svc_user, Some("svc@example.com"));
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!(["CatalogRead"])),
+            Some(&svc_token),
+        )
+        .await;
+        insta::assert_snapshot!(
+            format!("{status}: {body}"),
+            @r###"403 Forbidden: {"error":"service_account_forbidden","message":"this operation is restricted to human users, but the bearer token belongs to a service account","missing_capabilities":[]}"###
+        );
+
+        // A bearer which is both masked and a service account gets the mask
+        // refusal: the pure-claims check runs before the database lookup, so
+        // the cheaper check decides and the response discloses nothing the
+        // claims don't already say.
+        let masked_svc_token =
+            server.make_masked_access_token(svc_user, None, Some(vec!["CatalogRead"]));
+        let (status, body) = post_token(
+            &server,
+            &capability_request(serde_json::json!(["CatalogRead"])),
+            Some(&masked_svc_token),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
+        assert!(
+            body.contains("unmasked_token_required"),
+            "the mask refusal precedes the service-account lookup: {body}"
+        );
+
+        // === An invalid bearer is rejected regardless of grant ===
+        // The endpoint verifies any Authorization header it is given, so a
+        // broken bearer fails even the otherwise-unauthenticated
+        // refresh_token grant. (Bearer-less refresh_token requests are
+        // covered by the refresh-token management test.)
+        let (status, _body) = post_token(
+            &server,
+            &serde_json::json!({
+                "grant_type": "refresh_token",
+                "refresh_token_id": "00:00:00:00:00:00:00:00",
+                "secret": "irrelevant",
+            }),
+            Some("not-a-valid.jwt.token"),
+        )
+        .await;
+        assert_eq!(status, reqwest::StatusCode::UNAUTHORIZED);
+
+        // === Structurally invalid requests are rejected by the typed extractor ===
+        // `capability_mask` is a required array, so the grant structurally
+        // cannot be spoken without one — there is no request shape which
+        // mints an unmasked token — and null is not the empty mask.
+        for invalid in [
+            serde_json::json!({ "grant_type": "not_a_grant" }),
+            serde_json::json!({ "grant_type": "capability_token" }),
+            serde_json::json!({ "grant_type": "capability_token", "capability_mask": null }),
+        ] {
+            let (status, body) = post_token(&server, &invalid, Some(&alice_token)).await;
+            assert_eq!(
+                status,
+                reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+                "{invalid}: {body}"
+            );
+        }
+    }
 }
