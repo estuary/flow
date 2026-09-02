@@ -66,7 +66,9 @@ Local-stack commands are **per-stack** and mise is mandatory: each checkout
 through mise. There is no special/canonical stack and no fixed ports — the
 primary clone is just stack `flow`; ports are `base(i) = 10000 + 1000·index`.
 Run `mise run local:stack-info` to see this checkout's ports, units, and
-ready-to-paste commands. See `local/README.md`.
+ready-to-paste commands. See `local/README.md` for how the stack is wired, and
+`local/AGENTS.md` for the order to bring one up in a dev VM plus the failure modes
+whose symptoms point somewhere other than their cause.
 
 ## Architecture Overview
 
