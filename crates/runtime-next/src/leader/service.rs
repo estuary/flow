@@ -87,8 +87,9 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = super::derive::serve(service, authz, request_rx, response_tx).await {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(e)));
+            let handler = super::derive::serve(service, authz, request_rx, response_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status));
             }
         });
         response_rx
@@ -108,9 +109,9 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = super::materialize::serve(service, authz, request_rx, response_tx).await
-            {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(e)));
+            let handler = super::materialize::serve(service, authz, request_rx, response_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status));
             }
         });
         response_rx

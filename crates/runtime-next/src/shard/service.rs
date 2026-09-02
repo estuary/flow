@@ -99,9 +99,9 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
         let error_tx = controller_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(err) = super::materialize::serve(service, controller_rx, controller_tx).await
-            {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(err))); // The ONLY send of Err.
+            let handler = super::materialize::serve(service, controller_rx, controller_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status)); // The ONLY send of Err.
             }
         });
         response_rx
@@ -120,8 +120,9 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
         let error_tx = controller_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(err) = super::capture::serve(service, controller_rx, controller_tx).await {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(err))); // The ONLY send of Err.
+            let handler = super::capture::serve(service, controller_rx, controller_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status)); // The ONLY send of Err.
             }
         });
         response_rx
@@ -140,8 +141,9 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
         let error_tx = controller_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(err) = super::derive::serve(service, controller_rx, controller_tx).await {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(err))); // The ONLY send of Err.
+            let handler = super::derive::serve(service, controller_rx, controller_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status)); // The ONLY send of Err.
             }
         });
         response_rx
