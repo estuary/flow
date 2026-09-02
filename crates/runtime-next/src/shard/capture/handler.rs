@@ -18,11 +18,7 @@ pub(crate) async fn serve<R, P: crate::PublisherFactory, L: crate::LoggerFactory
 where
     R: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
 {
-    let verify = crate::verify(
-        "Capture",
-        "SessionLoop, Spec, Discover, or Validate",
-        "controller",
-    );
+    let verify = crate::verify("Capture", "SessionLoop", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Capture {
@@ -38,108 +34,10 @@ where
                 .await;
             }
 
-            proto::Capture {
-                spec: Some(spec),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    capture::Request {
-                        spec: Some(spec),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
-            proto::Capture {
-                discover: Some(discover),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    capture::Request {
-                        discover: Some(discover),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
-            proto::Capture {
-                validate: Some(validate),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    capture::Request {
-                        validate: Some(validate),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
             request => return Err(verify.fail_msg(request)),
         }
     }
     Ok(())
-}
-
-async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    request: capture::Request,
-    log_level: ops::LogLevel,
-) -> anyhow::Result<proto::Capture> {
-    let is_spec = request.spec.is_some();
-    let is_discover = request.discover.is_some();
-    let is_validate = request.validate.is_some();
-    let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _token_restart_at) =
-        connector::start(service, &logger, log_level, request).await?;
-    std::mem::drop(connector_tx);
-
-    let verify = crate::verify("Capture", "unary response", "connector");
-    let response = match verify.not_eof(connector_rx.next().await)? {
-        capture::Response {
-            spec: Some(spec), ..
-        } if is_spec => proto::Capture {
-            spec_response: Some(spec),
-            ..Default::default()
-        },
-        capture::Response {
-            discovered: Some(discovered),
-            ..
-        } if is_discover => proto::Capture {
-            discovered: Some(discovered),
-            ..Default::default()
-        },
-        capture::Response {
-            validated: Some(validated),
-            ..
-        } if is_validate => proto::Capture {
-            validated: Some(validated),
-            ..Default::default()
-        },
-        response => return Err(verify.fail_msg(response)),
-    };
-    verify.eof(connector_rx.next().await)?;
-    Ok(response)
 }
 
 async fn serve_session_loop<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(

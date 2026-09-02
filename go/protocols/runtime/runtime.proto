@@ -5,10 +5,7 @@ option go_package = "github.com/estuary/flow/go/protocols/runtime";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
-import "go/protocols/capture/capture.proto";
-import "go/protocols/derive/derive.proto";
 import "go/protocols/flow/flow.proto";
-import "go/protocols/materialize/materialize.proto";
 import "go/protocols/ops/ops.proto";
 import "go/protocols/shuffle/shuffle.proto";
 import "gogoproto/gogo.proto";
@@ -411,13 +408,8 @@ service Leader {
 // sidecar's Leader service, translating between the two and the
 // connector RPC.
 //
-// Stream modes are determined by the first message:
-//  - Session mode: first message is `SessionLoop`. Then any number of
-//    leader sessions cycle through Join → ... → Stopped, terminated by
-//    controller EOF.
-//  - Unary mode: first message is `spec` or `validate`. The leader is
-//    not involved; the handler dials a transient connector and streams
-//    the response back. A Validate may follow a Spec on the same stream.
+// A stream begins with `SessionLoop`. Then any number of leader sessions
+// cycle through Join → ... → Stopped, terminated by controller EOF.
 service Shard {
   rpc Capture(stream .runtime.Capture) returns (stream .runtime.Capture);
   rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
@@ -817,22 +809,8 @@ message SessionLoop {
 // Capture is the bidirectional message type for capture sessions. Exactly one
 // field is set per message.
 message Capture {
-  // ----- UNARY REQUESTS -----
-
-  // Controller → Shard. Unary request outside of a SessionLoop.
-  capture.Request.Spec spec = 1;
-  // Shard → Controller. Connector's reply to `spec`.
-  capture.Response.Spec spec_response = 2;
-  // Controller → Shard. Unary request outside of a SessionLoop.
-  capture.Request.Discover discover = 3;
-  // Shard → Controller. Connector's reply to `discover`.
-  capture.Response.Discovered discovered = 4;
-  // Controller → Shard. Unary request outside of a SessionLoop.
-  capture.Request.Validate validate = 5;
-  // Shard → Controller. Connector's reply to `validate`.
-  capture.Response.Validated validated = 6;
-  // Controller → Shard. Effective only on unary messages.
-  ops.Log.Level log_level = 9;
+  // Unary Spec, Discover, and Validate, and their `log_level`.
+  reserved 1 to 6, 9;
 
   // ----- SESSION -----
 
@@ -874,23 +852,8 @@ message Capture {
 // Materialize is the bidirectional message type for materialization
 // sessions. Exactly one field is set per message.
 message Materialize {
-
-  // ----- UNARY REQUESTS -----
-
-  // Controller → Shard. Unary request outside of a SessionLoop.
-  materialize.Request.Spec spec = 1;
-  // Shard → Controller. Connector's reply to `spec`.
-  materialize.Response.Spec spec_response = 2;
-  // Controller → Shard. Unary request outside of a SessionLoop.
-  materialize.Request.Validate validate = 3;
-  // Shard → Controller. Connector's reply to `validate`.
-  materialize.Response.Validated validated = 4;
-
-  // Controller → Shard. Effective only on unary `spec` / `validate`
-  // messages, which never see the Join-time labeling that supplies the
-  // log level for session-bound work. Ignored on all other variants
-  // (the leader → shard messages MUST NOT set this).
-  ops.Log.Level log_level = 5;
+  // Unary Spec and Validate, and their `log_level`.
+  reserved 1 to 5;
 
   // ----- STARTUP -----
 
@@ -1132,21 +1095,8 @@ message Materialize {
 // Derive is the bidirectional message type for derivation sessions.
 // Exactly one field is set per message.
 message Derive {
-
-  // ----- UNARY REQUESTS -----
-
-  // Controller → Shard. Unary request outside of a SessionLoop.
-  derive.Request.Spec spec = 1;
-  // Shard → Controller. Connector's reply to `spec`.
-  derive.Response.Spec spec_response = 2;
-  // Controller → Shard. Unary request outside of a SessionLoop.
-  derive.Request.Validate validate = 3;
-  // Shard → Controller. Connector's reply to `validate`.
-  derive.Response.Validated validated = 4;
-
-  // Controller → Shard. Effective only on unary `spec` / `validate`
-  // messages. Ignored on all other variants.
-  ops.Log.Level log_level = 5;
+  // Unary Spec and Validate, and their `log_level`.
+  reserved 1 to 5;
 
   // ----- STARTUP -----
 

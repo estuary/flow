@@ -901,31 +901,8 @@ pub struct SessionLoop {
 }
 /// Capture is the bidirectional message type for capture sessions. Exactly one
 /// field is set per message.
-///
-/// ----- UNARY REQUESTS -----
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Capture {
-    /// Controller → Shard. Unary request outside of a SessionLoop.
-    #[prost(message, optional, tag = "1")]
-    pub spec: ::core::option::Option<super::capture::request::Spec>,
-    /// Shard → Controller. Connector's reply to `spec`.
-    #[prost(message, optional, tag = "2")]
-    pub spec_response: ::core::option::Option<super::capture::response::Spec>,
-    /// Controller → Shard. Unary request outside of a SessionLoop.
-    #[prost(message, optional, tag = "3")]
-    pub discover: ::core::option::Option<super::capture::request::Discover>,
-    /// Shard → Controller. Connector's reply to `discover`.
-    #[prost(message, optional, tag = "4")]
-    pub discovered: ::core::option::Option<super::capture::response::Discovered>,
-    /// Controller → Shard. Unary request outside of a SessionLoop.
-    #[prost(message, optional, tag = "5")]
-    pub validate: ::core::option::Option<super::capture::request::Validate>,
-    /// Shard → Controller. Connector's reply to `validate`.
-    #[prost(message, optional, tag = "6")]
-    pub validated: ::core::option::Option<super::capture::response::Validated>,
-    /// Controller → Shard. Effective only on unary messages.
-    #[prost(enumeration = "super::ops::log::Level", tag = "9")]
-    pub log_level: i32,
     /// Controller → Shard. First message of a session-loop stream.
     #[prost(message, optional, tag = "20")]
     pub session_loop: ::core::option::Option<SessionLoop>,
@@ -971,24 +948,6 @@ pub mod capture {
 /// sessions. Exactly one field is set per message.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Materialize {
-    /// Controller → Shard. Unary request outside of a SessionLoop.
-    #[prost(message, optional, tag = "1")]
-    pub spec: ::core::option::Option<super::materialize::request::Spec>,
-    /// Shard → Controller. Connector's reply to `spec`.
-    #[prost(message, optional, tag = "2")]
-    pub spec_response: ::core::option::Option<super::materialize::response::Spec>,
-    /// Controller → Shard. Unary request outside of a SessionLoop.
-    #[prost(message, optional, tag = "3")]
-    pub validate: ::core::option::Option<super::materialize::request::Validate>,
-    /// Shard → Controller. Connector's reply to `validate`.
-    #[prost(message, optional, tag = "4")]
-    pub validated: ::core::option::Option<super::materialize::response::Validated>,
-    /// Controller → Shard. Effective only on unary `spec` / `validate`
-    /// messages, which never see the Join-time labeling that supplies the
-    /// log level for session-bound work. Ignored on all other variants
-    /// (the leader → shard messages MUST NOT set this).
-    #[prost(enumeration = "super::ops::log::Level", tag = "5")]
-    pub log_level: i32,
     /// Controller → Shard. First message of a session-loop stream;
     /// never sent to the Leader.
     #[prost(message, optional, tag = "20")]
@@ -1288,22 +1247,6 @@ pub mod materialize {
 /// Exactly one field is set per message.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Derive {
-    /// Controller → Shard. Unary request outside of a SessionLoop.
-    #[prost(message, optional, tag = "1")]
-    pub spec: ::core::option::Option<super::derive::request::Spec>,
-    /// Shard → Controller. Connector's reply to `spec`.
-    #[prost(message, optional, tag = "2")]
-    pub spec_response: ::core::option::Option<super::derive::response::Spec>,
-    /// Controller → Shard. Unary request outside of a SessionLoop.
-    #[prost(message, optional, tag = "3")]
-    pub validate: ::core::option::Option<super::derive::request::Validate>,
-    /// Shard → Controller. Connector's reply to `validate`.
-    #[prost(message, optional, tag = "4")]
-    pub validated: ::core::option::Option<super::derive::response::Validated>,
-    /// Controller → Shard. Effective only on unary `spec` / `validate`
-    /// messages. Ignored on all other variants.
-    #[prost(enumeration = "super::ops::log::Level", tag = "5")]
-    pub log_level: i32,
     /// Controller → Shard. First message of a session-loop stream;
     /// never sent to the Leader.
     #[prost(message, optional, tag = "20")]

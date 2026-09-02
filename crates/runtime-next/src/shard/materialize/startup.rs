@@ -185,17 +185,7 @@ where
                     state_json: connector_state_json,
                     version,
                 };
-                _ = leader_tx.send(
-                    super::handler::serve_unary(
-                        service,
-                        materialize::Request {
-                            apply: Some(apply),
-                            ..Default::default()
-                        },
-                        log_level,
-                    )
-                    .await?,
-                );
+                _ = leader_tx.send(super::handler::serve_apply(service, apply, log_level).await?);
             }
             proto::Materialize {
                 persist: Some(persist),

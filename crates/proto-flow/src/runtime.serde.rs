@@ -421,27 +421,6 @@ impl serde::Serialize for Capture {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.spec.is_some() {
-            len += 1;
-        }
-        if self.spec_response.is_some() {
-            len += 1;
-        }
-        if self.discover.is_some() {
-            len += 1;
-        }
-        if self.discovered.is_some() {
-            len += 1;
-        }
-        if self.validate.is_some() {
-            len += 1;
-        }
-        if self.validated.is_some() {
-            len += 1;
-        }
-        if self.log_level != 0 {
-            len += 1;
-        }
         if self.session_loop.is_some() {
             len += 1;
         }
@@ -467,29 +446,6 @@ impl serde::Serialize for Capture {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("runtime.Capture", len)?;
-        if let Some(v) = self.spec.as_ref() {
-            struct_ser.serialize_field("spec", v)?;
-        }
-        if let Some(v) = self.spec_response.as_ref() {
-            struct_ser.serialize_field("specResponse", v)?;
-        }
-        if let Some(v) = self.discover.as_ref() {
-            struct_ser.serialize_field("discover", v)?;
-        }
-        if let Some(v) = self.discovered.as_ref() {
-            struct_ser.serialize_field("discovered", v)?;
-        }
-        if let Some(v) = self.validate.as_ref() {
-            struct_ser.serialize_field("validate", v)?;
-        }
-        if let Some(v) = self.validated.as_ref() {
-            struct_ser.serialize_field("validated", v)?;
-        }
-        if self.log_level != 0 {
-            let v = super::ops::log::Level::try_from(self.log_level)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
-            struct_ser.serialize_field("logLevel", &v)?;
-        }
         if let Some(v) = self.session_loop.as_ref() {
             struct_ser.serialize_field("sessionLoop", v)?;
         }
@@ -524,15 +480,6 @@ impl<'de> serde::Deserialize<'de> for Capture {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "spec",
-            "spec_response",
-            "specResponse",
-            "discover",
-            "discovered",
-            "validate",
-            "validated",
-            "log_level",
-            "logLevel",
             "session_loop",
             "sessionLoop",
             "join",
@@ -547,13 +494,6 @@ impl<'de> serde::Deserialize<'de> for Capture {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Spec,
-            SpecResponse,
-            Discover,
-            Discovered,
-            Validate,
-            Validated,
-            LogLevel,
             SessionLoop,
             Join,
             Joined,
@@ -584,13 +524,6 @@ impl<'de> serde::Deserialize<'de> for Capture {
                         E: serde::de::Error,
                     {
                         match value {
-                            "spec" => Ok(GeneratedField::Spec),
-                            "specResponse" | "spec_response" => Ok(GeneratedField::SpecResponse),
-                            "discover" => Ok(GeneratedField::Discover),
-                            "discovered" => Ok(GeneratedField::Discovered),
-                            "validate" => Ok(GeneratedField::Validate),
-                            "validated" => Ok(GeneratedField::Validated),
-                            "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
                             "sessionLoop" | "session_loop" => Ok(GeneratedField::SessionLoop),
                             "join" => Ok(GeneratedField::Join),
                             "joined" => Ok(GeneratedField::Joined),
@@ -618,13 +551,6 @@ impl<'de> serde::Deserialize<'de> for Capture {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut spec__ = None;
-                let mut spec_response__ = None;
-                let mut discover__ = None;
-                let mut discovered__ = None;
-                let mut validate__ = None;
-                let mut validated__ = None;
-                let mut log_level__ = None;
                 let mut session_loop__ = None;
                 let mut join__ = None;
                 let mut joined__ = None;
@@ -635,48 +561,6 @@ impl<'de> serde::Deserialize<'de> for Capture {
                 let mut stopped__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Spec => {
-                            if spec__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("spec"));
-                            }
-                            spec__ = map_.next_value()?;
-                        }
-                        GeneratedField::SpecResponse => {
-                            if spec_response__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("specResponse"));
-                            }
-                            spec_response__ = map_.next_value()?;
-                        }
-                        GeneratedField::Discover => {
-                            if discover__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("discover"));
-                            }
-                            discover__ = map_.next_value()?;
-                        }
-                        GeneratedField::Discovered => {
-                            if discovered__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("discovered"));
-                            }
-                            discovered__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validate => {
-                            if validate__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validate"));
-                            }
-                            validate__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validated => {
-                            if validated__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validated"));
-                            }
-                            validated__ = map_.next_value()?;
-                        }
-                        GeneratedField::LogLevel => {
-                            if log_level__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("logLevel"));
-                            }
-                            log_level__ = Some(map_.next_value::<super::ops::log::Level>()? as i32);
-                        }
                         GeneratedField::SessionLoop => {
                             if session_loop__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sessionLoop"));
@@ -731,13 +615,6 @@ impl<'de> serde::Deserialize<'de> for Capture {
                     }
                 }
                 Ok(Capture {
-                    spec: spec__,
-                    spec_response: spec_response__,
-                    discover: discover__,
-                    discovered: discovered__,
-                    validate: validate__,
-                    validated: validated__,
-                    log_level: log_level__.unwrap_or_default(),
                     session_loop: session_loop__,
                     join: join__,
                     joined: joined__,
@@ -2844,21 +2721,6 @@ impl serde::Serialize for Derive {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.spec.is_some() {
-            len += 1;
-        }
-        if self.spec_response.is_some() {
-            len += 1;
-        }
-        if self.validate.is_some() {
-            len += 1;
-        }
-        if self.validated.is_some() {
-            len += 1;
-        }
-        if self.log_level != 0 {
-            len += 1;
-        }
         if self.session_loop.is_some() {
             len += 1;
         }
@@ -2926,23 +2788,6 @@ impl serde::Serialize for Derive {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("runtime.Derive", len)?;
-        if let Some(v) = self.spec.as_ref() {
-            struct_ser.serialize_field("spec", v)?;
-        }
-        if let Some(v) = self.spec_response.as_ref() {
-            struct_ser.serialize_field("specResponse", v)?;
-        }
-        if let Some(v) = self.validate.as_ref() {
-            struct_ser.serialize_field("validate", v)?;
-        }
-        if let Some(v) = self.validated.as_ref() {
-            struct_ser.serialize_field("validated", v)?;
-        }
-        if self.log_level != 0 {
-            let v = super::ops::log::Level::try_from(self.log_level)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
-            struct_ser.serialize_field("logLevel", &v)?;
-        }
         if let Some(v) = self.session_loop.as_ref() {
             struct_ser.serialize_field("sessionLoop", v)?;
         }
@@ -3019,13 +2864,6 @@ impl<'de> serde::Deserialize<'de> for Derive {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "spec",
-            "spec_response",
-            "specResponse",
-            "validate",
-            "validated",
-            "log_level",
-            "logLevel",
             "session_loop",
             "sessionLoop",
             "join",
@@ -3057,11 +2895,6 @@ impl<'de> serde::Deserialize<'de> for Derive {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Spec,
-            SpecResponse,
-            Validate,
-            Validated,
-            LogLevel,
             SessionLoop,
             Join,
             Joined,
@@ -3106,11 +2939,6 @@ impl<'de> serde::Deserialize<'de> for Derive {
                         E: serde::de::Error,
                     {
                         match value {
-                            "spec" => Ok(GeneratedField::Spec),
-                            "specResponse" | "spec_response" => Ok(GeneratedField::SpecResponse),
-                            "validate" => Ok(GeneratedField::Validate),
-                            "validated" => Ok(GeneratedField::Validated),
-                            "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
                             "sessionLoop" | "session_loop" => Ok(GeneratedField::SessionLoop),
                             "join" => Ok(GeneratedField::Join),
                             "joined" => Ok(GeneratedField::Joined),
@@ -3152,11 +2980,6 @@ impl<'de> serde::Deserialize<'de> for Derive {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut spec__ = None;
-                let mut spec_response__ = None;
-                let mut validate__ = None;
-                let mut validated__ = None;
-                let mut log_level__ = None;
                 let mut session_loop__ = None;
                 let mut join__ = None;
                 let mut joined__ = None;
@@ -3181,36 +3004,6 @@ impl<'de> serde::Deserialize<'de> for Derive {
                 let mut reset_done__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Spec => {
-                            if spec__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("spec"));
-                            }
-                            spec__ = map_.next_value()?;
-                        }
-                        GeneratedField::SpecResponse => {
-                            if spec_response__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("specResponse"));
-                            }
-                            spec_response__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validate => {
-                            if validate__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validate"));
-                            }
-                            validate__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validated => {
-                            if validated__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validated"));
-                            }
-                            validated__ = map_.next_value()?;
-                        }
-                        GeneratedField::LogLevel => {
-                            if log_level__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("logLevel"));
-                            }
-                            log_level__ = Some(map_.next_value::<super::ops::log::Level>()? as i32);
-                        }
                         GeneratedField::SessionLoop => {
                             if session_loop__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sessionLoop"));
@@ -3349,11 +3142,6 @@ impl<'de> serde::Deserialize<'de> for Derive {
                     }
                 }
                 Ok(Derive {
-                    spec: spec__,
-                    spec_response: spec_response__,
-                    validate: validate__,
-                    validated: validated__,
-                    log_level: log_level__.unwrap_or_default(),
                     session_loop: session_loop__,
                     join: join__,
                     joined: joined__,
@@ -5830,21 +5618,6 @@ impl serde::Serialize for Materialize {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.spec.is_some() {
-            len += 1;
-        }
-        if self.spec_response.is_some() {
-            len += 1;
-        }
-        if self.validate.is_some() {
-            len += 1;
-        }
-        if self.validated.is_some() {
-            len += 1;
-        }
-        if self.log_level != 0 {
-            len += 1;
-        }
         if self.session_loop.is_some() {
             len += 1;
         }
@@ -5921,23 +5694,6 @@ impl serde::Serialize for Materialize {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("runtime.Materialize", len)?;
-        if let Some(v) = self.spec.as_ref() {
-            struct_ser.serialize_field("spec", v)?;
-        }
-        if let Some(v) = self.spec_response.as_ref() {
-            struct_ser.serialize_field("specResponse", v)?;
-        }
-        if let Some(v) = self.validate.as_ref() {
-            struct_ser.serialize_field("validate", v)?;
-        }
-        if let Some(v) = self.validated.as_ref() {
-            struct_ser.serialize_field("validated", v)?;
-        }
-        if self.log_level != 0 {
-            let v = super::ops::log::Level::try_from(self.log_level)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
-            struct_ser.serialize_field("logLevel", &v)?;
-        }
         if let Some(v) = self.session_loop.as_ref() {
             struct_ser.serialize_field("sessionLoop", v)?;
         }
@@ -6023,13 +5779,6 @@ impl<'de> serde::Deserialize<'de> for Materialize {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "spec",
-            "spec_response",
-            "specResponse",
-            "validate",
-            "validated",
-            "log_level",
-            "logLevel",
             "session_loop",
             "sessionLoop",
             "join",
@@ -6063,11 +5812,6 @@ impl<'de> serde::Deserialize<'de> for Materialize {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Spec,
-            SpecResponse,
-            Validate,
-            Validated,
-            LogLevel,
             SessionLoop,
             Join,
             Joined,
@@ -6115,11 +5859,6 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                         E: serde::de::Error,
                     {
                         match value {
-                            "spec" => Ok(GeneratedField::Spec),
-                            "specResponse" | "spec_response" => Ok(GeneratedField::SpecResponse),
-                            "validate" => Ok(GeneratedField::Validate),
-                            "validated" => Ok(GeneratedField::Validated),
-                            "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
                             "sessionLoop" | "session_loop" => Ok(GeneratedField::SessionLoop),
                             "join" => Ok(GeneratedField::Join),
                             "joined" => Ok(GeneratedField::Joined),
@@ -6164,11 +5903,6 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut spec__ = None;
-                let mut spec_response__ = None;
-                let mut validate__ = None;
-                let mut validated__ = None;
-                let mut log_level__ = None;
                 let mut session_loop__ = None;
                 let mut join__ = None;
                 let mut joined__ = None;
@@ -6196,36 +5930,6 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                 let mut stopped__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Spec => {
-                            if spec__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("spec"));
-                            }
-                            spec__ = map_.next_value()?;
-                        }
-                        GeneratedField::SpecResponse => {
-                            if spec_response__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("specResponse"));
-                            }
-                            spec_response__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validate => {
-                            if validate__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validate"));
-                            }
-                            validate__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validated => {
-                            if validated__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validated"));
-                            }
-                            validated__ = map_.next_value()?;
-                        }
-                        GeneratedField::LogLevel => {
-                            if log_level__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("logLevel"));
-                            }
-                            log_level__ = Some(map_.next_value::<super::ops::log::Level>()? as i32);
-                        }
                         GeneratedField::SessionLoop => {
                             if session_loop__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sessionLoop"));
@@ -6382,11 +6086,6 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                     }
                 }
                 Ok(Materialize {
-                    spec: spec__,
-                    spec_response: spec_response__,
-                    validate: validate__,
-                    validated: validated__,
-                    log_level: log_level__.unwrap_or_default(),
                     session_loop: session_loop__,
                     join: join__,
                     joined: joined__,

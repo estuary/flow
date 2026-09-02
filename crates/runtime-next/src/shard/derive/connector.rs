@@ -121,13 +121,6 @@ fn extract_endpoint<'r>(
 ) -> anyhow::Result<(models::DeriveUsing, &'r mut bytes::Bytes)> {
     let (connector_type, config_json) = match request {
         derive::Request {
-            spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json),
-        derive::Request {
-            validate: Some(validate),
-            ..
-        } => (validate.connector_type, &mut validate.config_json),
-        derive::Request {
             open: Some(open), ..
         } => {
             let inner = open

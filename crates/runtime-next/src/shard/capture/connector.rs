@@ -155,27 +155,6 @@ fn extract_endpoint<'r>(
 )> {
     let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
         Request {
-            spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json, None, None),
-        Request {
-            discover: Some(discover),
-            ..
-        } => (
-            discover.connector_type,
-            &mut discover.config_json,
-            Some(discover.name.clone()),
-            None,
-        ),
-        Request {
-            validate: Some(validate),
-            ..
-        } => (
-            validate.connector_type,
-            &mut validate.config_json,
-            Some(validate.name.clone()),
-            None,
-        ),
-        Request {
             apply: Some(apply), ..
         } => {
             let catalog_name = apply.capture.as_ref().map(|c| c.name.clone());
