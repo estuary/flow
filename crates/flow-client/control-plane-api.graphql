@@ -1385,6 +1385,8 @@ type MutationRoot {
 	"""
 	Create a refresh token for the authenticated user.
 	
+	Capability-masked callers are rejected: a refresh token exchanges for
+	a full-authority access token, which would escape the bearer's mask.
 	Service-account callers are rejected: their API keys are administered
 	via createApiKey and revokeApiKey.
 	"""
