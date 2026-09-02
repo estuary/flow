@@ -148,10 +148,10 @@ impl axum::response::IntoResponse for Rejection {
 /// `Authority { envelope: env, mask, .. }` — in the manner of axum's
 /// `State`, and act on the parts directly.
 ///
-/// Handlers still extract `Envelope` while the migration to Authority is
-/// pending; once it completes, `Envelope` loses its `FromRequestParts` impl
-/// so that no unmasked context type remains for a handler to accidentally
-/// choose.
+/// Handlers extract Authority — never `Envelope` directly — so the bearer's
+/// mask always reaches request processing. `Envelope`'s own
+/// `FromRequestParts` impl exists to serve as the inner extraction this
+/// composes over.
 pub struct Authority<R: Requirement = NoRequirement> {
     /// The extracted request Envelope.
     pub envelope: crate::Envelope,
@@ -238,26 +238,18 @@ fn evaluate_requirement<R: Requirement>(
 impl<R: Requirement> axum::extract::FromRequestParts<Arc<crate::App>> for Authority<R> {
     type Rejection = Rejection;
 
-    fn from_request_parts(
+    async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
         state: &Arc<crate::App>,
-    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        async move {
-            let envelope =
-                <crate::Envelope as axum::extract::FromRequestParts<Arc<crate::App>>>::from_request_parts(
-                    parts, state,
-                )
-                .await?;
-            Ok(Self::from_envelope(envelope)?)
-        }
+    ) -> Result<Self, Self::Rejection> {
+        let envelope = crate::Envelope::from_request_parts(parts, state).await?;
+        Self::from_envelope(envelope)
     }
 }
 
 // Empty impl allows aide to generate OpenAPI specs for handlers using this
-// extractor. No shipped handler extracts Authority yet — the migration off
-// Envelope is pending — but the impl must exist for those handlers to compile,
-// and the extractor is an internal detail which doesn't appear in the API
-// documentation either way.
+// extractor. The extractor is an internal detail and doesn't appear in the
+// API documentation.
 impl<R: Requirement> aide::operation::OperationInput for Authority<R> {}
 
 #[cfg(test)]

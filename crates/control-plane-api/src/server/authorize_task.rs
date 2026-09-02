@@ -16,7 +16,9 @@ type Response = models::authorizations::TaskAuthorization;
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 #[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_task(
-    mut env: crate::Envelope,
+    crate::Authority {
+        envelope: mut env, ..
+    }: crate::Authority,
     super::Request(Request { token }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let unverified = super::parse_untrusted_data_plane_claims(&token)?;

@@ -162,13 +162,24 @@ pub fn schema_sdl() -> String {
 pub(crate) async fn graphql_handler(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
-    env: crate::Envelope,
+    crate::Authority {
+        envelope: env,
+        mask,
+        ..
+    }: crate::Authority,
     axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
+    // The Envelope and the bearer's capability mask enter the GraphQL
+    // context as separate data — deliberately not as the Authority itself.
+    // The two have different consumers: resolvers read identity and the
+    // Snapshot from the Envelope, while only the authorization chokepoints
+    // consume the mask, and neither should have to care that the other's
+    // context datum exists.
     let mut request = req
         .data(env)
+        .data(mask)
         .data(async_graphql::dataloader::DataLoader::new(
             PgDataLoader(pg_pool),
             tokio::spawn,

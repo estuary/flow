@@ -4,7 +4,9 @@ type Response = models::authorizations::UserCollectionAuthorization;
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 #[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_user_collection(
-    mut env: crate::Envelope,
+    crate::Authority {
+        envelope: mut env, ..
+    }: crate::Authority,
     super::Request(Request {
         collection,
         capability,

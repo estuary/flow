@@ -1700,6 +1700,13 @@ impl TestHarness {
             started: tokens::now(),
             locale: control_plane_api::Locale::EnUS,
         };
+        // Mirror graphql_handler: Authority::from_envelope performs the same
+        // evaluation as HTTP extraction, and the Envelope and capability mask
+        // enter the GraphQL context as separate data.
+        let control_plane_api::Authority { envelope, mask, .. } = control_plane_api::Authority::<
+            control_plane_api::NoRequirement,
+        >::from_envelope(envelope)
+        .expect("NoRequirement evaluation cannot fail");
 
         // Create GraphQL schema
         let schema = control_plane_api::server::public::graphql::create_schema(
@@ -1710,6 +1717,7 @@ impl TestHarness {
         let request = async_graphql::Request::new(query)
             .variables(async_graphql::Variables::from_json(variables.clone()))
             .data(envelope)
+            .data(mask)
             .data(async_graphql::dataloader::DataLoader::new(
                 control_plane_api::server::public::graphql::PgDataLoader(self.pool.clone()),
                 tokio::spawn,
