@@ -29,7 +29,13 @@ use models::draft_error;
 
 /// Represents a desire to publish the given `draft`, along with associated metadata and behavior
 /// for handling draft initialization, build finalizing, and retrying failures.
-pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit> {
+pub struct DraftPublication<
+    'a,
+    Init: Initialize,
+    Fin: FinalizeBuild,
+    Ret: RetryPolicy,
+    C: WithCommit,
+> {
     /// The id of the user that is publishing the draft.
     pub user_id: Uuid,
     /// Write logs to `internal.log_lines` using this token.
@@ -42,9 +48,14 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
     pub draft: tables::DraftCatalog,
     /// Detail message to associate with this publication.
     pub detail: Option<String>,
-    /// Whether to check user permissions when publishing specs. If this is false, then all
-    /// permission checks will be skipped, and the publication may modify any specs.
+    /// Whether to check user permissions when publishing specs. If this is false, user
+    /// permission checks are skipped and the publication may modify any specs; spec-to-spec
+    /// capability checks and the data-plane name read filter still apply.
     pub verify_user_authz: bool,
+    /// Authorization Snapshot pinned for the entire publication, so that
+    /// authorization decisions cannot flip between initialization, build,
+    /// and retry attempts.
+    pub snapshot: &'a crate::Snapshot,
     /// Default data plane to use for publishing new specs. This is optional only when the
     /// publication _only_ updates and/or deletes existing live specs.
     pub default_data_plane_name: Option<String>,
@@ -270,7 +281,7 @@ impl Publisher {
     ))]
     pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
         &self,
-        publication: DraftPublication<Ini, Fin, Ret, C>,
+        publication: DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut retry_count = 0u32;
         loop {
@@ -302,13 +313,14 @@ impl Publisher {
             dry_run,
             draft: raw_draft,
             verify_user_authz,
+            snapshot,
             detail,
             default_data_plane_name,
             initialize,
             finalize,
             retry: _,
             with_commit,
-        }: &DraftPublication<Ini, Fin, Ret, C>,
+        }: &DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
         initialize
@@ -325,6 +337,7 @@ impl Publisher {
                 draft,
                 *logs_token,
                 default_data_plane_name.as_deref(),
+                snapshot,
                 *verify_user_authz,
                 retry_count,
             )
@@ -350,7 +363,7 @@ impl Publisher {
 
     /// Build and verify the given draft. This is `pub` only because we have existing tests that
     /// use it. If you want to publish something, use the `Publisher::publish` function instead.
-    #[tracing::instrument(level = "info", skip(self, draft))]
+    #[tracing::instrument(level = "info", skip(self, draft, snapshot))]
     pub async fn build(
         &self,
         user_id: Uuid,
@@ -359,6 +372,7 @@ impl Publisher {
         draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
         explicit_plane_name: Option<&str>,
+        snapshot: &crate::Snapshot,
         verify_user_authz: bool,
         retry_count: u32,
     ) -> anyhow::Result<UncommittedBuild> {
@@ -404,6 +418,7 @@ impl Publisher {
             user_id,
             &draft,
             &self.db,
+            snapshot,
             verify_user_authz,
             explicit_plane_name,
         )

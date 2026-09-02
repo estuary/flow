@@ -59,16 +59,12 @@ pub async fn get_live_specs_filtered(
     if !denied.is_empty() {
         tracing::debug!(?denied, %user_id, "filtered unauthorized specs from fetch");
     }
-    get_live_specs_unfiltered(user_id, &authorized, db).await
+    get_live_specs_unfiltered(&authorized, db).await
 }
 
 /// Fetches live specs as a `tables::LiveCatalog` without any authorization
 /// filtering: every requested name that has a live spec is returned.
-///
-/// `user_id` is bound into the query but unused: with both capability flags
-/// disabled, `fetch_live_specs` never evaluates it.
 pub async fn get_live_specs_unfiltered(
-    user_id: Uuid,
     names: &[impl AsRef<str>],
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
@@ -81,9 +77,7 @@ pub async fn get_live_specs_unfiltered(
     for names_chunk in names.chunks(512) {
         let names_chunk: Vec<&str> = names_chunk.iter().map(AsRef::as_ref).collect();
         let rows = db::fetch_live_specs(
-            user_id,
             &names_chunk,
-            false, // authorization is not evaluated in SQL
             false, // we never need spec_capabilities here
             db,
         )
@@ -120,22 +114,27 @@ pub async fn get_live_specs_unfiltered(
     Ok(live)
 }
 
+/// Fetches the live specs connected to `collection_names` — tasks that read
+/// from or write to them — excluding `exclude_names`. When `filter_capability`
+/// is set, specs to which the user lacks that capability are silently omitted,
+/// evaluated against the authorization `snapshot`. A denial never cancels the
+/// snapshot's revoke token: filtering merely narrows expansion, and the worst
+/// case of a not-yet-observed grant is only a narrower validation.
 pub async fn get_connected_live_specs(
     user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
-    let expanded_rows =
-        db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db).await?;
+    let expanded_rows = db::fetch_expanded_live_specs(collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !exp
-                .user_capability
-                .map(|c| c >= minimum_capability)
-                .unwrap_or(false)
+            if !snapshot
+                .user_capability(user_id, &exp.catalog_name)
+                .is_some_and(|c| c >= minimum_capability)
             {
                 continue;
             }

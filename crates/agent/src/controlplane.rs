@@ -578,8 +578,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
         let names = names.into_iter().collect::<Vec<_>>();
-        let mut live =
-            live_specs::get_live_specs_unfiltered(self.system_user_id, &names, &self.pool).await?;
+        let mut live = live_specs::get_live_specs_unfiltered(&names, &self.pool).await?;
 
         // TODO: Can we stop adding inferred schemas to live specs?
         // Fetch inferred schemas and add to live specs.
@@ -662,6 +661,8 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         draft: tables::DraftCatalog,
         default_data_plane: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
+        let refresh = self.snapshot_watch.token();
+
         let publication = DraftPublication {
             user_id: self.system_user_id,
             logs_token,
@@ -671,6 +672,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             default_data_plane_name: default_data_plane,
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
+            snapshot: refresh.result().unwrap(),
             initialize: NoopInitialize,
             finalize: PruneUnboundCollections,
             retry: DefaultRetryPolicy,

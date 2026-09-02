@@ -731,12 +731,13 @@ pub async fn resolve_live_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
-    // still contain information on the user and spec capabilities.
+    // still contain information on the spec capabilities.
     // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
     let mut all_spec_names = draft
         .all_catalog_names()
@@ -760,12 +761,10 @@ pub async fn resolve_live_specs(
     }
 
     let rows = crate::live_specs::fetch_live_specs(
-        user_id,
         &all_spec_names
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        verify_user_authz,
         true, // always fetch spec capabilities
         db,
     )
@@ -792,7 +791,13 @@ pub async fn resolve_live_specs(
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
             // If the spec is included in the draft, then the user must have admin capability to it.
-            if verify_user_authz && !matches!(spec_row.user_capability, Some(Capability::Admin)) {
+            if verify_user_authz
+                && !matches!(
+                    snapshot.user_capability(user_id, catalog_name),
+                    Some(Capability::Admin)
+                )
+            {
+                snapshot.request_refresh();
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -840,11 +845,11 @@ pub async fn resolve_live_specs(
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !spec_row
-                    .user_capability
-                    .map(|c| c >= Capability::Read)
-                    .unwrap_or(false)
+                && !snapshot
+                    .user_capability(user_id, &spec_row.catalog_name)
+                    .is_some_and(|c| c >= Capability::Read)
             {
+                snapshot.request_refresh();
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
                     scope,
@@ -926,29 +931,27 @@ pub async fn resolve_live_specs(
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
-    // The `data_plane_names` authorization below still evaluates
-    // internal.user_roles() in SQL. Discovers now make the identical
-    // decision in-process against the authorization Snapshot
-    // (see agent's DiscoverExecutor); this SQL variant duplicates it
-    // and is to be strangled out in following commits.
+    // Data-plane name read authorization is evaluated in-process against the
+    // pinned Snapshot, as discovers do. A denied name is excluded exactly as
+    // a missing one, so that authorization does not leak the existence of
+    // unauthorized planes. The filter is deliberately unconditional,
+    // independent of `verify_user_authz`: the system user's controller
+    // publications pass through it identically.
+    // Planes referenced by id require no check: they come from
+    // live-spec rows which resolution above already admitted — user-authorized,
+    // or deliberately exempt (injected ops collections, and publications with
+    // `verify_user_authz: false`).
+    let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) = data_plane_names
+        .into_iter()
+        .partition(|name| snapshot.is_user_authorized(user_id, name, Capability::Read));
+    if !denied_names.is_empty() {
+        snapshot.request_refresh();
+        tracing::warn!(?denied_names, "excluding unauthorized data-plane names");
+    }
+
     live.data_planes = sqlx::query_as!(
         tables::DataPlane,
         r#"
-        WITH
-        data_plane_ids AS (
-            SELECT id
-            FROM UNNEST($1::flowid[]) AS t(id)
-        ),
-        data_plane_names AS (
-            SELECT name
-            FROM UNNEST($2::text[]) AS t(name)
-            -- User must be read-authorized to data-plane.
-            WHERE EXISTS (
-                SELECT 1
-                FROM internal.user_roles($3, 'read') AS r
-                WHERE starts_with(t.name, r.role_prefix)
-            )
-        )
         SELECT
             d.id AS "control_id: Id",
             d.data_plane_name,
@@ -964,12 +967,11 @@ pub async fn resolve_live_specs(
             d.ops_stats_name AS "ops_stats_name: models::Collection"
         FROM data_planes d
         WHERE
-            d.id IN (select id from data_plane_ids) OR
-            d.data_plane_name in (select name from data_plane_names)
+            d.id IN (SELECT id FROM UNNEST($1::flowid[]) AS t(id)) OR
+            d.data_plane_name IN (SELECT name FROM UNNEST($2::text[]) AS t(name))
         "#,
         &data_plane_ids as &[Id],
-        &data_plane_names as &[&str],
-        user_id as Uuid,
+        &authorized_names as &[&str],
     )
     .fetch_all(db)
     .await?

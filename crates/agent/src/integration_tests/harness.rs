@@ -180,9 +180,9 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
-    /// Watch of the authorization Snapshot used by the discovers executor.
-    /// It is refreshed before each discovers automation poll, so that grants
-    /// created by the test are visible to authorization.
+    /// Watch of the authorization Snapshot used by the discovers and
+    /// publications executors. It is refreshed before each such automation
+    /// poll, so that grants created by the test are visible to authorization.
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     /// Replaces the Snapshot behind `snapshot_watch`.
     snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
@@ -265,14 +265,15 @@ impl HarnessBuilder {
         let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
         let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
 
-        // The discovers executor authorizes against a manually-driven watch,
-        // so that tests control exactly when the Snapshot is (re)taken.
-        let (discover_snapshots, replace_discover_snapshot) =
+        // The discovers and publications executors authorize against a
+        // manually-driven watch, so that tests control exactly when the
+        // Snapshot is (re)taken.
+        let (executor_snapshots, replace_executor_snapshot) =
             tokens::manual::<control_plane_api::Snapshot>();
-        let (discover_snapshot_watch, _ready) = discover_snapshots.into_parts();
+        let (executor_snapshot_watch, _ready) = executor_snapshots.into_parts();
         let snapshot_replace: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
             Box::new(move |snapshot| {
-                let _ = replace_discover_snapshot(Ok(snapshot));
+                let _ = replace_executor_snapshot(Ok(snapshot));
             });
 
         let control_plane = TestControlPlane::new(PGControlPlane::new(
@@ -298,7 +299,7 @@ impl HarnessBuilder {
             publisher,
             builds_root,
             discover_handler,
-            snapshot_watch: discover_snapshot_watch,
+            snapshot_watch: executor_snapshot_watch,
             snapshot_replace,
             control_plane,
             controller_exec,
@@ -587,11 +588,9 @@ impl TestHarness {
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
-        let user_id = self.control_plane().inner.system_user_id;
         let names: Vec<&str> = prev_specs.all_spec_names().collect();
         let specs = control_plane_api::live_specs::fetch_live_specs(
-            user_id, &names, false, /* don't fetch user capabilities */
-            false, /* don't fetch spec capabilities */
+            &names, false, /* don't fetch spec capabilities */
             &self.pool,
         )
         .await
@@ -1102,13 +1101,23 @@ impl TestHarness {
         states
     }
 
-    /// Refreshes the authorization Snapshot used by the discovers executor.
+    /// Refreshes the authorization Snapshot used by the discovers and
+    /// publications executors.
     pub async fn refresh_snapshot(&self) {
         let data = control_plane_api::snapshot::try_fetch(&self.pool, &mut Default::default())
             .await
             .expect("failed to fetch authorization snapshot");
         let snapshot = control_plane_api::Snapshot::new(tokens::now(), data);
         (self.snapshot_replace)(snapshot);
+    }
+
+    /// Refreshes and pins the authorization Snapshot, for tests that call
+    /// `Publisher::build` directly and so bypass the publications executor's
+    /// per-poll pinning. Refreshing makes grants created by the test's setup
+    /// visible to authorization.
+    pub async fn pinned_snapshot(&self) -> Arc<tokens::Refresh<control_plane_api::Snapshot>> {
+        self.refresh_snapshot().await;
+        self.snapshot_watch.token()
     }
 
     /// Runs at most one automation task of the given type, and returns the id of the task that was run.
@@ -1123,13 +1132,20 @@ impl TestHarness {
             task_types::LIVE_SPEC_CONTROLLER => {
                 Server::new().register(self.controller_exec.clone())
             }
-            task_types::PUBLICATIONS => Server::new().register(PublicationsExecutor {
-                publisher: self.publisher.clone(),
-                pg_pool: self.pool.clone(),
-                runtime_v2_new_captures: self.runtime_v2_new_captures,
-                runtime_v2_new_materializations: self.runtime_v2_new_materializations,
-                runtime_v2_new_derivations: self.runtime_v2_new_derivations,
-            }),
+            task_types::PUBLICATIONS => {
+                // Publication authorization is evaluated against the
+                // executor's pinned Snapshot; refresh it so grants created
+                // by the test are visible.
+                self.refresh_snapshot().await;
+                Server::new().register(PublicationsExecutor {
+                    publisher: self.publisher.clone(),
+                    pg_pool: self.pool.clone(),
+                    snapshot_watch: self.snapshot_watch.clone(),
+                    runtime_v2_new_captures: self.runtime_v2_new_captures,
+                    runtime_v2_new_materializations: self.runtime_v2_new_materializations,
+                    runtime_v2_new_derivations: self.runtime_v2_new_derivations,
+                })
+            }
             task_types::DISCOVERS => {
                 // Discover authorization is evaluated against the executor's
                 // pinned Snapshot; refresh it so grants created by the test
@@ -1386,7 +1402,21 @@ impl TestHarness {
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::L(draft))
+        self.async_publication(user_id, detail, Either::L(draft), "ops/dp/public/test")
+            .await
+    }
+
+    /// Runs a publication of `draft` against a caller-chosen data-plane, for
+    /// exercising data-plane authorization. `user_publication` instead uses
+    /// the default test plane.
+    pub async fn user_publication_in_plane(
+        &mut self,
+        user_id: Uuid,
+        detail: impl Into<String>,
+        draft: tables::DraftCatalog,
+        data_plane_name: &str,
+    ) -> ScenarioResult {
+        self.async_publication(user_id, detail, Either::L(draft), data_plane_name)
             .await
     }
 
@@ -1396,7 +1426,7 @@ impl TestHarness {
         draft_id: Id,
         detail: impl Into<String>,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::R(draft_id))
+        self.async_publication(user_id, detail, Either::R(draft_id), "ops/dp/public/test")
             .await
     }
 
@@ -1409,6 +1439,7 @@ impl TestHarness {
         user_id: Uuid,
         detail: impl Into<String>,
         draft: Either<tables::DraftCatalog, Id>,
+        data_plane_name: &str,
     ) -> ScenarioResult {
         let detail = detail.into();
         let draft_id = match draft {
@@ -1425,7 +1456,7 @@ impl TestHarness {
             user_id,
             draft_id,
             detail.clone(),
-            "ops/dp/public/test".to_string(),
+            data_plane_name.to_string(),
         )
         .await
         .expect("failed to create publication");
@@ -1717,8 +1748,8 @@ impl TestHarness {
         // Execute the query using a pretty short timeout. This is necessary because the
         // server will try to wait for a Snapshot refresh when an authZ check fails, but
         // the API app's snapshot is a fixed watch that is never refreshed during
-        // integration tests. (The discovers executor's snapshot is separate, and IS
-        // refreshed by the harness before each discover poll by default.)
+        // integration tests. (The discovers and publications executors' snapshot is
+        // separate, and IS refreshed by the harness before each such poll by default.)
         let response =
             tokio::time::timeout(std::time::Duration::from_secs(1), schema.execute(request))
                 .await
@@ -1957,6 +1988,14 @@ impl TestControlPlane {
 
     pub fn set_controller_config(&self, config: crate::controllers::ControllerConfig) {
         *self.controller_config.lock().unwrap() = config;
+    }
+
+    /// Returns the current `Refresh` of the control plane's DB-backed
+    /// Snapshot watch — the Snapshot which `publish` pins. Capture it before
+    /// publishing to observe revoke cancellation on that same Snapshot: a
+    /// cancelled revoke makes the watch's next `token()` fetch a fresh one.
+    pub fn snapshot_refresh(&self) -> Arc<tokens::Refresh<control_plane_api::Snapshot>> {
+        self.inner.snapshot_watch.token()
     }
 
     pub fn reset_activations(&mut self) {
@@ -2246,6 +2285,8 @@ impl ControlPlane for TestControlPlane {
             let mocks = self.mocks.lock().unwrap();
             mocks.build_failures.clone()
         };
+        let refresh = self.inner.snapshot_watch.token();
+
         let publication = DraftPublication {
             user_id: self.inner.system_user_id,
             detail,
@@ -2254,6 +2295,7 @@ impl ControlPlane for TestControlPlane {
             dry_run: false,
             default_data_plane_name: data_plane_name,
             verify_user_authz: false,
+            snapshot: refresh.result().unwrap(),
             initialize: NoopInitialize,
             finalize,
             retry: DefaultRetryPolicy,

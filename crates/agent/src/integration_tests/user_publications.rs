@@ -152,6 +152,14 @@ async fn test_user_publications() {
     ]
     "#);
 
+    // The denied read of cats/noms is Snapshot-evaluated, so it requests an
+    // early background refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the denied referenced name to cancel the Snapshot's revoke token"
+    );
+
     // Add a user_grant for dogs and assert that a subsequent publication still fails for lack of a role_grant.
     harness
         .add_user_grant(dogs_user, "cats/", Capability::Read)
@@ -172,6 +180,14 @@ async fn test_user_publications() {
         ),
     ]
     "#);
+
+    // The remaining error is spec-to-spec, which is not Snapshot-evaluated
+    // and must not request a refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        !snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the spec-to-spec denial to leave the Snapshot's revoke token alone"
+    );
 
     // Add the role grant, and now dogs can materialize cats/noms
     harness
@@ -245,6 +261,14 @@ async fn test_user_publications() {
         .assert_specs_touched_since(&starting_expanded_specs)
         .await;
     assert_publication_excluded(result.pub_id.unwrap(), &["dogs/materialize"], &mut harness).await;
+
+    // Filtering dogs/materialize from the expansion merely narrowed the
+    // draft, and must not request a Snapshot refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        !snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the filtered expansion to leave the Snapshot's revoke token alone"
+    );
 
     harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(
@@ -892,5 +916,371 @@ async fn test_runtime_v2_new_derivations() {
         model_flag(&mut harness, "cats/early").await,
         None,
         "an existing derivation must stay unflagged on republish"
+    );
+}
+
+// The tests below pin publication authorization behaviors across the move of
+// their enforcement off internal.user_roles() SQL and onto the pinned
+// authorization Snapshot (issue #2781), mirroring the discovers migration.
+
+// Adds a plane outside the tenants' `ops/dp/public/` read grant: it exists
+// but is not readable by the tests' users.
+async fn add_private_plane(harness: &mut TestHarness) {
+    harness
+        .add_data_plane(
+            "ops/dp/private/other",
+            "ops-dp-private-other.dp.test",
+            vec!["c2VjcmV0".to_string()],
+        )
+        .await;
+}
+
+// Neither `storage_mappings` nor `data_planes` are reset between tests, so a
+// tenant's mapping reflects whichever planes existed when its first test
+// provisioned it. Pin the mapping to just the default test plane so that
+// data-plane resolution (and its error suggestions) are deterministic.
+async fn pin_storage_mapping_planes(harness: &TestHarness, catalog_prefix: &str) {
+    sqlx::query!(
+        r#"update storage_mappings
+        set spec = jsonb_set(spec::jsonb, '{data_planes}', '["ops/dp/public/test"]'::jsonb)::json
+        where catalog_prefix = $1"#,
+        catalog_prefix,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to pin storage mapping data-planes");
+}
+
+// A derivation is used because a new, unbound plain collection would be
+// pruned by `PruneUnboundCollections`, turning a successful publication
+// into an `EmptyDraft`.
+fn pawed_collection() -> serde_json::Value {
+    serde_json::json!({
+        "collections": {
+            "cats/paws": {
+                "schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+                "key": ["/id"]
+            },
+            "cats/paws-clean": {
+                "schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+                "key": ["/id"],
+                "derive": {
+                    "using": { "sqlite": { "migrations": [] } },
+                    "transforms": [
+                        { "name": "fromSource", "source": "cats/paws", "shuffle": "any", "lambda": "select $id;" }
+                    ]
+                }
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn test_publication_drafted_name_requires_admin() {
+    let mut harness = TestHarness::init("test_publication_drafted_name_requires_admin").await;
+
+    let _cats_user = harness.setup_tenant("cats").await;
+    let dogs_user = harness.setup_tenant("dogs").await;
+
+    // `write` on cats/ is enough to read and write data, but drafting a spec
+    // under cats/ requires `admin`.
+    harness
+        .add_user_grant(dogs_user, "cats/", Capability::Write)
+        .await;
+
+    let result = harness
+        .user_publication(
+            dogs_user,
+            "expect fail not admin",
+            draft_catalog(pawed_collection()),
+        )
+        .await;
+    assert!(!result.status.is_success());
+    insta::assert_debug_snapshot!(result.errors, @r#"
+    [
+        (
+            "flow://collection/cats/paws",
+            "User is not authorized to create or change this catalog name",
+        ),
+        (
+            "flow://collection/cats/paws-clean",
+            "User is not authorized to create or change this catalog name",
+        ),
+    ]
+    "#);
+
+    // A denied user capability requests an early background Snapshot refresh:
+    // the needed grant may have been created after the Snapshot was taken, and
+    // cancelling narrows the staleness window for a manual retry.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the denied drafted name to cancel the Snapshot's revoke token"
+    );
+
+    harness
+        .add_user_grant(dogs_user, "cats/", Capability::Admin)
+        .await;
+    let result = harness
+        .user_publication(
+            dogs_user,
+            "expect success as admin",
+            draft_catalog(pawed_collection()),
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed with status {:?}: {:?}",
+        result.status,
+        result.errors
+    );
+
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        !snapshot.result().unwrap().revoke.is_cancelled(),
+        "a successful publication must not cancel the Snapshot's revoke token"
+    );
+}
+
+#[tokio::test]
+async fn test_publication_no_data_plane() {
+    let mut harness = TestHarness::init("test_publication_no_data_plane").await;
+    let user_id = harness.setup_tenant("cats").await;
+    pin_storage_mapping_planes(&harness, "cats/").await;
+
+    // The unreadable plane must be indistinguishable from a missing one.
+    add_private_plane(&mut harness).await;
+
+    let mut outcomes = Vec::new();
+    for (case, data_plane_name) in [
+        ("unauthorized plane", "ops/dp/private/other"),
+        // The name falls under the tenant's read grant, but no such plane exists.
+        ("missing plane", "ops/dp/public/missing"),
+    ] {
+        let result = harness
+            .user_publication_in_plane(
+                user_id,
+                case,
+                draft_catalog(pawed_collection()),
+                data_plane_name,
+            )
+            .await;
+        assert!(!result.status.is_success(), "{case}");
+        outcomes.push((case, result.errors));
+    }
+    // A denied plane and a missing plane must fail identically, so that
+    // authorization does not leak the existence of unauthorized planes.
+    insta::assert_debug_snapshot!(outcomes, @r#"
+    [
+        (
+            "unauthorized plane",
+            [
+                (
+                    "file:///",
+                    "data plane ops/dp/private/other, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
+                ),
+            ],
+        ),
+        (
+            "missing plane",
+            [
+                (
+                    "file:///",
+                    "data plane ops/dp/public/missing, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
+                ),
+            ],
+        ),
+    ]
+    "#);
+}
+
+// Uses its own `lynx` tenant: `storage_mappings` is not reset between tests,
+// so mutating the shared `cats/` mapping would leak into other tests.
+#[tokio::test]
+async fn test_publication_storage_mapping_unreadable_plane() {
+    let mut harness = TestHarness::init("test_publication_storage_mapping_unreadable_plane").await;
+    let user_id = harness.setup_tenant("lynx").await;
+
+    add_private_plane(&mut harness).await;
+
+    // The tenant's storage mapping leads with a plane the user cannot read,
+    // making it the mapping's default, with the readable test plane second.
+    sqlx::query!(
+        r#"update storage_mappings
+        set spec = jsonb_set(
+            spec::jsonb,
+            '{data_planes}',
+            '["ops/dp/private/other", "ops/dp/public/test"]'::jsonb
+        )::json
+        where catalog_prefix = 'lynx/'"#,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to update storage mapping");
+
+    let draft = || {
+        draft_catalog(serde_json::json!({
+            "collections": {
+                "lynx/paws": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+                    "key": ["/id"]
+                },
+                "lynx/paws-clean": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+                    "key": ["/id"],
+                    "derive": {
+                        "using": { "sqlite": { "migrations": [] } },
+                        "transforms": [
+                            { "name": "fromSource", "source": "lynx/paws", "shuffle": "any", "lambda": "select $id;" }
+                        ]
+                    }
+                }
+            }
+        }))
+    };
+
+    // Without an explicit plane, new collections fall back to the mapping's
+    // default plane. The unreadable default is filtered from the resolved
+    // data-planes, indistinguishable from a missing one.
+    let result = harness
+        .user_publication_in_plane(user_id, "mapping default plane", draft(), "")
+        .await;
+    assert!(!result.status.is_success());
+    insta::assert_debug_snapshot!(result.errors, @r#"
+    [
+        (
+            "flow://collection/lynx/paws",
+            "data plane ops/dp/private/other, referenced by storage mapping lynx/, was not found; did you mean data plane ops/dp/public/test?",
+        ),
+        (
+            "flow://collection/lynx/paws-clean",
+            "data plane ops/dp/private/other, referenced by storage mapping lynx/, was not found; did you mean data plane ops/dp/public/test?",
+        ),
+    ]
+    "#);
+
+    // When the publication explicitly targets the readable plane, the
+    // unreadable mapping entry goes unused and is silently tolerated.
+    let result = harness
+        .user_publication(user_id, "explicit readable plane", draft())
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed with status {:?}: {:?}",
+        result.status,
+        result.errors
+    );
+
+    // Though unused, the mapping plane was still denied at partition time,
+    // which eagerly requests an early background refresh.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the unused denied mapping plane to cancel the Snapshot's revoke token"
+    );
+}
+
+// Unlike the characterization tests above, this asserts new Snapshot-only
+// behavior: the SQL authorization path never cancelled the revoke token, so
+// this test was committed RED and turned green when data-plane authorization
+// moved onto the Snapshot.
+#[tokio::test]
+async fn test_publication_no_data_plane_requests_snapshot_refresh() {
+    let mut harness =
+        TestHarness::init("test_publication_no_data_plane_requests_snapshot_refresh").await;
+    let user_id = harness.setup_tenant("cats").await;
+    pin_storage_mapping_planes(&harness, "cats/").await;
+
+    add_private_plane(&mut harness).await;
+
+    let result = harness
+        .user_publication_in_plane(
+            user_id,
+            "unauthorized plane",
+            draft_catalog(pawed_collection()),
+            "ops/dp/private/other",
+        )
+        .await;
+    assert!(!result.status.is_success());
+
+    // A denied data-plane requests an early background Snapshot refresh: the
+    // plane or its grant may have been created after the Snapshot was taken,
+    // and cancelling narrows the staleness window for a manual retry.
+    let snapshot = harness.snapshot_watch.token();
+    assert!(
+        snapshot.result().unwrap().revoke.is_cancelled(),
+        "expected the denied data-plane to cancel the Snapshot's revoke token"
+    );
+}
+
+// The data-plane read filter is deliberately unconditional: system
+// publications (`verify_user_authz: false`, as controllers issue) pass
+// through it as the system user, identically to user publications. Pin both
+// directions: a plane outside the system user's grants fails exactly as a
+// missing one and requests a Snapshot refresh, while its `ops/` grant admits
+// the shared test plane.
+#[tokio::test]
+async fn test_publication_system_user_data_plane_filter() {
+    let mut harness = TestHarness::init("test_publication_system_user_data_plane_filter").await;
+    let _user_id = harness.setup_tenant("cats").await;
+    pin_storage_mapping_planes(&harness, "cats/").await;
+
+    // A plane outside every grant of the system user, which holds admin only
+    // to `ops/` and `estuary_support/`.
+    harness
+        .add_data_plane(
+            "acmeCo/dp/other",
+            "acmeco-dp-other.dp.test",
+            vec!["c2VjcmV0".to_string()],
+        )
+        .await;
+    // `TestControlPlane::publish` pins from the control plane's DB-backed
+    // watch (not the harness's manually-driven executor watch). The denial
+    // below is purely a grant decision, so the plane's absence from that
+    // watch's Snapshot is irrelevant. Capture the Refresh it will pin:
+    // cancellation must land on this very Snapshot, and a cancelled revoke
+    // makes the watch's next `token()` fetch a fresh one.
+    let refresh = harness.control_plane().snapshot_refresh();
+
+    let denied = harness
+        .control_plane()
+        .publish(
+            Some("system publication into a denied plane".to_string()),
+            uuid::Uuid::new_v4(),
+            draft_catalog(pawed_collection()),
+            Some("acmeCo/dp/other".to_string()),
+        )
+        .await
+        .expect("publish failed to run");
+    assert!(!denied.status.is_success());
+    let errors: Vec<String> = denied
+        .draft_errors()
+        .into_iter()
+        .map(|e| e.detail)
+        .collect();
+    insta::assert_debug_snapshot!(errors, @r#"
+    [
+        "data plane acmeCo/dp/other, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
+    ]
+    "#);
+    assert!(
+        refresh.result().unwrap().revoke.is_cancelled(),
+        "expected the system-path plane denial to cancel the Snapshot's revoke token"
+    );
+
+    let allowed = harness
+        .control_plane()
+        .publish(
+            Some("system publication into a readable plane".to_string()),
+            uuid::Uuid::new_v4(),
+            draft_catalog(pawed_collection()),
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .expect("publish failed to run");
+    assert!(
+        allowed.status.is_success(),
+        "publication failed with: {:?}",
+        allowed.draft_errors()
     );
 }

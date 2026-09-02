@@ -325,7 +325,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             )
             .await?
         } else {
-            crate::live_specs::get_live_specs_unfiltered(user_id, &collection_names, db).await?
+            crate::live_specs::get_live_specs_unfiltered(&collection_names, db).await?
         };
 
         let mut modified_bindings = specs::merge_collections(
