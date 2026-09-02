@@ -185,7 +185,7 @@ pub async fn paginate_live_specs_refs(
     }
     let all_refs = crate::server::attach_user_capabilities(
         env.snapshot(),
-        env.claims()?,
+        env.principal()?,
         all_names,
         |name, maybe_capability| {
             if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
@@ -290,7 +290,8 @@ impl LiveSpecsQuery {
         // Fail the entire request if it passed a name or prefix that the user is unauthorized to.
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
-            env.claims()?,
+            env.principal()?,
+            env.user_email(),
             models::Capability::Read,
             names
                 .iter()
@@ -360,7 +361,7 @@ impl LiveSpecsQuery {
         // sub-prefixes, so resolve those here.
         let edges = crate::server::attach_user_capabilities(
             env.snapshot(),
-            env.claims()?,
+            env.principal()?,
             names,
             |name, user_capability| {
                 Some(connection::Edge::new(

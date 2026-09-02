@@ -51,14 +51,14 @@ impl PrefixesQuery {
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
             let snapshot = env.snapshot();
-            let user_id = env.claims()?.sub;
+            let principal = env.principal()?;
 
             let min_bits: models::authz::CapabilitySet = by.min_capability.into();
 
             let reachable = tables::UserGrant::reachable_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                user_id,
+                principal,
             );
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last

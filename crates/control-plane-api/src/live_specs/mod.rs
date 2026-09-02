@@ -10,12 +10,12 @@ pub use db::{
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
 
-/// Partitions the requested `names` by whether the user holds `capability`
+/// Partitions the requested `names` by whether `principal` holds `capability`
 /// to them, evaluated against the authorization `snapshot`. Returns
 /// `(authorized, denied)` as references into `names`, each sorted and
 /// deduplicated.
 fn partition_by_authorization<'n>(
-    user_id: Uuid,
+    principal: tables::Principal<'_>,
     names: &'n [String],
     capability: models::authz::CapabilitySet,
     snapshot: &crate::Snapshot,
@@ -25,7 +25,7 @@ fn partition_by_authorization<'n>(
             tables::UserGrant::is_authorized(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                user_id,
+                principal,
                 name,
                 capability,
             )
@@ -47,19 +47,20 @@ fn partition_by_authorization<'n>(
 /// The `snapshot` is trusted as-is: a grant committed after it was taken is
 /// invisible until the watch's own background refresh cadence picks it up.
 pub async fn get_live_specs_filtered(
-    user_id: Uuid,
+    principal: tables::Principal<'_>,
     names: &[String],
     capability: impl Into<models::authz::CapabilitySet>,
     snapshot: &crate::Snapshot,
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let (authorized, denied) =
-        partition_by_authorization(user_id, names, capability.into(), snapshot);
+        partition_by_authorization(principal, names, capability.into(), snapshot);
 
     if !denied.is_empty() {
+        let user_id = principal.user_id;
         tracing::debug!(?denied, %user_id, "filtered unauthorized specs from fetch");
     }
-    get_live_specs_unfiltered(user_id, &authorized, db).await
+    get_live_specs_unfiltered(principal.user_id, &authorized, db).await
 }
 
 /// Fetches live specs as a `tables::LiveCatalog` without any authorization
@@ -186,7 +187,12 @@ mod test {
             "acmeCo/shared/collection".to_string(),
             "bobCo/tires/capture".to_string(),
         ];
-        let (authorized, denied) = partition_by_authorization(bob, &names, capability, &snapshot);
+        let (authorized, denied) = partition_by_authorization(
+            tables::Principal::unscoped(bob),
+            &names,
+            capability,
+            &snapshot,
+        );
         assert_eq!(authorized, names);
         assert!(denied.is_empty());
 
@@ -199,7 +205,12 @@ mod test {
             "acmeCo/private/collection".to_string(),
             "aliceCo/anvils/pings".to_string(),
         ];
-        let (authorized, denied) = partition_by_authorization(bob, &names, capability, &snapshot);
+        let (authorized, denied) = partition_by_authorization(
+            tables::Principal::unscoped(bob),
+            &names,
+            capability,
+            &snapshot,
+        );
         assert_eq!(authorized, vec!["bobCo/tires/capture"]);
         assert_eq!(
             denied,

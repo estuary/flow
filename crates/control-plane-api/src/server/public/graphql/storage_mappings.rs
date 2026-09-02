@@ -206,7 +206,6 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -214,7 +213,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -346,7 +345,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -483,7 +482,6 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<ConnectionHealthTestResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -491,7 +489,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -507,34 +505,32 @@ impl StorageMappingsMutation {
 
 async fn evaluate_authorization(
     env: &crate::Envelope,
-    claims: &crate::ControlClaims,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> Result<(), crate::ApiError> {
-    let policy_result =
-        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
+    let policy_result = check_authorization(
+        &env.snapshot(),
+        env.principal()?,
+        env.user_email(),
+        catalog_prefix,
+        data_plane_names,
+    );
     env.authorization_outcome(policy_result).await?;
     Ok(())
 }
 
 fn check_authorization(
     snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
+    principal: tables::Principal<'_>,
+    user_email: &str,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> crate::AuthZResult<()> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
     // Verify the User admins `catalog_prefix`.
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        *user_id,
+        principal,
         catalog_prefix,
         models::Capability::Admin,
     ) {
@@ -706,7 +702,7 @@ impl StorageMappingsQuery {
             super::authorized_prefixes::filtered_authorized_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                env.claims()?.sub,
+                env.principal()?,
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -770,14 +766,14 @@ impl StorageMappingsQuery {
             .await?;
 
         let snapshot = env.snapshot();
-        let claims = env.claims()?;
+        let principal = env.principal()?;
         let edges = rows
             .into_iter()
             .map(|row| {
                 let user_capability = tables::UserGrant::get_user_capability(
                     &snapshot.role_grants,
                     &snapshot.user_grants,
-                    claims.sub,
+                    principal,
                     &row.catalog_prefix,
                 )
                 .ok_or_else(|| {

@@ -28,7 +28,8 @@ pub(crate) async fn handle_get_status(
 ) -> Result<axum::Json<Vec<StatusResponse>>, crate::ApiError> {
     let policy_result = crate::evaluate_names_authorization(
         env.snapshot(),
-        env.claims()?,
+        env.principal()?,
+        env.user_email(),
         models::Capability::Read,
         &name,
     );
@@ -42,7 +43,7 @@ pub(crate) async fn handle_get_status(
     let status = if connected {
         // Filter out any names that the user cannot read before fetching the statuses
         let unfiltered_names = add_connected_names(&name, &env.pg_pool).await?;
-        let (snapshot, claims) = (env.snapshot(), env.claims()?);
+        let (snapshot, principal) = (env.snapshot(), env.principal()?);
 
         let filtered = unfiltered_names
             .into_iter()
@@ -50,7 +51,7 @@ pub(crate) async fn handle_get_status(
                 tables::UserGrant::is_authorized(
                     &snapshot.role_grants,
                     &snapshot.user_grants,
-                    claims.sub,
+                    principal,
                     name,
                     models::Capability::Read,
                 )

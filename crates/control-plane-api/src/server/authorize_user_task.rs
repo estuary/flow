@@ -18,7 +18,13 @@ pub async fn authorize_user_task(
             tokens::DateTime::from_timestamp_secs(1 + started_unix as i64).unwrap_or_default();
     }
 
-    let policy_result = evaluate_authorization(env.snapshot(), env.claims()?, &task, capability);
+    let policy_result = evaluate_authorization(
+        env.snapshot(),
+        env.principal()?,
+        env.user_email(),
+        &task,
+        capability,
+    );
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
     let (
@@ -66,7 +72,8 @@ pub async fn authorize_user_task(
 
 fn evaluate_authorization(
     snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
+    principal: tables::Principal<'_>,
+    user_email: &str,
     task_name: &models::Name,
     capability: models::Capability,
 ) -> tonic::Result<(
@@ -82,17 +89,10 @@ fn evaluate_authorization(
         String,                // Shard ID prefix.
     ),
 )> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        *user_id,
+        principal,
         task_name,
         capability,
     ) {
@@ -106,7 +106,7 @@ fn evaluate_authorization(
         let has_support_access = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            *user_id,
+            principal,
             "estuary_support/",
             models::Capability::Admin,
         );
@@ -157,7 +157,7 @@ fn evaluate_authorization(
         exp: 0, // Filled later.
         iat: 0, // Filled later.
         iss: data_plane.data_plane_fqdn.clone(),
-        sub: user_id.to_string(),
+        sub: principal.user_id.to_string(),
         sel: proto_gazette::broker::LabelSelector {
             include: Some(labels::build_set([
                 ("name", ops_logs_journal.as_str()),
@@ -172,7 +172,7 @@ fn evaluate_authorization(
         exp: 0, // Filled later.
         iat: 0, // Filled later.
         iss: data_plane.data_plane_fqdn.clone(),
-        sub: user_id.to_string(),
+        sub: principal.user_id.to_string(),
         sel: proto_gazette::broker::LabelSelector {
             include: Some(labels::build_set([(
                 "id:prefix",
@@ -500,7 +500,13 @@ mod tests {
             email,
         };
 
-        match evaluate_authorization(&snapshot, &claims, &task, capability) {
+        match evaluate_authorization(
+            &snapshot,
+            tables::Principal::unscoped(claims.sub),
+            "test@example.com",
+            &task,
+            capability,
+        ) {
             Ok((
                 cordon_at,
                 (

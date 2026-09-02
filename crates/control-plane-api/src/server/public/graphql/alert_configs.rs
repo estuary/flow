@@ -121,14 +121,13 @@ impl AlertConfigsQuery {
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlertConfigs> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
 
         let snapshot = env.snapshot();
         let (read_prefixes, prefix_starts_with, prefix_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                claims.sub,
+                env.principal()?,
                 models::Capability::Read,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",
@@ -215,7 +214,6 @@ impl AlertConfigsQuery {
         catalog_prefix_or_name: String,
     ) -> async_graphql::Result<EffectiveAlertConfig> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
 
         validate_prefix_or_name(&catalog_prefix_or_name)?;
 
@@ -225,7 +223,8 @@ impl AlertConfigsQuery {
         // AlertConfigEntry and `effectiveAlertConfig` on liveSpec.
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
-            claims,
+            env.principal()?,
+            env.user_email(),
             models::authz::Capability::CatalogRead,
             [catalog_prefix_or_name.as_str()],
         );
@@ -269,7 +268,8 @@ impl AlertConfigsMutation {
         let gov = governing_prefix(&catalog_prefix_or_name)?;
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
-            claims,
+            env.principal()?,
+            env.user_email(),
             models::Capability::Admin,
             [gov.as_str()],
         );

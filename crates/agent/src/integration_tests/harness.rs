@@ -1696,6 +1696,7 @@ impl TestHarness {
             pg_pool: self.pool.clone(),
             refresh: app.snapshot.token(),
             retry_after: tokens::DateTime::UNIX_EPOCH,
+            scope_prefix: None,
             started: tokens::now(),
             locale: control_plane_api::Locale::EnUS,
         };

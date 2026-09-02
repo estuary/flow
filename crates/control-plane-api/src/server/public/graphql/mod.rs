@@ -67,7 +67,7 @@ fn may_access(
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        env.claims()?.sub,
+        env.principal()?,
         name,
         capability,
     ))
@@ -89,7 +89,8 @@ async fn verify_authorization(
 ) -> async_graphql::Result<()> {
     let policy_result = crate::server::evaluate_names_authorization(
         env.snapshot(),
-        env.claims()?,
+        env.principal()?,
+        env.user_email(),
         capability,
         [prefix],
     );

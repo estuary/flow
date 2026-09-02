@@ -86,6 +86,48 @@ fn any_path_satisfies<'a>(
     false
 }
 
+/// Narrow one node of a user's walk against the nodes reachable from a scope
+/// prefix, yielding the part of `node` which falls inside the scope.
+///
+/// Prefix sets are compared by containment, not equality, because a node at
+/// `acmeCo/` covers every name beneath it. So a user node and a scope node
+/// overlap whenever either prefix contains the other, and the overlap is the
+/// more specific of the two:
+///
+/// * user `acmeCo/` with scope `acmeCo/team/` overlaps at `acmeCo/team/`
+/// * user `acmeCo/team/` with scope `acmeCo/` overlaps at `acmeCo/team/`
+/// * user `acmeCo/` with scope `betaCo/` does not overlap
+///
+/// Capability is the intersection of both sides. A prefix the scope reaches
+/// only by delegation contributes only what was delegated, so scoping to
+/// `acmeCo/` grants `charlieCo/` exactly the capability that `acmeCo/`'s role
+/// grant conveys — even where the user separately holds more on `charlieCo/`
+/// through a grant outside the scope.
+///
+/// Because every emitted node is bounded by a node of the user's own walk,
+/// the scoped set is always a subset of the unscoped set. A scope cannot add
+/// authority regardless of the value supplied.
+fn narrow_to_scope<'a, 's>(
+    node: super::NodeRef<'a>,
+    scope_nodes: &'s [super::NodeRef<'a>],
+) -> impl Iterator<Item = super::NodeRef<'a>> + use<'a, 's> {
+    scope_nodes.iter().filter_map(move |scope_node| {
+        let object_role = if node.object_role.starts_with(scope_node.object_role) {
+            node.object_role
+        } else if scope_node.object_role.starts_with(node.object_role) {
+            scope_node.object_role
+        } else {
+            return None;
+        };
+
+        Some(super::NodeRef {
+            object_role,
+            capabilities: node.capabilities & scope_node.capabilities,
+            legacy: std::cmp::min(node.legacy, scope_node.legacy),
+        })
+    })
+}
+
 impl super::RoleGrant {
     pub fn reachable_nodes<'a>(
         role_grants: &'a [super::RoleGrant],
@@ -100,6 +142,33 @@ impl super::RoleGrant {
             next_neighbors(f.clone(), role_grants, &[], uuid::Uuid::nil())
         })
         .skip(1)
+    }
+
+    /// Nodes reachable from `scope`, including `scope` itself.
+    ///
+    /// This differs from `reachable_nodes` in two ways, both because the
+    /// output is used to narrow another node set rather than to authorize on
+    /// its own:
+    ///
+    /// * The seed prefix is included. A request scoped to `acmeCo/` must still
+    ///   reach `acmeCo/`, not only what `acmeCo/` delegates to.
+    /// * The seed carries every capability bit and `Admin`, so intersecting
+    ///   with it filters by prefix without also removing capability that the
+    ///   user holds at the seed prefix. Bits reached through role grants are
+    ///   still whatever those grants convey, so a delegated prefix contributes
+    ///   only the capability it was delegated.
+    pub fn scope_nodes<'a>(
+        role_grants: &'a [super::RoleGrant],
+        scope: &'a str,
+    ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
+        let seed = super::NodeRef {
+            object_role: scope,
+            capabilities: EnumSet::all(),
+            legacy: models::Capability::Admin,
+        };
+        pathfinding::directed::bfs::bfs_reach(seed, move |f| {
+            next_neighbors(f.clone(), role_grants, &[], uuid::Uuid::nil())
+        })
     }
 
     pub fn is_authorized<'a>(
@@ -125,23 +194,44 @@ impl super::RoleGrant {
 }
 
 impl super::UserGrant {
+    /// Nodes reachable by `principal`.
+    ///
+    /// Without a scope this is every node reachable from the user's grants.
+    /// With one, each reachable node is narrowed against the nodes reachable
+    /// from the scope prefix: see `narrow_to_scope`.
     pub fn reachable_nodes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        user_id: uuid::Uuid,
+        principal: super::Principal<'a>,
     ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
         let seed = super::NodeRef {
             object_role: "",
             capabilities: EnumSet::from(authz::Capability::Assume),
             legacy: models::Capability::None,
         };
-        pathfinding::directed::bfs::bfs_reach(seed, move |f| {
-            next_neighbors(f.clone(), role_grants, user_grants, user_id)
+        let unscoped = pathfinding::directed::bfs::bfs_reach(seed, move |f| {
+            next_neighbors(f.clone(), role_grants, user_grants, principal.user_id)
         })
-        .skip(1)
+        .skip(1);
+
+        let Some(scope) = principal.scope else {
+            return itertools::Either::Left(unscoped);
+        };
+
+        // Both walks are bounded by the grant graph and hold tens of prefixes
+        // in practice, so the scoped set is materialized in one pass. The
+        // unscoped branch above stays lazy, which is what `is_authorized`
+        // relies on to stop at the first node that satisfies it.
+        let scope_nodes: Vec<super::NodeRef<'a>> =
+            super::RoleGrant::scope_nodes(role_grants, scope).collect();
+        let scoped: Vec<super::NodeRef<'a>> = unscoped
+            .flat_map(|node| narrow_to_scope(node, &scope_nodes).collect::<Vec<_>>())
+            .collect();
+
+        itertools::Either::Right(scoped.into_iter())
     }
 
-    /// Returns each prefix reachable from `user_id` mapped to the union
+    /// Returns each prefix reachable by `principal` mapped to the union
     /// of capability bits granted at that prefix across every path
     /// through the grant graph, paired with the max legacy `capability`
     /// column value among grants directly emitting that prefix.
@@ -153,13 +243,13 @@ impl super::UserGrant {
     pub fn reachable_prefixes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        user_id: uuid::Uuid,
+        principal: super::Principal<'a>,
     ) -> std::collections::BTreeMap<&'a str, (authz::CapabilitySet, models::Capability)> {
         let mut out: std::collections::BTreeMap<
             &'a str,
             (authz::CapabilitySet, models::Capability),
         > = Default::default();
-        for node in Self::reachable_nodes(role_grants, user_grants, user_id) {
+        for node in Self::reachable_nodes(role_grants, user_grants, principal) {
             let entry = out
                 .entry(node.object_role)
                 .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
@@ -174,10 +264,10 @@ impl super::UserGrant {
     pub fn get_user_capability<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        user_id: uuid::Uuid,
+        principal: super::Principal<'a>,
         object_role_or_name: &str,
     ) -> Option<models::Capability> {
-        Self::reachable_nodes(role_grants, user_grants, user_id)
+        Self::reachable_nodes(role_grants, user_grants, principal)
             .filter(|n| object_role_or_name.starts_with(n.object_role))
             .map(|n| n.legacy)
             .filter(|c| *c != models::Capability::None)
@@ -187,12 +277,12 @@ impl super::UserGrant {
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject_user_id: uuid::Uuid,
+        principal: super::Principal<'a>,
         object_role_or_name: &'a str,
         capability: impl Into<authz::CapabilitySet>,
     ) -> bool {
         any_path_satisfies(
-            Self::reachable_nodes(role_grants, user_grants, subject_user_id),
+            Self::reachable_nodes(role_grants, user_grants, principal),
             object_role_or_name,
             capability,
         )
@@ -304,7 +394,7 @@ impl super::StorageMapping {
 
 #[cfg(test)]
 mod test {
-    use crate::{Import, Imports, RoleGrant, RoleGrants, UserGrant, UserGrants};
+    use crate::{Import, Imports, Principal, RoleGrant, RoleGrants, UserGrant, UserGrants};
     use enumset::EnumSet;
     use models::authz::{Capability, CapabilityBundle};
 
@@ -444,21 +534,21 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::nil(),
+            Principal::unscoped(uuid::Uuid::nil()),
             "bobCo/thing",
             models::Capability::Read,
         ));
         assert!(!UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::nil(),
+            Principal::unscoped(uuid::Uuid::nil()),
             "bobCo/thing",
             models::Capability::Write,
         ));
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::nil(),
+            Principal::unscoped(uuid::Uuid::nil()),
             "carolCo/hidden/thing",
             models::Capability::Read,
         ));
@@ -467,7 +557,7 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::max(),
+            Principal::unscoped(uuid::Uuid::max()),
             "bobCo/burgers/thing",
             models::Capability::Admin,
         ));
@@ -581,7 +671,7 @@ mod test {
             UserGrant::get_user_capability(
                 &role_grants,
                 &user_grants,
-                user1,
+                Principal::unscoped(user1),
                 "ops/private/dp/acmeCo/foooo"
             )
         );
@@ -590,7 +680,7 @@ mod test {
             UserGrant::get_user_capability(
                 &role_grants,
                 &user_grants,
-                user2,
+                Principal::unscoped(user2),
                 "ops/private/dp/acmeCo/foooo"
             )
         );
@@ -599,7 +689,7 @@ mod test {
             UserGrant::get_user_capability(
                 &role_grants,
                 &user_grants,
-                user1,
+                Principal::unscoped(user1),
                 "different/co/altogether"
             )
         );
@@ -640,7 +730,7 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::from_bytes([1; 16]),
+            Principal::unscoped(uuid::Uuid::from_bytes([1; 16])),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
         ));
@@ -649,10 +739,194 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::from_bytes([2; 16]),
+            Principal::unscoped(uuid::Uuid::from_bytes([2; 16])),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
         ));
+    }
+
+    /// Grant graph shared by the scope tests below.
+    ///
+    /// Alice admins `acmeCo/` and `betaCo/`, and `acmeCo/` holds a read grant
+    /// to `charlieCo/`. She also admins `charlieCo/ops/` directly, which is
+    /// how the tests distinguish authority reached through the scope from
+    /// authority she happens to hold on the same prefix by another path.
+    fn scope_fixture() -> (RoleGrants, UserGrants, uuid::Uuid) {
+        use models::Capability::{Admin, Read};
+
+        let alice = uuid::Uuid::from_bytes([0xa1; 16]);
+
+        let role_grants = RoleGrants::from_iter([("acmeCo/", "charlieCo/", Read)].into_iter().map(
+            |(sub, obj, capability)| RoleGrant {
+                subject_role: models::Prefix::new(sub),
+                object_role: models::Prefix::new(obj),
+                capability,
+                bundles: vec![],
+            },
+        ));
+        let user_grants = UserGrants::from_iter(
+            [
+                (alice, "acmeCo/", Admin),
+                (alice, "betaCo/", Admin),
+                (alice, "charlieCo/ops/", Admin),
+            ]
+            .into_iter()
+            .map(|(user_id, obj, capability)| UserGrant {
+                user_id,
+                object_role: models::Prefix::new(obj),
+                capability,
+                bundles: vec![],
+            }),
+        );
+
+        (role_grants, user_grants, alice)
+    }
+
+    /// Prefixes reachable by `principal`, each with its legacy capability.
+    fn scoped_prefixes(
+        role_grants: &RoleGrants,
+        user_grants: &UserGrants,
+        principal: Principal<'_>,
+    ) -> Vec<(String, models::Capability)> {
+        let mut out: Vec<_> = UserGrant::reachable_prefixes(role_grants, user_grants, principal)
+            .into_iter()
+            .filter(|(_, (bits, _))| !bits.is_empty())
+            .map(|(prefix, (_, legacy))| (prefix.to_string(), legacy))
+            .collect();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn test_scope_selects_one_branch() {
+        use models::Capability::{Admin, Read};
+        let (rg, ug, alice) = scope_fixture();
+
+        // Unscoped, Alice reaches everything she's been granted.
+        assert_eq!(
+            scoped_prefixes(&rg, &ug, Principal::unscoped(alice)),
+            vec![
+                ("acmeCo/".to_string(), Admin),
+                ("betaCo/".to_string(), Admin),
+                ("charlieCo/".to_string(), Read),
+                ("charlieCo/ops/".to_string(), Admin),
+            ],
+        );
+
+        // Scoped to `acmeCo/`, she reaches `acmeCo/` and what it delegates to.
+        // `betaCo/` drops out because it is a sibling branch.
+        assert_eq!(
+            scoped_prefixes(&rg, &ug, Principal::scoped(alice, "acmeCo/")),
+            vec![
+                ("acmeCo/".to_string(), Admin),
+                ("charlieCo/".to_string(), Read),
+                ("charlieCo/ops/".to_string(), Read),
+            ],
+        );
+
+        // Scoped to `betaCo/`, only `betaCo/` remains: it delegates nothing.
+        assert_eq!(
+            scoped_prefixes(&rg, &ug, Principal::scoped(alice, "betaCo/")),
+            vec![("betaCo/".to_string(), Admin)],
+        );
+    }
+
+    #[test]
+    fn test_scope_narrower_than_grant_keeps_ancestor_delegations() {
+        use models::Capability::{Admin, Read};
+        let (rg, ug, alice) = scope_fixture();
+
+        // The role grant to `charlieCo/` hangs off `acmeCo/`, and a grant on
+        // `acmeCo/` reaches all of `acmeCo/`. So scoping to `acmeCo/team/`
+        // still reaches `charlieCo/`, even though `acmeCo/team/` is not
+        // itself the grant's subject.
+        assert_eq!(
+            scoped_prefixes(&rg, &ug, Principal::scoped(alice, "acmeCo/team/")),
+            vec![
+                ("acmeCo/team/".to_string(), Admin),
+                ("charlieCo/".to_string(), Read),
+                ("charlieCo/ops/".to_string(), Read),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_scope_caps_capability_at_what_it_delegates() {
+        use models::Capability::{Admin, Read};
+        let (rg, ug, alice) = scope_fixture();
+
+        // Alice admins `charlieCo/ops/` directly, so unscoped she holds Admin.
+        assert!(UserGrant::is_authorized(
+            &rg,
+            &ug,
+            Principal::unscoped(alice),
+            "charlieCo/ops/thing",
+            Admin,
+        ));
+
+        // Within the `acmeCo/` scope her reach to `charlieCo/` comes from that
+        // tenant's read grant, so the direct Admin grant is not in play and
+        // Read is the most she holds.
+        assert!(UserGrant::is_authorized(
+            &rg,
+            &ug,
+            Principal::scoped(alice, "acmeCo/"),
+            "charlieCo/ops/thing",
+            Read,
+        ));
+        assert!(!UserGrant::is_authorized(
+            &rg,
+            &ug,
+            Principal::scoped(alice, "acmeCo/"),
+            "charlieCo/ops/thing",
+            Admin,
+        ));
+    }
+
+    #[test]
+    fn test_scope_cannot_widen() {
+        use models::Capability::Read;
+        let (rg, ug, alice) = scope_fixture();
+
+        // A scope naming a prefix Alice cannot reach yields no authority,
+        // rather than the authority of that prefix.
+        assert!(
+            scoped_prefixes(&rg, &ug, Principal::scoped(alice, "deltaCo/")).is_empty(),
+            "a scope outside the user's grants must reach nothing",
+        );
+        assert!(!UserGrant::is_authorized(
+            &rg,
+            &ug,
+            Principal::scoped(alice, "deltaCo/"),
+            "deltaCo/thing",
+            Read,
+        ));
+
+        // Every scope, including one the user cannot reach, produces a subset
+        // of the unscoped prefixes. This is the property that makes the scope
+        // safe to take from an untrusted request parameter.
+        let unscoped: std::collections::BTreeSet<_> =
+            scoped_prefixes(&rg, &ug, Principal::unscoped(alice))
+                .into_iter()
+                .map(|(prefix, _)| prefix)
+                .collect();
+
+        for scope in [
+            "acmeCo/",
+            "acmeCo/team/",
+            "betaCo/",
+            "charlieCo/",
+            "charlieCo/ops/",
+            "deltaCo/",
+            "estuary_support/",
+        ] {
+            for (prefix, _) in scoped_prefixes(&rg, &ug, Principal::scoped(alice, scope)) {
+                assert!(
+                    unscoped.iter().any(|u| prefix.starts_with(u.as_str())),
+                    "scope '{scope}' reached '{prefix}', which is outside the unscoped set",
+                );
+            }
+        }
     }
 
     fn build_scenario(
@@ -683,9 +957,10 @@ mod test {
         user_id: uuid::Uuid,
         expected: Vec<(&str, EnumSet<Capability>)>,
     ) {
-        let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, user_id)
-            .map(|n| (n.object_role.to_string(), n.capabilities))
-            .collect();
+        let mut nodes: Vec<_> =
+            UserGrant::reachable_nodes(role_grants, user_grants, Principal::unscoped(user_id))
+                .map(|n| (n.object_role.to_string(), n.capabilities))
+                .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.as_u32().cmp(&b.1.as_u32())));
         nodes.dedup();
 
@@ -705,7 +980,13 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                Principal::unscoped(user_id),
+                name,
+                required
+            ),
             "expected {user_id} to have {required:?} on {name}",
         );
     }
@@ -718,7 +999,13 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            !UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            !UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                Principal::unscoped(user_id),
+                name,
+                required
+            ),
             "expected {user_id} NOT to have {required:?} on {name}",
         );
     }
@@ -1306,7 +1593,8 @@ mod test {
         let role_grants = RoleGrants::new();
 
         let nodes: Vec<_> =
-            UserGrant::reachable_nodes(&role_grants, &user_grants, user_id).collect();
+            UserGrant::reachable_nodes(&role_grants, &user_grants, Principal::unscoped(user_id))
+                .collect();
 
         assert_eq!(nodes.len(), 1);
         let node = &nodes[0];
