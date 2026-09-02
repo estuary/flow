@@ -16,6 +16,7 @@ tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
+futures = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }

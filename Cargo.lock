@@ -6497,6 +6497,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "futures",
  "labels",
  "proto-build",
  "proto-flow",
