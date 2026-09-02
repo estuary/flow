@@ -1,4 +1,4 @@
-use crate::{anyhow_to_status, log, new_channel, session, slice};
+use crate::{log, new_channel, session, slice};
 use proto_flow::shuffle;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -107,8 +107,9 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = session::serve_session(service, authz, request_rx, response_tx).await {
-                let _ = error_tx.send(Err(anyhow_to_status(e)));
+            let handler = session::serve_session(service, authz, request_rx, response_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status));
             }
         });
         response_rx
@@ -127,8 +128,9 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = slice::serve_slice(service, authz, request_rx, response_tx).await {
-                let _ = error_tx.send(Err(anyhow_to_status(e))).await;
+            let handler = slice::serve_slice(service, authz, request_rx, response_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status)).await;
             }
         });
         response_rx
@@ -147,8 +149,9 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = log::serve_log(service, authz, request_rx, response_tx).await {
-                let _ = error_tx.send(Err(anyhow_to_status(e))).await;
+            let handler = log::serve_log(service, authz, request_rx, response_tx);
+            if let Err(status) = proto_grpc::catch_panic(handler).await {
+                let _ = error_tx.send(Err(status)).await;
             }
         });
         response_rx
