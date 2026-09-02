@@ -152,7 +152,7 @@ where
         progress_ready: vec![true; shard_count],
         session_response_tx: session_response_tx.clone(),
         slice_request_tx,
-        start_reads: std::collections::VecDeque::new(),
+        slice_requests: std::collections::VecDeque::new(),
         metrics,
     }
     .serve(request_rx, response_rx)
