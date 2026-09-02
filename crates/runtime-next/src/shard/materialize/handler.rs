@@ -14,11 +14,7 @@ pub(crate) async fn serve<R, P: crate::PublisherFactory, L: crate::LoggerFactory
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
-    let verify = crate::verify(
-        "Materialize",
-        "SessionLoop, Spec, or Validate",
-        "controller",
-    );
+    let verify = crate::verify("Materialize", "SessionLoop", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Materialize {
@@ -34,74 +30,35 @@ where
                 .await;
             }
 
-            proto::Materialize {
-                spec: Some(spec),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let request = materialize::Request {
-                    spec: Some(spec),
-                    ..Default::default()
-                };
-                let response = serve_unary(&service, request, log_level).await?;
-                _ = controller_tx.send(Ok(response));
-            }
-
-            proto::Materialize {
-                validate: Some(validate),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let request = materialize::Request {
-                    validate: Some(validate),
-                    ..Default::default()
-                };
-                let response = serve_unary(&service, request, log_level).await?;
-                _ = controller_tx.send(Ok(response));
-            }
-
             request => return Err(verify.fail_msg(request)),
         }
     }
     Ok(())
 }
 
-pub async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+/// Drive a one-shot connector Apply, returning the connector's Applied.
+/// Apply is the only connector RPC of a materialization session which runs
+/// outside the session's long-lived connector stream.
+pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     service: &crate::shard::Service<P, L>,
-    request: materialize::Request,
+    apply: materialize::request::Apply,
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
-    let is_spec = request.spec.is_some();
-    let is_validate = request.validate.is_some();
-    let is_apply = request.apply.is_some();
-
     let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) =
-        connector::start(service, &logger, log_level, request).await?;
+    let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) = connector::start(
+        service,
+        &logger,
+        log_level,
+        materialize::Request {
+            apply: Some(apply),
+            ..Default::default()
+        },
+    )
+    .await?;
     std::mem::drop(connector_tx); // Send EOF.
 
-    // Read connector response, and verify it matches the request type.
-    let verify = crate::verify("Materialize", "unary response", "connector");
+    let verify = crate::verify("Materialize", "Applied", "connector");
     let response = match verify.not_eof(connector_rx.next().await)? {
-        materialize::Response {
-            spec: Some(spec), ..
-        } if is_spec => proto::Materialize {
-            spec_response: Some(spec),
-            ..Default::default()
-        },
-        materialize::Response {
-            validated: Some(validated),
-            ..
-        } if is_validate => proto::Materialize {
-            validated: Some(validated),
-            ..Default::default()
-        },
         materialize::Response {
             applied:
                 Some(materialize::response::Applied {
@@ -109,7 +66,7 @@ pub async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                     state,
                 }),
             ..
-        } if is_apply => proto::Materialize {
+        } => proto::Materialize {
             applied: Some(proto::Applied {
                 action_description,
                 connector_patches_json: patches::encode_connector_state(state),

@@ -1,8 +1,7 @@
-use super::{connector, startup};
+use super::startup;
 use crate::proto;
 use anyhow::Context;
 use futures::StreamExt;
-use proto_flow::derive;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
@@ -14,7 +13,7 @@ pub(crate) async fn serve<R, P: crate::PublisherFactory, L: crate::LoggerFactory
 where
     R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
 {
-    let verify = crate::verify("Derive", "SessionLoop, Spec, or Validate", "controller");
+    let verify = crate::verify("Derive", "SessionLoop", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Derive {
@@ -30,86 +29,10 @@ where
                 .await;
             }
 
-            proto::Derive {
-                spec: Some(spec),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    derive::Request {
-                        spec: Some(spec),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
-
-            proto::Derive {
-                validate: Some(validate),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    derive::Request {
-                        validate: Some(validate),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
-
             request => return Err(verify.fail_msg(request)),
         }
     }
     Ok(())
-}
-
-pub async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    request: derive::Request,
-    log_level: ops::LogLevel,
-) -> anyhow::Result<proto::Derive> {
-    let is_spec = request.spec.is_some();
-    let is_validate = request.validate.is_some();
-
-    let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _codec) =
-        connector::start(service, &logger, log_level, request).await?;
-    std::mem::drop(connector_tx); // Send EOF.
-
-    let verify = crate::verify("Derive", "unary response", "connector");
-    let response = match verify.not_eof(connector_rx.next().await)? {
-        derive::Response {
-            spec: Some(spec), ..
-        } if is_spec => proto::Derive {
-            spec_response: Some(spec),
-            ..Default::default()
-        },
-        derive::Response {
-            validated: Some(validated),
-            ..
-        } if is_validate => proto::Derive {
-            validated: Some(validated),
-            ..Default::default()
-        },
-        response => return Err(verify.fail_msg(response)),
-    };
-
-    () = verify.eof(connector_rx.next().await)?;
-
-    Ok(response)
 }
 
 async fn serve_session_loop<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
