@@ -185,18 +185,6 @@ fn extract_endpoint<'r>(
 )> {
     let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
         materialize::Request {
-            spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json, None, None),
-        materialize::Request {
-            validate: Some(validate),
-            ..
-        } => (
-            validate.connector_type,
-            &mut validate.config_json,
-            Some(validate.name.clone()),
-            None,
-        ),
-        materialize::Request {
             apply: Some(apply), ..
         } => {
             let catalog_name = apply.materialization.as_ref().map(|m| m.name.clone());
