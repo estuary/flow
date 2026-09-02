@@ -79,7 +79,7 @@ pub async fn authorize_task(
                     ..Default::default()
                 }));
             }
-            Err(err @ crate::ApiError::Status(_)) => return Err(err),
+            Err(err) => return Err(err),
         };
 
     // Build and sign response claims.
@@ -136,7 +136,8 @@ fn evaluate_authorization(
     else {
         return Err(tonic::Status::unauthenticated(
             "no data-plane keys validated against the token signature",
-        ));
+        )
+        .into());
     };
 
     // Map `claims.sub`, a Shard ID, into a task running in `task_data_plane`.
@@ -146,7 +147,8 @@ fn evaluate_authorization(
     else {
         return Err(tonic::Status::failed_precondition(format!(
             "task shard {shard_id} within data-plane {shard_data_plane_fqdn} is not known"
-        )));
+        ))
+        .into());
     };
 
     // Map a required `name` journal label selector into its collection.
@@ -159,7 +161,8 @@ fn evaluate_authorization(
             return Err(tonic::Status::internal(format!(
                 "collection {} data-plane {} not found",
                 collection.collection_name, collection.data_plane_id,
-            )));
+            ))
+            .into());
         };
 
         // As a special case outside of the RBAC system, allow a task to write
@@ -195,14 +198,15 @@ fn evaluate_authorization(
         );
         return Err(tonic::Status::permission_denied(format!(
             "task shard {shard_id} is not authorized to {journal_name_or_prefix} for {required_role:?}"
-        )));
+        )).into());
     }
 
     let Some(encoding_key) = collection_data_plane.hmac_keys.first() else {
         return Err(tonic::Status::internal(format!(
             "collection data-plane {} has no configured HMAC keys",
             collection_data_plane.data_plane_name
-        )));
+        ))
+        .into());
     };
     let encoding_key =
         tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
@@ -231,7 +235,8 @@ fn evaluate_authorization(
     if !found && !snapshot.taken_after(started) {
         return Err(tonic::Status::unavailable(format!(
             "{journal_name_or_prefix} does not map to a known collection"
-        )));
+        ))
+        .into());
     }
 
     Ok((
@@ -470,10 +475,10 @@ mod tests {
                     Outcome::Ok(output)
                 }
             }
-            Err(status) => Outcome::Err {
-                status: tokens::rest::grpc_status_code_to_http(status.code()),
-                error: status.message().to_string(),
-            },
+            Err(err) => {
+                let (status, error) = err.into_status_message();
+                Outcome::Err { status, error }
+            }
         }
     }
 

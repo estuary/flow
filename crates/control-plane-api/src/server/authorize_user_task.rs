@@ -5,7 +5,9 @@ type Response = models::authorizations::UserTaskAuthorization;
 #[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_user_task(
     crate::Authority {
-        envelope: mut env, ..
+        envelope: mut env,
+        mask,
+        ..
     }: crate::Authority,
     super::Request(Request {
         task,
@@ -20,7 +22,8 @@ pub async fn authorize_user_task(
             tokens::DateTime::from_timestamp_secs(1 + started_unix as i64).unwrap_or_default();
     }
 
-    let policy_result = evaluate_authorization(env.snapshot(), env.claims()?, &task, capability);
+    let policy_result =
+        evaluate_authorization(env.snapshot(), env.claims()?, mask, &task, capability);
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
     let (
@@ -69,20 +72,18 @@ pub async fn authorize_user_task(
 fn evaluate_authorization(
     snapshot: &crate::Snapshot,
     claims: &crate::ControlClaims,
+    mask: models::authz::CapabilityMask,
     task_name: &models::Name,
     capability: models::Capability,
-) -> tonic::Result<(
-    Option<chrono::DateTime<chrono::Utc>>,
-    (
-        tokens::jwt::EncodingKey,
-        proto_gazette::Claims, // Broker claims.
-        String,                // Broker address.
-        String,                // ops logs journal
-        String,                // opts stats journal
-        proto_gazette::Claims, // Reactor claims.
-        String,                // Reactor address.
-        String,                // Shard ID prefix.
-    ),
+) -> crate::AuthZResult<(
+    tokens::jwt::EncodingKey,
+    proto_gazette::Claims, // Broker claims.
+    String,                // Broker address.
+    String,                // ops logs journal
+    String,                // opts stats journal
+    proto_gazette::Claims, // Reactor claims.
+    String,                // Reactor address.
+    String,                // Shard ID prefix.
 )> {
     let models::authorizations::ControlClaims {
         sub: user_id,
@@ -91,17 +92,20 @@ fn evaluate_authorization(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
+    crate::Forbidden::required_covered(mask, capability)?;
+
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
         *user_id,
         task_name,
         capability,
-        models::authz::CapabilityMask::ALL_CAPABILITIES,
+        mask,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {task_name} for {capability:?}",
-        )));
+        ))
+        .into());
     }
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
@@ -112,32 +116,32 @@ fn evaluate_authorization(
             *user_id,
             "estuary_support/",
             models::Capability::Admin,
-            models::authz::CapabilityMask::ALL_CAPABILITIES,
+            mask,
         );
 
         if !has_support_access {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
-            )));
+            )).into());
         }
     }
 
     let Some(task) = snapshot.task_by_catalog_name(task_name) else {
-        return Err(tonic::Status::not_found(format!(
-            "task {task_name} is not known"
-        )));
+        return Err(tonic::Status::not_found(format!("task {task_name} is not known")).into());
     };
     let Some(data_plane) = snapshot.data_planes.get_by_key(&task.data_plane_id) else {
         return Err(tonic::Status::internal(format!(
             "task data-plane {} not found",
             task.data_plane_id
-        )));
+        ))
+        .into());
     };
     let Some(encoding_key) = data_plane.hmac_keys.first() else {
         return Err(tonic::Status::internal(format!(
             "task data-plane {} has no configured HMAC keys",
             data_plane.data_plane_name
-        )));
+        ))
+        .into());
     };
     let encoding_key =
         tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
@@ -149,7 +153,8 @@ fn evaluate_authorization(
         return Err(tonic::Status::internal(format!(
             "couldn't resolve data-plane {} ops collections",
             task.data_plane_id
-        )));
+        ))
+        .into());
     };
 
     let ops_suffix = super::ops_suffix(task);
@@ -505,7 +510,13 @@ mod tests {
             capability_mask: None,
         };
 
-        match evaluate_authorization(&snapshot, &claims, &task, capability) {
+        match evaluate_authorization(
+            &snapshot,
+            &claims,
+            models::authz::CapabilityMask::from_claim(claims.capability_mask.as_deref()),
+            &task,
+            capability,
+        ) {
             Ok((
                 cordon_at,
                 (
@@ -541,10 +552,10 @@ mod tests {
                     Outcome::Ok(output)
                 }
             }
-            Err(status) => Outcome::Err {
-                status: tokens::rest::grpc_status_code_to_http(status.code()),
-                error: status.message().to_string(),
-            },
+            Err(err) => {
+                let (status, error) = err.into_status_message();
+                Outcome::Err { status, error }
+            }
         }
     }
 

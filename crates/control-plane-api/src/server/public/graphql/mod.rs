@@ -46,8 +46,19 @@ mod tenant;
 
 pub(crate) use scalars::Sensitive;
 
+/// The bearer's capability mask, as injected into the GraphQL context by
+/// `graphql_handler`. One named accessor keeps the ~40 resolver pulls
+/// explicit about what they read without each repeating the type.
+pub(crate) fn bearer_mask(
+    ctx: &async_graphql::Context<'_>,
+) -> async_graphql::Result<models::authz::CapabilityMask> {
+    Ok(*ctx.data::<models::authz::CapabilityMask>()?)
+}
+
 /// Whether the current user holds `capability` on `name`, as a pure check
-/// against the request's authorization Snapshot.
+/// against the request's authorization Snapshot under the bearer's capability
+/// mask: a capability the mask doesn't enable is absent here exactly as a
+/// grant the user doesn't hold.
 ///
 /// This is the visibility gate: use it to hide a field or filter a list,
 /// failing closed to an empty or default value when it returns `false`. Unlike
@@ -63,6 +74,7 @@ fn may_access(
     capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
+    let mask = bearer_mask(ctx)?;
     let snapshot = env.snapshot();
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
@@ -70,27 +82,32 @@ fn may_access(
         env.claims()?.sub,
         name,
         capability,
-        models::authz::CapabilityMask::ALL_CAPABILITIES,
+        mask,
     ))
 }
 
-/// Errors unless the current user holds `capability` on `prefix`.
+/// Errors unless the current user holds `capability` on `prefix`, under the
+/// bearer's capability `mask` (read from the GraphQL context as `bearer_mask(ctx)?`).
 ///
 /// This is the hard gate for mutations and access-controlled queries: a denial
 /// becomes `permission_denied`, and a provisional denial against a stale
-/// Snapshot follows the standard refresh-and-retry path. See [`may_access`] for
+/// Snapshot follows the standard refresh-and-retry path — except a mask
+/// shortfall, which is definitive and carries the same structured
+/// missing-capabilities shape as the REST 403 body. See [`may_access`] for
 /// the visibility-gate counterpart that fails closed instead of erroring.
 ///
 /// `capability` accepts a legacy `models::Capability`, an orthogonal
 /// `models::authz::Capability` bit, or a `models::authz::CapabilitySet`.
 async fn verify_authorization(
     env: &crate::Envelope,
+    mask: models::authz::CapabilityMask,
     prefix: &str,
     capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 ) -> async_graphql::Result<()> {
     let policy_result = crate::server::evaluate_names_authorization(
         env.snapshot(),
         env.claims()?,
+        mask,
         capability,
         [prefix],
     );
@@ -346,4 +363,114 @@ fn graphql_json_values_preserves_field_order() {
     let parsed: async_graphql::Value = serde_json::from_str(json_str).unwrap();
     let round_tripped = serde_json::to_string(&parsed).unwrap();
     assert_eq!(json_str.replace(' ', ""), round_tripped);
+}
+
+#[cfg(test)]
+mod authz_test {
+    use crate::test_server;
+
+    const LIST_QUERY: &str = r#"query {
+        alertSubscriptions(by: {prefix: "aliceCo/"}) { catalogPrefix email }
+    }"#;
+
+    /// A masked bearer's GraphQL denials carry the same structured,
+    /// machine-readable shape as the REST 403 body — `verify_authorization`
+    /// is the shared hard gate — while a mask covering the operation's
+    /// requirement behaves identically to an unmasked bearer.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_gate_applies_the_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        // Alice is admin of aliceCo/, but her token's mask doesn't cover the
+        // Admin requirement of this query: a definitive denial naming the
+        // missing capabilities in extensions, for a client to re-mint from.
+        let masked = server.make_masked_access_token(
+            alice,
+            Some("alice@example.test"),
+            Some(vec!["CatalogRead", "JournalRead"]),
+        );
+        let response: serde_json::Value = server
+            .graphql(&serde_json::json!({"query": LIST_QUERY}), Some(&masked))
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": null,
+          "errors": [
+            {
+              "extensions": {
+                "error": "missing_capabilities",
+                "missing_capabilities": [
+                  "JournalAppend",
+                  "SpecEdit",
+                  "CreateGrant",
+                  "DeleteGrant",
+                  "CreateInviteLink",
+                  "ViewDataPlanePrivateNetworking",
+                  "ModifyDataPlanePrivateNetworking",
+                  "ViewBilling",
+                  "EditBilling",
+                  "QueryServiceAccounts",
+                  "CreateServiceAccount",
+                  "CreateApiKey",
+                  "RevokeApiKey",
+                  "Delegate"
+                ]
+              },
+              "locations": [
+                {
+                  "column": 9,
+                  "line": 2
+                }
+              ],
+              "message": "the bearer token's capability mask does not enable required capabilities: JournalAppend, SpecEdit, CreateGrant, DeleteGrant, CreateInviteLink, ViewDataPlanePrivateNetworking, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey, Delegate",
+              "path": [
+                "alertSubscriptions"
+              ]
+            }
+          ]
+        }
+        "#);
+
+        // An empty mask is identity-only: still a definitive denial.
+        let identity_only =
+            server.make_masked_access_token(alice, Some("alice@example.test"), Some(vec![]));
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({"query": LIST_QUERY}),
+                Some(&identity_only),
+            )
+            .await;
+        assert_eq!(
+            response["errors"][0]["extensions"]["error"], "missing_capabilities",
+            "{response}",
+        );
+
+        // A mask covering the requirement is indistinguishable from unmasked.
+        let all_names: Vec<&str> = models::authz::CapabilitySet::all()
+            .iter()
+            .map(|c| c.name())
+            .collect();
+        let covering =
+            server.make_masked_access_token(alice, Some("alice@example.test"), Some(all_names));
+        let unmasked = server.make_access_token(alice, Some("alice@example.test"));
+
+        let covered: serde_json::Value = server
+            .graphql(&serde_json::json!({"query": LIST_QUERY}), Some(&covering))
+            .await;
+        let baseline: serde_json::Value = server
+            .graphql(&serde_json::json!({"query": LIST_QUERY}), Some(&unmasked))
+            .await;
+        assert_eq!(covered, baseline);
+        assert_eq!(baseline["errors"], serde_json::Value::Null, "{baseline}");
+    }
 }

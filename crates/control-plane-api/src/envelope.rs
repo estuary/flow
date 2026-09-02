@@ -99,7 +99,9 @@ impl Envelope {
     ///
     /// This method handles the complexity of Snapshot refresh, retry logic,
     /// and cordoning. Call it with a AuthZResult from your authorization
-    /// evaluation policy function.
+    /// evaluation policy function. Only [`crate::AuthZError::Retriable`]
+    /// denials participate in refresh-and-retry; a definitive denial is
+    /// returned immediately as [`crate::ApiError::Forbidden`].
     pub async fn authorization_outcome<Ok>(
         &self,
         policy_result: crate::AuthZResult<Ok>,
@@ -123,9 +125,15 @@ impl Envelope {
             Ok((Some(cordon_at), ok)) if cordon_at > self.started => {
                 return Ok((std::cmp::min(exp, cordon_at), ok));
             }
+            // A definitive denial is a pure function of the bearer's verified
+            // claims: no future Snapshot can change it, so it fails
+            // immediately rather than entering the retry machinery below.
+            Err(crate::AuthZError::Definitive(forbidden)) => {
+                return Err(crate::ApiError::Forbidden(forbidden));
+            }
             // Authorization is invalid and the Snapshot was taken after the
             // start of the authorization request. Terminal failure.
-            Err(status) if snapshot.taken_after(self.started) => {
+            Err(crate::AuthZError::Retriable(status)) if snapshot.taken_after(self.started) => {
                 return Err(status.into());
             }
             // Authorization is valid but is currently cordoned, and we must
@@ -137,7 +145,7 @@ impl Envelope {
             // Authorization is invalid but the Snapshot is older than the start
             // of the authorization request. It's possible that the requestor has
             // more-recent knowledge that the authorization is valid.
-            Err(status) => status,
+            Err(crate::AuthZError::Retriable(status)) => status,
         };
 
         // We must await a future Snapshot to determine the definitive outcome.
@@ -299,3 +307,95 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
 // Empty impl allows aide to generate OpenAPI specs for handlers using this extractor.
 // The extractor is an internal detail and doesn't appear in the API documentation.
 impl aide::operation::OperationInput for Envelope {}
+
+#[cfg(test)]
+mod test {
+    use super::{Envelope, Locale, MaybeControlClaims};
+
+    /// Build an Envelope whose logical start is `started_delta` relative to
+    /// when its (empty) Snapshot was taken. A positive delta means the request
+    /// began after the Snapshot — the condition under which a walk denial is
+    /// provisional and held for refresh.
+    async fn envelope(started_delta: chrono::TimeDelta) -> Envelope {
+        let refresh = crate::test_server::empty_snapshot().await.token();
+        let taken = refresh.result().unwrap().taken;
+
+        Envelope {
+            original_uri: "/test".parse().unwrap(),
+            maybe_claims: MaybeControlClaims::with_unauthenticated(),
+            retry_after: tokens::DateTime::UNIX_EPOCH,
+            refresh,
+            started: taken + started_delta,
+            // Never dialed: authorization_outcome doesn't touch the database.
+            pg_pool: sqlx::PgPool::connect_lazy("postgres://unused").unwrap(),
+            locale: Locale::EnUS,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_definitive_denial_bypasses_snapshot_retry() {
+        // The request began after the Snapshot was taken: a retriable walk
+        // denial would be held in limbo awaiting a refresh. A definitive
+        // denial is a pure function of the bearer's claims which no future
+        // Snapshot can change, so it must fail immediately instead.
+        let env = envelope(chrono::TimeDelta::minutes(1)).await;
+
+        let forbidden =
+            crate::Forbidden::missing_capabilities(models::authz::Capability::SpecEdit.into());
+        let result: Result<_, crate::ApiError> =
+            env.authorization_outcome::<()>(Err(forbidden.into())).await;
+
+        let Err(crate::ApiError::Forbidden(forbidden)) = result else {
+            panic!("expected an immediate ApiError::Forbidden, got {result:?}");
+        };
+        assert_eq!(forbidden.missing_capabilities, vec!["SpecEdit"]);
+    }
+
+    #[tokio::test]
+    async fn test_definitive_denial_with_fresh_snapshot() {
+        // A fresh Snapshot changes nothing: definitive denials are Forbidden
+        // regardless of Snapshot ordering.
+        let env = envelope(-chrono::TimeDelta::minutes(1)).await;
+
+        let forbidden =
+            crate::Forbidden::missing_capabilities(models::authz::Capability::CatalogRead.into());
+        let result: Result<_, crate::ApiError> =
+            env.authorization_outcome::<()>(Err(forbidden.into())).await;
+
+        assert!(
+            matches!(result, Err(crate::ApiError::Forbidden(_))),
+            "expected ApiError::Forbidden, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_retriable_denial_with_stale_snapshot_awaits_refresh() {
+        // A walk denial against a Snapshot older than the request is not yet
+        // definitive, and becomes a client retry. This pins that Retriable
+        // and Definitive actually diverge.
+        let env = envelope(chrono::TimeDelta::minutes(1)).await;
+
+        let status = tonic::Status::permission_denied("not authorized");
+        let result: Result<(tokens::DateTime, ()), _> =
+            env.authorization_outcome(Err(status.into())).await;
+
+        let Err(crate::ApiError::AuthZRetry(retry)) = result else {
+            panic!("expected ApiError::AuthZRetry, got {result:?}");
+        };
+        assert_eq!(retry.status.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[tokio::test]
+    async fn test_retriable_denial_with_fresh_snapshot_is_terminal() {
+        let env = envelope(-chrono::TimeDelta::minutes(1)).await;
+
+        let status = tonic::Status::permission_denied("not authorized");
+        let result: Result<(tokens::DateTime, ()), _> =
+            env.authorization_outcome(Err(status.into())).await;
+
+        let Err(crate::ApiError::Status(status)) = result else {
+            panic!("expected terminal ApiError::Status, got {result:?}");
+        };
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+    }
+}

@@ -18,7 +18,13 @@ use async_graphql::{
 impl Tenant {
     async fn billing(&self, ctx: &Context<'_>) -> Result<TenantBilling> {
         let env = ctx.data::<crate::Envelope>()?;
-        verify_authorization(env, &self.name, models::authz::Capability::ViewBilling).await?;
+        verify_authorization(
+            env,
+            super::super::bearer_mask(ctx)?,
+            &self.name,
+            models::authz::Capability::ViewBilling,
+        )
+        .await?;
         let provider = billing_provider(ctx)?;
         Ok(TenantBilling::new(self.name.clone(), provider))
     }

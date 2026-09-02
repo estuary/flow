@@ -28,6 +28,12 @@ fn partition_by_authorization<'n>(
                 user_id,
                 name,
                 capability,
+                // Deliberately unmasked: this filter serves only async
+                // executors (discovers, publication initialization), where
+                // the original JWT and its capability mask are gone and
+                // authorization is by user identity. Threading a persisted
+                // mask across that boundary is the dedicated follow-up task
+                // of the #3376 plan (mask evaporation at async boundaries).
                 models::authz::CapabilityMask::ALL_CAPABILITIES,
             )
         });

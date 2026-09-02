@@ -65,6 +65,20 @@ impl Requirement for RequireUnmasked {
     const REQUIRE_UNMASKED: bool = true;
 }
 
+/// A [`Requirement`] of the Viewer-bundle capability bits — what a legacy
+/// `models::Capability::Read` walk requires.
+///
+/// Declared by routes whose entire authorization is a Read-capability walk
+/// (`/api/v1/catalog/status`, `/api/v1/metrics`), so a mask shortfall is
+/// rejected at extraction, before the handler runs. A test pins the bundle
+/// to `bits_for_legacy(Read)` so the two cannot drift.
+pub struct RequireViewer;
+
+impl Requirement for RequireViewer {
+    const REQUIRED: &'static [CapabilityBundle] = &[CapabilityBundle::Viewer];
+    const REQUIRE_UNMASKED: bool = false;
+}
+
 /// Forbidden is the structured body of a capability-shortfall `403`.
 ///
 /// Its shape is stable and machine-readable across the REST and GraphQL
@@ -98,6 +112,24 @@ impl Forbidden {
         }
     }
 
+    /// The mask-shortfall pre-check shared by every authorization policy
+    /// function: a definitive denial — a pure function of the bearer's
+    /// claims — when `mask` doesn't cover `required`, evaluated before the
+    /// grant walk so the structured 403 names the missing capabilities
+    /// without consulting (or disclosing anything about) the user's grants.
+    pub fn required_covered(
+        mask: CapabilityMask,
+        required: impl Into<CapabilitySet>,
+    ) -> Result<(), Self> {
+        let required: CapabilitySet = required.into();
+        let missing = required - mask.apply(required);
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(Self::missing_capabilities(missing))
+        }
+    }
+
     pub fn unmasked_token_required() -> Self {
         Self {
             error: "unmasked_token_required",
@@ -110,6 +142,47 @@ impl Forbidden {
 impl axum::response::IntoResponse for Forbidden {
     fn into_response(self) -> axum::response::Response {
         (axum::http::StatusCode::FORBIDDEN, axum::Json(self)).into_response()
+    }
+}
+
+/// AuthZError is a denial from an authorization policy evaluation, and the
+/// distinction between its variants is load-bearing for
+/// [`crate::Envelope::authorization_outcome`]: a `Retriable` denial may be
+/// provisional — the Snapshot may simply not yet reflect a recently-committed
+/// grant — and enters the refresh-and-retry machinery, while a `Definitive`
+/// denial is a pure function of the bearer's verified claims (its capability
+/// mask), which no future Snapshot can change, and fails immediately with the
+/// structured `403` body.
+#[derive(Debug)]
+pub enum AuthZError {
+    Retriable(tonic::Status),
+    Definitive(Forbidden),
+}
+
+impl From<tonic::Status> for AuthZError {
+    fn from(status: tonic::Status) -> Self {
+        Self::Retriable(status)
+    }
+}
+
+impl From<Forbidden> for AuthZError {
+    fn from(forbidden: Forbidden) -> Self {
+        Self::Definitive(forbidden)
+    }
+}
+
+#[cfg(test)]
+impl AuthZError {
+    /// Map to the (HTTP status, message) pair which handler test harnesses
+    /// snapshot as their `Outcome::Err` shape.
+    pub(crate) fn into_status_message(self) -> (u16, String) {
+        match self {
+            Self::Retriable(status) => (
+                tokens::rest::grpc_status_code_to_http(status.code()),
+                status.message().to_string(),
+            ),
+            Self::Definitive(forbidden) => (403, forbidden.message),
+        }
     }
 }
 

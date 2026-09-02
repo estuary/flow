@@ -129,6 +129,7 @@ impl AlertConfigsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 claims.sub,
+                super::bearer_mask(ctx)?,
                 models::Capability::Read,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",
@@ -226,6 +227,7 @@ impl AlertConfigsQuery {
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
             claims,
+            super::bearer_mask(ctx)?,
             models::authz::Capability::CatalogRead,
             [catalog_prefix_or_name.as_str()],
         );
@@ -270,6 +272,7 @@ impl AlertConfigsMutation {
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
             claims,
+            super::bearer_mask(ctx)?,
             models::Capability::Admin,
             [gov.as_str()],
         );

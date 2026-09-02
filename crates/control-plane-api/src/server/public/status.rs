@@ -19,7 +19,13 @@ pub struct StatusQuery {
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn handle_get_status(
-    crate::Authority { envelope: env, .. }: crate::Authority,
+    // RequireViewer fast-fails a mask which can't satisfy the Read walk
+    // below; a test pins the two together.
+    crate::Authority {
+        envelope: env,
+        mask,
+        ..
+    }: crate::Authority<crate::RequireViewer>,
     axum_extra::extract::Query(StatusQuery {
         name, // axum_extra handles multiple `name` params.
         short,
@@ -29,6 +35,7 @@ pub(crate) async fn handle_get_status(
     let policy_result = crate::evaluate_names_authorization(
         env.snapshot(),
         env.claims()?,
+        mask,
         models::Capability::Read,
         &name,
     );
@@ -53,7 +60,7 @@ pub(crate) async fn handle_get_status(
                     claims.sub,
                     name,
                     models::Capability::Read,
-                    models::authz::CapabilityMask::ALL_CAPABILITIES,
+                    mask,
                 )
             })
             .collect::<Vec<_>>();
