@@ -16,9 +16,8 @@ pub struct SessionActor {
     pub session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
     /// Per-shard channels for sending SliceRequest messages.
     pub slice_request_tx: Vec<mpsc::Sender<shuffle::SliceRequest>>,
-    /// Buffered StartReads to be transmitted to their target Slice channel.
-    /// Each entry is (shard_index, StartRead). Drained in FIFO order.
-    pub start_reads: std::collections::VecDeque<(usize, shuffle::slice_request::StartRead)>,
+    /// FIFO queue of per-shard requests to be transmitted to their Slice channel.
+    pub slice_requests: std::collections::VecDeque<(usize, shuffle::SliceRequest)>,
     /// Per-task metrics counters.
     pub metrics: super::Metrics,
 }
@@ -59,7 +58,7 @@ impl SessionActor {
                 loop_count,
                 checkpoint = ?self.checkpoint,
                 progress_ready = ?self.progress_ready,
-                start_reads = self.start_reads.len(),
+                slice_requests = self.slice_requests.len(),
                 "SessionActor::serve iteration"
             ); // debug, not trace, because we don't loop on documents.
 
@@ -150,18 +149,14 @@ impl SessionActor {
         }
 
         // Try to drain StartRead requests in FIFO order.
-        while let Some((shard_index, _start_read)) = self.start_reads.front() {
+        while let Some((shard_index, _request)) = self.slice_requests.front() {
             let tx = &self.slice_request_tx[*shard_index];
 
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
-            let (shard_index, start_read) = self.start_reads.pop_front().unwrap();
-
-            permit.send(shuffle::SliceRequest {
-                start_read: Some(start_read),
-                ..Default::default()
-            });
+            let (shard_index, request) = self.slice_requests.pop_front().unwrap();
+            permit.send(request);
 
             service_kit::event!(
                 tracing::Level::DEBUG,
@@ -248,8 +243,16 @@ impl SessionActor {
 
                 let routed = self.topology.route_read(&added)?;
 
-                if let Some(start_read) = self.topology.build_start_read(&routed, added) {
-                    self.start_reads.push_back(start_read);
+                if let Some((shard_index, start_read)) =
+                    self.topology.build_start_read(&routed, added)
+                {
+                    self.slice_requests.push_back((
+                        shard_index,
+                        shuffle::SliceRequest {
+                            start_read: Some(start_read),
+                            ..Default::default()
+                        },
+                    ));
                 }
 
                 Ok(())
@@ -309,7 +312,7 @@ mod test {
             progress_ready: vec![true],
             session_response_tx,
             slice_request_tx: vec![slice_request_tx],
-            start_reads: Default::default(),
+            slice_requests: Default::default(),
             metrics: super::super::Metrics::new("test/task/shard-0"),
         }
     }
@@ -331,9 +334,10 @@ mod test {
             .unwrap();
 
         actor
-            .start_reads
+            .slice_requests
             .iter()
-            .map(|(_shard, start_read)| start_read.spec.as_ref().unwrap().name.clone())
+            .filter_map(|(_shard, request)| request.start_read.as_ref())
+            .map(|start_read| start_read.spec.as_ref().unwrap().name.clone())
             .collect()
     }
 
@@ -362,7 +366,8 @@ mod test {
             listing_added(&mut actor, "test/collection/A"),
             vec!["test/collection/A".to_string()],
         );
-        assert_eq!(actor.start_reads[0].1.checkpoint.len(), 1);
+        let start_read = actor.slice_requests[0].1.start_read.as_ref().unwrap();
+        assert_eq!(start_read.checkpoint.len(), 1);
 
         // A steady-state session resuming from the same journals (minus the
         // hint) starts every read it is told about.
