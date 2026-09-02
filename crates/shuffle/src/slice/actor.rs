@@ -159,6 +159,7 @@ impl SliceActor {
             loop_count += 1;
             tracing::trace!(
                 loop_count,
+                initial_reads_started = self.initial_reads_started,
                 total_reads = self.reads.len(),
                 tailing_reads = self.tailing_reads,
                 stalled_reads = self.stalled_reads.len(),
