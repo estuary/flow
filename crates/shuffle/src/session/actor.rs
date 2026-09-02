@@ -16,8 +16,12 @@ pub struct SessionActor {
     pub session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
     /// Per-shard channels for sending SliceRequest messages.
     pub slice_request_tx: Vec<mpsc::Sender<shuffle::SliceRequest>>,
-    /// FIFO queue of per-shard requests to be transmitted to their Slice channel.
+    /// FIFO queue of per-shard requests, with InitialReadsStarted after StartReads.
     pub slice_requests: std::collections::VecDeque<(usize, shuffle::SliceRequest)>,
+    /// Count of bindings whose initial listing snapshot has completed.
+    pub listing_snapshots_complete: usize,
+    /// Whether InitialReadsStarted has been queued to each Slice.
+    pub initial_reads_queued: bool,
     /// Per-task metrics counters.
     pub metrics: super::Metrics,
 }
@@ -57,6 +61,7 @@ impl SessionActor {
             tracing::debug!(
                 loop_count,
                 checkpoint = ?self.checkpoint,
+                listing_snapshots_complete = self.listing_snapshots_complete,
                 progress_ready = ?self.progress_ready,
                 slice_requests = self.slice_requests.len(),
                 "SessionActor::serve iteration"
@@ -121,6 +126,23 @@ impl SessionActor {
         // Future which represent an absence of an awake signal.
         let idle = future::Either::Right(std::future::ready(false));
 
+        // Queue InitialReadsStarted once every binding's listing snapshot completes.
+        if !self.initial_reads_queued
+            && self.listing_snapshots_complete == self.topology.bindings.len()
+        {
+            self.initial_reads_queued = true;
+
+            for shard_index in 0..self.topology.shards.len() {
+                self.slice_requests.push_back((
+                    shard_index,
+                    shuffle::SliceRequest {
+                        initial_reads_started: Some(shuffle::slice_request::InitialReadsStarted {}),
+                        ..Default::default()
+                    },
+                ));
+            }
+        }
+
         // Try to drain Progress requests. This loop may head-of-line block if
         // we're unable to send to a FIFO shard. We accept this property for
         // implementation simplicity.
@@ -148,7 +170,7 @@ impl SessionActor {
             );
         }
 
-        // Try to drain StartRead requests in FIFO order.
+        // Try to drain StartRead and InitialReadsStarted requests in FIFO order.
         while let Some((shard_index, _request)) = self.slice_requests.front() {
             let tx = &self.slice_request_tx[*shard_index];
 
@@ -156,13 +178,19 @@ impl SessionActor {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
             let (shard_index, request) = self.slice_requests.pop_front().unwrap();
+            let request_type = if request.initial_reads_started.is_some() {
+                "InitialReadsStarted"
+            } else {
+                "StartRead"
+            };
             permit.send(request);
 
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "slice",
                 shard_index,
-                "sent StartRead request",
+                "sent {} request",
+                request_type,
             );
         }
 
@@ -223,7 +251,7 @@ impl SessionActor {
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
             "SliceResponse",
-            "ListingAdded or ProgressDelta",
+            "ListingAdded, ListingSnapshotComplete, or ProgressDelta",
             &self.topology.shards[shard_index].endpoint,
             shard_index,
         );
@@ -259,6 +287,24 @@ impl SessionActor {
             }
 
             shuffle::SliceResponse {
+                listing_snapshot_complete:
+                    Some(shuffle::slice_response::ListingSnapshotComplete { binding }),
+                ..
+            } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "slice",
+                    shard_index,
+                    binding,
+                    "received ListingSnapshotComplete",
+                );
+
+                self.listing_snapshots_complete += 1;
+
+                Ok(())
+            }
+
+            shuffle::SliceResponse {
                 progressed: Some(proto),
                 ..
             } => {
@@ -275,12 +321,12 @@ impl SessionActor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::testing::{jf, pf, test_binding, test_journal_spec, test_listing_added};
+    use crate::testing::{
+        jf, pf, test_binding, test_journal_spec, test_listing_added, test_shards_3,
+    };
 
-    /// Build a SessionActor over a 1-shard topology resuming from
-    /// `resume_checkpoint`, classified exactly as `serve_session` classifies it.
-    fn test_actor(resume_checkpoint: crate::Frontier) -> SessionActor {
-        let shards = vec![shuffle::Shard {
+    fn test_shard() -> shuffle::Shard {
+        shuffle::Shard {
             id: "test/task/shard-0".to_string(),
             range: Some(proto_flow::flow::RangeSpec {
                 key_begin: 0,
@@ -291,9 +337,29 @@ mod test {
             endpoint: String::new(),
             directory: "/test/log/shard-0".to_string(),
             ..Default::default()
-        }];
-        let bindings = vec![test_binding(0, true, None, "/suffix")];
+        }
+    }
+
+    /// Build a SessionActor over a 1-shard topology resuming from
+    /// `resume_checkpoint`, classified exactly as `serve_session` classifies it.
+    fn test_actor(
+        resume_checkpoint: crate::Frontier,
+    ) -> (SessionActor, Vec<mpsc::Receiver<shuffle::SliceRequest>>) {
+        test_actor_with_topology(
+            resume_checkpoint,
+            vec![test_binding(0, true, None, "/suffix")],
+            vec![test_shard()],
+        )
+    }
+
+    fn test_actor_with_topology(
+        resume_checkpoint: crate::Frontier,
+        bindings: Vec<crate::Binding>,
+        shards: Vec<shuffle::Shard>,
+    ) -> (SessionActor, Vec<mpsc::Receiver<shuffle::SliceRequest>>) {
         let binding_cohorts = bindings.iter().map(|b| b.cohort).collect();
+        let shard_count = shards.len();
+        let metrics = super::super::Metrics::new(&shards[0].id);
 
         let checkpoint =
             super::super::state::CheckpointPipeline::new(&resume_checkpoint, binding_cohorts);
@@ -303,29 +369,34 @@ mod test {
             bindings,
             resume_checkpoint,
         };
-        let (slice_request_tx, _slice_request_rx) = crate::new_channel();
+        let (slice_request_tx, slice_request_rx): (Vec<_>, Vec<_>) = (0..shard_count)
+            .map(|_| crate::new_channel::<shuffle::SliceRequest>())
+            .unzip();
         let (session_response_tx, _session_response_rx) = mpsc::unbounded_channel();
 
-        SessionActor {
+        let actor = SessionActor {
             topology,
             checkpoint,
-            progress_ready: vec![true],
+            progress_ready: vec![true; shard_count],
             session_response_tx,
-            slice_request_tx: vec![slice_request_tx],
+            slice_request_tx,
             slice_requests: Default::default(),
-            metrics: super::super::Metrics::new("test/task/shard-0"),
-        }
+            listing_snapshots_complete: 0,
+            initial_reads_queued: false,
+            metrics,
+        };
+        (actor, slice_request_rx)
     }
 
     /// Feed a ListingAdded for `journal` and return the journals for which a
     /// StartRead was buffered.
-    fn listing_added(actor: &mut SessionActor, journal: &str) -> Vec<String> {
+    fn listing_added(actor: &mut SessionActor, binding: u32, journal: &str) -> Vec<String> {
         actor
             .on_slice_response(
                 0,
                 Some(Ok(shuffle::SliceResponse {
                     listing_added: Some(test_listing_added(
-                        0,
+                        binding,
                         test_journal_spec(journal, 0x10000000, 0x20000000, &[]),
                     )),
                     ..Default::default()
@@ -353,17 +424,17 @@ mod test {
             ..Default::default()
         };
 
-        let mut actor = test_actor(resume.clone());
+        let (mut actor, _slice_rx) = test_actor(resume.clone());
 
         // journal/B carries no unresolved hint, and journal/C is absent from
         // the resume checkpoint entirely (newly listed mid-recovery). Neither
         // is part of the replay, so neither read starts.
-        assert!(listing_added(&mut actor, "test/collection/B").is_empty());
-        assert!(listing_added(&mut actor, "test/collection/C").is_empty());
+        assert!(listing_added(&mut actor, 0, "test/collection/B").is_empty());
+        assert!(listing_added(&mut actor, 0, "test/collection/C").is_empty());
 
         // The hinted journal does start, carrying its taken producers.
         assert_eq!(
-            listing_added(&mut actor, "test/collection/A"),
+            listing_added(&mut actor, 0, "test/collection/A"),
             vec!["test/collection/A".to_string()],
         );
         let start_read = actor.slice_requests[0].1.start_read.as_ref().unwrap();
@@ -377,18 +448,109 @@ mod test {
         };
         steady.journals[0].producers[0].hinted_commit = proto_gazette::uuid::Clock::zero();
 
-        let mut actor = test_actor(steady);
+        let (mut actor, _slice_rx) = test_actor(steady);
 
-        _ = listing_added(&mut actor, "test/collection/A");
-        _ = listing_added(&mut actor, "test/collection/B");
+        _ = listing_added(&mut actor, 0, "test/collection/A");
+        _ = listing_added(&mut actor, 0, "test/collection/B");
         assert_eq!(
-            listing_added(&mut actor, "test/collection/C"),
+            listing_added(&mut actor, 0, "test/collection/C"),
             vec![
                 "test/collection/A".to_string(),
                 "test/collection/B".to_string(),
                 "test/collection/C".to_string(),
             ],
         );
+    }
+
+    fn drain_slice_requests(rx: &mut mpsc::Receiver<shuffle::SliceRequest>) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Ok(request) = rx.try_recv() {
+            let readout = match request {
+                shuffle::SliceRequest {
+                    progress: Some(_), ..
+                } => "Progress".to_string(),
+                shuffle::SliceRequest {
+                    start_read: Some(start_read),
+                    ..
+                } => {
+                    let journal = &start_read.spec.as_ref().unwrap().name;
+                    format!(
+                        "StartRead(binding={}, journal={journal})",
+                        start_read.binding
+                    )
+                }
+                shuffle::SliceRequest {
+                    initial_reads_started: Some(_),
+                    ..
+                } => "InitialReadsStarted".to_string(),
+                request => panic!("unexpected SliceRequest: {request:?}"),
+            };
+            out.push(readout);
+        }
+        out
+    }
+
+    fn listing_snapshot_complete(
+        actor: &mut SessionActor,
+        shard_index: usize,
+        binding: u32,
+    ) -> anyhow::Result<()> {
+        actor.on_slice_response(
+            shard_index,
+            Some(Ok(shuffle::SliceResponse {
+                listing_snapshot_complete: Some(shuffle::slice_response::ListingSnapshotComplete {
+                    binding,
+                }),
+                ..Default::default()
+            })),
+        )
+    }
+
+    #[test]
+    fn test_initial_reads_started_waits_for_snapshots_and_trails_start_reads() {
+        let bindings = vec![
+            test_binding(0, true, None, "/suffix-A"),
+            test_binding(1, true, None, "/suffix-B"),
+        ];
+        let (mut actor, mut slice_rx) =
+            test_actor_with_topology(crate::Frontier::default(), bindings, vec![test_shard()]);
+
+        _ = listing_added(&mut actor, 0, "test/collection/A");
+        _ = listing_added(&mut actor, 1, "test/collection/B");
+        listing_snapshot_complete(&mut actor, 0, 0).unwrap();
+        _ = actor.try_slice_request_tx().unwrap();
+
+        let before_all_snapshots_complete = drain_slice_requests(&mut slice_rx[0]);
+
+        _ = listing_added(&mut actor, 1, "test/collection/C");
+        listing_snapshot_complete(&mut actor, 0, 1).unwrap();
+        _ = actor.try_slice_request_tx().unwrap();
+
+        let after_all_snapshots_complete = drain_slice_requests(&mut slice_rx[0]);
+
+        _ = actor.try_slice_request_tx().unwrap();
+        let after_repeated_drain = drain_slice_requests(&mut slice_rx[0]);
+
+        let phases = [
+            (
+                "before all snapshots complete",
+                before_all_snapshots_complete,
+            ),
+            ("after all snapshots complete", after_all_snapshots_complete),
+            ("after repeated drain", after_repeated_drain),
+        ];
+        insta::assert_debug_snapshot!("initial_reads_started_ordering", phases);
+    }
+
+    #[test]
+    fn test_initial_reads_started_without_bindings_on_every_slice() {
+        let (mut actor, mut slice_rx) =
+            test_actor_with_topology(crate::Frontier::default(), vec![], test_shards_3());
+
+        _ = actor.try_slice_request_tx().unwrap();
+
+        let sent: Vec<_> = slice_rx.iter_mut().map(drain_slice_requests).collect();
+        insta::assert_debug_snapshot!("initial_reads_started_every_slice", sent);
     }
 }
 

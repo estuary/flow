@@ -1,0 +1,18 @@
+---
+source: crates/shuffle/src/session/actor.rs
+expression: sent
+---
+[
+    [
+        "Progress",
+        "InitialReadsStarted",
+    ],
+    [
+        "Progress",
+        "InitialReadsStarted",
+    ],
+    [
+        "Progress",
+        "InitialReadsStarted",
+    ],
+]

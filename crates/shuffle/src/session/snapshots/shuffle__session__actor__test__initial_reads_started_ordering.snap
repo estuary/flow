@@ -1,0 +1,25 @@
+---
+source: crates/shuffle/src/session/actor.rs
+expression: phases
+---
+[
+    (
+        "before all snapshots complete",
+        [
+            "Progress",
+            "StartRead(binding=0, journal=test/collection/A)",
+            "StartRead(binding=1, journal=test/collection/B)",
+        ],
+    ),
+    (
+        "after all snapshots complete",
+        [
+            "StartRead(binding=1, journal=test/collection/C)",
+            "InitialReadsStarted",
+        ],
+    ),
+    (
+        "after repeated drain",
+        [],
+    ),
+]

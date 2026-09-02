@@ -153,6 +153,8 @@ where
         session_response_tx: session_response_tx.clone(),
         slice_request_tx,
         slice_requests: std::collections::VecDeque::new(),
+        listing_snapshots_complete: 0,
+        initial_reads_queued: false,
         metrics,
     }
     .serve(request_rx, response_rx)

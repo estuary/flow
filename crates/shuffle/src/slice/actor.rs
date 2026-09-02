@@ -52,6 +52,9 @@ pub struct SliceActor {
     /// while still behind their journal write head. This is exactly the set that
     /// head-of-line-blocks heap draining (see the gate in `try_log_request_tx`).
     pub stalled_reads: std::collections::HashSet<u32>,
+    /// Set by the Session's InitialReadsStarted request, which trails every
+    /// initial StartRead on our request stream. Heap draining waits for it.
+    pub initial_reads_started: bool,
     /// Shard parser for transcoding documents from LinesBatch.
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
@@ -297,7 +300,7 @@ impl SliceActor {
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
             "SliceRequest",
-            "Progress or StartRead",
+            "InitialReadsStarted, Progress, or StartRead",
             &self.topology.shards[0].endpoint,
             0,
         );
@@ -313,6 +316,19 @@ impl SliceActor {
                     "received Progress request"
                 );
                 self.progress.request()
+            }
+
+            shuffle::SliceRequest {
+                initial_reads_started: Some(shuffle::slice_request::InitialReadsStarted {}),
+                ..
+            } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "session",
+                    "received InitialReadsStarted request"
+                );
+                self.initial_reads_started = true;
+                Ok(())
             }
 
             shuffle::SliceRequest {
@@ -743,10 +759,14 @@ impl SliceActor {
             }
 
             // Defer draining if any read could still resolve to content that
-            // preempts the current heap top: a parked non-tailing (stalled) read,
-            // or a newly-started read still probing its write head (parked in
-            // `pending_probes`, not yet classified as tailing/stalled).
-            if self.tailing_reads != self.pending_reads.len() || !self.pending_probes.is_empty() {
+            // preempts the current heap top: a journal the Session hasn't told
+            // us to read, a parked non-tailing (stalled) read, or a newly-started
+            // read still probing its write head (parked in `pending_probes`, not
+            // yet classified as tailing/stalled).
+            if !self.initial_reads_started
+                || self.tailing_reads != self.pending_reads.len()
+                || !self.pending_probes.is_empty()
+            {
                 return Ok(idle);
             }
 

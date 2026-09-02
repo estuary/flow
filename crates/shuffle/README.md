@@ -258,8 +258,9 @@ resume checkpoint frontier. The Session:
 ### 2. Journal Discovery
 
 Each Slice watches Gazette journal listings for its assigned bindings
-(round-robin by `binding.index % shard_count`). When a journal appears,
-the Slice sends a `ListingAdded` response to the Session.
+(round-robin by `binding.index % shard_count`). The Slice sends a
+`ListingAdded` for each journal. The Slice sends one `ListingSnapshotComplete`
+when a binding's initial snapshot is fully delivered, empty snapshots included.
 
 ### 3. Read Routing
 
@@ -282,6 +283,11 @@ containing the journal spec, binding index, and the per-journal producer
 checkpoint extracted from the resume frontier, then sends it to the
 target Slice.
 
+Only one Slice lists each binding. When the Session has received a
+`ListingSnapshotComplete` for every binding, it puts an `InitialReadsStarted` on
+each Slice's `StartRead` queue. It therefore follows every initial `StartRead`,
+and it opens the heap-drain gate.
+
 ### 4. Journal Reading
 
 The Slice receives `StartRead`, resolves the checkpoint into per-producer
@@ -301,9 +307,9 @@ flags) and validates the document against the binding's schema.
 
 Parsed documents enter a priority heap (`ReadyReadHeap`) ordered by
 (priority DESC, adjusted_clock ASC), where `adjusted_clock = clock +
-read_delay`. The Slice defers draining the heap until all pending reads
-are tailing and no newly-started read is still probing its write head —
-this ensures no yet-to-resolve read could preempt the current heap top.
+read_delay`. The Slice does not drain until the Session's `InitialReadsStarted`
+arrives, all pending reads are tailing, and no read still probes its write head.
+No unstarted read and no unresolved read can then preempt the heap top.
 
 A single non-tailing read therefore head-of-line-blocks the whole Slice's
 drain, so I/O stalls on individual journals matter. A read is only
