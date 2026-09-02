@@ -67,3 +67,62 @@ pub fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
         Err(err) => bounded_unknown_status(format!("{err:?}")),
     }
 }
+
+/// Convert a handler's returned error or panic into a gRPC status.
+///
+/// Catching panics prevents a dropped response sender from looking like a
+/// successful end-of-stream to the peer. The status includes only the panic
+/// payload; the panic hook logs its location and any enabled backtrace locally.
+pub async fn catch_panic<F, T>(future: F) -> tonic::Result<T>
+where
+    F: std::future::Future<Output = anyhow::Result<T>>,
+{
+    match futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(future)).await {
+        Ok(result) => result.map_err(anyhow_to_status),
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&'static str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("<non-string panic payload>");
+
+            Err(bounded_unknown_status(format!(
+                "handler panicked: {message}"
+            )))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn catch_panic_renders_every_outcome() {
+        assert_eq!(super::catch_panic(async { Ok(1) }).await.unwrap(), 1);
+
+        let returned =
+            super::catch_panic(async { Err::<(), _>(anyhow::format_err!("a returned error")) })
+                .await
+                .unwrap_err();
+        assert_eq!(returned.message(), "a returned error");
+
+        let panicked = super::catch_panic::<_, ()>(async { panic!("{} payload", "a formatted") })
+            .await
+            .unwrap_err();
+        assert_eq!(panicked.message(), "handler panicked: a formatted payload");
+
+        let non_string = super::catch_panic::<_, ()>(async { std::panic::panic_any(42u64) })
+            .await
+            .unwrap_err();
+        assert_eq!(
+            non_string.message(),
+            "handler panicked: <non-string panic payload>"
+        );
+
+        // An oversized payload is bounded like any other status message.
+        let huge = super::catch_panic::<_, ()>(async { panic!("{}", "a".repeat(1 << 16)) })
+            .await
+            .unwrap_err();
+        assert!(huge.message().len() <= super::MAX_STATUS_MESSAGE_LEN);
+        assert!(huge.message().ends_with("… [truncated]"), "{huge}");
+    }
+}
