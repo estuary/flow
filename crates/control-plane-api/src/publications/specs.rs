@@ -735,9 +735,8 @@ pub async fn resolve_live_specs(
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<tables::LiveCatalog> {
-    // We're expecting to get a row for catalog name that's either drafted or referenced
-    // by a drafted spec, even if the live spec does not exist. In that case, the row will
-    // still contain information on the spec capabilities.
+    // We're expecting to get a row for each catalog name that's either drafted or
+    // referenced by a drafted spec, even if the live spec does not exist.
     // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
     let mut all_spec_names = draft
         .all_catalog_names()
@@ -765,7 +764,6 @@ pub async fn resolve_live_specs(
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        true, // always fetch spec capabilities
         db,
     )
     .await
@@ -808,30 +806,46 @@ pub async fn resolve_live_specs(
                 // of referenced collections.
                 continue;
             }
-            // Spec authz must always be checked, even if we're not checking user authz
+            // Spec authz must always be checked, even if we're not checking user authz.
+            // The walk is the same one which authorizes running tasks
+            // (`authorize_task`), so a spec which verifies here is a spec the
+            // runtime will let run. Denials request an early Snapshot refresh:
+            // the needed role grant may postdate this Snapshot.
+            //
+            // Denial messages render the grants the spec holds by virtue of
+            // its own name: those whose `subject_role` prefixes it. This is
+            // only the directly-held grants, not the transitive reach of the
+            // walk, and exists solely to make the error actionable.
+            let spec_grants = || {
+                serde_json::to_string_pretty(
+                    &snapshot
+                        .role_grants
+                        .iter()
+                        .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap()
+            };
             for source in reads_from {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read
-                }) {
+                if !snapshot.is_role_authorized(catalog_name, source.as_str(), Capability::Read) {
+                    snapshot.request_refresh();
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            spec_grants(),
                         ),
                     });
                 }
             }
             for target in writes_to {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    target.starts_with(c.object_role.as_str())
-                        && matches!(c.capability, Capability::Write | Capability::Admin)
-                }) {
+                if !snapshot.is_role_authorized(catalog_name, target.as_str(), Capability::Write) {
+                    snapshot.request_refresh();
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            spec_grants(),
                         ),
                     });
                 }

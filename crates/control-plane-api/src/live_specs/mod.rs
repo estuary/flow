@@ -76,12 +76,7 @@ pub async fn get_live_specs_unfiltered(
     // size for very large name lists.
     for names_chunk in names.chunks(512) {
         let names_chunk: Vec<&str> = names_chunk.iter().map(AsRef::as_ref).collect();
-        let rows = db::fetch_live_specs(
-            &names_chunk,
-            false, // we never need spec_capabilities here
-            db,
-        )
-        .await?;
+        let rows = db::fetch_live_specs(&names_chunk, db).await?;
         for row in rows {
             // Spec type might be null because we used to set it to null when deleting specs.
             // For recently deleted specs, it will still be present.

@@ -121,6 +121,24 @@ impl Snapshot {
         )
     }
 
+    /// Returns whether the role or spec named `subject_role_or_name` holds
+    /// `capability` to `object_role_or_name`, evaluated against this
+    /// Snapshot's role grants. This walks the full grant graph — the same
+    /// walk which authorizes running tasks (`authorize_task`).
+    pub fn is_role_authorized(
+        &self,
+        subject_role_or_name: &str,
+        object_role_or_name: &str,
+        capability: impl Into<models::authz::CapabilitySet>,
+    ) -> bool {
+        tables::RoleGrant::is_authorized(
+            &self.role_grants,
+            subject_role_or_name,
+            object_role_or_name,
+            capability,
+        )
+    }
+
     /// Requests an early background refresh of this Snapshot by cancelling
     /// its `revoke` token. Call this upon denying an authorization: the
     /// needed grant may have been created after this Snapshot was taken,
@@ -896,5 +914,39 @@ mod tests {
             cordon_time.unwrap(),
             chrono::DateTime::from_timestamp(300_000, 0).unwrap()
         );
+    }
+
+    /// `is_role_authorized` is the walk behind spec-to-spec publication
+    /// checks. Legacy capabilities compare through their bundle bits: a
+    /// `write` grant satisfies a `Read` requirement, and a covering prefix
+    /// grant authorizes every name beneath it.
+    #[test]
+    fn test_is_role_authorized() {
+        let snapshot = Snapshot::build_fixture(None);
+
+        // Directly granted: bobCo/tires/ reads acmeCo/shared/.
+        assert!(snapshot.is_role_authorized(
+            "bobCo/tires/capture",
+            "acmeCo/shared/collection",
+            models::Capability::Read,
+        ));
+        // A read grant does not satisfy a write requirement.
+        assert!(!snapshot.is_role_authorized(
+            "bobCo/tires/capture",
+            "acmeCo/shared/collection",
+            models::Capability::Write,
+        ));
+        // A write grant satisfies a read requirement: bobCo/ writes bobCo/.
+        assert!(snapshot.is_role_authorized(
+            "bobCo/widgets/capture",
+            "bobCo/tires/collection",
+            models::Capability::Read,
+        ));
+        // The sibling prefix holds no grant reaching acmeCo/.
+        assert!(!snapshot.is_role_authorized(
+            "bobCo/widgets/capture",
+            "acmeCo/shared/collection",
+            models::Capability::Read,
+        ));
     }
 }
