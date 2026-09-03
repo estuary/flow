@@ -26,11 +26,11 @@ where
     // the connector log sink.
     let log_sink = move |log: &ops::Log| logger.log(log);
 
-    let container_rx = connector_init::rpc::bidi::<Request, Response, _, _>(
+    let container_rx = connector_init::rpc::bidi::<Request, Response, _, _, _>(
         connector,
         codec,
         tokio_stream::wrappers::ReceiverStream::new(request_rx).map(Result::Ok),
-        log_sink,
+        connector_init::rpc::sync_log_handler(log_sink),
     )?;
 
     Ok(container_rx)
