@@ -11327,6 +11327,9 @@ impl serde::Serialize for TaskServiceConfig {
         if self.plane != 0 {
             len += 1;
         }
+        if self.process.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.TaskServiceConfig", len)?;
         if self.log_file_fd != 0 {
             struct_ser.serialize_field("logFileFd", &self.log_file_fd)?;
@@ -11344,6 +11347,9 @@ impl serde::Serialize for TaskServiceConfig {
             let v = Plane::try_from(self.plane)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.plane)))?;
             struct_ser.serialize_field("plane", &v)?;
+        }
+        if let Some(v) = self.process.as_ref() {
+            struct_ser.serialize_field("process", v)?;
         }
         struct_ser.end()
     }
@@ -11364,6 +11370,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
             "container_network",
             "containerNetwork",
             "plane",
+            "process",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -11373,6 +11380,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
             UdsPath,
             ContainerNetwork,
             Plane,
+            Process,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -11400,6 +11408,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                             "udsPath" | "uds_path" => Ok(GeneratedField::UdsPath),
                             "containerNetwork" | "container_network" => Ok(GeneratedField::ContainerNetwork),
                             "plane" => Ok(GeneratedField::Plane),
+                            "process" => Ok(GeneratedField::Process),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -11424,6 +11433,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                 let mut uds_path__ = None;
                 let mut container_network__ = None;
                 let mut plane__ = None;
+                let mut process__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::LogFileFd => {
@@ -11458,6 +11468,12 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                             }
                             plane__ = Some(map_.next_value::<Plane>()? as i32);
                         }
+                        GeneratedField::Process => {
+                            if process__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("process"));
+                            }
+                            process__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -11469,6 +11485,7 @@ impl<'de> serde::Deserialize<'de> for TaskServiceConfig {
                     uds_path: uds_path__.unwrap_or_default(),
                     container_network: container_network__.unwrap_or_default(),
                     plane: plane__.unwrap_or_default(),
+                    process: process__,
                 })
             }
         }
