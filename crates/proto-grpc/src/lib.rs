@@ -2,6 +2,9 @@ mod auth;
 pub use auth::{Authenticator, Authorized, Authorizer, Signer};
 
 pub mod capture;
+pub mod connector {
+    include!("connector.rs");
+}
 pub mod consumer;
 pub mod derive;
 pub mod flow;
