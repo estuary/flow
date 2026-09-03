@@ -43,6 +43,9 @@ broker_server = []
 capture_client = ["proto-flow"]
 capture_server = ["proto-flow"]
 
+connector_client = ["proto-flow"]
+connector_server = ["proto-flow"]
+
 consumer_client = []
 consumer_server = []
 

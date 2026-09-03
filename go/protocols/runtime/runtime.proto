@@ -32,6 +32,10 @@ message TaskServiceConfig {
   string uds_path          = 3;
   string container_network = 4;
   Plane  plane             = 6;
+  // This process: its ID and the reactor's advertised gRPC endpoint. Reported
+  // as `connector.Response.Started.process`, telling a proxied caller which
+  // reactor its connector landed on.
+  protocol.ProcessSpec process = 7;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.

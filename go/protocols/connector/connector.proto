@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package connector;
+
+import "broker/protocol/protocol.proto";
+import "go/protocols/capture/capture.proto";
+import "go/protocols/derive/derive.proto";
+import "go/protocols/materialize/materialize.proto";
+import "go/protocols/ops/ops.proto";
+import "go/protocols/runtime/runtime.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/estuary/flow/go/protocols/connector";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+
+// Request is one message of a Connector RPC's request stream.
+//
+// The FIRST request MUST set `start` AND exactly one protocol request, which
+// determines the connector type for the life of the stream. Every later
+// request sets exactly one protocol request of that same type, and MUST NOT
+// set `start`. Only the first request is inspected: its endpoint
+// configuration is extracted and unsealed, and its task identity is
+// authorized against the bearer's claims. All later requests pass through.
+message Request {
+  message Start {
+    // Log level of the connector.
+    ops.Log.Level log_level = 1;
+    // URL of a SQLite VFS which a derive-sqlite connector should open.
+    // Runtime-internal: set only by an in-process shard hosting a recorded
+    // recovery log. Empty for all other connectors; setting it for any
+    // connector type but Sqlite is an error.
+    string sqlite_vfs_uri = 2;
+  }
+  Start start = 1;
+
+  oneof kind {
+    capture.Request capture = 2;
+    derive.Request derive = 3;
+    materialize.Request materialize = 4;
+  }
+}
+
+/// Response is one message of a Connector RPC's response stream.
+//
+// The stream is zero or more `log`, then `started` carrying the connector's
+// Spec, then a mix of `log` and protocol responses of the request stream's
+// type until EOF.
+//
+// A failure before the connector is running ends the stream with a Status and
+// no `started`. The stream ends (EOF or Status) only after BOTH the
+// connector's protocol responses AND its stderr have been read through, so
+// a terminal Status is always the stream's last word and is preceded by
+// every log the connector emitted.
+message Response {
+  message Started {
+    // Running connector container, if the connector is an image.
+    runtime.Container container = 1;
+    // Wire codec negotiated with the connector.
+    enum Codec {
+      INVALID = 0;
+      PROTO = 1;
+      JSON = 2;
+    }
+    Codec codec = 2;
+    // Deadline for gracefully restarting the session ahead of injected IAM
+    // credential expiry. Absent when the connector uses no IAM auth.
+    google.protobuf.Timestamp token_restart_at = 3;
+    // Process serving this RPC: its ID and directly dial-able endpoint.
+    // Absent in local contexts.
+    protocol.ProcessSpec process = 4;
+
+    // The connector's response to a Spec request, which the service issues as
+    // part of starting it. Always set, of the stream's protocol.
+    oneof spec {
+      capture.Response.Spec capture = 5;
+      derive.Response.Spec derive = 6;
+      materialize.Response.Spec materialize = 7;
+    }
+  }
+
+  oneof kind {
+    Started started = 1;
+    ops.Log log = 2;
+    capture.Response capture = 3;
+    derive.Response derive = 4;
+    materialize.Response materialize = 5;
+  }
+}
+
+service Connector {
+  rpc Connector(stream Request) returns (stream Response);
+}
