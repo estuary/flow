@@ -2182,3 +2182,110 @@ test://example/db-views:
     let errors = common::run_errors(MODEL_YAML, &patch);
     insta::assert_debug_snapshot!(errors);
 }
+
+#[test]
+fn capture_interval_resolves_through_connector_tag_defaults() {
+    // Each rung of the interval precedence ladder: an explicit model `interval`
+    // wins over the connector tag's default, the tag's default wins over the
+    // global default.
+    let fixture = r##"
+test://example/catalog.yaml:
+  collections:
+    acmeCo/things:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+  captures:
+    acmeCo/model-interval:
+      interval: 90s
+      shards: { disable: true }
+      endpoint:
+        connector:
+          image: acmeCo/source-paced:v1
+          config: {}
+      bindings:
+        - resource: { table: things }
+          target: acmeCo/things
+    acmeCo/tag-interval:
+      shards: { disable: true }
+      endpoint:
+        connector:
+          image: acmeCo/source-paced:v1
+          config: {}
+      bindings:
+        - resource: { table: things }
+          target: acmeCo/things
+    acmeCo/tag-without-default:
+      shards: { disable: true }
+      endpoint:
+        connector:
+          image: acmeCo/source-unpaced:v1
+          config: {}
+      bindings:
+        - resource: { table: things }
+          target: acmeCo/things
+    acmeCo/unknown-image:
+      shards: { disable: true }
+      endpoint:
+        connector:
+          image: acmeCo/source-unknown:v1
+          config: {}
+      bindings:
+        - resource: { table: things }
+          target: acmeCo/things
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": {}
+  connectorTags:
+    "acmeCo/source-paced:v1": 30
+    "acmeCo/source-unpaced:v1": null
+"##;
+
+    let outcome = common::run(fixture, "{}");
+    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+
+    // The resolved interval must not be written back into the model: captures
+    // which set nothing keep tracking their connector tag's current default.
+    let resolved: Vec<(String, u32, Option<std::time::Duration>)> = outcome
+        .built_captures
+        .iter()
+        .map(|built| {
+            (
+                built.capture.to_string(),
+                built.spec.as_ref().unwrap().interval_seconds,
+                built.model.as_ref().unwrap().interval,
+            )
+        })
+        .collect();
+
+    insta::assert_debug_snapshot!(resolved, @r#"
+    [
+        (
+            "acmeCo/model-interval",
+            90,
+            Some(
+                90s,
+            ),
+        ),
+        (
+            "acmeCo/tag-interval",
+            30,
+            None,
+        ),
+        (
+            "acmeCo/tag-without-default",
+            300,
+            None,
+        ),
+        (
+            "acmeCo/unknown-image",
+            300,
+            None,
+        ),
+    ]
+    "#);
+}

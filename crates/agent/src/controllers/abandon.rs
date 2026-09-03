@@ -435,7 +435,7 @@ mod test {
             bindings: vec![],
             shards: Default::default(),
             auto_discover: None,
-            interval: std::time::Duration::from_secs(300),
+            interval: None,
             redact_salt: None,
             expect_pub_id: None,
             delete: false,

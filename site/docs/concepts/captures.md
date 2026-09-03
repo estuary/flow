@@ -160,6 +160,7 @@ captures:
     # capture finishes after two minutes, then the next invocation will be started
     # after three additional minutes.
     #
-    # Optional. Default: Five minutes.
+    # Optional. When omitted, the default comes from the capture's connector,
+    # and is five minutes for connectors which don't specify one of their own.
     interval: 5m
 ```

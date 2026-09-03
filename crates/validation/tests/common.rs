@@ -170,7 +170,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             bindings: mock.bindings.clone(),
             endpoint: models::CaptureEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
-            interval: std::time::Duration::from_secs(32),
+            interval: Some(std::time::Duration::from_secs(32)),
             shards: models::ShardTemplate::default(),
             delete: false,
             reset: false,
@@ -431,6 +431,11 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         live.inferred_schemas
             .insert_row(collection, schema, "an-md5".to_string());
     }
+    // Load into LiveCatalog::connector_tags.
+    for (image, default_capture_interval_seconds) in &mock_calls.connector_tags {
+        live.connector_tags
+            .insert_row(image, default_capture_interval_seconds);
+    }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
         live.storage_mappings.insert_row(
@@ -640,6 +645,8 @@ struct MockDriverCalls {
     materializations: BTreeMap<String, MockMaterializationValidateCall>,
 
     // Live catalog mocks:
+    #[serde(default)]
+    connector_tags: BTreeMap<String, Option<u32>>,
     #[serde(default)]
     data_planes: BTreeMap<models::Id, MockDataPlane>,
     #[serde(default)]

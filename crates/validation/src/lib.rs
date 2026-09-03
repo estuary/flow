@@ -182,6 +182,7 @@ pub async fn validate<C: Connectors>(
         &live.captures,
         &built_collections,
         connectors,
+        &live.connector_tags,
         &live.data_planes,
         explicit_plane,
         &dependencies,

@@ -71,6 +71,13 @@ tables!(
         val md5: String,
     }
 
+    table ConnectorTags (row ConnectorTag, sql "connector_tags") {
+        // Full connector image, exactly as written in the model (e.g. "ghcr.io/estuary/source-x:v1").
+        key image: String,
+        // Connector-specific default for the interval between capture invocations.
+        val default_capture_interval_seconds: Option<u32>,
+    }
+
     table DataPlanes (row #[derive(Clone, serde::Serialize, serde::Deserialize)] DataPlane, sql "data_planes") {
         // Control-plane identifier for this data-plane.
         key control_id: models::Id,

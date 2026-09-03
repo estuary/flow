@@ -356,7 +356,7 @@ async fn prepare_discover<'a>(
                     add_new_bindings: true,
                     evolve_incompatible_collections: true,
                 }),
-                interval: models::CaptureDef::default_interval(),
+                interval: None,
                 redact_salt: None,
                 shards: models::ShardTemplate::default(),
                 expect_pub_id: None,
