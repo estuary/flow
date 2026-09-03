@@ -811,6 +811,21 @@ pub async fn resolve_live_specs(
             // (`authorize_task`), so a spec which verifies here is a spec the
             // runtime will let run. Denials request an early Snapshot refresh:
             // the needed role grant may postdate this Snapshot.
+            //
+            // Denial messages render the grants the spec holds by virtue of
+            // its own name: those whose `subject_role` prefixes it. This is
+            // only the directly-held grants, not the transitive reach of the
+            // walk, and exists solely to make the error actionable.
+            let spec_grants = || {
+                serde_json::to_string_pretty(
+                    &snapshot
+                        .role_grants
+                        .iter()
+                        .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap()
+            };
             for source in reads_from {
                 if !snapshot.is_role_authorized(catalog_name, source.as_str(), Capability::Read) {
                     snapshot.request_refresh();
@@ -818,7 +833,7 @@ pub async fn resolve_live_specs(
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&snapshot.spec_capabilities(catalog_name)).unwrap(),
+                            spec_grants(),
                         ),
                     });
                 }
@@ -830,7 +845,7 @@ pub async fn resolve_live_specs(
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&snapshot.spec_capabilities(catalog_name)).unwrap(),
+                            spec_grants(),
                         ),
                     });
                 }

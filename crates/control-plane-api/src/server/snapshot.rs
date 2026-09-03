@@ -123,9 +123,8 @@ impl Snapshot {
 
     /// Returns whether the role or spec named `subject_role_or_name` holds
     /// `capability` to `object_role_or_name`, evaluated against this
-    /// Snapshot's role grants. Unlike the SQL `spec_capabilities` match it
-    /// replaces, this walks the full grant graph — the same walk which
-    /// authorizes running tasks (`authorize_task`).
+    /// Snapshot's role grants. This walks the full grant graph — the same
+    /// walk which authorizes running tasks (`authorize_task`).
     pub fn is_role_authorized(
         &self,
         subject_role_or_name: &str,
@@ -138,19 +137,6 @@ impl Snapshot {
             object_role_or_name,
             capability,
         )
-    }
-
-    /// Returns the "spec capabilities" of a spec named `catalog_name`: the
-    /// role grants whose `subject_role` is a prefix of the name — the grants
-    /// the spec holds by virtue of its own name. Only the directly-held
-    /// grants are rendered, not the transitive reach of the walk, so this is
-    /// only for error reporting to improve authorization error messages.
-    pub fn spec_capabilities(&self, catalog_name: &str) -> Vec<tables::RoleGrant> {
-        self.role_grants
-            .iter()
-            .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
-            .cloned()
-            .collect()
     }
 
     /// Requests an early background refresh of this Snapshot by cancelling
@@ -928,83 +914,6 @@ mod tests {
             cordon_time.unwrap(),
             chrono::DateTime::from_timestamp(300_000, 0).unwrap()
         );
-    }
-
-    /// `spec_capabilities` renders the "Available grants are:" list in
-    /// publication authorization errors. It answers "what may a spec named X
-    /// do, by virtue of its own name?", which is a prefix match on
-    /// `subject_role` — not on `object_role`, and not scoped to any user.
-    #[test]
-    fn test_spec_capabilities() {
-        let snapshot = Snapshot::build_fixture(None);
-        let subjects = |name: &str| {
-            snapshot
-                .spec_capabilities(name)
-                .into_iter()
-                .map(|g| {
-                    (
-                        g.subject_role.to_string(),
-                        g.object_role.to_string(),
-                        g.capability,
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
-
-        // A name under a granted prefix picks up every grant whose subject_role
-        // is a prefix of it — here both the tenant-wide grants and the more
-        // specific `bobCo/tires/` one.
-        insta::assert_debug_snapshot!(subjects("bobCo/tires/source-tread"), @r#"
-        [
-            (
-                "bobCo/",
-                "bobCo/",
-                Write,
-            ),
-            (
-                "bobCo/",
-                "ops/dp/public/",
-                Read,
-            ),
-            (
-                "bobCo/tires/",
-                "acmeCo/shared/",
-                Read,
-            ),
-        ]
-        "#);
-
-        // A sibling prefix under the same tenant sees only the tenant-wide grants.
-        insta::assert_debug_snapshot!(subjects("bobCo/widgets/source-squash"), @r#"
-        [
-            (
-                "bobCo/",
-                "bobCo/",
-                Write,
-            ),
-            (
-                "bobCo/",
-                "ops/dp/public/",
-                Read,
-            ),
-        ]
-        "#);
-
-        // Grants are not matched by their object_role: `acmeCo/shared/` is
-        // reachable *from* `bobCo/tires/`, but a spec named `acmeCo/shared/x`
-        // holds only `acmeCo/`'s own grants.
-        insta::assert_debug_snapshot!(subjects("acmeCo/shared/thing"), @r#"
-        [
-            (
-                "acmeCo/",
-                "acmeCo/",
-                Write,
-            ),
-        ]
-        "#);
-
-        // A name under no granted prefix holds nothing.
-        assert!(subjects("unknownCo/thing").is_empty());
     }
 
     /// `is_role_authorized` is the walk behind spec-to-spec publication
