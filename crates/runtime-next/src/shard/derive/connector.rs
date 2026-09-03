@@ -12,10 +12,14 @@ use unseal;
 /// Unlike the materialize / capture connector starts, derivations don't perform
 /// an IAM token-exchange Spec pre-dance (no derive connector uses IAM today),
 /// and they support an in-process `Sqlite` connector alongside image / local.
+///
+/// `sqlite_vfs_uri` threads the shard's recorded SQLite VFS to a `Sqlite`
+/// connector, and is empty for every other connector type.
 pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     service: &crate::shard::Service<P, L>,
     logger: &L::Logger,
     log_level: ops::LogLevel,
+    sqlite_vfs_uri: String,
     mut initial: derive::Request,
 ) -> anyhow::Result<(
     mpsc::Sender<derive::Request>,
@@ -100,7 +104,8 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         models::DeriveUsing::Sqlite(_) => {
             // In-process connector consuming prost requests directly; maps its
             // anyhow::Result responses to tonic::Result.
-            let rx = derive_sqlite::connector(ReceiverStream::new(connector_rx))
+            let vfs_uri = (!sqlite_vfs_uri.is_empty()).then_some(sqlite_vfs_uri);
+            let rx = derive_sqlite::connector(ReceiverStream::new(connector_rx), vfs_uri)
                 .map(|r| r.map_err(crate::anyhow_to_status))
                 .boxed();
 
