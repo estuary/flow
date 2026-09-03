@@ -11,6 +11,11 @@ pub struct TaskServiceConfig {
     pub container_network: ::prost::alloc::string::String,
     #[prost(enumeration = "Plane", tag = "6")]
     pub plane: i32,
+    /// This process: its ID and the reactor's advertised gRPC endpoint. Reported
+    /// as `connector.Response.Started.process`, telling a proxied caller which
+    /// reactor its connector landed on.
+    #[prost(message, optional, tag = "7")]
+    pub process: ::core::option::Option<::proto_gazette::broker::ProcessSpec>,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,

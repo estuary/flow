@@ -20,6 +20,7 @@ impl TaskService {
             uds_path,
             container_network,
             plane,
+            process: _,
         } = config;
 
         if !std::path::Path::new(&uds_path).is_absolute() {
