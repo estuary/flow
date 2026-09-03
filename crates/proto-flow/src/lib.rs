@@ -2,6 +2,7 @@ use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
 pub mod capture;
+pub mod connector;
 pub mod derive;
 pub mod flow;
 mod internal;
@@ -91,6 +92,11 @@ pub fn as_timestamp(ts: std::time::SystemTime) -> Timestamp {
     }
 }
 
+/// Inverse of [`as_timestamp`].
+pub fn from_timestamp(ts: Timestamp) -> std::time::SystemTime {
+    std::time::UNIX_EPOCH + std::time::Duration::new(ts.seconds as u64, ts.nanos as u32)
+}
+
 impl ops::log::Level {
     /// Return this Level if it's not UndefinedLevel, or else return `or`.
     pub fn or(self, or: Self) -> Self {
@@ -110,6 +116,10 @@ pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 mod serde_capture {
     use crate::capture::*;
     include!("capture.serde.rs");
+}
+mod serde_connector {
+    use crate::connector::*;
+    include!("connector.serde.rs");
 }
 mod serde_derive {
     use crate::derive::*;

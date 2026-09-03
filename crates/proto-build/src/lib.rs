@@ -88,6 +88,8 @@ impl Boilerplate {
     pub fn resolve_flow_targets(&self) -> Vec<PathBuf> {
         let targets = vec![
             self.repo_root.join("go/protocols/capture/capture.proto"),
+            self.repo_root
+                .join("go/protocols/connector/connector.proto"),
             self.repo_root.join("go/protocols/derive/derive.proto"),
             self.repo_root.join("go/protocols/flow/flow.proto"),
             self.repo_root

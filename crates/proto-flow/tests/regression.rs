@@ -1,6 +1,6 @@
 use prost::Message;
 use proto_flow::flow::SerPolicy;
-use proto_flow::{capture, derive, flow, flow::inference, materialize, ops};
+use proto_flow::{capture, connector, derive, flow, flow::inference, materialize, ops};
 use proto_gazette::{broker, consumer};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -377,6 +377,20 @@ fn ex_connector_state() -> flow::ConnectorState {
     flow::ConnectorState {
         updated_json: json!({"state":"update"}).to_string().into(),
         merge_patch: true,
+    }
+}
+
+fn ex_connector_response() -> connector::Response {
+    connector::Response {
+        kind: Some(connector::response::Kind::Started(
+            connector::response::Started {
+                codec: connector::response::started::Codec::Proto as i32,
+                spec: Some(connector::response::started::Spec::Derive(Box::new(
+                    derive::response::Spec::default(),
+                ))),
+                ..Default::default()
+            },
+        )),
     }
 }
 
@@ -1356,6 +1370,16 @@ fn test_collection_spec_json() {
 }
 
 #[test]
+fn test_connector_response_json() {
+    insta::assert_snapshot!(json_test(ex_connector_response()));
+}
+
+#[test]
+fn test_connector_response_proto() {
+    insta::assert_snapshot!(proto_test(ex_connector_response()));
+}
+
+#[test]
 fn test_collection_spec_proto() {
     let msg = ex_collection_spec();
     insta::assert_snapshot!(proto_test(msg));
@@ -1596,6 +1620,8 @@ fn test_struct_sizes() {
         materialize::response::Flushed,
         materialize::response::StartedCommit,
         materialize::response::Acknowledged,
+        connector::Request,
+        connector::Response,
         flow::CollectionSpec,
         flow::collection_spec::Derivation,
         flow::collection_spec::derivation::Transform,

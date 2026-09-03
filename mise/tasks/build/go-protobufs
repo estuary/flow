@@ -5,6 +5,7 @@ set -euo pipefail
 # Proto files to generate
 PROTO_FILES=(
   "./go/protocols/capture/capture.proto"
+  "./go/protocols/connector/connector.proto"
   "./go/protocols/derive/derive.proto"
   "./go/protocols/flow/flow.proto"
   "./go/protocols/materialize/materialize.proto"
