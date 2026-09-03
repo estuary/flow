@@ -169,6 +169,7 @@ impl TestServer {
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: email.map(String::from),
+            capability_mask: None,
         };
 
         jsonwebtoken::encode(
