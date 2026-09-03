@@ -92,7 +92,7 @@ impl Capability {
 /// The mask is an enable/disable filter, never a grant: `apply` is pure
 /// intersection, so naming a capability the user doesn't hold conveys
 /// nothing, while omitting one they do hold disables it. An unmasked bearer
-/// simply carries the full set ([`Self::UNMASKED`]) and intersects as the
+/// simply carries the full set ([`Self::ALL_CAPABILITIES`]) and intersects as the
 /// identity.
 ///
 /// This is a newtype over [`CapabilitySet`] rather than a bare set because
@@ -103,8 +103,9 @@ impl Capability {
 /// This type answers *what may be exercised*, never *whether the bearer is
 /// masked*. A token whose mask happens to enable everything is still a
 /// deliberately-reduced credential, and surfaces that fail closed for masked
-/// bearers (the `/admin` endpoints, the mint) must key on the claim's
-/// presence — `capability_mask.is_some()` — and never on [`Self::is_all`].
+/// bearers (such as the `/admin` endpoints) must key on the claim's
+/// presence — `capability_mask.is_some()` — and never on
+/// [`Self::has_all_capabilities`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapabilityMask(CapabilitySet);
 
@@ -116,8 +117,8 @@ impl CapabilityMask {
     ///
     /// There is deliberately no `Default` and no `From<CapabilitySet>`:
     /// every caller must name its mask, and constructing an unrestricted
-    /// one must be a visible, greppable choice.
-    pub const UNMASKED: Self = Self(CapabilitySet::all());
+    /// one must be a visible choice.
+    pub const ALL_CAPABILITIES: Self = Self(CapabilitySet::all());
 
     /// A mask enabling exactly `set`. An empty set is valid and yields a
     /// token which authenticates an identity but authorizes nothing.
@@ -127,16 +128,16 @@ impl CapabilityMask {
 
     /// Build a mask from a token's verified `capability_mask` claim.
     ///
-    /// An absent claim is [`Self::UNMASKED`]; a present claim enables the
-    /// union of the capability bits of its recognized [`CapabilityBundle`]
-    /// names, and that includes an empty list — "no mask" and "an empty
-    /// mask" are distinct on the wire and the difference is load-bearing.
-    /// Unrecognized names contribute nothing, so a claim naming only names
-    /// we don't know bounds the token to nothing at all; see
-    /// [`CapabilityBundle::from_name`].
+    /// An absent claim is [`Self::ALL_CAPABILITIES`]; a present claim
+    /// enables the union of the capability bits of its recognized
+    /// [`CapabilityBundle`] names, and that includes an empty list — "no
+    /// mask" and "an empty mask" are distinct on the wire and the
+    /// difference is load-bearing. Unrecognized names contribute nothing,
+    /// so a claim naming only names we don't know bounds the token to
+    /// nothing at all; see [`CapabilityBundle::from_name`].
     pub fn from_claim(mask: Option<&[String]>) -> Self {
         let Some(mask) = mask else {
-            return Self::UNMASKED;
+            return Self::ALL_CAPABILITIES;
         };
         Self(
             mask.iter()
@@ -149,10 +150,10 @@ impl CapabilityMask {
     /// Attenuate `capabilities` to this mask.
     ///
     /// Apply this at each node emission of the user grant walk, never to the
-    /// walk's result: the mask has to gate `Delegate` itself, so that a mask
-    /// without it confines the token to direct user grants, and it must not
-    /// be re-widened by `Assume`, which makes all of an edge's bits
-    /// delegatable as it passes through.
+    /// walk's result: the mask has to gate traversal itself, so that a mask
+    /// without `Delegate` (and `Assume`) confines the token to direct user
+    /// grants, and it must not be re-widened by `Assume`, which makes all of
+    /// an edge's bits delegatable as it passes through.
     pub fn apply(self, capabilities: CapabilitySet) -> CapabilitySet {
         capabilities & self.0
     }
@@ -164,7 +165,7 @@ impl CapabilityMask {
     /// which is safe when the mask hides nothing. It must NEVER stand in
     /// for "is this bearer unmasked?": that is a property of the claim
     /// (`capability_mask.is_some()`), not of this value.
-    pub fn is_all(self) -> bool {
+    pub fn has_all_capabilities(self) -> bool {
         self.0 == CapabilitySet::all()
     }
 }
@@ -477,7 +478,10 @@ mod test {
     #[test]
     fn test_capability_mask_from_claim() {
         // An absent claim is an unmasked token: the full set.
-        assert_eq!(CapabilityMask::from_claim(None), CapabilityMask::UNMASKED);
+        assert_eq!(
+            CapabilityMask::from_claim(None),
+            CapabilityMask::ALL_CAPABILITIES
+        );
 
         let cases = [
             // Single-capability bundle names enable exactly the bit they
@@ -518,7 +522,7 @@ mod test {
         );
         assert_ne!(
             CapabilityMask::from_claim(Some(&[])),
-            CapabilityMask::UNMASKED,
+            CapabilityMask::ALL_CAPABILITIES,
         );
 
         insta::assert_debug_snapshot!(masks, @r"
@@ -554,10 +558,10 @@ mod test {
 
         // The unmasked mask is the identity, and enabling every capability
         // is the same thing by construction.
-        assert_eq!(CapabilityMask::UNMASKED.apply(editor), editor);
+        assert_eq!(CapabilityMask::ALL_CAPABILITIES.apply(editor), editor);
         assert_eq!(
             CapabilityMask::bounded(CapabilitySet::all()),
-            CapabilityMask::UNMASKED,
+            CapabilityMask::ALL_CAPABILITIES,
         );
 
         // A mask intersects: it can only ever disable bits, and bits it
@@ -571,8 +575,8 @@ mod test {
             CapabilityMask::bounded(CapabilitySet::empty()).apply(editor),
             CapabilitySet::empty(),
         );
-        assert!(!CapabilityMask::bounded(editor).is_all());
-        assert!(CapabilityMask::UNMASKED.is_all());
+        assert!(!CapabilityMask::bounded(editor).has_all_capabilities());
+        assert!(CapabilityMask::ALL_CAPABILITIES.has_all_capabilities());
     }
 
     // GraphQL's `CapabilityBit` vocabulary must stay a subset of the claim
