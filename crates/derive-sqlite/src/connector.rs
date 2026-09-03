@@ -2,8 +2,6 @@ use super::{Config, Lambda, Param, Transform, dbutil, do_validate, parse_validat
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
-use prost::Message;
-use proto_flow::runtime::{DeriveRequestExt, derive_request_ext};
 use proto_flow::{
     RuntimeCheckpoint,
     derive::{Request, Response, request, response},
@@ -34,7 +32,15 @@ impl Database {
     }
 }
 
-pub fn connector<R>(request_rx: R) -> mpsc::Receiver<anyhow::Result<Response>>
+/// Serve a derivation over an in-process SQLite database.
+///
+/// `vfs_uri` names a recovery-log-recorded SQLite VFS: it's threaded by an
+/// in-process shard hosting one, and `None` (or [`MEMORY_URI`]) elsewhere,
+/// which runs a stateless session-scoped database.
+pub fn connector<R>(
+    request_rx: R,
+    vfs_uri: Option<String>,
+) -> mpsc::Receiver<anyhow::Result<Response>>
 where
     R: futures::stream::Stream<Item = Request> + Send + 'static,
 {
@@ -42,7 +48,7 @@ where
 
     tokio::runtime::Handle::current().spawn_blocking(move || {
         futures::executor::block_on(async move {
-            if let Err(status) = serve(request_rx, &mut response_tx).await {
+            if let Err(status) = serve(request_rx, vfs_uri, &mut response_tx).await {
                 _ = response_tx.send(Err(status)).await;
             }
         })
@@ -53,6 +59,7 @@ where
 
 async fn serve<R>(
     request_rx: R,
+    vfs_uri: Option<String>,
     response_tx: &mut mpsc::Sender<anyhow::Result<Response>>,
 ) -> anyhow::Result<()>
 where
@@ -119,12 +126,10 @@ where
                     .await;
             }
             Some(Request {
-                open: Some(open),
-                internal,
-                ..
+                open: Some(open), ..
             }) => {
                 let database: Database;
-                (database, migrations, transforms) = parse_open(open, internal)?;
+                (database, migrations, transforms) = parse_open(open, vfs_uri.as_deref())?;
 
                 // Drop to close an open Database.
                 // This is required if we're re-opening the same database.
@@ -210,7 +215,7 @@ where
 
 fn parse_open(
     open: request::Open,
-    internal: bytes::Bytes,
+    vfs_uri: Option<&str>,
 ) -> anyhow::Result<(Database, Vec<String>, Vec<Transform>)> {
     let request::Open {
         collection,
@@ -219,23 +224,12 @@ fn parse_open(
         version: _,
     } = open;
 
-    let database = if internal.is_empty() {
-        // If DeriveRequestExt was not sent, then use a :memory: DB.
-        Database::Ephemeral
-    } else {
-        // If it was sent, *require* that `sqlite_vfs_uri` is populated.
-        let DeriveRequestExt { open: open_ext, .. } =
-            Message::decode(internal).context("internal is a DeriveRequestExt")?;
-        let derive_request_ext::Open { sqlite_vfs_uri, .. } =
-            open_ext.context("expected DeriveRequestExt.open to be set")?;
-
-        if sqlite_vfs_uri.is_empty() {
-            anyhow::bail!("DeriveRequestExt.open.sqlite_vfs_uri is not set and must be");
-        } else if sqlite_vfs_uri == MEMORY_URI {
-            Database::Ephemeral
-        } else {
-            Database::Durable(sqlite_vfs_uri)
-        }
+    let database = match vfs_uri {
+        // The runtime threaded no VFS: run a stateless :memory: DB.
+        None => Database::Ephemeral,
+        Some(MEMORY_URI) => Database::Ephemeral,
+        Some("") => anyhow::bail!("sqlite_vfs_uri is empty and must not be"),
+        Some(uri) => Database::Durable(uri.to_string()),
     };
 
     let flow::CollectionSpec { derivation, .. } = collection.unwrap();
@@ -384,7 +378,6 @@ impl Drop for Handle {
 mod test {
     use super::{MEMORY_URI, connector};
     use futures::StreamExt;
-    use proto_flow::runtime::{DeriveRequestExt, derive_request_ext};
     use proto_flow::{
         derive::{Request, request},
         flow,
@@ -392,7 +385,7 @@ mod test {
 
     /// The minimal derivation a `parse_open` will accept: a SQLite config with
     /// no migrations and no transforms.
-    fn open_request(sqlite_vfs_uri: Option<&str>) -> Request {
+    fn open_request() -> Request {
         let collection = flow::CollectionSpec {
             name: "acmeCo/thing".to_string(),
             derivation: Some(flow::collection_spec::Derivation {
@@ -401,28 +394,23 @@ mod test {
             }),
             ..Default::default()
         };
-        let mut request = Request {
+        Request {
             open: Some(request::Open {
                 collection: Some(collection),
                 ..Default::default()
             }),
             ..Default::default()
-        };
-        if let Some(sqlite_vfs_uri) = sqlite_vfs_uri {
-            request.set_internal(|ext: &mut DeriveRequestExt| {
-                ext.open = Some(derive_request_ext::Open {
-                    sqlite_vfs_uri: sqlite_vfs_uri.to_string(),
-                });
-            });
         }
-        request
     }
 
     async fn opened_checkpoint(
         sqlite_vfs_uri: Option<&str>,
     ) -> Option<proto_flow::RuntimeCheckpoint> {
-        let request = open_request(sqlite_vfs_uri);
-        let mut responses = connector(futures::stream::once(async move { request }));
+        let request = open_request();
+        let mut responses = connector(
+            futures::stream::once(async move { request }),
+            sqlite_vfs_uri.map(str::to_string),
+        );
 
         let opened = responses
             .next()
@@ -431,7 +419,6 @@ mod test {
             .expect("Open succeeds")
             .opened
             .expect("response is Opened");
-
         opened.runtime_checkpoint
     }
 

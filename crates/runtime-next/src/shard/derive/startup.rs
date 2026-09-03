@@ -3,10 +3,7 @@ use crate::proto;
 use anyhow::Context;
 use futures::{StreamExt, stream::BoxStream};
 use prost::Message;
-use proto_flow::{
-    derive, flow,
-    runtime::{DeriveRequestExt, derive_request_ext},
-};
+use proto_flow::{derive, flow};
 use tokio::sync::mpsc;
 
 pub async fn dial_and_join(
@@ -195,7 +192,7 @@ where
     let open_spec = flow::CollectionSpec::decode(open_spec.as_ref())
         .context("invalid CollectionSpec in L:Open")?;
 
-    let mut initial = derive::Request {
+    let initial = derive::Request {
         open: Some(derive::request::Open {
             collection: Some(open_spec),
             version,
@@ -204,16 +201,9 @@ where
         }),
         ..Default::default()
     };
-    // Thread the recorded SQLite VFS to derive-sqlite (which requires it to be
-    // set; absent it uses an in-memory database). Harmless for other connectors.
-    if !sqlite_vfs_uri.is_empty() {
-        initial.set_internal(|ext: &mut DeriveRequestExt| {
-            ext.open = Some(derive_request_ext::Open { sqlite_vfs_uri });
-        });
-    }
 
     let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, logger, log_level, initial).await?;
+        super::connector::start(service, logger, log_level, sqlite_vfs_uri, initial).await?;
 
     let verify = crate::verify("Derive", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {

@@ -90,8 +90,23 @@ pub async fn start<L: LogHandler>(
             .boxed()
         }
         models::DeriveUsing::Sqlite(_) => {
+            // Open carries an internal `sqlite_vfs_uri`: extract and thread to the connector.
+            // Other requests (Spec, Validate) omit it.
+            let is_open = initial.open.is_some();
+            let vfs_uri = if !is_open || initial.internal.is_empty() {
+                None
+            } else {
+                let ext: proto_flow::runtime::DeriveRequestExt =
+                    prost::Message::decode(initial.internal.clone())
+                        .context("internal is a DeriveRequestExt")?;
+                Some(
+                    ext.open
+                        .context("expected DeriveRequestExt.open to be set")?
+                        .sqlite_vfs_uri,
+                )
+            };
             connector_tx.try_send(initial).unwrap();
-            ::derive_sqlite::connector(connector_rx).boxed()
+            ::derive_sqlite::connector(connector_rx, vfs_uri).boxed()
         }
         models::DeriveUsing::Typescript(_) => unreachable!(),
         models::DeriveUsing::Python(_) => unreachable!(),
