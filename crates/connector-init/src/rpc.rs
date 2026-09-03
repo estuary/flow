@@ -15,8 +15,22 @@ pub fn new_command<S: AsRef<str>>(entrypoint: &[S]) -> async_process::Command {
     cmd
 }
 
+/// Adapt a synchronous `ops::Log` handler into the async handler which
+/// [`bidi`] and [`unary`] take, for callers having nothing to await.
+pub fn sync_log_handler<H>(
+    handler: H,
+) -> impl Fn(ops::Log) -> std::future::Ready<()> + Send + Sync + 'static
+where
+    H: Fn(&ops::Log) + Send + Sync + 'static,
+{
+    move |log| {
+        handler(&log);
+        std::future::ready(())
+    }
+}
+
 /// Process a unary RPC `op` which is delegated to the connector at `entrypoint`.
-pub async fn unary<In, Out, H>(
+pub async fn unary<In, Out, H, F>(
     connector: async_process::Command,
     codec: Codec,
     request: In,
@@ -25,7 +39,8 @@ pub async fn unary<In, Out, H>(
 where
     In: prost::Message + serde::Serialize + 'static,
     Out: prost::Message + for<'de> serde::Deserialize<'de> + Default + Unpin,
-    H: Fn(&ops::Log) + Send + Sync + 'static,
+    H: Fn(ops::Log) -> F + Send + Sync + 'static,
+    F: std::future::Future<Output = ()> + Send + 'static,
 {
     let requests = futures::stream::once(async { Ok(request) });
     let responses = bidi(connector, codec, requests, log_handler)?;
@@ -44,7 +59,7 @@ where
 }
 
 /// Process a bi-directional RPC which is delegated to the connector at `entrypoint`.
-pub fn bidi<In, Out, InStream, H>(
+pub fn bidi<In, Out, InStream, H, F>(
     mut connector: async_process::Command,
     codec: Codec,
     requests: InStream,
@@ -54,7 +69,8 @@ where
     In: prost::Message + serde::Serialize + 'static,
     Out: prost::Message + for<'de> serde::Deserialize<'de> + Default,
     InStream: futures::Stream<Item = tonic::Result<In>> + Send + 'static,
-    H: Fn(&ops::Log) + Send + Sync + 'static,
+    H: Fn(ops::Log) -> F + Send + Sync + 'static,
+    F: std::future::Future<Output = ()> + Send + 'static,
 {
     let args: Vec<String> = std::iter::once(connector.get_program())
         .chain(connector.get_args())
@@ -96,7 +112,7 @@ where
 /// Note that the connector _should_ but is not *obligated* to consume its stdin.
 /// As such, an I/O error (e.x. a broken pipe) or unconsumed stream remainder
 /// is logged but is not considered an error.
-async fn service_connector<M, S, H>(
+async fn service_connector<M, S, H, F>(
     mut connector: async_process::Child,
     codec: Codec,
     stream: S,
@@ -105,7 +121,8 @@ async fn service_connector<M, S, H>(
 where
     M: prost::Message + serde::Serialize + 'static,
     S: futures::Stream<Item = tonic::Result<M>>,
-    H: Fn(&ops::Log) + Send + Sync + 'static,
+    H: Fn(ops::Log) -> F + Send + Sync + 'static,
+    F: std::future::Future<Output = ()> + Send + 'static,
 {
     let mut stdin = connector.stdin.take().expect("connector stdin is a pipe");
     let stderr = connector.stderr.take().expect("connector stderr is a pipe");
@@ -199,10 +216,14 @@ async fn write_stdin(stdin: &mut async_process::ChildStdio, buffer: &[u8]) {
 /// Decode ops::Logs from the AsyncRead, passing each to the given handler,
 /// and also accumulate up to `ring_capacity` of final stderr output
 /// which is returned upon the first clean EOF or other error of the reader.
-async fn process_logs<R, H, T>(reader: R, handler: H, timesource: T) -> ops::Log
+///
+/// The handler is awaited, so a handler which forwards onto a bounded channel
+/// back-pressures the connector on its own stderr rather than buffering it.
+async fn process_logs<R, H, F, T>(reader: R, handler: H, timesource: T) -> ops::Log
 where
     R: tokio::io::AsyncRead + Unpin,
-    H: Fn(&ops::Log),
+    H: Fn(ops::Log) -> F,
+    F: std::future::Future<Output = ()>,
     T: Fn() -> std::time::SystemTime,
 {
     let mut reader = tokio::io::BufReader::new(reader);
@@ -231,8 +252,10 @@ where
         let (log, consume) = decoder.line_to_log(&line, reader.buffer());
         reader.consume(consume);
 
-        handler(&log);
-        last_log = log;
+        // The handler takes ownership -- it may need to send the Log onward --
+        // so keep a copy as the candidate final log.
+        last_log = log.clone();
+        handler(log).await;
     }
     last_log
 }
@@ -301,7 +324,10 @@ fn bound_log(log: &mut ops::Log) {
 
 #[cfg(test)]
 mod test {
-    use super::{Codec, MAX_TERMINAL_LOG_LEN, bidi, bound_log, new_command, process_logs, unary};
+    use super::{
+        Codec, MAX_TERMINAL_LOG_LEN, bidi, bound_log, new_command, process_logs, sync_log_handler,
+        unary,
+    };
     use futures::{StreamExt, TryStreamExt};
     use prost::Message;
     use proto_flow::flow::TestSpec;
@@ -330,7 +356,10 @@ mod test {
         let logs = std::cell::RefCell::new(Vec::new());
         let last_log = process_logs(
             fixture.as_bytes(),
-            |log| logs.borrow_mut().push(log.clone()),
+            |log| {
+                logs.borrow_mut().push(log);
+                std::future::ready(())
+            },
             timesource,
         )
         .await;
@@ -408,7 +437,7 @@ mod test {
                 new_command(&["cat".to_string(), "-".to_string()]),
                 codec,
                 requests,
-                ops::stderr_log_handler,
+                sync_log_handler(ops::stderr_log_handler),
             )
             .unwrap()
             .collect()
@@ -449,7 +478,7 @@ mod test {
             new_command(&["true".to_string()]),
             Codec::Proto,
             requests,
-            ops::stderr_log_handler,
+            sync_log_handler(ops::stderr_log_handler),
         )
         .unwrap()
         .collect()
@@ -474,7 +503,7 @@ mod test {
                 new_command(&["cat".to_string(), "/this/path/does/not/exist".to_string()]),
                 codec,
                 requests,
-                ops::stderr_log_handler,
+                sync_log_handler(ops::stderr_log_handler),
             )
             .unwrap()
             .map_err(strip_log)
@@ -525,7 +554,7 @@ mod test {
             ]),
             Codec::Proto,
             requests,
-            ops::stderr_log_handler,
+            sync_log_handler(ops::stderr_log_handler),
         )
         .unwrap()
         .map_err(strip_log)
@@ -569,7 +598,7 @@ mod test {
                 new_command(&["cat".to_string(), "-".to_string()]),
                 codec,
                 fixture.clone(),
-                ops::stderr_log_handler,
+                sync_log_handler(ops::stderr_log_handler),
             )
             .await
             .unwrap();
@@ -589,7 +618,7 @@ mod test {
                 new_command(&["true".to_string()]),
                 codec,
                 fixture.clone(),
-                ops::stderr_log_handler,
+                sync_log_handler(ops::stderr_log_handler),
             )
             .await;
 
@@ -691,7 +720,7 @@ mod test {
             ]),
             Codec::Proto,
             requests,
-            ops::stderr_log_handler,
+            sync_log_handler(ops::stderr_log_handler),
         )
         .unwrap()
         .collect()
