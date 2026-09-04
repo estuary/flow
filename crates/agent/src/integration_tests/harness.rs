@@ -9,7 +9,6 @@ use crate::publications::PublicationsExecutor;
 use crate::{
     controllers::ControllerState,
     controlplane::{ConnectorSpec, ControlPlane, PGControlPlane},
-    discovers,
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -123,7 +122,7 @@ pub struct ScenarioResult {
 }
 
 pub struct UserDiscoverResult {
-    pub job_status: crate::discovers::JobStatus,
+    pub job_status: models::discovers::JobStatus,
     pub draft: tables::DraftCatalog,
     pub errors: Vec<(String, String)>,
 }
@@ -133,7 +132,7 @@ impl UserDiscoverResult {
         let discover = sqlx::query!(
             r#"select
                 draft_id as "draft_id: Id",
-                job_status as "job_status: TextJson<discovers::JobStatus>"
+                job_status as "job_status: TextJson<models::discovers::JobStatus>"
             from discovers
             where id = $1;"#,
             discover_id as Id,

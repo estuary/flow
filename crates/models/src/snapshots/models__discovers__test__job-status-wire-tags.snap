@@ -1,0 +1,44 @@
+---
+source: crates/models/src/discovers.rs
+expression: serialized
+---
+[
+  {
+    "type": "queued"
+  },
+  {
+    "type": "wrongProtocol"
+  },
+  {
+    "type": "tagFailed"
+  },
+  {
+    "type": "imageForbidden"
+  },
+  {
+    "type": "pullFailed"
+  },
+  {
+    "type": "discoverFailed"
+  },
+  {
+    "type": "mergeFailed"
+  },
+  {
+    "type": "success"
+  },
+  {
+    "publication_id": "0102030405060708",
+    "specs_unchanged": true,
+    "type": "success"
+  },
+  {
+    "type": "deprecatedBackground"
+  },
+  {
+    "type": "noDataPlane"
+  },
+  {
+    "type": "notAuthorized"
+  }
+]
