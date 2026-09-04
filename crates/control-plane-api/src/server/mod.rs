@@ -407,3 +407,89 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_server::snapshot_of_grants;
+
+    fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
+        models::authorizations::ControlClaims {
+            iat: 0,
+            exp: u64::MAX,
+            sub: user_id,
+            role: "authenticated".to_string(),
+            aud: "authenticated".to_string(),
+            email: Some("user@example.test".to_string()),
+        }
+    }
+
+    /// The `ops/` admin gate of the /admin/* endpoints, expressed as
+    /// evaluate_names_authorization over the Snapshot's grant walk.
+    #[test]
+    fn test_evaluate_ops_admin_gate() {
+        use models::Capability::{Admin, Read};
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let evaluate = |snapshot: &Snapshot| {
+            evaluate_names_authorization(snapshot, &claims(user), Admin, ["ops/"])
+        };
+
+        // A direct admin grant to `ops/` is authorized.
+        let snapshot = snapshot_of_grants(&[(user, "ops/", Admin)], &[]);
+        assert!(evaluate(&snapshot).is_ok());
+
+        // Admin of an unrelated tenant is denied.
+        let snapshot = snapshot_of_grants(&[(user, "acmeCo/", Admin)], &[]);
+        let status = evaluate(&snapshot).unwrap_err();
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+        assert_eq!(
+            status.message(),
+            "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
+        );
+
+        // A read grant to `ops/` is not admin.
+        let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
+        assert!(evaluate(&snapshot).is_err());
+    }
+
+    /// Pins the deliberate semantic change from the `internal.user_roles()`
+    /// SQL gate this check replaced: an admin chain reached through an
+    /// *ancestor* subject role. The user admins `estuary/support/`, and
+    /// `estuary/` (its ancestor) is granted admin of `ops/`. The SQL gate
+    /// walked only downward from held roles and wrongly denied this; the
+    /// Snapshot walk authorizes it.
+    #[test]
+    fn test_evaluate_ops_admin_ancestor_subject_chain() {
+        use models::Capability::{Admin, Read};
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let snapshot = snapshot_of_grants(
+            &[(user, "estuary/support/", Admin)],
+            &[("estuary/", "ops/", Admin)],
+        );
+        assert!(
+            evaluate_names_authorization(
+                &snapshot,
+                &claims(user),
+                models::Capability::Admin,
+                ["ops/"]
+            )
+            .is_ok()
+        );
+
+        // The same chain with a non-admin object grant is denied.
+        let snapshot = snapshot_of_grants(
+            &[(user, "estuary/support/", Admin)],
+            &[("estuary/", "ops/", Read)],
+        );
+        assert!(
+            evaluate_names_authorization(
+                &snapshot,
+                &claims(user),
+                models::Capability::Admin,
+                ["ops/"]
+            )
+            .is_err()
+        );
+    }
+}
