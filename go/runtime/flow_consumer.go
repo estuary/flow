@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/network"
 	"github.com/estuary/flow/go/protocols/capture"
+	pcn "github.com/estuary/flow/go/protocols/connector"
 	"github.com/estuary/flow/go/protocols/derive"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/materialize"
@@ -20,6 +22,7 @@ import (
 	"github.com/estuary/flow/go/protocols/runtime"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
+	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/auth"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -111,6 +114,33 @@ type FlowConsumer struct {
 	opsContext context.Context
 	// Network listener tap.
 	tap *network.Tap
+	// This reactor's advertised gRPC endpoint.
+	address pb.Endpoint
+	// Singleton V2 task service backing `connectorProxyV2`. Its connectors are
+	// named by their requests, so it hosts no task of its own.
+	proxySvcV2 *bindings.TaskServiceV2
+}
+
+// localProcessSpec describes this reactor process: its allocator member ID and
+// the endpoint peers dial it on. It's reported as
+// `connector.Response.Started.process`, telling a caller which reactor its
+// proxied connector landed on.
+//
+// The ID is read from `State.LocalKey` — `<root>/members/<zone>#<suffix>`, per
+// `allocator.MemberKey` — rather than from the member's Etcd announcement,
+// because this is also called during InitApplication, before the allocator has
+// announced us.
+func (f *FlowConsumer) localProcessSpec() *pb.ProcessSpec {
+	var spec = &pb.ProcessSpec{Endpoint: f.address}
+	var key = f.service.State.LocalKey
+
+	if i := strings.LastIndex(key, allocator.MembersPrefix); i != -1 {
+		var member = key[i+len(allocator.MembersPrefix):]
+		if j := strings.Index(member, allocator.Sep); j != -1 {
+			spec.Id = pb.ProcessSpec_ID{Zone: member[:j], Suffix: member[j+len(allocator.Sep):]}
+		}
+	}
+	return spec
 }
 
 // application is the interface implemented by Flow shard task stores.
@@ -309,6 +339,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	f.config = &config
 	f.service = args.Service
+	f.address = args.Server.Endpoint()
 	f.builds = builds
 	f.timepoint.Now = flow.NewTimepoint(time.Now())
 	f.opsContext = args.Context
@@ -347,6 +378,33 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	capture.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
 	derive.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
 	materialize.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
+
+	// One V2 task service for every proxied connector of this reactor. Its
+	// `TaskName` labels only the service's own tracing — connectors are named
+	// by the requests which start them — and it hosts no shard.
+	f.proxySvcV2, err = bindings.NewTaskServiceV2(
+		pr.TaskServiceConfig{
+			ContainerNetwork: config.Flow.Network,
+			TaskName:         "connector-proxy",
+			Plane:            config.Plane(),
+			Process:          f.localProcessSpec(),
+		},
+		func(log ops.Log) { ops.LogToLogrus(log, "connector-proxy") },
+	)
+	if err != nil {
+		return fmt.Errorf("creating V2 connector proxy task service: %w", err)
+	}
+	pcn.RegisterConnectorServer(args.Server.GRPCServer,
+		&connectorProxyV2{conn: f.proxySvcV2.Conn()})
+
+	// Drop the singleton on shutdown. Closing its client connection aborts any
+	// in-flight proxied RPCs first, so this doesn't wait on a long-running
+	// connector.
+	args.Tasks.Queue("connector-proxy-v2", func() error {
+		<-args.Tasks.Context().Done()
+		f.proxySvcV2.Drop()
+		return nil
+	})
 
 	networkProxy, err := network.NewFrontend(
 		f.tap,

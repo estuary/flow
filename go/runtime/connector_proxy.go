@@ -160,53 +160,6 @@ func (s *connectorProxy) verify(ctx context.Context) (context.Context, context.C
 	}
 }
 
-func runProxy[
-	Response any,
-	Request any,
-	ServerStream interface {
-		Send(*Response) error
-		Recv() (*Request, error)
-	},
-	ClientStream interface {
-		Send(*Request) error
-		Recv() (*Response, error)
-		CloseSend() error
-	},
-](server ServerStream, client ClientStream) error {
-	var fwdCh = make(chan error, 1)
-
-	// Start a forwarding loop, which sends client messages into the proxied client.
-	go func() (_err error) {
-		defer func() { fwdCh <- _err }()
-
-		for {
-			if req, err := server.Recv(); err != nil {
-				if err == io.EOF {
-					return client.CloseSend() // Graceful EOF.
-				} else {
-					_ = client.CloseSend()
-					return err
-				}
-			} else if err := client.Send(req); err != nil {
-				return err
-			}
-		}
-	}()
-
-	// Run the reverse loop synchronously.
-	for {
-		if resp, err := client.Recv(); err != nil {
-			if err == io.EOF {
-				return <-fwdCh // Await and return an error from the forward loop.
-			} else {
-				return err
-			}
-		} else if err := server.Send(resp); err != nil {
-			return err
-		}
-	}
-}
-
 var _ pr.ConnectorProxyServer = &connectorProxy{}
 var _ pc.ConnectorServer = &connectorProxy{}
 var _ pd.ConnectorServer = &connectorProxy{}
