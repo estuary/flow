@@ -1,6 +1,5 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-assertion_line: 1003
 expression: proto_test(msg)
 ---
 |0a260a24 63313361 33343132 2d393033| .&.$c13a3412-903 00000000
