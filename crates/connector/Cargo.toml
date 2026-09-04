@@ -46,4 +46,5 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+rustls = { workspace = true }
 tokio = { workspace = true, features = ["macros", "test-util"] }

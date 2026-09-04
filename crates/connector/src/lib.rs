@@ -30,6 +30,9 @@ mod router;
 mod serve;
 mod service;
 
+#[cfg(test)]
+mod tests;
+
 pub use container::flow_runtime_protocol;
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify};
