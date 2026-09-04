@@ -6,39 +6,7 @@ use control_plane_api::{
     proxy_connectors::DiscoverConnectors,
 };
 use models::Id;
-use serde::{Deserialize, Serialize};
-
-/// JobStatus is the possible outcomes of a handled discover operation.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum JobStatus {
-    Queued,
-    WrongProtocol,
-    TagFailed,
-    ImageForbidden,
-    PullFailed,
-    DiscoverFailed,
-    MergeFailed,
-    Success {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        publication_id: Option<Id>,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        specs_unchanged: bool,
-    },
-    DeprecatedBackground,
-    NoDataPlane,
-    NotAuthorized,
-}
-
-impl JobStatus {
-    #[cfg(test)]
-    pub fn is_success(&self) -> bool {
-        match self {
-            JobStatus::Success { .. } => true,
-            _ => false,
-        }
-    }
-}
+use models::discovers::JobStatus;
 
 type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
 
@@ -402,16 +370,6 @@ mod test {
 
     use models::Id;
     use uuid::Uuid;
-
-    // `discovers.job_status` is a UI-facing contract: pin the wire tag.
-    #[test]
-    fn test_job_status_not_authorized_serde() {
-        let status = serde_json::to_value(super::JobStatus::NotAuthorized).unwrap();
-        assert_eq!(serde_json::json!({"type": "notAuthorized"}), status);
-
-        let round: super::JobStatus = serde_json::from_value(status).unwrap();
-        assert!(matches!(round, super::JobStatus::NotAuthorized));
-    }
 
     #[tokio::test]
     async fn test_prepare_discover() {

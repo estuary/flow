@@ -1,0 +1,18 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers.rs
+expression: "stored(&pool, &first_id).await"
+---
+{
+  "capture_name": "aliceCo/in/capture-foo",
+  "connector_tag_id": "66:66:66:66:00:00:00:00",
+  "data_plane_name": "ops/dp/public/aws-us-west-2-c1",
+  "detail": "into existing draft",
+  "draft_detail": "alice draft",
+  "draft_user_id": "11111111-1111-1111-1111-111111111111",
+  "endpoint_config": "{\"b\":1,\"a\":{\"z\":true,\"y\":null},\"Z\":\"z\",\"A\":\"a\"}",
+  "job_status": {
+    "type": "queued"
+  },
+  "task_type": 4,
+  "update_only": true
+}

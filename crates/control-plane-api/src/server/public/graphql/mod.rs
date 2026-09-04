@@ -31,6 +31,7 @@ mod data_planes;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
 mod connectors;
+mod discovers;
 pub mod id;
 mod invite_links;
 mod live_spec_refs;
@@ -123,6 +124,7 @@ pub struct QueryRoot(
     data_planes::DataPlanesQuery,
     invite_links::InviteLinksQuery,
     connectors::ConnectorsQuery,
+    discovers::DiscoversQuery,
     tenant::TenantQuery,
     refresh_tokens::RefreshTokensQuery,
     service_accounts::ServiceAccountsQuery,
@@ -138,6 +140,7 @@ pub struct MutationRoot(
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
     data_planes::DataPlanesMutation,
+    discovers::DiscoversMutation,
     refresh_tokens::RefreshTokensMutation,
     service_accounts::ServiceAccountsMutation,
     secrets::SecretsMutation,

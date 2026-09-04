@@ -402,7 +402,7 @@ async fn test_discover_not_authorized_capture() {
         assert!(
             matches!(
                 result.job_status,
-                crate::discovers::JobStatus::NotAuthorized
+                models::discovers::JobStatus::NotAuthorized
             ),
             "{case}: expected NotAuthorized, got: {:?}",
             result.job_status
@@ -485,7 +485,7 @@ async fn test_discover_capture_requires_spec_edit() {
             assert!(
                 matches!(
                     result.job_status,
-                    crate::discovers::JobStatus::NotAuthorized
+                    models::discovers::JobStatus::NotAuthorized
                 ),
                 "{capability:?}: expected NotAuthorized, got: {:?}",
                 result.job_status
@@ -528,7 +528,7 @@ async fn test_discover_not_authorized_wins_over_missing_plane() {
     assert!(
         matches!(
             result.job_status,
-            crate::discovers::JobStatus::NotAuthorized
+            models::discovers::JobStatus::NotAuthorized
         ),
         "expected NotAuthorized, got: {:?}",
         result.job_status
@@ -589,7 +589,7 @@ async fn test_discover_no_data_plane() {
         let result = harness.run_queued_discover(discover_id).await;
 
         assert!(
-            matches!(result.job_status, crate::discovers::JobStatus::NoDataPlane),
+            matches!(result.job_status, models::discovers::JobStatus::NoDataPlane),
             "{case}: expected NoDataPlane, got: {:?}",
             result.job_status
         );

@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers.rs
+expression: response
+---
+{
+  "data": {
+    "createDiscover": {
+      "captureName": "aliceCo/in/capture-foo",
+      "connectorTagId": "6666666600000000",
+      "createdAt": "[datetime]",
+      "dataPlaneName": "ops/dp/public/aws-us-west-2-c1",
+      "detail": "into existing draft",
+      "draftId": "0100000000000001",
+      "id": "[id]",
+      "logsToken": "[uuid]",
+      "status": "QUEUED",
+      "updateOnly": true,
+      "updatedAt": "[datetime]"
+    }
+  }
+}

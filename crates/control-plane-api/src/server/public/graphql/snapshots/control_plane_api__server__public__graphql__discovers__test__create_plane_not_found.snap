@@ -1,0 +1,40 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers.rs
+expression: "serde_json::json!({ \"ungranted\": ungranted, \"missing\": missing, })"
+---
+{
+  "missing": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "data plane ops/dp/public/nope was not found",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  },
+  "ungranted": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "data plane ops/dp/public/aws-us-west-2-c1 was not found",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  }
+}

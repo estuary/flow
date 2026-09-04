@@ -1,0 +1,125 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers.rs
+expression: "serde_json::json!({\n    \"invalid_capture_name\": invalid_capture_name, \"unknown_tag\": unknown_tag,\n    \"unprocessed_tag\": unprocessed_tag, \"materialization_tag\":\n    materialization_tag, \"unknown_plane\": unknown_plane,\n    \"draft_not_owned_or_missing\": draft_not_owned, \"unauthenticated\":\n    unauthenticated,\n})"
+---
+{
+  "draft_not_owned_or_missing": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "draft not found",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  },
+  "invalid_capture_name": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "invalid capture name: : aliceCo/not a valid name doesn't match pattern [\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)* (unmatched portion is:  a valid name)",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  },
+  "materialization_tag": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "connector tag 6666666600000001 is not a capture connector",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  },
+  "unauthenticated": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "status: 'The request does not have valid authentication credentials', self: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  },
+  "unknown_plane": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "data plane ops/dp/public/nope was not found",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  },
+  "unknown_tag": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "connector tag not found",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  },
+  "unprocessed_tag": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 36,
+            "line": 1
+          }
+        ],
+        "message": "connector tag 6666666600000005 has not been successfully processed",
+        "path": [
+          "createDiscover"
+        ]
+      }
+    ]
+  }
+}

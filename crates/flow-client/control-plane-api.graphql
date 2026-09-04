@@ -411,6 +411,8 @@ enum CapabilityBit {
 	Assume
 }
 
+scalar Capture
+
 type CardPaymentMethodDetails {
 	brand: String
 	last4: String
@@ -867,6 +869,36 @@ The input/output is a string in RFC3339 format.
 scalar DateTime
 
 """
+A user-initiated connector discovery operation.
+"""
+type Discover {
+	id: Id!
+	"""
+	The draft that discovered specs are merged into.
+	"""
+	draftId: Id!
+	"""
+	Catalog name of the capture being discovered.
+	"""
+	captureName: Capture!
+	connectorTagId: Id!
+	dataPlaneName: Name!
+	updateOnly: Boolean!
+	detail: String
+	"""
+	Bearer token for reading this operation's logs.
+	"""
+	logsToken: UUID!
+	"""
+	Current outcome of the operation. `QUEUED` until the server has
+	processed it.
+	"""
+	status: DiscoverStatusType!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+"""
 A capture binding that has changed as a result of a discover
 """
 type DiscoverChange {
@@ -882,6 +914,63 @@ type DiscoverChange {
 	Whether the capture binding is disabled.
 	"""
 	disable: Boolean!
+}
+
+"""
+Current outcome of a discover operation.
+
+This is the unit-variant projection of [`JobStatus`], which
+`async_graphql::Enum` requires and which `JobStatus::Success` (carrying
+data) cannot satisfy. Its serde names are the same camelCase tags stored in
+`discovers.job_status`, so a stored `type` parses into it directly; only the
+GraphQL representation is `SCREAMING_SNAKE_CASE`. Variants are ordered for
+the published schema rather than in `JobStatus` order.
+"""
+enum DiscoverStatusType {
+	"""
+	The discover has not yet been processed.
+	"""
+	QUEUED
+	"""
+	Discovered bindings were merged into the draft.
+	"""
+	SUCCESS
+	"""
+	The connector's discovery RPC failed.
+	"""
+	DISCOVER_FAILED
+	"""
+	Discovered specs could not be merged with the draft's existing specs.
+	"""
+	MERGE_FAILED
+	"""
+	The connector image could not be pulled.
+	"""
+	PULL_FAILED
+	"""
+	The connector tag has not been successfully processed.
+	"""
+	TAG_FAILED
+	"""
+	The connector is not a capture connector.
+	"""
+	WRONG_PROTOCOL
+	"""
+	The connector image is not allowed.
+	"""
+	IMAGE_FORBIDDEN
+	"""
+	The data plane does not exist or the caller cannot use it.
+	"""
+	NO_DATA_PLANE
+	"""
+	The caller does not hold `SpecEdit` on the capture name.
+	"""
+	NOT_AUTHORIZED
+	"""
+	The discover used the deprecated background flag.
+	"""
+	DEPRECATED_BACKGROUND
 }
 
 type EffectiveAlertConfig {
@@ -1379,6 +1468,56 @@ type MutationRoot {
 	owning data plane. Returns the removed link id.
 	"""
 	removeDataPlanePrivateLink(id: Id!): Id!
+	"""
+	Queue a connector discovery for `captureName`, merging the discovered
+	bindings and collections into a draft.
+	
+	When `draftId` is given, that draft is used and must be owned by the
+	caller. When it is omitted, a new draft owned by the caller is created
+	and its id is returned as `Discover.draftId`.
+	
+	The caller must hold `SpecEdit` on `captureName` and read on
+	`dataPlaneName`. The connector tag must exist, have a successfully
+	processed spec, and be a capture connector. Poll `discover(id)` for the
+	outcome; the merged specs are in the draft.
+	
+	Note that a legacy `write` grant does not convey `SpecEdit`: users who
+	can read and append to a prefix's collections still cannot discover
+	under it. Legacy `admin` on a prefix covering the capture satisfies
+	both requirements in a normally provisioned tenant. The `Editor` bundle
+	conveys `SpecEdit` but on its own does not reach the public data
+	planes through the tenant's role grant.
+	"""
+	createDiscover(
+		"""
+		Catalog name of the capture to discover. It need not exist yet.
+		"""
+		captureName: Capture!,
+		"""
+		Id of the connector tag to run, as returned by `connector.spec(imageTag).id`.
+		"""
+		connectorTagId: Id!,
+		"""
+		Data plane in which to run the connector. The caller must hold read on it.
+		"""
+		dataPlaneName: Name!,
+		"""
+		Endpoint configuration passed to the connector, stored verbatim. Object field order is preserved so that sops-encrypted configurations remain decryptable. Encryption is the caller's responsibility.
+		"""
+		endpointConfig: JSON!,
+		"""
+		The draft that discovered specs are merged into. Must be owned by the caller. When omitted, a new draft is created for this discover.
+		"""
+		draftId: Id,
+		"""
+		When true, existing bindings are refreshed and newly discovered bindings are added in a disabled state.
+		"""
+		updateOnly: Boolean! = false,
+		"""
+		Optional description, recorded on the discover and on a draft this mutation creates.
+		"""
+		detail: String
+	): Discover!
 	"""
 	Create a refresh token for the authenticated user.
 	
@@ -1977,6 +2116,12 @@ type QueryRoot {
 	Returns a paginated list of connectors, optionally filtered by protocol.
 	"""
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
+	"""
+	Fetch a single discover by id. Returns null if no such discover exists
+	or the caller does not own its draft; the two cases are
+	indistinguishable.
+	"""
+	discover(id: Id!): Discover
 	tenant(name: String!): Tenant
 	"""
 	List refresh tokens owned by the authenticated user.

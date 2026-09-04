@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers.rs
+expression: denied
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 36,
+          "line": 1
+        }
+      ],
+      "message": "PermissionDenied: bob@example.test is not authorized to access prefix or name 'aliceCo/x' with required capability SpecEdit",
+      "path": [
+        "createDiscover"
+      ]
+    }
+  ]
+}

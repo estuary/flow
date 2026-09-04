@@ -1,0 +1,54 @@
+---
+source: crates/models/src/discovers.rs
+expression: mapping
+---
+[
+    (
+        "queued",
+        Queued,
+    ),
+    (
+        "wrongProtocol",
+        WrongProtocol,
+    ),
+    (
+        "tagFailed",
+        TagFailed,
+    ),
+    (
+        "imageForbidden",
+        ImageForbidden,
+    ),
+    (
+        "pullFailed",
+        PullFailed,
+    ),
+    (
+        "discoverFailed",
+        DiscoverFailed,
+    ),
+    (
+        "mergeFailed",
+        MergeFailed,
+    ),
+    (
+        "success",
+        Success,
+    ),
+    (
+        "success",
+        Success,
+    ),
+    (
+        "deprecatedBackground",
+        DeprecatedBackground,
+    ),
+    (
+        "noDataPlane",
+        NoDataPlane,
+    ),
+    (
+        "notAuthorized",
+        NotAuthorized,
+    ),
+]

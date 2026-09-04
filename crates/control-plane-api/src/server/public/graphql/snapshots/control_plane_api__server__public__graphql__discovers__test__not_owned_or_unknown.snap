@@ -1,0 +1,9 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers.rs
+expression: not_owned
+---
+{
+  "data": {
+    "discover": null
+  }
+}
