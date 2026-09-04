@@ -283,6 +283,7 @@ wasm-bindgen-test = "0"
 cbindgen = "0"
 pbjson-build = "0"
 prost-build = "0"
+prost-types = "0"
 tonic-build = "0"
 tonic-prost-build = "0"
 

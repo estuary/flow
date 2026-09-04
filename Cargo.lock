@@ -6531,6 +6531,7 @@ dependencies = [
  "pbjson-types",
  "prost",
  "prost-build",
+ "prost-types",
  "proto-build",
  "proto-gazette",
  "regex",

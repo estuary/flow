@@ -434,665 +434,591 @@ fn ex_consumer_checkpoint() -> consumer::Checkpoint {
 // in practice, and mixing them with `internal` would tie these fixtures to
 // pbjson's plain-field-before-oneof key ordering.
 fn ex_capture_requests() -> Vec<(&'static str, capture::Request)> {
-    vec![
-        (
-            "spec",
-            capture::Request {
-                spec: Some(capture::request::Spec {
-                    connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                    config_json: json!({"spec":"config"}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "discover",
-            capture::Request {
-                discover: Some(capture::request::Discover {
-                    name: "discover/capture".to_string(),
-                    connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                    config_json: json!({"discover":"config"}).to_string().into(),
-                    created_at: "2025-07-09".to_string(),
-                    secrets: ex_secrets(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "validate",
-            capture::Request {
-                validate: Some(capture::request::Validate {
-                    name: "validate/capture".to_string(),
-                    connector_type: flow::capture_spec::ConnectorType::Image as i32,
-                    config_json: json!({"validate":"config"}).to_string().into(),
-                    bindings: vec![capture::request::validate::Binding {
-                        collection: Some(ex_collection_spec()),
-                        resource_config_json: json!({"resource":"config"}).to_string().into(),
-                        backfill: 1,
-                        collection_index: 0,
-                    }],
-                    last_capture: None,
-                    last_version: "11:22:33:44".to_string(),
-                    linked_collections: Vec::new(),
-                    secrets: ex_secrets(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "apply",
-            capture::Request {
-                apply: Some(capture::request::Apply {
-                    capture: Some(ex_capture_spec()),
-                    version: "11:22:33:44".to_string(),
-                    last_capture: None,
-                    last_version: "00:11:22:33".to_string(),
-                    state_json: json!({"connector": {"state": 42}}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "open",
-            capture::Request {
-                open: Some(capture::request::Open {
-                    capture: Some(ex_capture_spec()),
-                    version: "11:22:33:44".to_string(),
-                    range: Some(ex_range()),
-                    state_json: json!({"connector": {"state": 42}}).to_string().into(),
-                    sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
-                        .to_string()
-                        .into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "acknowledge",
-            capture::Request {
-                acknowledge: Some(capture::request::Acknowledge { checkpoints: 32 }),
-                ..Default::default()
-            },
-        ),
-        (
-            "internal",
-            capture::Request {
-                internal: ex_internal(),
-                ..Default::default()
-            },
-        ),
+    use capture::request::Kind;
+
+    // Exhaustive, so that a variant added to the protocol fails to compile
+    // until it's covered by a fixture below.
+    fn name(kind: &Kind) -> &'static str {
+        match kind {
+            Kind::Spec(_) => "spec",
+            Kind::Discover(_) => "discover",
+            Kind::Validate(_) => "validate",
+            Kind::Apply(_) => "apply",
+            Kind::Open(_) => "open",
+            Kind::Acknowledge(_) => "acknowledge",
+        }
+    }
+
+    let mut out: Vec<(&'static str, capture::Request)> = [
+        Kind::Spec(capture::request::Spec {
+            connector_type: flow::capture_spec::ConnectorType::Image as i32,
+            config_json: json!({"spec":"config"}).to_string().into(),
+        }),
+        Kind::Discover(capture::request::Discover {
+            name: "discover/capture".to_string(),
+            connector_type: flow::capture_spec::ConnectorType::Image as i32,
+            config_json: json!({"discover":"config"}).to_string().into(),
+            created_at: "2025-07-09".to_string(),
+            secrets: ex_secrets(),
+        }),
+        Kind::Validate(capture::request::Validate {
+            name: "validate/capture".to_string(),
+            connector_type: flow::capture_spec::ConnectorType::Image as i32,
+            config_json: json!({"validate":"config"}).to_string().into(),
+            bindings: vec![capture::request::validate::Binding {
+                collection: Some(ex_collection_spec()),
+                resource_config_json: json!({"resource":"config"}).to_string().into(),
+                backfill: 1,
+                collection_index: 0,
+            }],
+            last_capture: None,
+            last_version: "11:22:33:44".to_string(),
+            linked_collections: Vec::new(),
+            secrets: ex_secrets(),
+        }),
+        Kind::Apply(capture::request::Apply {
+            capture: Some(ex_capture_spec()),
+            version: "11:22:33:44".to_string(),
+            last_capture: None,
+            last_version: "00:11:22:33".to_string(),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
+        }),
+        Kind::Open(capture::request::Open {
+            capture: Some(ex_capture_spec()),
+            version: "11:22:33:44".to_string(),
+            range: Some(ex_range()),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
+            sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
+                .to_string()
+                .into(),
+        }),
+        Kind::Acknowledge(capture::request::Acknowledge { checkpoints: 32 }),
     ]
+    .into_iter()
+    .map(|kind| {
+        (
+            name(&kind),
+            capture::Request {
+                internal: Default::default(),
+                kind: Some(kind),
+            },
+        )
+    })
+    .collect();
+
+    // `internal` is a sibling of the oneof rather than a variant of it, and is
+    // fixtured alone: pbjson emits it ahead of the oneof, so a message setting
+    // both would only obscure which bytes belong to which field.
+    out.push((
+        "internal",
+        capture::Request {
+            internal: ex_internal(),
+            kind: None,
+        },
+    ));
+
+    out
 }
 
 fn ex_capture_responses() -> Vec<(&'static str, capture::Response)> {
-    vec![
-        (
-            "spec",
-            capture::Response {
-                spec: Some(capture::response::Spec {
-                    protocol: 3032023,
-                    config_schema_json: json!({"config": "schema"}).to_string().into(),
-                    resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
-                    documentation_url: "https://example/docs".to_string(),
-                    oauth2: Some(ex_oauth2()),
-                    resource_path_pointers: vec!["/stream".to_string()],
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "discovered",
-            capture::Response {
-                discovered: Some(capture::response::Discovered {
-                    bindings: vec![capture::response::discovered::Binding {
-                        document_schema_json: json!({"doc":"schema"}).to_string().into(),
-                        recommended_name: "recommended name".to_string(),
-                        disable: true,
-                        resource_config_json: json!({"resource": 1234}).to_string().into(),
-                        key: vec!["/key/ptr".to_string()],
-                        resource_path: vec!["1234".to_string()],
-                        is_fallback_key: false,
-                    }],
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "validated",
-            capture::Response {
-                validated: Some(capture::response::Validated {
-                    bindings: vec![capture::response::validated::Binding {
-                        resource_path: vec!["some".to_string(), "path".to_string()],
-                    }],
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "applied",
-            capture::Response {
-                applied: Some(capture::response::Applied {
-                    action_description: "I did some stuff".to_string(),
-                    state: Some(ex_connector_state()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "opened",
-            capture::Response {
-                opened: Some(capture::response::Opened {
-                    explicit_acknowledgements: true,
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "captured",
-            capture::Response {
-                captured: Some(capture::response::Captured {
-                    binding: 2,
-                    doc_json: json!({"captured":"doc"}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "sourced_schema",
-            capture::Response {
-                sourced_schema: Some(capture::response::SourcedSchema {
-                    binding: 3,
-                    schema_json: json!({"type": "string", "format": "date-time"})
-                        .to_string()
-                        .into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "checkpoint",
-            capture::Response {
-                checkpoint: Some(capture::response::Checkpoint {
-                    state: Some(ex_connector_state()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "backfill_begin",
-            capture::Response {
-                backfill_begin: Some(capture::response::BackfillBegin { binding: 4 }),
-                ..Default::default()
-            },
-        ),
-        (
-            "backfill_complete",
-            capture::Response {
-                backfill_complete: Some(capture::response::BackfillComplete { binding: 5 }),
-                ..Default::default()
-            },
-        ),
-        (
-            "internal",
-            capture::Response {
-                internal: ex_internal(),
-                ..Default::default()
-            },
-        ),
+    use capture::response::Kind;
+
+    // Exhaustive, so that a variant added to the protocol fails to compile
+    // until it's covered by a fixture below.
+    fn name(kind: &Kind) -> &'static str {
+        match kind {
+            Kind::Spec(_) => "spec",
+            Kind::Discovered(_) => "discovered",
+            Kind::Validated(_) => "validated",
+            Kind::Applied(_) => "applied",
+            Kind::Opened(_) => "opened",
+            Kind::Captured(_) => "captured",
+            Kind::SourcedSchema(_) => "sourced_schema",
+            Kind::Checkpoint(_) => "checkpoint",
+            Kind::BackfillBegin(_) => "backfill_begin",
+            Kind::BackfillComplete(_) => "backfill_complete",
+        }
+    }
+
+    let mut out: Vec<(&'static str, capture::Response)> = [
+        Kind::Spec(capture::response::Spec {
+            protocol: 3032023,
+            config_schema_json: json!({"config": "schema"}).to_string().into(),
+            resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
+            documentation_url: "https://example/docs".to_string(),
+            oauth2: Some(ex_oauth2()),
+            resource_path_pointers: vec!["/stream".to_string()],
+        }),
+        Kind::Discovered(capture::response::Discovered {
+            bindings: vec![capture::response::discovered::Binding {
+                document_schema_json: json!({"doc":"schema"}).to_string().into(),
+                recommended_name: "recommended name".to_string(),
+                disable: true,
+                resource_config_json: json!({"resource": 1234}).to_string().into(),
+                key: vec!["/key/ptr".to_string()],
+                resource_path: vec!["1234".to_string()],
+                is_fallback_key: false,
+            }],
+        }),
+        Kind::Validated(capture::response::Validated {
+            bindings: vec![capture::response::validated::Binding {
+                resource_path: vec!["some".to_string(), "path".to_string()],
+            }],
+        }),
+        Kind::Applied(capture::response::Applied {
+            action_description: "I did some stuff".to_string(),
+            state: Some(ex_connector_state()),
+        }),
+        Kind::Opened(capture::response::Opened {
+            explicit_acknowledgements: true,
+        }),
+        Kind::Captured(capture::response::Captured {
+            binding: 2,
+            doc_json: json!({"captured":"doc"}).to_string().into(),
+        }),
+        Kind::SourcedSchema(capture::response::SourcedSchema {
+            binding: 3,
+            schema_json: json!({"type": "string", "format": "date-time"})
+                .to_string()
+                .into(),
+        }),
+        Kind::Checkpoint(capture::response::Checkpoint {
+            state: Some(ex_connector_state()),
+        }),
+        Kind::BackfillBegin(capture::response::BackfillBegin { binding: 4 }),
+        Kind::BackfillComplete(capture::response::BackfillComplete { binding: 5 }),
     ]
+    .into_iter()
+    .map(|kind| {
+        (
+            name(&kind),
+            capture::Response {
+                internal: Default::default(),
+                kind: Some(kind),
+            },
+        )
+    })
+    .collect();
+
+    // `internal` is a sibling of the oneof rather than a variant of it, and is
+    // fixtured alone: pbjson emits it ahead of the oneof, so a message setting
+    // both would only obscure which bytes belong to which field.
+    out.push((
+        "internal",
+        capture::Response {
+            internal: ex_internal(),
+            kind: None,
+        },
+    ));
+
+    out
 }
 
 fn ex_derive_requests() -> Vec<(&'static str, derive::Request)> {
-    vec![
-        (
-            "spec",
-            derive::Request {
-                spec: Some(derive::request::Spec {
-                    connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
-                    config_json: json!({"spec":"config"}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "validate",
-            derive::Request {
-                validate: Some(derive::request::Validate {
-                    connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
-                    config_json: json!({"validate":"config"}).to_string().into(),
-                    collection: Some(ex_collection_spec()),
-                    transforms: vec![derive::request::validate::Transform {
-                        name: "stable_name".to_string(),
-                        collection: Some(ex_collection_spec()),
-                        lambda_config_json: json!({"lambda": "config"}).to_string().into(),
-                        shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string().into(),
-                        backfill: 2,
-                        collection_index: 0,
-                    }],
-                    shuffle_key_types: vec![
-                        flow::collection_spec::derivation::ShuffleType::Boolean as i32,
-                        flow::collection_spec::derivation::ShuffleType::Integer as i32,
-                    ],
-                    project_root: "file:///project/root".to_string(),
-                    import_map: [(
-                        "/using/typescript/module".to_string(),
-                        "file:///path/to/import".to_string(),
-                    )]
-                    .into(),
-                    last_collection: None,
-                    last_version: "00:11:22:33".to_string(),
-                    linked_collections: Vec::new(),
-                    secrets: ex_secrets(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "open",
-            derive::Request {
-                open: Some(derive::request::Open {
-                    collection: Some(ex_collection_spec()),
-                    version: "11:22:33:44".to_string(),
-                    range: Some(ex_range()),
-                    state_json: json!({"connector": {"state": 42}}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "read",
-            derive::Request {
-                read: Some(derive::request::Read {
-                    transform: 2,
-                    uuid: Some(flow::UuidParts {
-                        node: 1234,
-                        clock: 5678,
-                    }),
-                    shuffle: Some(derive::request::read::Shuffle {
-                        key_json: json!([true, 32]).to_string().into(),
-                        packed: vec![86, 75, 30, 9].into(),
-                        hash: 44556677,
-                    }),
-                    doc_json: json!({"read": "doc"}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "flush",
-            derive::Request {
-                flush: Some(derive::request::Flush {
-                    state_patches_json: json!([{"flush": true}]).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "start_commit",
-            derive::Request {
-                start_commit: Some(derive::request::StartCommit {
-                    runtime_checkpoint: Some(ex_consumer_checkpoint()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "reset",
-            derive::Request {
-                reset: Some(derive::request::Reset {}),
-                ..Default::default()
-            },
-        ),
-        (
-            "internal",
-            derive::Request {
-                internal: ex_internal(),
-                ..Default::default()
-            },
-        ),
+    use derive::request::Kind;
+
+    // Exhaustive, so that a variant added to the protocol fails to compile
+    // until it's covered by a fixture below.
+    fn name(kind: &Kind) -> &'static str {
+        match kind {
+            Kind::Spec(_) => "spec",
+            Kind::Validate(_) => "validate",
+            Kind::Open(_) => "open",
+            Kind::Read(_) => "read",
+            Kind::Flush(_) => "flush",
+            Kind::StartCommit(_) => "start_commit",
+            Kind::Reset(_) => "reset",
+        }
+    }
+
+    let mut out: Vec<(&'static str, derive::Request)> = [
+        Kind::Spec(derive::request::Spec {
+            connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
+            config_json: json!({"spec":"config"}).to_string().into(),
+        }),
+        Kind::Validate(derive::request::Validate {
+            connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
+            config_json: json!({"validate":"config"}).to_string().into(),
+            collection: Some(ex_collection_spec()),
+            transforms: vec![derive::request::validate::Transform {
+                name: "stable_name".to_string(),
+                collection: Some(ex_collection_spec()),
+                lambda_config_json: json!({"lambda": "config"}).to_string().into(),
+                shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string().into(),
+                backfill: 2,
+                collection_index: 0,
+            }],
+            shuffle_key_types: vec![
+                flow::collection_spec::derivation::ShuffleType::Boolean as i32,
+                flow::collection_spec::derivation::ShuffleType::Integer as i32,
+            ],
+            project_root: "file:///project/root".to_string(),
+            import_map: [(
+                "/using/typescript/module".to_string(),
+                "file:///path/to/import".to_string(),
+            )]
+            .into(),
+            last_collection: None,
+            last_version: "00:11:22:33".to_string(),
+            linked_collections: Vec::new(),
+            secrets: ex_secrets(),
+        }),
+        Kind::Open(derive::request::Open {
+            collection: Some(ex_collection_spec()),
+            version: "11:22:33:44".to_string(),
+            range: Some(ex_range()),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
+        }),
+        Kind::Read(derive::request::Read {
+            transform: 2,
+            uuid: Some(flow::UuidParts {
+                node: 1234,
+                clock: 5678,
+            }),
+            shuffle: Some(derive::request::read::Shuffle {
+                key_json: json!([true, 32]).to_string().into(),
+                packed: vec![86, 75, 30, 9].into(),
+                hash: 44556677,
+            }),
+            doc_json: json!({"read": "doc"}).to_string().into(),
+        }),
+        Kind::Flush(derive::request::Flush {
+            state_patches_json: json!([{"flush": true}]).to_string().into(),
+        }),
+        Kind::StartCommit(derive::request::StartCommit {
+            runtime_checkpoint: Some(ex_consumer_checkpoint()),
+        }),
+        Kind::Reset(derive::request::Reset {}),
     ]
+    .into_iter()
+    .map(|kind| {
+        (
+            name(&kind),
+            derive::Request {
+                internal: Default::default(),
+                kind: Some(kind),
+            },
+        )
+    })
+    .collect();
+
+    // `internal` is a sibling of the oneof rather than a variant of it, and is
+    // fixtured alone: pbjson emits it ahead of the oneof, so a message setting
+    // both would only obscure which bytes belong to which field.
+    out.push((
+        "internal",
+        derive::Request {
+            internal: ex_internal(),
+            kind: None,
+        },
+    ));
+
+    out
 }
 
 fn ex_derive_responses() -> Vec<(&'static str, derive::Response)> {
-    vec![
-        (
-            "spec",
-            derive::Response {
-                spec: Some(derive::response::Spec {
-                    protocol: 3032023,
-                    config_schema_json: json!({"config": "schema"}).to_string().into(),
-                    resource_config_schema_json: json!({"lambda": "schema"}).to_string().into(),
-                    documentation_url: "https://example/docs".to_string(),
-                    oauth2: Some(ex_oauth2()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "validated",
-            derive::Response {
-                validated: Some(derive::response::Validated {
-                    transforms: vec![
-                        derive::response::validated::Transform { read_only: true },
-                        derive::response::validated::Transform { read_only: false },
-                    ],
-                    generated_files: [(
-                        "file:///project/root/deno.json".to_string(),
-                        "content".to_string(),
-                    )]
-                    .into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "opened",
-            derive::Response {
-                opened: Some(derive::response::Opened {
-                    runtime_checkpoint: Some(ex_consumer_checkpoint()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "published",
-            derive::Response {
-                published: Some(derive::response::Published {
-                    doc_json: json!({"published": "doc"}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "flushed",
-            derive::Response {
-                flushed: Some(derive::response::Flushed {
-                    state: None,
-                    more: true,
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "started_commit",
-            derive::Response {
-                started_commit: Some(derive::response::StartedCommit {
-                    state: Some(ex_connector_state()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "internal",
-            derive::Response {
-                internal: ex_internal(),
-                ..Default::default()
-            },
-        ),
+    use derive::response::Kind;
+
+    // Exhaustive, so that a variant added to the protocol fails to compile
+    // until it's covered by a fixture below.
+    fn name(kind: &Kind) -> &'static str {
+        match kind {
+            Kind::Spec(_) => "spec",
+            Kind::Validated(_) => "validated",
+            Kind::Opened(_) => "opened",
+            Kind::Published(_) => "published",
+            Kind::Flushed(_) => "flushed",
+            Kind::StartedCommit(_) => "started_commit",
+        }
+    }
+
+    let mut out: Vec<(&'static str, derive::Response)> = [
+        Kind::Spec(derive::response::Spec {
+            protocol: 3032023,
+            config_schema_json: json!({"config": "schema"}).to_string().into(),
+            resource_config_schema_json: json!({"lambda": "schema"}).to_string().into(),
+            documentation_url: "https://example/docs".to_string(),
+            oauth2: Some(ex_oauth2()),
+        }),
+        Kind::Validated(derive::response::Validated {
+            transforms: vec![
+                derive::response::validated::Transform { read_only: true },
+                derive::response::validated::Transform { read_only: false },
+            ],
+            generated_files: [(
+                "file:///project/root/deno.json".to_string(),
+                "content".to_string(),
+            )]
+            .into(),
+        }),
+        Kind::Opened(derive::response::Opened {
+            runtime_checkpoint: Some(ex_consumer_checkpoint()),
+        }),
+        Kind::Published(derive::response::Published {
+            doc_json: json!({"published": "doc"}).to_string().into(),
+        }),
+        Kind::Flushed(derive::response::Flushed {
+            state: None,
+            more: true,
+        }),
+        Kind::StartedCommit(derive::response::StartedCommit {
+            state: Some(ex_connector_state()),
+        }),
     ]
+    .into_iter()
+    .map(|kind| {
+        (
+            name(&kind),
+            derive::Response {
+                internal: Default::default(),
+                kind: Some(kind),
+            },
+        )
+    })
+    .collect();
+
+    // `internal` is a sibling of the oneof rather than a variant of it, and is
+    // fixtured alone: pbjson emits it ahead of the oneof, so a message setting
+    // both would only obscure which bytes belong to which field.
+    out.push((
+        "internal",
+        derive::Response {
+            internal: ex_internal(),
+            kind: None,
+        },
+    ));
+
+    out
 }
 
 fn ex_materialize_requests() -> Vec<(&'static str, materialize::Request)> {
-    vec![
-        (
-            "spec",
-            materialize::Request {
-                spec: Some(materialize::request::Spec {
-                    connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-                    config_json: json!({"spec":"config"}).to_string().into(),
+    use materialize::request::Kind;
+
+    // Exhaustive, so that a variant added to the protocol fails to compile
+    // until it's covered by a fixture below.
+    fn name(kind: &Kind) -> &'static str {
+        match kind {
+            Kind::Spec(_) => "spec",
+            Kind::Validate(_) => "validate",
+            Kind::Apply(_) => "apply",
+            Kind::Open(_) => "open",
+            Kind::Load(_) => "load",
+            Kind::Flush(_) => "flush",
+            Kind::Store(_) => "store",
+            Kind::StartCommit(_) => "start_commit",
+            Kind::Acknowledge(_) => "acknowledge",
+        }
+    }
+
+    let mut out: Vec<(&'static str, materialize::Request)> = [
+        Kind::Spec(materialize::request::Spec {
+            connector_type: flow::materialization_spec::ConnectorType::Image as i32,
+            config_json: json!({"spec":"config"}).to_string().into(),
+        }),
+        Kind::Validate(materialize::request::Validate {
+            name: "validate/materialization".to_string(),
+            connector_type: flow::materialization_spec::ConnectorType::Image as i32,
+            config_json: json!({"validate":"config"}).to_string().into(),
+            bindings: vec![materialize::request::validate::Binding {
+                collection: Some(ex_collection_spec()),
+                resource_config_json: json!({"resource":"config"}).to_string().into(),
+                field_config_json_map: ex_field_config(),
+                backfill: 3,
+                group_by: vec!["key/one".to_string()],
+                collection_index: 0,
+            }],
+            last_materialization: None,
+            last_version: "00:11:22:33".to_string(),
+            linked_collections: Vec::new(),
+            secrets: ex_secrets(),
+        }),
+        Kind::Apply(materialize::request::Apply {
+            materialization: Some(ex_materialization_spec()),
+            version: "11:22:33:44".to_string(),
+            last_materialization: None,
+            last_version: "00:11:22:33".to_string(),
+            state_json: json!({"connector":"state"}).to_string().into(),
+        }),
+        Kind::Open(materialize::request::Open {
+            materialization: Some(ex_materialization_spec()),
+            version: "11:22:33:44".to_string(),
+            range: Some(ex_range()),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
+            sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
+                .to_string()
+                .into(),
+        }),
+        Kind::Load(materialize::request::Load {
+            binding: 12,
+            key_packed: vec![86, 75, 30, 9].into(),
+            key_json: json!([42, "hi"]).to_string().into(),
+        }),
+        Kind::Flush(materialize::request::Flush {
+            state_patches_json: json!([{"flushed": 1}]).to_string().into(),
+            backfill_begins: vec![materialize::request::flush::BackfillBegin {
+                binding: 2,
+                timestamp: Some(pbjson_types::Timestamp {
+                    seconds: 1700000000,
+                    nanos: 0,
                 }),
-                ..Default::default()
-            },
-        ),
-        (
-            "validate",
-            materialize::Request {
-                validate: Some(materialize::request::Validate {
-                    name: "validate/materialization".to_string(),
-                    connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-                    config_json: json!({"validate":"config"}).to_string().into(),
-                    bindings: vec![materialize::request::validate::Binding {
-                        collection: Some(ex_collection_spec()),
-                        resource_config_json: json!({"resource":"config"}).to_string().into(),
-                        field_config_json_map: ex_field_config(),
-                        backfill: 3,
-                        group_by: vec!["key/one".to_string()],
-                        collection_index: 0,
-                    }],
-                    last_materialization: None,
-                    last_version: "00:11:22:33".to_string(),
-                    linked_collections: Vec::new(),
-                    secrets: ex_secrets(),
+            }],
+            backfill_completes: vec![materialize::request::flush::BackfillComplete {
+                binding: 3,
+                timestamp: Some(pbjson_types::Timestamp {
+                    seconds: 1700000500,
+                    nanos: 123000000,
                 }),
-                ..Default::default()
-            },
-        ),
-        (
-            "apply",
-            materialize::Request {
-                apply: Some(materialize::request::Apply {
-                    materialization: Some(ex_materialization_spec()),
-                    version: "11:22:33:44".to_string(),
-                    last_materialization: None,
-                    last_version: "00:11:22:33".to_string(),
-                    state_json: json!({"connector":"state"}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "open",
-            materialize::Request {
-                open: Some(materialize::request::Open {
-                    materialization: Some(ex_materialization_spec()),
-                    version: "11:22:33:44".to_string(),
-                    range: Some(ex_range()),
-                    state_json: json!({"connector": {"state": 42}}).to_string().into(),
-                    sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
-                        .to_string()
-                        .into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "load",
-            materialize::Request {
-                load: Some(materialize::request::Load {
-                    binding: 12,
-                    key_packed: vec![86, 75, 30, 9].into(),
-                    key_json: json!([42, "hi"]).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "flush",
-            materialize::Request {
-                flush: Some(materialize::request::Flush {
-                    state_patches_json: json!([{"flushed": 1}]).to_string().into(),
-                    backfill_begins: vec![materialize::request::flush::BackfillBegin {
-                        binding: 2,
-                        timestamp: Some(pbjson_types::Timestamp {
-                            seconds: 1700000000,
-                            nanos: 0,
-                        }),
-                    }],
-                    backfill_completes: vec![materialize::request::flush::BackfillComplete {
-                        binding: 3,
-                        timestamp: Some(pbjson_types::Timestamp {
-                            seconds: 1700000500,
-                            nanos: 123000000,
-                        }),
-                    }],
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "store",
-            materialize::Request {
-                store: Some(materialize::request::Store {
-                    binding: 3,
-                    key_packed: vec![90, 21, 0].into(),
-                    key_json: json!([true, null]).to_string().into(),
-                    values_packed: vec![60, 91].into(),
-                    values_json: json!([3.14159, "field!"]).to_string().into(),
-                    doc_json: json!({"full": "document"}).to_string().into(),
-                    exists: true,
-                    delete: true,
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "start_commit",
-            materialize::Request {
-                start_commit: Some(materialize::request::StartCommit {
-                    runtime_checkpoint: Some(ex_consumer_checkpoint()),
-                    state_patches_json: json!([{"started": "commit"}]).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "acknowledge",
-            materialize::Request {
-                acknowledge: Some(materialize::request::Acknowledge {
-                    state_patches_json: json!([{"acked": true}]).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "internal",
-            materialize::Request {
-                internal: ex_internal(),
-                ..Default::default()
-            },
-        ),
+            }],
+        }),
+        Kind::Store(materialize::request::Store {
+            binding: 3,
+            key_packed: vec![90, 21, 0].into(),
+            key_json: json!([true, null]).to_string().into(),
+            values_packed: vec![60, 91].into(),
+            values_json: json!([3.14159, "field!"]).to_string().into(),
+            doc_json: json!({"full": "document"}).to_string().into(),
+            exists: true,
+            delete: true,
+        }),
+        Kind::StartCommit(materialize::request::StartCommit {
+            runtime_checkpoint: Some(ex_consumer_checkpoint()),
+            state_patches_json: json!([{"started": "commit"}]).to_string().into(),
+        }),
+        Kind::Acknowledge(materialize::request::Acknowledge {
+            state_patches_json: json!([{"acked": true}]).to_string().into(),
+        }),
     ]
+    .into_iter()
+    .map(|kind| {
+        (
+            name(&kind),
+            materialize::Request {
+                internal: Default::default(),
+                kind: Some(kind),
+            },
+        )
+    })
+    .collect();
+
+    // `internal` is a sibling of the oneof rather than a variant of it, and is
+    // fixtured alone: pbjson emits it ahead of the oneof, so a message setting
+    // both would only obscure which bytes belong to which field.
+    out.push((
+        "internal",
+        materialize::Request {
+            internal: ex_internal(),
+            kind: None,
+        },
+    ));
+
+    out
 }
 
 fn ex_materialize_responses() -> Vec<(&'static str, materialize::Response)> {
-    vec![
-        (
-            "spec",
-            materialize::Response {
-                spec: Some(materialize::response::Spec {
-                    protocol: 3032023,
-                    config_schema_json: json!({"config": "schema"}).to_string().into(),
-                    resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
-                    documentation_url: "https://example/docs".to_string(),
-                    oauth2: Some(ex_oauth2()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "validated",
-            materialize::Response {
-                validated: Some(materialize::response::Validated {
-                    bindings: vec![materialize::response::validated::Binding {
-                        resource_path: vec!["some".to_string(), "path".to_string()],
-                        case_insensitive_fields: true,
-                        projection_constraints: vec![
-                            materialize::response::validated::ProjectionConstraint {
-                                field: "flow_document".to_string(),
-                                constraint: Some(materialize::response::validated::Constraint {
-                                    r#type:
-                                        materialize::response::validated::constraint::Type::LocationRequired
-                                            as i32,
-                                    reason: "the root document must be materialized".to_string(),
-                                    folded_field: String::new(),
-                                }),
-                            },
-                            materialize::response::validated::ProjectionConstraint {
-                                field: "flow_document".to_string(),
-                                constraint: Some(materialize::response::validated::Constraint {
-                                    r#type: materialize::response::validated::constraint::Type::Incompatible
-                                        as i32,
-                                    reason: "existing column has an incompatible type".to_string(),
-                                    folded_field: String::new(),
-                                }),
-                            },
-                        ],
-                        delta_updates: true,
-                        ser_policy: Some(SerPolicy {
-                            str_truncate_after: 1 << 16,
-                            nested_obj_truncate_after: 1000,
-                            array_truncate_after: 1000,
+    use materialize::response::Kind;
+
+    // Exhaustive, so that a variant added to the protocol fails to compile
+    // until it's covered by a fixture below.
+    fn name(kind: &Kind) -> &'static str {
+        match kind {
+            Kind::Spec(_) => "spec",
+            Kind::Validated(_) => "validated",
+            Kind::Applied(_) => "applied",
+            Kind::Opened(_) => "opened",
+            Kind::Loaded(_) => "loaded",
+            Kind::Flushed(_) => "flushed",
+            Kind::StartedCommit(_) => "started_commit",
+            Kind::Acknowledged(_) => "acknowledged",
+        }
+    }
+
+    let mut out: Vec<(&'static str, materialize::Response)> = [
+        Kind::Spec(materialize::response::Spec {
+            protocol: 3032023,
+            config_schema_json: json!({"config": "schema"}).to_string().into(),
+            resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
+            documentation_url: "https://example/docs".to_string(),
+            oauth2: Some(ex_oauth2()),
+        }),
+        Kind::Validated(materialize::response::Validated {
+            bindings: vec![materialize::response::validated::Binding {
+                resource_path: vec!["some".to_string(), "path".to_string()],
+                case_insensitive_fields: true,
+                projection_constraints: vec![
+                    materialize::response::validated::ProjectionConstraint {
+                        field: "flow_document".to_string(),
+                        constraint: Some(materialize::response::validated::Constraint {
+                            r#type:
+                                materialize::response::validated::constraint::Type::LocationRequired
+                                    as i32,
+                            reason: "the root document must be materialized".to_string(),
+                            folded_field: String::new(),
                         }),
-                    }],
+                    },
+                    materialize::response::validated::ProjectionConstraint {
+                        field: "flow_document".to_string(),
+                        constraint: Some(materialize::response::validated::Constraint {
+                            r#type: materialize::response::validated::constraint::Type::Incompatible
+                                as i32,
+                            reason: "existing column has an incompatible type".to_string(),
+                            folded_field: String::new(),
+                        }),
+                    },
+                ],
+                delta_updates: true,
+                ser_policy: Some(SerPolicy {
+                    str_truncate_after: 1 << 16,
+                    nested_obj_truncate_after: 1000,
+                    array_truncate_after: 1000,
                 }),
-                ..Default::default()
-            },
-        ),
-        (
-            "applied",
-            materialize::Response {
-                applied: Some(materialize::response::Applied {
-                    action_description: "I did some stuff".to_string(),
-                    state: Some(ex_connector_state()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "opened",
-            materialize::Response {
-                opened: Some(materialize::response::Opened {
-                    runtime_checkpoint: Some(ex_consumer_checkpoint()),
-                    disable_load_optimization: true,
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "loaded",
-            materialize::Response {
-                loaded: Some(materialize::response::Loaded {
-                    binding: 4,
-                    doc_json: json!({"loaded": "doc"}).to_string().into(),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "flushed",
-            materialize::Response {
-                flushed: Some(materialize::response::Flushed {
-                    state: Some(ex_connector_state()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "started_commit",
-            materialize::Response {
-                started_commit: Some(materialize::response::StartedCommit {
-                    state: Some(ex_connector_state()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "acknowledged",
-            materialize::Response {
-                acknowledged: Some(materialize::response::Acknowledged {
-                    state: Some(ex_connector_state()),
-                }),
-                ..Default::default()
-            },
-        ),
-        (
-            "internal",
-            materialize::Response {
-                internal: ex_internal(),
-                ..Default::default()
-            },
-        ),
+            }],
+        }),
+        Kind::Applied(materialize::response::Applied {
+            action_description: "I did some stuff".to_string(),
+            state: Some(ex_connector_state()),
+        }),
+        Kind::Opened(materialize::response::Opened {
+            runtime_checkpoint: Some(ex_consumer_checkpoint()),
+            disable_load_optimization: true,
+        }),
+        Kind::Loaded(materialize::response::Loaded {
+            binding: 4,
+            doc_json: json!({"loaded": "doc"}).to_string().into(),
+        }),
+        Kind::Flushed(materialize::response::Flushed {
+            state: Some(ex_connector_state()),
+        }),
+        Kind::StartedCommit(materialize::response::StartedCommit {
+            state: Some(ex_connector_state()),
+        }),
+        Kind::Acknowledged(materialize::response::Acknowledged {
+            state: Some(ex_connector_state()),
+        }),
     ]
+    .into_iter()
+    .map(|kind| {
+        (
+            name(&kind),
+            materialize::Response {
+                internal: Default::default(),
+                kind: Some(kind),
+            },
+        )
+    })
+    .collect();
+
+    // `internal` is a sibling of the oneof rather than a variant of it, and is
+    // fixtured alone: pbjson emits it ahead of the oneof, so a message setting
+    // both would only obscure which bytes belong to which field.
+    out.push((
+        "internal",
+        materialize::Response {
+            internal: ex_internal(),
+            kind: None,
+        },
+    ));
+
+    out
 }
 
 fn ex_shard_labeling() -> ops::ShardLabeling {
@@ -1313,6 +1239,107 @@ fn proto_catalogue<M: prost::Message + PartialEq + std::fmt::Debug + Default>(
         .join("\n\n")
 }
 
+// A bare `Kind` serializes as its parent message does with an empty
+// `internal`. That impl is generated by build.rs rather than pbjson, and this
+// pins its shape to the catalogue fixtures above.
+fn kind_test<M: serde::Serialize, K: serde::Serialize>(
+    variants: Vec<(&'static str, M)>,
+    kind: impl Fn(&M) -> Option<&K>,
+) {
+    for (name, msg) in variants {
+        let Some(kind) = kind(&msg) else { continue };
+        assert_eq!(
+            serde_json::to_value(kind).unwrap(),
+            serde_json::to_value(&msg).unwrap(),
+            "variant {name}",
+        );
+    }
+}
+
+// The `kind` oneof is a Rust-only representation: the `.proto` declares these
+// as independent optional sub-message fields, and a connector which models the
+// message that way sends the unset variants as explicit nulls. ProtoJSON
+// requires a null field to parse "as though it was not present in the input at
+// all", so a null sibling must not occupy the oneof. pbjson's generated visitor
+// tests occupancy before it reads the value, which conflates a present key with
+// a present value; build.rs rewrites it, and this pins that rewrite.
+fn encoded_value(
+    encoded: &[BTreeMap<String, Box<serde_json::value::RawValue>>],
+    key: &str,
+) -> Box<serde_json::value::RawValue> {
+    encoded
+        .iter()
+        .find_map(|fields| fields.get(key))
+        .expect("key is occupied by some fixture")
+        .clone()
+}
+
+fn kind_null_test<
+    M: serde::Serialize + for<'de> serde::Deserialize<'de> + PartialEq + std::fmt::Debug,
+>(
+    variants: Vec<(&'static str, M)>,
+) {
+    // `internal` is a sibling of the oneof rather than a variant of it.
+    const INTERNAL: &str = "$internal";
+
+    type Fields = BTreeMap<String, Box<serde_json::value::RawValue>>;
+
+    let encode =
+        |msg: &M| -> Fields { serde_json::from_str(&serde_json::to_string(msg).unwrap()).unwrap() };
+    let decode = |fields: &Fields| -> Result<M, serde_json::Error> {
+        serde_json::from_str(&serde_json::to_string(fields).unwrap())
+    };
+    let null = || serde_json::value::RawValue::from_string("null".to_string()).unwrap();
+
+    // The occupied variant of each fixture, if it has one: a fixture may set
+    // only `internal`, which decodes as an unset `kind`.
+    let encoded: Vec<Fields> = variants.iter().map(|(_, msg)| encode(msg)).collect();
+    let occupied: Vec<Option<&String>> = variants
+        .iter()
+        .zip(encoded.iter())
+        .map(|((name, _), fields)| {
+            let mut keys = fields.keys().filter(|key| *key != INTERNAL);
+            let key = keys.next();
+            assert_eq!(keys.next(), None, "variant {name} occupies two fields");
+            key
+        })
+        .collect();
+    let all: std::collections::BTreeSet<&String> = occupied.iter().flatten().copied().collect();
+
+    for (index, (name, msg)) in variants.iter().enumerate() {
+        // Every variant this fixture doesn't occupy, explicitly null.
+        let mut with_nulls = encoded[index].clone();
+        with_nulls.extend(
+            all.iter()
+                .filter(|key| Some(**key) != occupied[index])
+                .map(|key| ((*key).clone(), null())),
+        );
+
+        let recovered = decode(&with_nulls).expect(name);
+        assert_eq!(msg, &recovered, "variant {name} with null siblings");
+
+        // Two *occupied* variants remain a duplicate-field error.
+        let Some(key) = occupied[index] else { continue };
+        let Some(other) = occupied
+            .iter()
+            .position(|other| other.is_some_and(|other| other != key))
+        else {
+            continue;
+        };
+        let mut conflicting = encoded[index].clone();
+        let other = occupied[other].unwrap();
+        conflicting.insert(other.clone(), encoded_value(&encoded, other));
+
+        let error = decode(&conflicting)
+            .expect_err(&format!("variant {name} with an occupied sibling"))
+            .to_string();
+        assert!(
+            error.contains("duplicate field"),
+            "variant {name}: unexpected error {error}",
+        );
+    }
+}
+
 // The connector protocols move these messages through the runtime by value on
 // hot paths, so their in-memory footprint is a tracked property and not an
 // implementation detail. The snapshot is 64-bit only.
@@ -1488,6 +1515,26 @@ fn test_materialize_response_json() {
 #[test]
 fn test_materialize_response_proto() {
     insta::assert_snapshot!(proto_catalogue(ex_materialize_responses()));
+}
+
+#[test]
+fn test_kind_serialize() {
+    kind_test(ex_capture_requests(), |m| m.kind.as_ref());
+    kind_test(ex_capture_responses(), |m| m.kind.as_ref());
+    kind_test(ex_derive_requests(), |m| m.kind.as_ref());
+    kind_test(ex_derive_responses(), |m| m.kind.as_ref());
+    kind_test(ex_materialize_requests(), |m| m.kind.as_ref());
+    kind_test(ex_materialize_responses(), |m| m.kind.as_ref());
+}
+
+#[test]
+fn test_kind_null_siblings() {
+    kind_null_test(ex_capture_requests());
+    kind_null_test(ex_capture_responses());
+    kind_null_test(ex_derive_requests());
+    kind_null_test(ex_derive_responses());
+    kind_null_test(ex_materialize_requests());
+    kind_null_test(ex_materialize_responses());
 }
 
 #[cfg(target_pointer_width = "64")]
