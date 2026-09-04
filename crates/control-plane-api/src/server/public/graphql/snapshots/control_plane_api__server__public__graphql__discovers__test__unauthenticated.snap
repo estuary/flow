@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers.rs
+expression: unauthenticated
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 9,
+          "line": 3
+        }
+      ],
+      "message": "status: 'The request does not have valid authentication credentials', self: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+      "path": [
+        "discover"
+      ]
+    }
+  ]
+}

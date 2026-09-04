@@ -47,15 +47,14 @@ impl JobStatus {
     }
 }
 
-/// Current outcome of a discover operation, as a unit-variant projection of
-/// [`JobStatus`] suitable for a GraphQL enum.
+/// Current outcome of a discover operation.
 ///
-/// `async_graphql::Enum` requires unit variants, which `JobStatus::Success`
-/// (carrying data) cannot satisfy. Its serde names are the same camelCase tags
-/// stored in `discovers.job_status`, so a stored `type` parses into it
-/// directly; only the GraphQL representation is `SCREAMING_SNAKE_CASE`.
-/// Variants are declared in the order the GraphQL schema lists them, which is
-/// the order async-graphql emits, rather than in `JobStatus` order.
+/// This is the unit-variant projection of [`JobStatus`], which
+/// `async_graphql::Enum` requires and which `JobStatus::Success` (carrying
+/// data) cannot satisfy. Its serde names are the same camelCase tags stored in
+/// `discovers.job_status`, so a stored `type` parses into it directly; only the
+/// GraphQL representation is `SCREAMING_SNAKE_CASE`. Variants are ordered for
+/// the published schema rather than in `JobStatus` order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[cfg_attr(
     feature = "async-graphql",
