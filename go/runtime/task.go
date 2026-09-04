@@ -151,6 +151,7 @@ func newTaskBaseV2[TaskSpec pf.Task](
 			ContainerNetwork: host.config.Flow.Network,
 			TaskName:         term.labels.TaskName,
 			Plane:            host.config.Plane(),
+			Process:          host.localProcessSpec(),
 		},
 		opsPublisher.PublishLog,
 	)
