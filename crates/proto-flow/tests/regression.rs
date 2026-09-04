@@ -222,7 +222,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         bindings: vec![flow::capture_spec::Binding {
             resource_config_json: json!({"resource": "config"}).to_string().into(),
             resource_path: vec!["some".to_string(), "path".to_string()],
-            collection: Some(ex_collection_spec()),
+            collection: Some(Box::new(ex_collection_spec())),
             backfill: 3,
             state_key: "a%2Fcdc%2Ftable+baz.v3".to_string(),
             collection_index: 0,
@@ -239,14 +239,14 @@ fn ex_capture_spec() -> flow::CaptureSpec {
 fn ex_derivation_spec() -> flow::CollectionSpec {
     let mut spec = ex_collection_spec();
 
-    spec.derivation = Some(flow::collection_spec::Derivation {
+    spec.derivation = Some(Box::new(flow::collection_spec::Derivation {
         config_json: json!({"derivation": {"config": 42}}).to_string().into(),
         connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
         recovery_log_template: Some(ex_recovery_template()),
         shard_template: Some(ex_shard_template()),
         transforms: vec![flow::collection_spec::derivation::Transform {
             name: "transform_name".to_string(),
-            collection: Some(ex_collection_spec()),
+            collection: Some(Box::new(ex_collection_spec())),
             lambda_config_json: json!({"lambda": "config"}).to_string().into(),
             partition_selector: Some(ex_label_selector()),
             priority: 1,
@@ -276,7 +276,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         redact_salt: b"test-derivation-salt".to_vec().into(),
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
-    });
+    }));
 
     spec
 }
@@ -302,7 +302,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         bindings: vec![flow::materialization_spec::Binding {
             resource_config_json: json!({"resource": "config"}).to_string().into(),
             resource_path: vec!["some".to_string(), "path".to_string()],
-            collection: Some(ex_collection_spec()),
+            collection: Some(Box::new(ex_collection_spec())),
             partition_selector: Some(ex_label_selector()),
             priority: 3,
             field_selection: Some(flow::FieldSelection {
@@ -454,19 +454,19 @@ fn ex_capture_requests() -> Vec<(&'static str, capture::Request)> {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: json!({"spec":"config"}).to_string().into(),
         }),
-        Kind::Discover(capture::request::Discover {
+        Kind::Discover(Box::new(capture::request::Discover {
             name: "discover/capture".to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: json!({"discover":"config"}).to_string().into(),
             created_at: "2025-07-09".to_string(),
             secrets: ex_secrets(),
-        }),
-        Kind::Validate(capture::request::Validate {
+        })),
+        Kind::Validate(Box::new(capture::request::Validate {
             name: "validate/capture".to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: json!({"validate":"config"}).to_string().into(),
             bindings: vec![capture::request::validate::Binding {
-                collection: Some(ex_collection_spec()),
+                collection: Some(Box::new(ex_collection_spec())),
                 resource_config_json: json!({"resource":"config"}).to_string().into(),
                 backfill: 1,
                 collection_index: 0,
@@ -475,15 +475,15 @@ fn ex_capture_requests() -> Vec<(&'static str, capture::Request)> {
             last_version: "11:22:33:44".to_string(),
             linked_collections: Vec::new(),
             secrets: ex_secrets(),
-        }),
-        Kind::Apply(capture::request::Apply {
+        })),
+        Kind::Apply(Box::new(capture::request::Apply {
             capture: Some(ex_capture_spec()),
             version: "11:22:33:44".to_string(),
             last_capture: None,
             last_version: "00:11:22:33".to_string(),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
-        }),
-        Kind::Open(capture::request::Open {
+        })),
+        Kind::Open(Box::new(capture::request::Open {
             capture: Some(ex_capture_spec()),
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
@@ -491,7 +491,7 @@ fn ex_capture_requests() -> Vec<(&'static str, capture::Request)> {
             sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
                 .to_string()
                 .into(),
-        }),
+        })),
         Kind::Acknowledge(capture::request::Acknowledge { checkpoints: 32 }),
     ]
     .into_iter()
@@ -541,14 +541,14 @@ fn ex_capture_responses() -> Vec<(&'static str, capture::Response)> {
     }
 
     let mut out: Vec<(&'static str, capture::Response)> = [
-        Kind::Spec(capture::response::Spec {
+        Kind::Spec(Box::new(capture::response::Spec {
             protocol: 3032023,
             config_schema_json: json!({"config": "schema"}).to_string().into(),
             resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
             resource_path_pointers: vec!["/stream".to_string()],
-        }),
+        })),
         Kind::Discovered(capture::response::Discovered {
             bindings: vec![capture::response::discovered::Binding {
                 document_schema_json: json!({"doc":"schema"}).to_string().into(),
@@ -636,13 +636,13 @@ fn ex_derive_requests() -> Vec<(&'static str, derive::Request)> {
             connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
             config_json: json!({"spec":"config"}).to_string().into(),
         }),
-        Kind::Validate(derive::request::Validate {
+        Kind::Validate(Box::new(derive::request::Validate {
             connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
             config_json: json!({"validate":"config"}).to_string().into(),
             collection: Some(ex_collection_spec()),
             transforms: vec![derive::request::validate::Transform {
                 name: "stable_name".to_string(),
-                collection: Some(ex_collection_spec()),
+                collection: Some(Box::new(ex_collection_spec())),
                 lambda_config_json: json!({"lambda": "config"}).to_string().into(),
                 shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string().into(),
                 backfill: 2,
@@ -662,13 +662,13 @@ fn ex_derive_requests() -> Vec<(&'static str, derive::Request)> {
             last_version: "00:11:22:33".to_string(),
             linked_collections: Vec::new(),
             secrets: ex_secrets(),
-        }),
-        Kind::Open(derive::request::Open {
+        })),
+        Kind::Open(Box::new(derive::request::Open {
             collection: Some(ex_collection_spec()),
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
-        }),
+        })),
         Kind::Read(derive::request::Read {
             transform: 2,
             uuid: Some(flow::UuidParts {
@@ -733,13 +733,13 @@ fn ex_derive_responses() -> Vec<(&'static str, derive::Response)> {
     }
 
     let mut out: Vec<(&'static str, derive::Response)> = [
-        Kind::Spec(derive::response::Spec {
+        Kind::Spec(Box::new(derive::response::Spec {
             protocol: 3032023,
             config_schema_json: json!({"config": "schema"}).to_string().into(),
             resource_config_schema_json: json!({"lambda": "schema"}).to_string().into(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
-        }),
+        })),
         Kind::Validated(derive::response::Validated {
             transforms: vec![
                 derive::response::validated::Transform { read_only: true },
@@ -815,12 +815,12 @@ fn ex_materialize_requests() -> Vec<(&'static str, materialize::Request)> {
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
             config_json: json!({"spec":"config"}).to_string().into(),
         }),
-        Kind::Validate(materialize::request::Validate {
+        Kind::Validate(Box::new(materialize::request::Validate {
             name: "validate/materialization".to_string(),
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
             config_json: json!({"validate":"config"}).to_string().into(),
             bindings: vec![materialize::request::validate::Binding {
-                collection: Some(ex_collection_spec()),
+                collection: Some(Box::new(ex_collection_spec())),
                 resource_config_json: json!({"resource":"config"}).to_string().into(),
                 field_config_json_map: ex_field_config(),
                 backfill: 3,
@@ -831,15 +831,15 @@ fn ex_materialize_requests() -> Vec<(&'static str, materialize::Request)> {
             last_version: "00:11:22:33".to_string(),
             linked_collections: Vec::new(),
             secrets: ex_secrets(),
-        }),
-        Kind::Apply(materialize::request::Apply {
+        })),
+        Kind::Apply(Box::new(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),
             version: "11:22:33:44".to_string(),
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),
             state_json: json!({"connector":"state"}).to_string().into(),
-        }),
-        Kind::Open(materialize::request::Open {
+        })),
+        Kind::Open(Box::new(materialize::request::Open {
             materialization: Some(ex_materialization_spec()),
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
@@ -847,7 +847,7 @@ fn ex_materialize_requests() -> Vec<(&'static str, materialize::Request)> {
             sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
                 .to_string()
                 .into(),
-        }),
+        })),
         Kind::Load(materialize::request::Load {
             binding: 12,
             key_packed: vec![86, 75, 30, 9].into(),
@@ -933,13 +933,13 @@ fn ex_materialize_responses() -> Vec<(&'static str, materialize::Response)> {
     }
 
     let mut out: Vec<(&'static str, materialize::Response)> = [
-        Kind::Spec(materialize::response::Spec {
+        Kind::Spec(Box::new(materialize::response::Spec {
             protocol: 3032023,
             config_schema_json: json!({"config": "schema"}).to_string().into(),
             resource_config_schema_json: json!({"resource": "schema"}).to_string().into(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
-        }),
+        })),
         Kind::Validated(materialize::response::Validated {
             bindings: vec![materialize::response::validated::Binding {
                 resource_path: vec!["some".to_string(), "path".to_string()],
