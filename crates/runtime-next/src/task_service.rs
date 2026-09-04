@@ -1,8 +1,7 @@
-//! CGO entry point: binds a UDS, registers the `Shard` gRPC service, and
-//! serves until cancellation.
+//! CGO entry point: binds a UDS, registers the `Shard` and `Connector` gRPC
+//! services, and serves until cancellation.
 use crate::{proto, shard};
 use anyhow::Context;
-use base64::Engine;
 use futures::FutureExt;
 use futures::channel::oneshot;
 
@@ -20,12 +19,14 @@ impl TaskService {
             uds_path,
             container_network,
             plane,
-            process: _,
+            process,
         } = config;
 
         if !std::path::Path::new(&uds_path).is_absolute() {
             anyhow::bail!("uds_path must be an absolute filesystem path");
         }
+        let plane =
+            crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?;
 
         // Data-plane configuration variables:
         let data_plane_fqdn =
@@ -33,8 +34,13 @@ impl TaskService {
         let control_api_endpoint =
             std::env::var("FLOW_CONTROL_API").context("FLOW_CONTROL_API not set")?;
         let availability_zone = std::env::var("CONSUMER_ZONE").context("CONSUMER_ZONE not set")?;
-        let data_plane_signing_key =
-            tokens::jwt::EncodingKey::from_secret(&first_consumer_auth_key()?);
+
+        // Every key verifies (supporting rotation); the first also signs.
+        let consumer_auth_keys =
+            std::env::var("CONSUMER_AUTH_KEYS").context("CONSUMER_AUTH_KEYS not set")?;
+        let (data_plane_signing_key, data_plane_verify_keys) =
+            tokens::jwt::parse_base64_hmac_keys_str(&consumer_auth_keys)
+                .context("parsing CONSUMER_AUTH_KEYS")?;
 
         let log_handler = ::ops::new_encoded_json_write_handler(std::sync::Arc::new(
             std::sync::Mutex::new(log_file),
@@ -59,9 +65,27 @@ impl TaskService {
                 data_plane_signing_key.clone(),
             );
 
-        let shard_svc = shard::Service::new(
-            crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
+        // Inert registry: TaskService is the CGO entry point and does not
+        // serve an admin surface; event! tracks still capture per-handler.
+        let registry = service_kit::Registry::default();
+
+        // The connector service is served both in-process and on this task's UDS, where
+        // the Go connector proxy reaches it on behalf of the control plane.
+        let connector_svc = connector::Service::new(
+            plane,
             container_network,
+            proto_grpc::Authenticator::new(data_plane_fqdn.clone(), data_plane_verify_keys),
+            process,
+            registry.clone(),
+        );
+        let data_plane_signer =
+            proto_grpc::Signer::new(data_plane_fqdn, data_plane_signing_key.clone());
+
+        let shard_svc = shard::Service::new(
+            std::sync::Arc::new(connector::ServiceRouter::new(
+                connector_svc.clone(),
+                data_plane_signer.clone(),
+            )),
             Some(tokio_context.set_log_level_fn()),
             task_name,
             crate::JournalPublisherFactory::new(publisher_factory),
@@ -70,13 +94,8 @@ impl TaskService {
             // (the same encoded-JSON handler the runtime's own tracing uses),
             // which the Go runtime forwards to the task's ops-log journal.
             crate::FnLoggerFactory::new(log_handler, tokio_context.log_level_handle()),
-            // Inert registry: TaskService is the CGO entry point and does not
-            // serve an admin surface; event! tracks still capture per-handler.
-            service_kit::Registry::default(),
-            Some(proto_grpc::Signer::new(
-                data_plane_fqdn,
-                data_plane_signing_key,
-            )),
+            registry,
+            Some(data_plane_signer),
         );
 
         let uds = tokio_context
@@ -92,6 +111,7 @@ impl TaskService {
 
         let server = tonic::transport::Server::builder()
             .add_service(shard_svc.into_tonic_service())
+            .add_service(connector_svc.into_tonic_service())
             .serve_with_incoming_shutdown(uds_stream, async move {
                 _ = cancel_rx.await;
             });
@@ -129,18 +149,4 @@ impl TaskService {
         };
         let () = tokio_context.block_on(tokio_context.spawn(log)).unwrap();
     }
-}
-
-// Decode the first key from `CONSUMER_AUTH_KEYS`, matching Gazette's
-// `auth.NewKeyedAuth` parsing: comma- or whitespace-separated, base64-encoded
-// keys; the first key signs.
-fn first_consumer_auth_key() -> anyhow::Result<Vec<u8>> {
-    let raw = std::env::var("CONSUMER_AUTH_KEYS").context("CONSUMER_AUTH_KEYS not set")?;
-    let first = raw
-        .split(|c: char| c == ',' || c.is_whitespace())
-        .find(|s| !s.is_empty())
-        .context("CONSUMER_AUTH_KEYS is empty")?;
-    base64::engine::general_purpose::STANDARD
-        .decode(first)
-        .context("CONSUMER_AUTH_KEYS first key is not valid base64")
 }

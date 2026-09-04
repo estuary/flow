@@ -1,43 +1,35 @@
+//! Capture connectors: identity extraction, endpoint unsealing, IAM injection,
+//! and dispatch to an image or local connector.
+use crate::Started;
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, stream::BoxStream};
+use futures::{FutureExt, StreamExt};
 use proto_flow::{
     capture::{Request, Response, request, response},
     flow,
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use unseal;
 use zeroize::Zeroize;
 
-pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    logger: &L::Logger,
+pub(crate) async fn start(
+    plane: crate::Plane,
+    container_network: &str,
+    log_sink: crate::LogSink,
     log_level: ops::LogLevel,
+    task_name: &str,
     mut initial: Request,
-) -> anyhow::Result<(
-    mpsc::Sender<Request>,
-    BoxStream<'static, tonic::Result<Response>>,
-    Option<crate::proto::Container>,
-    Option<std::time::SystemTime>,
-)> {
+) -> anyhow::Result<Started<Request, Response>> {
     let (endpoint, config_json, connector_type, catalog_name, sealed_config_json) =
-        extract_endpoint(&mut initial)?;
-    let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
-
-    // Connector logs and container lifecycle records both flow to this
-    // session's Logger.
-    let log_sink = {
-        let logger = logger.clone();
-        connector::LogSink::handler(move |log| crate::Logger::log(&logger, log))
-    };
+        extract_endpoint(task_name, &mut initial)?;
+    let (connector_tx, connector_rx) = mpsc::channel(proto_grpc::CHANNEL_BUFFER);
 
     fn start_rpc(
         channel: tonic::transport::Channel,
         rx: mpsc::Receiver<Request>,
-    ) -> connector::image::StartRpcFuture<Response> {
+    ) -> crate::image::StartRpcFuture<Response> {
         async move {
             proto_grpc::capture::connector_client::ConnectorClient::new(channel)
-                .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
                 .max_encoding_message_size(usize::MAX)
                 .capture(ReceiverStream::new(rx))
                 .await
@@ -48,31 +40,24 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     // Sealed endpoint configuration, extracted from the matched endpoint and
     // decrypted later, once the connector's spec response is available.
     let sealed_config;
-    let (mut connector_rx, container) = match endpoint {
+    let (mut connector_rx, container, codec, guard) = match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
             sealed_config = config;
-            let (rx, container, _codec, guard) = connector::image::serve(
+            let (rx, container, codec, guard) = crate::image::serve(
                 image,
-                log_sink.clone(),
+                log_sink,
                 log_level,
-                &service.container_network,
+                container_network,
                 connector_rx,
                 start_rpc,
-                &service.task_name,
+                task_name,
                 ops::TaskType::Capture,
-                service.plane,
+                plane,
             )
             .await?;
-
-            // The container Guard rides its response stream: dropping the
-            // stream stops the container.
-            let rx = rx.map(move |result| {
-                let _guard = &guard;
-                result
-            });
-            (rx.boxed(), Some(container))
+            (rx.boxed(), Some(container), codec, Some(guard))
         }
-        models::CaptureEndpoint::Local(_) if !matches!(service.plane, crate::Plane::Local) => {
+        models::CaptureEndpoint::Local(_) if !matches!(plane, crate::Plane::Local) => {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
             )
@@ -91,10 +76,9 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                 connector_init::Codec::Json
             };
 
-            let rx =
-                connector::local::serve(command, env, log_sink, log_level, codec, connector_rx)?
-                    .boxed();
-            (rx, None)
+            let rx = crate::local::serve(command, env, log_sink, log_level, codec, connector_rx)?
+                .boxed();
+            (rx, None, codec, None)
         }
     };
 
@@ -131,9 +115,9 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             let mut tokens = iam_config
                 .generate_tokens(task_name)
                 .await
-                .map_err(crate::anyhow_to_status)?;
+                .map_err(proto_grpc::anyhow_to_status)?;
 
-            token_restart_at = Some(crate::shard::token_restart_deadline(
+            token_restart_at = Some(crate::token_restart_deadline(
                 std::time::SystemTime::now(),
                 tokens.expires_at(),
             ));
@@ -151,10 +135,19 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
 
     _ = connector_tx.try_send(initial);
 
-    Ok((connector_tx, connector_rx, container, token_restart_at))
+    Ok(Started {
+        connector_tx,
+        connector_rx,
+        container,
+        codec,
+        token_restart_at,
+        spec: proto_flow::connector::response::started::Spec::Capture(spec_response),
+        guard,
+    })
 }
 
 fn extract_endpoint<'r>(
+    task_name: &str,
     request: &'r mut Request,
 ) -> anyhow::Result<(
     models::CaptureEndpoint,
@@ -163,41 +156,34 @@ fn extract_endpoint<'r>(
     Option<String>,
     Option<&'r mut bytes::Bytes>,
 )> {
-    let verify = crate::verify("Capture", "valid first request", "controller");
-    if request.kind.is_none() {
-        return Err(verify.fail_msg(&request));
-    }
-    let (connector_type, config_json, catalog_name, sealed_config_json) =
-        match request.kind.as_mut().expect("checked above") {
-            request::Kind::Apply(apply) => {
-                let catalog_name = apply.capture.as_ref().map(|c| c.name.clone());
-                let inner = apply
-                    .capture
-                    .as_mut()
-                    .context("`apply` missing required `capture`")?;
-                (
-                    inner.connector_type,
-                    &mut inner.config_json,
-                    catalog_name,
-                    None,
-                )
-            }
-            request::Kind::Open(open) => {
-                let catalog_name = open.capture.as_ref().map(|c| c.name.clone());
-                let sealed_config_json = &mut open.sealed_config_json;
-                let inner = open
-                    .capture
-                    .as_mut()
-                    .context("`open` missing required `capture`")?;
-                (
-                    inner.connector_type,
-                    &mut inner.config_json,
-                    catalog_name,
-                    Some(sealed_config_json),
-                )
-            }
-            other => return Err(verify.fail_msg(other)),
-        };
+    let catalog_name = match task_name {
+        crate::SPEC_TASK_NAME => None,
+        name => Some(name.to_string()),
+    };
+
+    let (connector_type, config_json, sealed_config_json) = match &mut request.kind {
+        Some(request::Kind::Spec(spec)) => (spec.connector_type, &mut spec.config_json, None),
+        Some(request::Kind::Discover(discover)) => {
+            (discover.connector_type, &mut discover.config_json, None)
+        }
+        Some(request::Kind::Validate(validate)) => {
+            (validate.connector_type, &mut validate.config_json, None)
+        }
+        Some(request::Kind::Apply(apply)) => {
+            let inner = apply.capture.as_mut().expect("checked by task_name");
+            (inner.connector_type, &mut inner.config_json, None)
+        }
+        Some(request::Kind::Open(open)) => {
+            let sealed_config_json = &mut open.sealed_config_json;
+            let inner = open.capture.as_mut().expect("checked by task_name");
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                Some(sealed_config_json),
+            )
+        }
+        _ => unreachable!("checked by task_name"),
+    };
 
     if connector_type == flow::capture_spec::ConnectorType::Image as i32 {
         Ok((

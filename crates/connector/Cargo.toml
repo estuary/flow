@@ -11,12 +11,24 @@ license.workspace = true
 [dependencies]
 async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
-labels = { path = "../labels" }
+dekaf-connector = { path = "../dekaf-connector" }
+derive-sqlite = { path = "../derive-sqlite" }
+iam-auth = { path = "../iam-auth" }
 locate-bin = { path = "../locate-bin" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = [
+    "capture_client",
+    "connector_client",
+    "connector_server",
+    "derive_client",
+    "materialize_client",
+] }
+service-kit = { path = "../service-kit" }
+tokens = { path = "../tokens" }
+unseal = { path = "../unseal" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
@@ -30,6 +42,7 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

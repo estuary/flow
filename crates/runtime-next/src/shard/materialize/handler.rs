@@ -1,4 +1,5 @@
-use super::{connector, startup};
+use super::startup;
+use crate::shard::connector;
 use crate::{patches, proto};
 use anyhow::Context;
 use futures::StreamExt;
@@ -45,20 +46,25 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
     let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) = connector::start(
-        service,
+    let (connector_tx, mut connector_rx, _started) = connector::start(
+        &*service.connector_router,
         &logger,
-        log_level,
-        materialize::Request {
+        &service.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri: String::new(),
+        },
+        connector::proto::request::Kind::Materialize(materialize::Request {
             kind: Some(materialize::request::Kind::Apply(Box::new(apply))),
             ..Default::default()
-        },
+        }),
     )
     .await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     let verify = crate::verify("Materialize", "Applied", "connector");
-    let response = match verify.not_eof(connector_rx.next().await)? {
+    let next = connector::next(&mut connector_rx, &logger, connector::unwrap_materialize);
+    let response = match verify.not_eof(next.await)? {
         materialize::Response {
             kind:
                 Some(materialize::response::Kind::Applied(materialize::response::Applied {
@@ -77,7 +83,8 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     };
 
     // Expect EOF after the single response.
-    () = verify.eof(connector_rx.next().await)?;
+    let next = connector::next(&mut connector_rx, &logger, connector::unwrap_materialize);
+    () = verify.eof(next.await)?;
 
     Ok(response)
 }
@@ -292,6 +299,7 @@ where
         &mut connector_rx,
         controller_rx,
         &mut leader_rx,
+        &logger,
         shuffle_reader,
     )
     .await;
@@ -322,14 +330,16 @@ mod test {
 
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let registry = service_kit::Registry::new();
+        let (_connector_svc, connector_router) =
+            ::connector::Service::new_local(String::new(), registry.clone());
         let service = crate::shard::Service::new(
-            crate::Plane::Local,
-            String::new(),
+            std::sync::Arc::new(connector_router),
             None,
             "test/task".to_string(),
             crate::publish::RecordingPublisherFactory,
             crate::TracingLoggerFactory,
-            service_kit::Registry::new(),
+            registry,
             None,
         );
 

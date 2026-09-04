@@ -1,5 +1,6 @@
 use super::Task;
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
 use futures::{StreamExt, stream::BoxStream};
 use prost::Message;
@@ -61,8 +62,8 @@ pub async fn dial_and_join(
 pub(super) struct Startup<P: crate::Publisher> {
     pub accumulator: crate::Accumulator,
     pub codec: connector_init::Codec,
-    pub connector_rx: BoxStream<'static, tonic::Result<derive::Response>>,
-    pub connector_tx: mpsc::Sender<derive::Request>,
+    pub connector_rx: BoxStream<'static, tonic::Result<connector::proto::Response>>,
+    pub connector_tx: mpsc::Sender<connector::proto::Request>,
     pub db: crate::shard::RocksDB,
     pub leader_rx: tonic::Streaming<proto::Derive>,
     pub leader_tx: mpsc::UnboundedSender<proto::Derive>,
@@ -204,11 +205,29 @@ where
         ..Default::default()
     };
 
-    let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, logger, log_level, sqlite_vfs_uri, initial).await?;
+    // `sqlite_vfs_uri` threads this shard's recorded SQLite VFS to a
+    // derive-sqlite connector; it's empty (and rejected) for every other type.
+    let (
+        connector_tx,
+        mut connector_rx,
+        connector::Started {
+            container, codec, ..
+        },
+    ) = connector::start(
+        &*service.connector_router,
+        logger,
+        &labeling.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri,
+        },
+        connector::proto::request::Kind::Derive(initial),
+    )
+    .await?;
 
     let verify = crate::verify("Derive", "Opened", "connector");
-    let opened = match verify.not_eof(connector_rx.next().await)? {
+    let next = connector::next(&mut connector_rx, logger, connector::unwrap_derive);
+    let opened = match verify.not_eof(next.await)? {
         derive::Response {
             kind: Some(derive::response::Kind::Opened(opened)),
             ..

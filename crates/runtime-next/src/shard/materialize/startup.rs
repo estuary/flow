@@ -1,6 +1,7 @@
 use super::Task;
 use crate::Logger as _;
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
 use futures::StreamExt;
 use prost::Message;
@@ -66,8 +67,9 @@ pub async fn dial_and_join(
 
 pub(super) struct Startup {
     pub accumulator: crate::Accumulator,
-    pub connector_rx: futures::stream::BoxStream<'static, tonic::Result<materialize::Response>>,
-    pub connector_tx: mpsc::Sender<materialize::Request>,
+    pub connector_rx:
+        futures::stream::BoxStream<'static, tonic::Result<connector::proto::Response>>,
+    pub connector_tx: mpsc::Sender<connector::proto::Request>,
     pub db: crate::shard::RocksDB,
     pub disable_load_optimization: bool,
     pub codec: connector_init::Codec,
@@ -237,12 +239,30 @@ where
         ))),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container, codec, token_restart_at) =
-        super::connector::start(service, logger, log_level, initial).await?;
+    let (
+        connector_tx,
+        mut connector_rx,
+        connector::Started {
+            container,
+            codec,
+            token_restart_at,
+        },
+    ) = connector::start(
+        &*service.connector_router,
+        logger,
+        &labeling.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri: String::new(),
+        },
+        connector::proto::request::Kind::Materialize(initial),
+    )
+    .await?;
 
     // Read C:Opened from the connector.
     let verify = crate::verify("Materialize", "Opened", "connector");
-    let opened = match verify.not_eof(connector_rx.next().await)? {
+    let next = connector::next(&mut connector_rx, logger, connector::unwrap_materialize);
+    let opened = match verify.not_eof(next.await)? {
         materialize::Response {
             kind: Some(materialize::response::Kind::Opened(opened)),
             ..

@@ -412,7 +412,7 @@ fn sanitize_event_type(quoted_task_name: &bytes::Bytes, mut log: ops::Log) -> op
 /// Guard contains a running image container instance, which is SIGKILLed and
 /// cleaned up when the Guard is dropped -- closing the container's stderr, so
 /// that its log pump finishes and releases the last clone of the sink.
-pub struct Guard {
+pub(crate) struct Guard {
     _tmp_connector_init: tempfile::TempPath,
     _tmp_docker_inspect: tempfile::TempPath,
     _process: async_process::Child,

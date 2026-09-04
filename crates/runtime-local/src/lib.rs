@@ -42,6 +42,17 @@ pub mod shards;
 
 use runtime_next::{LoggerFactory, PublisherFactory};
 
+/// The connector [`Router`](proto_grpc::connector::Router) of every local context: one
+/// `Plane::Local` connector `Service`, served in-process, reached with bearers
+/// minted from a throwaway key the pair shares.
+pub fn local_router(
+    network: String,
+    registry: service_kit::Registry,
+) -> std::sync::Arc<dyn proto_grpc::connector::Router> {
+    let (_service, router) = connector::Service::new_local(network, registry);
+    std::sync::Arc::new(router)
+}
+
 /// Controls threaded into each driver: the connector-state seed and final-state
 /// request carried on shard zero's SessionLoop, plus the publisher and logger
 /// factories installed on each shard `Service`. Cheap to clone — both factories

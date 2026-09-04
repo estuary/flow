@@ -1,6 +1,7 @@
 use super::drain;
 use crate::leader::capture::{Task, fsm};
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
 use bytes::Bytes;
 use futures::future::BoxFuture;
@@ -44,7 +45,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // --- Task and IO endpoints, fixed for the session. ---
     // `task` is shared (Arc) so the drain future can hold its own handle.
     task: std::sync::Arc<Task>,
-    connector_tx: mpsc::Sender<Request>,
+    connector_tx: mpsc::Sender<connector::proto::Request>,
     // Per-session metrics counters.
     metrics: super::Metrics,
     // When Some, a deadline at which we begin a graceful session stop.
@@ -107,7 +108,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         active_backfills: BTreeMap<u32, u64>,
         binding_state_keys: Vec<String>,
-        connector_tx: mpsc::Sender<Request>,
+        connector_tx: mpsc::Sender<connector::proto::Request>,
         db: crate::shard::RocksDB,
         is_shard_zero: bool,
         metrics: super::Metrics,
@@ -163,7 +164,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     ) -> anyhow::Result<(crate::shard::RocksDB, Vec<doc::Shape>)>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
-        Conn: futures::Stream<Item = tonic::Result<Response>> + Send + Unpin + 'static,
+        Conn: futures::Stream<Item = tonic::Result<connector::proto::Response>>
+            + Send
+            + Unpin
+            + 'static,
     {
         let mut connector_rx = std::pin::pin!(connector_rx);
 
@@ -365,8 +369,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 msg = controller_rx.next() => {
                     Self::on_controller_rx(msg, &mut close_requested, &mut stopping)?;
                 },
-                // Process new connector messages last.
-                msg = connector_rx.next(), if matches!(ready_connector_rx, fsm::ConnectorRx::Pending) => {
+                // Process new connector messages and logs last.
+                msg = connector::next(&mut connector_rx, &self.logger, connector::unwrap_capture),
+                    if matches!(ready_connector_rx, fsm::ConnectorRx::Pending) => {
                     self.on_connector_rx(&mut ready_connector_rx, msg)?;
                 }
                 // Next, a graceful session restart ahead of IAM token expiry
@@ -580,12 +585,12 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         // next session. Connector failures surface on the
                         // receive side, never here.
                         _ = connector_tx
-                            .send(Request {
+                            .send(connector::wrap_capture(Request {
                                 kind: Some(request::Kind::Acknowledge(request::Acknowledge {
                                     checkpoints,
                                 })),
                                 ..Default::default()
-                            })
+                            }))
                             .await;
                     }
                     .boxed(),
@@ -923,8 +928,9 @@ mod tests {
         is_shard_zero: bool,
         logger: L,
         publisher: P,
-    ) -> (Actor<P, L>, mpsc::Receiver<Request>) {
-        let (connector_tx, connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+    ) -> (Actor<P, L>, mpsc::Receiver<connector::proto::Request>) {
+        let (connector_tx, connector_rx) =
+            mpsc::channel::<connector::proto::Request>(proto_grpc::CHANNEL_BUFFER);
 
         let actor = Actor::new(
             active_backfills,
@@ -976,7 +982,7 @@ mod tests {
         expect_acks: usize,
     ) -> Session {
         let (conn_resp_tx, conn_resp_rx) =
-            mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
+            mpsc::channel::<tonic::Result<connector::proto::Response>>(proto_grpc::CHANNEL_BUFFER);
         let (controller_tx, controller_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
 
@@ -1011,6 +1017,9 @@ mod tests {
         // actually happened. Break out instead and let the join below re-raise
         // the actor's own error.
         for response in responses {
+            let response = response.map(|response| connector::proto::Response {
+                kind: Some(connector::proto::response::Kind::Capture(response)),
+            });
             if conn_resp_tx.send(response).await.is_err() {
                 break;
             }
@@ -1019,6 +1028,11 @@ mod tests {
         while acks.len() < expect_acks {
             let Some(request) = actor_to_conn_rx.recv().await else {
                 break;
+            };
+            let connector::proto::request::Kind::Capture(request) =
+                request.kind.expect("wrapped request")
+            else {
+                panic!("actor sent a non-capture request")
             };
             let Some(request::Kind::Acknowledge(ack)) = request.kind else {
                 panic!("actor sent a non-Acknowledge")
@@ -1251,7 +1265,7 @@ mod tests {
     #[tokio::test]
     async fn connector_exit_before_acknowledge_is_benign() {
         let (conn_resp_tx, conn_resp_rx) =
-            mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
+            mpsc::channel::<tonic::Result<connector::proto::Response>>(proto_grpc::CHANNEL_BUFFER);
         let (_controller_tx, controller_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
 
@@ -1272,7 +1286,12 @@ mod tests {
             captured(0, br#"{"id":"a0"}"#),
             checkpoint(br#"{"cursor":"lsn-9"}"#),
         ] {
-            conn_resp_tx.send(response).await.unwrap();
+            conn_resp_tx
+                .send(response.map(|response| connector::proto::Response {
+                    kind: Some(connector::proto::response::Kind::Capture(response)),
+                }))
+                .await
+                .unwrap();
         }
         // Response stream EOF. Once the Tail drains, the Head steps to Stop on
         // its own (the fixture's `restart` Clock is zero, and thus elapsed).
