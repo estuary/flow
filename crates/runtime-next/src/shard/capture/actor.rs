@@ -581,7 +581,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         // receive side, never here.
                         _ = connector_tx
                             .send(Request {
-                                acknowledge: Some(request::Acknowledge { checkpoints }),
+                                kind: Some(request::Kind::Acknowledge(request::Acknowledge {
+                                    checkpoints,
+                                })),
                                 ..Default::default()
                             })
                             .await;
@@ -679,63 +681,68 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         };
         let response = verify.ok(response)?;
 
-        *ready = if let Some(captured) = response.captured {
-            fsm::ConnectorRx::Captured(captured)
-        } else if let Some(sourced) = response.sourced_schema {
-            let (binding, shape) = parse_sourced_schema(sourced, &self.task)?;
+        *ready = match response.kind {
+            Some(response::Kind::Captured(captured)) => fsm::ConnectorRx::Captured(captured),
+            Some(response::Kind::SourcedSchema(sourced)) => {
+                let (binding, shape) = parse_sourced_schema(sourced, &self.task)?;
 
-            service_kit::event!(
-                tracing::Level::DEBUG,
-                "connector",
-                binding,
-                "received SourcedSchema from connector",
-            );
-            fsm::ConnectorRx::SourcedSchema { binding, shape }
-        } else if let Some(checkpoint) = response.checkpoint {
-            service_kit::event!(
-                tracing::Level::TRACE,
-                "connector",
-                "received Checkpoint from connector",
-            );
-            fsm::ConnectorRx::Checkpoint(checkpoint)
-        } else if let Some(response::BackfillBegin { binding }) = response.backfill_begin {
-            if !self.is_shard_zero {
-                anyhow::bail!(
-                    "connector emitted BackfillBegin for binding {binding}, but \
-                     only shard zero manages backfill truncation"
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "connector",
+                    binding,
+                    "received SourcedSchema from connector",
                 );
+                fsm::ConnectorRx::SourcedSchema { binding, shape }
             }
-            if binding as usize >= self.task.bindings.len() {
-                anyhow::bail!("connector emitted BackfillBegin for out-of-range binding {binding}");
-            }
-            service_kit::event!(
-                tracing::Level::INFO,
-                "connector",
-                binding,
-                "received BackfillBegin from connector",
-            );
-            fsm::ConnectorRx::Backfill(fsm::BackfillMessage::BackfillBegin { binding })
-        } else if let Some(response::BackfillComplete { binding }) = response.backfill_complete {
-            if !self.is_shard_zero {
-                anyhow::bail!(
-                    "connector emitted BackfillComplete for binding {binding}, but \
-                     only shard zero manages backfill truncation"
+            Some(response::Kind::Checkpoint(checkpoint)) => {
+                service_kit::event!(
+                    tracing::Level::TRACE,
+                    "connector",
+                    "received Checkpoint from connector",
                 );
+                fsm::ConnectorRx::Checkpoint(checkpoint)
             }
-            if binding as usize >= self.task.bindings.len() {
-                anyhow::bail!(
-                    "connector emitted BackfillComplete for out-of-range binding {binding}"
+            Some(response::Kind::BackfillBegin(response::BackfillBegin { binding })) => {
+                if !self.is_shard_zero {
+                    anyhow::bail!(
+                        "connector emitted BackfillBegin for binding {binding}, but \
+                         only shard zero manages backfill truncation"
+                    );
+                }
+                if binding as usize >= self.task.bindings.len() {
+                    anyhow::bail!(
+                        "connector emitted BackfillBegin for out-of-range binding {binding}"
+                    );
+                }
+                service_kit::event!(
+                    tracing::Level::INFO,
+                    "connector",
+                    binding,
+                    "received BackfillBegin from connector",
                 );
+                fsm::ConnectorRx::Backfill(fsm::BackfillMessage::BackfillBegin { binding })
             }
-            service_kit::event!(
-                tracing::Level::INFO,
-                "connector",
-                binding,
-                "received BackfillComplete from connector",
-            );
-            fsm::ConnectorRx::Backfill(fsm::BackfillMessage::BackfillComplete { binding })
-        } else {
-            return Err(verify.fail_msg(response));
+            Some(response::Kind::BackfillComplete(response::BackfillComplete { binding })) => {
+                if !self.is_shard_zero {
+                    anyhow::bail!(
+                        "connector emitted BackfillComplete for binding {binding}, but \
+                         only shard zero manages backfill truncation"
+                    );
+                }
+                if binding as usize >= self.task.bindings.len() {
+                    anyhow::bail!(
+                        "connector emitted BackfillComplete for out-of-range binding {binding}"
+                    );
+                }
+                service_kit::event!(
+                    tracing::Level::INFO,
+                    "connector",
+                    binding,
+                    "received BackfillComplete from connector",
+                );
+                fsm::ConnectorRx::Backfill(fsm::BackfillMessage::BackfillComplete { binding })
+            }
+            _ => return Err(verify.fail_msg(response)),
         };
         Ok(())
     }
@@ -1013,7 +1020,10 @@ mod tests {
             let Some(request) = actor_to_conn_rx.recv().await else {
                 break;
             };
-            acks.push(request.acknowledge.expect("actor sent a non-Acknowledge"));
+            let Some(request::Kind::Acknowledge(ack)) = request.kind else {
+                panic!("actor sent a non-Acknowledge")
+            };
+            acks.push(ack);
         }
         _ = controller_tx.send(Ok(proto::Capture {
             stop: Some(proto::Stop {}),
@@ -1041,36 +1051,40 @@ mod tests {
 
     fn captured(binding: u32, doc_json: &'static [u8]) -> tonic::Result<Response> {
         Ok(Response {
-            captured: Some(response::Captured {
+            kind: Some(response::Kind::Captured(response::Captured {
                 binding,
                 doc_json: Bytes::from_static(doc_json),
-            }),
+            })),
             ..Default::default()
         })
     }
 
     fn checkpoint(state_json: &'static [u8]) -> tonic::Result<Response> {
         Ok(Response {
-            checkpoint: Some(response::Checkpoint {
+            kind: Some(response::Kind::Checkpoint(response::Checkpoint {
                 state: Some(flow::ConnectorState {
                     updated_json: Bytes::from_static(state_json),
                     merge_patch: true,
                 }),
-            }),
+            })),
             ..Default::default()
         })
     }
 
     fn backfill_begin(binding: u32) -> tonic::Result<Response> {
         Ok(Response {
-            backfill_begin: Some(response::BackfillBegin { binding }),
+            kind: Some(response::Kind::BackfillBegin(response::BackfillBegin {
+                binding,
+            })),
             ..Default::default()
         })
     }
 
     fn backfill_complete(binding: u32) -> tonic::Result<Response> {
         Ok(Response {
-            backfill_complete: Some(response::BackfillComplete { binding }),
+            kind: Some(response::Kind::BackfillComplete(
+                response::BackfillComplete { binding },
+            )),
             ..Default::default()
         })
     }
@@ -1110,13 +1124,13 @@ mod tests {
         // collide with the others' on key as well as within a binding.
         let capture_doc = |binding: usize, value: i64| {
             Ok(Response {
-                captured: Some(response::Captured {
+                kind: Some(response::Kind::Captured(response::Captured {
                     binding: binding as u32,
                     doc_json: Bytes::from(format!(
                         r#"{{"id":"shared","from_collection_{}":true,"value":{value}}}"#,
                         binding % M,
                     )),
-                }),
+                })),
                 ..Default::default()
             })
         };
@@ -1131,12 +1145,12 @@ mod tests {
             .chain([capture_doc(3, 10), capture_doc(6, 100), capture_doc(9, 1000)])
             .chain([
                 Ok(Response {
-                    sourced_schema: Some(response::SourcedSchema {
+                    kind: Some(response::Kind::SourcedSchema(response::SourcedSchema {
                         binding: 5, // Collection-2, which binding 2 also writes.
                         schema_json: Bytes::from_static(
                             br#"{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"from_collection_2":{"const":true},"sourced_only":{"type":"boolean"}},"required":["id","from_collection_2"]}"#,
                         ),
-                    }),
+                    })),
                     ..Default::default()
                 }),
                 checkpoint(br#"{"cursor":"lsn-1"}"#),

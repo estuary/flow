@@ -99,7 +99,7 @@ pub async fn do_oauth(
     };
     // Get the task spec's oauth field
     let spec_req = capture::Request {
-        spec: Some(spec_req),
+        kind: Some(capture::request::Kind::Spec(spec_req)),
         ..Default::default()
     }
     .with_internal(|internal| {
@@ -108,7 +108,7 @@ pub async fn do_oauth(
         }
     });
 
-    let spec_response = runtime::Runtime::new(
+    let response = runtime::Runtime::new(
         runtime::Plane::Local,
         network.clone(),
         ops::tracing_log_handler,
@@ -116,9 +116,11 @@ pub async fn do_oauth(
         format!("spec/{}", capture.capture),
     )
     .unary_capture(spec_req)
-    .await?
-    .spec
-    .context("connector didn't send expected Spec response")?;
+    .await?;
+
+    let Some(capture::response::Kind::Spec(spec_response)) = response.kind else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
 
     let oauth_spec = spec_response
         .oauth2

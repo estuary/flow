@@ -817,7 +817,10 @@ mod test {
             .expect("should get a spec response")
             .unwrap();
 
-        assert!(resp.spec.is_some());
+        assert!(matches!(
+            resp.kind,
+            Some(proto_flow::capture::response::Kind::Spec(_))
+        ));
 
         assert_eq!(
             container.network_ports,

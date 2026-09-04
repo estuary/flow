@@ -5,13 +5,16 @@ use proto_flow::materialize::{Request, request};
 
 impl Task {
     pub fn new(open: &Request) -> anyhow::Result<Self> {
-        let request::Open {
+        let Some(request::Kind::Open(request::Open {
             materialization: spec,
             range,
             state_json: _,
             sealed_config_json: _,
             version,
-        } = open.clone().open.context("expected Open")?;
+        })) = open.kind.clone()
+        else {
+            anyhow::bail!("expected Open");
+        };
 
         let spec = spec.as_ref().context("missing materialization")?;
 

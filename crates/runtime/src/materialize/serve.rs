@@ -7,7 +7,7 @@ use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;
 use futures::{SinkExt, StreamExt, TryStreamExt};
-use proto_flow::materialize::{Request, Response};
+use proto_flow::materialize::{Request, Response, request, response};
 
 #[tonic::async_trait]
 impl<L: LogHandler> proto_grpc::materialize::connector_server::Connector for Runtime<L> {
@@ -43,7 +43,7 @@ impl<L: LogHandler> Runtime<L> {
             while let Some(request) = next {
                 self.set_log_level(request.get_internal()?.log_level());
 
-                if request.open.is_some() {
+                if matches!(request.kind, Some(request::Kind::Open(_))) {
                     next = serve_session(&mut co, &db, request, &mut request_rx, &self).await?;
                 } else {
                     serve_unary(&mut co, &db, request, &self).await?;
@@ -117,7 +117,7 @@ async fn serve_session<L: LogHandler>(
     loop {
         // Read and forward Acknowledge.
         match request_rx.try_next().await? {
-            Some(ack) if ack.acknowledge.is_some() => {
+            Some(ack) if matches!(ack.kind, Some(request::Kind::Acknowledge(_))) => {
                 connector_tx.try_send(ack).expect("sender is empty");
             }
             request => return verify("client", "Acknowledge").fail(request),
@@ -160,7 +160,11 @@ async fn serve_session<L: LogHandler>(
                 }
                 // An Open or Apply gracefully ends this session.
                 Step::ClientRx(Some(request))
-                    if !txn.started && (request.open.is_some() || request.apply.is_some()) =>
+                    if !txn.started
+                        && matches!(
+                            request.kind,
+                            Some(request::Kind::Open(_) | request::Kind::Apply(_))
+                        ) =>
                 {
                     drain_connector(connector_tx, connector_rx).await?;
                     return Ok(Some(request)); // Restart a new session.
@@ -289,7 +293,7 @@ async fn drain_connector(
         // Connector may immediately EOF.
         None => Ok(()),
         // Or it may return Acknowledged, which must be followed by EOF.
-        Some(ack) if ack.acknowledged.is_some() => {
+        Some(ack) if matches!(ack.kind, Some(response::Kind::Acknowledged(_))) => {
             verify("connector", "EOF").is_eof(rx.try_next().await?)
         }
         response => return verify("connector", "Acknowledged or EOF").fail(response),

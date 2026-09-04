@@ -213,13 +213,15 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .unwrap_or(ops::LogLevel::Info);
 
         let request = capture::Request {
-            discover: Some(capture::request::Discover {
-                name: capture_name.to_string(),
-                connector_type: capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(connector_cfg).unwrap().into(),
-                created_at,
-                secrets,
-            }),
+            kind: Some(capture::request::Kind::Discover(
+                capture::request::Discover {
+                    name: capture_name.to_string(),
+                    connector_type: capture_spec::ConnectorType::Image as i32,
+                    config_json: serde_json::to_string(connector_cfg).unwrap().into(),
+                    created_at,
+                    secrets,
+                },
+            )),
             ..Default::default()
         }
         .with_internal(|internal| {

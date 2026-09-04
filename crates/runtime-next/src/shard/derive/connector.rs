@@ -124,10 +124,12 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
 fn extract_endpoint<'r>(
     request: &'r mut derive::Request,
 ) -> anyhow::Result<(models::DeriveUsing, &'r mut bytes::Bytes)> {
-    let (connector_type, config_json) = match request {
-        derive::Request {
-            open: Some(open), ..
-        } => {
+    let verify = crate::verify("Derive", "valid first request", "controller");
+    if request.kind.is_none() {
+        return Err(verify.fail_msg(&request));
+    }
+    let (connector_type, config_json) = match request.kind.as_mut().expect("checked above") {
+        derive::request::Kind::Open(open) => {
             let inner = open
                 .collection
                 .as_mut()
@@ -138,11 +140,7 @@ fn extract_endpoint<'r>(
 
             (inner.connector_type, &mut inner.config_json)
         }
-        request => {
-            return Err(
-                crate::verify("Derive", "valid first request", "controller").fail_msg(request)
-            );
-        }
+        other => return Err(verify.fail_msg(other)),
     };
 
     if connector_type == ConnectorType::Image as i32 {

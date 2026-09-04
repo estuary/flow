@@ -81,12 +81,13 @@ where
 {
     coroutines::try_coroutine(|mut co| async move {
         while let Some(request) = request_rx.next().await {
-            let response = if let Some(_) = request.spec {
-                let config_schema = schemars::schema_for!(DekafConfig);
-                let resource_schema = schemars::schema_for!(DekafResourceConfig);
+            let response = match request.kind {
+                Some(materialize::request::Kind::Spec(_)) => {
+                    let config_schema = schemars::schema_for!(DekafConfig);
+                    let resource_schema = schemars::schema_for!(DekafResourceConfig);
 
-                materialize::Response {
-                    spec: Some(materialize::response::Spec {
+                    materialize::Response {
+                    kind: Some(materialize::response::Kind::Spec(materialize::response::Spec {
                         protocol: 3032023,
                         config_schema_json: serde_json::to_string(&config_schema)?.into(),
                         resource_config_schema_json: serde_json::to_string(&resource_schema)?
@@ -95,90 +96,96 @@ where
                             "https://docs.estuary.dev/guides/dekaf_reading_collections_from_kafka"
                                 .to_string(),
                         oauth2: None,
-                    }),
+                    })),
                     ..Default::default()
                 }
-            } else if let Some(mut validate) = request.validate {
-                use proto_flow::materialize::response::validated;
-                match materialization_spec::ConnectorType::try_from(validate.connector_type)? {
-                    materialization_spec::ConnectorType::Dekaf => {}
-                    other => bail!("invalid connector type: {}", other.as_str_name()),
-                };
+                }
+                Some(materialize::request::Kind::Validate(mut validate)) => {
+                    use proto_flow::materialize::response::validated;
+                    match materialization_spec::ConnectorType::try_from(validate.connector_type)? {
+                        materialization_spec::ConnectorType::Dekaf => {}
+                        other => bail!("invalid connector type: {}", other.as_str_name()),
+                    };
 
-                let parsed_outer_config =
-                    serde_json::from_slice::<models::DekafConfig>(&validate.config_json)
-                        .context("validating dekaf config")?;
+                    let parsed_outer_config =
+                        serde_json::from_slice::<models::DekafConfig>(&validate.config_json)
+                            .context("validating dekaf config")?;
 
-                let parsed_inner_config = serde_json::from_value::<DekafConfig>(
-                    unseal::decrypt_sops(&parsed_outer_config.config)
-                        .await
-                        .context(format!(
-                            "decrypting dekaf endpoint config for variant {}",
-                            parsed_outer_config.variant
-                        ))?
-                        .to_value(),
-                )
-                .context(format!(
-                    "validating dekaf endpoint config for variant {}",
-                    parsed_outer_config.variant
-                ))?;
+                    let parsed_inner_config = serde_json::from_value::<DekafConfig>(
+                        unseal::decrypt_sops(&parsed_outer_config.config)
+                            .await
+                            .context(format!(
+                                "decrypting dekaf endpoint config for variant {}",
+                                parsed_outer_config.variant
+                            ))?
+                            .to_value(),
+                    )
+                    .context(format!(
+                        "validating dekaf endpoint config for variant {}",
+                        parsed_outer_config.variant
+                    ))?;
 
-                // Resolve collections while `validate` is whole: the bindings
-                // are taken below, after which they can no longer index the
-                // shared `linked_collections` table.
-                let binding_collections = validate
-                    .resolved_bindings()
-                    .map(|(_binding, resolved)| {
-                        resolved
-                            .map(|(collection, _identity)| collection.clone())
-                            .context("collection must exist")
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
+                    // Resolve collections while `validate` is whole: the bindings
+                    // are taken below, after which they can no longer index the
+                    // shared `linked_collections` table.
+                    let binding_collections = validate
+                        .resolved_bindings()
+                        .map(|(_binding, resolved)| {
+                            resolved
+                                .map(|(collection, _identity)| collection.clone())
+                                .context("collection must exist")
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
 
-                let validated_bindings = std::mem::take(&mut validate.bindings)
-                    .into_iter()
-                    .zip(binding_collections)
-                    .map(|(binding, collection)| {
-                        let resource_config = serde_json::from_slice::<DekafResourceConfig>(
-                            &binding.resource_config_json,
-                        )
-                        .context(format!(
-                            "validating dekaf resource config for variant {}",
-                            parsed_outer_config.variant.clone()
-                        ))?;
+                    let validated_bindings =
+                        std::mem::take(&mut validate.bindings)
+                            .into_iter()
+                            .zip(binding_collections)
+                            .map(|(binding, collection)| {
+                                let resource_config =
+                                    serde_json::from_slice::<DekafResourceConfig>(
+                                        &binding.resource_config_json,
+                                    )
+                                    .context(format!(
+                                        "validating dekaf resource config for variant {}",
+                                        parsed_outer_config.variant.clone()
+                                    ))?;
 
-                        let projection_constraints = collection
-                            .projections
-                            .iter()
-                            .map(|projection| validated::ProjectionConstraint {
-                                field: projection.field.clone(),
-                                constraint: Some(constraint_for_projection(
-                                    &projection,
-                                    &parsed_inner_config,
-                                )),
+                                let projection_constraints = collection
+                                    .projections
+                                    .iter()
+                                    .map(|projection| validated::ProjectionConstraint {
+                                        field: projection.field.clone(),
+                                        constraint: Some(constraint_for_projection(
+                                            &projection,
+                                            &parsed_inner_config,
+                                        )),
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                Ok::<
+                                    proto_flow::materialize::response::validated::Binding,
+                                    anyhow::Error,
+                                >(validated::Binding {
+                                    case_insensitive_fields: false,
+                                    delta_updates: true,
+                                    projection_constraints,
+                                    resource_path: vec![resource_config.topic_name],
+                                    ser_policy: None,
+                                })
                             })
-                            .collect::<Vec<_>>();
+                            .collect::<Result<Vec<_>, _>>()?;
 
-                        Ok::<proto_flow::materialize::response::validated::Binding, anyhow::Error>(
-                            validated::Binding {
-                                case_insensitive_fields: false,
-                                delta_updates: true,
-                                projection_constraints,
-                                resource_path: vec![resource_config.topic_name],
-                                ser_policy: None,
+                    materialize::Response {
+                        kind: Some(materialize::response::Kind::Validated(
+                            materialize::response::Validated {
+                                bindings: validated_bindings,
                             },
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                materialize::Response {
-                    validated: Some(materialize::response::Validated {
-                        bindings: validated_bindings,
-                    }),
-                    ..Default::default()
+                        )),
+                        ..Default::default()
+                    }
                 }
-            } else {
-                bail!("Unhandled request type")
+                _ => bail!("Unhandled request type"),
             };
 
             () = co.yield_(response).await;

@@ -224,15 +224,17 @@ where
         flow::MaterializationSpec::decode(spec.as_ref()).context("invalid current Apply spec")?;
 
     let initial = materialize::Request {
-        open: Some(materialize::request::Open {
-            materialization: Some(spec),
-            version,
-            state_json: connector_state_json,
-            range,
-            // Populated by `connector::start` with the matched endpoint's inner
-            // sealed configuration, which is not yet extracted from `spec` here.
-            sealed_config_json: Default::default(),
-        }),
+        kind: Some(materialize::request::Kind::Open(
+            materialize::request::Open {
+                materialization: Some(spec),
+                version,
+                state_json: connector_state_json,
+                range,
+                // Populated by `connector::start` with the matched endpoint's inner
+                // sealed configuration, which is not yet extracted from `spec` here.
+                sealed_config_json: Default::default(),
+            },
+        )),
         ..Default::default()
     };
     let (connector_tx, mut connector_rx, container, codec, token_restart_at) =
@@ -242,7 +244,7 @@ where
     let verify = crate::verify("Materialize", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {
         materialize::Response {
-            opened: Some(opened),
+            kind: Some(materialize::response::Kind::Opened(opened)),
             ..
         } => opened,
         other => return Err(verify.fail_msg(other)),
