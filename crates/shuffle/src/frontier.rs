@@ -633,6 +633,30 @@ impl Frontier {
         }
     }
 
+    /// Set every unresolved hint to zero. Call this on a coordinator's cumulative
+    /// Frontier directly after it reduces in a Session Frontier with
+    /// `unresolved_hints == 0`: that Frontier resolves or discharges every hint
+    /// of every earlier peek.
+    pub fn clear_discharged_hints(&mut self) {
+        let cleared = self.unresolved_hints;
+        if cleared == 0 {
+            return;
+        }
+        for pf in self.journals.iter_mut().flat_map(|jf| &mut jf.producers) {
+            if pf.hinted_commit > pf.last_commit {
+                pf.hinted_commit = Clock::zero();
+            }
+        }
+        self.unresolved_hints = 0;
+
+        service_kit::event!(
+            tracing::Level::WARN,
+            "coordinator",
+            cleared,
+            "cleared causal hint(s) of preceding peeks which the Session discharged rather than resolved",
+        );
+    }
+
     /// Look up a journal entry by `(journal, binding)`.
     pub fn find_journal(&self, journal: &str, binding: u16) -> Option<usize> {
         self.journals
@@ -1137,6 +1161,32 @@ mod test {
     use crate::testing::{jf, jf_with_bytes, pf, pf_tuple};
     use log::Lsn;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn test_clear_discharged_hints() {
+        // Two peeks carry a hint the resolved frontier never names: the Session
+        // discharged it and dropped the producer.
+        let peek = || Frontier {
+            journals: vec![jf("journal/A", 0, vec![pf(0x09, 0, 100, 0)])],
+            unresolved_hints: 1,
+            ..Default::default()
+        };
+        let resolved = Frontier {
+            journals: vec![jf("journal/B", 0, vec![pf(0x0b, 200, 0, -700)])],
+            ..Default::default()
+        };
+
+        let mut f = Frontier::default()
+            .reduce(peek())
+            .reduce(peek())
+            .reduce(resolved);
+        assert_eq!(f.unresolved_hints, 1);
+
+        f.clear_discharged_hints();
+        assert_eq!(f.unresolved_hints, 0);
+        assert_eq!(pf_tuple(&f.journals[0].producers[0]), (0, 0, 0));
+        assert_eq!(pf_tuple(&f.journals[1].producers[0]), (200, 0, -700));
+    }
 
     #[test]
     fn test_producer_frontier_reduce() {
