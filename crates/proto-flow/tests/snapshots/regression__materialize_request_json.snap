@@ -1,12 +1,17 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-expression: json_test(msg)
+expression: json_catalogue(ex_materialize_requests())
 ---
+// spec
 {
   "spec": {
     "connectorType": "IMAGE",
     "config": {"spec":"config"}
-  },
+  }
+}
+
+// validate
+{
   "validate": {
     "name": "validate/materialization",
     "connectorType": "IMAGE",
@@ -117,7 +122,11 @@ expression: json_test(msg)
       "": "acmeCo/whole-config",
       "/credentials/password": "acmeCo/password"
     }
-  },
+  }
+}
+
+// apply
+{
   "apply": {
     "materialization": {
       "name": "acmeCo/materialization",
@@ -322,7 +331,11 @@ expression: json_test(msg)
     "version": "11:22:33:44",
     "lastVersion": "00:11:22:33",
     "state": {"connector":"state"}
-  },
+  }
+}
+
+// open
+{
   "open": {
     "materialization": {
       "name": "acmeCo/materialization",
@@ -533,12 +546,20 @@ expression: json_test(msg)
     },
     "state": {"connector":{"state":42}},
     "sealedConfig": {"encrypted":"c2VjcmV0","sops":{"mac":"abc"}}
-  },
+  }
+}
+
+// load
+{
   "load": {
     "binding": 12,
     "key": [42,"hi"],
     "keyPacked": "VkseCQ=="
-  },
+  }
+}
+
+// flush
+{
   "flush": {
     "statePatches": [{"flushed":1}],
     "backfillBegins": [
@@ -553,7 +574,11 @@ expression: json_test(msg)
         "timestamp": "2023-11-14T22:21:40.123+00:00"
       }
     ]
-  },
+  }
+}
+
+// store
+{
   "store": {
     "binding": 3,
     "key": [true,null],
@@ -563,7 +588,11 @@ expression: json_test(msg)
     "doc": {"full":"document"},
     "exists": true,
     "delete": true
-  },
+  }
+}
+
+// start_commit
+{
   "startCommit": {
     "runtimeCheckpoint": {
       "sources": {
@@ -592,9 +621,17 @@ expression: json_test(msg)
       }
     },
     "statePatches": [{"started":"commit"}]
-  },
+  }
+}
+
+// acknowledge
+{
   "acknowledge": {
     "statePatches": [{"acked":true}]
-  },
+  }
+}
+
+// internal
+{
   "$internal": "EgJIaRgB"
 }

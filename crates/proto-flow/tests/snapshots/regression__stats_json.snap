@@ -1,6 +1,5 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-assertion_line: 997
 expression: json_test(msg)
 ---
 {

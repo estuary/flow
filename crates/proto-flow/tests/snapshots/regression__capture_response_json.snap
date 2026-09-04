@@ -1,7 +1,8 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-expression: json_test(msg)
+expression: json_catalogue(ex_capture_responses())
 ---
+// spec
 {
   "spec": {
     "protocol": 3032023,
@@ -35,7 +36,11 @@ expression: json_test(msg)
     "resourcePathPointers": [
       "/stream"
     ]
-  },
+  }
+}
+
+// discovered
+{
   "discovered": {
     "bindings": [
       {
@@ -51,7 +56,11 @@ expression: json_test(msg)
         ]
       }
     ]
-  },
+  }
+}
+
+// validated
+{
   "validated": {
     "bindings": [
       {
@@ -61,36 +70,68 @@ expression: json_test(msg)
         ]
       }
     ]
-  },
+  }
+}
+
+// applied
+{
   "applied": {
     "actionDescription": "I did some stuff",
     "state": {
       "updated": {"state":"update"},
       "mergePatch": true
     }
-  },
+  }
+}
+
+// opened
+{
   "opened": {
     "explicitAcknowledgements": true
-  },
+  }
+}
+
+// captured
+{
   "captured": {
     "binding": 2,
     "doc": {"captured":"doc"}
-  },
+  }
+}
+
+// sourced_schema
+{
   "sourcedSchema": {
     "binding": 3,
     "documentSchema": {"format":"date-time","type":"string"}
-  },
+  }
+}
+
+// checkpoint
+{
   "checkpoint": {
     "state": {
       "updated": {"state":"update"},
       "mergePatch": true
     }
-  },
+  }
+}
+
+// backfill_begin
+{
   "backfillBegin": {
     "binding": 4
-  },
+  }
+}
+
+// backfill_complete
+{
   "backfillComplete": {
     "binding": 5
-  },
+  }
+}
+
+// internal
+{
   "$internal": "EgJIaRgB"
 }
