@@ -23,7 +23,9 @@ zeroize = { workspace = true }
 proto-build = { path = "../proto-build", optional = true }
 
 pbjson-build = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
 prost-build = { workspace = true, optional = true }
+prost-types = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -32,4 +34,4 @@ hexdump = { workspace = true }
 
 [features]
 default = []
-generate = ["proto-build", "pbjson-build", "prost-build", "regex"]
+generate = ["proto-build", "pbjson-build", "prost", "prost-build", "prost-types", "regex"]
