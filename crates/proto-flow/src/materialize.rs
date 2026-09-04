@@ -110,8 +110,10 @@ pub mod request {
             /// Collection to be materialized.
             /// Unset if the request uses `linked_collections`, in which case
             /// `collection_index` identifies the bound collection instead.
-            #[prost(message, optional, tag = "2")]
-            pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
+            #[prost(message, optional, boxed, tag = "2")]
+            pub collection: ::core::option::Option<
+                ::prost::alloc::boxed::Box<super::super::super::flow::CollectionSpec>,
+            >,
             /// Projection configuration, keyed by the projection field name,
             /// with JSON-encoded and driver-defined configuration objects.
             #[prost(btree_map = "string, bytes", tag = "3")]
@@ -339,11 +341,11 @@ pub mod request {
         #[prost(message, tag = "1")]
         Spec(Spec),
         #[prost(message, tag = "2")]
-        Validate(Validate),
+        Validate(::prost::alloc::boxed::Box<Validate>),
         #[prost(message, tag = "3")]
-        Apply(Apply),
+        Apply(::prost::alloc::boxed::Box<Apply>),
         #[prost(message, tag = "4")]
-        Open(Open),
+        Open(::prost::alloc::boxed::Box<Open>),
         #[prost(message, tag = "5")]
         Load(Load),
         #[prost(message, tag = "6")]
@@ -688,7 +690,7 @@ pub mod response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
         #[prost(message, tag = "1")]
-        Spec(Spec),
+        Spec(::prost::alloc::boxed::Box<Spec>),
         #[prost(message, tag = "2")]
         Validated(Validated),
         #[prost(message, tag = "3")]
