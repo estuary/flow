@@ -1,4 +1,6 @@
-use crate::RuntimeProtocol;
+//! Docker container lifecycle: pull, inspect, run, dial `flow-connector-init`,
+//! and tear down. The one place this crate shells out to `docker`.
+use crate::{LogSink, RuntimeProtocol};
 use anyhow::Context;
 use futures::channel::oneshot;
 use proto_flow::{flow, runtime};
@@ -37,9 +39,9 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
         return Ok(RuntimeProtocol::Materialize);
     }
     if !image.ends_with(":local") {
-        // No session logger in this inspection-only path; TracingLogger
-        // renders `ImagePullRetry` events with the legacy tracing::warn behavior.
-        docker_pull(image, &crate::TracingLogger)
+        // Inspection-only path: there's no RPC to sink logs into, so a pull
+        // retry surfaces through this process's own tracing.
+        docker_pull(image, &crate::LogSink::tracing())
             .await
             .context("pulling image")?;
     }
@@ -57,11 +59,17 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 
 /// Start an image connector container, returning its description and a dialed tonic Channel.
 /// The container is attached to the given `network`, and its logs and lifecycle
-/// events are reported through `logger`. `task_name` and `task_type` are used
+/// events are reported through `log_sink`. `task_name` and `task_type` are used
 /// only to label the container.
-pub async fn start<L: crate::Logger>(
+///
+/// The returned [`Guard`] owns the container: dropping it SIGKILLs the `docker
+/// run` client, which closes the container's stderr and lets the log pump run
+/// to completion -- reporting "stopped connector container" and then releasing
+/// the `log_sink` clone it holds, which is how the caller learns that teardown
+/// is done.
+pub(crate) async fn start(
     image: &str,
-    logger: L,
+    log_sink: LogSink,
     log_level: ops::LogLevel,
     network: &str,
     task_name: &str,
@@ -70,7 +78,7 @@ pub async fn start<L: crate::Logger>(
 ) -> anyhow::Result<(
     runtime::Container,
     tonic::transport::Channel,
-    Guard<L>,
+    Guard,
     connector_init::Codec,
 )> {
     validate_connector_image(image, plane)?;
@@ -102,7 +110,7 @@ pub async fn start<L: crate::Logger>(
     // and parsing its advertised network ports.
     let ((), (image_inspection, codec)) = futures::try_join!(
         find_connector_init_and_copy(tmp_connector_init.path()),
-        inspect_image_and_copy(image, tmp_docker_inspect.path(), &logger),
+        inspect_image_and_copy(image, tmp_docker_inspect.path(), &log_sink),
     )?;
 
     // Close our open files but retain a deletion guard.
@@ -199,10 +207,10 @@ pub async fn start<L: crate::Logger>(
     // our inner flow-connector-init process to produce its startup log.
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
-    // Service process stderr by decoding ops::Logs and reporting to the logger.
+    // Service process stderr by decoding ops::Logs into the log sink.
     let stderr = process.stderr.take().unwrap();
     let quoted_task_name: bytes::Bytes = format!("\"{task_name}\"").into();
-    let pump_logger = logger.clone();
+    let (pump_sink, pump_image) = (log_sink.clone(), image.to_string());
     tokio::spawn(async move {
         let mut stderr = tokio::io::BufReader::new(stderr);
         let mut line = String::new();
@@ -244,11 +252,24 @@ pub async fn start<L: crate::Logger>(
 
             let (log, consume) = decoder.line_to_log(&line, stderr.buffer());
             stderr.consume(consume);
-            let sanitized = sanitize_event_type(&quoted_task_name, log);
-            pump_logger.log(&sanitized);
+            pump_sink
+                .send(sanitize_event_type(&quoted_task_name, log))
+                .await;
         }
         // An un-sent `ready_tx` cancels on drop, telling `start()` that stderr
-        // closed before the container came up.
+        // closed before the container came up. That case never logged a
+        // "started connector container", so it gets no "stopped" either --
+        // otherwise this pairs with it, and is the last record of the
+        // container that the caller's sink sees.
+        if ready_tx.is_none() {
+            pump_sink
+                .send(crate::build_log(
+                    ops::LogLevel::Debug,
+                    "stopped connector container",
+                    [("image", crate::json_field(&pump_image))],
+                ))
+                .await;
+        }
     });
 
     // Wait for container to become ready, or close its stderr (likely due to a crash),
@@ -289,7 +310,7 @@ pub async fn start<L: crate::Logger>(
         })?;
 
     // Low-level network / codec detail stays at debug; the user-facing "started"
-    // event is reported to the logger below (whose default logs it at info).
+    // event is reported to the log sink below, at info.
     tracing::debug!(
         %image,
         %init_address,
@@ -311,10 +332,16 @@ pub async fn start<L: crate::Logger>(
         usage_rate,
         mapped_host_ports,
     };
-    logger.event(crate::LogEvent::ContainerStarted {
-        image,
-        container: &container,
-    });
+    log_sink
+        .send(crate::build_log(
+            ops::LogLevel::Info,
+            "started connector container",
+            [
+                ("image", crate::json_field(&image)),
+                ("container", crate::json_field(&container)),
+            ],
+        ))
+        .await;
 
     Ok((
         container,
@@ -323,8 +350,6 @@ pub async fn start<L: crate::Logger>(
             _tmp_connector_init: tmp_connector_init,
             _tmp_docker_inspect: tmp_docker_inspect,
             _process: process,
-            image: image.to_string(),
-            logger,
         },
         codec,
     ))
@@ -384,22 +409,13 @@ fn sanitize_event_type(quoted_task_name: &bytes::Bytes, mut log: ops::Log) -> op
     log
 }
 
-/// Guard contains a running image container instance,
-/// which will be stopped and cleaned up when the Guard is dropped.
-/// Its drop reports a `container_stopped` event through the logger.
-pub struct Guard<L: crate::Logger> {
+/// Guard contains a running image container instance, which is SIGKILLed and
+/// cleaned up when the Guard is dropped -- closing the container's stderr, so
+/// that its log pump finishes and releases the last clone of the sink.
+pub struct Guard {
     _tmp_connector_init: tempfile::TempPath,
     _tmp_docker_inspect: tempfile::TempPath,
     _process: async_process::Child,
-    image: String,
-    logger: L,
-}
-
-impl<L: crate::Logger> Drop for Guard<L> {
-    fn drop(&mut self) {
-        self.logger
-            .event(crate::LogEvent::ContainerStopped { image: &self.image });
-    }
 }
 
 /// Generate a name for a connector container which is unique on this host.
@@ -442,7 +458,7 @@ where
     Ok(output.stdout)
 }
 
-async fn docker_pull(image: &str, logger: &impl crate::Logger) -> anyhow::Result<()> {
+async fn docker_pull(image: &str, log_sink: &LogSink) -> anyhow::Result<()> {
     const MAX_RETRIES: u32 = 3;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -470,11 +486,17 @@ async fn docker_pull(image: &str, logger: &impl crate::Logger) -> anyhow::Result
             || err_str.contains("Client.Timeout exceeded");
 
         if is_transient && attempt < MAX_RETRIES {
-            logger.event(crate::LogEvent::ImagePullRetry {
-                image,
-                attempt,
-                error: &err_str,
-            });
+            log_sink
+                .send(crate::build_log(
+                    ops::LogLevel::Warn,
+                    "transient error pulling image (will retry)",
+                    [
+                        ("image", crate::json_field(&image)),
+                        ("attempt", crate::json_field(&attempt)),
+                        ("error", crate::json_field(&err_str)),
+                    ],
+                ))
+                .await;
             tokio::time::sleep(RETRY_DELAY).await;
         } else {
             return Err(err);
@@ -750,10 +772,12 @@ async fn inspect_image(image: &str) -> anyhow::Result<Vec<u8>> {
 async fn inspect_image_and_copy(
     image: &str,
     tmp_path: &std::path::Path,
-    logger: &impl crate::Logger,
+    log_sink: &LogSink,
 ) -> anyhow::Result<(ImageInspection, connector_init::Codec)> {
     if !image.ends_with(":local") {
-        docker_pull(image, logger).await.context("pulling image")?;
+        docker_pull(image, log_sink)
+            .await
+            .context("pulling image")?;
     }
 
     let inspect_content = inspect_image(image).await.context("inspecting image")?;
@@ -790,7 +814,7 @@ mod test {
 
         let (container, channel, _guard, _codec) = start(
             "ghcr.io/estuary/source-http-ingest:dev",
-            crate::TracingLogger,
+            crate::LogSink::tracing(),
             ops::LogLevel::Debug,
             "",
             "a-task-name",
@@ -854,7 +878,7 @@ mod test {
 
         let Err(err) = start(
             "alpine", // Not a connector.
-            crate::TracingLogger,
+            crate::LogSink::tracing(),
             ops::LogLevel::Debug,
             "",
             "a-task-name",

@@ -24,10 +24,17 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
+    // Connector logs and container lifecycle records both flow to this
+    // session's Logger.
+    let log_sink = {
+        let logger = logger.clone();
+        connector::LogSink::handler(move |log| crate::Logger::log(&logger, log))
+    };
+
     fn start_rpc(
         channel: tonic::transport::Channel,
         rx: mpsc::Receiver<Request>,
-    ) -> crate::image_connector::StartRpcFuture<Response> {
+    ) -> connector::image::StartRpcFuture<Response> {
         async move {
             proto_grpc::capture::connector_client::ConnectorClient::new(channel)
                 .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
@@ -44,10 +51,9 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     let (mut connector_rx, container) = match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
             sealed_config = config;
-            // Captures don't have conditional JSON fields, so _codec is unused.
-            let (rx, container, _codec) = crate::image_connector::serve(
+            let (rx, container, _codec, guard) = connector::image::serve(
                 image,
-                logger.clone(),
+                log_sink.clone(),
                 log_level,
                 &service.container_network,
                 connector_rx,
@@ -57,6 +63,13 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                 service.plane,
             )
             .await?;
+
+            // The container Guard rides its response stream: dropping the
+            // stream stops the container.
+            let rx = rx.map(move |result| {
+                let _guard = &guard;
+                result
+            });
             (rx.boxed(), Some(container))
         }
         models::CaptureEndpoint::Local(_) if !matches!(service.plane, crate::Plane::Local) => {
@@ -78,15 +91,9 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                 connector_init::Codec::Json
             };
 
-            let rx = crate::local_connector::serve(
-                command,
-                env,
-                logger.clone(),
-                log_level,
-                codec,
-                connector_rx,
-            )?
-            .boxed();
+            let rx =
+                connector::local::serve(command, env, log_sink, log_level, codec, connector_rx)?
+                    .boxed();
             (rx, None)
         }
     };

@@ -1,0 +1,36 @@
+[package]
+name = "connector"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+async-process = { path = "../async-process" }
+connector-init = { path = "../connector-init" }
+labels = { path = "../labels" }
+locate-bin = { path = "../locate-bin" }
+models = { path = "../models" }
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+tokio = { workspace = true, features = ["macros", "test-util"] }

@@ -10,7 +10,7 @@ license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
-async-process = { path = "../async-process" }
+connector = { path = "../connector" }
 connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
 dekaf-connector = { path = "../dekaf-connector" }
@@ -22,7 +22,6 @@ gazette = { path = "../gazette" }
 iam-auth = { path = "../iam-auth" }
 json = { path = "../json" }
 labels = { path = "../labels" }
-locate-bin = { path = "../locate-bin" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
