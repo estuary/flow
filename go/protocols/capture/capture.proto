@@ -66,6 +66,13 @@ service Connector {
   rpc Capture(stream Request) returns (stream Response);
 }
 
+// Request of a capture RPC.
+//
+// Exactly one sub-message field of Request is set, optionally alongside
+// `internal`. The Rust bindings enforce that XOR as an injected `oneof`, driven
+// by an explicit field list which MUST be extended when a sub-message field is
+// added below: see `ONEOFS` in crates/proto-flow/build.rs, which also explains
+// why this is a Rust-only concern.
 message Request {
   // Spec requests the specification definition of this connector.
   // Notably this includes its configuration JSON schemas.
@@ -253,6 +260,13 @@ message Request {
   bytes internal = 100 [ json_name = "$internal" ];
 }
 
+// Response of a capture RPC.
+//
+// Exactly one sub-message field of Response is set, optionally alongside
+// `internal`. The Rust bindings enforce that XOR as an injected `oneof`, driven
+// by an explicit field list which MUST be extended when a sub-message field is
+// added below: see `ONEOFS` in crates/proto-flow/build.rs, which also explains
+// why this is a Rust-only concern.
 message Response {
   // Spec responds to Request.Spec.
   // Next tag: 9

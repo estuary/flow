@@ -30,6 +30,13 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
+// Request of a capture RPC.
+//
+// Exactly one sub-message field of Request is set, optionally alongside
+// `internal`. The Rust bindings enforce that XOR as an injected `oneof`, driven
+// by an explicit field list which MUST be extended when a sub-message field is
+// added below: see `ONEOFS` in crates/proto-flow/build.rs, which also explains
+// why this is a Rust-only concern.
 type Request struct {
 	Spec        *Request_Spec        `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
 	Discover    *Request_Discover    `protobuf:"bytes,2,opt,name=discover,proto3" json:"discover,omitempty"`
@@ -482,6 +489,13 @@ func (m *Request_Acknowledge) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Request_Acknowledge proto.InternalMessageInfo
 
+// Response of a capture RPC.
+//
+// Exactly one sub-message field of Response is set, optionally alongside
+// `internal`. The Rust bindings enforce that XOR as an injected `oneof`, driven
+// by an explicit field list which MUST be extended when a sub-message field is
+// added below: see `ONEOFS` in crates/proto-flow/build.rs, which also explains
+// why this is a Rust-only concern.
 type Response struct {
 	Spec             *Response_Spec             `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
 	Discovered       *Response_Discovered       `protobuf:"bytes,2,opt,name=discovered,proto3" json:"discovered,omitempty"`

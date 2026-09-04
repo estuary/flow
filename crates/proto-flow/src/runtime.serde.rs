@@ -8916,11 +8916,12 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             rescan__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Begin => {
-                            if active_backfill_change__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("begin"));
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if active_backfill_change__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("begin"));
+                                }
+                                active_backfill_change__ = Some(persist::ActiveBackfillChange::Begin(v));
                             }
-                            active_backfill_change__ = map_.next_value::<::std::option::Option<_>>()?.map(persist::ActiveBackfillChange::Begin)
-;
                         }
                         GeneratedField::CompleteBinding => {
                             if active_backfill_change__.is_some() {
@@ -10750,25 +10751,28 @@ impl<'de> serde::Deserialize<'de> for SyncNowResponse {
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Ack => {
-                            if response__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("ack"));
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if response__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("ack"));
+                                }
+                                response__ = Some(sync_now_response::Response::Ack(v));
                             }
-                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Ack)
-;
                         }
                         GeneratedField::Heartbeat => {
-                            if response__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("heartbeat"));
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if response__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("heartbeat"));
+                                }
+                                response__ = Some(sync_now_response::Response::Heartbeat(v));
                             }
-                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Heartbeat)
-;
                         }
                         GeneratedField::Done => {
-                            if response__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("done"));
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if response__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("done"));
+                                }
+                                response__ = Some(sync_now_response::Response::Done(v));
                             }
-                            response__ = map_.next_value::<::std::option::Option<_>>()?.map(sync_now_response::Response::Done)
-;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
