@@ -13,6 +13,7 @@ use tables::CatalogResolver;
 
 mod alerts;
 mod discover;
+mod graphql;
 mod materialize_fixture;
 mod oauth;
 pub(crate) mod preview_next;
@@ -53,6 +54,14 @@ pub enum Command {
     Rpc(Rpc),
     /// Issue a custom table update request to the API.
     Update(Update),
+    /// Explore the control-plane GraphQL API, and run queries and mutations
+    /// against it.
+    ///
+    /// The GraphQL API is the successor of the PostgREST API which `get`, `rpc`,
+    /// and `update` speak to. Use `graphql operations` to see what it serves,
+    /// `graphql describe` to see the shape of a type, and `graphql exec` to run
+    /// an operation.
+    Graphql(graphql::Graphql),
     /// Perform a configured build of catalog sources.
     Build(Build),
     /// Bundle catalog sources into a flattened and inlined catalog.
@@ -237,6 +246,7 @@ impl Advanced {
             Command::Get(get) => do_get(ctx, get).await,
             Command::Update(update) => do_update(ctx, update).await,
             Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
+            Command::Graphql(args) => graphql::do_graphql(ctx, args).await,
             Command::Build(build) => do_build(ctx, build).await,
             Command::Bundle(bundle) => do_bundle(ctx, bundle).await,
             Command::Combine(combine) => do_combine(ctx, combine).await,
