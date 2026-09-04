@@ -142,8 +142,10 @@ pub mod request {
             /// Collection to be captured.
             /// Unset if the request uses `linked_collections`, in which case
             /// `collection_index` identifies the bound collection instead.
-            #[prost(message, optional, tag = "2")]
-            pub collection: ::core::option::Option<super::super::super::flow::CollectionSpec>,
+            #[prost(message, optional, boxed, tag = "2")]
+            pub collection: ::core::option::Option<
+                ::prost::alloc::boxed::Box<super::super::super::flow::CollectionSpec>,
+            >,
             /// Backfill counter for this binding.
             #[prost(uint32, tag = "3")]
             pub backfill: u32,
@@ -234,13 +236,13 @@ pub mod request {
         #[prost(message, tag = "1")]
         Spec(Spec),
         #[prost(message, tag = "2")]
-        Discover(Discover),
+        Discover(::prost::alloc::boxed::Box<Discover>),
         #[prost(message, tag = "3")]
-        Validate(Validate),
+        Validate(::prost::alloc::boxed::Box<Validate>),
         #[prost(message, tag = "4")]
-        Apply(Apply),
+        Apply(::prost::alloc::boxed::Box<Apply>),
         #[prost(message, tag = "5")]
-        Open(Open),
+        Open(::prost::alloc::boxed::Box<Open>),
         #[prost(message, tag = "6")]
         Acknowledge(Acknowledge),
     }
@@ -484,7 +486,7 @@ pub mod response {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
         #[prost(message, tag = "1")]
-        Spec(Spec),
+        Spec(::prost::alloc::boxed::Box<Spec>),
         #[prost(message, tag = "2")]
         Discovered(Discovered),
         #[prost(message, tag = "3")]

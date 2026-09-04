@@ -319,6 +319,46 @@ fn main() {
         .extern_path(".protocol", "::proto_gazette::broker")
         .extern_path(".recoverylog", "::proto_gazette::recoverylog");
 
+    // A Rust enum is as large as its largest variant, so gathering the
+    // connector sub-messages into a `oneof` only helps if the startup-time
+    // variants -- which are large, exchanged once, and never on a hot path --
+    // are behind a pointer. Box them, and leave the hot-path variants inline
+    // so that steady-state document flow costs no allocation.
+    //
+    // These paths address a oneof variant as `<message>.<oneof>.<field>`.
+    for path in [
+        ".capture.Request.kind.discover",
+        ".capture.Request.kind.validate",
+        ".capture.Request.kind.apply",
+        ".capture.Request.kind.open",
+        ".capture.Response.kind.spec",
+        ".derive.Request.kind.validate",
+        ".derive.Request.kind.open",
+        ".derive.Response.kind.spec",
+        ".materialize.Request.kind.validate",
+        ".materialize.Request.kind.apply",
+        ".materialize.Request.kind.open",
+        ".materialize.Response.kind.spec",
+    ] {
+        config.boxed(path);
+    }
+
+    // Inlined `CollectionSpec` copies, which are large and are being replaced
+    // by the `collection_index` encoding (see `src/linked.rs`). Boxing them
+    // sizes a binding or transform to its own fields rather than to a
+    // collection it usually shares with its siblings.
+    for path in [
+        ".flow.CollectionSpec.derivation",
+        ".flow.CaptureSpec.Binding.collection",
+        ".flow.MaterializationSpec.Binding.collection",
+        ".flow.CollectionSpec.Derivation.Transform.collection",
+        ".capture.Request.Validate.Binding.collection",
+        ".materialize.Request.Validate.Binding.collection",
+        ".derive.Request.Validate.Transform.collection",
+    ] {
+        config.boxed(path);
+    }
+
     let mut fds = config
         .load_fds(&proto_build, &b.proto_include())
         .expect("failed to load protobuf descriptors");

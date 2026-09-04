@@ -71,6 +71,43 @@ Its leading comment becomes the doc comment on the generated field and enum.
 through `extern_path` to `::proto_flow::*`, so it generates only service stubs
 and is unaffected by any of this.
 
+### Boxed fields
+
+A Rust enum is as large as its largest variant, so the `oneof` alone buys
+little: `capture::Request` would still be sized to `Apply`. `build.rs` also
+passes a list of `prost_build::Config::boxed` paths, which puts a field or
+variant behind a `Box`.
+
+The policy is a split by lifecycle, not by size:
+
+- **Startup-time connector variants are boxed**: `Discover`, `Validate`,
+  `Apply`, and `Open` requests, and the `Spec` response. A task exchanges
+  each of these once, so the allocation is free, and boxing them sizes the
+  enum to its largest *hot-path* variant instead.
+- **Hot-path variants stay inline**: `Load`, `Store`, `Read`, `Flush`,
+  `StartCommit`, `Acknowledge`, and every other response. These flow per
+  document or per transaction, and boxing one would trade the copy we're
+  trying to avoid for an allocation per message.
+- **Inlined `CollectionSpec` copies are boxed** wherever a binding or
+  transform carries one: `CollectionSpec.derivation`, and the `collection`
+  field of the capture, materialization, and derivation bindings in both
+  `flow.proto` and the connector `Validate` requests. A binding is then
+  sized to its own fields rather than to a collection it usually shares with
+  its siblings (and increasingly doesn't inline at all — see
+  `src/linked.rs`).
+
+Deliberately *not* boxed: `Spec` requests (40 bytes), `Projection.inference`,
+the journal and shard templates, and the singular `collection` of
+`derive.Request.{Validate,Open}` — the last already sits inside a boxed
+variant, so boxing it again would only add a hop.
+
+Boxing is invisible to both encodings, so the regression snapshots are again
+the proof: prost's generated code derefs through the box, and pbjson's is
+box-agnostic (it serializes `&Box<T>` as `T`, and type inference supplies the
+`Box` on the way in). None of the `.serde.rs` files changed when the boxing
+landed. The `size_of` table in `tests/regression.rs` is where the effect is
+recorded and pinned.
+
 ### pbjson fixups
 
 pbjson's output is post-processed by regex in `build.rs`:
