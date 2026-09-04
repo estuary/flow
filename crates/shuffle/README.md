@@ -187,6 +187,18 @@ correlated committing closes are only tracked within a cohort, allowing differen
 cohorts to make progress independently. For example, a binding read with an
 explicit delay cannot gate a binding read in real time.
 
+**Byte gap**: A read has a byte gap when Gazette resolves its requested offset
+`M` to a larger offset `L`: the read cannot receive the bytes of `[M, L)`,
+whether retention removed them, `begin_mod_time` skipped them, or they were
+never written. The response does not say which.
+
+**Binding gap floor**: A clock below which a binding's causal hints are
+unreachable. Only a byte gap at read start raises it, to the first document past
+the gap plus `CAUSAL_HINT_GAP_MARGIN` (`ReadState::sample_gap_floor`). It only
+rises, and discharges causal hints which trail it (`Completed::is_gap_stale`) —
+never producer commits, and never the hinted frontier an idempotent-recovery
+session replays.
+
 #### Terms to avoid
 
 - *claim / claimed* — invokes confusing agency (claimed by whom?). Say "covered
@@ -297,6 +309,10 @@ whose open span begins before `M` is marked *gapped* and its skipped range is
 recovered later by a bounded replay (see `slice/replay.rs`).
 It first probes the journal write head to determine whether the read is already
 tailing (caught up).
+
+A probe landing beyond the requested offset is a byte gap at read start, which
+raises the binding's gap floor (`ReadState::sample_gap_floor`). A gap mid-read
+raises nothing.
 
 Read data arrives as `LinesBatch` chunks from Gazette, which are
 transcoded via `simd_doc::SimdParser` into archived document nodes.
@@ -435,13 +451,16 @@ Hints can be cyclic: `unresolved` may resolve hints carried by `progressed`.
 Similarly, a re-enabled binding can re-visit hints which have long since
 been resolved. `progressed` is therefore pruned (`Frontier::prune_hints`)
 at promotion against `frontier::Completed` — the pipeline's accounting of
-what is already done, written only on promotion to `ready`. It holds a
-per-cohort ledger of producer commits, plus a per-binding maximum of
-promoted progress which deems any clock at least
-`PRODUCER_STALENESS_HORIZON` older to be completed. That horizon rule is the
-dual of `runtime-next`'s committed-frontier prune, which forgets producers by
-the same constant: it is what keeps a hint naming a forgotten producer
-dischargeable at all.
+what is already done. It holds a per-cohort ledger of producer commits, plus
+a per-binding maximum of promoted progress which deems any clock at least
+`PRODUCER_STALENESS_HORIZON` older to be completed — both written only on
+promotion to `ready`. That horizon rule is the dual of `runtime-next`'s
+committed-frontier prune, which forgets producers by the same constant: it is
+what keeps a hint naming a forgotten producer dischargeable at all.
+
+Its third authority, the per-binding gap floor, breaks that pattern: it
+discharges hints alone, and advances from any delta rather than on promotion —
+so it can promote a pending `unresolved` out of band.
 
 #### Accounted-progress ratchet
 
@@ -450,9 +469,10 @@ While a checkpoint is held unresolved, each incoming delta is judged
 defines. A delta is **accounted** when every producer commit and causal
 hint it reports is already covered by one of the three authorities: the
 pending frontier's own clocks and hints, a commit the producer's cohort
-has completed, or the staleness horizon. Accounted progress folds into the
-unresolved boundary, adopting the read's true offsets; unaccounted progress
-is held back for the next boundary.
+has completed, or the staleness horizon. A hint — never a commit — may
+additionally be covered by the binding's gap floor. Accounted progress folds
+into the unresolved boundary, adopting the read's true offsets; unaccounted
+progress is held back for the next boundary.
 
 #### Idempotent recovery is a session of its own
 
@@ -530,7 +550,9 @@ fully-resolved checkpoint.
 
 After completing downstream processing on a fully-resolved frontier, the
 coordinator merges the delta into its base checkpoint and requests the
-next one.
+next one. A fully-resolved frontier leaves every hint of every preceding peek
+resolved or discharged, and `reduce` alone keeps the discharged ones, so the
+coordinator follows it with `Frontier::clear_discharged_hints`.
 
 ## Key Types
 

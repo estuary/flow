@@ -247,6 +247,24 @@ session's `shuffle::Completed`. Pruning forgets a producer, so only the
 session's matching horizon rule can still discharge a later backfill's causal
 hints naming it. Read both doc comments before touching either.
 
+## Binding gap floors (`GF:`)
+
+Shard zero holds one `GF:{state_key}` row per binding: the shuffle Session's
+*binding gap floor* (see `crates/shuffle/README.md`). A floor is not transaction
+state: it rides either `Persist` Frontier, restores onto the committed Frontier,
+and neither `delete_*_frontier` clears it.
+
+For that same reason the leader's actor folds floors from unresolved peeks as
+well as resolved `Load`s, unlike `BB:`/`BC:`. Materialize's hinted `Persist`
+precedes StartCommit, so a floor is durable before the transaction which
+observed the gap commits. Derive's only `Persist` follows StartCommit, so a
+remote-authoritative derivation which crashes in between loses the floors of
+that one transaction.
+
+A Head reduces every `Load` into its extents, then on a resolved `Load` calls
+`Frontier::clear_discharged_hints`, so a hint the Session discharges rather
+than resolves cannot pin the transaction open.
+
 ## Idempotent recovery (materialize)
 
 A leader whose startup scan finds a hinted-but-uncommitted transaction opens

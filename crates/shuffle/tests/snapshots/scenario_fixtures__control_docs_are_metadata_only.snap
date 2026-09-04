@@ -29,6 +29,7 @@ Checkpoint {
         latest_backfill_complete: {
             0: Clock(0s 3000ns),
         },
+        binding_gap_floors: {},
         unresolved_hints: 0,
     },
     read: [

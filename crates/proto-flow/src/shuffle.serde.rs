@@ -167,6 +167,9 @@ impl serde::Serialize for Frontier {
         if !self.latest_backfill_complete.is_empty() {
             len += 1;
         }
+        if !self.binding_gap_floors.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.Frontier", len)?;
         if !self.journals.is_empty() {
             struct_ser.serialize_field("journals", &self.journals)?;
@@ -179,6 +182,9 @@ impl serde::Serialize for Frontier {
         }
         if !self.latest_backfill_complete.is_empty() {
             struct_ser.serialize_field("latestBackfillComplete", &self.latest_backfill_complete)?;
+        }
+        if !self.binding_gap_floors.is_empty() {
+            struct_ser.serialize_field("bindingGapFloors", &self.binding_gap_floors)?;
         }
         struct_ser.end()
     }
@@ -197,6 +203,8 @@ impl<'de> serde::Deserialize<'de> for Frontier {
             "latestBackfillBegin",
             "latest_backfill_complete",
             "latestBackfillComplete",
+            "binding_gap_floors",
+            "bindingGapFloors",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -205,6 +213,7 @@ impl<'de> serde::Deserialize<'de> for Frontier {
             FlushedLsn,
             LatestBackfillBegin,
             LatestBackfillComplete,
+            BindingGapFloors,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -231,6 +240,7 @@ impl<'de> serde::Deserialize<'de> for Frontier {
                             "flushedLsn" | "flushed_lsn" => Ok(GeneratedField::FlushedLsn),
                             "latestBackfillBegin" | "latest_backfill_begin" => Ok(GeneratedField::LatestBackfillBegin),
                             "latestBackfillComplete" | "latest_backfill_complete" => Ok(GeneratedField::LatestBackfillComplete),
+                            "bindingGapFloors" | "binding_gap_floors" => Ok(GeneratedField::BindingGapFloors),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -254,6 +264,7 @@ impl<'de> serde::Deserialize<'de> for Frontier {
                 let mut flushed_lsn__ = None;
                 let mut latest_backfill_begin__ = None;
                 let mut latest_backfill_complete__ = None;
+                let mut binding_gap_floors__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Journals => {
@@ -283,6 +294,12 @@ impl<'de> serde::Deserialize<'de> for Frontier {
                             }
                             latest_backfill_complete__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::BindingGapFloors => {
+                            if binding_gap_floors__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bindingGapFloors"));
+                            }
+                            binding_gap_floors__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -293,6 +310,7 @@ impl<'de> serde::Deserialize<'de> for Frontier {
                     flushed_lsn: flushed_lsn__.unwrap_or_default(),
                     latest_backfill_begin: latest_backfill_begin__.unwrap_or_default(),
                     latest_backfill_complete: latest_backfill_complete__.unwrap_or_default(),
+                    binding_gap_floors: binding_gap_floors__.unwrap_or_default(),
                 })
             }
         }
@@ -533,6 +551,124 @@ impl<'de> serde::Deserialize<'de> for frontier::BackfillComplete {
             }
         }
         deserializer.deserialize_struct("shuffle.Frontier.BackfillComplete", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for frontier::BindingGapFloor {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.binding != 0 {
+            len += 1;
+        }
+        if self.clock != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.Frontier.BindingGapFloor", len)?;
+        if self.binding != 0 {
+            struct_ser.serialize_field("binding", &self.binding)?;
+        }
+        if self.clock != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("clock", ToString::to_string(&self.clock).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for frontier::BindingGapFloor {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "binding",
+            "clock",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Binding,
+            Clock,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "binding" => Ok(GeneratedField::Binding),
+                            "clock" => Ok(GeneratedField::Clock),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = frontier::BindingGapFloor;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.Frontier.BindingGapFloor")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<frontier::BindingGapFloor, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut binding__ = None;
+                let mut clock__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Binding => {
+                            if binding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("binding"));
+                            }
+                            binding__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Clock => {
+                            if clock__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clock"));
+                            }
+                            clock__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(frontier::BindingGapFloor {
+                    binding: binding__.unwrap_or_default(),
+                    clock: clock__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.Frontier.BindingGapFloor", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for JournalFrontier {
