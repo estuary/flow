@@ -136,11 +136,13 @@ impl DiscoversMutation {
             )));
         }
 
+        // `protocol` is null until the tag's spec job succeeds, and a null
+        // comparison would fail the non-null decode rather than read as false.
         let Some(tag) = sqlx::query!(
             r#"
             SELECT
                 job_status->>'type' = 'success' AS "processed!",
-                protocol = 'capture' AS "is_capture!"
+                coalesce(protocol = 'capture', false) AS "is_capture!"
             FROM connector_tags
             WHERE id = $1::flowid
             "#,
@@ -799,5 +801,124 @@ mod test {
             "unexpected Location: {location}"
         );
         assert_eq!(0, count_for_capture(&pool, "aliceCo/in/capture-foo").await);
+    }
+
+    // Every synchronous rejection of `createDiscover`, pinned as one contract:
+    // the messages are what clients will match on, and none of them writes a
+    // row. Missing and not-owned drafts must be byte-identical so a draft id
+    // cannot probe for other users' drafts.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "connectors")
+        )
+    )]
+    async fn test_create_discover_validation_errors(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        seed(&pool).await;
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+        let alice_token = server.make_access_token(ALICE, Some("alice@example.com"));
+        let seeded: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM discovers), (SELECT count(*) FROM drafts)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let invalid_capture_name = create(
+            &server,
+            CreateRequest::new("aliceCo/not a valid name"),
+            Some(&alice_token),
+        )
+        .await;
+        let unknown_tag = create(
+            &server,
+            CreateRequest {
+                connector_tag_id: "0f0f0f0f0f0f0f0f",
+                ..CreateRequest::new("aliceCo/x")
+            },
+            Some(&alice_token),
+        )
+        .await;
+        // `source/multi-tag-test:v2` is a tag whose spec job failed, so its
+        // `protocol` is still null.
+        let unprocessed_tag = create(
+            &server,
+            CreateRequest {
+                connector_tag_id: "6666666600000005",
+                ..CreateRequest::new("aliceCo/x")
+            },
+            Some(&alice_token),
+        )
+        .await;
+        // `materialize/test:test` is successfully processed but the wrong protocol.
+        let materialization_tag = create(
+            &server,
+            CreateRequest {
+                connector_tag_id: "6666666600000001",
+                ..CreateRequest::new("aliceCo/x")
+            },
+            Some(&alice_token),
+        )
+        .await;
+        let unknown_plane = create(
+            &server,
+            CreateRequest {
+                data_plane_name: "ops/dp/public/nope",
+                ..CreateRequest::new("aliceCo/x")
+            },
+            Some(&alice_token),
+        )
+        .await;
+        // Draft ..03 belongs to bob.
+        let draft_not_owned = create(
+            &server,
+            CreateRequest {
+                draft_id: Some("0100000000000003"),
+                ..CreateRequest::new("aliceCo/x")
+            },
+            Some(&alice_token),
+        )
+        .await;
+        let draft_missing = create(
+            &server,
+            CreateRequest {
+                draft_id: Some("0100000000000f0f"),
+                ..CreateRequest::new("aliceCo/x")
+            },
+            Some(&alice_token),
+        )
+        .await;
+        assert_eq!(draft_not_owned, draft_missing);
+        let unauthenticated = create(&server, CreateRequest::new("aliceCo/x"), None).await;
+
+        insta::assert_json_snapshot!(
+            "create_validation_errors",
+            serde_json::json!({
+                "invalid_capture_name": invalid_capture_name,
+                "unknown_tag": unknown_tag,
+                "unprocessed_tag": unprocessed_tag,
+                "materialization_tag": materialization_tag,
+                "unknown_plane": unknown_plane,
+                "draft_not_owned_or_missing": draft_not_owned,
+                "unauthenticated": unauthenticated,
+            })
+        );
+
+        let after: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM discovers), (SELECT count(*) FROM drafts)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            seeded, after,
+            "a rejected discover must insert neither a discover nor a draft"
+        );
     }
 }

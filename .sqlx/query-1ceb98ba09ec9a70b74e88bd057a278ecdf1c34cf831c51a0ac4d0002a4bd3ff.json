@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                job_status->>'type' = 'success' AS \"processed!\",\n                protocol = 'capture' AS \"is_capture!\"\n            FROM connector_tags\n            WHERE id = $1::flowid\n            ",
+  "query": "\n            SELECT\n                job_status->>'type' = 'success' AS \"processed!\",\n                coalesce(protocol = 'capture', false) AS \"is_capture!\"\n            FROM connector_tags\n            WHERE id = $1::flowid\n            ",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       null
     ]
   },
-  "hash": "e7f4a645e585453cf003d9551f3a2610eb221b448de3732e3aea11580a097c96"
+  "hash": "1ceb98ba09ec9a70b74e88bd057a278ecdf1c34cf831c51a0ac4d0002a4bd3ff"
 }
