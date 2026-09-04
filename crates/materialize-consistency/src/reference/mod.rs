@@ -283,10 +283,10 @@ fn handle(
     // Startup requests, which are answered without an open session.
     let kind = match request.kind {
         Some(Kind::Spec(_)) => return Ok(vec![spec()]),
-        Some(Kind::Validate(validate)) => return Ok(vec![validate_bindings(validate)?]),
-        Some(Kind::Apply(apply)) => return Ok(vec![apply_spec(apply)?]),
+        Some(Kind::Validate(validate)) => return Ok(vec![validate_bindings(*validate)?]),
+        Some(Kind::Apply(apply)) => return Ok(vec![apply_spec(*apply)?]),
         Some(Kind::Open(open)) => {
-            let (new, response) = open_session(open)?;
+            let (new, response) = open_session(*open)?;
             *session = Some(new);
             return Ok(vec![response]);
         }
@@ -357,7 +357,7 @@ fn spec() -> materialize::Response {
     });
 
     materialize::Response {
-        kind: Some(materialize::response::Kind::Spec(
+        kind: Some(materialize::response::Kind::Spec(Box::new(
             materialize::response::Spec {
                 protocol: 3032023,
                 config_schema_json: config_schema.to_string().into(),
@@ -367,7 +367,7 @@ fn spec() -> materialize::Response {
                         .to_string(),
                 ..Default::default()
             },
-        )),
+        ))),
         ..Default::default()
     }
 }

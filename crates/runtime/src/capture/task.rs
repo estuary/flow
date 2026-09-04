@@ -6,16 +6,16 @@ use std::collections::BTreeMap;
 
 impl Task {
     pub fn new(open: &Request, opened: &Response) -> anyhow::Result<Self> {
-        let Some(request::Kind::Open(request::Open {
+        let Some(request::Kind::Open(open)) = open.kind.clone() else {
+            anyhow::bail!("expected Open");
+        };
+        let request::Open {
             capture: spec,
             range,
             state_json: _,
             sealed_config_json: _,
             version,
-        })) = open.kind.clone()
-        else {
-            anyhow::bail!("expected Open");
-        };
+        } = *open;
 
         let Some(response::Kind::Opened(response::Opened {
             explicit_acknowledgements,

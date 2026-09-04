@@ -193,12 +193,14 @@ where
         .context("invalid CollectionSpec in L:Open")?;
 
     let initial = derive::Request {
-        kind: Some(derive::request::Kind::Open(derive::request::Open {
-            collection: Some(open_spec),
-            version,
-            range,
-            state_json: connector_state_json,
-        })),
+        kind: Some(derive::request::Kind::Open(Box::new(
+            derive::request::Open {
+                collection: Some(open_spec),
+                version,
+                range,
+                state_json: connector_state_json,
+            },
+        ))),
         ..Default::default()
     };
 

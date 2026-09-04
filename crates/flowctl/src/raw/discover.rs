@@ -87,7 +87,7 @@ pub async fn do_discover(
         },
     };
     let discover = capture::Request {
-        kind: Some(capture::request::Kind::Discover(discover)),
+        kind: Some(capture::request::Kind::Discover(Box::new(discover))),
         ..Default::default()
     }
     .with_internal(|internal| {

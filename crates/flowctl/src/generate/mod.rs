@@ -164,14 +164,14 @@ async fn generate_missing_capture_configs(
     })
     .await?;
 
-    let Some(capture::response::Kind::Spec(capture::response::Spec {
+    let Some(capture::response::Kind::Spec(spec)) = response.kind else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
+    let capture::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    })) = response.kind
-    else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    } = *spec;
 
     stub_missing_configs(
         &config_schema_json,
@@ -249,14 +249,14 @@ async fn generate_missing_collection_configs(
     })
     .await?;
 
-    let Some(derive::response::Kind::Spec(derive::response::Spec {
+    let Some(derive::response::Kind::Spec(spec)) = response.kind else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
+    let derive::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    })) = response.kind
-    else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    } = *spec;
 
     stub_missing_configs(
         &config_schema_json,
@@ -333,14 +333,14 @@ async fn generate_missing_materialization_configs(
     })
     .await?;
 
-    let Some(materialize::response::Kind::Spec(materialize::response::Spec {
+    let Some(materialize::response::Kind::Spec(spec)) = response.kind else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
+    let materialize::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    })) = response.kind
-    else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    } = *spec;
 
     stub_missing_configs(
         &config_schema_json,

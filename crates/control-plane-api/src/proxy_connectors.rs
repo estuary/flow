@@ -83,7 +83,7 @@ impl DiscoverConnectors for DataPlaneConnectors {
             Some(capture::Response {
                 kind: Some(capture::response::Kind::Spec(spec)),
                 ..
-            }) => spec,
+            }) => *spec,
             response => anyhow::bail!(
                 "expected connector to send a Response.Spec, but got {}",
                 serde_json::to_string(&response).unwrap()

@@ -202,7 +202,7 @@ async fn walk_capture<C: Connectors>(
         scope,
         &mut response_rx,
         |response| match &mut response.kind {
-            Some(capture::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec))),
+            Some(capture::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec.as_mut()))),
             _ => Ok(None),
         },
         errors,
@@ -314,7 +314,7 @@ async fn walk_capture<C: Connectors>(
     _ = request_tx
         .send(
             capture::Request {
-                kind: Some(capture::request::Kind::Validate(validate_request)),
+                kind: Some(capture::request::Kind::Validate(Box::new(validate_request))),
                 ..Default::default()
             }
             .with_internal(|internal| {

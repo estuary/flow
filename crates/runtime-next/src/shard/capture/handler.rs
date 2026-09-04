@@ -245,15 +245,17 @@ where
     .await?;
 
     let open = capture::Request {
-        kind: Some(capture::request::Kind::Open(capture::request::Open {
-            capture: Some(spec.clone()),
-            version: version.clone(),
-            range: Some(range.clone()),
-            state_json: connector_state_json,
-            // Populated by `connector::start` with the matched endpoint's inner
-            // sealed configuration, which is not yet extracted from `spec` here.
-            sealed_config_json: Default::default(),
-        })),
+        kind: Some(capture::request::Kind::Open(Box::new(
+            capture::request::Open {
+                capture: Some(spec.clone()),
+                version: version.clone(),
+                range: Some(range.clone()),
+                state_json: connector_state_json,
+                // Populated by `connector::start` with the matched endpoint's inner
+                // sealed configuration, which is not yet extracted from `spec` here.
+                sealed_config_json: Default::default(),
+            },
+        ))),
         ..Default::default()
     };
     let (connector_tx, mut connector_rx, container, token_restart_at) =
@@ -417,7 +419,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             logger,
             log_level,
             capture::Request {
-                kind: Some(capture::request::Kind::Apply(apply)),
+                kind: Some(capture::request::Kind::Apply(Box::new(apply))),
                 ..Default::default()
             },
         )

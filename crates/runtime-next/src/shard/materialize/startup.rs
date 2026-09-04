@@ -224,7 +224,7 @@ where
         flow::MaterializationSpec::decode(spec.as_ref()).context("invalid current Apply spec")?;
 
     let initial = materialize::Request {
-        kind: Some(materialize::request::Kind::Open(
+        kind: Some(materialize::request::Kind::Open(Box::new(
             materialize::request::Open {
                 materialization: Some(spec),
                 version,
@@ -234,7 +234,7 @@ where
                 // sealed configuration, which is not yet extracted from `spec` here.
                 sealed_config_json: Default::default(),
             },
-        )),
+        ))),
         ..Default::default()
     };
     let (connector_tx, mut connector_rx, container, codec, token_restart_at) =

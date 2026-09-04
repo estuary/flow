@@ -367,7 +367,7 @@ mod tests {
         let spec = flow::MaterializationSpec {
             bindings: (0..3)
                 .map(|_| flow::materialization_spec::Binding {
-                    collection: Some(collection(0)),
+                    collection: Some(Box::new(collection(0))),
                     ..binding(0)
                 })
                 .collect(),
