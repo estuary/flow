@@ -49,13 +49,21 @@ pub enum Directive {
 pub struct DirectiveHandler {
     accounts_user_email: String,
     logs_tx: logs::Tx,
+    /// Watch of the authorization Snapshot. Each poll pins one Snapshot for
+    /// the entire directive application.
+    snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
 }
 
 impl DirectiveHandler {
-    pub fn new(accounts_user_email: String, logs_tx: &logs::Tx) -> Self {
+    pub fn new(
+        accounts_user_email: String,
+        logs_tx: &logs::Tx,
+        snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
+    ) -> Self {
         Self {
             accounts_user_email,
             logs_tx: logs_tx.clone(),
+            snapshot_watch,
         }
     }
 }
@@ -98,7 +106,15 @@ impl automations::Executor for DirectiveHandler {
         }
 
         let time_queued = chrono::Utc::now().signed_duration_since(row.apply_updated_at);
-        let status = self.process(row, &mut txn).await?;
+
+        // Pin one authorization Snapshot for the entire directive
+        // application. Snapshot refreshes are infallible -- a failed refresh
+        // only delays the next one -- so its `result()` is Ok once the watch
+        // is ready, which is awaited at startup.
+        let snapshot = self.snapshot_watch.token();
+        let status = self
+            .process(row, snapshot.result().unwrap(), &mut txn)
+            .await?;
         tracing::info!(%time_queued, ?status, "finished");
         resolve(task_id, status, &mut txn).await?;
         txn.commit().await.context("committing transaction")?;
@@ -113,6 +129,7 @@ impl DirectiveHandler {
     async fn process(
         &self,
         row: Row,
+        snapshot: &control_plane_api::Snapshot,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<JobStatus> {
         info!(
@@ -133,7 +150,7 @@ impl DirectiveHandler {
             Ok(Directive::ClickToAccept(d)) => click_to_accept::apply(d, row, txn).await?,
             Ok(Directive::AcceptDemoTenant(d)) => accept_demo_tenant::apply(d, row, txn).await?,
             Ok(Directive::StorageMappings(d)) => {
-                storage_mappings::apply(d, row, &self.logs_tx, txn).await?
+                storage_mappings::apply(d, row, snapshot, &self.logs_tx, txn).await?
             }
         };
         Ok(status)

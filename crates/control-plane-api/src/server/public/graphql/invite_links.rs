@@ -435,7 +435,10 @@ impl InviteLinksMutation {
 /// TODO(#2848): Remove this entire function and its call site once those
 /// remaining `user_roles()`-based checks are migrated to snapshot-based
 /// authorization. At that point sub-prefix admins will be authorized
-/// correctly without the duplicate grants.
+/// correctly without the duplicate grants. No Rust code calls
+/// `user_roles()` any longer; what remains is entirely SQL-side — RLS
+/// policies and the PostgREST-facing views and functions built on
+/// `auth_roles()`.
 async fn ensure_private_data_plane_grants(
     txn: &mut sqlx::PgConnection,
     catalog_prefix: &str,
