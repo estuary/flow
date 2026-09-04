@@ -23,7 +23,7 @@ use models::authorizations::ControlClaims;
 use output::{Output, OutputType};
 use poll::poll_while_queued;
 
-/// A command-line tool for working with Estuary Flow.
+/// A command-line tool for working with Estuary.
 #[derive(Debug, Parser)]
 #[command(author, about, version, next_display_order = None)]
 pub struct Cli {

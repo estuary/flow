@@ -1,6 +1,6 @@
 # Flowctl
 
-**The command line interface for Estuary Flow**
+**The command line interface for Estuary**
 
 ### Installing `flowctl`
 
@@ -24,7 +24,7 @@ Verify that it's working by running `flowctl --version`.
 
 ### Use the `flowctl` CLI:
 
-**Authentication to Estuary Flow**
+**Authentication to Estuary**
 
 1. Visit (https://dashboard.estuary.dev/admin) and login.
 2. Find the "Access Token" at the bottom of the page, and copy it.
