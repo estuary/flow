@@ -110,7 +110,7 @@ macro_rules! install {
                 if indirect_specs {
                     binding.collection_index = index;
                 } else {
-                    binding.collection = Some(table[index as usize].clone());
+                    binding.collection = Some(Box::new(table[index as usize].clone()));
                     binding.collection_index = 0;
                 }
             })+

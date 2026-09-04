@@ -213,7 +213,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .unwrap_or(ops::LogLevel::Info);
 
         let request = capture::Request {
-            kind: Some(capture::request::Kind::Discover(
+            kind: Some(capture::request::Kind::Discover(Box::new(
                 capture::request::Discover {
                     name: capture_name.to_string(),
                     connector_type: capture_spec::ConnectorType::Image as i32,
@@ -221,7 +221,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
                     created_at,
                     secrets,
                 },
-            )),
+            ))),
             ..Default::default()
         }
         .with_internal(|internal| {

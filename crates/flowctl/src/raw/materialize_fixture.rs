@@ -52,17 +52,17 @@ pub async fn do_materialize_fixture(
     };
 
     emit(Request {
-        kind: Some(request::Kind::Apply(request::Apply {
+        kind: Some(request::Kind::Apply(Box::new(request::Apply {
             materialization: Some(spec.clone()),
             version: "test".to_string(),
             last_materialization: None,
             last_version: String::new(),
             state_json: bytes::Bytes::new(),
-        })),
+        }))),
         ..Default::default()
     });
     emit(Request {
-        kind: Some(request::Kind::Open(request::Open {
+        kind: Some(request::Kind::Open(Box::new(request::Open {
             materialization: Some(spec.clone()),
             range: Some(flow::RangeSpec {
                 key_begin: 0,
@@ -73,7 +73,7 @@ pub async fn do_materialize_fixture(
             state_json: checkpoint.to_string().into(),
             version: "test".to_string(),
             sealed_config_json: Default::default(),
-        })),
+        }))),
         ..Default::default()
     });
     emit(Request {

@@ -86,7 +86,7 @@ where
             Some(request::Kind::Spec(_spec)) => {
                 let _ = response_tx
                     .send(Ok(Response {
-                        kind: Some(response::Kind::Spec(response::Spec {
+                        kind: Some(response::Kind::Spec(Box::new(response::Spec {
                             protocol: 3032023,
                             documentation_url:
                                 "https://docs.estuary.dev/concepts/derivations/#sqlite".to_string(),
@@ -107,13 +107,13 @@ where
                             .to_string()
                             .into(),
                             oauth2: None,
-                        })),
+                        }))),
                         ..Default::default()
                     }))
                     .await;
             }
             Some(request::Kind::Validate(validate)) => {
-                let validated = parse_validate(validate)
+                let validated = parse_validate(*validate)
                     .and_then(|(migrations, transforms)| do_validate(&migrations, &transforms))?;
 
                 let _ = response_tx
@@ -125,7 +125,7 @@ where
             }
             Some(request::Kind::Open(open)) => {
                 let database: Database;
-                (database, migrations, transforms) = parse_open(open, vfs_uri.as_deref())?;
+                (database, migrations, transforms) = parse_open(*open, vfs_uri.as_deref())?;
 
                 // Drop to close an open Database.
                 // This is required if we're re-opening the same database.
@@ -221,7 +221,7 @@ fn parse_open(
 
     let flow::CollectionSpec { derivation, .. } = collection.unwrap();
 
-    let derivation = derivation.as_ref().unwrap();
+    let derivation = derivation.as_deref().unwrap();
 
     let flow::collection_spec::Derivation {
         config_json,
@@ -375,17 +375,17 @@ mod test {
     fn open_request() -> Request {
         let collection = flow::CollectionSpec {
             name: "acmeCo/thing".to_string(),
-            derivation: Some(flow::collection_spec::Derivation {
+            derivation: Some(Box::new(flow::collection_spec::Derivation {
                 config_json: r#"{"migrations":[]}"#.into(),
                 ..Default::default()
-            }),
+            })),
             ..Default::default()
         };
         Request {
-            kind: Some(request::Kind::Open(request::Open {
+            kind: Some(request::Kind::Open(Box::new(request::Open {
                 collection: Some(collection),
                 ..Default::default()
-            })),
+            }))),
             ..Default::default()
         }
     }

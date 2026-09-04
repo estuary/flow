@@ -87,18 +87,22 @@ where
                     let resource_schema = schemars::schema_for!(DekafResourceConfig);
 
                     materialize::Response {
-                    kind: Some(materialize::response::Kind::Spec(materialize::response::Spec {
-                        protocol: 3032023,
-                        config_schema_json: serde_json::to_string(&config_schema)?.into(),
-                        resource_config_schema_json: serde_json::to_string(&resource_schema)?
-                            .into(),
-                        documentation_url:
-                            "https://docs.estuary.dev/guides/dekaf_reading_collections_from_kafka"
-                                .to_string(),
-                        oauth2: None,
-                    })),
-                    ..Default::default()
-                }
+                        kind: Some(materialize::response::Kind::Spec(Box::new(
+                            materialize::response::Spec {
+                                protocol: 3032023,
+                                config_schema_json: serde_json::to_string(&config_schema)?.into(),
+                                resource_config_schema_json: serde_json::to_string(
+                                    &resource_schema,
+                                )?
+                                .into(),
+                                documentation_url:
+                                    "https://docs.estuary.dev/guides/dekaf_reading_collections_from_kafka"
+                                        .to_string(),
+                                oauth2: None,
+                            },
+                        ))),
+                        ..Default::default()
+                    }
                 }
                 Some(materialize::request::Kind::Validate(mut validate)) => {
                     use proto_flow::materialize::response::validated;

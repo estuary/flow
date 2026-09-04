@@ -50,7 +50,7 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         &logger,
         log_level,
         materialize::Request {
-            kind: Some(materialize::request::Kind::Apply(apply)),
+            kind: Some(materialize::request::Kind::Apply(Box::new(apply))),
             ..Default::default()
         },
     )

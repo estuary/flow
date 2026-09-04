@@ -20,12 +20,14 @@ impl Connectors for NoOpConnectors {
         request_rx.map(|request| {
             let response = match request.kind {
                 Some(capture::request::Kind::Spec(_spec)) => capture::Response {
-                    kind: Some(capture::response::Kind::Spec(capture::response::Spec {
-                        resource_path_pointers: Vec::new(),
-                        config_schema_json: "true".into(),
-                        resource_config_schema_json: "true".into(),
-                        ..Default::default()
-                    })),
+                    kind: Some(capture::response::Kind::Spec(Box::new(
+                        capture::response::Spec {
+                            resource_path_pointers: Vec::new(),
+                            config_schema_json: "true".into(),
+                            resource_config_schema_json: "true".into(),
+                            ..Default::default()
+                        },
+                    ))),
                     ..Default::default()
                 },
                 Some(capture::request::Kind::Validate(validate)) => capture::Response {
@@ -61,11 +63,13 @@ impl Connectors for NoOpConnectors {
         request_rx.map(|request| {
             let response = match request.kind {
                 Some(derive::request::Kind::Spec(_spec)) => derive::Response {
-                    kind: Some(derive::response::Kind::Spec(derive::response::Spec {
-                        config_schema_json: "true".into(),
-                        resource_config_schema_json: "true".into(),
-                        ..Default::default()
-                    })),
+                    kind: Some(derive::response::Kind::Spec(Box::new(
+                        derive::response::Spec {
+                            config_schema_json: "true".into(),
+                            resource_config_schema_json: "true".into(),
+                            ..Default::default()
+                        },
+                    ))),
                     ..Default::default()
                 },
                 Some(derive::request::Kind::Validate(_validate)) => derive::Response {
@@ -92,13 +96,13 @@ impl Connectors for NoOpConnectors {
         request_rx.map(|request| {
             let response = match request.kind {
                 Some(materialize::request::Kind::Spec(_spec)) => materialize::Response {
-                    kind: Some(materialize::response::Kind::Spec(
+                    kind: Some(materialize::response::Kind::Spec(Box::new(
                         materialize::response::Spec {
                             config_schema_json: "true".into(),
                             resource_config_schema_json: "true".into(),
                             ..Default::default()
                         },
-                    )),
+                    ))),
                     ..Default::default()
                 },
                 Some(materialize::request::Kind::Validate(validate)) => materialize::Response {

@@ -1047,14 +1047,17 @@ mod test {
             .unwrap();
 
         let Some(flow::CollectionSpec {
-            derivation:
-                Some(flow::collection_spec::Derivation {
-                    recovery_log_template: Some(recovery_template),
-                    shard_template: Some(shard_template),
-                    ..
-                }),
+            derivation: Some(derivation),
             ..
         }) = spec
+        else {
+            unreachable!()
+        };
+        let flow::collection_spec::Derivation {
+            recovery_log_template: Some(recovery_template),
+            shard_template: Some(shard_template),
+            ..
+        } = &**derivation
         else {
             unreachable!()
         };
@@ -1065,14 +1068,17 @@ mod test {
             .unwrap();
 
         let Some(flow::CollectionSpec {
-            derivation:
-                Some(flow::collection_spec::Derivation {
-                    recovery_log_template: Some(disabled_recovery_template),
-                    shard_template: Some(disabled_shard_template),
-                    ..
-                }),
+            derivation: Some(derivation),
             ..
         }) = spec
+        else {
+            unreachable!()
+        };
+        let flow::collection_spec::Derivation {
+            recovery_log_template: Some(disabled_recovery_template),
+            shard_template: Some(disabled_shard_template),
+            ..
+        } = &**derivation
         else {
             unreachable!()
         };

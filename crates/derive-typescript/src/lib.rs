@@ -24,13 +24,15 @@ pub fn run() -> anyhow::Result<()> {
             Some(derive::request::Kind::Spec(_)) => {
                 stdout.write(
                     &serde_json::to_vec(&derive::Response {
-                        kind: Some(derive::response::Kind::Spec(derive::response::Spec {
-                            protocol: 3032023,
-                            config_schema_json: "{}".to_string().into(),
-                            resource_config_schema_json: "{}".to_string().into(),
-                            documentation_url: "https://docs.estuary.dev".to_string(),
-                            oauth2: None,
-                        })),
+                        kind: Some(derive::response::Kind::Spec(Box::new(
+                            derive::response::Spec {
+                                protocol: 3032023,
+                                config_schema_json: "{}".to_string().into(),
+                                resource_config_schema_json: "{}".to_string().into(),
+                                documentation_url: "https://docs.estuary.dev".to_string(),
+                                oauth2: None,
+                            },
+                        ))),
                         ..Default::default()
                     })
                     .unwrap(),

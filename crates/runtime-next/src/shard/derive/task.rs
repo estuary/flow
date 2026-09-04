@@ -118,7 +118,7 @@ impl Task {
             anyhow::bail!("derived collection key cannot be empty");
         }
 
-        let derivation = derivation.as_ref().context("missing derivation")?;
+        let derivation = derivation.as_deref().context("missing derivation")?;
 
         let flow::collection_spec::Derivation {
             transforms,

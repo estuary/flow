@@ -12,7 +12,7 @@ impl Task {
     ) -> anyhow::Result<Self> {
         let derivation = spec
             .derivation
-            .as_ref()
+            .as_deref()
             .context("CollectionSpec missing derivation")?;
 
         let flow::collection_spec::Derivation {

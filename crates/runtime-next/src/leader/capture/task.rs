@@ -75,16 +75,16 @@ pub struct Target {
 
 impl Task {
     pub fn new(open: &Request, opened: &Response, max_transactions: u32) -> anyhow::Result<Self> {
-        let Some(request::Kind::Open(request::Open {
+        let Some(request::Kind::Open(open)) = open.kind.clone() else {
+            anyhow::bail!("expected Open");
+        };
+        let request::Open {
             capture: spec,
             range,
             state_json: _,
             sealed_config_json: _,
             version,
-        })) = open.kind.clone()
-        else {
-            anyhow::bail!("expected Open");
-        };
+        } = *open;
 
         let Some(response::Kind::Opened(response::Opened {
             explicit_acknowledgements,
@@ -527,7 +527,7 @@ pub(crate) mod fixture {
         let table = std::mem::take(&mut spec.linked_collections);
 
         for binding in &mut spec.bindings {
-            binding.collection = Some(table[binding.collection_index as usize].clone());
+            binding.collection = Some(Box::new(table[binding.collection_index as usize].clone()));
             binding.collection_index = 0;
         }
     }
@@ -535,7 +535,7 @@ pub(crate) mod fixture {
     /// The Open / Opened pair carrying `spec`, as `Task::new` consumes them.
     pub(crate) fn open(spec: flow::CaptureSpec) -> (Request, Response) {
         let open = Request {
-            kind: Some(request::Kind::Open(request::Open {
+            kind: Some(request::Kind::Open(Box::new(request::Open {
                 capture: Some(spec),
                 range: Some(flow::RangeSpec {
                     key_begin: 0,
@@ -545,7 +545,7 @@ pub(crate) mod fixture {
                 }),
                 version: "aabbccdd".to_string(),
                 ..Default::default()
-            })),
+            }))),
             ..Default::default()
         };
         let opened = Response {

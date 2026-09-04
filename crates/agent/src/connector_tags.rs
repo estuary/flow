@@ -277,7 +277,7 @@ async fn spec_materialization(
         resource_config_schema_json,
         documentation_url,
         oauth2,
-    } = spec;
+    } = *spec;
 
     let oauth2 = if let Some(oa) = oauth2 {
         Some(serde_json::value::to_raw_value(&oa).expect("serializing oauth2 config"))
@@ -324,7 +324,7 @@ async fn spec_capture(
         documentation_url,
         oauth2,
         resource_path_pointers,
-    } = spec;
+    } = *spec;
 
     let oauth = if let Some(oa) = oauth2 {
         Some(

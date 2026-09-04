@@ -698,10 +698,10 @@ mod test {
                 ..Default::default()
             }),
             shuffle::task::Task::Derivation(flow::CollectionSpec {
-                derivation: Some(flow::collection_spec::Derivation {
+                derivation: Some(Box::new(flow::collection_spec::Derivation {
                     transforms: vec![Default::default(); over],
                     ..Default::default()
-                }),
+                })),
                 ..Default::default()
             }),
         ] {
