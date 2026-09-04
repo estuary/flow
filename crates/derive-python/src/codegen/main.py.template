@@ -1,9 +1,23 @@
 import asyncio
+import pydantic
 import sys
 import typing
 
 from MODULE_PATH import (Request, Response)
 from MODULE_NAME import Derivation
+
+
+def emit(field: str, message: pydantic.BaseModel, flush: bool) -> None:
+    """Write one Response, as an envelope over its single set field.
+
+    The envelope is composed here rather than dumped from `Response`, which
+    models each variant as an optional field and would emit the unset siblings
+    as explicit nulls: bytes on the per-document hot path. `exclude_none` would
+    drop them, but it recurses, and would also strip meaningful nulls from
+    derived documents and from connector state -- where a null is an RFC 7396
+    merge-patch deletion.
+    """
+    print(f'{{"{field}":{message.model_dump_json(by_alias=True)}}}', flush=flush)
 
 
 async def stdin_requests() -> typing.AsyncGenerator[Request, None]:
@@ -32,23 +46,20 @@ async def main() -> None:
     # Build array of transform methods
     transforms = [TRANSFORMS]
 
-    # Emit opened response
-    print(Response(opened=Response.Opened()).model_dump_json(by_alias=True), flush=True)
+    emit("opened", Response.Opened(), flush=True)
 
     # Main protocol loop
     async for request in requests:
         if request.read:
             async for doc in transforms[request.read.transform](request.read):
-                response = Response(published=Response.Published(doc=doc))
-                print(response.model_dump_json(by_alias=True), flush=False)
+                emit("published", Response.Published(doc=doc), flush=False)
 
         elif request.flush:
             flushed = Response.Flushed()
             async for doc in derivation.flush(request.flush.state_patches, flushed):
-                response = Response(published=Response.Published(doc=doc))
-                print(response.model_dump_json(by_alias=True), flush=False)
+                emit("published", Response.Published(doc=doc), flush=False)
 
-            print(Response(flushed=flushed).model_dump_json(by_alias=True), flush=True)
+            emit("flushed", flushed, flush=True)
 
         elif request.reset:
             await derivation.reset()
