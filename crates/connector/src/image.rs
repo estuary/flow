@@ -1,5 +1,7 @@
-use super::container;
-use futures::{Stream, StreamExt, future::BoxFuture};
+//! Image connectors: start a container, dial `flow-connector-init`, and open
+//! the protocol RPC over the container's channel.
+use crate::container;
+use futures::{Stream, future::BoxFuture};
 use tokio::sync::mpsc;
 
 /// StartRpcFuture is the response type of a function that starts a connector RPC.
@@ -8,9 +10,14 @@ pub type StartRpcFuture<Response> =
 
 /// Serve an image-based connector by starting a container, dialing connector-init,
 /// and then starting a gRPC request.
-pub async fn serve<Request, Response, StartRpc, L: crate::Logger>(
+///
+/// The container [`Guard`](container::Guard) is returned rather than tucked into
+/// the response stream: the caller drops it explicitly at teardown, which
+/// SIGKILLs `docker run` and closes the container's stderr so its log pump can
+/// finish.
+pub async fn serve<Request, Response, StartRpc>(
     image: String,                       // Container image to run.
-    logger: L,                           // Logger for connector logs and lifecycle.
+    log_sink: crate::LogSink,            // Sink for connector logs and lifecycle.
     log_level: ops::LogLevel,            // Log-level of the connector, if known.
     network: &str,                       // Container network to use.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
@@ -19,9 +26,10 @@ pub async fn serve<Request, Response, StartRpc, L: crate::Logger>(
     task_type: ops::TaskType,            // Type of this task, for labeling container.
     plane: crate::Plane,                 // Data-plane context in which the connector is running.
 ) -> anyhow::Result<(
-    impl Stream<Item = tonic::Result<Response>> + Send + use<Request, Response, StartRpc, L>,
-    crate::proto::Container,
+    impl Stream<Item = tonic::Result<Response>> + Send + use<Request, Response, StartRpc>,
+    crate::Container,
     connector_init::Codec,
+    container::Guard,
 )>
 where
     Request: serde::Serialize + Send + 'static,
@@ -31,17 +39,12 @@ where
         + 'static,
 {
     let (container, channel, guard, codec) = container::start(
-        &image, logger, log_level, &network, &task_name, task_type, plane,
+        &image, log_sink, log_level, &network, &task_name, task_type, plane,
     )
     .await?;
 
     // Start RPC over the container's gRPC `channel`.
     let container_rx = (start_rpc)(channel, request_rx).await?.into_inner();
 
-    let container_rx = container_rx.map(move |result| {
-        let _guard = &guard; // Move into Stream.
-        result
-    });
-
-    Ok((container_rx, container, codec))
+    Ok((container_rx, container, codec, guard))
 }
