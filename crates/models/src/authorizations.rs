@@ -20,6 +20,21 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    // Catalog prefix confining this token's authority, if any.
+    //
+    // Every authorization decision made with the token is intersected with the
+    // authority reachable from this prefix through role grants, so the token can
+    // only ever do less than the user could do unscoped. Named `scope_prefix`
+    // rather than `scope` to avoid colliding with the OAuth 2.0 `scope` claim,
+    // which is a space-delimited list of scope strings and means something else.
+    //
+    // The claim carries only the prefix, never a materialized list of authorized
+    // prefixes. Authority is still derived from the grant tables at request time,
+    // so revoking a grant takes effect on the next Snapshot regardless of how
+    // long the token lives; freezing the scope for a token's lifetime is safe
+    // because a scope can only narrow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_prefix: Option<String>,
 }
 
 impl ControlClaims {

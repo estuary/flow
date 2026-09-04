@@ -18,6 +18,12 @@ pub struct RefreshTokenInfo {
     /// True once the token's validity window has elapsed
     /// (now is past `updated_at + valid_for`).
     pub expired: bool,
+    /// Catalog prefix this token is confined to, or null if it carries the
+    /// owner's full authority.
+    ///
+    /// A scoped token's authority is intersected with what this prefix reaches
+    /// through role grants, so it can only ever do less than its owner could.
+    pub scope_prefix: Option<models::Prefix>,
 }
 
 pub type PaginatedRefreshTokens = connection::Connection<
@@ -65,7 +71,8 @@ impl RefreshTokensQuery {
                         updated_at AS "updated_at!: chrono::DateTime<chrono::Utc>",
                         multi_use AS "multi_use!: bool",
                         uses AS "uses!: i32",
-                        (now() > updated_at + valid_for) AS "expired!: bool"
+                        (now() > updated_at + valid_for) AS "expired!: bool",
+                        scope_prefix AS "scope_prefix: String"
                     FROM refresh_tokens
                     WHERE user_id = $1
                       AND valid_for <> interval '0'
@@ -96,6 +103,7 @@ impl RefreshTokensQuery {
                                 multi_use: r.multi_use,
                                 uses: r.uses,
                                 expired: r.expired,
+                                scope_prefix: r.scope_prefix.map(models::Prefix::new),
                             },
                         )
                     })
@@ -110,12 +118,48 @@ impl RefreshTokensQuery {
     }
 }
 
+/// Validates a requested token scope and returns it as a `models::Prefix`.
+///
+/// A caller may only scope a token to a prefix they can read. Two things follow
+/// from checking this against the caller's own [`crate::Authority`] rather than
+/// against their raw grants:
+///
+/// - Scoping is not an escalation path. A prefix the caller cannot read is
+///   rejected, so minting a scoped token never produces authority the caller
+///   lacks. (The scope is a ceiling, not a grant — the token still derives its
+///   authority from its owner's grants — but a caller should not be able to
+///   point a credential at a namespace they cannot see.)
+/// - A scoped caller can only mint equally or more narrowly scoped tokens. Their
+///   Authority is already confined, so a prefix outside their own scope fails
+///   this check with no separate rule needed.
+async fn validate_scope_prefix(
+    env: &crate::Envelope,
+    scope_prefix: &str,
+) -> async_graphql::Result<models::Prefix> {
+    let prefix = models::Prefix::new(scope_prefix);
+    if let Err(err) = validator::Validate::validate(&prefix) {
+        return Err(async_graphql::Error::new(format!(
+            "invalid scopePrefix: {err}"
+        )));
+    }
+
+    super::verify_authorization(env, &prefix, models::authz::Capability::CatalogRead).await?;
+
+    Ok(prefix)
+}
+
 #[derive(Debug, Default)]
 pub struct RefreshTokensMutation;
 
 #[async_graphql::Object]
 impl RefreshTokensMutation {
     /// Create a refresh token for the authenticated user.
+    ///
+    /// Pass `scopePrefix` to confine the token to a catalog prefix. A scoped
+    /// token's authority is intersected with what that prefix reaches through
+    /// role grants, so it can only ever do less than the caller could. This is
+    /// how a credential is handed to something that should see one tenant's data
+    /// and nothing else.
     ///
     /// Service-account callers are rejected: their API keys are administered
     /// via createApiKey and revokeApiKey.
@@ -129,6 +173,10 @@ impl RefreshTokensMutation {
         valid_for: String,
         #[graphql(default = true)] multi_use: bool,
         #[graphql(default)] detail: Option<String>,
+        #[graphql(
+            desc = "Catalog prefix to confine the token to. The caller must be able to read it. Omit for a token carrying the caller's full authority."
+        )]
+        scope_prefix: Option<String>,
     ) -> async_graphql::Result<RefreshTokenResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
@@ -142,18 +190,29 @@ impl RefreshTokensMutation {
             ));
         }
 
+        let scope_prefix = match scope_prefix {
+            Some(prefix) => Some(validate_scope_prefix(env, &prefix).await?),
+            // Omitting `scopePrefix` inherits the caller's own scope rather than
+            // dropping it. Otherwise minting a token would be a complete escape
+            // from a scope: this mutation is keyed on the caller's user_id and
+            // touches no catalog prefix, so nothing else here would confine the
+            // credential it hands back.
+            None => env.authority()?.scope().prefix().map(models::Prefix::new),
+        };
+
         let row = sqlx::query!(
             r#"
             WITH new_token AS (
                 SELECT gen_random_uuid()::text AS secret
             )
-            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)
+            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail, scope_prefix)
             SELECT
                 $1,
                 $2,
                 v.valid_for,
                 crypt(nt.secret, gen_salt('bf')),
-                $4
+                $4,
+                $5::text::catalog_prefix
             FROM new_token nt, (SELECT $3::text::interval AS valid_for) v
             WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'
             RETURNING
@@ -164,6 +223,7 @@ impl RefreshTokensMutation {
             multi_use,
             valid_for,
             detail.as_deref(),
+            scope_prefix.as_ref().map(models::Prefix::as_str),
         )
         .fetch_optional(&env.pg_pool)
         .await
@@ -186,6 +246,7 @@ impl RefreshTokensMutation {
         tracing::info!(
             refresh_token_id = %row.id,
             %claims.sub,
+            scope_prefix = ?scope_prefix,
             "created refresh token"
         );
 
@@ -482,5 +543,176 @@ mod test {
             )
             .await;
         assert!(revoke_again["errors"].is_array());
+    }
+
+    const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
+
+    /// Ask for a refresh token confined to `scope`, returning the raw response so
+    /// callers can assert on either data or errors.
+    async fn mint_scoped(
+        server: &test_server::TestServer,
+        token: &str,
+        scope: &str,
+    ) -> serde_json::Value {
+        server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation($s: String!) {
+                        createRefreshToken(validFor: "P30D", scopePrefix: $s) { id }
+                    }"#,
+                    "variables": { "s": scope }
+                }),
+                Some(token),
+            )
+            .await
+    }
+
+    /// Covers what a `scope_prefix` claim does to a live request, and the gate on
+    /// requesting one.
+    ///
+    /// Alice administers `aliceCo/` and (added below) `otherCo/`, with a role
+    /// grant `aliceCo/ -> ops/dp/public/` for read — the same grant
+    /// `beta_onboard` gives every real tenant. That combination exercises both
+    /// halves of what a scope means: `otherCo/` disappears because nothing
+    /// connects it to `aliceCo/`, while the public data plane stays visible
+    /// because a role grant does connect it.
+    ///
+    /// Scoped tokens here are minted directly rather than by exchanging a scoped
+    /// refresh token: `generate_access_token` needs pgjwt's `sign()` and the
+    /// vault-held JWT secret, neither of which exists in the `sqlx::test` DB. The
+    /// SQL that stamps the claim is covered by `scoped_refresh_tokens.test.sql`;
+    /// what is covered here is the claim's effect once presented.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_scoped_token_narrows_requests(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        sqlx::query!(
+            "INSERT INTO user_grants (user_id, object_role, capability) \
+             VALUES ($1, 'otherCo/', 'admin')",
+            ALICE,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Ungated: these are query assertions, and a gated source serves an empty
+        // first snapshot in which nobody holds any grant.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let unscoped = server.make_access_token(ALICE, Some("alice@example.com"));
+        let scoped =
+            server.make_scoped_access_token(ALICE, Some("alice@example.com"), Some("aliceCo/"));
+
+        // === A scope narrows prefix-scoped queries ===
+        let prefixes = |resp: serde_json::Value| -> Vec<String> {
+            resp["data"]["prefixes"]["edges"]
+                .as_array()
+                .expect("edges")
+                .iter()
+                .map(|e| e["node"]["prefix"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let query = serde_json::json!({
+            "query": r#"query { prefixes(by: {minCapability: admin}) { edges { node { prefix } } } }"#
+        });
+
+        let all = prefixes(server.graphql(&query, Some(&unscoped)).await);
+        assert_eq!(all, vec!["aliceCo/", "otherCo/"]);
+
+        let confined = prefixes(server.graphql(&query, Some(&scoped)).await);
+        assert_eq!(
+            confined,
+            vec!["aliceCo/"],
+            "a scope of aliceCo/ hides the unconnected tenant"
+        );
+
+        // === A scope follows role grants ===
+        // `aliceCo/ -> ops/dp/public/` keeps the public data plane in scope. A
+        // scope implemented as a literal prefix match would return nothing here
+        // and break data-plane selection for every scoped caller.
+        let data_planes = serde_json::json!({
+            "query": r#"query { dataPlanes { edges { node { name } } } }"#
+        });
+        let planes: serde_json::Value = server.graphql(&data_planes, Some(&scoped)).await;
+        let names: Vec<String> = planes["data"]["dataPlanes"]["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .map(|e| e["node"]["name"].as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "ops/dp/public/aws-us-west-2-c1"),
+            "the role-granted data plane stays in scope: {names:?}"
+        );
+
+        // === Requesting a scope requires being able to read it ===
+        let denied = mint_scoped(&server, &unscoped, "nobodyCo/").await;
+        assert!(
+            denied["errors"].is_array(),
+            "a prefix Alice cannot read is refused: {denied}"
+        );
+
+        // A scoped caller can only mint equally or more narrowly scoped tokens.
+        // Their own Authority is already confined, so this needs no separate rule.
+        let escalation = mint_scoped(&server, &scoped, "otherCo/").await;
+        assert!(
+            escalation["errors"].is_array(),
+            "a scoped caller cannot mint a token outside its own scope: {escalation}"
+        );
+        let narrower = mint_scoped(&server, &scoped, "aliceCo/data/").await;
+        assert!(
+            narrower["errors"].is_null(),
+            "a scoped caller can mint within its own scope: {narrower}"
+        );
+
+        // === A scoped caller that omits scopePrefix inherits its own scope ===
+        // Without this a scoped token could mint an unscoped one and escape
+        // completely, since this mutation is keyed on user_id and touches no
+        // catalog prefix.
+        let inherited: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { createRefreshToken(validFor: "P30D", detail: "inherits") { id } }"#
+                }),
+                Some(&scoped),
+            )
+            .await;
+        assert!(
+            inherited["errors"].is_null(),
+            "minting without a scope should succeed: {inherited}"
+        );
+
+        // === Scopes are reported back on the token listing ===
+        let listed: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"query { refreshTokens { edges { node { detail scopePrefix } } } }"#
+                }),
+                Some(&unscoped),
+            )
+            .await;
+        let scopes: Vec<(&str, Option<&str>)> = listed["data"]["refreshTokens"]["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .map(|e| {
+                (
+                    e["node"]["detail"].as_str().unwrap_or(""),
+                    e["node"]["scopePrefix"].as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            scopes,
+            vec![("inherits", Some("aliceCo/")), ("", Some("aliceCo/data/"))],
+            "the inherited token carries the caller's scope, not no scope"
+        );
     }
 }

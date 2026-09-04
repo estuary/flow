@@ -1,17 +1,19 @@
-/// Returns catalog prefixes where the authenticated user has at least
-/// `min_capability`, optionally narrowed to those overlapping `prefix_filter`.
+/// Returns catalog prefixes where the caller has at least `min_capability`,
+/// optionally narrowed to those overlapping `prefix_filter`.
 ///
 /// Intended for use by GraphQL queries that list resources scoped to the
 /// caller's authorized prefixes, with an optional prefix filter.
+///
+/// The prefixes come from the caller's [`crate::Authority`], so a scoped token's
+/// narrowing is already applied before `prefix_filter` is considered — a filter
+/// can only remove prefixes from an already-narrowed set, never restore one.
 ///
 /// When `prefix_filter` is provided, a prefix is included if the filter is a
 /// sub-prefix of the grant OR the grant is a sub-prefix of the filter. This
 /// bidirectional check lets callers query with a filter that is either broader
 /// or narrower than their grants.
 pub(super) fn authorized_prefixes(
-    role_grants: &tables::RoleGrants,
-    user_grants: &tables::UserGrants,
-    user_id: uuid::Uuid,
+    authority: &crate::Authority<'_>,
     min_capability: impl Into<models::authz::CapabilitySet>,
     prefix_filter: Option<&str>,
 ) -> Vec<String> {
@@ -19,7 +21,8 @@ pub(super) fn authorized_prefixes(
 
     // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
     // so the parent-prune step below can run directly on it.
-    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, user_id)
+    let prefixes = authority
+        .reachable_prefixes()
         .into_iter()
         .filter(|(prefix, _)| {
             prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
@@ -50,9 +53,7 @@ pub(super) fn authorized_prefixes(
 /// `PrefixFilter::narrow_to_exact_set` — so the narrow-only invariant (a filter
 /// can only remove authorized prefixes, never add them) has a single owner.
 pub(super) fn filtered_authorized_prefixes(
-    role_grants: &tables::RoleGrants,
-    user_grants: &tables::UserGrants,
-    user_id: uuid::Uuid,
+    authority: &crate::Authority<'_>,
     min_capability: impl Into<models::authz::CapabilitySet>,
     filter: Option<super::filters::PrefixFilter>,
     field: &str,
@@ -61,13 +62,7 @@ pub(super) fn filtered_authorized_prefixes(
         Some(cp) => cp.into_parts(field)?,
         None => (None, None),
     };
-    let mut prefixes = authorized_prefixes(
-        role_grants,
-        user_grants,
-        user_id,
-        min_capability,
-        starts_with.as_deref(),
-    );
+    let mut prefixes = authorized_prefixes(authority, min_capability, starts_with.as_deref());
     if let Some(exact) = r#in.as_deref() {
         super::filters::PrefixFilter::narrow_to_exact_set(&mut prefixes, exact);
     }
@@ -105,6 +100,38 @@ mod tests {
 
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
+    /// An unscoped Authority over `rg`/`ug`, as a token carrying no
+    /// `scope_prefix` claim resolves to.
+    fn authority<'a>(
+        rg: &'a tables::RoleGrants,
+        ug: &'a tables::UserGrants,
+        user_id: uuid::Uuid,
+    ) -> crate::Authority<'a> {
+        crate::Authority::new(
+            rg,
+            ug,
+            user_id,
+            "alice@example.com",
+            tables::AuthScope::unscoped(),
+        )
+    }
+
+    /// An Authority over `rg`/`ug` confined to `scope`.
+    fn scoped_authority<'a>(
+        rg: &'a tables::RoleGrants,
+        ug: &'a tables::UserGrants,
+        user_id: uuid::Uuid,
+        scope: &'a str,
+    ) -> crate::Authority<'a> {
+        crate::Authority::new(
+            rg,
+            ug,
+            user_id,
+            "alice@example.com",
+            tables::AuthScope::resolve(rg, scope),
+        )
+    }
+
     #[test]
     fn no_filter_returns_all_at_or_above_capability() {
         let (ug, rg) = make_grants(
@@ -116,13 +143,13 @@ mod tests {
             &[],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, None);
         assert_eq!(result, vec!["acmeCo/"]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Write, None);
         assert_eq!(result, vec!["acmeCo/", "widgets/"]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Read, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Read, None);
         assert_eq!(result, vec!["acmeCo/", "readonly/", "widgets/"]);
     }
 
@@ -132,7 +159,7 @@ mod tests {
         // the filter, so "acmeCo/" is included.
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/data/"));
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, Some("acmeCo/data/"));
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -142,7 +169,7 @@ mod tests {
         // with the filter, so "acmeCo/data/" is included.
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/data/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/"));
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, Some("acmeCo/"));
         assert_eq!(result, vec!["acmeCo/data/"]);
     }
 
@@ -150,7 +177,7 @@ mod tests {
     fn filter_excludes_non_overlapping() {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "other/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/"));
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, Some("acmeCo/"));
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -158,7 +185,7 @@ mod tests {
     fn no_grants_returns_empty() {
         let (ug, rg) = make_grants(&[], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, None);
         assert!(result.is_empty());
     }
 
@@ -170,11 +197,11 @@ mod tests {
             &[("acmeCo/", "shared/", Write)],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Write, None);
         assert_eq!(result, vec!["acmeCo/", "shared/"]);
 
         // Admin threshold excludes the transitive Write grant.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, None);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -187,7 +214,7 @@ mod tests {
             &[],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, None);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -200,7 +227,7 @@ mod tests {
             &[("acmeCo/", "acmeCo/team/", Write)],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Write, None);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -209,7 +236,7 @@ mod tests {
         let bob = uuid::Uuid::from_bytes([0x22; 16]);
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, bob, Read, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, bob), Read, None);
         assert!(result.is_empty());
     }
 
@@ -237,7 +264,8 @@ mod tests {
         ]);
         let rg = tables::RoleGrants::new();
 
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        let reachable =
+            tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE, &tables::AuthScope::unscoped());
         assert_eq!(
             reachable["acmeCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -274,7 +302,8 @@ mod tests {
             },
         ]);
 
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        let reachable =
+            tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE, &tables::AuthScope::unscoped());
         assert_eq!(
             reachable["sharedCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -308,11 +337,11 @@ mod tests {
         // child of the qualifying parent. If the union were across
         // ancestors, acmeCo/data/ would qualify on its own (Writer +
         // inherited Admin bits) — it does not.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, None);
         assert_eq!(result, vec!["acmeCo/"]);
 
         // min=Write: both qualify on their own bits; parent prunes child.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(&authority(&rg, &ug, ALICE), Write, None);
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -320,9 +349,13 @@ mod tests {
     fn filtered_no_filter_returns_all_prefixes_and_no_parts() {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
-        let (prefixes, starts_with, r#in) =
-            filtered_authorized_prefixes(&rg, &ug, ALICE, Admin, None, "filter.catalogPrefix")
-                .unwrap();
+        let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
+            &authority(&rg, &ug, ALICE),
+            Admin,
+            None,
+            "filter.catalogPrefix",
+        )
+        .unwrap();
         assert_eq!(prefixes, vec!["acmeCo/", "beta/"]);
         assert_eq!(starts_with, None);
         assert_eq!(r#in, None);
@@ -337,9 +370,7 @@ mod tests {
             r#in: None,
         };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
-            ALICE,
+            &authority(&rg, &ug, ALICE),
             Admin,
             Some(filter),
             "filter.catalogPrefix",
@@ -362,9 +393,7 @@ mod tests {
             r#in: Some(vec!["acmeCo/".to_string()]),
         };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
-            ALICE,
+            &authority(&rg, &ug, ALICE),
             Admin,
             Some(filter),
             "filter.catalogPrefix",
@@ -384,9 +413,7 @@ mod tests {
             r#in: Some(vec!["acmeCo/".to_string()]),
         };
         let err = filtered_authorized_prefixes(
-            &rg,
-            &ug,
-            ALICE,
+            &authority(&rg, &ug, ALICE),
             Admin,
             Some(filter),
             "filter.catalogPrefix",
@@ -396,5 +423,60 @@ mod tests {
             err.message,
             "`filter.catalogPrefix.startsWith` and `.in` are mutually exclusive; provide only one"
         );
+    }
+
+    #[test]
+    fn scope_narrows_every_prefix_scoped_query() {
+        // Every list query in the API resolves its prefixes here, so a scoped
+        // token narrows all of them without any per-query work: the caller
+        // administers two tenants and a scope of one hides the other.
+        let (ug, rg) = make_grants(
+            &[(ALICE, "acmeCo/", Admin), (ALICE, "otherCo/", Admin)],
+            &[],
+        );
+
+        let unscoped = authorized_prefixes(&authority(&rg, &ug, ALICE), Admin, None);
+        assert_eq!(unscoped, vec!["acmeCo/", "otherCo/"]);
+
+        let scoped =
+            authorized_prefixes(&scoped_authority(&rg, &ug, ALICE, "acmeCo/"), Admin, None);
+        assert_eq!(scoped, vec!["acmeCo/"]);
+    }
+
+    #[test]
+    fn a_filter_cannot_widen_past_the_scope() {
+        // A caller-supplied filter is applied after the scope has already
+        // narrowed the set, so naming an out-of-scope prefix yields nothing
+        // rather than restoring access to it. Both filter modes are checked
+        // because each narrows at a different step.
+        let (ug, rg) = make_grants(
+            &[(ALICE, "acmeCo/", Admin), (ALICE, "otherCo/", Admin)],
+            &[],
+        );
+        let authority = scoped_authority(&rg, &ug, ALICE, "acmeCo/");
+
+        let (prefixes, _, _) = filtered_authorized_prefixes(
+            &authority,
+            Admin,
+            Some(PrefixFilter {
+                starts_with: Some("otherCo/".to_string()),
+                r#in: None,
+            }),
+            "filter.catalogPrefix",
+        )
+        .unwrap();
+        assert!(prefixes.is_empty());
+
+        let (prefixes, _, _) = filtered_authorized_prefixes(
+            &authority,
+            Admin,
+            Some(PrefixFilter {
+                starts_with: None,
+                r#in: Some(vec!["otherCo/".to_string()]),
+            }),
+            "filter.catalogPrefix",
+        )
+        .unwrap();
+        assert!(prefixes.is_empty());
     }
 }
