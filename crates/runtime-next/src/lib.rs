@@ -30,9 +30,6 @@ pub use ::proto_flow::runtime::Plane; // Re-export.
 /// and the protobuf module.
 pub use proto_flow::runtime as proto;
 
-mod container;
-mod image_connector;
-mod local_connector;
 mod tokio_context;
 
 pub mod leader;
@@ -41,8 +38,6 @@ pub mod patches;
 pub mod publish;
 pub mod shard;
 mod task_service;
-
-pub use container::flow_runtime_protocol;
 
 pub use leader::{Service, ShuffleServiceFactory, ShuffleSession, ShuffleSessionFactory};
 pub use logger::{
@@ -102,46 +97,6 @@ pub(crate) async fn sleep_unless_zero(
         .as_mut()
         .reset(tokio::time::Instant::now() + wake_after);
     sleep.await
-}
-
-/// Describes the basic type of runtime protocol. Mirrors `runtime::RuntimeProtocol`
-/// so that connector image inspection (Phase F-ported `container::flow_runtime_protocol`)
-/// can return a type that's local to this crate.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RuntimeProtocol {
-    Capture,
-    Materialize,
-    Derive,
-}
-
-impl RuntimeProtocol {
-    fn from_image_label(value: &str) -> Result<Self, &str> {
-        match value {
-            "capture" => Ok(RuntimeProtocol::Capture),
-            "materialize" => Ok(RuntimeProtocol::Materialize),
-            "derive" => Ok(RuntimeProtocol::Derive),
-            other => Err(other),
-        }
-    }
-
-    /// Returns the appropriate representation for storing in the control plane database.
-    pub fn database_string_value(&self) -> &'static str {
-        match self {
-            RuntimeProtocol::Capture => "capture",
-            RuntimeProtocol::Materialize => "materialization",
-            RuntimeProtocol::Derive => "derive",
-        }
-    }
-
-    pub fn from_database_string_value(proto: &str) -> Option<Self> {
-        match proto {
-            "capture" => Some(RuntimeProtocol::Capture),
-            "materialization" => Some(RuntimeProtocol::Materialize),
-            "derive" => Some(RuntimeProtocol::Derive),
-            _ => None,
-        }
-    }
 }
 
 // Status bounding lives in `proto-grpc`, which every crate speaking this
