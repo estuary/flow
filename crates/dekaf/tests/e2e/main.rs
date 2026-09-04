@@ -6,6 +6,7 @@ mod auth;
 mod basic;
 mod collection_reset;
 mod consumer_group;
+mod empty_binding_group;
 mod empty_fetch;
 mod fetch_offsets;
 mod list_offsets;
