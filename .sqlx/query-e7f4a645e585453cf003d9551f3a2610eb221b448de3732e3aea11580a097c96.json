@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                job_status->>'type' = 'success' AS \"processed!\",\n                protocol = 'capture' AS \"is_capture!\"\n            FROM connector_tags\n            WHERE id = $1::flowid\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "processed!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_capture!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "e7f4a645e585453cf003d9551f3a2610eb221b448de3732e3aea11580a097c96"
+}

@@ -140,6 +140,7 @@ pub struct MutationRoot(
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
     data_planes::DataPlanesMutation,
+    discovers::DiscoversMutation,
     refresh_tokens::RefreshTokensMutation,
     service_accounts::ServiceAccountsMutation,
     secrets::SecretsMutation,
