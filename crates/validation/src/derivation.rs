@@ -360,7 +360,7 @@ async fn walk_derivation<C: Connectors>(
         scope,
         &mut response_rx,
         |response| match &mut response.kind {
-            Some(derive::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec))),
+            Some(derive::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec.as_mut()))),
             _ => Ok(None),
         },
         errors,
@@ -525,7 +525,7 @@ async fn walk_derivation<C: Connectors>(
                 .collection
                 .take()
                 .expect("active transform resolved its source collection");
-            transform.collection_index = interner.intern(source);
+            transform.collection_index = interner.intern(*source);
             transform
         })
         .collect();
@@ -554,7 +554,7 @@ async fn walk_derivation<C: Connectors>(
     _ = request_tx
         .send(
             derive::Request {
-                kind: Some(derive::request::Kind::Validate(validate_request)),
+                kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),
                 ..Default::default()
             }
             .with_internal(|internal| {
@@ -718,7 +718,7 @@ async fn walk_derivation<C: Connectors>(
             // computed here for `journal_read_suffix`.
             state_key: String::new(),
             collection_index: interner.intern(
-                source_collection.expect("active transform resolved its source collection"),
+                *source_collection.expect("active transform resolved its source collection"),
             ),
         };
 
@@ -731,13 +731,10 @@ async fn walk_derivation<C: Connectors>(
     // Note: `reset` comes from the collection definition, which resets both
     // the collection journals AND the derivation task.
     let shard_id_prefix = if let Some(flow::CollectionSpec {
-        derivation:
-            Some(flow::collection_spec::Derivation {
-                shard_template: Some(shard_template),
-                ..
-            }),
+        derivation: Some(derivation),
         ..
     }) = live_spec
+        && let Some(shard_template) = &derivation.shard_template
         && !reset
     {
         shard_template.id.clone()
@@ -987,7 +984,7 @@ fn walk_derive_transform<'a>(
     let validate = ValidateContext {
         validate: derive::request::validate::Transform {
             name: model.name.to_string(),
-            collection: Some(source_spec),
+            collection: Some(Box::new(source_spec)),
             lambda_config_json: model.lambda.to_string().into(),
             shuffle_lambda_config_json: shuffle_lambda_config_json.into(),
             backfill: model.backfill,

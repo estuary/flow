@@ -47,6 +47,7 @@ impl DiscoverConnectors for MockDiscoverConnectors {
         let Some(capture::request::Kind::Discover(discover)) = request.kind.take() else {
             anyhow::bail!("unexpected capture request type: {request:?}")
         };
+        let discover = *discover;
         self.discover_requests
             .lock()
             .unwrap()
@@ -91,14 +92,14 @@ impl Connectors for TestConnectors {
             while let Some(request) = request_rx.next().await {
                 if matches!(request.kind, Some(request::Kind::Spec(_))) {
                     let response = Response {
-                        kind: Some(response::Kind::Spec(response::Spec {
+                        kind: Some(response::Kind::Spec(Box::new(response::Spec {
                             protocol: 3032023,
                             config_schema_json: r#"{"type": "object", "properties": {}}"#.into(),
                             resource_config_schema_json: r#"true"#.into(),
                             documentation_url: "http://test.test/test-docs".to_string(),
                             oauth2: None,
                             resource_path_pointers: vec!["/id".to_string()],
-                        })),
+                        }))),
                         ..Default::default()
                     };
                     co.yield_(response).await;
@@ -143,13 +144,13 @@ impl Connectors for TestConnectors {
             while let Some(request) = request_rx.next().await {
                 if matches!(request.kind, Some(request::Kind::Spec(_))) {
                     let response = Response {
-                        kind: Some(response::Kind::Spec(Spec {
+                        kind: Some(response::Kind::Spec(Box::new(Spec {
                             protocol: 3032023,
                             config_schema_json: "{}".into(),
                             resource_config_schema_json: "{}".into(),
                             documentation_url: "http://test.test/test-docs".to_string(),
                             oauth2: None,
-                        })),
+                        }))),
                         ..Default::default()
                     };
                     () = co.yield_(response).await;
@@ -190,7 +191,7 @@ impl Connectors for TestConnectors {
                 if matches!(request.kind, Some(materialize::request::Kind::Spec(_))) {
                     () = co
                         .yield_(materialize::Response {
-                            kind: Some(materialize::response::Kind::Spec(
+                            kind: Some(materialize::response::Kind::Spec(Box::new(
                                 materialize::response::Spec {
                                     config_schema_json: "true".into(),
                                     resource_config_schema_json: r#"{
@@ -209,7 +210,7 @@ impl Connectors for TestConnectors {
                                     .into(),
                                     ..Default::default()
                                 },
-                            )),
+                            ))),
                             ..Default::default()
                         })
                         .await;
