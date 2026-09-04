@@ -1,6 +1,6 @@
 # flow-client-next
 
-Client library for Estuary Flow control-plane APIs with auto-refreshing authentication.
+Client library for Estuary control-plane APIs with auto-refreshing authentication.
 
 This crate is a replacement for `flow-client`. Dependent crates should use
 `use flow_client_next as flow_client;` to ease the transition.
