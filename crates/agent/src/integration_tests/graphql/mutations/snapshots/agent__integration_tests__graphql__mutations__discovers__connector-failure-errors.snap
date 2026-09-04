@@ -1,0 +1,10 @@
+---
+source: crates/agent/src/integration_tests/graphql/mutations/discovers.rs
+expression: result.errors
+---
+[
+    (
+        "flow://capture/aliceCo/e2e/capture",
+        "the connector could not reach the endpoint",
+    ),
+]

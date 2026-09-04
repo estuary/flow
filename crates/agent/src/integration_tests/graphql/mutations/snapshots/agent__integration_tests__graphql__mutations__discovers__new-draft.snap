@@ -1,0 +1,62 @@
+---
+source: crates/agent/src/integration_tests/graphql/mutations/discovers.rs
+expression: result.draft
+---
+DraftCatalog {
+    captures: [
+        DraftCapture {
+            capture: aliceCo/e2e/capture,
+            scope: flow://capture/aliceCo/e2e/capture,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "autoDiscover": {
+                "addNewBindings": true,
+                "evolveIncompatibleCollections": true
+              },
+              "endpoint": {
+                "connector": {
+                  "image": "source/test:test",
+                  "config": {"tail":"shake"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"id":"acorns"},
+                  "target": "aliceCo/e2e/acorns"
+                },
+                {
+                  "resource": {"id":"walnuts"},
+                  "target": "aliceCo/e2e/walnuts"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: aliceCo/e2e/acorns,
+            scope: flow://collection/aliceCo/e2e/acorns,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: aliceCo/e2e/walnuts,
+            scope: flow://collection/aliceCo/e2e/walnuts,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+}
