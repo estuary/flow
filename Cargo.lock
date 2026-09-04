@@ -2024,6 +2024,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "connector"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "bytes",
+ "connector-init",
+ "futures",
+ "insta",
+ "labels",
+ "locate-bin",
+ "models",
+ "ops",
+ "prost",
+ "proto-flow",
+ "proto-grpc",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
 name = "connector-init"
 version = "0.0.0"
 dependencies = [
@@ -7463,7 +7490,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "assemble",
- "async-process",
  "aws-config",
  "aws-credential-types",
  "aws-sdk-sts",
@@ -7473,6 +7499,7 @@ dependencies = [
  "bytes",
  "chrono",
  "chrono-tz",
+ "connector",
  "connector-init",
  "coroutines",
  "dekaf-connector",
@@ -7491,7 +7518,6 @@ dependencies = [
  "jsonwebtoken",
  "labels",
  "librocksdb-sys",
- "locate-bin",
  "memchr",
  "metrics",
  "models",
