@@ -4,7 +4,7 @@ use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;
 use futures::{SinkExt, StreamExt, TryStreamExt};
-use proto_flow::derive::{Request, Response};
+use proto_flow::derive::{Request, Response, request};
 
 #[tonic::async_trait]
 impl<L: LogHandler> proto_grpc::derive::connector_server::Connector for Runtime<L> {
@@ -41,7 +41,7 @@ impl<L: LogHandler> Runtime<L> {
             while let Some(request) = next {
                 self.set_log_level(request.get_internal()?.log_level());
 
-                if request.open.is_some() {
+                if matches!(request.kind, Some(request::Kind::Open(_))) {
                     next = serve_session(&mut co, &db, request, &mut request_rx, &self, &mut shape)
                         .await?;
                 } else {
@@ -130,11 +130,21 @@ async fn serve_session<L: LogHandler>(
                     drain_connector(connector_tx, connector_rx).await?;
                     return Ok(None); // Clean EOF.
                 }
-                Step::ClientRx(Some(open @ Request { open: Some(_), .. })) if !txn.started => {
+                Step::ClientRx(Some(
+                    open @ Request {
+                        kind: Some(request::Kind::Open(_)),
+                        ..
+                    },
+                )) if !txn.started => {
                     drain_connector(connector_tx, connector_rx).await?;
                     return Ok(Some(open)); // Restart a new session.
                 }
-                Step::ClientRx(Some(reset @ Request { reset: Some(_), .. })) if !txn.started => {
+                Step::ClientRx(Some(
+                    reset @ Request {
+                        kind: Some(request::Kind::Reset(_)),
+                        ..
+                    },
+                )) if !txn.started => {
                     send_fut = Some(connector_tx.feed(reset));
                 }
                 Step::ClientRx(request) => {

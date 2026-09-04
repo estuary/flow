@@ -337,10 +337,10 @@ async fn walk_derivation<C: Connectors>(
     _ = request_tx
         .send(
             derive::Request {
-                spec: Some(derive::request::Spec {
+                kind: Some(derive::request::Kind::Spec(derive::request::Spec {
                     connector_type,
                     config_json: config_json.clone(),
-                }),
+                })),
                 ..Default::default()
             }
             .with_internal(|internal| {
@@ -359,7 +359,10 @@ async fn walk_derivation<C: Connectors>(
     } = super::expect_response(
         scope,
         &mut response_rx,
-        |response| Ok(response.spec.take()),
+        |response| match &mut response.kind {
+            Some(derive::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec))),
+            _ => Ok(None),
+        },
         errors,
     )
     .await?;
@@ -551,7 +554,7 @@ async fn walk_derivation<C: Connectors>(
     _ = request_tx
         .send(
             derive::Request {
-                validate: Some(validate_request),
+                kind: Some(derive::request::Kind::Validate(validate_request)),
                 ..Default::default()
             }
             .with_internal(|internal| {
@@ -570,7 +573,12 @@ async fn walk_derivation<C: Connectors>(
                 Ok(internal) => internal.container.unwrap_or_default().network_ports,
                 Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
             };
-            Ok(response.validated.take().map(|v| (v, network_ports)))
+            match &mut response.kind {
+                Some(derive::response::Kind::Validated(v)) => {
+                    Ok(Some((std::mem::take(v), network_ports)))
+                }
+                _ => Ok(None),
+            }
         },
         errors,
     )

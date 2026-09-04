@@ -52,18 +52,17 @@ impl DiscoverConnectors for DataPlaneConnectors {
         logs_token: Uuid,
         request: capture::Request,
     ) -> anyhow::Result<(capture::response::Spec, capture::response::Discovered)> {
-        let discover = request
-            .discover
-            .as_ref()
-            .expect("expected a discover request");
+        let Some(capture::request::Kind::Discover(discover)) = &request.kind else {
+            panic!("expected a discover request")
+        };
 
         // Start an RPC which requests a Spec followed by a Discover.
         let request_rx = futures::stream::iter([
             capture::Request {
-                spec: Some(capture::request::Spec {
+                kind: Some(capture::request::Kind::Spec(capture::request::Spec {
                     connector_type: discover.connector_type,
                     config_json: discover.config_json.clone(),
-                }),
+                })),
                 internal: request.internal.clone(), // Use same log level.
                 ..Default::default()
             },
@@ -82,7 +81,8 @@ impl DiscoverConnectors for DataPlaneConnectors {
 
         let spec = match response_rx.try_next().await? {
             Some(capture::Response {
-                spec: Some(spec), ..
+                kind: Some(capture::response::Kind::Spec(spec)),
+                ..
             }) => spec,
             response => anyhow::bail!(
                 "expected connector to send a Response.Spec, but got {}",
@@ -91,7 +91,7 @@ impl DiscoverConnectors for DataPlaneConnectors {
         };
         let discovered = match response_rx.try_next().await? {
             Some(capture::Response {
-                discovered: Some(discovered),
+                kind: Some(capture::response::Kind::Discovered(discovered)),
                 ..
             }) => discovered,
             response => anyhow::bail!(

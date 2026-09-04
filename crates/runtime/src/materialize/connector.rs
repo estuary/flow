@@ -4,7 +4,7 @@ use anyhow::Context;
 use futures::{FutureExt, StreamExt, TryStreamExt, channel::mpsc, stream::BoxStream};
 use proto_flow::{
     flow::materialization_spec::ConnectorType,
-    materialize::{Request, Response},
+    materialize::{Request, Response, request, response},
 };
 use unseal;
 use zeroize::Zeroize;
@@ -123,17 +123,20 @@ pub async fn start<L: LogHandler>(
     // Send an initial Spec request which may direct us to perform an IAM token exchange.
     connector_tx
         .try_send(Request {
-            spec: Some(proto_flow::materialize::request::Spec {
+            kind: Some(request::Kind::Spec(request::Spec {
                 config_json: "{}".into(),
                 connector_type: connector_type,
-            }),
+            })),
             ..Default::default()
         })
         .unwrap();
 
     let verify = crate::verify("connector", "spec response");
     let spec_response = match verify.not_eof(connector_rx.try_next().await?)? {
-        Response { spec: Some(r), .. } => r,
+        Response {
+            kind: Some(response::Kind::Spec(r)),
+            ..
+        } => r,
         response => return verify.fail(response),
     };
 
@@ -170,12 +173,12 @@ pub async fn start<L: LogHandler>(
     }
 
     // Decrypt trigger configs and pre-compile their Handlebars templates.
-    let triggers_json = initial
-        .open
-        .as_ref()
-        .and_then(|open| open.materialization.as_ref())
-        .map(|s| &s.triggers_json)
-        .filter(|b| !b.is_empty());
+    let triggers_json = match &initial.kind {
+        Some(request::Kind::Open(open)) => open.materialization.as_ref(),
+        _ => None,
+    }
+    .map(|s| &s.triggers_json)
+    .filter(|b| !b.is_empty());
 
     let compiled_triggers = match triggers_json {
         None => None,
@@ -226,54 +229,54 @@ fn extract_endpoint<'r>(
     Option<String>,
     Option<&'r mut bytes::Bytes>,
 )> {
-    let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
-        Request {
-            spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json, None, None),
-        Request {
-            validate: Some(validate),
-            ..
-        } => (
-            validate.connector_type,
-            &mut validate.config_json,
-            Some(validate.name.clone()),
-            None,
-        ),
-        Request {
-            apply: Some(apply), ..
-        } => {
-            let catalog_name = apply.materialization.as_ref().map(|m| m.name.clone());
-            let inner = apply
-                .materialization
-                .as_mut()
-                .context("`apply` missing required `materialization`")?;
+    let verify = crate::verify("client", "valid first request");
 
-            (
-                inner.connector_type,
-                &mut inner.config_json,
-                catalog_name,
+    // The mutable borrow of `kind` lives as long as the returned references,
+    // so an absent `kind` is reported before taking it, and a mis-matched
+    // variant reports only itself rather than the request.
+    if request.kind.is_none() {
+        return verify.fail(&request);
+    }
+    let (connector_type, config_json, catalog_name, sealed_config_json) =
+        match request.kind.as_mut().expect("checked above") {
+            request::Kind::Spec(spec) => (spec.connector_type, &mut spec.config_json, None, None),
+            request::Kind::Validate(validate) => (
+                validate.connector_type,
+                &mut validate.config_json,
+                Some(validate.name.clone()),
                 None,
-            )
-        }
-        Request {
-            open: Some(open), ..
-        } => {
-            let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
-            let sealed_config_json = &mut open.sealed_config_json;
-            let inner = open
-                .materialization
-                .as_mut()
-                .context("`open` missing required `materialization`")?;
+            ),
+            request::Kind::Apply(apply) => {
+                let catalog_name = apply.materialization.as_ref().map(|m| m.name.clone());
+                let inner = apply
+                    .materialization
+                    .as_mut()
+                    .context("`apply` missing required `materialization`")?;
 
-            (
-                inner.connector_type,
-                &mut inner.config_json,
-                catalog_name,
-                Some(sealed_config_json),
-            )
-        }
-        request => return crate::verify("client", "valid first request").fail(request),
-    };
+                (
+                    inner.connector_type,
+                    &mut inner.config_json,
+                    catalog_name,
+                    None,
+                )
+            }
+            request::Kind::Open(open) => {
+                let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
+                let sealed_config_json = &mut open.sealed_config_json;
+                let inner = open
+                    .materialization
+                    .as_mut()
+                    .context("`open` missing required `materialization`")?;
+
+                (
+                    inner.connector_type,
+                    &mut inner.config_json,
+                    catalog_name,
+                    Some(sealed_config_json),
+                )
+            }
+            other => return verify.fail(other),
+        };
 
     if connector_type == ConnectorType::Image as i32 {
         Ok((

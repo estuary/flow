@@ -52,17 +52,17 @@ pub async fn do_materialize_fixture(
     };
 
     emit(Request {
-        apply: Some(request::Apply {
+        kind: Some(request::Kind::Apply(request::Apply {
             materialization: Some(spec.clone()),
             version: "test".to_string(),
             last_materialization: None,
             last_version: String::new(),
             state_json: bytes::Bytes::new(),
-        }),
+        })),
         ..Default::default()
     });
     emit(Request {
-        open: Some(request::Open {
+        kind: Some(request::Kind::Open(request::Open {
             materialization: Some(spec.clone()),
             range: Some(flow::RangeSpec {
                 key_begin: 0,
@@ -73,11 +73,11 @@ pub async fn do_materialize_fixture(
             state_json: checkpoint.to_string().into(),
             version: "test".to_string(),
             sealed_config_json: Default::default(),
-        }),
+        })),
         ..Default::default()
     });
     emit(Request {
-        acknowledge: Some(request::Acknowledge::default()),
+        kind: Some(request::Kind::Acknowledge(request::Acknowledge::default())),
         ..Default::default()
     });
 
@@ -120,23 +120,23 @@ pub async fn do_materialize_fixture(
 
                     if !delta_updates {
                         loads.push(Request {
-                            load: Some(request::Load {
+                            kind: Some(request::Kind::Load(request::Load {
                                 binding: binding_index as u32,
                                 key_packed: key_packed.clone(),
                                 ..Default::default()
-                            }),
+                            })),
                             ..Default::default()
                         });
                     }
                     stores.push(Request {
-                        store: Some(request::Store {
+                        kind: Some(request::Kind::Store(request::Store {
                             binding: binding_index as u32,
                             key_packed,
                             values_packed,
                             doc_json: doc.to_string().into(),
                             exists: *exists && !delta_updates,
                             ..Default::default()
-                        }),
+                        })),
                         ..Default::default()
                     });
                 }
@@ -147,14 +147,14 @@ pub async fn do_materialize_fixture(
             emit(load)
         }
         emit(Request {
-            flush: Some(request::Flush::default()),
+            kind: Some(request::Kind::Flush(request::Flush::default())),
             ..Default::default()
         });
         for store in stores {
             emit(store)
         }
         emit(Request {
-            start_commit: Some(request::StartCommit {
+            kind: Some(request::Kind::StartCommit(request::StartCommit {
                 runtime_checkpoint: Some(RuntimeCheckpoint {
                     sources: [(
                         "a/read/journal;suffix".to_string(),
@@ -167,11 +167,11 @@ pub async fn do_materialize_fixture(
                     ..Default::default()
                 }),
                 ..Default::default()
-            }),
+            })),
             ..Default::default()
         });
         emit(Request {
-            acknowledge: Some(request::Acknowledge::default()),
+            kind: Some(request::Kind::Acknowledge(request::Acknowledge::default())),
             ..Default::default()
         });
     }

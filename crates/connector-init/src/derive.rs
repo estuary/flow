@@ -1,6 +1,6 @@
 use super::{codec::Codec, rpc};
 use futures::{StreamExt, TryStreamExt};
-use proto_flow::derive::{Request, Response};
+use proto_flow::derive::{Request, Response, response};
 
 pub struct Proxy {
     pub entrypoint: Vec<String>,
@@ -33,11 +33,10 @@ impl proto_grpc::derive::connector_server::Connector for Proxy {
                 let _ = &guard; // Owned by closure.
 
                 crate::check_protocol(
-                    response
-                        .as_ref()
-                        .ok()
-                        .and_then(|r| r.spec.as_ref())
-                        .map(|spec| spec.protocol),
+                    match response.as_ref().ok().and_then(|r| r.kind.as_ref()) {
+                        Some(response::Kind::Spec(spec)) => Some(spec.protocol),
+                        _ => None,
+                    },
                     response,
                 )
             })

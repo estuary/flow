@@ -1,5 +1,4 @@
 use crate::local_specs;
-use anyhow::Context;
 use proto_flow::{capture, flow};
 
 #[derive(Debug, clap::Args)]
@@ -88,7 +87,7 @@ pub async fn do_discover(
         },
     };
     let discover = capture::Request {
-        discover: Some(discover),
+        kind: Some(capture::request::Kind::Discover(discover)),
         ..Default::default()
     }
     .with_internal(|internal| {
@@ -97,7 +96,7 @@ pub async fn do_discover(
         }
     });
 
-    let capture::response::Discovered { bindings } = runtime::Runtime::new(
+    let response = runtime::Runtime::new(
         runtime::Plane::Local,
         network.clone(),
         ops::tracing_log_handler,
@@ -105,9 +104,13 @@ pub async fn do_discover(
         format!("discover/{}", capture.capture),
     )
     .unary_capture(discover)
-    .await?
-    .discovered
-    .context("connector didn't send expected Discovered response")?;
+    .await?;
+
+    let Some(capture::response::Kind::Discovered(capture::response::Discovered { bindings })) =
+        response.kind
+    else {
+        anyhow::bail!("connector didn't send expected Discovered response");
+    };
 
     if *emit_raw {
         for binding in bindings {

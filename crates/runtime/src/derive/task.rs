@@ -5,14 +5,19 @@ use proto_flow::flow;
 
 impl Task {
     pub fn new(open: &Request, opened: &Response) -> anyhow::Result<Self> {
-        let request::Open {
+        let Some(request::Kind::Open(request::Open {
             collection,
             range,
             state_json: _,
             version,
-        } = open.clone().open.context("expected Open")?;
+        })) = open.kind.clone()
+        else {
+            anyhow::bail!("expected Open");
+        };
 
-        let response::Opened { .. } = opened.opened.as_ref().context("expected Opened")?;
+        let Some(response::Kind::Opened(response::Opened { .. })) = &opened.kind else {
+            anyhow::bail!("expected Opened");
+        };
 
         let flow::CollectionSpec {
             ack_template_json: _,

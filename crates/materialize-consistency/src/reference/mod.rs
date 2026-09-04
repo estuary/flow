@@ -278,44 +278,42 @@ fn handle(
     session: &mut Option<Session>,
     request: materialize::Request,
 ) -> anyhow::Result<Vec<materialize::Response>> {
-    if request.spec.is_some() {
-        return Ok(vec![spec()]);
-    }
-    if let Some(validate) = request.validate {
-        return Ok(vec![validate_bindings(validate)?]);
-    }
-    if let Some(apply) = request.apply {
-        return Ok(vec![apply_spec(apply)?]);
-    }
-    if let Some(open) = request.open {
-        let (new, response) = open_session(open)?;
-        *session = Some(new);
-        return Ok(vec![response]);
-    }
+    use materialize::request::Kind;
+
+    // Startup requests, which are answered without an open session.
+    let kind = match request.kind {
+        Some(Kind::Spec(_)) => return Ok(vec![spec()]),
+        Some(Kind::Validate(validate)) => return Ok(vec![validate_bindings(validate)?]),
+        Some(Kind::Apply(apply)) => return Ok(vec![apply_spec(apply)?]),
+        Some(Kind::Open(open)) => {
+            let (new, response) = open_session(open)?;
+            *session = Some(new);
+            return Ok(vec![response]);
+        }
+        Some(kind) => kind,
+        None => anyhow::bail!("request sets no sub-message"),
+    };
 
     let session = session
         .as_mut()
         .context("received a transaction request before Open")?;
 
-    if let Some(load) = request.load {
-        stage_load(session, load)?;
-        return Ok(Vec::new());
+    match kind {
+        Kind::Load(load) => {
+            stage_load(session, load)?;
+            Ok(Vec::new())
+        }
+        Kind::Flush(_) => flush_loads(session),
+        Kind::Store(store) => {
+            store_document(session, store)?;
+            Ok(Vec::new())
+        }
+        Kind::StartCommit(start_commit) => start_commit_txn(session, start_commit).map(|r| vec![r]),
+        Kind::Acknowledge(ack) => acknowledge(session, ack).map(|r| vec![r]),
+        Kind::Spec(_) | Kind::Validate(_) | Kind::Apply(_) | Kind::Open(_) => {
+            unreachable!("answered above, without a session")
+        }
     }
-    if request.flush.is_some() {
-        return flush_loads(session);
-    }
-    if let Some(store) = request.store {
-        store_document(session, store)?;
-        return Ok(Vec::new());
-    }
-    if let Some(start_commit) = request.start_commit {
-        return start_commit_txn(session, start_commit).map(|r| vec![r]);
-    }
-    if let Some(ack) = request.acknowledge {
-        return acknowledge(session, ack).map(|r| vec![r]);
-    }
-
-    anyhow::bail!("unhandled request: {request:?}")
 }
 
 fn spec() -> materialize::Response {
@@ -359,15 +357,17 @@ fn spec() -> materialize::Response {
     });
 
     materialize::Response {
-        spec: Some(materialize::response::Spec {
-            protocol: 3032023,
-            config_schema_json: config_schema.to_string().into(),
-            resource_config_schema_json: resource_schema.to_string().into(),
-            documentation_url:
-                "https://github.com/estuary/flow/tree/master/crates/materialize-consistency"
-                    .to_string(),
-            ..Default::default()
-        }),
+        kind: Some(materialize::response::Kind::Spec(
+            materialize::response::Spec {
+                protocol: 3032023,
+                config_schema_json: config_schema.to_string().into(),
+                resource_config_schema_json: resource_schema.to_string().into(),
+                documentation_url:
+                    "https://github.com/estuary/flow/tree/master/crates/materialize-consistency"
+                        .to_string(),
+                ..Default::default()
+            },
+        )),
         ..Default::default()
     }
 }
@@ -425,7 +425,9 @@ fn validate_bindings(
     }
 
     Ok(materialize::Response {
-        validated: Some(materialize::response::Validated { bindings }),
+        kind: Some(materialize::response::Kind::Validated(
+            materialize::response::Validated { bindings },
+        )),
         ..Default::default()
     })
 }
@@ -454,10 +456,12 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
     }
 
     Ok(materialize::Response {
-        applied: Some(materialize::response::Applied {
-            action_description: String::new(),
-            state: None,
-        }),
+        kind: Some(materialize::response::Kind::Applied(
+            materialize::response::Applied {
+                action_description: String::new(),
+                state: None,
+            },
+        )),
         ..Default::default()
     })
 }
@@ -568,10 +572,12 @@ fn open_session(
     Ok((
         session,
         materialize::Response {
-            opened: Some(materialize::response::Opened {
-                runtime_checkpoint,
-                disable_load_optimization: false,
-            }),
+            kind: Some(materialize::response::Kind::Opened(
+                materialize::response::Opened {
+                    runtime_checkpoint,
+                    disable_load_optimization: false,
+                },
+            )),
             ..Default::default()
         },
     ))
@@ -748,17 +754,21 @@ fn flush_loads(session: &mut Session) -> anyhow::Result<Vec<materialize::Respons
 
         if let Some(doc) = loaded {
             responses.push(materialize::Response {
-                loaded: Some(materialize::response::Loaded {
-                    binding,
-                    doc_json: doc.into(),
-                }),
+                kind: Some(materialize::response::Kind::Loaded(
+                    materialize::response::Loaded {
+                        binding,
+                        doc_json: doc.into(),
+                    },
+                )),
                 ..Default::default()
             });
         }
     }
 
     responses.push(materialize::Response {
-        flushed: Some(materialize::response::Flushed { state: None }),
+        kind: Some(materialize::response::Kind::Flushed(
+            materialize::response::Flushed { state: None },
+        )),
         ..Default::default()
     });
     Ok(responses)
@@ -970,7 +980,9 @@ fn start_commit_txn(
     };
 
     Ok(materialize::Response {
-        started_commit: Some(materialize::response::StartedCommit { state }),
+        kind: Some(materialize::response::Kind::StartedCommit(
+            materialize::response::StartedCommit { state },
+        )),
         ..Default::default()
     })
 }
@@ -1025,7 +1037,9 @@ fn acknowledge(
 ) -> anyhow::Result<materialize::Response> {
     if session.class != Class::PostCommitApply {
         return Ok(materialize::Response {
-            acknowledged: Some(materialize::response::Acknowledged { state: None }),
+            kind: Some(materialize::response::Kind::Acknowledged(
+                materialize::response::Acknowledged { state: None },
+            )),
             ..Default::default()
         });
     }
@@ -1039,7 +1053,9 @@ fn acknowledge(
         session.confirmed.clear();
         session.published = None;
         return Ok(materialize::Response {
-            acknowledged: Some(materialize::response::Acknowledged { state: None }),
+            kind: Some(materialize::response::Kind::Acknowledged(
+                materialize::response::Acknowledged { state: None },
+            )),
             ..Default::default()
         });
     }
@@ -1087,7 +1103,9 @@ fn acknowledge(
     let state = (!cleared.is_empty()).then(|| clearing_patch(&cleared));
 
     Ok(materialize::Response {
-        acknowledged: Some(materialize::response::Acknowledged { state }),
+        kind: Some(materialize::response::Kind::Acknowledged(
+            materialize::response::Acknowledged { state },
+        )),
         ..Default::default()
     })
 }
