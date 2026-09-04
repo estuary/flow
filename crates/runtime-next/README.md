@@ -261,6 +261,10 @@ observed the gap commits. Derive's only `Persist` follows StartCommit, so a
 remote-authoritative derivation which crashes in between loses the floors of
 that one transaction.
 
+A Head reduces every `Load` into its extents, then on a resolved `Load` calls
+`Frontier::clear_discharged_hints`, so a hint the Session discharges rather
+than resolves cannot pin the transaction open.
+
 ## Idempotent recovery (materialize)
 
 A leader whose startup scan finds a hinted-but-uncommitted transaction opens

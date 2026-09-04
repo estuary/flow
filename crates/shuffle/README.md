@@ -550,7 +550,9 @@ fully-resolved checkpoint.
 
 After completing downstream processing on a fully-resolved frontier, the
 coordinator merges the delta into its base checkpoint and requests the
-next one.
+next one. A fully-resolved frontier leaves every hint of every preceding peek
+resolved or discharged, and `reduce` alone keeps the discharged ones, so the
+coordinator follows it with `Frontier::clear_discharged_hints`.
 
 ## Key Types
 

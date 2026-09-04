@@ -380,6 +380,9 @@ impl HeadIdle {
                 extents_delta.latest_backfill_complete = Default::default();
             }
             self.extents.frontier = self.extents.frontier.reduce(extents_delta);
+            if frontier.unresolved_hints == 0 {
+                self.extents.frontier.clear_discharged_hints();
+            }
 
             return (
                 Action::Load { frontier },
