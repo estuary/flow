@@ -258,6 +258,17 @@ input AlertsBy {
 	active: Boolean
 }
 
+"""
+The effective authorization scope applied to a scoped GraphQL list.
+
+The listed prefixes are the same values used to filter the backing query,
+allowing clients to distinguish "authorized, but empty" from "no scope".
+"""
+type AuthorizationScope {
+	allOf: [CapabilityBit!]!
+	effectiveCatalogPrefixes: [Prefix!]!
+}
+
 type AutoDiscoverFailure {
 	"""
 	The number of consecutive failures that have been observed.
@@ -409,6 +420,8 @@ enum CapabilityBit {
 	DecryptSecret
 	Delegate
 	Assume
+	QueryInviteLinks
+	DeleteInviteLink
 }
 
 type CardPaymentMethodDetails {
@@ -1005,6 +1018,10 @@ type InviteLinkConnection {
 	A list of edges.
 	"""
 	edges: [InviteLinkEdge!]!
+	"""
+	The authorization requirement and effective prefixes used to filter this result.
+	"""
+	authorizationScope: AuthorizationScope!
 }
 
 """
@@ -1023,7 +1040,7 @@ type InviteLinkEdge {
 
 """
 Composable filter for the `inviteLinks` query. Every field is optional and
-only narrows the result set; the caller's admin scope is enforced
+only narrows the result set; the caller's authorization scope is enforced
 independently, so a filter can never widen what a caller may see.
 """
 input InviteLinksFilter {
@@ -1343,7 +1360,7 @@ type MutationRoot {
 	"""
 	Create an invite link that grants access to a catalog prefix.
 	
-	The caller must have admin capability on the catalog prefix.
+	The caller must be authorized to create invite links on the catalog prefix.
 	Share the returned token with the intended recipient out-of-band.
 	"""
 	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
@@ -1355,7 +1372,7 @@ type MutationRoot {
 	"""
 	Delete an invite link, revoking it so it can no longer be redeemed.
 	
-	The caller must have admin capability on the invite link's catalog prefix.
+	The caller must be authorized to delete invite links on the catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
 	"""
@@ -1939,10 +1956,10 @@ type QueryRoot {
 	"""
 	publicDataPlanes(after: String, before: String, first: Int, last: Int): PublicDataPlaneConnection!
 	"""
-	List invite links the caller has admin access to.
+	List invite links the caller is authorized to query.
 	
-	Returns invite links under all prefixes where the caller has admin
-	capability, optionally narrowed by a prefix filter — a subtree
+	Returns invite links under all authorized prefixes, optionally narrowed
+	by a prefix filter — a subtree
 	(`startsWith`) or an exact set (`in`), not both.
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
