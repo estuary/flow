@@ -436,12 +436,14 @@ impl Actor {
             // Forward the markers; the connector self-selects whether to act,
             // per its key range.
             self.connector_pending.push(materialize::Request {
-                flush: Some(materialize::request::Flush {
-                    state_patches_json: connector_patches_json,
-                    backfill_begins: Self::project_backfill_begins(backfill_begins),
-                    backfill_completes: Self::project_backfill_completes(backfill_completes),
-                    ..Default::default()
-                }),
+                kind: Some(materialize::request::Kind::Flush(
+                    materialize::request::Flush {
+                        state_patches_json: connector_patches_json,
+                        backfill_begins: Self::project_backfill_begins(backfill_begins),
+                        backfill_completes: Self::project_backfill_completes(backfill_completes),
+                        ..Default::default()
+                    },
+                )),
                 ..Default::default()
             });
         } else if let Some(proto::materialize::Store {}) = msg.store {
@@ -474,10 +476,12 @@ impl Actor {
         }) = msg.start_commit
         {
             self.connector_pending.push(materialize::Request {
-                start_commit: Some(materialize::request::StartCommit {
-                    runtime_checkpoint: connector_checkpoint,
-                    state_patches_json: connector_patches_json,
-                }),
+                kind: Some(materialize::request::Kind::StartCommit(
+                    materialize::request::StartCommit {
+                        runtime_checkpoint: connector_checkpoint,
+                        state_patches_json: connector_patches_json,
+                    },
+                )),
                 ..Default::default()
             });
         } else if let Some(proto::materialize::Acknowledge {
@@ -485,9 +489,11 @@ impl Actor {
         }) = msg.acknowledge
         {
             self.connector_pending.push(materialize::Request {
-                acknowledge: Some(materialize::request::Acknowledge {
-                    state_patches_json: connector_patches_json,
-                }),
+                kind: Some(materialize::request::Kind::Acknowledge(
+                    materialize::request::Acknowledge {
+                        state_patches_json: connector_patches_json,
+                    },
+                )),
                 ..Default::default()
             });
         } else if let Some(persist) = msg.persist {
@@ -572,7 +578,11 @@ impl Actor {
         let verify = crate::verify("Materialize", "connector response", "connector");
         let resp = verify.not_eof(resp)?;
 
-        if let Some(materialize::response::Loaded { binding, doc_json }) = resp.loaded {
+        if let Some(materialize::response::Kind::Loaded(materialize::response::Loaded {
+            binding,
+            doc_json,
+        })) = resp.kind
+        {
             let active = self
                 .flushed
                 .entry(binding)
@@ -643,7 +653,10 @@ impl Actor {
             } else {
                 memtable.add(binding_index as u16, doc, true)?;
             }
-        } else if let Some(materialize::response::Flushed { state }) = resp.flushed {
+        } else if let Some(materialize::response::Kind::Flushed(materialize::response::Flushed {
+            state,
+        })) = resp.kind
+        {
             let bindings = std::mem::take(&mut self.flushed).into_values().collect();
             _ = self.leader_tx.send(proto::Materialize {
                 flushed: Some(proto::materialize::Flushed {
@@ -652,14 +665,20 @@ impl Actor {
                 }),
                 ..Default::default()
             });
-        } else if let Some(materialize::response::StartedCommit { state }) = resp.started_commit {
+        } else if let Some(materialize::response::Kind::StartedCommit(
+            materialize::response::StartedCommit { state },
+        )) = resp.kind
+        {
             _ = self.leader_tx.send(proto::Materialize {
                 started_commit: Some(proto::materialize::StartedCommit {
                     connector_patches_json: patches::encode_connector_state(state),
                 }),
                 ..Default::default()
             });
-        } else if let Some(materialize::response::Acknowledged { state }) = resp.acknowledged {
+        } else if let Some(materialize::response::Kind::Acknowledged(
+            materialize::response::Acknowledged { state },
+        )) = resp.kind
+        {
             _ = self.leader_tx.send(proto::Materialize {
                 acknowledged: Some(proto::materialize::Acknowledged {
                     connector_patches_json: patches::encode_connector_state(state),
@@ -739,7 +758,7 @@ mod tests {
     use super::*;
     use crate::shard::materialize::task::{Binding, Source};
     use proto_flow::flow;
-    use proto_flow::materialize::response;
+    use proto_flow::materialize::{request, response};
     use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
     /// An empty Task: no bindings, no sources, no persisted state keys.
@@ -814,19 +833,22 @@ mod tests {
         _ = actor.try_connector_tx();
 
         let request = connector_rx.recv().await.unwrap();
-        assert_eq!(request.acknowledge.unwrap().state_patches_json, patches);
+        let Some(request::Kind::Acknowledge(ack)) = request.kind else {
+            panic!("connector receives C:Acknowledge, got {request:?}")
+        };
+        assert_eq!(ack.state_patches_json, patches);
 
         let mut phase = make_idle_phase();
         actor
             .on_connector_response(
                 &mut phase,
                 Some(Ok(materialize::Response {
-                    acknowledged: Some(response::Acknowledged {
+                    kind: Some(response::Kind::Acknowledged(response::Acknowledged {
                         state: Some(flow::ConnectorState {
                             updated_json: Bytes::from_static(br#"{"done":true}"#),
                             merge_patch: true,
                         }),
-                    }),
+                    })),
                     ..Default::default()
                 })),
             )
@@ -922,19 +944,22 @@ mod tests {
             .unwrap();
 
         let req = actor_to_conn_rx.recv().await.unwrap();
+        let Some(request::Kind::Acknowledge(ack)) = req.kind else {
+            panic!("connector receives C:Acknowledge, got {req:?}")
+        };
         assert_eq!(
-            req.acknowledge.unwrap().state_patches_json,
+            ack.state_patches_json,
             Bytes::from_static(br#"[{"ack":1}]"#),
         );
 
         conn_to_actor_tx
             .send(Ok(materialize::Response {
-                acknowledged: Some(response::Acknowledged {
+                kind: Some(response::Kind::Acknowledged(response::Acknowledged {
                     state: Some(flow::ConnectorState {
                         updated_json: Bytes::from_static(br#"{"ack_done":true}"#),
                         merge_patch: false,
                     }),
-                }),
+                })),
                 ..Default::default()
             }))
             .await
@@ -955,19 +980,22 @@ mod tests {
             .unwrap();
 
         let req = actor_to_conn_rx.recv().await.unwrap();
+        let Some(request::Kind::Flush(flush)) = req.kind else {
+            panic!("connector receives C:Flush, got {req:?}")
+        };
         assert_eq!(
-            req.flush.unwrap().state_patches_json,
+            flush.state_patches_json,
             Bytes::from_static(br#"[{"f":1}]"#),
         );
 
         conn_to_actor_tx
             .send(Ok(materialize::Response {
-                flushed: Some(response::Flushed {
+                kind: Some(response::Kind::Flushed(response::Flushed {
                     state: Some(flow::ConnectorState {
                         updated_json: Bytes::from_static(br#"{"flushed":true}"#),
                         merge_patch: false,
                     }),
-                }),
+                })),
                 ..Default::default()
             }))
             .await
@@ -1003,17 +1031,19 @@ mod tests {
             .unwrap();
 
         let req = actor_to_conn_rx.recv().await.unwrap();
-        let sc = req.start_commit.unwrap();
+        let Some(request::Kind::StartCommit(sc)) = req.kind else {
+            panic!("connector receives C:StartCommit, got {req:?}")
+        };
         assert_eq!(sc.state_patches_json, Bytes::from_static(br#"[{"sc":1}]"#),);
 
         conn_to_actor_tx
             .send(Ok(materialize::Response {
-                started_commit: Some(response::StartedCommit {
+                kind: Some(response::Kind::StartedCommit(response::StartedCommit {
                     state: Some(flow::ConnectorState {
                         updated_json: Bytes::from_static(br#"{"sc_done":true}"#),
                         merge_patch: false,
                     }),
-                }),
+                })),
                 ..Default::default()
             }))
             .await
@@ -1191,7 +1221,7 @@ mod tests {
 
         // C:Loaded rows, split by their document UUID as the actor receives them.
         let loaded = |key: &str, v: &str, uuid: &str| materialize::Response {
-            loaded: Some(materialize::response::Loaded {
+            kind: Some(response::Kind::Loaded(materialize::response::Loaded {
                 binding: 0,
                 doc_json: Bytes::from(
                     serde_json::to_vec(&serde_json::json!({
@@ -1199,7 +1229,7 @@ mod tests {
                     }))
                     .unwrap(),
                 ),
-            }),
+            })),
             ..Default::default()
         };
         for resp in [
@@ -1235,7 +1265,9 @@ mod tests {
             .step(&actor.task.bindings, connector_init::Codec::Json)
             .unwrap()
         {
-            let store = req.store.expect("drained request is a Store");
+            let Some(request::Kind::Store(store)) = req.kind else {
+                panic!("drained request is a Store, got {req:?}")
+            };
             let doc: serde_json::Value = serde_json::from_slice(&store.doc_json).unwrap();
             stores.push((
                 doc.get("key").and_then(|k| k.as_str()).unwrap().to_string(),
@@ -1320,8 +1352,10 @@ mod tests {
             .step(&actor.task.bindings, connector_init::Codec::Json)
             .unwrap()
         {
-            let doc: serde_json::Value =
-                serde_json::from_slice(&req.store.unwrap().doc_json).unwrap();
+            let Some(request::Kind::Store(store)) = req.kind else {
+                panic!("drained request is a Store, got {req:?}")
+            };
+            let doc: serde_json::Value = serde_json::from_slice(&store.doc_json).unwrap();
             keys.push(doc["key"].as_str().unwrap().to_string());
         }
         assert_eq!(
@@ -1347,10 +1381,10 @@ mod tests {
         let result = actor.on_connector_response(
             &mut phase,
             Some(Ok(materialize::Response {
-                loaded: Some(materialize::response::Loaded {
+                kind: Some(response::Kind::Loaded(materialize::response::Loaded {
                     binding: 0,
                     doc_json: Bytes::from(serde_json::to_vec(&doc).unwrap()),
-                }),
+                })),
                 ..Default::default()
             })),
         );

@@ -118,7 +118,7 @@ async fn get_spec_response(
             },
         };
         let request = capture::Request {
-            spec: Some(request),
+            kind: Some(capture::request::Kind::Spec(request)),
             ..Default::default()
         }
         .with_internal(|internal| {
@@ -126,11 +126,11 @@ async fn get_spec_response(
                 internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
             }
         });
-        let response = runtime
-            .unary_capture(request)
-            .await?
-            .spec
-            .context("connector didn't send expected Spec response")?;
+        let Some(capture::response::Kind::Spec(response)) =
+            runtime.unary_capture(request).await?.kind
+        else {
+            anyhow::bail!("connector didn't send expected Spec response");
+        };
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }
@@ -171,7 +171,7 @@ async fn get_spec_response(
         };
 
         let request = derive::Request {
-            spec: Some(request),
+            kind: Some(derive::request::Kind::Spec(request)),
             ..Default::default()
         }
         .with_internal(|internal| {
@@ -179,11 +179,11 @@ async fn get_spec_response(
                 internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
             }
         });
-        let response = runtime
-            .unary_derive(request)
-            .await?
-            .spec
-            .context("connector didn't send expected Spec response")?;
+        let Some(derive::response::Kind::Spec(response)) =
+            runtime.unary_derive(request).await?.kind
+        else {
+            anyhow::bail!("connector didn't send expected Spec response");
+        };
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }
@@ -210,7 +210,7 @@ async fn get_spec_response(
             },
         };
         let request = materialize::Request {
-            spec: Some(request),
+            kind: Some(materialize::request::Kind::Spec(request)),
             ..Default::default()
         }
         .with_internal(|internal| {
@@ -218,11 +218,11 @@ async fn get_spec_response(
                 internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
             }
         });
-        let response = runtime
-            .unary_materialize(request)
-            .await?
-            .spec
-            .context("connector didn't send expected Spec response")?;
+        let Some(materialize::response::Kind::Spec(response)) =
+            runtime.unary_materialize(request).await?.kind
+        else {
+            anyhow::bail!("connector didn't send expected Spec response");
+        };
 
         return serde_json::to_string(&response).context("Failed to serialize spec response");
     }

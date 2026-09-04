@@ -50,7 +50,7 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         &logger,
         log_level,
         materialize::Request {
-            apply: Some(apply),
+            kind: Some(materialize::request::Kind::Apply(apply)),
             ..Default::default()
         },
     )
@@ -60,11 +60,11 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     let verify = crate::verify("Materialize", "Applied", "connector");
     let response = match verify.not_eof(connector_rx.next().await)? {
         materialize::Response {
-            applied:
-                Some(materialize::response::Applied {
+            kind:
+                Some(materialize::response::Kind::Applied(materialize::response::Applied {
                     action_description,
                     state,
-                }),
+                })),
             ..
         } => proto::Materialize {
             applied: Some(proto::Applied {

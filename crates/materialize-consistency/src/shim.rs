@@ -462,30 +462,26 @@ impl Zombie {
 }
 
 fn request_trigger(req: &materialize::Request) -> Option<Trigger> {
-    if req.open.is_some() {
-        Some(Trigger::Open)
-    } else if req.load.is_some() {
-        Some(Trigger::Load)
-    } else if req.flush.is_some() {
-        Some(Trigger::Flush)
-    } else if req.store.is_some() {
-        Some(Trigger::Store)
-    } else if req.start_commit.is_some() {
-        Some(Trigger::StartCommit)
-    } else if req.acknowledge.is_some() {
-        Some(Trigger::Acknowledge)
-    } else {
-        None
+    use materialize::request::Kind;
+
+    match &req.kind {
+        Some(Kind::Open(_)) => Some(Trigger::Open),
+        Some(Kind::Load(_)) => Some(Trigger::Load),
+        Some(Kind::Flush(_)) => Some(Trigger::Flush),
+        Some(Kind::Store(_)) => Some(Trigger::Store),
+        Some(Kind::StartCommit(_)) => Some(Trigger::StartCommit),
+        Some(Kind::Acknowledge(_)) => Some(Trigger::Acknowledge),
+        _ => None,
     }
 }
 
 fn response_trigger(resp: &materialize::Response) -> Option<Trigger> {
-    if resp.started_commit.is_some() {
-        Some(Trigger::StartedCommit)
-    } else if resp.acknowledged.is_some() {
-        Some(Trigger::Acknowledged)
-    } else {
-        None
+    use materialize::response::Kind;
+
+    match &resp.kind {
+        Some(Kind::StartedCommit(_)) => Some(Trigger::StartedCommit),
+        Some(Kind::Acknowledged(_)) => Some(Trigger::Acknowledged),
+        _ => None,
     }
 }
 
@@ -596,7 +592,7 @@ where
             let nth = {
                 let mut counters = shim.counters.lock().unwrap();
 
-                if let Some(store) = &req.store {
+                if let Some(materialize::request::Kind::Store(store)) = &req.kind {
                     let binding = store.binding as usize;
                     if counters.stored.len() <= binding {
                         counters.stored.resize(binding + 1, 0);
@@ -634,7 +630,7 @@ where
                 }
             }
 
-            if let Some(open) = &req.open {
+            if let Some(materialize::request::Kind::Open(open)) = &req.kind {
                 let range = open.range.clone().unwrap_or_default();
                 // Recorded before any fault can fire, because `Open` is the first
                 // request of every session and a rule restricted to a `ShardTarget`

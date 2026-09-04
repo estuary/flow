@@ -256,19 +256,20 @@ async fn spec_materialization(
     };
 
     let req = materialize::Request {
-        spec: Some(materialize::request::Spec {
-            connector_type,
-            config_json,
-        }),
+        kind: Some(materialize::request::Kind::Spec(
+            materialize::request::Spec {
+                connector_type,
+                config_json,
+            },
+        )),
         ..Default::default()
     };
 
     // TODO(johnny): select a data-plane and use ProxyConnectors.
-    let spec = runtime
-        .unary_materialize(req)
-        .await?
-        .spec
-        .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
+    let Some(materialize::response::Kind::Spec(spec)) = runtime.unary_materialize(req).await?.kind
+    else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
 
     let materialize::response::Spec {
         protocol: _,
@@ -301,21 +302,19 @@ async fn spec_capture(
 ) -> anyhow::Result<ConnectorSpec> {
     use proto_flow::capture;
     let req = capture::Request {
-        spec: Some(capture::request::Spec {
+        kind: Some(capture::request::Kind::Spec(capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: serde_json::json!({"image": image, "config": {}})
                 .to_string()
                 .into(),
-        }),
+        })),
         ..Default::default()
     };
 
     // TODO(johnny): select a data-plane and use ProxyConnectors.
-    let spec = runtime
-        .unary_capture(req)
-        .await?
-        .spec
-        .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
+    let Some(capture::response::Kind::Spec(spec)) = runtime.unary_capture(req).await?.kind else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
 
     let capture::response::Spec {
         // protocol here is the numeric version of the capture protocol

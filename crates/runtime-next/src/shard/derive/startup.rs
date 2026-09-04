@@ -193,12 +193,12 @@ where
         .context("invalid CollectionSpec in L:Open")?;
 
     let initial = derive::Request {
-        open: Some(derive::request::Open {
+        kind: Some(derive::request::Kind::Open(derive::request::Open {
             collection: Some(open_spec),
             version,
             range,
             state_json: connector_state_json,
-        }),
+        })),
         ..Default::default()
     };
 
@@ -208,7 +208,7 @@ where
     let verify = crate::verify("Derive", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {
         derive::Response {
-            opened: Some(opened),
+            kind: Some(derive::response::Kind::Opened(opened)),
             ..
         } => opened,
         other => return Err(verify.fail_msg(other)),

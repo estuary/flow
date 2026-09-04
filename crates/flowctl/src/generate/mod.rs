@@ -151,11 +151,7 @@ async fn generate_missing_capture_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let capture::response::Spec {
-        config_schema_json,
-        resource_config_schema_json,
-        ..
-    } = runtime::Runtime::new(
+    let response = runtime::Runtime::new(
         runtime::Plane::Local,
         String::new(), // Default network.
         ops::tracing_log_handler,
@@ -163,12 +159,19 @@ async fn generate_missing_capture_configs(
         format!("spec/{capture}"),
     )
     .unary_capture(capture::Request {
-        spec: Some(spec),
+        kind: Some(capture::request::Kind::Spec(spec)),
         ..Default::default()
     })
-    .await?
-    .spec
-    .context("connector didn't send expected Spec response")?;
+    .await?;
+
+    let Some(capture::response::Kind::Spec(capture::response::Spec {
+        config_schema_json,
+        resource_config_schema_json,
+        ..
+    })) = response.kind
+    else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
 
     stub_missing_configs(
         &config_schema_json,
@@ -233,11 +236,7 @@ async fn generate_missing_collection_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let derive::response::Spec {
-        config_schema_json,
-        resource_config_schema_json,
-        ..
-    } = runtime::Runtime::new(
+    let response = runtime::Runtime::new(
         runtime::Plane::Local,
         String::new(), // Default network.
         ops::tracing_log_handler,
@@ -245,12 +244,19 @@ async fn generate_missing_collection_configs(
         format!("spec/{collection}"),
     )
     .unary_derive(derive::Request {
-        spec: Some(spec),
+        kind: Some(derive::request::Kind::Spec(spec)),
         ..Default::default()
     })
-    .await?
-    .spec
-    .context("connector didn't send expected Spec response")?;
+    .await?;
+
+    let Some(derive::response::Kind::Spec(derive::response::Spec {
+        config_schema_json,
+        resource_config_schema_json,
+        ..
+    })) = response.kind
+    else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
 
     stub_missing_configs(
         &config_schema_json,
@@ -314,11 +320,7 @@ async fn generate_missing_materialization_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let materialize::response::Spec {
-        config_schema_json,
-        resource_config_schema_json,
-        ..
-    } = runtime::Runtime::new(
+    let response = runtime::Runtime::new(
         runtime::Plane::Local,
         String::new(), // Default network.
         ops::tracing_log_handler,
@@ -326,12 +328,19 @@ async fn generate_missing_materialization_configs(
         format!("spec/{materialization}"),
     )
     .unary_materialize(materialize::Request {
-        spec: Some(spec),
+        kind: Some(materialize::request::Kind::Spec(spec)),
         ..Default::default()
     })
-    .await?
-    .spec
-    .context("connector didn't send expected Spec response")?;
+    .await?;
+
+    let Some(materialize::response::Kind::Spec(materialize::response::Spec {
+        config_schema_json,
+        resource_config_schema_json,
+        ..
+    })) = response.kind
+    else {
+        anyhow::bail!("connector didn't send expected Spec response");
+    };
 
     stub_missing_configs(
         &config_schema_json,

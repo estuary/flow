@@ -391,9 +391,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         }) = msg.flush
         {
             self.connector_pending.push(derive::Request {
-                flush: Some(derive::request::Flush {
+                kind: Some(derive::request::Kind::Flush(derive::request::Flush {
                     state_patches_json: connector_patches_json,
-                }),
+                })),
                 ..Default::default()
             });
         } else if let Some(proto::derive::Store {}) = msg.store {
@@ -440,9 +440,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         }) = msg.start_commit
         {
             self.connector_pending.push(derive::Request {
-                start_commit: Some(derive::request::StartCommit {
-                    runtime_checkpoint: connector_checkpoint,
-                }),
+                kind: Some(derive::request::Kind::StartCommit(
+                    derive::request::StartCommit {
+                        runtime_checkpoint: connector_checkpoint,
+                    },
+                )),
                 ..Default::default()
             });
         } else if let Some(persist) = msg.persist {
@@ -517,7 +519,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let verify = crate::verify("Derive", "connector response", "connector");
         let resp = verify.not_eof(resp)?;
 
-        if let Some(derive::response::Published { doc_json }) = resp.published {
+        if let Some(derive::response::Kind::Published(derive::response::Published { doc_json })) =
+            resp.kind
+        {
             let (memtable, alloc, mut doc) = accumulator
                 .parse_json_doc(&doc_json)
                 .context("couldn't parse derived document as JSON")?;
@@ -540,7 +544,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             self.metrics
                 .published_bytes
                 .increment(doc_json.len() as u64);
-        } else if let Some(derive::response::Flushed { state, more }) = resp.flushed {
+        } else if let Some(derive::response::Kind::Flushed(derive::response::Flushed {
+            state,
+            more,
+        })) = resp.kind
+        {
             _ = self.leader_tx.send(proto::Derive {
                 flushed: Some(proto::derive::Flushed {
                     connector_patches_json: patches::encode_connector_state(state),
@@ -548,7 +556,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }),
                 ..Default::default()
             });
-        } else if let Some(derive::response::StartedCommit { state }) = resp.started_commit {
+        } else if let Some(derive::response::Kind::StartedCommit(
+            derive::response::StartedCommit { state },
+        )) = resp.kind
+        {
             // V2 connectors report state via Flushed; StartedCommit.state is the
             // deprecated V1 path and must be empty here.
             if let Some(state) = &state {
@@ -587,7 +598,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             });
         } else if matches!(msg.reset, Some(proto::Reset {})) {
             self.connector_pending.push(derive::Request {
-                reset: Some(derive::request::Reset {}),
+                kind: Some(derive::request::Kind::Reset(derive::request::Reset {})),
                 ..Default::default()
             });
             _ = self.controller_tx.send(Ok(proto::Derive {
@@ -631,7 +642,7 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
 mod tests {
     use super::super::{Source, Transform};
     use super::*;
-    use proto_flow::derive::response;
+    use proto_flow::derive::{request, response};
     use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
     fn test_task() -> Task {
@@ -803,9 +814,9 @@ mod tests {
         // 1) The connector publishes one derived document into the combiner.
         conn_to_actor_tx
             .send(Ok(derive::Response {
-                published: Some(response::Published {
+                kind: Some(response::Kind::Published(response::Published {
                     doc_json: bytes::Bytes::from_static(br#"{"id":"a","_meta":{"uuid":""}}"#),
-                }),
+                })),
                 ..Default::default()
             }))
             .await
@@ -825,7 +836,10 @@ mod tests {
                 .unwrap();
 
             let req = actor_to_conn_rx.recv().await.unwrap();
-            assert!(req.reset.is_some(), "connector receives C:Reset");
+            assert!(
+                matches!(req.kind, Some(request::Kind::Reset(_))),
+                "connector receives C:Reset"
+            );
 
             let done = actor_to_controller_rx.recv().await.unwrap().unwrap();
             assert!(done.reset_done.is_some(), "controller receives ResetDone");
@@ -846,17 +860,20 @@ mod tests {
             .unwrap();
 
         let req = actor_to_conn_rx.recv().await.unwrap();
+        let Some(request::Kind::Flush(flush)) = req.kind else {
+            panic!("connector receives C:Flush, got {req:?}")
+        };
         assert_eq!(
-            req.flush.unwrap().state_patches_json,
+            flush.state_patches_json,
             bytes::Bytes::from_static(br#"[{"f":1}]"#),
         );
 
         conn_to_actor_tx
             .send(Ok(derive::Response {
-                flushed: Some(response::Flushed {
+                kind: Some(response::Kind::Flushed(response::Flushed {
                     state: None,
                     more: false,
-                }),
+                })),
                 ..Default::default()
             }))
             .await
@@ -892,11 +909,16 @@ mod tests {
             .unwrap();
 
         let req = actor_to_conn_rx.recv().await.unwrap();
-        assert!(req.start_commit.unwrap().runtime_checkpoint.is_some());
+        let Some(request::Kind::StartCommit(start_commit)) = req.kind else {
+            panic!("connector receives C:StartCommit, got {req:?}")
+        };
+        assert!(start_commit.runtime_checkpoint.is_some());
 
         conn_to_actor_tx
             .send(Ok(derive::Response {
-                started_commit: Some(response::StartedCommit { state: None }),
+                kind: Some(response::Kind::StartedCommit(response::StartedCommit {
+                    state: None,
+                })),
                 ..Default::default()
             }))
             .await

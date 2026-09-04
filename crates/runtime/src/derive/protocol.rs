@@ -12,21 +12,19 @@ use proto_gazette::uuid::Clock;
 use std::collections::BTreeMap;
 
 pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Result<Response> {
-    if request.spec.is_some() && response.spec.is_some() {
-        Ok(response)
-    } else if request.spec.is_some() {
-        verify("connector", "Spec").fail(response)
-    } else if request.validate.is_some() && response.validated.is_some() {
-        Ok(response)
-    } else if request.validate.is_some() {
-        verify("connector", "Validated").fail(response)
-    } else {
-        verify("client", "unary request").fail(request)
+    match (&request.kind, &response.kind) {
+        (Some(request::Kind::Spec(_)), Some(response::Kind::Spec(_))) => Ok(response),
+        (Some(request::Kind::Spec(_)), _) => verify("connector", "Spec").fail(response),
+
+        (Some(request::Kind::Validate(_)), Some(response::Kind::Validated(_))) => Ok(response),
+        (Some(request::Kind::Validate(_)), _) => verify("connector", "Validated").fail(response),
+
+        _ => verify("client", "unary request").fail(request),
     }
 }
 
 pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
-    let Some(open) = open.open.as_mut() else {
+    let Some(request::Kind::Open(open)) = open.kind.as_mut() else {
         return verify("client", "Open").fail(open);
     };
 
@@ -63,10 +61,10 @@ pub async fn recv_connector_opened(
         .await
         .context("failed to load runtime checkpoint from RocksDB")?;
 
-    let opened_checkpoint = opened
-        .opened
-        .as_ref()
-        .and_then(|opened| opened.runtime_checkpoint.clone());
+    let opened_checkpoint = match &opened.kind {
+        Some(response::Kind::Opened(opened)) => opened.runtime_checkpoint.clone(),
+        _ => None,
+    };
 
     if let Some(connector_checkpoint) = opened_checkpoint {
         checkpoint = connector_checkpoint;
@@ -81,7 +79,7 @@ pub async fn recv_connector_opened(
         );
     }
 
-    if let Some(opened) = opened.opened.as_mut() {
+    if let Some(response::Kind::Opened(opened)) = opened.kind.as_mut() {
         opened.runtime_checkpoint = Some(checkpoint.clone());
     }
 
@@ -102,15 +100,17 @@ pub fn recv_client_read_or_flush(
 
     let read = match request {
         Some(Request {
-            read: Some(read), ..
+            kind: Some(request::Kind::Read(read)),
+            ..
         }) => read,
         Some(Request {
-            flush: Some(flush), ..
+            kind: Some(request::Kind::Flush(flush)),
+            ..
         }) => {
             *saw_flush = true;
 
             return Ok(Some(Request {
-                flush: Some(flush),
+                kind: Some(request::Kind::Flush(flush)),
                 ..Default::default()
             }));
         }
@@ -156,7 +156,7 @@ pub fn recv_client_read_or_flush(
     }
 
     Ok(Some(Request {
-        read: Some(read),
+        kind: Some(request::Kind::Read(read)),
         ..Default::default()
     }))
 }
@@ -173,19 +173,20 @@ pub fn recv_connector_published_or_flushed(
         Some(Response {
             // The V1 runtime ignores Flushed.state (it persists connector state
             // from StartedCommit.state); V2 connectors report state via Flushed.
-            flushed: Some(response::Flushed { .. }),
+            kind: Some(response::Kind::Flushed(response::Flushed { .. })),
             ..
         }) if saw_flush => {
             *saw_flushed = true;
             return Ok(());
         }
         Some(Response {
-            flushed: Some(_), ..
+            kind: Some(response::Kind::Flushed(_)),
+            ..
         }) => {
             anyhow::bail!("connector sent Flushed before receiving Flush")
         }
         Some(Response {
-            published: Some(published),
+            kind: Some(response::Kind::Published(published)),
             ..
         }) => published,
         response => return verify("connector", "Published or Flushed").fail(response),
@@ -257,7 +258,7 @@ pub fn send_client_published(
     }
 
     Response {
-        published: Some(response::Published { doc_json }),
+        kind: Some(response::Kind::Published(response::Published { doc_json })),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {
@@ -310,10 +311,10 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     };
 
     Response {
-        flushed: Some(response::Flushed {
+        kind: Some(response::Kind::Flushed(response::Flushed {
             state: None,
             more: false,
-        }),
+        })),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {
@@ -330,10 +331,10 @@ pub fn recv_client_start_commit(
     let mut request = verify.not_eof(request)?;
 
     let Request {
-        start_commit:
-            Some(request::StartCommit {
+        kind:
+            Some(request::Kind::StartCommit(request::StartCommit {
                 runtime_checkpoint: Some(runtime_checkpoint),
-            }),
+            })),
         ..
     } = &mut request
     else {
@@ -380,7 +381,7 @@ pub async fn recv_connector_started_commit(
     let response = verify.not_eof(response)?;
 
     let Response {
-        started_commit: Some(response::StartedCommit { state }),
+        kind: Some(response::Kind::StartedCommit(response::StartedCommit { state })),
         ..
     } = &response
     else {

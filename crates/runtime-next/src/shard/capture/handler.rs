@@ -245,7 +245,7 @@ where
     .await?;
 
     let open = capture::Request {
-        open: Some(capture::request::Open {
+        kind: Some(capture::request::Kind::Open(capture::request::Open {
             capture: Some(spec.clone()),
             version: version.clone(),
             range: Some(range.clone()),
@@ -253,7 +253,7 @@ where
             // Populated by `connector::start` with the matched endpoint's inner
             // sealed configuration, which is not yet extracted from `spec` here.
             sealed_config_json: Default::default(),
-        }),
+        })),
         ..Default::default()
     };
     let (connector_tx, mut connector_rx, container, token_restart_at) =
@@ -261,10 +261,10 @@ where
     let verify = crate::verify("Capture", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {
         capture::Response {
-            opened: Some(opened),
+            kind: Some(capture::response::Kind::Opened(opened)),
             ..
         } => capture::Response {
-            opened: Some(opened),
+            kind: Some(capture::response::Kind::Opened(opened)),
             ..Default::default()
         },
         response => return Err(verify.fail_msg(response)),
@@ -417,7 +417,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             logger,
             log_level,
             capture::Request {
-                apply: Some(apply),
+                kind: Some(capture::request::Kind::Apply(apply)),
                 ..Default::default()
             },
         )
@@ -428,11 +428,11 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         let (action_description, applied_patches_json) =
             match verify.not_eof(connector_rx.next().await)? {
                 capture::Response {
-                    applied:
-                        Some(capture::response::Applied {
+                    kind:
+                        Some(capture::response::Kind::Applied(capture::response::Applied {
                             action_description,
                             state,
-                        }),
+                        })),
                     ..
                 } => (
                     action_description,

@@ -5,7 +5,7 @@ use futures::channel::oneshot;
 use futures::future::FusedFuture;
 use futures::stream::FusedStream;
 use futures::{FutureExt, SinkExt, StreamExt, TryStreamExt};
-use proto_flow::capture::{Request, Response, request};
+use proto_flow::capture::{Request, Response, request, response};
 use std::collections::{BTreeMap, HashSet};
 
 #[tonic::async_trait]
@@ -43,7 +43,7 @@ impl<L: LogHandler> Runtime<L> {
             while let Some(request) = next {
                 self.set_log_level(request.get_internal()?.log_level());
 
-                if request.open.is_some() {
+                if matches!(request.kind, Some(request::Kind::Open(_))) {
                     next =
                         serve_session(&mut co, &db, request, &mut request_rx, &self, &mut shapes)
                             .await?;
@@ -122,11 +122,16 @@ async fn serve_session<L: LogHandler>(
             //
             // The caller must await our reply before sending its next message.
             Some(Request {
-                acknowledge: Some(ack),
+                kind: Some(request::Kind::Acknowledge(ack)),
                 ..
             }) => ack,
             // An Open or Apply gracefully ends this session.
-            Some(request) if request.open.is_some() || request.apply.is_some() => {
+            Some(request)
+                if matches!(
+                    request.kind,
+                    Some(request::Kind::Open(_) | request::Kind::Apply(_))
+                ) =>
+            {
                 *shapes_by_key = task.binding_shapes_by_key(shapes);
                 return Ok(Some(request));
             }
@@ -288,12 +293,17 @@ async fn read_checkpoint(
 ) -> anyhow::Result<()> {
     // Read all Captured and SourcedSchema responses of the checkpoint.
     loop {
-        if let Some(captured) = response.captured {
-            recv_connector_captured(accumulator, captured, task, txn)?;
-        } else if let Some(sourced) = response.sourced_schema {
-            recv_connector_sourced_schema(sourced, task, txn)?;
-        } else {
-            break;
+        match response.kind {
+            Some(response::Kind::Captured(captured)) => {
+                recv_connector_captured(accumulator, captured, task, txn)?
+            }
+            Some(response::Kind::SourcedSchema(sourced)) => {
+                recv_connector_sourced_schema(sourced, task, txn)?
+            }
+            kind => {
+                response.kind = kind;
+                break;
+            }
         }
 
         // Read next response.

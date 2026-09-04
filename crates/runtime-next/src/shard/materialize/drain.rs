@@ -146,7 +146,7 @@ impl Drainer {
         };
 
         Ok(Some(materialize::Request {
-            store: Some(store),
+            kind: Some(materialize::request::Kind::Store(store)),
             ..Default::default()
         }))
     }

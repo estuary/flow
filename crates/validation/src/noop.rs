@@ -18,32 +18,32 @@ impl Connectors for NoOpConnectors {
         R: futures::Stream<Item = capture::Request> + Send + Unpin + 'static,
     {
         request_rx.map(|request| {
-            let response = if let Some(_spec) = request.spec {
-                capture::Response {
-                    spec: Some(capture::response::Spec {
+            let response = match request.kind {
+                Some(capture::request::Kind::Spec(_spec)) => capture::Response {
+                    kind: Some(capture::response::Kind::Spec(capture::response::Spec {
                         resource_path_pointers: Vec::new(),
                         config_schema_json: "true".into(),
                         resource_config_schema_json: "true".into(),
                         ..Default::default()
-                    }),
+                    })),
                     ..Default::default()
-                }
-            } else if let Some(validate) = request.validate {
-                capture::Response {
-                    validated: Some(capture::response::Validated {
-                        bindings: validate
-                            .bindings
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| capture::response::validated::Binding {
-                                resource_path: vec![format!("binding-{i}")],
-                            })
-                            .collect(),
-                    }),
+                },
+                Some(capture::request::Kind::Validate(validate)) => capture::Response {
+                    kind: Some(capture::response::Kind::Validated(
+                        capture::response::Validated {
+                            bindings: validate
+                                .bindings
+                                .iter()
+                                .enumerate()
+                                .map(|(i, _)| capture::response::validated::Binding {
+                                    resource_path: vec![format!("binding-{i}")],
+                                })
+                                .collect(),
+                        },
+                    )),
                     ..Default::default()
-                }
-            } else {
-                anyhow::bail!("expected Spec or Validate")
+                },
+                _ => anyhow::bail!("expected Spec or Validate"),
             };
             Ok(response)
         })
@@ -59,22 +59,22 @@ impl Connectors for NoOpConnectors {
         R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
     {
         request_rx.map(|request| {
-            let response = if let Some(_spec) = request.spec {
-                derive::Response {
-                    spec: Some(derive::response::Spec {
+            let response = match request.kind {
+                Some(derive::request::Kind::Spec(_spec)) => derive::Response {
+                    kind: Some(derive::response::Kind::Spec(derive::response::Spec {
                         config_schema_json: "true".into(),
                         resource_config_schema_json: "true".into(),
                         ..Default::default()
-                    }),
+                    })),
                     ..Default::default()
-                }
-            } else if let Some(_validate) = request.validate {
-                derive::Response {
-                    validated: Some(derive::response::Validated::default()),
+                },
+                Some(derive::request::Kind::Validate(_validate)) => derive::Response {
+                    kind: Some(derive::response::Kind::Validated(
+                        derive::response::Validated::default(),
+                    )),
                     ..Default::default()
-                }
-            } else {
-                anyhow::bail!("expected Spec or Validate")
+                },
+                _ => anyhow::bail!("expected Spec or Validate"),
             };
             Ok(response)
         })
@@ -90,18 +90,19 @@ impl Connectors for NoOpConnectors {
         R: futures::Stream<Item = materialize::Request> + Send + Unpin + 'static,
     {
         request_rx.map(|request| {
-            let response = if let Some(_spec) = request.spec {
-                materialize::Response {
-                    spec: Some(materialize::response::Spec {
-                        config_schema_json: "true".into(),
-                        resource_config_schema_json: "true".into(),
-                        ..Default::default()
-                    }),
+            let response = match request.kind {
+                Some(materialize::request::Kind::Spec(_spec)) => materialize::Response {
+                    kind: Some(materialize::response::Kind::Spec(
+                        materialize::response::Spec {
+                            config_schema_json: "true".into(),
+                            resource_config_schema_json: "true".into(),
+                            ..Default::default()
+                        },
+                    )),
                     ..Default::default()
-                }
-            } else if let Some(validate) = request.validate {
-                materialize::Response {
-                    validated: Some(materialize::response::Validated {
+                },
+                Some(materialize::request::Kind::Validate(validate)) => materialize::Response {
+                    kind: Some(materialize::response::Kind::Validated(materialize::response::Validated {
                         bindings: validate
                             .resolved_bindings()
                             .enumerate()
@@ -131,11 +132,10 @@ impl Connectors for NoOpConnectors {
                                 }
                             })
                             .collect(),
-                    }),
+                    })),
                     ..Default::default()
-                }
-            } else {
-                anyhow::bail!("expected Spec or Validate")
+                },
+                _ => anyhow::bail!("expected Spec or Validate"),
             };
             Ok(response)
         })

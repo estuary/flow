@@ -20,37 +20,41 @@ pub fn run() -> anyhow::Result<()> {
         };
         let request: proto_flow::derive::Request = serde_json::from_str(&line)?;
 
-        if let Some(_) = request.spec {
-            stdout.write(
-                &serde_json::to_vec(&derive::Response {
-                    spec: Some(derive::response::Spec {
-                        protocol: 3032023,
-                        config_schema_json: "{}".to_string().into(),
-                        resource_config_schema_json: "{}".to_string().into(),
-                        documentation_url: "https://docs.estuary.dev".to_string(),
-                        oauth2: None,
-                    }),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )?;
-        } else if let Some(request) = request.validate {
-            stdout.write(
-                &serde_json::to_vec(&derive::Response {
-                    validated: Some(validate(request)?),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )?;
-        } else if let Some(_) = request.open {
-            break request;
-        } else {
-            anyhow::bail!("unexpected request {request:?}")
+        match &request.kind {
+            Some(derive::request::Kind::Spec(_)) => {
+                stdout.write(
+                    &serde_json::to_vec(&derive::Response {
+                        kind: Some(derive::response::Kind::Spec(derive::response::Spec {
+                            protocol: 3032023,
+                            config_schema_json: "{}".to_string().into(),
+                            resource_config_schema_json: "{}".to_string().into(),
+                            documentation_url: "https://docs.estuary.dev".to_string(),
+                            oauth2: None,
+                        })),
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )?;
+            }
+            Some(derive::request::Kind::Validate(request)) => {
+                stdout.write(
+                    &serde_json::to_vec(&derive::Response {
+                        kind: Some(derive::response::Kind::Validated(validate(request)?)),
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )?;
+            }
+            Some(derive::request::Kind::Open(_)) => break request,
+            _ => anyhow::bail!("unexpected request {request:?}"),
         }
         stdout.write("\n".as_bytes())?;
     };
 
-    let collection = open.open.as_ref().unwrap().collection.as_ref().unwrap();
+    let Some(derive::request::Kind::Open(open_kind)) = &open.kind else {
+        unreachable!("loop breaks only on an Open request");
+    };
+    let collection = open_kind.collection.as_ref().unwrap();
     let derivation = collection.derivation.as_ref().unwrap();
 
     let config = serde_json::from_slice::<Config>(&derivation.config_json).unwrap();
@@ -124,7 +128,7 @@ pub struct LambdaConfig {
     read_only: bool,
 }
 
-fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::response::Validated> {
+fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::response::Validated> {
     let derive::request::Validate {
         connector_type: _,
         collection,
@@ -134,7 +138,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         project_root,
         import_map,
         ..
-    } = &validate;
+    } = validate;
 
     let collection = collection.as_ref().unwrap();
 

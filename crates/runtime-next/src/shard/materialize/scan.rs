@@ -190,11 +190,13 @@ impl Scanner {
                 };
 
                 out.push(materialize::Request {
-                    load: Some(materialize::request::Load {
-                        binding: binding_index,
-                        key_json,
-                        key_packed,
-                    }),
+                    kind: Some(materialize::request::Kind::Load(
+                        materialize::request::Load {
+                            binding: binding_index,
+                            key_json,
+                            key_packed,
+                        },
+                    )),
                     ..Default::default()
                 });
             }

@@ -742,10 +742,10 @@ impl validation::Connectors for MockDriverCalls {
     {
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if let Some(_spec) = request.spec {
+                if let Some(capture::request::Kind::Spec(_spec)) = request.kind {
                     () = co
                         .yield_(capture::Response {
-                            spec: Some(capture::response::Spec {
+                            kind: Some(capture::response::Kind::Spec(capture::response::Spec {
                                 config_schema_json: serde_json::json!({
                                     "type": "object",
                                 })
@@ -763,14 +763,14 @@ impl validation::Connectors for MockDriverCalls {
                                 .into(),
                                 resource_path_pointers: Vec::new(),
                                 ..Default::default()
-                            }),
+                            })),
                             ..Default::default()
                         })
                         .await;
                     continue;
                 }
 
-                let Some(validate) = request.validate else {
+                let Some(capture::request::Kind::Validate(validate)) = request.kind else {
                     anyhow::bail!("expected Spec or Validate")
                 };
 
@@ -816,7 +816,9 @@ impl validation::Connectors for MockDriverCalls {
                 () = co
                     .yield_(
                         capture::Response {
-                            validated: Some(capture::response::Validated { bindings }),
+                            kind: Some(capture::response::Kind::Validated(
+                                capture::response::Validated { bindings },
+                            )),
                             ..Default::default()
                         }
                         .with_internal(|internal| {
@@ -845,21 +847,21 @@ impl validation::Connectors for MockDriverCalls {
     {
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if let Some(_spec) = request.spec {
+                if let Some(derive::request::Kind::Spec(_spec)) = request.kind {
                     () = co
                         .yield_(derive::Response {
-                            spec: Some(derive::response::Spec {
+                            kind: Some(derive::response::Kind::Spec(derive::response::Spec {
                                 config_schema_json: "true".into(),
                                 resource_config_schema_json: "true".into(),
                                 ..Default::default()
-                            }),
+                            })),
                             ..Default::default()
                         })
                         .await;
                     continue;
                 }
 
-                let Some(validate) = request.validate else {
+                let Some(derive::request::Kind::Validate(validate)) = request.kind else {
                     anyhow::bail!("expected Spec or Validate")
                 };
 
@@ -918,10 +920,12 @@ impl validation::Connectors for MockDriverCalls {
                 () = co
                     .yield_(
                         derive::Response {
-                            validated: Some(derive::response::Validated {
-                                transforms,
-                                generated_files: call.generated_files.clone(),
-                            }),
+                            kind: Some(derive::response::Kind::Validated(
+                                derive::response::Validated {
+                                    transforms,
+                                    generated_files: call.generated_files.clone(),
+                                },
+                            )),
                             ..Default::default()
                         }
                         .with_internal(|internal| {
@@ -950,34 +954,36 @@ impl validation::Connectors for MockDriverCalls {
     {
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if let Some(_spec) = request.spec {
+                if let Some(materialize::request::Kind::Spec(_spec)) = request.kind {
                     () = co
                         .yield_(materialize::Response {
-                            spec: Some(materialize::response::Spec {
-                                config_schema_json: serde_json::json!({
-                                    "type": "object",
-                                })
-                                .to_string()
-                                .into(),
-                                resource_config_schema_json: serde_json::json!({
-                                    "type": "object",
-                                    "properties": {
-                                        "schema": {"type": "string", "x-schema-name": true},
-                                        "target": {"type": "string", "x-collection-name": true},
-                                    },
-                                    "required": ["target"]
-                                })
-                                .to_string()
-                                .into(),
-                                ..Default::default()
-                            }),
+                            kind: Some(materialize::response::Kind::Spec(
+                                materialize::response::Spec {
+                                    config_schema_json: serde_json::json!({
+                                        "type": "object",
+                                    })
+                                    .to_string()
+                                    .into(),
+                                    resource_config_schema_json: serde_json::json!({
+                                        "type": "object",
+                                        "properties": {
+                                            "schema": {"type": "string", "x-schema-name": true},
+                                            "target": {"type": "string", "x-collection-name": true},
+                                        },
+                                        "required": ["target"]
+                                    })
+                                    .to_string()
+                                    .into(),
+                                    ..Default::default()
+                                },
+                            )),
                             ..Default::default()
                         })
                         .await;
                     continue;
                 }
 
-                let Some(validate) = request.validate else {
+                let Some(materialize::request::Kind::Validate(validate)) = request.kind else {
                     anyhow::bail!("expected Spec or Validate")
                 };
 
@@ -1046,7 +1052,9 @@ impl validation::Connectors for MockDriverCalls {
                 () = co
                     .yield_(
                         materialize::Response {
-                            validated: Some(materialize::response::Validated { bindings }),
+                            kind: Some(materialize::response::Kind::Validated(
+                                materialize::response::Validated { bindings },
+                            )),
                             ..Default::default()
                         }
                         .with_internal(|internal| {

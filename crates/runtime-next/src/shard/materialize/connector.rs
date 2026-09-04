@@ -113,16 +113,21 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
 
     // Send an initial Spec request which may direct us to perform an IAM token exchange.
     _ = connector_tx.try_send(materialize::Request {
-        spec: Some(materialize::request::Spec {
-            config_json: "{}".into(),
-            connector_type: connector_type,
-        }),
+        kind: Some(materialize::request::Kind::Spec(
+            materialize::request::Spec {
+                config_json: "{}".into(),
+                connector_type: connector_type,
+            },
+        )),
         ..Default::default()
     });
 
     let verify = crate::verify("Materialize", "spec response", "connector");
     let spec_response = match verify.not_eof(connector_rx.next().await)? {
-        materialize::Response { spec: Some(r), .. } => r,
+        materialize::Response {
+            kind: Some(materialize::response::Kind::Spec(r)),
+            ..
+        } => r,
         response => return Err(verify.fail_msg(response)),
     };
 
@@ -183,46 +188,43 @@ fn extract_endpoint<'r>(
     Option<String>,
     Option<&'r mut bytes::Bytes>,
 )> {
-    let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
-        materialize::Request {
-            apply: Some(apply), ..
-        } => {
-            let catalog_name = apply.materialization.as_ref().map(|m| m.name.clone());
-            let inner = apply
-                .materialization
-                .as_mut()
-                .context("`apply` missing required `materialization`")?;
+    let verify = crate::verify("Materialize", "valid first request", "controller");
+    if request.kind.is_none() {
+        return Err(verify.fail_msg(&request));
+    }
+    let (connector_type, config_json, catalog_name, sealed_config_json) =
+        match request.kind.as_mut().expect("checked above") {
+            materialize::request::Kind::Apply(apply) => {
+                let catalog_name = apply.materialization.as_ref().map(|m| m.name.clone());
+                let inner = apply
+                    .materialization
+                    .as_mut()
+                    .context("`apply` missing required `materialization`")?;
 
-            (
-                inner.connector_type,
-                &mut inner.config_json,
-                catalog_name,
-                None,
-            )
-        }
-        materialize::Request {
-            open: Some(open), ..
-        } => {
-            let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
-            let sealed_config_json = &mut open.sealed_config_json;
-            let inner = open
-                .materialization
-                .as_mut()
-                .context("`open` missing required `materialization`")?;
+                (
+                    inner.connector_type,
+                    &mut inner.config_json,
+                    catalog_name,
+                    None,
+                )
+            }
+            materialize::request::Kind::Open(open) => {
+                let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
+                let sealed_config_json = &mut open.sealed_config_json;
+                let inner = open
+                    .materialization
+                    .as_mut()
+                    .context("`open` missing required `materialization`")?;
 
-            (
-                inner.connector_type,
-                &mut inner.config_json,
-                catalog_name,
-                Some(sealed_config_json),
-            )
-        }
-        request => {
-            return Err(
-                crate::verify("Materialize", "valid first request", "controller").fail_msg(request),
-            );
-        }
-    };
+                (
+                    inner.connector_type,
+                    &mut inner.config_json,
+                    catalog_name,
+                    Some(sealed_config_json),
+                )
+            }
+            other => return Err(verify.fail_msg(other)),
+        };
 
     if connector_type == flow::materialization_spec::ConnectorType::Image as i32 {
         Ok((

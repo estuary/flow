@@ -75,17 +75,23 @@ pub struct Target {
 
 impl Task {
     pub fn new(open: &Request, opened: &Response, max_transactions: u32) -> anyhow::Result<Self> {
-        let request::Open {
+        let Some(request::Kind::Open(request::Open {
             capture: spec,
             range,
             state_json: _,
             sealed_config_json: _,
             version,
-        } = open.clone().open.context("expected Open")?;
+        })) = open.kind.clone()
+        else {
+            anyhow::bail!("expected Open");
+        };
 
-        let response::Opened {
+        let Some(response::Kind::Opened(response::Opened {
             explicit_acknowledgements,
-        } = opened.clone().opened.context("expected Opened")?;
+        })) = opened.kind
+        else {
+            anyhow::bail!("expected Opened");
+        };
 
         let spec = spec.as_ref().context("missing capture")?;
 
@@ -529,7 +535,7 @@ pub(crate) mod fixture {
     /// The Open / Opened pair carrying `spec`, as `Task::new` consumes them.
     pub(crate) fn open(spec: flow::CaptureSpec) -> (Request, Response) {
         let open = Request {
-            open: Some(request::Open {
+            kind: Some(request::Kind::Open(request::Open {
                 capture: Some(spec),
                 range: Some(flow::RangeSpec {
                     key_begin: 0,
@@ -539,13 +545,13 @@ pub(crate) mod fixture {
                 }),
                 version: "aabbccdd".to_string(),
                 ..Default::default()
-            }),
+            })),
             ..Default::default()
         };
         let opened = Response {
-            opened: Some(response::Opened {
+            kind: Some(response::Kind::Opened(response::Opened {
                 explicit_acknowledgements: true,
-            }),
+            })),
             ..Default::default()
         };
         (open, opened)

@@ -44,7 +44,7 @@ impl DiscoverConnectors for MockDiscoverConnectors {
         _logs_token: uuid::Uuid,
         mut request: capture::Request,
     ) -> anyhow::Result<(capture::response::Spec, capture::response::Discovered)> {
-        let Some(discover) = request.discover.take() else {
+        let Some(capture::request::Kind::Discover(discover)) = request.kind.take() else {
             anyhow::bail!("unexpected capture request type: {request:?}")
         };
         self.discover_requests
@@ -83,26 +83,26 @@ impl Connectors for TestConnectors {
         R: futures::Stream<Item = proto_flow::capture::Request> + Send + Unpin + 'static,
     {
         use proto_flow::capture::{
-            Response,
+            Response, request,
             response::{self, Validated},
         };
 
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if request.spec.is_some() {
+                if matches!(request.kind, Some(request::Kind::Spec(_))) {
                     let response = Response {
-                        spec: Some(response::Spec {
+                        kind: Some(response::Kind::Spec(response::Spec {
                             protocol: 3032023,
                             config_schema_json: r#"{"type": "object", "properties": {}}"#.into(),
                             resource_config_schema_json: r#"true"#.into(),
                             documentation_url: "http://test.test/test-docs".to_string(),
                             oauth2: None,
                             resource_path_pointers: vec!["/id".to_string()],
-                        }),
+                        })),
                         ..Default::default()
                     };
                     co.yield_(response).await;
-                } else if let Some(validate) = request.validate.as_ref() {
+                } else if let Some(request::Kind::Validate(validate)) = request.kind.as_ref() {
                     let bindings = validate
                         .bindings
                         .iter()
@@ -114,7 +114,7 @@ impl Connectors for TestConnectors {
                         })
                         .collect();
                     let response = Response {
-                        validated: Some(Validated { bindings }),
+                        kind: Some(response::Kind::Validated(Validated { bindings })),
                         ..Default::default()
                     };
                     co.yield_(response).await;
@@ -136,34 +136,34 @@ impl Connectors for TestConnectors {
         R: futures::Stream<Item = proto_flow::derive::Request> + Send + Unpin + 'static,
     {
         use proto_flow::derive::{
-            Response,
+            Response, request,
             response::{self, Spec, Validated},
         };
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if request.spec.is_some() {
+                if matches!(request.kind, Some(request::Kind::Spec(_))) {
                     let response = Response {
-                        spec: Some(Spec {
+                        kind: Some(response::Kind::Spec(Spec {
                             protocol: 3032023,
                             config_schema_json: "{}".into(),
                             resource_config_schema_json: "{}".into(),
                             documentation_url: "http://test.test/test-docs".to_string(),
                             oauth2: None,
-                        }),
+                        })),
                         ..Default::default()
                     };
                     () = co.yield_(response).await;
-                } else if let Some(validate) = request.validate.as_ref() {
+                } else if let Some(request::Kind::Validate(validate)) = request.kind.as_ref() {
                     let transforms = validate
                         .transforms
                         .iter()
                         .map(|_| response::validated::Transform { read_only: false })
                         .collect();
                     let response = Response {
-                        validated: Some(Validated {
+                        kind: Some(response::Kind::Validated(Validated {
                             transforms,
                             generated_files: Default::default(),
-                        }),
+                        })),
                         ..Default::default()
                     };
                     () = co.yield_(response).await;
@@ -187,12 +187,13 @@ impl Connectors for TestConnectors {
         use proto_flow::materialize;
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if let Some(_spec) = request.spec {
+                if matches!(request.kind, Some(materialize::request::Kind::Spec(_))) {
                     () = co
                         .yield_(materialize::Response {
-                            spec: Some(materialize::response::Spec {
-                                config_schema_json: "true".into(),
-                                resource_config_schema_json: r#"{
+                            kind: Some(materialize::response::Kind::Spec(
+                                materialize::response::Spec {
+                                    config_schema_json: "true".into(),
+                                    resource_config_schema_json: r#"{
                                     "type": "object",
                                     "properties": {
                                       "table": {
@@ -205,14 +206,15 @@ impl Connectors for TestConnectors {
                                       }
                                     }
                                 }"#
-                                .into(),
-                                ..Default::default()
-                            }),
+                                    .into(),
+                                    ..Default::default()
+                                },
+                            )),
                             ..Default::default()
                         })
                         .await;
                     continue;
-                } else if let Some(validate) = request.validate {
+                } else if let Some(materialize::request::Kind::Validate(validate)) = request.kind {
                     let v_bindings = validate
                         .resolved_bindings()
                         .map(|(binding, resolved)| {
@@ -250,9 +252,11 @@ impl Connectors for TestConnectors {
                         .collect();
                     () = co
                         .yield_(materialize::Response {
-                            validated: Some(materialize::response::Validated {
-                                bindings: v_bindings,
-                            }),
+                            kind: Some(materialize::response::Kind::Validated(
+                                materialize::response::Validated {
+                                    bindings: v_bindings,
+                                },
+                            )),
                             ..Default::default()
                         })
                         .await;

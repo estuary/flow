@@ -33,7 +33,7 @@ pub async fn recv_client_unary(
     request: &mut Request,
     wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<()> {
-    if let Some(apply) = &mut request.apply {
+    if let Some(request::Kind::Apply(apply)) = &mut request.kind {
         let last_spec = db.load_last_applied::<flow::CaptureSpec>().await?;
 
         if let Some(last_spec) = &last_spec {
@@ -70,40 +70,38 @@ pub async fn recv_client_unary(
 }
 
 pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Result<Response> {
-    if request.spec.is_some() && response.spec.is_some() {
-        Ok(response)
-    } else if request.spec.is_some() {
-        verify("connector", "Spec").fail(response)
-    } else if request.discover.is_some() && response.discovered.is_some() {
-        Ok(response)
-    } else if request.discover.is_some() {
-        verify("connector", "Discovered").fail(response)
-    } else if request.validate.is_some() && response.validated.is_some() {
-        Ok(response)
-    } else if request.validate.is_some() {
-        verify("connector", "Validated").fail(response)
-    } else if let (Some(apply), Some(applied)) = (&request.apply, &response.applied) {
-        // Action descriptions can sometimes be _very_ long and overflow the maximum ops log line.
-        let action = crate::truncate_chars(&applied.action_description, 1 << 18);
+    match (&request.kind, &response.kind) {
+        (Some(request::Kind::Spec(_)), Some(response::Kind::Spec(_))) => Ok(response),
+        (Some(request::Kind::Spec(_)), _) => verify("connector", "Spec").fail(response),
 
-        if !action.is_empty() {
-            tracing::info!(
-                action,
-                last_version = apply.last_version,
-                version = apply.version,
-                "capture was applied"
-            );
+        (Some(request::Kind::Discover(_)), Some(response::Kind::Discovered(_))) => Ok(response),
+        (Some(request::Kind::Discover(_)), _) => verify("connector", "Discovered").fail(response),
+
+        (Some(request::Kind::Validate(_)), Some(response::Kind::Validated(_))) => Ok(response),
+        (Some(request::Kind::Validate(_)), _) => verify("connector", "Validated").fail(response),
+
+        (Some(request::Kind::Apply(apply)), Some(response::Kind::Applied(applied))) => {
+            // Action descriptions can sometimes be _very_ long and overflow the maximum ops log line.
+            let action = crate::truncate_chars(&applied.action_description, 1 << 18);
+
+            if !action.is_empty() {
+                tracing::info!(
+                    action,
+                    last_version = apply.last_version,
+                    version = apply.version,
+                    "capture was applied"
+                );
+            }
+            Ok(response)
         }
-        Ok(response)
-    } else if request.apply.is_some() {
-        verify("connector", "Applied").fail(response)
-    } else {
-        verify("client", "unary request").fail(request)
+        (Some(request::Kind::Apply(_)), _) => verify("connector", "Applied").fail(response),
+
+        _ => verify("client", "unary request").fail(request),
     }
 }
 
 pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
-    let Some(open) = open.open.as_mut() else {
+    let Some(request::Kind::Open(open)) = open.kind.as_mut() else {
         return verify("client", "Open").fail(open);
     };
     let Some(capture) = open.capture.as_mut() else {
@@ -178,7 +176,9 @@ pub fn send_client_poll_result(
     (
         poll_result == PollResult::Ready,
         Response {
-            checkpoint: Some(response::Checkpoint { state: None }),
+            kind: Some(response::Kind::Checkpoint(response::Checkpoint {
+                state: None,
+            })),
             ..Default::default()
         }
         .with_internal_buf(buf, |internal| {
@@ -196,7 +196,9 @@ pub fn send_connector_acknowledge(last_checkpoints: &mut u32, task: &Task) -> Op
         *last_checkpoints = 0; // Reset.
 
         Some(Request {
-            acknowledge: Some(request::Acknowledge { checkpoints }),
+            kind: Some(request::Kind::Acknowledge(request::Acknowledge {
+                checkpoints,
+            })),
             ..Default::default()
         })
     } else {
@@ -234,7 +236,9 @@ pub fn send_client_captured_or_checkpoint(
             updated_json,
         };
         return Response {
-            checkpoint: Some(response::Checkpoint { state: Some(state) }),
+            kind: Some(response::Kind::Checkpoint(response::Checkpoint {
+                state: Some(state),
+            })),
             ..Default::default()
         };
     }
@@ -277,10 +281,10 @@ pub fn send_client_captured_or_checkpoint(
     }
 
     Response {
-        captured: Some(response::Captured {
+        kind: Some(response::Kind::Captured(response::Captured {
             binding: index as u32,
             doc_json,
-        }),
+        })),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {
@@ -323,7 +327,9 @@ pub fn send_client_final_checkpoint(
     };
 
     Response {
-        checkpoint: Some(response::Checkpoint { state: None }),
+        kind: Some(response::Kind::Checkpoint(response::Checkpoint {
+            state: None,
+        })),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {
@@ -397,7 +403,9 @@ pub async fn recv_client_start_commit(
 
 pub fn send_client_started_commit() -> Response {
     Response {
-        checkpoint: Some(response::Checkpoint { state: None }),
+        kind: Some(response::Kind::Checkpoint(response::Checkpoint {
+            state: None,
+        })),
         ..Default::default()
     }
 }
@@ -542,7 +550,9 @@ pub fn recv_connector_checkpoint(
     txn: &mut Transaction,
 ) -> anyhow::Result<()> {
     let verify = verify("connector", "Captured or Checkpoint with state");
-    let Some(response::Checkpoint { state: Some(state) }) = response.checkpoint else {
+    let Some(response::Kind::Checkpoint(response::Checkpoint { state: Some(state) })) =
+        response.kind
+    else {
         return verify.fail(response);
     };
     let flow::ConnectorState {

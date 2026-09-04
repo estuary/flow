@@ -18,7 +18,7 @@ pub async fn recv_client_unary(
     request: &mut Request,
     wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<()> {
-    if let Some(apply) = &mut request.apply {
+    if let Some(request::Kind::Apply(apply)) = &mut request.kind {
         let last_spec = db.load_last_applied::<flow::MaterializationSpec>().await?;
 
         if let Some(last_spec) = &last_spec {
@@ -57,38 +57,37 @@ pub async fn recv_client_unary(
 }
 
 pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Result<Response> {
-    if request.spec.is_some() && response.spec.is_some() {
-        Ok(response)
-    } else if request.spec.is_some() {
-        verify("connector", "Spec").fail(response)
-    } else if request.validate.is_some() && response.validated.is_some() {
-        Ok(response)
-    } else if request.validate.is_some() {
-        verify("connector", "Validated").fail(response)
-    } else if let (Some(apply), Some(applied)) = (&request.apply, &response.applied) {
-        // Action descriptions can sometimes be _very_ long and overflow the maximum ops log line.
-        let action = crate::truncate_chars(&applied.action_description, 1 << 18);
+    match (&request.kind, &response.kind) {
+        (Some(request::Kind::Spec(_)), Some(response::Kind::Spec(_))) => Ok(response),
+        (Some(request::Kind::Spec(_)), _) => verify("connector", "Spec").fail(response),
 
-        if !action.is_empty() {
-            tracing::info!(
-                action,
-                last_version = apply.last_version,
-                version = apply.version,
-                "materialization was applied"
-            );
+        (Some(request::Kind::Validate(_)), Some(response::Kind::Validated(_))) => Ok(response),
+        (Some(request::Kind::Validate(_)), _) => verify("connector", "Validated").fail(response),
+
+        (Some(request::Kind::Apply(apply)), Some(response::Kind::Applied(applied))) => {
+            // Action descriptions can sometimes be _very_ long and overflow the maximum ops log line.
+            let action = crate::truncate_chars(&applied.action_description, 1 << 18);
+
+            if !action.is_empty() {
+                tracing::info!(
+                    action,
+                    last_version = apply.last_version,
+                    version = apply.version,
+                    "materialization was applied"
+                );
+            }
+            Ok(response)
         }
-        Ok(response)
-    } else if request.apply.is_some() {
-        verify("connector", "Applied").fail(response)
-    } else {
-        verify("client", "unary request").fail(request)
+        (Some(request::Kind::Apply(_)), _) => verify("connector", "Applied").fail(response),
+
+        _ => verify("client", "unary request").fail(request),
     }
 
     // TODO(johnny): extract and apply Response.Apply.state to WriteBatch.
 }
 
 pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
-    let Some(open) = open.open.as_mut() else {
+    let Some(request::Kind::Open(open)) = open.kind.as_mut() else {
         return verify("client", "Open").fail(open);
     };
     let Some(materialization) = open.materialization.as_mut() else {
@@ -127,11 +126,11 @@ pub async fn recv_connector_opened(
     let mut opened = verify.not_eof(opened)?;
     let (runtime_checkpoint, disable_load_optimization) = match &mut opened {
         Response {
-            opened:
-                Some(response::Opened {
+            kind:
+                Some(response::Kind::Opened(response::Opened {
                     runtime_checkpoint,
                     disable_load_optimization,
-                }),
+                })),
             ..
         } => (runtime_checkpoint, *disable_load_optimization),
         _ => return verify.fail(opened),
@@ -268,12 +267,12 @@ pub fn recv_client_load_or_flush(
 
     match request {
         Some(Request {
-            load:
-                Some(request::Load {
+            kind:
+                Some(request::Kind::Load(request::Load {
                     binding: binding_index,
                     key_json: doc_json,
                     key_packed: _,
-                }),
+                })),
             ..
         }) => {
             let binding = &task.bindings[binding_index as usize];
@@ -343,17 +342,17 @@ pub fn recv_client_load_or_flush(
                 load_keys.insert(key_hash);
 
                 Ok(Some(Request {
-                    load: Some(request::Load {
+                    kind: Some(request::Kind::Load(request::Load {
                         binding: binding_index,
                         key_packed,
                         key_json: bytes::Bytes::new(), // TODO
-                    }),
+                    })),
                     ..Default::default()
                 }))
             }
         }
         Some(Request {
-            flush: Some(request::Flush { .. }),
+            kind: Some(request::Kind::Flush(request::Flush { .. })),
             ..
         }) => {
             if !*saw_acknowledged {
@@ -365,7 +364,7 @@ pub fn recv_client_load_or_flush(
             _ = std::mem::take(load_keys);
 
             Ok(Some(Request {
-                flush: Some(request::Flush::default()),
+                kind: Some(request::Kind::Flush(request::Flush::default())),
                 ..Default::default()
             }))
         }
@@ -389,11 +388,11 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
 ) -> anyhow::Result<Option<Response>> {
     match response {
         Some(Response {
-            loaded:
-                Some(response::Loaded {
+            kind:
+                Some(response::Kind::Loaded(response::Loaded {
                     binding: binding_index,
                     doc_json,
-                }),
+                })),
             ..
         }) => {
             let binding = &task.bindings[binding_index as usize];
@@ -417,7 +416,7 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
             Ok(None)
         }
         Some(Response {
-            acknowledged: Some(response::Acknowledged { state }),
+            kind: Some(response::Kind::Acknowledged(response::Acknowledged { state })),
             ..
         }) => {
             if *saw_acknowledged {
@@ -442,12 +441,14 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
             }
 
             Ok(Some(Response {
-                acknowledged: Some(response::Acknowledged { state: None }),
+                kind: Some(response::Kind::Acknowledged(response::Acknowledged {
+                    state: None,
+                })),
                 ..Default::default()
             }))
         }
         Some(Response {
-            flushed: Some(response::Flushed { state }),
+            kind: Some(response::Kind::Flushed(response::Flushed { state })),
             ..
         }) => {
             if !*saw_acknowledged {
@@ -526,7 +527,7 @@ pub fn send_connector_store(
     }
 
     Request {
-        store: Some(request::Store {
+        kind: Some(request::Kind::Store(request::Store {
             binding: binding_index as u32,
             delete: meta.deleted(),
             doc_json,
@@ -535,7 +536,7 @@ pub fn send_connector_store(
             key_packed,
             values_json: bytes::Bytes::new(), // TODO(johnny)
             values_packed,
-        }),
+        })),
         ..Default::default()
     }
 }
@@ -573,7 +574,7 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     };
 
     Response {
-        flushed: Some(response::Flushed { state: None }),
+        kind: Some(response::Kind::Flushed(response::Flushed { state: None })),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {
@@ -633,11 +634,11 @@ pub fn recv_client_start_commit(
     let mut request = verify.not_eof(request)?;
 
     let Request {
-        start_commit:
-            Some(request::StartCommit {
+        kind:
+            Some(request::Kind::StartCommit(request::StartCommit {
                 runtime_checkpoint: Some(runtime_checkpoint),
                 ..
-            }),
+            })),
         ..
     } = &mut request
     else {
@@ -682,7 +683,7 @@ pub async fn recv_connector_started_commit(
     let response = verify.not_eof(response)?;
 
     let Response {
-        started_commit: Some(response::StartedCommit { state }),
+        kind: Some(response::Kind::StartedCommit(response::StartedCommit { state })),
         ..
     } = &response
     else {
@@ -872,7 +873,9 @@ mod test {
         recv_connector_started_commit(
             &db,
             Some(Response {
-                started_commit: Some(response::StartedCommit { state: None }),
+                kind: Some(response::Kind::StartedCommit(response::StartedCommit {
+                    state: None,
+                })),
                 ..Default::default()
             }),
             rocksdb::WriteBatch::default(),
@@ -901,7 +904,9 @@ mod test {
             &db,
             &http_client,
             Some(Response {
-                acknowledged: Some(response::Acknowledged { state: None }),
+                kind: Some(response::Kind::Acknowledged(response::Acknowledged {
+                    state: None,
+                })),
                 ..Default::default()
             }),
             &mut saw_acknowledged,
@@ -940,7 +945,9 @@ mod test {
             &db,
             &http_client,
             Some(Response {
-                acknowledged: Some(response::Acknowledged { state: None }),
+                kind: Some(response::Kind::Acknowledged(response::Acknowledged {
+                    state: None,
+                })),
                 ..Default::default()
             }),
             &mut saw_acknowledged,

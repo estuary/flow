@@ -150,7 +150,7 @@ impl Scanner {
             };
 
             out.push(derive::Request {
-                read: Some(derive::request::Read {
+                kind: Some(derive::request::Kind::Read(derive::request::Read {
                     transform,
                     uuid: Some(flow::UuidParts { node, clock }),
                     shuffle: Some(derive::request::read::Shuffle {
@@ -159,7 +159,7 @@ impl Scanner {
                         hash,
                     }),
                     doc_json,
-                }),
+                })),
                 ..Default::default()
             });
 
