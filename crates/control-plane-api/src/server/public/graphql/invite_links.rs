@@ -1,6 +1,9 @@
 use super::{
     TimestampCursor,
-    authorization::{AuthorizationScope, RequiredCapabilities, effective_catalog_prefixes},
+    authorization::{
+        AuthorizationScope, OpaqueResourceAuthorization, RequiredCapabilities,
+        effective_catalog_prefixes,
+    },
     filters,
 };
 use async_graphql::{Context, types::connection};
@@ -399,6 +402,10 @@ impl InviteLinksMutation {
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+        let authorization = OpaqueResourceAuthorization::new(
+            models::authz::Capability::DeleteInviteLink,
+            "invite link not found",
+        );
 
         let mut txn = env.pg_pool.begin().await?;
 
@@ -417,15 +424,10 @@ impl InviteLinksMutation {
 
         let invite = match invite {
             Some(row) => row,
-            None => return Err(async_graphql::Error::new("Invalid invite link")),
+            None => return Err(authorization.not_found_error()),
         };
 
-        super::verify_authorization(
-            env,
-            &invite.catalog_prefix,
-            models::authz::Capability::DeleteInviteLink,
-        )
-        .await?;
+        authorization.verify(env, &invite.catalog_prefix).await?;
 
         sqlx::query!("DELETE FROM internal.invite_links WHERE token = $1", token,)
             .execute(&mut *txn)
