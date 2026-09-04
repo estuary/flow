@@ -1,7 +1,8 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-expression: json_test(msg)
+expression: json_catalogue(ex_materialize_responses())
 ---
+// spec
 {
   "spec": {
     "protocol": 3032023,
@@ -32,7 +33,11 @@ expression: json_test(msg)
         "access": "here"
       }
     }
-  },
+  }
+}
+
+// validated
+{
   "validated": {
     "bindings": [
       {
@@ -65,14 +70,22 @@ expression: json_test(msg)
         ]
       }
     ]
-  },
+  }
+}
+
+// applied
+{
   "applied": {
     "actionDescription": "I did some stuff",
     "state": {
       "updated": {"state":"update"},
       "mergePatch": true
     }
-  },
+  }
+}
+
+// opened
+{
   "opened": {
     "runtimeCheckpoint": {
       "sources": {
@@ -101,28 +114,48 @@ expression: json_test(msg)
       }
     },
     "disableLoadOptimization": true
-  },
+  }
+}
+
+// loaded
+{
   "loaded": {
     "binding": 4,
     "doc": {"loaded":"doc"}
-  },
+  }
+}
+
+// flushed
+{
   "flushed": {
     "state": {
       "updated": {"state":"update"},
       "mergePatch": true
     }
-  },
+  }
+}
+
+// started_commit
+{
   "startedCommit": {
     "state": {
       "updated": {"state":"update"},
       "mergePatch": true
     }
-  },
+  }
+}
+
+// acknowledged
+{
   "acknowledged": {
     "state": {
       "updated": {"state":"update"},
       "mergePatch": true
     }
-  },
+  }
+}
+
+// internal
+{
   "$internal": "EgJIaRgB"
 }
