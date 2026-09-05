@@ -50,7 +50,10 @@ impl Test {
             .context("building catalog for testing")?;
 
         let options = catalog_tests::Options {
-            network: self.network.clone(),
+            connector_router: runtime_local::local_router(
+                self.network.clone(),
+                service_kit::Registry::new(),
+            ),
             splits: self.splits,
             log_handler: std::sync::Arc::new(log_handler),
             timeouts: catalog_tests::Timeouts::default(),

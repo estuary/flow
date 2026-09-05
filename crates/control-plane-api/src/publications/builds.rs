@@ -181,7 +181,10 @@ pub async fn test_catalog(
     // name that existing log consumers already select on.
     let ops_handler = logs::ops_handler(logs_tx.clone(), "test".to_string(), logs_token);
     let options = catalog_tests::Options {
-        network: connector_network.to_string(),
+        connector_router: runtime_local::local_router(
+            connector_network.to_string(),
+            service_kit::Registry::new(),
+        ),
         splits: 2, // Exercise multi-shard key routing.
         log_handler: std::sync::Arc::new(move |log: &ops::Log| {
             runtime::LogHandler::log(&ops_handler, log)

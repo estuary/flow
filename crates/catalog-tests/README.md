@@ -10,12 +10,15 @@ through `runtime-local`.
 ```
 flowctl raw test ────────┐
                          ├──> catalog-tests ──> runtime-local ──> runtime-next
-control-plane-api ───────┘        (this crate)
-  (publication tests)
+control-plane-api ───────┘    (this crate)
 ```
 
-The crate is the V2 replacement for the Go V1 test machinery (`Graph` and
-`TestTime` are ports of Go's `PendingStat` / `TestTime`). Its whole external
+Both callers run the same harness; they differ only in the
+`Options::connector_router` they hand it. `flowctl` serves every connector
+in-process. The agent routes each derivation to the data plane that owns it.
+
+The crate implements the catalog-test graph and synthetic clock in Rust
+(`Graph` and `TestTime` correspond to Go's `PendingStat` / `TestTime`). Its whole external
 contract is re-exported from `lib.rs`: `run_tests`, `Options`, `TestResults`,
 `TestOutcome`, `TestStatus`, `LogHandler`. Everything else is `pub` only so
 `tests/` can white-box it.
@@ -46,11 +49,8 @@ in for captures and verify steps read collections directly.
 | `diff` | The verify comparator and its failure rendering. |
 
 `tests/derive_sqlite.rs` drives `DerivationSession` by hand (no `run_tests`);
-`tests/catalog_tests.rs` drives the whole path from inline YAML. Both run
-multi-shard over derive-sqlite, which is in-process — no Docker. The one
-exception is `tests/fixtures/dying_connector.py`, a `local:` connector (a
-subprocess, still no Docker) used to inject startup failures. Multi-shard *image*
-derivations are only covered by the examples suite in CI.
+`tests/catalog_tests.rs` drives the whole path from inline YAML;
+`tests/timeouts.rs` covers timeout, poisoning, and log-interleaving semantics.
 
 ## Non-obvious details
 
@@ -126,10 +126,10 @@ read frontiers, feed cursors, and collection data untouched. It runs after
 *every* case including the last, so no case can observe another's connector
 state. See `derive_sqlite::reset_clears_connector_state_but_not_data`.
 
-**Timeouts bound connector execution, and a timed-out transaction poisons the
-run.** `Options::timeouts` bounds session start (connector startup, an image
-pull, and Open; 5 minutes) and every step which awaits a live session — a
-transaction, an inter-case Reset, or shutdown (60 seconds).
+**Timeouts bound the connector path, and a timed-out transaction poisons the
+run.** `Options::timeouts` bounds session start (dial + image pull + Open;
+5 minutes) and every step which awaits a live session — a transaction, an
+inter-case Reset, a shutdown (60 seconds).
 
 **Failure bookkeeping is deliberately asymmetric.** A failing case is recorded,
 not raised. If the inter-case Reset then fails *after* a failed case, the
