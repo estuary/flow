@@ -157,8 +157,12 @@ async fn build_catalog<Conn: Connectors>(
     Ok(output)
 }
 
-/// Run a built catalog's tests locally, returning a `tables::Error` per test
-/// case that failed — or that never ran because an earlier failure ended the run.
+/// Run a built catalog's tests, returning a `tables::Error` per test case that
+/// failed — or that never ran because an earlier failure ended the run.
+///
+/// The test harness runs here in the agent, while each connector runs wherever
+/// `connector_router` sends it. The publisher supplies a router which maps
+/// derivations to their owning data planes.
 ///
 /// Derivations execute as resident runtime-next sessions, split across two
 /// shards to exercise multi-shard key routing. Connector and runtime logs stream
@@ -168,8 +172,8 @@ async fn build_catalog<Conn: Connectors>(
 pub async fn test_catalog(
     logs_token: Uuid,
     logs_tx: &logs::Tx,
-    connector_network: &str,
     catalog: &build::Output,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
 ) -> anyhow::Result<tables::Errors> {
     let mut errors = tables::Errors::default();
 
@@ -181,10 +185,7 @@ pub async fn test_catalog(
     // name that existing log consumers already select on.
     let ops_handler = logs::ops_handler(logs_tx.clone(), "test".to_string(), logs_token);
     let options = catalog_tests::Options {
-        connector_router: runtime_local::local_router(
-            connector_network.to_string(),
-            service_kit::Registry::new(),
-        ),
+        connector_router,
         splits: 2, // Exercise multi-shard key routing.
         log_handler: std::sync::Arc::new(move |log: &ops::Log| {
             runtime::LogHandler::log(&ops_handler, log)

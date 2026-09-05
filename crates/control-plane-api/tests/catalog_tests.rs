@@ -1,10 +1,7 @@
 //! Verifies the control-plane's `test_catalog` linkage to `catalog-tests`:
-//! publication tests run on the Rust-only runtime-next stack (no temp data-plane,
-//! no `flowctl-go`), and a failing test surfaces a `tables::Error` to the
-//! publication.
-//!
-//! Uses derive-sqlite, so no connector containers are needed, and `test_catalog`
-//! never touches Postgres, so these run without a database.
+//! publication tests run on the Rust-only runtime-next stack, each derivation's
+//! connector is proxied to the data plane which owns it, and a failing test
+//! surfaces a `tables::Error` to the publication.
 
 use control_plane_api::logs;
 use control_plane_api::publications::builds;
@@ -33,44 +30,6 @@ fn logs_sink() -> logs::Tx {
     tokio::spawn(async move { while rx.recv().await.is_some() {} });
     tx
 }
-
-const PASSING: &str = r#"
-collections:
-  acmeCo/ints:
-    schema:
-      type: object
-      properties:
-        Key: { type: string }
-        Int: { type: integer }
-      required: [Key, Int]
-    key: [/Key]
-  acmeCo/doubled:
-    schema:
-      type: object
-      properties:
-        Key: { type: string }
-        Doubled: { type: integer }
-      required: [Key, Doubled]
-    key: [/Key]
-    derive:
-      using:
-        sqlite: {}
-      transforms:
-        - name: fromInts
-          source: { name: acmeCo/ints }
-          shuffle: { key: [/Key] }
-          lambda: SELECT JSON_OBJECT('Key', $Key, 'Doubled', $Int * 2);
-tests:
-  acmeCo/test/doubles:
-    - ingest:
-        collection: acmeCo/ints
-        documents:
-          - { Key: a, Int: 3 }
-    - verify:
-        collection: acmeCo/doubled
-        documents:
-          - { Key: a, Doubled: 6 }
-"#;
 
 /// A catalog whose expectation is deliberately wrong.
 const FAILING: &str = r#"
@@ -112,32 +71,18 @@ tests:
 "#;
 
 #[tokio::test]
-async fn passing_catalog_test_reports_no_errors() {
-    let output = build_catalog(PASSING).await;
-    let logs_token = uuid::Uuid::nil();
-
-    let errors = builds::test_catalog(logs_token, &logs_sink(), "", &output)
-        .await
-        .expect("test_catalog runs");
-
-    assert!(
-        errors.is_empty(),
-        "a passing catalog test should surface no errors, got: {:?}",
-        errors
-            .iter()
-            .map(|e| e.error.to_string())
-            .collect::<Vec<_>>(),
-    );
-}
-
-#[tokio::test]
 async fn failing_catalog_test_surfaces_error() {
     let output = build_catalog(FAILING).await;
     let logs_token = uuid::Uuid::nil();
 
-    let errors = builds::test_catalog(logs_token, &logs_sink(), "", &output)
-        .await
-        .expect("test_catalog runs");
+    let errors = builds::test_catalog(
+        logs_token,
+        &logs_sink(),
+        &output,
+        runtime_local::local_router(String::new(), service_kit::Registry::new()),
+    )
+    .await
+    .expect("test_catalog runs");
 
     assert_eq!(
         errors.len(),

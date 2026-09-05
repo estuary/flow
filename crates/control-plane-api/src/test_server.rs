@@ -111,7 +111,6 @@ impl TestServer {
         // Build an invalid Publisher that will blow up if used.
         let publisher = crate::publications::Publisher::new(
             &url::Url::parse("file:///invalid").unwrap(),
-            &"invalid",
             &logs_tx,
             pg_pool.clone(),
             models::IdGenerator::new(0),
