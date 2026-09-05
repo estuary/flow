@@ -28,6 +28,27 @@ pub async fn fetch_ops_journal_template(
     Ok(Some(journal_spec))
 }
 
+/// Build an authenticated connector route for a data plane, over which the
+/// control plane proxies connector RPCs to the plane's reactors.
+pub fn build_connector_route(
+    data_plane: &tables::DataPlane,
+) -> anyhow::Result<proto_grpc::connector::EndpointRouter> {
+    let (encode_key, _decode) = tokens::jwt::parse_base64_hmac_keys(
+        data_plane.hmac_keys.iter().take(1),
+    )
+    .with_context(|| {
+        format!(
+            "data-plane {} has no usable HMAC key",
+            data_plane.data_plane_name
+        )
+    })?;
+
+    Ok(proto_grpc::connector::EndpointRouter::new(
+        data_plane.reactor_address.clone(),
+        proto_grpc::Signer::new(data_plane.data_plane_fqdn.clone(), encode_key),
+    ))
+}
+
 /// Build an authenticated journal client for a data plane.
 ///
 /// This creates a client that can make RPCs to the data plane's broker,
