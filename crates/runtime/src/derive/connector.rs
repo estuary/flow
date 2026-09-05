@@ -18,7 +18,7 @@ pub async fn start<L: LogHandler>(
 )> {
     let log_level = initial.get_internal()?.log_level();
     let (endpoint, config_json) = extract_endpoint(&mut initial)?;
-    let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
+    let (mut connector_tx, connector_rx) = mpsc::channel(proto_grpc::CHANNEL_BUFFER);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
         response.set_internal(|internal| {
@@ -32,7 +32,7 @@ pub async fn start<L: LogHandler>(
     ) -> crate::image_connector::StartRpcFuture<Response> {
         async move {
             proto_grpc::derive::connector_client::ConnectorClient::new(channel)
-                .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
                 .max_encoding_message_size(usize::MAX)
                 .derive(rx)
                 .await
