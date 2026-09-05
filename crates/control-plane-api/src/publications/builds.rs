@@ -186,6 +186,7 @@ pub async fn test_catalog(
         log_handler: std::sync::Arc::new(move |log: &ops::Log| {
             runtime::LogHandler::log(&ops_handler, log)
         }),
+        timeouts: catalog_tests::Timeouts::default(),
     };
 
     let results = catalog_tests::run_tests(&catalog.built, options)

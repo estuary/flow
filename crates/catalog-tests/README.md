@@ -126,6 +126,11 @@ read frontiers, feed cursors, and collection data untouched. It runs after
 *every* case including the last, so no case can observe another's connector
 state. See `derive_sqlite::reset_clears_connector_state_but_not_data`.
 
+**Timeouts bound connector execution, and a timed-out transaction poisons the
+run.** `Options::timeouts` bounds session start (connector startup, an image
+pull, and Open; 5 minutes) and every step which awaits a live session — a
+transaction, an inter-case Reset, or shutdown (60 seconds).
+
 **Failure bookkeeping is deliberately asymmetric.** A failing case is recorded,
 not raised. If the inter-case Reset then fails *after* a failed case, the
 session is dead and cannot be revived, so the run stops and the remaining cases
