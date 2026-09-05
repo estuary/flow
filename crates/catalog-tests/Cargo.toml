@@ -18,6 +18,7 @@ labels = { path = "../labels" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = ["connector_client"] }
 publisher = { path = "../publisher" }
 runtime-local = { path = "../runtime-local" }
 runtime-next = { path = "../runtime-next" }
@@ -39,9 +40,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 # Callers hand `run_tests` a `build::Output`, so building is test-only.
 build = { path = "../build" }
+
 insta = { workspace = true }
-# The runtime-next loopback stack dials over rustls 0.23; a direct dev-dep lets
-# tests install the process crypto provider (as `flowctl` main does).
-rustls = { version = "0.23", features = ["aws_lc_rs"] }
+rustls = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true }
