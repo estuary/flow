@@ -96,6 +96,14 @@ impl Authorizer {
         Self(None)
     }
 
+    /// Build an Authorizer from claims a service authenticated itself, rather
+    /// than through an [`Authenticator::interceptor`] layer. Used by services
+    /// with a single RPC, and by their in-process entry points — so both paths
+    /// run the identical [`tokens::jwt::Verified`] through one authorization.
+    pub fn from_verified(verified: tokens::jwt::Verified<Claims>) -> Self {
+        Self(Some(verified))
+    }
+
     /// Build an Authorizer from the authentication context of the inbound request.
     ///
     /// Fails if an authentication context is missing, for example due to omitted

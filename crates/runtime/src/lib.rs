@@ -24,13 +24,6 @@ pub use tokio_context::TokioContext;
 // See go/protocols/flow/document_extensions.go.
 pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
 
-/// CHANNEL_BUFFER is the standard buffer size used for holding documents in an
-/// asynchronous processing pipeline. User documents can be large -- up to 64MB --
-/// so this value should be small. At the same time, processing steps such as
-/// schema validation are greatly accelerated when they can loop over multiple
-/// documents without yielding, so it should not be *too* small.
-pub const CHANNEL_BUFFER: usize = 16;
-
 /// X_GENERATION_ID is a JSON-Schema annotation added to every inferred schema,
 /// which documents the generation ID of its associated collection.
 /// We use it to properly reset inferred schemas upon generation ID change.
@@ -324,6 +317,3 @@ mod test {
         assert_eq!(truncate_chars(s, 100), s);
     }
 }
-
-// Maximum accepted message size.
-pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.

@@ -50,7 +50,7 @@ impl Router {
     /// while `default.zone` should be its zone (if known).
     ///
     /// route() dials Channels as required, and users MUST call sweep()
-    /// to periodically clean up Channels which are no longer in use.
+    /// to periodically clean up unused Channels.
     ///
     /// `header` is the field of a Request message type, where applicable.
     /// In some request contexts it's copied from a prior RPC Response
@@ -91,10 +91,11 @@ impl Router {
             }
             // Start dialing the endpoint.
             None => {
-                let ch = super::dial_channel(match index {
+                let ch = proto_grpc::dial_channel(match index {
                     Some(index) => &route.unwrap().endpoints[index],
                     None => &default.suffix,
-                })?;
+                })
+                .map_err(super::Error::Transport)?;
                 states.insert(id.clone(), (ch.clone(), true));
                 ch
             }
@@ -107,7 +108,7 @@ impl Router {
     }
 
     // Identify Channels which have not been used since the preceding sweep, and close them.
-    // As members come and go, Channels may no longer needed.
+    // Membership changes can leave Channels unused.
     // Call sweep() periodically to clear them out.
     pub fn sweep(&self) {
         let mut states = self.inner.states.lock().unwrap();

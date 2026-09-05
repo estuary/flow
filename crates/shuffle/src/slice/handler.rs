@@ -39,7 +39,7 @@ where
         .next()
         .await
         .context("expected Open request")?
-        .map_err(crate::status_to_anyhow)?;
+        .map_err(proto_grpc::status_to_anyhow)?;
 
     let shuffle::slice_request::Open {
         session_id,
@@ -194,11 +194,10 @@ async fn open_log_rpc(
     mpsc::Sender<shuffle::LogRequest>,
     stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
 )> {
-    let verify = crate::verify(
+    let verify = proto_grpc::verify(
         "LogResponse",
         "Opened",
         &shards[log_shard_index as usize].endpoint,
-        log_shard_index as usize,
     );
     let (request_tx, request_rx) = crate::new_channel::<shuffle::LogRequest>();
 
@@ -248,6 +247,6 @@ async fn open_log_rpc(
             ..
         } => Ok((request_tx, response_rx)),
 
-        response => Err(verify.fail(response)),
+        response => Err(verify.fail_msg(response)),
     }
 }

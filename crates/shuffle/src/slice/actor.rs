@@ -116,18 +116,13 @@ impl SliceActor {
             .collect();
 
         // Await Start from the Session RPC.
-        let verify = crate::verify(
-            "SliceRequest",
-            "Start",
-            &self.topology.shards[0].endpoint,
-            0,
-        );
+        let verify = proto_grpc::verify("SliceRequest", "Start", &self.topology.shards[0].endpoint);
         match verify.not_eof(slice_request_rx.next().await)? {
             shuffle::SliceRequest {
                 start: Some(shuffle::slice_request::Start {}),
                 ..
             } => (),
-            request => return Err(verify.fail(request)),
+            request => return Err(verify.fail_msg(request)),
         };
 
         // Spawn tasks that watch journal listings of assigned bindings.
@@ -242,11 +237,10 @@ impl SliceActor {
 
         // Read clean EOF from all Log RPCs.
         while let Some((shard_index, slice_response, rx)) = log_response_rx.next().await {
-            let verify = crate::verify(
+            let verify = proto_grpc::verify(
                 "LogResponse",
                 "EOF",
                 &self.topology.shards[shard_index].endpoint,
-                shard_index,
             );
             match slice_response {
                 None => (), // Clean EOF.
@@ -299,11 +293,10 @@ impl SliceActor {
         &mut self,
         slice_request: tonic::Result<shuffle::SliceRequest>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify(
+        let verify = proto_grpc::verify(
             "SliceRequest",
             "InitialReadsStarted, Progress, or StartRead",
             &self.topology.shards[0].endpoint,
-            0,
         );
 
         match verify.ok(slice_request)? {
@@ -337,7 +330,7 @@ impl SliceActor {
                 ..
             } => self.on_start_read(start_read),
 
-            request => Err(verify.fail(request)),
+            request => Err(verify.fail_msg(request)),
         }
     }
 
@@ -698,11 +691,10 @@ impl SliceActor {
         shard_index: usize,
         log_response: Option<tonic::Result<shuffle::LogResponse>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify(
+        let verify = proto_grpc::verify(
             "LogResponse",
             "Flushed",
             &self.topology.shards[shard_index].endpoint,
-            shard_index,
         );
         let log_response = verify.not_eof(log_response)?;
 
@@ -719,7 +711,7 @@ impl SliceActor {
                 Ok(())
             }
 
-            response => Err(verify.fail(response)),
+            response => Err(verify.fail_msg(response)),
         }
     }
 

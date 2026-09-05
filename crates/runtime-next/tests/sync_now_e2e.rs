@@ -296,7 +296,7 @@ impl Harness {
         let shuffle_dir = tempfile::tempdir().expect("shuffle tempdir");
         let shard_id = shard_zero_id(task_name);
 
-        let channel = gazette::dial_channel(&self.endpoint).expect("dialing test endpoint");
+        let channel = proto_grpc::dial_channel(&self.endpoint).expect("dialing test endpoint");
         let metadata = self
             .signer
             .shard_bearer(proto_flow::capability::LEAD, &shard_id)

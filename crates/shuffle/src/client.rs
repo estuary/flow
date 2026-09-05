@@ -21,7 +21,7 @@ impl SessionClient {
         shards: Vec<shuffle::Shard>,
         resume_checkpoint: crate::Frontier,
     ) -> anyhow::Result<Self> {
-        let verify = crate::verify("SessionResponse", "Opened", "(in-process)", 0);
+        let verify = proto_grpc::verify("SessionResponse", "Opened", "(in-process)");
         let (request_tx, request_rx) = crate::new_channel::<shuffle::SessionRequest>();
         let request_rx =
             tokio_stream::wrappers::ReceiverStream::new(request_rx).map(Ok::<_, tonic::Status>);
@@ -47,7 +47,7 @@ impl SessionClient {
                 opened: Some(shuffle::session_response::Opened {}),
                 ..
             } => (),
-            response => return Err(verify.fail(response)),
+            response => return Err(verify.fail_msg(response)),
         };
 
         // Send the resume checkpoint.
@@ -87,14 +87,14 @@ impl SessionClient {
     /// Cancel-safe: dropping the returned future before it completes loses no
     /// response, so it may be re-awaited (e.g. across `select!` iterations).
     pub async fn recv_checkpoint(&mut self) -> anyhow::Result<crate::Frontier> {
-        let verify = crate::verify("SessionResponse", "next_checkpoint", "(in-process)", 0);
+        let verify = proto_grpc::verify("SessionResponse", "next_checkpoint", "(in-process)");
 
         let proto = match verify.not_eof(self.response_rx.recv().await)? {
             shuffle::SessionResponse {
                 next_checkpoint: Some(proto),
                 ..
             } => proto,
-            response => return Err(verify.fail(response)),
+            response => return Err(verify.fail_msg(response)),
         };
 
         let frontier = crate::Frontier::decode(proto).context("validating checkpoint frontier")?;
@@ -127,7 +127,7 @@ impl SessionClient {
 
         drop(request_tx); // Drop to close RPC send.
 
-        let verify = crate::verify("SessionResponse", "EOF", "(in-process)", 0);
+        let verify = proto_grpc::verify("SessionResponse", "EOF", "(in-process)");
         loop {
             match response_rx.recv().await {
                 None => return Ok(()),
@@ -136,7 +136,7 @@ impl SessionClient {
                     next_checkpoint: Some(_),
                     ..
                 })) => continue, // Trailing response to an abandoned request.
-                Some(Ok(response)) => return Err(verify.fail(response)),
+                Some(Ok(response)) => return Err(verify.fail_msg(response)),
             }
         }
     }

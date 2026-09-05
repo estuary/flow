@@ -70,7 +70,7 @@ impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::Logg
     /// with sibling services on a `tonic::transport::Server::builder()`.
     pub fn into_tonic_service(self) -> proto_grpc::runtime::leader_server::LeaderServer<Self> {
         proto_grpc::runtime::leader_server::LeaderServer::new(self)
-            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+            .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX)
     }
 

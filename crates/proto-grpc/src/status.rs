@@ -68,6 +68,90 @@ pub fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
     }
 }
 
+/// Map a `tonic::Status` into an `anyhow::Error`, unwrapping Unknown while
+/// preserving every other status for lossless downcasting.
+pub fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
+    match status.code() {
+        tonic::Code::Unknown => anyhow::anyhow!(status.message().to_owned()),
+        _ => anyhow::Error::new(status),
+    }
+}
+
+/// Establish a protocol expectation annotated with its originating peer.
+pub fn verify<'p>(source: &'static str, expect: &'static str, peer: &'p str) -> Verify<'p> {
+    Verify {
+        source,
+        expect,
+        peer,
+    }
+}
+
+pub struct Verify<'p> {
+    source: &'static str,
+    expect: &'static str,
+    peer: &'p str,
+}
+
+impl Verify<'_> {
+    #[inline]
+    pub fn ok<T>(&self, value: tonic::Result<T>) -> anyhow::Result<T> {
+        value.map_err(|status| self.fail_status(status))
+    }
+
+    #[inline]
+    pub fn eof<T: serde::Serialize>(&self, value: Option<tonic::Result<T>>) -> anyhow::Result<()> {
+        match value {
+            None => Ok(()),
+            Some(Err(status)) => Err(self.fail_status(status)),
+            Some(Ok(value)) => Err(self.fail_msg(value)),
+        }
+    }
+
+    #[inline]
+    pub fn not_eof<T>(&self, value: Option<tonic::Result<T>>) -> anyhow::Result<T> {
+        match value {
+            Some(value) => self.ok(value),
+            None => Err(self.fail_err(anyhow::anyhow!("unexpected EOF"))),
+        }
+    }
+
+    #[inline]
+    pub fn is_eof<T: serde::Serialize>(&self, value: Option<T>) -> anyhow::Result<()> {
+        match value {
+            None => Ok(()),
+            Some(value) => Err(self.fail_msg(value)),
+        }
+    }
+
+    #[must_use]
+    #[cold]
+    pub fn fail_msg<T: serde::Serialize>(&self, msg: T) -> anyhow::Error {
+        let mut rendered = serde_json::to_string(&msg).unwrap();
+        rendered.truncate(4096);
+        anyhow::format_err!(
+            "{} protocol error (expected {}) from {}: {rendered}",
+            self.source,
+            self.expect,
+            self.peer
+        )
+    }
+
+    #[must_use]
+    #[cold]
+    pub fn fail_err(&self, err: anyhow::Error) -> anyhow::Error {
+        err.context(format!(
+            "{} error (expected {}) from {}",
+            self.source, self.expect, self.peer
+        ))
+    }
+
+    #[must_use]
+    #[cold]
+    pub fn fail_status(&self, status: tonic::Status) -> anyhow::Error {
+        self.fail_err(status_to_anyhow(status))
+    }
+}
+
 /// Convert a handler's returned error or panic into a gRPC status.
 ///
 /// Catching panics prevents a dropped response sender from looking like a

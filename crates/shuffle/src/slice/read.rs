@@ -438,7 +438,7 @@ pub fn map_read_error(
     context: &'static str,
 ) -> anyhow::Error {
     match err {
-        gazette::Error::Grpc(status) => crate::status_to_anyhow(status),
+        gazette::Error::Grpc(status) => proto_grpc::status_to_anyhow(status),
         err => anyhow::anyhow!(err),
     }
     .context(format!(

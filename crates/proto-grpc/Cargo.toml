@@ -17,9 +17,12 @@ tokens = { path = "../tokens" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 # `test-util` enables paused-time control for the `expiry_guard` test.
