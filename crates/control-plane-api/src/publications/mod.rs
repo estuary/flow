@@ -155,7 +155,6 @@ impl PublicationResult {
 #[derive(Debug, Clone)]
 pub struct Publisher {
     builds_root: url::Url,
-    connector_network: String,
     logs_tx: logs::Tx,
     id_gen: std::sync::Arc<std::sync::Mutex<models::IdGenerator>>,
     db: sqlx::PgPool,
@@ -233,7 +232,6 @@ impl Into<build::Output> for UncommittedBuild {
 impl Publisher {
     pub fn new(
         builds_root: &url::Url,
-        connector_network: &str,
         logs_tx: &logs::Tx,
         pool: sqlx::PgPool,
         build_id_gen: models::IdGenerator,
@@ -241,7 +239,6 @@ impl Publisher {
     ) -> Self {
         Self {
             builds_root: builds_root.clone(),
-            connector_network: connector_network.to_string(),
             logs_tx: logs_tx.clone(),
             id_gen: std::sync::Mutex::new(build_id_gen.into()).into(),
             db: pool,
@@ -468,13 +465,17 @@ impl Publisher {
             && !self.skip_tests
             && built.errors().next().is_none()
         {
+            let router = crate::connector_router::DataPlaneRouter::new(&built)
+                .context("routing derivation connectors to their data planes")?;
+
             tracing::info!(%build_id, %publication_id, "running tests");
-
-            // Tests run in-process; there is no data plane to race against.
-            let errors =
-                builds::test_catalog(logs_token, &self.logs_tx, &self.connector_network, &built)
-                    .await?;
-
+            let errors = builds::test_catalog(
+                logs_token,
+                &self.logs_tx,
+                &built,
+                std::sync::Arc::new(router),
+            )
+            .await?;
             tracing::debug!(test_count = %built.built.built_tests.len(), test_errors = %errors.len(), "finished running tests");
             errors
         } else {
