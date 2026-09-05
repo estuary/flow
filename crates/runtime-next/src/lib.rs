@@ -55,12 +55,6 @@ pub use publish::{
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 
-/// Maximum accepted protobuf message size on Shard / Leader streams.
-pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.
-
-/// CHANNEL_BUFFER for connector RPC pipelines, shared with `runtime`.
-pub const CHANNEL_BUFFER: usize = 16;
-
 // This constant is shared between Rust and Go code.
 // See go/protocols/flow/document_extensions.go.
 pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
@@ -154,30 +148,10 @@ impl RuntimeProtocol {
 // protocol already depends on. See `proto_grpc::MAX_STATUS_MESSAGE_LEN` for
 // why an unbounded status can't survive its trip over the wire.
 pub(crate) use proto_grpc::bounded_unknown_status;
-pub use proto_grpc::{MAX_STATUS_MESSAGE_LEN, anyhow_to_status};
-
-// Map a tonic::Status into an anyhow::Error.
-// If the status is an internal error, its message is extracted into a dynamic anyhow::Error.
-// Otherwise the Status is wrapped by a dynamic anyhow::Error, and may be downcast again.
-pub fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
-    match status.code() {
-        // Unwrap Unknown (only), as this code is consistently used for user-facing errors.
-        // Note that non-Status errors are wrapped with Unknown when mapping back into Status.
-        tonic::Code::Unknown => anyhow::anyhow!(status.message().to_owned()),
-        // For all other Status types, pass through the Status in order to preserve a
-        // capability to lossless-ly downcast back to the Status later.
-        //
-        // A locally-produced transport Status renders opaquely — tonic formats
-        // hyper's Display, which is only `h2 protocol error: http2 error` — but it
-        // keeps the h2 error as its `source`, which names the reason and h2's debug
-        // data (`connection error received: ENHANCE_YOUR_CALM (b"too_many_continuations")`).
-        // anyhow walks that chain, so the detail reaches the log unaided. A Status
-        // which round-tripped over the wire has *no* source — only its message
-        // survived — which is why a peer's failure must be formatted into a message
-        // rather than relayed as a Status.
-        _ => anyhow::Error::new(status),
-    }
-}
+pub use proto_grpc::{
+    CHANNEL_BUFFER, MAX_MESSAGE_SIZE, MAX_STATUS_MESSAGE_LEN, Verify, anyhow_to_status,
+    status_to_anyhow, verify,
+};
 
 struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);
 
@@ -234,85 +208,5 @@ impl Accumulator {
         parser: simd_doc::Parser,
     ) -> Result<Self, doc::combine::Error> {
         Ok(Self(drainer.into_new_accumulator()?, parser))
-    }
-}
-
-// `verify` is a convenience for building protocol error messages in a standard,
-// structured way. You call `verify` to establish a `Verify` instance, which
-// is then used to assert expectations over protocol requests or responses.
-// If an expectation fails, it produces a suitable error message annotated
-// with the originating peer.
-pub fn verify<'p>(source: &'static str, expect: &'static str, peer: &'p str) -> Verify<'p> {
-    Verify {
-        source,
-        expect,
-        peer,
-    }
-}
-
-pub struct Verify<'p> {
-    source: &'static str,
-    expect: &'static str,
-    peer: &'p str,
-}
-
-impl<'p> Verify<'p> {
-    #[inline]
-    pub fn ok<T>(&self, t: tonic::Result<T>) -> anyhow::Result<T> {
-        match t {
-            Ok(t) => Ok(t),
-            Err(status) => Err(self.fail_status(status)),
-        }
-    }
-
-    #[inline]
-    pub fn eof<T: serde::Serialize>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<()> {
-        match t {
-            None => Ok(()),
-            Some(Err(status)) => Err(self.fail_status(status)),
-            Some(Ok(t)) => Err(self.fail_msg(t)),
-        }
-    }
-
-    #[inline]
-    pub fn not_eof<T>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<T> {
-        if let Some(t) = t {
-            Ok(self.ok(t)?)
-        } else {
-            Err(self.fail_err(anyhow::anyhow!("unexpected EOF")))
-        }
-    }
-
-    #[must_use]
-    #[cold]
-    pub fn fail_msg<T: serde::Serialize>(&self, msg: T) -> anyhow::Error {
-        let Self {
-            source,
-            expect,
-            peer,
-        } = self;
-
-        let mut t = serde_json::to_string(&msg).unwrap();
-        t.truncate(4096);
-
-        anyhow::format_err!("{source} protocol error (expected {expect}) from {peer}: {t}")
-    }
-
-    #[must_use]
-    #[cold]
-    pub fn fail_err(&self, err: anyhow::Error) -> anyhow::Error {
-        let Self {
-            source,
-            expect,
-            peer,
-        } = self;
-
-        err.context(format!("{source} error (expected {expect}) from {peer}"))
-    }
-
-    #[must_use]
-    #[cold]
-    pub fn fail_status(&self, status: tonic::Status) -> anyhow::Error {
-        self.fail_err(crate::status_to_anyhow(status))
     }
 }

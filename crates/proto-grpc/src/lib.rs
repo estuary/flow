@@ -12,8 +12,22 @@ pub mod shuffle;
 
 mod status;
 pub use status::{
-    MAX_STATUS_MESSAGE_LEN, anyhow_to_status, bound_status, bounded_unknown_status, catch_panic,
+    MAX_STATUS_MESSAGE_LEN, Verify, anyhow_to_status, bound_status, bounded_unknown_status,
+    catch_panic, status_to_anyhow, verify,
 };
+
+mod dial;
+pub use dial::dial_channel;
+
+/// Standard buffer depth of asynchronous protocol pipelines.
+///
+/// This value has an empirical basis: benchmarks show its ammortization
+/// benefit (in L1/L2 cache utilization & branch prediction tables) equals
+/// that of larger values, while minimizing memory utilization.
+pub const CHANNEL_BUFFER: usize = 16;
+
+/// Maximum accepted protobuf message size (64MB).
+pub const MAX_MESSAGE_SIZE: usize = 1 << 26;
 
 // The `protocol` package is publicly exported as `broker`.
 #[cfg(any(feature = "broker_client", feature = "broker_server"))]

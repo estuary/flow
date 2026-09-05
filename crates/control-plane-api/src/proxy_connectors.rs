@@ -139,7 +139,7 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
                 proto_grpc::capture::connector_client::ConnectorClient::with_interceptor(
                     channel, metadata,
                 )
-                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
 
             Self::drive_proxy_rpc(co, logs, client.capture(request_rx).await).await
         })
@@ -166,7 +166,7 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
                 proto_grpc::derive::connector_client::ConnectorClient::with_interceptor(
                     channel, metadata,
                 )
-                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
 
             Self::drive_proxy_rpc(co, logs, client.derive(request_rx).await).await
         })
@@ -193,7 +193,7 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
                 proto_grpc::materialize::connector_client::ConnectorClient::with_interceptor(
                     channel, metadata,
                 )
-                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
 
             Self::drive_proxy_rpc(co, logs, client.materialize(request_rx).await).await
         })
@@ -250,7 +250,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
 
         let mut proxy_client =
             proto_grpc::runtime::connector_proxy_client::ConnectorProxyClient::with_interceptor(
-                gazette::dial_channel(&reactor_address)?,
+                proto_grpc::dial_channel(&reactor_address)?,
                 metadata.clone(),
             );
         let mut proxy_responses = proxy_client
@@ -288,7 +288,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         };
 
         Ok((
-            gazette::dial_channel(&address)?,
+            proto_grpc::dial_channel(&address)?,
             metadata,
             (cancel_tx, log_loop),
         ))

@@ -19,12 +19,12 @@ pub async fn dial_and_join(
 )> {
     let leader_endpoint = join.leader_endpoint.clone();
 
-    let channel = gazette::dial_channel(&leader_endpoint).context("failed to dial leader")?;
+    let channel = proto_grpc::dial_channel(&leader_endpoint).context("failed to dial leader")?;
     let shard_id = &join.shards[join.shard_index as usize].id;
     let metadata = crate::shard::leader_bearer(signer, shard_id)?;
     let mut leader_client =
         proto_grpc::runtime::leader_client::LeaderClient::with_interceptor(channel, metadata)
-            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+            .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX);
 
     // Start the materialize RPC. We use an unbounded sender because we never

@@ -73,7 +73,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
     /// with sibling services on a `tonic::transport::Server::builder()`.
     pub fn into_tonic_service(self) -> proto_grpc::runtime::shard_server::ShardServer<Self> {
         proto_grpc::runtime::shard_server::ShardServer::new(self)
-            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+            .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX)
     }
 

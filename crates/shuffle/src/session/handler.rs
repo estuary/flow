@@ -38,7 +38,7 @@ where
         .next()
         .await
         .context("expected Open request")?
-        .map_err(crate::status_to_anyhow)?;
+        .map_err(proto_grpc::status_to_anyhow)?;
 
     let shuffle::session_request::Open { task, shards } =
         open.open.context("first message must be Open")?;
@@ -107,13 +107,13 @@ where
     }));
 
     // Read the resume-checkpoint frontier.
-    let verify = crate::verify("SessionRequest", "resume_checkpoint", "coordinator", 0);
+    let verify = proto_grpc::verify("SessionRequest", "resume_checkpoint", "coordinator");
     let proto = match verify.not_eof(request_rx.next().await)? {
         shuffle::SessionRequest {
             resume_checkpoint: Some(proto),
             ..
         } => proto,
-        request => return Err(verify.fail(request)),
+        request => return Err(verify.fail_msg(request)),
     };
     let resume_checkpoint =
         crate::Frontier::decode(proto).context("validating resume_checkpoint frontier")?;
@@ -182,11 +182,10 @@ pub async fn open_slice_rpc(
     mpsc::Sender<shuffle::SliceRequest>,
     futures::stream::BoxStream<'static, tonic::Result<shuffle::SliceResponse>>,
 )> {
-    let verify = crate::verify(
+    let verify = proto_grpc::verify(
         "SliceResponse",
         "Opened",
         &shards[slice_shard_index as usize].endpoint,
-        slice_shard_index as usize,
     );
     let (request_tx, request_rx) = crate::new_channel::<shuffle::SliceRequest>();
 
@@ -235,6 +234,6 @@ pub async fn open_slice_rpc(
             ..
         } => Ok((request_tx, response_rx)),
 
-        response => Err(verify.fail(response)),
+        response => Err(verify.fail_msg(response)),
     }
 }

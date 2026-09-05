@@ -174,41 +174,8 @@ impl Service {
             return Ok(channel.clone());
         }
 
-        let channel = tonic::transport::Endpoint::from_shared(endpoint.to_string())
-            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?
-            // Note this connect_timeout accounts only for TCP connection time and
-            // does not apply to time required for TLS or HTTP/2 transport start,
-            // which can block indefinitely if the server is bound but not listening.
-            // Also, this timeout gets split between all of the IP addresses that endpoint
-            // resolves to. Thus, if the endpoint resolves to 10 different addresses, then
-            // the effective timeout per address is 60 / 10 = 6 seconds. This is why
-            // the value is relatively high.
-            .connect_timeout(std::time::Duration::from_secs(60))
-            // HTTP/2 keep-alive sends a PING frame every interval to confirm the
-            // health of the end-to-end HTTP/2 transport. The duration was selected
-            // to be compatible with the default grpc server setting of 5 minutes
-            // for `GRPC_ARG_HTTP2_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS`. If we
-            // send pings more frequently than that, then the server may close the
-            // connection unexpectedly.
-            // See: https://github.com/grpc/grpc/blob/master/doc/keepalive.md
-            .http2_keep_alive_interval(std::time::Duration::from_secs(301))
-            .initial_connection_window_size(i32::MAX as u32);
-
-        let channel = if endpoint.starts_with("http://") {
-            // In-process `http://` loopback used by `flowctl preview` and
-            // tests.
-            channel
-        } else {
-            channel
-                .tls_config(
-                    tonic::transport::ClientTlsConfig::new()
-                        .with_native_roots()
-                        .assume_http2(true),
-                )
-                .map_err(|err| tonic::Status::internal(err.to_string()))?
-        }
-        .connect_lazy();
-
+        let channel = proto_grpc::dial_channel(endpoint)
+            .map_err(|err| tonic::Status::internal(err.to_string()))?;
         guard.insert(endpoint.to_string(), channel.clone());
         Ok(channel)
     }
