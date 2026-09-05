@@ -39,6 +39,28 @@ pub struct Options {
     /// Each task's own `shards: {logLevel}` decides what reaches it; see
     /// [`logger_factory`].
     pub log_handler: LogHandler,
+    /// Bounds on every step which drives a connector.
+    pub timeouts: Timeouts,
+}
+
+/// Bounds on connector execution.
+#[derive(Clone, Copy, Debug)]
+pub struct Timeouts {
+    /// Bounds [`DerivationSession::start`]: connector startup, an image pull,
+    /// and the Open exchange.
+    pub start: std::time::Duration,
+    /// Bounds each transaction, each inter-case `reset()`, and `shutdown()`.
+    pub transaction: std::time::Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            // An image pull on a cold reactor dominates this.
+            start: std::time::Duration::from_secs(300),
+            transaction: std::time::Duration::from_secs(60),
+        }
+    }
 }
 
 impl Default for Options {
@@ -47,6 +69,7 @@ impl Default for Options {
             network: String::new(),
             splits: 2,
             log_handler: Arc::new(ops::tracing_log_handler),
+            timeouts: Timeouts::default(),
         }
     }
 }
@@ -144,8 +167,16 @@ pub async fn run_tests(
 
     // Every exit passes through `shutdown_all`, so each session is stopped
     // gracefully and the errors its teardown reports are observed.
-    let result = run_cases(&mut graph, &mut sessions, &collections, &store, &tests).await;
-    let shutdown = shutdown_all(sessions).await;
+    let result = run_cases(
+        &mut graph,
+        &mut sessions,
+        &collections,
+        &store,
+        &tests,
+        options.timeouts,
+    )
+    .await;
+    let shutdown = shutdown_all(sessions, options.timeouts).await;
     let outcomes = result?;
 
     if let Err(shutdown_err) = shutdown {
@@ -172,19 +203,22 @@ async fn run_cases(
     collections: &BTreeMap<String, CollectionSpec>,
     store: &Arc<Mutex<CollectionStore>>,
     tests: &[TestSpec],
+    timeouts: Timeouts,
 ) -> anyhow::Result<Vec<TestOutcome>> {
     let mut outcomes = Vec::with_capacity(tests.len());
 
     for (index, test) in tests.iter().enumerate() {
-        let (result, last_scope) = {
+        let (result, last_scope, poisoned) = {
             let mut driver = LiveDriver {
                 sessions,
                 store: store.clone(),
                 collections,
                 last_scope: step_scope(test).to_string(),
+                timeouts,
+                poisoned: false,
             };
             let result = run_test_case(graph, &mut driver, test).await;
-            (result, driver.last_scope)
+            (result, driver.last_scope, driver.poisoned)
         };
         let case_failed = result.is_err();
 
@@ -203,30 +237,49 @@ async fn run_cases(
             },
         });
 
-        // Reset connector state after every case, including the last.
-        let mut reset_result = Ok(());
-        for session in sessions.values_mut() {
-            reset_result = session
-                .reset()
-                .await
+        let result = if poisoned {
+            // A timed-out transaction leaves its session mid-flight. It's not
+            // quiescent and a Reset would be sent into an open transaction.
+            Err(anyhow::anyhow!(
+                "a session timed out during test {}",
+                test.name
+            ))
+        } else {
+            // Reset connector state after every completed case (last included).
+            let mut result = Ok(());
+            for session in sessions.values_mut() {
+                result = match tokio::time::timeout(timeouts.transaction, session.reset()).await {
+                    Ok(result) => result,
+                    Err(_elapsed) => Err(anyhow::anyhow!(
+                        "reset timed out after {:?}",
+                        timeouts.transaction
+                    )),
+                }
                 .with_context(|| format!("resetting state after test {}", test.name));
-            if reset_result.is_err() {
-                break;
-            }
-        }
 
-        match reset_result {
+                if result.is_err() {
+                    break;
+                }
+            }
+            result
+        };
+
+        match result {
             Ok(()) => {}
-            Err(reset_err) if case_failed => {
-                // A session dead at Reset is a consequence of the failure just
-                // recorded, and that outcome — not this teardown symptom — is
-                // what the caller must see. Stop here and report what didn't run.
+            Err(err) if case_failed => {
+                // A poisoned session or failed reset is a consequence of the
+                // failure added to `outcomes`. Report the cases
+                // which the terminal session failure prevents from running.
                 tracing::warn!(
-                    err = ?reset_err,
+                    ?err,
                     test = %test.name,
-                    "sessions cannot be reset after a failed test case; stopping the run",
+                    "a session cannot continue after a failed test case; stopping the run",
                 );
-                let reason = format!("a session failed during test {}", test.name);
+                let reason = if poisoned {
+                    format!("a session timed out during test {}", test.name)
+                } else {
+                    format!("a session failed during test {}", test.name)
+                };
                 outcomes.extend(tests[index + 1..].iter().map(|not_run| TestOutcome {
                     name: not_run.name.clone(),
                     scope: step_scope(not_run).to_string(),
@@ -238,7 +291,7 @@ async fn run_cases(
             }
             // The case passed and Reset still failed: a genuine runtime fault
             // with no user-attributable cause to fold it into.
-            Err(reset_err) => return Err(reset_err),
+            Err(err) => return Err(err),
         }
     }
 
@@ -247,11 +300,26 @@ async fn run_cases(
 
 /// Gracefully stop every resident session, reporting the first failure but
 /// always attempting all of them.
-async fn shutdown_all(sessions: BTreeMap<String, DerivationSession>) -> anyhow::Result<()> {
+async fn shutdown_all(
+    sessions: BTreeMap<String, DerivationSession>,
+    timeouts: Timeouts,
+) -> anyhow::Result<()> {
     let mut first_err = None;
 
-    for (name, session) in sessions {
-        match session.shutdown().await {
+    // Shutdowns are independent: run them concurrently.
+    let shutdowns = sessions.into_iter().map(|(name, session)| async move {
+        let result = match tokio::time::timeout(timeouts.transaction, session.shutdown()).await {
+            Ok(result) => result,
+            Err(_elapsed) => Err(anyhow::anyhow!(
+                "shutdown timed out after {:?}",
+                timeouts.transaction
+            )),
+        };
+        (name, result)
+    });
+
+    for (name, shutdown) in futures::future::join_all(shutdowns).await {
+        match shutdown {
             Ok(()) => {}
             Err(err) if first_err.is_none() => {
                 first_err = Some(err.context(format!("shutting down session for {name}")));
@@ -314,12 +382,18 @@ async fn start_sessions(
         let network = options.network.clone();
         let registry = registry.clone();
         let store = store.clone();
+        let start_timeout = options.timeouts.start;
 
         async move {
-            let session =
-                DerivationSession::start(&spec, n_shards, network, registry, store, logger_factory)
-                    .await
-                    .with_context(|| format!("starting derivation session for {name}"))?;
+            // Dropping the timed-out start drops its shard request streams,
+            // which cancels the in-flight connector stream.
+            let session = tokio::time::timeout(
+                start_timeout,
+                DerivationSession::start(&spec, n_shards, network, registry, store, logger_factory),
+            )
+            .await
+            .unwrap_or_else(|_elapsed| Err(anyhow::anyhow!("timed out after {start_timeout:?}")))
+            .with_context(|| format!("starting derivation session for {name}"))?;
 
             anyhow::Ok((name, session))
         }
@@ -342,7 +416,7 @@ async fn start_sessions(
     if errors.is_empty() {
         return Ok(sessions);
     }
-    _ = shutdown_all(sessions).await;
+    _ = shutdown_all(sessions, options.timeouts).await;
 
     if errors.len() == 1 {
         return Err(errors.pop().unwrap());
@@ -403,11 +477,12 @@ fn step_scope(test: &TestSpec) -> &str {
 /// Drives the scheduler's Read / Ingest / Verify / Advance against the resident
 /// sessions and the collection store.
 struct LiveDriver<'a> {
+    collections: &'a BTreeMap<String, CollectionSpec>,
+    last_scope: String, // Most-recently executed step, for reporting.
+    poisoned: bool,     // Set on timeout.
     sessions: &'a mut BTreeMap<String, DerivationSession>,
     store: Arc<Mutex<CollectionStore>>,
-    collections: &'a BTreeMap<String, CollectionSpec>,
-    /// Scope of the most-recently-executed step, for failure reporting.
-    last_scope: String,
+    timeouts: Timeouts,
 }
 
 impl Driver for LiveDriver<'_> {
@@ -420,7 +495,18 @@ impl Driver for LiveDriver<'_> {
             .sessions
             .get_mut(&read.derivation)
             .with_context(|| format!("no resident session for derivation {}", read.derivation))?;
-        session.read(read).await
+
+        match tokio::time::timeout(self.timeouts.transaction, session.read(read)).await {
+            Ok(result) => result,
+            Err(_elapsed) => {
+                self.poisoned = true;
+                Err(anyhow::anyhow!(
+                    "transaction of derivation {} timed out after {:?}",
+                    read.derivation,
+                    self.timeouts.transaction,
+                ))
+            }
+        }
     }
 
     async fn ingest(&mut self, test: &TestSpec, test_step: usize) -> anyhow::Result<Clock> {
