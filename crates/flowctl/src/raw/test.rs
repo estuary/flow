@@ -53,6 +53,7 @@ impl Test {
             network: self.network.clone(),
             splits: self.splits,
             log_handler: std::sync::Arc::new(log_handler),
+            timeouts: catalog_tests::Timeouts::default(),
         };
 
         println!("Running {} tests...", built.built.built_tests.len());
