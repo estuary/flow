@@ -214,6 +214,7 @@ impl Preview {
         };
 
         let stop_token = tokio_util::sync::CancellationToken::new();
+        let connector_router = runtime_local::local_router(network.clone(), ctx.registry.clone());
 
         let result: anyhow::Result<()> = match task {
             TaskSpec::Capture(mut spec) => {
@@ -225,7 +226,7 @@ impl Preview {
                     runtime_local::set_min_txn_duration(spec.shard_template.as_mut(), delay);
                 }
                 let run = services::Run::start_capture(
-                    network.clone(),
+                    connector_router.clone(),
                     *shards,
                     *debug_port,
                     ctx.registry.clone(),
@@ -246,7 +247,7 @@ impl Preview {
                 let mut frontier_tx = None;
                 let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    network.clone(),
+                    connector_router.clone(),
                     *shards,
                     *debug_port,
                     registry.clone(),
@@ -300,7 +301,7 @@ impl Preview {
                 let mut frontier_tx = None;
                 let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    network.clone(),
+                    connector_router.clone(),
                     *shards,
                     *debug_port,
                     registry.clone(),

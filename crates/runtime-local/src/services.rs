@@ -32,7 +32,6 @@ pub struct Run {
     /// Empty for capture; the materialize / derive driver dials this peer for
     /// Leader and Shuffle RPCs.
     pub peer_endpoint: String,
-    pub network: String,
     /// Routes every connector this run starts; see [`crate::local_router`].
     pub connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     /// Empty for capture.
@@ -62,7 +61,7 @@ impl Run {
     /// Captures are leaderless and don't read journals, so the in-process Leader
     /// / Shuffle services and a logged-in token are not required.
     pub async fn start_capture(
-        network: String,
+        connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
         n_shards: u32,
         debug_port: Option<u16>,
         registry: service_kit::Registry,
@@ -81,8 +80,7 @@ impl Run {
             _admin_task,
             _shuffle_log_tmp: None,
             peer_endpoint: String::new(),
-            connector_router: crate::local_router(network.clone(), registry.clone()),
-            network,
+            connector_router,
             shuffle_log_dir: String::new(),
             n_shards,
             registry,
@@ -102,7 +100,7 @@ impl Run {
     /// service and reads no journals. This keeps journal authorization, and the
     /// live-versus-synthetic choice, in the caller rather than here.
     pub async fn start_with_shuffle_leader<S, P, L, F>(
-        network: String,
+        connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
         n_shards: u32,
         debug_port: Option<u16>,
         registry: service_kit::Registry,
@@ -166,8 +164,7 @@ impl Run {
             _admin_task,
             _shuffle_log_tmp: Some(_shuffle_log_tmp),
             peer_endpoint,
-            connector_router: crate::local_router(network.clone(), registry.clone()),
-            network,
+            connector_router,
             shuffle_log_dir,
             n_shards,
             registry,
