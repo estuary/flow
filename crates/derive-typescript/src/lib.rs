@@ -14,6 +14,7 @@ pub fn run() -> anyhow::Result<()> {
 
     // Handle Spec and Validate requests, breaking upon an Open.
     let open = loop {
+        line.clear();
         if bin.read_line(&mut line)? == 0 {
             return Ok(()); // Clean EOF.
         };
