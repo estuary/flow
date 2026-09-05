@@ -2,7 +2,23 @@ mod auth;
 pub use auth::{Authenticator, Authorized, Authorizer, Signer};
 
 pub mod capture;
-pub mod connector;
+pub mod connector {
+    include!("connector.rs");
+
+    #[cfg(feature = "connector_client")]
+    mod client;
+    #[cfg(feature = "connector_client")]
+    mod identity;
+    #[cfg(feature = "connector_client")]
+    mod router;
+
+    #[cfg(feature = "connector_client")]
+    pub use client::*;
+    #[cfg(feature = "connector_client")]
+    pub use identity::*;
+    #[cfg(feature = "connector_client")]
+    pub use router::*;
+}
 pub mod consumer;
 pub mod derive;
 pub mod flow;
