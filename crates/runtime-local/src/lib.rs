@@ -22,7 +22,7 @@
 //! # Key entry points
 //!
 //! - [`services::Run`] — per-invocation resources: the tonic server and the
-//!   shuffle-log directory.
+//!   shuffle-log directory, and a `proto_grpc::connector::Router`.
 //! - [`materialize_driver::run_sessions`] / [`derive_driver::run_sessions`] /
 //!   [`capture_driver::run_sessions`] — drive N shards of one task through a
 //!   sequence of sessions.
@@ -41,8 +41,7 @@ pub mod services;
 pub mod shards;
 
 use runtime_next::{LoggerFactory, PublisherFactory};
-
-/// The connector [`Router`](proto_grpc::connector::Router) of every local context: one
+/// The connector router of every local context: one
 /// `Plane::Local` connector `Service`, served in-process, reached with bearers
 /// minted from a throwaway key the pair shares.
 pub fn local_router(
@@ -149,8 +148,7 @@ pub(crate) async fn teardown_shard_stream<T>(
 
 /// Raise a task's minimum transaction duration, so the leader holds each
 /// transaction open for at least `delay` and batches source output into fewer,
-/// larger transactions. The runtime-next analog of legacy preview's sleep
-/// between transaction polls.
+/// larger transactions.
 pub fn set_min_txn_duration(
     shard_template: Option<&mut proto_gazette::consumer::ShardSpec>,
     delay: std::time::Duration,

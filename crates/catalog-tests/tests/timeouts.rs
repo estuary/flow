@@ -1,6 +1,7 @@
-//! Timeout and poisoning semantics of `run_tests`.
+//! Timeout, poisoning, and log interleaving semantics of `run_tests`.
 
 use catalog_tests::run;
+use std::sync::{Arc, Mutex};
 
 /// Build a catalog from inline YAML to built specs, validating derivations
 /// in-process (no Docker).
@@ -194,4 +195,76 @@ tests:
     assert_eq!(results.failed(), 1);
     assert_eq!(results.not_run(), 2);
     insta::assert_snapshot!("transaction_timeout_poisons_the_run", render(&results));
+}
+
+/// A connector's stderr reaches the run's `LogHandler`, which the shard's logger sinks
+/// as it reads the stream — ahead of the connector's terminal `Status`.
+#[tokio::test]
+async fn logs_interleave_from_a_connector() {
+    let script = format!(
+        "{}/tests/fixtures/dying_connector.py",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let output = build_catalog(&format!(
+        r#"
+collections:
+  acmeCo/ints:
+    schema:
+      type: object
+      properties:
+        Key: {{ type: string }}
+      required: [Key]
+    key: [/Key]
+
+  acmeCo/dies:
+    schema:
+      type: object
+      properties:
+        Key: {{ type: string }}
+      required: [Key]
+    key: [/Key]
+    derive:
+      using:
+        local:
+          command: ["python3", "{script}"]
+          config: {{ die: before_opened }}
+          protobuf: false
+      transforms:
+        - name: fromInts
+          source: acmeCo/ints
+          shuffle: {{ key: [/Key] }}
+          lambda: {{}}
+
+tests:
+  acmeCo/test/dies:
+    - ingest:
+        collection: acmeCo/ints
+        documents:
+          - {{ Key: a }}
+    - verify:
+        collection: acmeCo/dies
+        documents: []
+"#
+    ))
+    .await;
+
+    let logged: Arc<Mutex<Vec<String>>> = Default::default();
+    let options = run::Options {
+        log_handler: {
+            let logged = logged.clone();
+            Arc::new(move |log: &ops::Log| logged.lock().unwrap().push(log.message.clone()))
+        },
+        ..Default::default()
+    };
+
+    _ = expect_err(
+        run::run_tests(&output.built, options).await,
+        "a connector which dies before Opened must fail the run",
+    );
+
+    let logged = logged.lock().unwrap();
+    assert!(
+        logged.iter().any(|m| m.contains("dying before Opened")),
+        "the connector's stderr must reach the run's log handler, saw: {logged:?}",
+    );
 }

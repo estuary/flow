@@ -26,14 +26,15 @@ crate is generic over all three and knows nothing about either caller.
 
 The layering matters and is enforced by the crate boundary: `catalog-tests`
 depends on `runtime-local`, never the reverse. Nothing here may reach for a
-catalog-test type. (This crate is *not* `runtime::harness`, which is the V1
-runtime's equivalent and dies with V1 preview.)
+catalog-test type. `runtime::harness` is a separate harness for the Go-driven
+runtime.
 
 ## Key types and entry points
 
 | Item | Purpose |
 |---|---|
 | `services::Run` | Per-invocation resources: the loopback tonic server and the shuffle-log directory. `start_capture` for leaderless captures; `start_with_shuffle_leader` otherwise. |
+| `local_router` | The in-process `proto_grpc::connector::Router` of local contexts: one `Plane::Local` `connector::Service` over a throwaway key. |
 | `Controls<P, L>` | The publisher and logger factories installed on each shard, plus shard zero's optional connector-state seed and final-state request, both carried on its `SessionLoop`. `run_sessions` returns the reported final state. |
 | `materialize_driver` / `derive_driver` / `capture_driver` | `run_sessions` drives N shards of one materialization / derivation / capture through a sequence of sessions. |
 | `segments` | Writes documents directly as `shuffle::log` segments and builds the checkpoint `Frontier` that makes them visible — a whole transaction at a time, or document-by-document through a `TxnState`; plus the channel-fed `ShuffleSessionFactory` that relays those frontiers. |
@@ -72,7 +73,7 @@ rather than transaction size.
 **Clocks are the caller's policy.** `push_binding` takes each document's clock
 rather than generating one. Document clocks must increase globally across a run,
 or a recovered frontier will re-admit earlier documents — but *how* they advance
-differs by caller (preview reproduces the legacy fixture harness's
+differs by caller (preview reproduces the Go fixture harness's
 `3600 * ordinal + index` stamping, which `TxnState::for_txn` + `push_doc`
 implement; a test runner paces them against its own synthetic time). Segment LSNs
 are the opposite: they restart per session, because the runtime's per-session

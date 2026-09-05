@@ -150,7 +150,7 @@ async fn start_sessions(
         let session = DerivationSession::start(
             spec,
             n_shards,
-            String::new(),
+            runtime_local::local_router(String::new(), registry.clone()),
             registry.clone(),
             store.clone(),
             runtime_next::TracingLoggerFactory,
@@ -623,7 +623,7 @@ async fn start_dying(
         DerivationSession::start(
             &spec,
             2,
-            String::new(),
+            runtime_local::local_router(String::new(), service_kit::Registry::new()),
             service_kit::Registry::new(),
             store.clone(),
             runtime_next::TracingLoggerFactory,

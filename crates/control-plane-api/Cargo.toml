@@ -30,6 +30,10 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["runtime_client"] }
 runtime = { path = "../runtime" }
+# Temporary: `test_catalog` builds a local connector router until publication
+# tests route to data planes. Becomes a dev-dependency then.
+runtime-local = { path = "../runtime-local" }
+service-kit = { path = "../service-kit" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 tokens = { path = "../tokens" }

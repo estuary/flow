@@ -8,9 +8,6 @@
 //! recorded rather than aborting the run. A failure can kill its session
 //! outright — which a Reset cannot revive — in which case the remaining cases
 //! are reported as not-run rather than discarding the outcomes already in hand.
-//!
-//! Every derivation runs with `Options::splits` shards, whatever its connector,
-//! to exercise multi-shard key routing.
 
 use crate::clock::Clock;
 use crate::graph::{Graph, PendingRead, TestTime};
@@ -31,14 +28,12 @@ pub type LogHandler = Arc<dyn Fn(&ops::Log) + Send + Sync>;
 
 /// Options controlling a catalog-test run.
 pub struct Options {
-    /// Docker network for image connectors (empty for the default).
-    pub network: String,
+    /// Routes started derivation connectors to a local or remote executor.
+    pub connector_router: Arc<dyn proto_grpc::connector::Router>,
+    /// Sink for connector and test harness logs.
+    pub log_handler: LogHandler,
     /// Shards to activate for every derivation.
     pub splits: u32,
-    /// Sink for connector / runtime ops logs (the agent path feeds `logs_tx`).
-    /// Each task's own `shards: {logLevel}` decides what reaches it; see
-    /// [`logger_factory`].
-    pub log_handler: LogHandler,
     /// Bounds on every step which drives a connector.
     pub timeouts: Timeouts,
 }
@@ -46,8 +41,8 @@ pub struct Options {
 /// Bounds on connector execution.
 #[derive(Clone, Copy, Debug)]
 pub struct Timeouts {
-    /// Bounds [`DerivationSession::start`]: connector startup, an image pull,
-    /// and the Open exchange.
+    /// Bounds [`DerivationSession::start`]: dialing the connector service, an
+    /// image pull, and the Open exchange.
     pub start: std::time::Duration,
     /// Bounds each transaction, each inter-case `reset()`, and `shutdown()`.
     pub transaction: std::time::Duration,
@@ -66,7 +61,10 @@ impl Default for Timeouts {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            network: String::new(),
+            connector_router: runtime_local::local_router(
+                String::new(),
+                service_kit::Registry::new(),
+            ),
             splits: 2,
             log_handler: Arc::new(ops::tracing_log_handler),
             timeouts: Timeouts::default(),
@@ -337,9 +335,7 @@ async fn shutdown_all(
 /// Bound on concurrently-starting sessions. Starts are concurrent because a
 /// session start is dominated by its connector's startup (a container pull and
 /// boot, for an image derivation) and a catalog's derivations have no startup
-/// dependency on one another — but bounded, capping how abruptly one run can
-/// hit shared infrastructure: the local Docker daemon today, and data-plane
-/// reactors once sessions dial out to them.
+/// dependency on one another.
 const MAX_CONCURRENT_STARTS: usize = 16;
 
 /// Start a resident [`DerivationSession`] for every enabled derivation,
@@ -379,7 +375,7 @@ async fn start_sessions(
     }
 
     let starts = pending.into_iter().map(|(name, spec, logger_factory)| {
-        let network = options.network.clone();
+        let connector_router = options.connector_router.clone();
         let registry = registry.clone();
         let store = store.clone();
         let start_timeout = options.timeouts.start;
@@ -389,7 +385,14 @@ async fn start_sessions(
             // which cancels the in-flight connector stream.
             let session = tokio::time::timeout(
                 start_timeout,
-                DerivationSession::start(&spec, n_shards, network, registry, store, logger_factory),
+                DerivationSession::start(
+                    &spec,
+                    n_shards,
+                    connector_router,
+                    registry,
+                    store,
+                    logger_factory,
+                ),
             )
             .await
             .unwrap_or_else(|_elapsed| Err(anyhow::anyhow!("timed out after {start_timeout:?}")))
