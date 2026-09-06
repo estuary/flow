@@ -29,7 +29,7 @@ use crate::publish::TestPublisherFactory;
 use crate::store::CollectionStore;
 use anyhow::Context;
 use prost::Message;
-use proto_flow::{flow, runtime as cruntime};
+use proto_flow::flow;
 use proto_gazette::uuid;
 use runtime_local::segments;
 use runtime_next::proto;
@@ -181,8 +181,7 @@ impl DerivationSession {
             let (request_tx, request_rx) =
                 mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
             let shard_svc = runtime_next::shard::Service::new(
-                cruntime::Plane::Local,
-                network.clone(),
+                run.connector_router.clone(),
                 None,
                 derivation.clone(),
                 publisher_factory.clone(),

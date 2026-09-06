@@ -33,6 +33,8 @@ pub struct Run {
     /// Leader and Shuffle RPCs.
     pub peer_endpoint: String,
     pub network: String,
+    /// Routes every connector this run starts; see [`crate::local_router`].
+    pub connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     /// Empty for capture.
     pub shuffle_log_dir: String,
     pub n_shards: u32,
@@ -79,6 +81,7 @@ impl Run {
             _admin_task,
             _shuffle_log_tmp: None,
             peer_endpoint: String::new(),
+            connector_router: crate::local_router(network.clone(), registry.clone()),
             network,
             shuffle_log_dir: String::new(),
             n_shards,
@@ -163,6 +166,7 @@ impl Run {
             _admin_task,
             _shuffle_log_tmp: Some(_shuffle_log_tmp),
             peer_endpoint,
+            connector_router: crate::local_router(network.clone(), registry.clone()),
             network,
             shuffle_log_dir,
             n_shards,

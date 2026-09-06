@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 /// There is no container lifecycle here, and no [`Guard`](crate::container::Guard):
 /// `connector_init::rpc::bidi` reads the subprocess's stderr through before the
 /// returned stream's terminal item, so trailing logs precede it already.
-pub fn serve<Request, Response>(
+pub(crate) fn serve<Request, Response>(
     command: Vec<String>,                // Connector to run.
     env: BTreeMap<String, String>,       // Environment variables.
     log_sink: crate::LogSink,            // Sink for connector logs.

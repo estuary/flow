@@ -12,6 +12,8 @@ publish = false
 
 [dependencies]
 assemble = { path = "../assemble" }
+connector = { path = "../connector" }
+proto-grpc = { path = "../proto-grpc", features = ["connector_client"] }
 doc = { path = "../doc" }
 json = { path = "../json" }
 labels = { path = "../labels" }

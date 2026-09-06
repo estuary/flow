@@ -1,5 +1,4 @@
 mod actor;
-mod connector;
 mod drain;
 mod handler;
 mod scan;
