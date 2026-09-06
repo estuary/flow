@@ -6,7 +6,7 @@
 use crate::Controls;
 use crate::services::Run;
 use prost::Message;
-use proto_flow::{flow, runtime as cruntime};
+use proto_flow::flow;
 use runtime_next::proto;
 use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
@@ -37,7 +37,7 @@ pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
         let run_handle = RunHandle {
             peer_endpoint: run.peer_endpoint.clone(),
             shuffle_log_dir: run.shuffle_log_dir.clone(),
-            network: run.network.clone(),
+            connector_router: run.connector_router.clone(),
             registry: run.registry.clone(),
         };
         let task_name = spec.name.clone();
@@ -72,7 +72,7 @@ pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
 struct RunHandle {
     peer_endpoint: String,
     shuffle_log_dir: String,
-    network: String,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     registry: service_kit::Registry,
 }
 
@@ -90,8 +90,7 @@ async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
 
     let shard_svc = runtime_next::shard::Service::new(
-        cruntime::Plane::Local,
-        run.network.clone(),
+        run.connector_router,
         None,
         task_name,
         controls.publisher_factory.clone(),

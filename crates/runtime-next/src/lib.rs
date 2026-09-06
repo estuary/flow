@@ -103,10 +103,7 @@ pub(crate) async fn sleep_unless_zero(
 // protocol already depends on. See `proto_grpc::MAX_STATUS_MESSAGE_LEN` for
 // why an unbounded status can't survive its trip over the wire.
 pub(crate) use proto_grpc::bounded_unknown_status;
-pub use proto_grpc::{
-    CHANNEL_BUFFER, MAX_MESSAGE_SIZE, MAX_STATUS_MESSAGE_LEN, Verify, anyhow_to_status,
-    status_to_anyhow, verify,
-};
+pub use proto_grpc::{MAX_STATUS_MESSAGE_LEN, Verify, anyhow_to_status, status_to_anyhow, verify};
 
 struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);
 
