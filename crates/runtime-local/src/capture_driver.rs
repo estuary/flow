@@ -15,7 +15,7 @@
 use crate::Controls;
 use crate::services::Run;
 use prost::Message;
-use proto_flow::{flow, runtime as cruntime};
+use proto_flow::flow;
 use runtime_next::proto;
 use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
@@ -39,7 +39,7 @@ pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
     let mut handles = Vec::with_capacity(run.n_shards as usize);
     for i in 0..run.n_shards {
         let run_handle = RunHandle {
-            network: run.network.clone(),
+            connector_router: run.connector_router.clone(),
             registry: run.registry.clone(),
         };
         let task_name = spec.name.clone();
@@ -70,7 +70,7 @@ pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
 /// `Run` fields a single capture shard driver needs. Cheaper to clone than
 /// `&Run` so we can move it into a spawned task without lifetime gymnastics.
 struct RunHandle {
-    network: String,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     registry: service_kit::Registry,
 }
 
@@ -85,8 +85,7 @@ async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     stop_token: CancellationToken,
 ) -> anyhow::Result<Option<bytes::Bytes>> {
     let shard_svc = runtime_next::shard::Service::new(
-        cruntime::Plane::Local,
-        run.network,
+        run.connector_router,
         None,
         task_name,
         controls.publisher_factory.clone(),

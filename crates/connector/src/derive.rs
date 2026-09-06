@@ -1,49 +1,46 @@
+//! Derivation connectors: identity extraction, endpoint unsealing, and
+//! dispatch to an image, local, or in-process `derive-sqlite` connector.
+use crate::Started;
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, stream::BoxStream};
-use proto_flow::{derive, flow::collection_spec::derivation::ConnectorType};
+use futures::{FutureExt, StreamExt};
+use proto_flow::{
+    derive::{Request, Response, request, response},
+    flow::collection_spec::derivation::ConnectorType,
+};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use unseal;
 
 /// Start a derivation connector as indicated by the `initial` Request.
-/// Returns a pair of streams for sending Requests and receiving Responses,
-/// plus optional connector container metadata.
 ///
-/// Unlike the materialize / capture connector starts, derivations don't perform
-/// an IAM token-exchange Spec pre-dance (no derive connector uses IAM today),
-/// and they support an in-process `Sqlite` connector alongside image / local.
-///
-/// `sqlite_vfs_uri` threads the shard's recorded SQLite VFS to a `Sqlite`
-/// connector, and is empty for every other connector type.
-pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    logger: &L::Logger,
+/// Starts the connector, exchanges Spec, and then sends the client's request.
+/// Derivations support an in-process `Sqlite` connector alongside image / local.
+/// `sqlite_vfs_uri` is the recorded SQLite VFS an in-process shard threads to a
+/// `Sqlite` connector; it is an error for any other connector type.
+pub(crate) async fn start(
+    plane: crate::Plane,
+    container_network: &str,
+    log_sink: crate::LogSink,
     log_level: ops::LogLevel,
+    task_name: &str,
     sqlite_vfs_uri: String,
-    mut initial: derive::Request,
-) -> anyhow::Result<(
-    mpsc::Sender<derive::Request>,
-    BoxStream<'static, tonic::Result<derive::Response>>,
-    Option<crate::proto::Container>,
-    connector_init::Codec,
-)> {
-    let (endpoint, config_json) = extract_endpoint(&mut initial)?;
-    let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
+    mut initial: Request,
+) -> anyhow::Result<Started<Request, Response>> {
+    let (endpoint, config_json, connector_type) = extract_endpoint(&mut initial)?;
+    let (connector_tx, connector_rx) = mpsc::channel(proto_grpc::CHANNEL_BUFFER);
 
-    // Connector logs and container lifecycle records both flow to this
-    // session's Logger.
-    let log_sink = {
-        let logger = logger.clone();
-        connector::LogSink::handler(move |log| crate::Logger::log(&logger, log))
-    };
+    if !sqlite_vfs_uri.is_empty() && !matches!(endpoint, models::DeriveUsing::Sqlite(_)) {
+        return Err(crate::invalid_argument(
+            "Start.sqlite_vfs_uri may only be set for a Sqlite derivation connector".to_string(),
+        ));
+    }
 
     fn start_rpc(
         channel: tonic::transport::Channel,
-        rx: mpsc::Receiver<derive::Request>,
-    ) -> connector::image::StartRpcFuture<derive::Response> {
+        rx: mpsc::Receiver<Request>,
+    ) -> crate::image::StartRpcFuture<Response> {
         async move {
             proto_grpc::derive::connector_client::ConnectorClient::new(channel)
-                .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
                 .max_encoding_message_size(usize::MAX)
                 .derive(ReceiverStream::new(rx))
                 .await
@@ -51,40 +48,29 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         .boxed()
     }
 
-    let (connector_rx, container, codec): (
-        BoxStream<'static, tonic::Result<derive::Response>>,
-        _,
-        connector_init::Codec,
-    ) = match endpoint {
+    let (mut connector_rx, container, codec, guard) = match endpoint {
         models::DeriveUsing::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            let (rx, container, codec, guard) = connector::image::serve(
+            let (rx, container, codec, guard) = crate::image::serve(
                 image,
-                log_sink.clone(),
+                log_sink,
                 log_level,
-                &service.container_network,
+                container_network,
                 connector_rx,
                 start_rpc,
-                &service.task_name,
+                task_name,
                 ops::TaskType::Derivation,
-                service.plane,
+                plane,
             )
             .await?;
 
-            // The container Guard rides its response stream: dropping the
-            // stream stops the container.
-            let rx = rx.map(move |result| {
-                let _guard = &guard;
-                result
-            });
-
-            (rx.boxed(), Some(container), codec)
+            (rx.boxed(), Some(container), codec, Some(guard))
         }
-        models::DeriveUsing::Local(_) if !matches!(service.plane, crate::Plane::Local) => {
+        models::DeriveUsing::Local(_) if !matches!(plane, crate::Plane::Local) => {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
             )
@@ -103,52 +89,79 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             };
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            let rx =
-                connector::local::serve(command, env, log_sink, log_level, codec, connector_rx)?
-                    .boxed();
+            let rx = crate::local::serve(command, env, log_sink, log_level, codec, connector_rx)?
+                .boxed();
 
-            (rx, None, codec)
+            (rx, None, codec, None)
         }
         models::DeriveUsing::Sqlite(_) => {
             // In-process connector consuming prost requests directly; maps its
             // anyhow::Result responses to tonic::Result.
             let vfs_uri = (!sqlite_vfs_uri.is_empty()).then_some(sqlite_vfs_uri);
             let rx = derive_sqlite::connector(ReceiverStream::new(connector_rx), vfs_uri)
-                .map(|r| r.map_err(crate::anyhow_to_status))
+                .map(|r| r.map_err(proto_grpc::anyhow_to_status))
                 .boxed();
 
-            (rx, None, connector_init::Codec::Proto)
+            (rx, None, connector_init::Codec::Proto, None)
         }
         models::DeriveUsing::Typescript(_) | models::DeriveUsing::Python(_) => {
             unreachable!("extract_endpoint errors on unresolved Typescript/Python connectors")
         }
     };
 
+    _ = connector_tx.try_send(Request {
+        kind: Some(request::Kind::Spec(request::Spec {
+            config_json: "{}".into(),
+            connector_type,
+        })),
+        ..Default::default()
+    });
+    let verify = crate::verify("Derive", "spec response", "connector");
+    let spec_response = match verify.not_eof(connector_rx.next().await)? {
+        Response {
+            kind: Some(response::Kind::Spec(response)),
+            ..
+        } => response,
+        response => return Err(verify.fail_msg(response)),
+    };
+
     _ = connector_tx.try_send(initial);
 
-    Ok((connector_tx, connector_rx, container, codec))
+    Ok(Started {
+        connector_tx,
+        connector_rx,
+        container,
+        codec,
+        token_restart_at: None,
+        spec: proto_flow::connector::response::started::Spec::Derive(spec_response),
+        guard,
+    })
 }
 
 fn extract_endpoint<'r>(
-    request: &'r mut derive::Request,
-) -> anyhow::Result<(models::DeriveUsing, &'r mut bytes::Bytes)> {
-    let verify = crate::verify("Derive", "valid first request", "controller");
-    if request.kind.is_none() {
-        return Err(verify.fail_msg(&request));
-    }
-    let (connector_type, config_json) = match request.kind.as_mut().expect("checked above") {
-        derive::request::Kind::Open(open) => {
+    request: &'r mut Request,
+) -> anyhow::Result<(models::DeriveUsing, &'r mut bytes::Bytes, i32)> {
+    let (connector_type, config_json) = match &mut request.kind {
+        Some(request::Kind::Spec(spec)) => (spec.connector_type, &mut spec.config_json),
+        Some(request::Kind::Validate(validate)) => {
+            (validate.connector_type, &mut validate.config_json)
+        }
+        Some(request::Kind::Open(open)) => {
             let inner = open
                 .collection
                 .as_mut()
-                .context("`open` missing required `collection`")?
+                .expect("checked by task_name")
                 .derivation
                 .as_mut()
-                .context("`collection` missing required `derivation`")?;
+                .ok_or_else(|| {
+                    crate::invalid_argument(
+                        "`collection` missing required `derivation`".to_string(),
+                    )
+                })?;
 
             (inner.connector_type, &mut inner.config_json)
         }
-        other => return Err(verify.fail_msg(other)),
+        _ => unreachable!("checked by task_name"),
     };
 
     if connector_type == ConnectorType::Image as i32 {
@@ -157,6 +170,7 @@ fn extract_endpoint<'r>(
                 serde_json::from_slice(config_json).context("parsing connector config")?,
             ),
             config_json,
+            connector_type,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
@@ -164,6 +178,7 @@ fn extract_endpoint<'r>(
                 serde_json::from_slice(config_json).context("parsing local config")?,
             ),
             config_json,
+            connector_type,
         ))
     } else if connector_type == ConnectorType::Sqlite as i32 {
         Ok((
@@ -171,11 +186,12 @@ fn extract_endpoint<'r>(
                 serde_json::from_slice(config_json).context("parsing sqlite config")?,
             ),
             config_json,
+            connector_type,
         ))
     } else if connector_type == ConnectorType::Typescript as i32
         || connector_type == ConnectorType::Python as i32
     {
-        // The V2 runtime never resolves a built-in connector image itself: the
+        // The runtime requires a built-in connector image to be resolved by the
         // control-plane build maps TypeScript / Python derivations to a concrete
         // image (selecting the tag from the task's feature flags) so that Validate
         // and the runtime agree on the connector interface. Encountering an

@@ -1,7 +1,7 @@
-use super::connector;
 use crate::Logger as _;
 use crate::leader::capture::fsm;
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
 use futures::StreamExt;
 use prost::Message;
@@ -235,6 +235,7 @@ where
         service,
         &logger,
         db,
+        &labeling.task_name,
         &binding_state_keys,
         &last_applied,
         &next_applied,
@@ -258,10 +259,28 @@ where
         ))),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container, token_restart_at) =
-        connector::start(service, &logger, log_level, open.clone()).await?;
+    let (
+        connector_tx,
+        mut connector_rx,
+        connector::Started {
+            container,
+            token_restart_at,
+            ..
+        },
+    ) = connector::start(
+        &*service.connector_router,
+        &logger,
+        &labeling.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri: String::new(),
+        },
+        connector::proto::request::Kind::Capture(open.clone()),
+    )
+    .await?;
     let verify = crate::verify("Capture", "Opened", "connector");
-    let opened = match verify.not_eof(connector_rx.next().await)? {
+    let next = connector::next(&mut connector_rx, &logger, connector::unwrap_capture);
+    let opened = match verify.not_eof(next.await)? {
         capture::Response {
             kind: Some(capture::response::Kind::Opened(opened)),
             ..
@@ -373,6 +392,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     service: &crate::shard::Service<P, L>,
     logger: &L::Logger,
     mut db: crate::shard::RocksDB,
+    task_name: &str,
     binding_state_keys: &[String],
     last_applied: &bytes::Bytes,
     next_applied: &bytes::Bytes,
@@ -414,35 +434,40 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             state_json: connector_state_json.clone(),
         };
 
-        let (connector_tx, mut connector_rx, _container, _token_restart_at) = connector::start(
-            service,
+        let (connector_tx, mut connector_rx, _started) = connector::start(
+            &*service.connector_router,
             logger,
-            log_level,
-            capture::Request {
+            task_name,
+            connector::proto::request::Start {
+                log_level: log_level as i32,
+                sqlite_vfs_uri: String::new(),
+            },
+            connector::proto::request::Kind::Capture(capture::Request {
                 kind: Some(capture::request::Kind::Apply(Box::new(apply))),
                 ..Default::default()
-            },
+            }),
         )
         .await?;
         std::mem::drop(connector_tx);
 
         let verify = crate::verify("Capture", "Applied", "connector");
-        let (action_description, applied_patches_json) =
-            match verify.not_eof(connector_rx.next().await)? {
-                capture::Response {
-                    kind:
-                        Some(capture::response::Kind::Applied(capture::response::Applied {
-                            action_description,
-                            state,
-                        })),
-                    ..
-                } => (
-                    action_description,
-                    crate::patches::encode_connector_state(state),
-                ),
-                response => return Err(verify.fail_msg(response)),
-            };
-        verify.eof(connector_rx.next().await)?;
+        let next = connector::next(&mut connector_rx, logger, connector::unwrap_capture);
+        let (action_description, applied_patches_json) = match verify.not_eof(next.await)? {
+            capture::Response {
+                kind:
+                    Some(capture::response::Kind::Applied(capture::response::Applied {
+                        action_description,
+                        state,
+                    })),
+                ..
+            } => (
+                action_description,
+                crate::patches::encode_connector_state(state),
+            ),
+            response => return Err(verify.fail_msg(response)),
+        };
+        let next = connector::next(&mut connector_rx, logger, connector::unwrap_capture);
+        verify.eof(next.await)?;
 
         logger.event(crate::LogEvent::Applied {
             action_description: &action_description,
@@ -515,14 +540,16 @@ mod test {
 
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let registry = service_kit::Registry::new();
+        let (_connector_svc, connector_router) =
+            ::connector::Service::new_local(String::new(), registry.clone());
         let service = crate::shard::Service::new(
-            crate::Plane::Local,
-            String::new(),
+            std::sync::Arc::new(connector_router),
             None,
             "test/task".to_string(),
             crate::publish::RecordingPublisherFactory,
             crate::TracingLoggerFactory,
-            service_kit::Registry::new(),
+            registry,
             None,
         );
 

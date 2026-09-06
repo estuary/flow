@@ -5,7 +5,7 @@ use futures::{Stream, future::BoxFuture};
 use tokio::sync::mpsc;
 
 /// StartRpcFuture is the response type of a function that starts a connector RPC.
-pub type StartRpcFuture<Response> =
+pub(crate) type StartRpcFuture<Response> =
     BoxFuture<'static, tonic::Result<tonic::Response<tonic::Streaming<Response>>>>;
 
 /// Serve an image-based connector by starting a container, dialing connector-init,
@@ -14,8 +14,8 @@ pub type StartRpcFuture<Response> =
 /// The container [`Guard`](container::Guard) is returned rather than tucked into
 /// the response stream: the caller drops it explicitly at teardown, which
 /// SIGKILLs `docker run` and closes the container's stderr so its log pump can
-/// finish.
-pub async fn serve<Request, Response, StartRpc>(
+/// finish. See `serve.rs`.
+pub(crate) async fn serve<Request, Response, StartRpc>(
     image: String,                       // Container image to run.
     log_sink: crate::LogSink,            // Sink for connector logs and lifecycle.
     log_level: ops::LogLevel,            // Log-level of the connector, if known.

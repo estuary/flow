@@ -273,14 +273,16 @@ mod test {
 
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let registry = service_kit::Registry::new();
+        let (_connector_svc, connector_router) =
+            ::connector::Service::new_local(String::new(), registry.clone());
         let service = crate::shard::Service::new(
-            crate::Plane::Local,
-            String::new(),
+            std::sync::Arc::new(connector_router),
             None,
             "test/task".to_string(),
             crate::publish::RecordingPublisherFactory,
             crate::TracingLoggerFactory,
-            service_kit::Registry::new(),
+            registry,
             None,
         );
 

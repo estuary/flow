@@ -1,46 +1,33 @@
+//! Materialization connectors: identity extraction, endpoint unsealing, IAM
+//! injection, and dispatch to an image, local, or in-process Dekaf connector.
+use crate::Started;
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, TryStreamExt, stream::BoxStream};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use proto_flow::{flow, materialize};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use unseal;
 use zeroize::Zeroize;
 
-// Start a materialization connector as indicated by the `initial` Request.
-// Returns a pair of Streams for sending Requests and receiving Responses,
-// plus OpenExtras with decrypted trigger configs and connector metadata,
-// plus a deadline for gracefully restarting the session ahead of injected
-// IAM credential expiry (None when the task doesn't use IAM auth).
-pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    logger: &L::Logger,
+/// Start a materialization connector as indicated by the `initial` Request.
+pub(crate) async fn start(
+    plane: crate::Plane,
+    container_network: &str,
+    log_sink: crate::LogSink,
     log_level: ops::LogLevel,
+    task_name: &str,
     mut initial: materialize::Request,
-) -> anyhow::Result<(
-    mpsc::Sender<materialize::Request>,
-    BoxStream<'static, tonic::Result<materialize::Response>>,
-    Option<crate::proto::Container>,
-    connector_init::Codec,
-    Option<std::time::SystemTime>,
-)> {
+) -> anyhow::Result<Started<materialize::Request, materialize::Response>> {
     let (endpoint, config_json, connector_type, catalog_name, sealed_config_json) =
-        extract_endpoint(&mut initial)?;
-    let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
-
-    // Connector logs and container lifecycle records both flow to this
-    // session's Logger.
-    let log_sink = {
-        let logger = logger.clone();
-        connector::LogSink::handler(move |log| crate::Logger::log(&logger, log))
-    };
+        extract_endpoint(task_name, &mut initial)?;
+    let (connector_tx, connector_rx) = mpsc::channel(proto_grpc::CHANNEL_BUFFER);
 
     fn start_rpc(
         channel: tonic::transport::Channel,
         rx: mpsc::Receiver<materialize::Request>,
-    ) -> connector::image::StartRpcFuture<materialize::Response> {
+    ) -> crate::image::StartRpcFuture<materialize::Response> {
         async move {
             proto_grpc::materialize::connector_client::ConnectorClient::new(channel)
-                .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
                 .max_encoding_message_size(usize::MAX)
                 .materialize(ReceiverStream::new(rx))
                 .await
@@ -52,35 +39,26 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     // decrypted later, once the connector's spec response is available. `None`
     // for Dekaf, which decrypts its own config outside this path.
     let sealed_config;
-    let (mut connector_rx, container, codec) = match endpoint {
+    let (mut connector_rx, container, codec, guard) = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, config }) => {
             sealed_config = Some(config);
 
-            let (rx, container, codec, guard) = connector::image::serve(
-                image.clone(),
-                log_sink.clone(),
+            let (rx, container, codec, guard) = crate::image::serve(
+                image,
+                log_sink,
                 log_level,
-                &service.container_network,
+                container_network,
                 connector_rx,
                 start_rpc,
-                &service.task_name,
+                task_name,
                 ops::TaskType::Materialization,
-                service.plane,
+                plane,
             )
             .await?;
 
-            // The container Guard rides its response stream: dropping the
-            // stream stops the container.
-            let rx = rx.map(move |result| {
-                let _guard = &guard;
-                result
-            });
-
-            (rx.boxed(), Some(container), codec)
+            (rx.boxed(), Some(container), codec, Some(guard))
         }
-        models::MaterializationEndpoint::Local(_)
-            if !matches!(service.plane, crate::Plane::Local) =>
-        {
+        models::MaterializationEndpoint::Local(_) if !matches!(plane, crate::Plane::Local) => {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
             )
@@ -99,11 +77,10 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                 connector_init::Codec::Json
             };
 
-            let rx =
-                connector::local::serve(command, env, log_sink, log_level, codec, connector_rx)?
-                    .boxed();
+            let rx = crate::local::serve(command, env, log_sink, log_level, codec, connector_rx)?
+                .boxed();
 
-            (rx, None, codec)
+            (rx, None, codec, None)
         }
         models::MaterializationEndpoint::Dekaf(_) => {
             // Dekaf is in-process Rust and consumes prost requests directly. It
@@ -112,10 +89,10 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             sealed_config = None;
 
             let rx = dekaf_connector::connector(ReceiverStream::new(connector_rx))
-                .map_err(crate::anyhow_to_status)
+                .map_err(proto_grpc::anyhow_to_status)
                 .boxed();
 
-            (rx, None, connector_init::Codec::Proto)
+            (rx, None, connector_init::Codec::Proto, None)
         }
     };
 
@@ -158,9 +135,9 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             let mut tokens = iam_config
                 .generate_tokens(task_name)
                 .await
-                .map_err(crate::anyhow_to_status)?;
+                .map_err(proto_grpc::anyhow_to_status)?;
 
-            token_restart_at = Some(crate::shard::token_restart_deadline(
+            token_restart_at = Some(crate::token_restart_deadline(
                 std::time::SystemTime::now(),
                 tokens.expires_at(),
             ));
@@ -178,16 +155,19 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
 
     _ = connector_tx.try_send(initial);
 
-    Ok((
+    Ok(Started {
         connector_tx,
         connector_rx,
         container,
         codec,
         token_restart_at,
-    ))
+        spec: proto_flow::connector::response::started::Spec::Materialize(spec_response),
+        guard,
+    })
 }
 
 fn extract_endpoint<'r>(
+    task_name: &str,
     request: &'r mut materialize::Request,
 ) -> anyhow::Result<(
     models::MaterializationEndpoint,
@@ -196,43 +176,36 @@ fn extract_endpoint<'r>(
     Option<String>,
     Option<&'r mut bytes::Bytes>,
 )> {
-    let verify = crate::verify("Materialize", "valid first request", "controller");
-    if request.kind.is_none() {
-        return Err(verify.fail_msg(&request));
-    }
-    let (connector_type, config_json, catalog_name, sealed_config_json) =
-        match request.kind.as_mut().expect("checked above") {
-            materialize::request::Kind::Apply(apply) => {
-                let catalog_name = apply.materialization.as_ref().map(|m| m.name.clone());
-                let inner = apply
-                    .materialization
-                    .as_mut()
-                    .context("`apply` missing required `materialization`")?;
+    let catalog_name = match task_name {
+        crate::SPEC_TASK_NAME => None,
+        name => Some(name.to_string()),
+    };
 
-                (
-                    inner.connector_type,
-                    &mut inner.config_json,
-                    catalog_name,
-                    None,
-                )
-            }
-            materialize::request::Kind::Open(open) => {
-                let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
-                let sealed_config_json = &mut open.sealed_config_json;
-                let inner = open
-                    .materialization
-                    .as_mut()
-                    .context("`open` missing required `materialization`")?;
-
-                (
-                    inner.connector_type,
-                    &mut inner.config_json,
-                    catalog_name,
-                    Some(sealed_config_json),
-                )
-            }
-            other => return Err(verify.fail_msg(other)),
-        };
+    let (connector_type, config_json, sealed_config_json) = match &mut request.kind {
+        Some(materialize::request::Kind::Spec(spec)) => {
+            (spec.connector_type, &mut spec.config_json, None)
+        }
+        Some(materialize::request::Kind::Validate(validate)) => {
+            (validate.connector_type, &mut validate.config_json, None)
+        }
+        Some(materialize::request::Kind::Apply(apply)) => {
+            let inner = apply
+                .materialization
+                .as_mut()
+                .expect("checked by task_name");
+            (inner.connector_type, &mut inner.config_json, None)
+        }
+        Some(materialize::request::Kind::Open(open)) => {
+            let sealed_config_json = &mut open.sealed_config_json;
+            let inner = open.materialization.as_mut().expect("checked by task_name");
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                Some(sealed_config_json),
+            )
+        }
+        _ => unreachable!("checked by task_name"),
+    };
 
     if connector_type == flow::materialization_spec::ConnectorType::Image as i32 {
         Ok((
