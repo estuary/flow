@@ -1,52 +1,121 @@
-//! `connector` owns the mechanics of running a Flow connector: starting and
-//! tearing down its docker container, dialing `flow-connector-init` inside it,
-//! running a `local:` connector as a subprocess, and pumping the connector's
-//! logs.
+//! `connector` owns every part of running a Flow connector: extracting and
+//! unsealing its endpoint configuration, injecting IAM credentials, dispatching
+//! to a docker image / local subprocess / in-process connector, pumping its
+//! logs, and tearing it down in the right order.
 //!
-//! The crate has no notion of a session logger. Everything it reports about a
-//! connector -- the connector's own log lines, and the three container
-//! lifecycle records this crate renders itself -- is an `ops::Log` pushed into
-//! a [`LogSink`] the caller supplies.
+//! All of that is reachable through exactly one protocol,
+//! [`connector.Connector`](proto), served two ways from a single [`Service`]:
+//!
+//! - in-process, via [`Service::spawn_connector`], with no wire hop;
+//! - over gRPC, via [`Service::into_tonic_service`], on every `TaskService`'s
+//!   Unix domain socket and, through a Go pass-through proxy, on the reactor's
+//!   public address for callers bearing a `PROXY_CONNECTOR` token.
+//!
+//! Connector execution is driven by spawned request and response pumps.
+//!
+//! Callers use [`proto_grpc::connector::Router`]. This crate provides
+//! [`ServiceRouter`] for processes which host their connector service.
+//!
+//! See `README.md` for the protocol contract and non-obvious details.
 
+pub use proto_flow::connector as proto;
 pub use proto_flow::runtime::{Container, Plane};
 
+mod capture;
 mod container;
-pub mod image;
-pub mod local;
+mod derive;
+mod image;
+mod local;
+mod materialize;
+mod router;
+mod serve;
+mod service;
 
-pub use container::{Guard, flow_runtime_protocol};
+#[cfg(test)]
+mod tests;
 
-/// Sink for the connector's log stream: its own decoded `ops::Log` lines, plus
-/// the three container lifecycle records this crate renders itself.
-///
-/// Cloning fans a sink out to a stream's log pumps.
+pub use container::flow_runtime_protocol;
+pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
+pub(crate) use proto_grpc::{status_to_anyhow, verify};
+pub use router::{LOCAL_ISSUER, ServiceRouter};
+pub use service::Service;
+
+/// Build a connector router for tests and other offline callers which need no
+/// shared registry and never attach containers to a Docker network.
+pub fn local_test_router() -> std::sync::Arc<dyn proto_grpc::connector::Router> {
+    let (_service, router) = Service::new_local(String::new(), service_kit::Registry::new());
+    std::sync::Arc::new(router)
+}
+
+/// Sink for connector logs and container lifecycle records.
 #[derive(Clone)]
-pub struct LogSink(std::sync::Arc<LogDest>);
+pub(crate) struct LogSink(std::sync::Arc<LogDest>);
 
 enum LogDest {
-    /// Forwards each log to a caller-supplied handler.
-    Handler(Box<dyn Fn(&ops::Log) + Send + Sync>),
-    /// Traces, for contexts having no log stream to sink into: image
-    /// inspection, and this crate's own tests.
+    Response(
+        tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>,
+        /// Dropping the last sink signals that all log producers are done.
+        tokio::sync::oneshot::Sender<()>,
+    ),
     Tracing,
 }
 
 impl LogSink {
-    pub fn handler(handler: impl Fn(&ops::Log) + Send + Sync + 'static) -> Self {
-        Self(std::sync::Arc::new(LogDest::Handler(Box::new(handler))))
+    pub(crate) fn response(
+        response_tx: tokio::sync::mpsc::Sender<tonic::Result<proto::Response>>,
+    ) -> (Self, tokio::sync::oneshot::Receiver<()>) {
+        let (read_through_tx, read_through_rx) = tokio::sync::oneshot::channel();
+
+        (
+            Self(std::sync::Arc::new(LogDest::Response(
+                response_tx,
+                read_through_tx,
+            ))),
+            read_through_rx,
+        )
     }
 
-    pub fn tracing() -> Self {
+    pub(crate) fn tracing() -> Self {
         Self(std::sync::Arc::new(LogDest::Tracing))
     }
 
-    /// Send one log, awaiting its destination.
-    pub async fn send(&self, log: ops::Log) {
+    /// Send one log, awaiting its destination. The channel is bounded and is
+    /// drained only as the stream's consumer polls, so a chatty connector
+    /// back-pressures on its own stderr rather than being buffered without
+    /// bound.
+    pub(crate) async fn send(&self, log: ops::Log) {
         match &*self.0 {
-            LogDest::Handler(handler) => (handler)(&log),
+            LogDest::Response(response_tx, _read_through) => {
+                let response = proto::Response {
+                    kind: Some(proto::response::Kind::Log(log)),
+                };
+                _ = response_tx.send(Ok(response)).await;
+            }
             LogDest::Tracing => ops::tracing_log_handler(&log),
         }
     }
+}
+
+/// Deadline for beginning a graceful session restart ahead of IAM token
+/// expiry, so a transaction started near the deadline still has runway.
+pub fn token_restart_deadline(
+    now: std::time::SystemTime,
+    expires_at: std::time::SystemTime,
+) -> std::time::SystemTime {
+    use std::time::Duration;
+
+    const LONG_LIFETIME: Duration = Duration::from_secs(4 * 3600);
+    const LONG_MARGIN: Duration = Duration::from_secs(30 * 60);
+    const SHORT_MARGIN: Duration = Duration::from_secs(5 * 60);
+
+    let lifetime = expires_at.duration_since(now).unwrap_or_default();
+    let margin = if lifetime >= LONG_LIFETIME {
+        LONG_MARGIN
+    } else {
+        SHORT_MARGIN
+    };
+    // A pathologically short lifetime restarts immediately rather than never.
+    expires_at - margin.min(lifetime)
 }
 
 /// Describes the basic type of runtime protocol advertised by a connector
@@ -68,6 +137,20 @@ impl RuntimeProtocol {
             other => Err(other),
         }
     }
+}
+
+/// A started connector: its request sink, its response stream, and the facts
+/// which `Response.Started` reports back to the client.
+pub(crate) struct Started<Request, Response> {
+    pub connector_tx: tokio::sync::mpsc::Sender<Request>,
+    pub connector_rx: futures::stream::BoxStream<'static, tonic::Result<Response>>,
+    pub container: Option<Container>,
+    pub codec: connector_init::Codec,
+    pub token_restart_at: Option<std::time::SystemTime>,
+    pub spec: proto::response::started::Spec,
+    /// Owns a running container; `serve` drops it to begin teardown. `None`
+    /// for local and in-process connectors, which have no container.
+    pub guard: Option<container::Guard>,
 }
 
 /// Render one `ops::Log` of this crate's own reporting.
@@ -94,4 +177,38 @@ pub(crate) fn json_field(value: &impl serde::Serialize) -> bytes::Bytes {
     serde_json::to_vec(value)
         .expect("log field always serializes")
         .into()
+}
+
+pub(crate) fn invalid_argument(message: String) -> anyhow::Error {
+    proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(message))
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::token_restart_deadline;
+    use std::time::Duration;
+
+    #[test]
+    fn test_token_restart_deadline_margins() {
+        let now = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+        // One-hour token restarts five minutes early.
+        let expires = now + Duration::from_secs(3600);
+        assert_eq!(
+            token_restart_deadline(now, expires),
+            expires - Duration::from_secs(5 * 60)
+        );
+
+        // Twelve-hour token restarts thirty minutes early.
+        let expires = now + Duration::from_secs(12 * 3600);
+        assert_eq!(
+            token_restart_deadline(now, expires),
+            expires - Duration::from_secs(30 * 60)
+        );
+
+        // A lifetime shorter than its margin restarts immediately, not never.
+        let expires = now + Duration::from_secs(60);
+        assert_eq!(token_restart_deadline(now, expires), now);
+        assert_eq!(token_restart_deadline(now, now), now);
+    }
 }
