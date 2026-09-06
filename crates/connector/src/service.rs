@@ -1,7 +1,8 @@
 //! The `connector.Connector` gRPC service, and its in-process entry point.
 //!
 //! Both entry points eagerly spawn the same handler. Its response sends are
-//! best-effort; clients close their request channel to initiate teardown.
+//! best-effort; clients close their request channel to initiate graceful stop,
+//! and dropping the response stream tears the session down as well.
 
 use crate::proto;
 use futures::{Stream, StreamExt, stream::BoxStream};
@@ -101,8 +102,9 @@ impl Service {
     }
 
     /// Spawn an authenticated connector session in-process, without serialization.
-    /// Clients close `request_rx` to begin asynchronous teardown. Dropping the
-    /// returned response receiver alone is not a guaranteed cancellation signal.
+    /// Clients close `request_rx` to begin graceful teardown. Dropping the
+    /// returned response receiver is also a teardown signal, raced against both
+    /// connector startup and the running session.
     pub fn spawn_connector(
         &self,
         metadata: proto_grpc::Metadata,
