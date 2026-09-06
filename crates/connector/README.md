@@ -40,8 +40,9 @@ owns its container, image, and local-connector implementation independently.
   status.
 - Opening a connector eagerly spawns its handler. The request stream is
   authoritative for asynchronous teardown: clients close it when abandoning a
-  session. Response sends are best-effort, and dropping the response stream
-  does not necessarily release held resources.
+  session. Response sends are best-effort, but dropping the response stream
+  is also a teardown signal: it's raced against both connector startup and the
+  running session.
 
 ## Key types
 
@@ -53,28 +54,34 @@ owns its container, image, and local-connector implementation independently.
 | `proto_grpc::connector`         | Client routing, identity, bearer, and stream helpers                      |
 | `LogSink` / `LogDest`           | Routes connector logs and container lifecycle records                     |
 | `flow_runtime_protocol`         | Image inspection, for callers which only need an image's protocol         |
+| `protocol::start`               | The start pipeline every connector goes through                          |
+| `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
+| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process          |
+| `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
 
 ## Layout
 
 ```
 src/
-├── lib.rs        # ServiceRouter re-export, LogSink, RuntimeProtocol
+├── lib.rs        # ServiceRouter re-export, LogSink, Started, RuntimeProtocol
 ├── service.rs    # Service / ServiceImpl, spawn_connector, tonic Connector impl
 ├── router.rs     # ServiceRouter and the local bearer issuer
 ├── serve.rs      # per-stream: authn/authz, extract, start, pump, teardown
-├── capture.rs    # capture start + extract_endpoint
-├── derive.rs     # derive start + extract_endpoint
-├── materialize.rs# materialize start + extract_endpoint
+├── protocol.rs   # Protocol trait, StartContext, and the one start pipeline
+├── capture.rs    # Protocol impl: capture endpoints and RPC
+├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
+├── materialize.rs# Protocol impl: materialize endpoints and RPC, incl. Dekaf
 ├── container.rs  # docker pull / inspect / run, connector-init dial, Guard
 └── tests.rs      # authz, stream semantics, and end-to-end coverage
 ```
 
 ## Non-obvious details
 
-- **The request stream owns lifetime.** Opening eagerly spawns the handler.
-Connectors may have server-side resources that release only when the client
-closes its requests, so response receiver closure alone does not promise
-cancellation.
+- **Either stream ends a session.** Opening eagerly spawns the handler, which
+races a closed request stream against a dropped response stream at every stage,
+including connector startup. Only the handler's return releases an image
+connector's `Guard`, so a client which walks away from a wedged connector must
+not be able to leave it running.
 
 - **The connector request stream begins with an internal Spec exchange.** The
   client's initial request follows after its configuration is unsealed, then

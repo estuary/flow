@@ -24,9 +24,8 @@ pub use proto_flow::runtime::{Container, Plane};
 mod capture;
 mod container;
 mod derive;
-mod image;
-mod local;
 mod materialize;
+mod protocol;
 mod router;
 mod serve;
 mod service;
@@ -139,17 +138,13 @@ impl RuntimeProtocol {
     }
 }
 
-/// A started connector: its request sink, its response stream, and the facts
-/// which `Response.Started` reports back to the client.
-pub(crate) struct Started<Request, Response> {
-    pub connector_tx: tokio::sync::mpsc::Sender<Request>,
-    pub connector_rx: futures::stream::BoxStream<'static, tonic::Result<Response>>,
-    pub container: Option<Container>,
-    pub codec: connector_init::Codec,
-    pub token_restart_at: Option<std::time::SystemTime>,
-    pub spec: proto::response::started::Spec,
-    /// Owns a running container; `serve` drops it to begin teardown. `None`
-    /// for local and in-process connectors, which have no container.
+/// The transport of a started connector, and the `Started` response which
+/// leads its protocol responses.
+pub(crate) struct Started<P: protocol::Protocol> {
+    pub started: proto::Response,
+    pub connector_tx: tokio::sync::mpsc::Sender<P::Request>,
+    pub connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
+    /// Keeps an image connector alive until stream teardown.
     pub guard: Option<container::Guard>,
 }
 

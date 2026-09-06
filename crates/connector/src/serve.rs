@@ -101,132 +101,102 @@ async fn start_and_pump<R>(
 where
     R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
 {
-    let (plane, network) = (service.plane, service.container_network.as_str());
+    let sqlite_vfs_uri = (!sqlite_vfs_uri.is_empty()).then_some(sqlite_vfs_uri);
 
     match request {
         proto::request::Kind::Capture(initial) => {
-            if !sqlite_vfs_uri.is_empty() {
-                return Err(sqlite_vfs_uri_error());
-            }
-            let started =
-                crate::capture::start(plane, network, log_sink, log_level, task_name, initial)
-                    .await?;
-
-            _ = response_tx
-                .send(Ok(started_response(service, &started)))
-                .await;
-            handler.set_phase("running");
-
-            pump(
+            run::<crate::capture::Capture, R>(
+                service,
+                log_sink,
+                log_level,
+                sqlite_vfs_uri,
+                task_name,
+                initial,
                 request_rx,
-                started,
                 response_tx,
-                |r| match r {
-                    proto::request::Kind::Capture(r) => Some(r),
-                    _ => None,
-                },
-                proto::response::Kind::Capture,
+                handler,
             )
             .await
         }
         proto::request::Kind::Derive(initial) => {
-            let started = crate::derive::start(
-                plane,
-                network,
+            run::<crate::derive::Derive, R>(
+                service,
                 log_sink,
                 log_level,
-                task_name,
                 sqlite_vfs_uri,
+                task_name,
                 initial,
-            )
-            .await?;
-
-            _ = response_tx
-                .send(Ok(started_response(service, &started)))
-                .await;
-            handler.set_phase("running");
-
-            pump(
                 request_rx,
-                started,
                 response_tx,
-                |r| match r {
-                    proto::request::Kind::Derive(r) => Some(r),
-                    _ => None,
-                },
-                proto::response::Kind::Derive,
+                handler,
             )
             .await
         }
         proto::request::Kind::Materialize(initial) => {
-            if !sqlite_vfs_uri.is_empty() {
-                return Err(sqlite_vfs_uri_error());
-            }
-            let started =
-                crate::materialize::start(plane, network, log_sink, log_level, task_name, initial)
-                    .await?;
-
-            _ = response_tx
-                .send(Ok(started_response(service, &started)))
-                .await;
-            handler.set_phase("running");
-
-            pump(
+            run::<crate::materialize::Materialize, R>(
+                service,
+                log_sink,
+                log_level,
+                sqlite_vfs_uri,
+                task_name,
+                initial,
                 request_rx,
-                started,
                 response_tx,
-                |r| match r {
-                    proto::request::Kind::Materialize(r) => Some(r),
-                    _ => None,
-                },
-                proto::response::Kind::Materialize,
+                handler,
             )
             .await
         }
     }
 }
 
-fn sqlite_vfs_uri_error() -> anyhow::Error {
-    crate::invalid_argument(
-        "Start.sqlite_vfs_uri may only be set for a Sqlite derivation connector".to_string(),
-    )
-}
-
-/// Render the `Started` a just-started connector reports. Synchronous, so the
-/// borrow of `started` — whose response stream is `Send` but not `Sync` —
-/// never spans the send's await.
-fn started_response<Req, Resp>(
+async fn run<P, R>(
     service: &crate::Service,
-    started: &crate::Started<Req, Resp>,
-) -> proto::Response {
-    let codec = match started.codec {
-        connector_init::Codec::Proto => proto::response::started::Codec::Proto,
-        connector_init::Codec::Json => proto::response::started::Codec::Json,
+    log_sink: crate::LogSink,
+    log_level: ops::LogLevel,
+    sqlite_vfs_uri: Option<String>,
+    task_name: &str,
+    initial: P::Request,
+    request_rx: R,
+    response_tx: &mpsc::Sender<tonic::Result<proto::Response>>,
+    handler: &mut service_kit::HandlerGuard,
+) -> anyhow::Result<()>
+where
+    P: crate::protocol::Protocol,
+    R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
+{
+    let ctx = crate::protocol::StartContext {
+        container_network: service.container_network.clone(),
+        log_level,
+        log_sink,
+        plane: service.plane,
+        process: service.process.clone(),
+        task_name: task_name.to_string(),
+    };
+    let started = tokio::select! {
+        () = response_tx.closed() => return Err(client_dropped()),
+        started = crate::protocol::start::<P>(ctx, sqlite_vfs_uri, initial) => started?,
     };
 
-    proto::Response {
-        kind: Some(proto::response::Kind::Started(proto::response::Started {
-            container: started.container.clone(),
-            codec: codec as i32,
-            token_restart_at: started.token_restart_at.map(proto_flow::as_timestamp),
-            process: service.process.clone(),
-            spec: Some(started.spec.clone()),
-        })),
-    }
+    _ = response_tx.send(Ok(started.started.clone())).await;
+    handler.set_phase("running");
+    pump::<P, R>(request_rx, started, response_tx).await
+}
+
+/// The client is gone, and holding its connector open would serve no one.
+fn client_dropped() -> anyhow::Error {
+    anyhow::anyhow!("Connector client dropped its response stream")
 }
 
 /// Forward requests and responses in independent bursts. A full request
 /// channel parks only its forwarding future, leaving responses free to drain.
-async fn pump<Req, Resp, R>(
+async fn pump<P, R>(
     mut request_rx: R,
-    started: crate::Started<Req, Resp>,
+    started: crate::Started<P>,
     response_tx: &mpsc::Sender<tonic::Result<proto::Response>>,
-    unwrap: fn(proto::request::Kind) -> Option<Req>,
-    wrap: fn(Resp) -> proto::response::Kind,
 ) -> anyhow::Result<()>
 where
+    P: crate::protocol::Protocol,
     R: Stream<Item = tonic::Result<proto::Request>> + Send + Unpin + 'static,
-    Req: Send + 'static,
 {
     let crate::Started {
         connector_tx,
@@ -244,7 +214,7 @@ where
                     "only the first Connector request may set `start`".to_string(),
                 ));
             }
-            let Some(request) = kind.and_then(unwrap) else {
+            let Some(request) = kind.and_then(P::unwrap_request) else {
                 return Err(crate::invalid_argument(
                     "every Connector request must set exactly one protocol request, of the type \
                      established by the first request"
@@ -272,16 +242,13 @@ where
 
             response = connector_rx.next() => match response {
                 Some(Ok(response)) => {
-                    let response = proto::Response { kind: Some(wrap(response)) };
-                    _ = response_tx.send(Ok(response)).await;
+                    _ = response_tx.send(Ok(P::wrap_response(response))).await;
                 }
                 Some(Err(status)) => break Err(crate::status_to_anyhow(status)),
                 None => break Ok(()),
             },
 
-            () = response_tx.closed() => break Err(anyhow::anyhow!(
-                "Connector client dropped its response stream"
-            )),
+            () = response_tx.closed() => break Err(client_dropped()),
         }
     };
 
@@ -350,4 +317,38 @@ fn authorize(
         task_name,
         request,
     })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// A wedged connector — one which neither responds nor exits on a closed
+    /// request channel — must not outlive its client, because only `pump`'s
+    /// return drops the `Guard` which kills it.
+    #[tokio::test]
+    async fn a_dropped_response_stream_ends_a_wedged_pump() {
+        let (connector_tx, _connector_rx) = mpsc::channel(1);
+        let (response_tx, response_rx) = mpsc::channel(1);
+
+        let started = crate::Started::<crate::derive::Derive> {
+            started: proto::Response::default(),
+            connector_tx,
+            connector_rx: futures::stream::pending().boxed(),
+            guard: None,
+        };
+        std::mem::drop(response_rx);
+
+        let pump =
+            pump::<crate::derive::Derive, _>(futures::stream::pending(), started, &response_tx);
+        let err = tokio::time::timeout(std::time::Duration::from_secs(5), pump)
+            .await
+            .expect("pump must not park on the wedged connector")
+            .unwrap_err();
+
+        assert!(
+            format!("{err:#}").contains("dropped its response stream"),
+            "{err:#}",
+        );
+    }
 }

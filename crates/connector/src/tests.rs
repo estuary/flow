@@ -761,6 +761,57 @@ async fn loopback_local_connector_logs_precede_its_status() {
     assert!(rendered[last_log].starts_with("Log("), "{rendered:?}");
 }
 
+/// A client which goes away while its connector is still starting — before
+/// the connector has answered the internal Spec — releases the handler, and
+/// with it the connector. The handler owns `request_rx`, so its completion is
+/// observed as the closing of `request_tx`.
+#[tokio::test]
+async fn a_dropped_response_stream_ends_a_starting_connector() {
+    let (service, router) = local_service();
+    let metadata = proto_grpc::connector::connector_bearer(
+        router.signer(),
+        ops::TaskType::Derivation,
+        "acmeCo/derivation",
+    )
+    .unwrap();
+
+    // Announces itself on stderr, then hangs without ever answering the Spec
+    // and without reading stdin, so only cancellation can end its session.
+    // `exec` matters: a forked `sleep` would outlive the killed shell and hold
+    // its inherited stderr open, parking the blocking read of our log pump.
+    let config = serde_json::json!({
+        "command": ["/bin/sh", "-c", "echo 'connector is up' >&2; exec sleep 60"],
+        "config": {},
+    });
+
+    let (request_tx, request_rx) = mpsc::channel(1);
+    request_tx
+        .try_send(proto::Request {
+            start: Some(start("")),
+            kind: Some(proto::request::Kind::Derive(derive::Request {
+                kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                    connector_type: flow::collection_spec::derivation::ConnectorType::Local as i32,
+                    config_json: config.to_string().into(),
+                })),
+                ..Default::default()
+            })),
+        })
+        .unwrap();
+    let mut response_rx = service.spawn_connector(metadata, request_rx);
+
+    // The connector's log places the handler within `start`, awaiting a Spec.
+    _ = tokio::time::timeout(std::time::Duration::from_secs(10), response_rx.recv())
+        .await
+        .expect("the connector's log arrives")
+        .expect("the stream is open");
+
+    std::mem::drop(response_rx);
+
+    tokio::time::timeout(std::time::Duration::from_secs(10), request_tx.closed())
+        .await
+        .expect("the starting connector is released with its client");
+}
+
 /// `start` on a request after the first is rejected, and the rejection lands
 /// after `Started` (the connector was already running).
 #[tokio::test]
