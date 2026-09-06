@@ -1,4 +1,6 @@
-use super::{connector, startup};
+use super::startup;
+use crate::Logger as _;
+use crate::shard::connector;
 use crate::{patches, proto};
 use anyhow::Context;
 use futures::StreamExt;
@@ -45,39 +47,48 @@ pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
     let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) = connector::start(
-        service,
-        &logger,
-        log_level,
-        materialize::Request {
-            kind: Some(materialize::request::Kind::Apply(Box::new(apply))),
-            ..Default::default()
+    let (_started, response) = proto_grpc::connector::unary(
+        &*service.connector_router,
+        &|log| logger.log(log),
+        connector::proto::Request {
+            start: Some(connector::proto::request::Start {
+                log_level: log_level as i32,
+                sqlite_vfs_uri: String::new(),
+            }),
+            kind: Some(connector::proto::request::Kind::Materialize(
+                materialize::Request {
+                    kind: Some(materialize::request::Kind::Apply(Box::new(apply))),
+                    ..Default::default()
+                },
+            )),
         },
+        std::time::Duration::MAX,
+        std::time::Duration::MAX,
     )
     .await?;
-    std::mem::drop(connector_tx); // Send EOF.
 
     let verify = crate::verify("Materialize", "Applied", "connector");
-    let response = match verify.not_eof(connector_rx.next().await)? {
-        materialize::Response {
+    let response = match response {
+        connector::proto::response::Kind::Materialize(materialize::Response {
             kind:
                 Some(materialize::response::Kind::Applied(materialize::response::Applied {
                     action_description,
                     state,
                 })),
             ..
-        } => proto::Materialize {
+        }) => proto::Materialize {
             applied: Some(proto::Applied {
                 action_description,
                 connector_patches_json: patches::encode_connector_state(state),
             }),
             ..Default::default()
         },
-        response => return Err(verify.fail_msg(response)),
+        response => {
+            return Err(verify.fail_msg(connector::proto::Response {
+                kind: Some(response),
+            }));
+        }
     };
-
-    // Expect EOF after the single response.
-    () = verify.eof(connector_rx.next().await)?;
 
     Ok(response)
 }
@@ -292,6 +303,7 @@ where
         &mut connector_rx,
         controller_rx,
         &mut leader_rx,
+        &logger,
         shuffle_reader,
     )
     .await;
@@ -322,14 +334,16 @@ mod test {
 
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let registry = service_kit::Registry::new();
+        let (_connector_svc, connector_router) =
+            ::connector::Service::new_local(String::new(), registry.clone());
         let service = crate::shard::Service::new(
-            crate::Plane::Local,
-            String::new(),
+            std::sync::Arc::new(connector_router),
             None,
             "test/task".to_string(),
             crate::publish::RecordingPublisherFactory,
             crate::TracingLoggerFactory,
-            service_kit::Registry::new(),
+            registry,
             None,
         );
 
