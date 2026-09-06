@@ -58,9 +58,9 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 }
 
 /// Start an image connector container, returning its description and a dialed tonic Channel.
-/// The container is attached to the given `network`, and its logs and lifecycle
-/// events are reported through `log_sink`. `task_name` and `task_type` are used
-/// only to label the container.
+/// The container is attached to the context's network, and its logs and lifecycle
+/// events are reported through its `log_sink`. The context's `task_name` and
+/// `task_type` are used only to label the container.
 ///
 /// The returned [`Guard`] owns the container: dropping it SIGKILLs the `docker
 /// run` client, which closes the container's stderr and lets the log pump run
@@ -68,19 +68,19 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 /// the `log_sink` clone it holds, which is how the caller learns that teardown
 /// is done.
 pub(crate) async fn start(
+    ctx: &crate::protocol::StartContext,
     image: &str,
-    log_sink: LogSink,
-    log_level: ops::LogLevel,
-    network: &str,
-    task_name: &str,
     task_type: ops::TaskType,
-    plane: crate::Plane,
 ) -> anyhow::Result<(
     runtime::Container,
     tonic::transport::Channel,
     Guard,
     connector_init::Codec,
 )> {
+    let (plane, log_level) = (ctx.plane, ctx.log_level);
+    let (network, task_name) = (ctx.container_network.as_str(), ctx.task_name.as_str());
+    let log_sink = ctx.log_sink.clone();
+
     validate_connector_image(image, plane)?;
 
     // Many operational contexts only allow for docker volume mounts
@@ -803,6 +803,17 @@ mod test {
     use proto_flow::flow;
     use serde_json::json;
 
+    fn context() -> crate::protocol::StartContext {
+        crate::protocol::StartContext {
+            container_network: String::new(),
+            log_level: ops::LogLevel::Debug,
+            log_sink: crate::LogSink::tracing(),
+            plane: crate::Plane::Local,
+            process: None,
+            task_name: "a-task-name".to_string(),
+        }
+    }
+
     #[tokio::test]
     async fn test_http_ingest_spec() {
         if let Err(_) = locate_bin::locate("flow-connector-init") {
@@ -813,13 +824,9 @@ mod test {
         }
 
         let (container, channel, _guard, _codec) = start(
+            &context(),
             "ghcr.io/estuary/source-http-ingest:dev",
-            crate::LogSink::tracing(),
-            ops::LogLevel::Debug,
-            "",
-            "a-task-name",
             proto_flow::ops::TaskType::Capture,
-            crate::Plane::Local,
         )
         .await
         .unwrap();
@@ -877,13 +884,9 @@ mod test {
         }
 
         let Err(err) = start(
+            &context(),
             "alpine", // Not a connector.
-            crate::LogSink::tracing(),
-            ops::LogLevel::Debug,
-            "",
-            "a-task-name",
             proto_flow::ops::TaskType::Capture,
-            crate::Plane::Local,
         )
         .await
         else {
