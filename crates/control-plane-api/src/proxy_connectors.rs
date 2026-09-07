@@ -1,7 +1,7 @@
 use crate::logs;
 use anyhow::Context;
 use futures::{TryFutureExt, TryStreamExt};
-use proto_flow::{capture, derive, materialize};
+use proto_flow::capture;
 use std::future::Future;
 use uuid::Uuid;
 
@@ -20,12 +20,6 @@ pub trait DiscoverConnectors: Clone + Send + Sync + 'static {
     + Send;
 }
 
-pub trait MakeConnectors: std::fmt::Debug + Sync + Send + 'static {
-    type Connectors: validation::Connectors;
-
-    fn make_connectors(&self, logs_token: Uuid) -> Self::Connectors;
-}
-
 #[derive(Debug, Clone)]
 pub struct DataPlaneConnectors {
     logs_tx: logs::Tx,
@@ -33,14 +27,6 @@ pub struct DataPlaneConnectors {
 impl DataPlaneConnectors {
     pub fn new(logs_tx: logs::Tx) -> DataPlaneConnectors {
         Self { logs_tx }
-    }
-}
-
-impl MakeConnectors for DataPlaneConnectors {
-    type Connectors = ProxyConnectors<logs::OpsHandler>;
-    fn make_connectors(&self, logs_token: uuid::Uuid) -> Self::Connectors {
-        let log_handler = logs::ops_handler(self.logs_tx.clone(), "build".to_string(), logs_token);
-        ProxyConnectors::new(log_handler)
     }
 }
 
@@ -74,9 +60,7 @@ impl DiscoverConnectors for DataPlaneConnectors {
             "discover".to_string(),
             logs_token,
         ));
-        let response_rx = <ProxyConnectors<_> as validation::Connectors>::capture(
-            &proxy, data_plane, task, request_rx,
-        );
+        let response_rx = proxy.capture(data_plane, task, request_rx);
         futures::pin_mut!(response_rx);
 
         let spec = match response_rx.try_next().await? {
@@ -117,7 +101,7 @@ pub struct ProxyConnectors<L: runtime::LogHandler> {
     log_handler: L,
 }
 
-impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
+impl<L: runtime::LogHandler> ProxyConnectors<L> {
     fn capture<'a, R>(
         &'a self,
         data_plane: &'a tables::DataPlane,
@@ -145,62 +129,6 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
         })
     }
 
-    fn derive<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Collection,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<derive::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
-    {
-        coroutines::try_coroutine(|co| async move {
-            let (channel, metadata, logs) = crate::timeout(
-                DIAL_PROXY_TIMEOUT,
-                self.dial_proxy(data_plane, task.as_str()),
-                || dial_proxy_timeout_msg(data_plane),
-            )
-            .await?;
-
-            let mut client =
-                proto_grpc::derive::connector_client::ConnectorClient::with_interceptor(
-                    channel, metadata,
-                )
-                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
-
-            Self::drive_proxy_rpc(co, logs, client.derive(request_rx).await).await
-        })
-    }
-
-    fn materialize<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Materialization,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<materialize::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = materialize::Request> + Send + Unpin + 'static,
-    {
-        coroutines::try_coroutine(|co| async move {
-            let (channel, metadata, logs) = crate::timeout(
-                DIAL_PROXY_TIMEOUT,
-                self.dial_proxy(data_plane, task.as_str()),
-                || dial_proxy_timeout_msg(data_plane),
-            )
-            .await?;
-
-            let mut client =
-                proto_grpc::materialize::connector_client::ConnectorClient::with_interceptor(
-                    channel, metadata,
-                )
-                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
-
-            Self::drive_proxy_rpc(co, logs, client.materialize(request_rx).await).await
-        })
-    }
-}
-
-impl<L: runtime::LogHandler> ProxyConnectors<L> {
     pub(crate) fn new(log_handler: L) -> Self {
         Self { log_handler }
     }

@@ -36,7 +36,7 @@ impl Test {
         // captures / materializations are not, as tests never run them.
         let source_url = build::arg_source_to_url(&self.source, false)?;
         let connector_router = ctx.local_connector_router();
-        let built = build::for_catalog_test(&source_url, &ctx.connector_network, log_handler)
+        let built = build::for_catalog_test(&source_url, connector_router.clone(), log_handler)
             .await
             .into_result()
             .map_err(|errors| {

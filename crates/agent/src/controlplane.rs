@@ -16,7 +16,7 @@ use control_plane_api::{
     connector_tags, controllers, data_plane,
     discovers::{Discover, DiscoverHandler, DiscoverOutput},
     live_specs, logs,
-    proxy_connectors::{DiscoverConnectors, MakeConnectors},
+    proxy_connectors::DiscoverConnectors,
     publications::{
         DefaultRetryPolicy, DraftPublication, NoopInitialize, NoopWithCommit,
         PruneUnboundCollections, PublicationResult, Publisher,
@@ -239,7 +239,7 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 
 /// Implementation of `ControlPlane` that connects directly to postgres.
 #[derive(Clone)]
-pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
+pub struct PGControlPlane<C: DiscoverConnectors> {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
     pub publications_handler: Publisher,
@@ -251,7 +251,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub controller_config: std::sync::Arc<crate::controllers::ControllerConfig>,
 }
 
-impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
+impl<C: DiscoverConnectors> PGControlPlane<C> {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
@@ -344,7 +344,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 }
 
 #[async_trait::async_trait]
-impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
+impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     fn can_auto_discover(&self) -> bool {
         if self.auto_discover_probability == 1.0 {
             return true;

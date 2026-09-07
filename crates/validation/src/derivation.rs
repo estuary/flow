@@ -1,12 +1,7 @@
-use super::{
-    Connectors, Error, NoOpConnectors, Scope, collection, flag_value, indexed, linked, reference,
-    schema,
-};
-use futures::SinkExt;
+use super::{Connectors, Error, Scope, collection, flag_value, indexed, linked, reference, schema};
 use proto_flow::{
-    derive, flow,
+    connector, derive, flow,
     flow::collection_spec::derivation::{ConnectorType, ShuffleType as ProtoShuffleType},
-    ops::log::Level as LogLevel,
 };
 use std::collections::BTreeMap;
 use superslice::Ext;
@@ -25,13 +20,13 @@ type LiveTransforms<'a> = BTreeMap<
     ),
 >;
 
-pub async fn walk_all_derivations<C: Connectors>(
+pub async fn walk_all_derivations(
     pub_id: models::Id,
     build_id: models::Id,
     draft_collections: &tables::DraftCollections,
     live_collections: &tables::LiveCollections,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
+    connectors: &Connectors<'_>,
     data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
@@ -171,12 +166,12 @@ fn builtin_derive_connector<C: serde::Serialize>(
     }
 }
 
-async fn walk_derivation<C: Connectors>(
+async fn walk_derivation(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
+    connectors: &Connectors<'_>,
     data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
@@ -332,49 +327,6 @@ async fn walk_derivation<C: Connectors>(
     let data_plane = data_planes
         .get_by_key(&built_collection.data_plane_id)
         .expect("collection was built and has a known-valid data-plane");
-
-    // Start an RPC with the task's connector.
-    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
-    let response_rx = if noop_derivations || shards.disable {
-        futures::future::Either::Left(NoOpConnectors.derive(data_plane, collection, request_rx))
-    } else {
-        futures::future::Either::Right(connectors.derive(data_plane, collection, request_rx))
-    };
-    futures::pin_mut!(response_rx);
-
-    // Send Request.Spec and receive Response.Spec.
-    _ = request_tx
-        .send(
-            derive::Request {
-                kind: Some(derive::request::Kind::Spec(derive::request::Spec {
-                    connector_type,
-                    config_json: config_json.clone(),
-                })),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let derive::response::Spec {
-        documentation_url: _,
-        config_schema_json: _,
-        resource_config_schema_json: _,
-        ..
-    } = super::expect_response(
-        scope,
-        &mut response_rx,
-        |response| match &mut response.kind {
-            Some(derive::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec.as_mut()))),
-            _ => Ok(None),
-        },
-        errors,
-    )
-    .await?;
 
     let scope_transforms = scope.push_prop("transforms");
 
@@ -559,35 +511,22 @@ async fn walk_derivation<C: Connectors>(
     };
     linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
-    // Send Request.Validate and receive Response.Validated.
-    _ = request_tx
-        .send(
-            derive::Request {
-                kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let (validated_response, network_ports) = super::expect_response(
+    let (validated_response, network_ports) = super::validate_connector(
         scope,
-        &mut response_rx,
-        |response| {
-            let network_ports = match response.get_internal() {
-                Ok(internal) => internal.container.unwrap_or_default().network_ports,
-                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
-            };
-            match &mut response.kind {
-                Some(derive::response::Kind::Validated(v)) => {
-                    Ok(Some((std::mem::take(v), network_ports)))
-                }
-                _ => Ok(None),
-            }
+        connectors,
+        noop_derivations || shards.disable,
+        data_plane,
+        shards.log_level.as_deref(),
+        connector::request::Kind::Derive(derive::Request {
+            kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),
+            ..Default::default()
+        }),
+        |response| match response {
+            connector::response::Kind::Derive(derive::Response {
+                kind: Some(derive::response::Kind::Validated(validated)),
+                ..
+            }) => Some(validated),
+            _ => None,
         },
         errors,
     )
@@ -824,9 +763,6 @@ async fn walk_derivation<C: Connectors>(
         secrets,
         shards,
     };
-
-    std::mem::drop(request_tx);
-    () = super::expect_eof(scope, response_rx, errors).await;
 
     Some((
         built_index,

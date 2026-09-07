@@ -12,6 +12,7 @@ pub(crate) mod integration_tests;
 
 use anyhow::Context;
 pub use connector_tags::TagExecutor;
+pub use control_plane_api::connectors::{ConnectorFactory, ControlPlaneConnectorFactory};
 pub use control_plane_api::proxy_connectors::{
     DataPlaneConnectors, DiscoverConnectors, ProxyConnectors,
 };

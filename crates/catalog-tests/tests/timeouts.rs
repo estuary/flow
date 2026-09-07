@@ -17,10 +17,14 @@ async fn build_catalog(yaml: &str) -> build::Output {
     std::fs::write(&path, yaml).unwrap();
     let url = build::arg_source_to_url(path.to_str().unwrap(), false).unwrap();
 
-    build::for_catalog_test(&url, "", ops::tracing_log_handler)
-        .await
-        .into_result()
-        .expect("catalog build should succeed")
+    build::for_catalog_test(
+        &url,
+        runtime_local::local_test_router(),
+        ops::tracing_log_handler,
+    )
+    .await
+    .into_result()
+    .expect("catalog build should succeed")
 }
 
 fn options(timeouts: run::Timeouts) -> run::Options {

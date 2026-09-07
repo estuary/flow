@@ -331,7 +331,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let output = build::local(
         pub_id,
         build_id,
-        &ctx.connector_network,
+        ctx.local_connector_router(),
         ops::tracing_log_handler,
         false, // Don't no-op captures.
         false, // Don't no-op derivations.

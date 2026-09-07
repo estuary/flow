@@ -7,6 +7,7 @@ pub mod alerts;
 pub mod billing;
 pub mod connector_router;
 pub mod connector_tags;
+pub mod connectors;
 pub mod controllers;
 pub mod data_plane;
 pub mod directives;

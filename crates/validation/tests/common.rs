@@ -1,5 +1,5 @@
-use futures::StreamExt;
-use proto_flow::{capture, derive, flow, materialize, runtime::Container};
+use futures::FutureExt;
+use proto_flow::{capture, connector, derive, flow, materialize, runtime::Container};
 use std::collections::BTreeMap;
 
 /// Outcome is a snapshot-able test outcome.
@@ -468,11 +468,12 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     // Use a constant initialization vector for deterministic test output.
     const TEST_INIT_VECTOR: &[u8] = b"test-init-vector";
 
+    let connectors = |_data_plane: &tables::DataPlane, request| mock_calls.connect(request);
     let validations = futures::executor::block_on(validation::validate(
         models::Id::new([32; 8]),
         models::Id::new([33; 8]),
         &url::Url::parse("file:///project/root").unwrap(),
-        &mock_calls,
+        &connectors,
         None, // No default data plane name.
         &draft,
         &live,
@@ -730,349 +731,262 @@ impl std::fmt::Debug for MockDriverCalls {
     }
 }
 
-impl validation::Connectors for MockDriverCalls {
-    fn capture<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Capture,
-        mut request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<capture::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = capture::Request> + Send + Unpin + 'static,
-    {
-        coroutines::try_coroutine(|mut co| async move {
-            while let Some(request) = request_rx.next().await {
-                if let Some(capture::request::Kind::Spec(_spec)) = request.kind {
-                    () = co
-                        .yield_(capture::Response {
-                            kind: Some(capture::response::Kind::Spec(Box::new(
-                                capture::response::Spec {
-                                    config_schema_json: serde_json::json!({
-                                        "type": "object",
-                                    })
-                                    .to_string()
-                                    .into(),
-                                    resource_config_schema_json: serde_json::json!({
-                                        "type": "object",
-                                        "properties": {
-                                            "schema": {"type": "string"},
-                                            "source": {"type": "string"},
-                                        },
-                                        "required": ["source"]
-                                    })
-                                    .to_string()
-                                    .into(),
-                                    resource_path_pointers: Vec::new(),
-                                    ..Default::default()
-                                },
-                            ))),
-                            ..Default::default()
-                        })
-                        .await;
-                    continue;
-                }
-
-                let Some(capture::request::Kind::Validate(validate)) = request.kind else {
-                    anyhow::bail!("expected Spec or Validate")
-                };
-
-                let call = match self.captures.get(&validate.name) {
-                    Some(call) => call,
-                    None => {
-                        return Err(anyhow::anyhow!(
-                            "driver fixture not found: {}",
-                            validate.name
-                        ));
-                    }
-                };
-
-                let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
-
-                if call.connector_type as i32 != validate.connector_type {
-                    return Err(anyhow::anyhow!(
-                        "connector type mismatch: {} vs {}",
-                        call.connector_type as i32,
-                        validate.connector_type
-                    ));
-                }
-                if &call.config != &config {
-                    return Err(anyhow::anyhow!(
-                        "connector config mismatch: {} vs {}",
-                        call.config.to_string(),
-                        config.to_string(),
-                    ));
-                }
-                if let Some(err) = &call.error {
-                    return Err(anyhow::anyhow!("{err}"));
-                }
-
-                let bindings = call
-                    .bindings
-                    .iter()
-                    .take(validate.bindings.len())
-                    .map(|b| capture::response::validated::Binding {
-                        resource_path: b.resource_path.clone(),
-                    })
-                    .collect();
-
-                () = co
-                    .yield_(
-                        capture::Response {
-                            kind: Some(capture::response::Kind::Validated(
-                                capture::response::Validated { bindings },
-                            )),
-                            ..Default::default()
-                        }
-                        .with_internal(|internal| {
-                            internal.container = Some(Container {
-                                ip_addr: "1.2.3.4".to_string(),
-                                network_ports: call.network_ports.clone(),
-                                mapped_host_ports: Default::default(),
-                                usage_rate: 1.0,
-                            });
-                        }),
-                    )
-                    .await;
+impl MockDriverCalls {
+    fn connect(
+        &self,
+        request: connector::Request,
+    ) -> futures::future::BoxFuture<
+        '_,
+        anyhow::Result<(connector::response::Started, connector::response::Kind)>,
+    > {
+        async move {
+            match request.kind {
+                Some(connector::request::Kind::Capture(capture::Request {
+                    kind: Some(capture::request::Kind::Validate(validate)),
+                    ..
+                })) => self.validate_capture(*validate),
+                Some(connector::request::Kind::Derive(derive::Request {
+                    kind: Some(derive::request::Kind::Validate(validate)),
+                    ..
+                })) => self.validate_derivation(*validate),
+                Some(connector::request::Kind::Materialize(materialize::Request {
+                    kind: Some(materialize::request::Kind::Validate(validate)),
+                    ..
+                })) => self.validate_materialization(*validate),
+                _ => anyhow::bail!("expected a connector Validate request"),
             }
-            Ok(())
-        })
+        }
+        .boxed()
     }
 
-    fn derive<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Collection,
-        mut request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<derive::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
-    {
-        coroutines::try_coroutine(|mut co| async move {
-            while let Some(request) = request_rx.next().await {
-                if let Some(derive::request::Kind::Spec(_spec)) = request.kind {
-                    () = co
-                        .yield_(derive::Response {
-                            kind: Some(derive::response::Kind::Spec(Box::new(
-                                derive::response::Spec {
-                                    config_schema_json: "true".into(),
-                                    resource_config_schema_json: "true".into(),
-                                    ..Default::default()
-                                },
-                            ))),
-                            ..Default::default()
-                        })
-                        .await;
-                    continue;
-                }
+    fn validate_capture(
+        &self,
+        validate: capture::request::Validate,
+    ) -> anyhow::Result<(connector::response::Started, connector::response::Kind)> {
+        let call = self
+            .captures
+            .get(&validate.name)
+            .ok_or_else(|| anyhow::anyhow!("driver fixture not found: {}", validate.name))?;
+        let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
 
-                let Some(derive::request::Kind::Validate(validate)) = request.kind else {
-                    anyhow::bail!("expected Spec or Validate")
-                };
+        if call.connector_type as i32 != validate.connector_type {
+            anyhow::bail!(
+                "connector type mismatch: {} vs {}",
+                call.connector_type as i32,
+                validate.connector_type
+            );
+        }
+        if call.config != config {
+            anyhow::bail!("connector config mismatch: {} vs {}", call.config, config,);
+        }
+        if let Some(err) = &call.error {
+            anyhow::bail!("{err}");
+        }
 
-                let name = &validate.collection.as_ref().unwrap().name;
+        let bindings = call
+            .bindings
+            .iter()
+            .take(validate.bindings.len())
+            .map(|binding| capture::response::validated::Binding {
+                resource_path: binding.resource_path.clone(),
+            })
+            .collect();
 
-                let call = match self.derivations.get(name) {
-                    Some(call) => call,
-                    None => {
-                        return Err(anyhow::anyhow!("driver fixture not found: {}", name));
-                    }
-                };
-
-                let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
-
-                if call.connector_type as i32 != validate.connector_type {
-                    return Err(anyhow::anyhow!(
-                        "connector type mismatch: {} vs {}",
-                        call.connector_type as i32,
-                        validate.connector_type
-                    ));
-                }
-                if &call.config != &config {
-                    return Err(anyhow::anyhow!(
-                        "connector config mismatch: {} vs {}",
-                        call.config.to_string(),
-                        config.to_string(),
-                    ));
-                }
-                if call
-                    .shuffle_key_types
-                    .iter()
-                    .map(|t| *t as i32)
-                    .collect::<Vec<_>>()
-                    != validate.shuffle_key_types
-                {
-                    return Err(anyhow::anyhow!(
-                        "shuffle types mismatch: {:?} vs {:?}",
-                        call.shuffle_key_types,
-                        validate.shuffle_key_types,
-                    ));
-                }
-
-                if let Some(err) = &call.error {
-                    return Err(anyhow::anyhow!("{err}"));
-                }
-
-                let transforms = call
-                    .transforms
-                    .iter()
-                    .take(validate.transforms.len())
-                    .map(|b| derive::response::validated::Transform {
-                        read_only: b.read_only,
-                    })
-                    .collect();
-
-                () = co
-                    .yield_(
-                        derive::Response {
-                            kind: Some(derive::response::Kind::Validated(
-                                derive::response::Validated {
-                                    transforms,
-                                    generated_files: call.generated_files.clone(),
-                                },
-                            )),
-                            ..Default::default()
-                        }
-                        .with_internal(|internal| {
-                            internal.container = Some(Container {
-                                ip_addr: "1.2.3.4".to_string(),
-                                network_ports: call.network_ports.clone(),
-                                mapped_host_ports: Default::default(),
-                                usage_rate: 0.0,
-                            });
-                        }),
-                    )
-                    .await;
-            }
-            Ok(())
-        })
+        Ok(mock_response(
+            connector::response::started::Spec::Capture(Box::new(capture::response::Spec {
+                config_schema_json: serde_json::json!({"type": "object"}).to_string().into(),
+                resource_config_schema_json: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "schema": {"type": "string"},
+                        "source": {"type": "string"},
+                    },
+                    "required": ["source"]
+                })
+                .to_string()
+                .into(),
+                resource_path_pointers: Vec::new(),
+                ..Default::default()
+            })),
+            connector::response::Kind::Capture(capture::Response {
+                kind: Some(capture::response::Kind::Validated(
+                    capture::response::Validated { bindings },
+                )),
+                ..Default::default()
+            }),
+            call.network_ports.clone(),
+            1.0,
+        ))
     }
 
-    fn materialize<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Materialization,
-        mut request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::materialize::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = proto_flow::materialize::Request> + Send + Unpin + 'static,
-    {
-        coroutines::try_coroutine(|mut co| async move {
-            while let Some(request) = request_rx.next().await {
-                if let Some(materialize::request::Kind::Spec(_spec)) = request.kind {
-                    () = co
-                        .yield_(materialize::Response {
-                            kind: Some(materialize::response::Kind::Spec(Box::new(
-                                materialize::response::Spec {
-                                    config_schema_json: serde_json::json!({
-                                        "type": "object",
-                                    })
-                                    .to_string()
-                                    .into(),
-                                    resource_config_schema_json: serde_json::json!({
-                                        "type": "object",
-                                        "properties": {
-                                            "schema": {"type": "string", "x-schema-name": true},
-                                            "target": {"type": "string", "x-collection-name": true},
-                                        },
-                                        "required": ["target"]
-                                    })
-                                    .to_string()
-                                    .into(),
-                                    ..Default::default()
-                                },
-                            ))),
-                            ..Default::default()
-                        })
-                        .await;
-                    continue;
-                }
+    fn validate_derivation(
+        &self,
+        validate: derive::request::Validate,
+    ) -> anyhow::Result<(connector::response::Started, connector::response::Kind)> {
+        let name = &validate.collection.as_ref().unwrap().name;
+        let call = self
+            .derivations
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("driver fixture not found: {name}"))?;
+        let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
 
-                let Some(materialize::request::Kind::Validate(validate)) = request.kind else {
-                    anyhow::bail!("expected Spec or Validate")
-                };
+        if call.connector_type as i32 != validate.connector_type {
+            anyhow::bail!(
+                "connector type mismatch: {} vs {}",
+                call.connector_type as i32,
+                validate.connector_type
+            );
+        }
+        if call.config != config {
+            anyhow::bail!("connector config mismatch: {} vs {}", call.config, config,);
+        }
+        if call
+            .shuffle_key_types
+            .iter()
+            .map(|kind| *kind as i32)
+            .collect::<Vec<_>>()
+            != validate.shuffle_key_types
+        {
+            anyhow::bail!(
+                "shuffle types mismatch: {:?} vs {:?}",
+                call.shuffle_key_types,
+                validate.shuffle_key_types,
+            );
+        }
+        if let Some(err) = &call.error {
+            anyhow::bail!("{err}");
+        }
 
-                let call = match self.materializations.get(&validate.name) {
-                    Some(call) => call,
-                    None => {
-                        return Err(anyhow::anyhow!(
-                            "driver fixture not found: {}",
-                            validate.name
-                        ));
-                    }
-                };
+        let transforms = call
+            .transforms
+            .iter()
+            .take(validate.transforms.len())
+            .map(|transform| derive::response::validated::Transform {
+                read_only: transform.read_only,
+            })
+            .collect();
 
-                let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
+        Ok(mock_response(
+            connector::response::started::Spec::Derive(Box::new(derive::response::Spec {
+                config_schema_json: "true".into(),
+                resource_config_schema_json: "true".into(),
+                ..Default::default()
+            })),
+            connector::response::Kind::Derive(derive::Response {
+                kind: Some(derive::response::Kind::Validated(
+                    derive::response::Validated {
+                        transforms,
+                        generated_files: call.generated_files.clone(),
+                    },
+                )),
+                ..Default::default()
+            }),
+            call.network_ports.clone(),
+            0.0,
+        ))
+    }
 
-                if call.connector_type as i32 != validate.connector_type {
-                    return Err(anyhow::anyhow!(
-                        "connector type mismatch: {} vs {}",
-                        call.connector_type as i32,
-                        validate.connector_type
-                    ));
-                }
-                if &call.config != &config {
-                    return Err(anyhow::anyhow!(
-                        "connector config mismatch: {} vs {}",
-                        call.config.to_string(),
-                        config.to_string(),
-                    ));
-                }
-                if let Some(err) = &call.error {
-                    return Err(anyhow::anyhow!("{err}"));
-                }
+    fn validate_materialization(
+        &self,
+        validate: materialize::request::Validate,
+    ) -> anyhow::Result<(connector::response::Started, connector::response::Kind)> {
+        let call = self
+            .materializations
+            .get(&validate.name)
+            .ok_or_else(|| anyhow::anyhow!("driver fixture not found: {}", validate.name))?;
+        let config: serde_json::Value = serde_json::from_slice(&validate.config_json)?;
 
-                let bindings = call
-                    .bindings
+        if call.connector_type as i32 != validate.connector_type {
+            anyhow::bail!(
+                "connector type mismatch: {} vs {}",
+                call.connector_type as i32,
+                validate.connector_type
+            );
+        }
+        if call.config != config {
+            anyhow::bail!("connector config mismatch: {} vs {}", call.config, config,);
+        }
+        if let Some(err) = &call.error {
+            anyhow::bail!("{err}");
+        }
+
+        let bindings = call
+            .bindings
+            .iter()
+            .take(validate.bindings.len())
+            .map(|binding| {
+                let projection_constraints = binding
+                    .constraints
                     .iter()
-                    .take(validate.bindings.len())
-                    .map(|b| {
-                        let projection_constraints = b
-                            .constraints
-                            .iter()
-                            .map(|(field, constraint)| {
-                                let mut constraint = constraint.clone();
-                                // NOTE(johnny): clunky support for test_materialization_driver_unknown_constraints,
-                                // to work around serde deser not allowing parsing of invalid enum values.
-                                if constraint.r#type == 0 && b.type_override != 0 {
-                                    constraint.r#type = b.type_override;
-                                }
-                                materialize::response::validated::ProjectionConstraint {
-                                    field: field.clone(),
-                                    constraint: Some(constraint),
-                                }
-                            })
-                            .collect();
-
-                        materialize::response::validated::Binding {
-                            case_insensitive_fields: b.case_insensitive_fields,
-                            projection_constraints,
-                            delta_updates: call.delta_updates,
-                            resource_path: b.resource_path.clone(),
-                            ser_policy: None,
+                    .map(|(field, constraint)| {
+                        let mut constraint = constraint.clone();
+                        // Invalid enum values cannot be expressed through pbjson fixtures.
+                        if constraint.r#type == 0 && binding.type_override != 0 {
+                            constraint.r#type = binding.type_override;
+                        }
+                        materialize::response::validated::ProjectionConstraint {
+                            field: field.clone(),
+                            constraint: Some(constraint),
                         }
                     })
                     .collect();
 
-                () = co
-                    .yield_(
-                        materialize::Response {
-                            kind: Some(materialize::response::Kind::Validated(
-                                materialize::response::Validated { bindings },
-                            )),
-                            ..Default::default()
-                        }
-                        .with_internal(|internal| {
-                            internal.container = Some(Container {
-                                ip_addr: "1.2.3.4".to_string(),
-                                network_ports: call.network_ports.clone(),
-                                mapped_host_ports: Default::default(),
-                                usage_rate: 1.25,
-                            });
-                        }),
-                    )
-                    .await;
-            }
-            Ok(())
-        })
+                materialize::response::validated::Binding {
+                    case_insensitive_fields: binding.case_insensitive_fields,
+                    projection_constraints,
+                    delta_updates: call.delta_updates,
+                    resource_path: binding.resource_path.clone(),
+                    ser_policy: None,
+                }
+            })
+            .collect();
+
+        Ok(mock_response(
+            connector::response::started::Spec::Materialize(Box::new(
+                materialize::response::Spec {
+                    config_schema_json: serde_json::json!({"type": "object"}).to_string().into(),
+                    resource_config_schema_json: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "schema": {"type": "string", "x-schema-name": true},
+                            "target": {"type": "string", "x-collection-name": true},
+                        },
+                        "required": ["target"]
+                    })
+                    .to_string()
+                    .into(),
+                    ..Default::default()
+                },
+            )),
+            connector::response::Kind::Materialize(materialize::Response {
+                kind: Some(materialize::response::Kind::Validated(
+                    materialize::response::Validated { bindings },
+                )),
+                ..Default::default()
+            }),
+            call.network_ports.clone(),
+            1.25,
+        ))
     }
+}
+
+fn mock_response(
+    spec: connector::response::started::Spec,
+    response: connector::response::Kind,
+    network_ports: Vec<flow::NetworkPort>,
+    usage_rate: f32,
+) -> (connector::response::Started, connector::response::Kind) {
+    (
+        connector::response::Started {
+            spec: Some(spec),
+            container: Some(Container {
+                ip_addr: "1.2.3.4".to_string(),
+                network_ports,
+                mapped_host_ports: Default::default(),
+                usage_rate,
+            }),
+            ..Default::default()
+        },
+        response,
+    )
 }

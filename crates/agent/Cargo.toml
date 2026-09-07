@@ -17,7 +17,6 @@ automations = { path = "../automations" }
 billing-types = { path = "../billing-types" }
 build = { path = "../build" }
 control-plane-api = { path = "../control-plane-api" }
-coroutines = { path = "../coroutines" }
 dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }
 migrate = { path = "../migrate" }

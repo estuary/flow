@@ -6,7 +6,8 @@ use anyhow::Context;
 use axum::http;
 use clap::Parser;
 use control_plane_api::{
-    App, discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
+    App, connectors::ControlPlaneConnectorFactory, discovers::DiscoverHandler,
+    proxy_connectors::DataPlaneConnectors, publications::Publisher,
 };
 use derivative::Derivative;
 use futures::FutureExt;
@@ -319,7 +320,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
     let discover_handler = DiscoverHandler::new(connectors.clone());
 
-    let builder = control_plane_api::publications::builds::new_builder(connectors);
+    let connector_factory = Arc::new(ControlPlaneConnectorFactory::new(logs_tx.clone()));
+    let builder = control_plane_api::publications::builds::new_builder(connector_factory);
     let mut publisher = Publisher::new(
         &args.builds_root,
         &logs_tx,

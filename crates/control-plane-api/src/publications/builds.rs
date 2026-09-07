@@ -1,10 +1,9 @@
-use crate::{jobs, logs, proxy_connectors::MakeConnectors};
+use crate::{connectors::ConnectorFactory, jobs, logs};
 use anyhow::Context;
 use models::Id;
 use rand::RngCore;
 use sqlx::types::Uuid;
 use std::path;
-use validation::Connectors;
 
 #[async_trait::async_trait]
 pub trait Builder: Send + Sync + std::fmt::Debug {
@@ -23,18 +22,18 @@ pub trait Builder: Send + Sync + std::fmt::Debug {
 }
 
 #[derive(Debug)]
-pub struct BuilderImpl<MC: MakeConnectors> {
-    make_connectors: MC,
+pub struct BuilderImpl {
+    connector_factory: std::sync::Arc<dyn ConnectorFactory>,
 }
 
-impl<MC: MakeConnectors> BuilderImpl<MC> {
-    pub fn new(make_connectors: MC) -> Self {
-        Self { make_connectors }
+impl BuilderImpl {
+    pub fn new(connector_factory: std::sync::Arc<dyn ConnectorFactory>) -> Self {
+        Self { connector_factory }
     }
 }
 
 #[async_trait::async_trait]
-impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
+impl Builder for BuilderImpl {
     async fn build(
         &self,
         builds_root: &url::Url,
@@ -47,7 +46,7 @@ impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
         logs_token: sqlx::types::Uuid,
         explicit_plane_name: Option<&str>,
     ) -> anyhow::Result<build::Output> {
-        let connectors = self.make_connectors.make_connectors(logs_token);
+        let connectors = self.connector_factory.make_connectors("build", logs_token);
         build_catalog(
             builds_root,
             draft,
@@ -57,7 +56,7 @@ impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
             tmpdir,
             logs_tx,
             logs_token,
-            &connectors,
+            connectors.as_ref(),
             explicit_plane_name,
         )
         .await
@@ -65,11 +64,11 @@ impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
 }
 
 /// Create a new Builder instance
-pub fn new_builder<MC: MakeConnectors>(make_connectors: MC) -> Box<dyn Builder> {
-    Box::new(BuilderImpl::new(make_connectors))
+pub fn new_builder(connector_factory: std::sync::Arc<dyn ConnectorFactory>) -> Box<dyn Builder> {
+    Box::new(BuilderImpl::new(connector_factory))
 }
 
-async fn build_catalog<Conn: Connectors>(
+async fn build_catalog(
     builds_root: &url::Url,
     draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
@@ -78,7 +77,7 @@ async fn build_catalog<Conn: Connectors>(
     tmpdir: &path::Path,
     logs_tx: logs::Tx,
     logs_token: sqlx::types::Uuid,
-    connectors: &Conn,
+    connectors: &validation::Connectors<'_>,
     explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<build::Output> {
     // Stage the build database under a ./builds/ subdirectory of the working
