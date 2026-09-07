@@ -19,7 +19,6 @@ mod test_step;
 
 pub use derivation::derive_spec_request;
 pub use errors::Error;
-pub use noop::NoOpConnectors;
 
 /// Portion of the binding namespace reserved for runtime-internal bindings
 /// (today: the capture connector-state pseudo-binding). Internal additions must
@@ -45,43 +44,25 @@ pub fn max_bindings(indirect_specs: bool) -> usize {
     }
 }
 
-/// Connectors is a delegated trait -- provided to validate -- through which
-/// connector validation RPCs are dispatched. Request and Response must always
-/// be Validate / Validated variants, but may include `internal` fields.
-pub trait Connectors: Send + Sync {
-    fn capture<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Capture,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::capture::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = proto_flow::capture::Request> + Send + Unpin + 'static;
+/// A thin, WASM-compatible seam for one connector request and response.
+pub type Connectors<'a> = dyn Fn(
+        &tables::DataPlane,
+        proto_flow::connector::Request,
+    ) -> futures::future::BoxFuture<
+        'a,
+        anyhow::Result<(
+            proto_flow::connector::response::Started,
+            proto_flow::connector::response::Kind,
+        )>,
+    > + Send
+    + Sync
+    + 'a;
 
-    fn derive<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Collection,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::derive::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = proto_flow::derive::Request> + Send + Unpin + 'static;
-
-    fn materialize<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Materialization,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::materialize::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = proto_flow::materialize::Request> + Send + Unpin + 'static;
-}
-
-pub async fn validate<C: Connectors>(
+pub async fn validate(
     pub_id: models::Id,
     build_id: models::Id,
     project_root: &url::Url,
-    connectors: &C,
+    connectors: &Connectors<'_>,
     explicit_plane_name: Option<&str>,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
@@ -1006,70 +987,59 @@ fn temporary_cross_data_plane_read_check<'a>(
     }
 }
 
-async fn expect_response<'a, R, E, T>(
-    scope: Scope<'a>,
-    mut response_rx: impl futures::Stream<Item = anyhow::Result<R>> + Unpin,
-    extract: E,
+/// Issue a unary Validate `kind` to the task's connector (or to the permissive
+/// no-op connector when `no_op`). Errors are pushed to `errors` under `scope`.
+/// Returns the Validated response and the connector's network ports.
+async fn validate_connector<V>(
+    scope: Scope<'_>,
+    connectors: &Connectors<'_>,
+    no_op: bool,
+    data_plane: &tables::DataPlane,
+    log_level: Option<&str>,
+    kind: proto_flow::connector::request::Kind,
+    unwrap_validated: fn(proto_flow::connector::response::Kind) -> Option<V>,
     errors: &mut tables::Errors,
-) -> Option<T>
-where
-    E: FnOnce(&mut R) -> anyhow::Result<Option<T>>,
-    R: std::fmt::Debug,
-{
-    use futures::StreamExt;
+) -> Option<(V, Vec<proto_flow::flow::NetworkPort>)> {
+    use proto_flow::connector::request;
 
-    let response = match response_rx.next().await {
-        Some(response) => response,
-        None => Err(anyhow::anyhow!(
-            "Expected connector to send {}, but read an EOF",
-            std::any::type_name::<R>()
-        )),
+    let protocol = match &kind {
+        request::Kind::Capture(_) => "capture",
+        request::Kind::Derive(_) => "derivation",
+        request::Kind::Materialize(_) => "materialization",
+    };
+    let request = proto_flow::connector::Request {
+        start: Some(request::Start {
+            log_level: log_level
+                .and_then(proto_flow::ops::log::Level::from_str_name)
+                .unwrap_or_default() as i32,
+            ..Default::default()
+        }),
+        kind: Some(kind),
     };
 
-    let mut response = match response {
+    let result = if no_op {
+        noop::no_op_connector(request).await
+    } else {
+        connectors(data_plane, request).await
+    };
+    let (started, response) = match result {
         Ok(response) => response,
-        Err(err) => {
-            Error::Connector { detail: err }.push(scope, errors);
+        Err(detail) => {
+            Error::Connector { detail }.push(scope, errors);
             return None;
         }
     };
 
-    match extract(&mut response) {
-        Ok(Some(extracted)) => Some(extracted),
-        Ok(None) => {
-            Error::Connector {
-                detail: anyhow::anyhow!(
-                    "Expected connector to send {}, but read {response:?}",
-                    std::any::type_name::<T>()
-                ),
-            }
-            .push(scope, errors);
-            None
+    // `proto_grpc::connector::unary` verified that Started and the response are
+    // of the request's protocol; `unwrap_validated` checks only for Validated.
+    let Some(validated) = unwrap_validated(response) else {
+        Error::Connector {
+            detail: anyhow::anyhow!("connector did not return {protocol} Validated"),
         }
-        Err(err) => {
-            Error::Connector { detail: err }.push(scope, errors);
-            None
-        }
-    }
-}
-
-async fn expect_eof<'a, R>(
-    scope: Scope<'a>,
-    mut response_rx: impl futures::Stream<Item = anyhow::Result<R>> + Unpin,
-    errors: &mut tables::Errors,
-) where
-    R: std::fmt::Debug,
-{
-    use futures::StreamExt;
-
-    let response = match response_rx.next().await {
-        None => Ok(()),
-        Some(Ok(response)) => Err(anyhow::anyhow!(
-            "Expected connector to send closing EOF, but read {response:?}",
-        )),
-        Some(Err(err)) => Err(err),
+        .push(scope, errors);
+        return None;
     };
-    if let Err(err) = response {
-        Error::Connector { detail: err }.push(scope, errors);
-    }
+    let network_ports = started.container.unwrap_or_default().network_ports;
+
+    Some((validated, network_ports))
 }

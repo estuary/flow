@@ -145,12 +145,13 @@ async fn build_ops_specs() -> BTreeMap<String, flow::CollectionSpec> {
     let live = build::NoOpCatalogResolver
         .resolve(draft.all_spec_names().collect())
         .await;
+    let connector_router = runtime_local::local_test_router();
 
     // Fixed, deterministic build ids and no connector network.
     let output = build::local(
         models::Id::new([32; 8]),
         models::Id::new([1; 8]),
-        "",
+        connector_router,
         ops::tracing_log_handler,
         true, // No-op captures.
         true, // No-op derivations.
