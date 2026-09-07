@@ -1,6 +1,5 @@
-use super::{Connectors, Error, NoOpConnectors, Scope, indexed, linked, reference};
-use futures::SinkExt;
-use proto_flow::{capture, flow, ops::log::Level as LogLevel};
+use super::{Connectors, Error, Scope, indexed, linked, reference};
+use proto_flow::{capture, connector, flow};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 use xxhash_rust::xxh3::Xxh3;
@@ -16,13 +15,13 @@ type LiveBindings<'a> = BTreeMap<
     ),
 >;
 
-pub async fn walk_all_captures<C: Connectors>(
+pub async fn walk_all_captures(
     pub_id: models::Id,
     build_id: models::Id,
     draft_captures: &tables::DraftCaptures,
     live_captures: &tables::LiveCaptures,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
+    connectors: &Connectors<'_>,
     data_planes: &tables::DataPlanes,
     explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
@@ -78,12 +77,12 @@ pub async fn walk_all_captures<C: Connectors>(
         .collect()
 }
 
-async fn walk_capture<C: Connectors>(
+async fn walk_capture(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveCapture, &tables::DraftCapture>,
     built_collections: &tables::BuiltCollections,
-    connectors: &C,
+    connectors: &Connectors<'_>,
     data_planes: &tables::DataPlanes,
     explicit_plane: Option<&tables::DataPlane>,
     dependencies: &tables::Dependencies<'_>,
@@ -164,50 +163,6 @@ async fn walk_capture<C: Connectors>(
     };
 
     let secrets_spec = assemble::secrets(&secrets);
-
-    // Start an RPC with the task's connector.
-    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
-    let response_rx = if noop_captures || shards.disable {
-        futures::future::Either::Left(NoOpConnectors.capture(data_plane, capture, request_rx))
-    } else {
-        futures::future::Either::Right(connectors.capture(data_plane, capture, request_rx))
-    };
-    futures::pin_mut!(response_rx);
-
-    // Send Request.Spec and receive Response.Spec.
-    _ = request_tx
-        .send(
-            capture::Request {
-                kind: Some(capture::request::Kind::Spec(capture::request::Spec {
-                    connector_type,
-                    config_json: config_json.clone(),
-                })),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let capture::response::Spec {
-        documentation_url: _,
-        config_schema_json: _,
-        resource_config_schema_json: _,
-        resource_path_pointers: _,
-        ..
-    } = super::expect_response(
-        scope,
-        &mut response_rx,
-        |response| match &mut response.kind {
-            Some(capture::response::Kind::Spec(spec)) => Ok(Some(std::mem::take(spec.as_mut()))),
-            _ => Ok(None),
-        },
-        errors,
-    )
-    .await?;
 
     // Index live binding models having a non-empty resource /_meta/path .
     let live_bindings_model: BTreeMap<Vec<String>, &models::CaptureBinding> = live_model
@@ -310,35 +265,22 @@ async fn walk_capture<C: Connectors>(
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
-    // Send Request.Validate and receive Response.Validated.
-    _ = request_tx
-        .send(
-            capture::Request {
-                kind: Some(capture::request::Kind::Validate(Box::new(validate_request))),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                if let Some(s) = &shards.log_level {
-                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-                }
-            }),
-        )
-        .await;
-
-    let (validated_response, network_ports) = super::expect_response(
+    let (validated_response, network_ports) = super::validate_connector(
         scope,
-        &mut response_rx,
-        |response| {
-            let network_ports = match response.get_internal() {
-                Ok(internal) => internal.container.unwrap_or_default().network_ports,
-                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
-            };
-            match &mut response.kind {
-                Some(capture::response::Kind::Validated(v)) => {
-                    Ok(Some((std::mem::take(v), network_ports)))
-                }
-                _ => Ok(None),
-            }
+        connectors,
+        noop_captures || shards.disable,
+        data_plane,
+        shards.log_level.as_deref(),
+        connector::request::Kind::Capture(capture::Request {
+            kind: Some(capture::request::Kind::Validate(Box::new(validate_request))),
+            ..Default::default()
+        }),
+        |response| match response {
+            connector::response::Kind::Capture(capture::Response {
+                kind: Some(capture::response::Kind::Validated(validated)),
+                ..
+            }) => Some(validated),
+            _ => None,
         },
         errors,
     )
@@ -540,9 +482,6 @@ async fn walk_capture<C: Connectors>(
         delete: false,
         reset: false,
     };
-
-    std::mem::drop(request_tx);
-    () = super::expect_eof(scope, response_rx, errors).await;
 
     // Compute the dependency hash, now that we're done with any modifications of the model
     let dependency_hash = dependencies.compute_hash(&model);

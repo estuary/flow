@@ -1,6 +1,6 @@
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, future::BoxFuture};
-use proto_flow::{capture, derive, flow, materialize};
+use futures::{FutureExt, future::BoxFuture};
+use proto_flow::flow;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -97,7 +97,7 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
 pub async fn local(
     pub_id: models::Id,
     build_id: models::Id,
-    connector_network: &str,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     log_handler: impl runtime::LogHandler,
     noop_captures: bool,
     noop_derivations: bool,
@@ -108,14 +108,26 @@ pub async fn local(
 ) -> Output {
     ::sources::inline_draft_catalog(&mut draft);
 
-    let runtime = runtime::Runtime::new(
-        runtime::Plane::Local,
-        connector_network.to_string(),
-        log_handler,
-        None,
-        format!("build/{build_id:#}"),
-    );
-    let connectors = RuntimeConnectors { runtime };
+    // Build a validation::Connectors against the local connector service.
+    // As we're local (user can ctrl-C), apply no timeout.
+    let connectors = move |_data_plane: &tables::DataPlane,
+                           request: proto_flow::connector::Request| {
+        let router = connector_router.clone();
+        let log_handler = log_handler.clone();
+
+        async move {
+            let logger = move |log: &ops::Log| runtime::LogHandler::log(&log_handler, log);
+            proto_grpc::connector::unary(
+                &*router,
+                &logger,
+                request,
+                std::time::Duration::MAX,
+                std::time::Duration::MAX,
+            )
+            .await
+        }
+        .boxed()
+    };
 
     let built = validation::validate(
         pub_id,
@@ -160,7 +172,7 @@ pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output 
     local(
         models::Id::new([32; 8]),
         models::Id::new([1; 8]),
-        "",
+        connector::local_test_router(),
         ops::tracing_log_handler,
         noop_connectors,
         noop_connectors,
@@ -175,12 +187,12 @@ pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output 
 /// Build a source catalog for local catalog testing (`flowctl raw test`).
 ///
 /// Live specs resolve against a `NoOpCatalogResolver`, so there is no
-/// control-plane round-trip. Derivation connectors are validated over `network`,
-/// while capture and materialization connectors are not: a catalog test never
-/// runs those tasks.
+/// control-plane round-trip. Derivation connectors are validated through
+/// `connector_router`, while capture and materialization connectors are not: a
+/// catalog test never runs those tasks.
 pub async fn for_catalog_test(
     source: &url::Url,
-    network: &str,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     log_handler: impl Fn(&ops::Log) + Send + Sync + Clone + 'static,
 ) -> Output {
     use tables::CatalogResolver;
@@ -201,7 +213,7 @@ pub async fn for_catalog_test(
     local(
         models::Id::new([32; 8]),
         models::Id::new([1; 8]),
-        network,
+        connector_router,
         log_handler,
         true,  // noop_captures: tests never run a capture.
         false, // Validate derivations.
@@ -422,62 +434,6 @@ impl sources::Fetcher for Fetcher {
         tracing::debug!(%resource, ?content_type, file_root=?self.file_root, "fetching resource");
         self.fetch_inner(resource.clone(), self.file_root.clone())
             .boxed()
-    }
-}
-
-/// RuntimeConnectors is a general-purpose implementation of
-/// validation::Connectors that dispatches to its contained runtime::Runtime.
-pub struct RuntimeConnectors<L: runtime::LogHandler> {
-    runtime: runtime::Runtime<L>,
-}
-
-impl<L: runtime::LogHandler> std::fmt::Debug for RuntimeConnectors<L> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("RuntimeConnectors")
-    }
-}
-
-impl<L: runtime::LogHandler> validation::Connectors for RuntimeConnectors<L> {
-    fn capture<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Capture,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<capture::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = capture::Request> + Send + Unpin + 'static,
-    {
-        self.runtime
-            .clone()
-            .serve_capture(request_rx.map(|request| Ok(request)))
-    }
-
-    fn derive<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Collection,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<derive::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
-    {
-        self.runtime
-            .clone()
-            .serve_derive(request_rx.map(|request| Ok(request)))
-    }
-
-    fn materialize<'a, R>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Materialization,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<materialize::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = materialize::Request> + Send + Unpin + 'static,
-    {
-        self.runtime
-            .clone()
-            .serve_materialize(request_rx.map(|request| Ok(request)))
     }
 }
 

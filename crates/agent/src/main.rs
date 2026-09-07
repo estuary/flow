@@ -324,7 +324,9 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
     let discover_handler = DiscoverHandler::new(connectors.clone());
 
-    let builder = control_plane_api::publications::builds::new_builder(connectors);
+    let connector_factory =
+        Arc::new(control_plane_api::connectors::ControlPlaneConnectorFactory::new(logs_tx.clone()));
+    let builder = control_plane_api::publications::builds::new_builder(connector_factory);
     let mut publisher = Publisher::new(
         &args.builds_root,
         &logs_tx,
