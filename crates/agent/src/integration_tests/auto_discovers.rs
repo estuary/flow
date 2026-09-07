@@ -116,7 +116,6 @@ async fn test_auto_discovers_add_new_bindings() {
     };
 
     harness
-        .discover_handler
         .connectors
         .mock_discover("marmots/capture", Ok((spec_fixture(), discovered)));
     harness.set_auto_discover_due("marmots/capture").await;
@@ -227,7 +226,6 @@ async fn test_auto_discovers_add_new_bindings() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("marmots/capture", Ok((spec_fixture(), discovered)));
 
@@ -372,7 +370,6 @@ async fn test_auto_discovers_add_new_bindings() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("marmots/capture", Ok((spec_fixture(), discovered)));
 
@@ -525,7 +522,6 @@ async fn test_auto_discovers_no_evolution() {
     };
     harness.set_auto_discover_due("mules/capture").await;
     harness
-        .discover_handler
         .connectors
         .mock_discover("mules/capture", Ok((spec_fixture(), discovered_diff_key)));
     harness.run_pending_controller("mules/capture").await;
@@ -664,7 +660,6 @@ async fn test_auto_discovers_no_evolution() {
     // Now simulate the discovered key going back to normal and assert that it succeeds
     harness.set_auto_discover_due("mules/capture").await;
     harness
-        .discover_handler
         .connectors
         .mock_discover("mules/capture", Ok((spec_fixture(), discovered)));
     harness.run_pending_controller("mules/capture").await;
@@ -879,7 +874,6 @@ async fn test_auto_discovers_update_only() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
 
@@ -931,7 +925,7 @@ async fn test_auto_discovers_update_only() {
     assert!(last_success.publish_result.is_none());
 
     // Now simulate a discover error, and expect to see the error status reported.
-    harness.discover_handler.connectors.mock_discover(
+    harness.connectors.mock_discover(
         "pikas/capture",
         Err("a simulated discover error".to_string()),
     );
@@ -1062,7 +1056,6 @@ async fn test_auto_discovers_update_only() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
     harness.control_plane().fail_next_build(
@@ -1156,7 +1149,6 @@ async fn test_auto_discovers_update_only() {
         ],
     };
     harness
-        .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
     harness.set_auto_discover_due("pikas/capture").await;
