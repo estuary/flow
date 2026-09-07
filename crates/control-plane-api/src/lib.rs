@@ -6,6 +6,7 @@ pub mod alert_subscriptions;
 pub mod alerts;
 pub mod billing;
 pub mod connector_tags;
+pub mod connectors;
 pub mod controllers;
 pub mod data_plane;
 pub mod directives;
