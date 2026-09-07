@@ -13,13 +13,9 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/network"
-	"github.com/estuary/flow/go/protocols/capture"
 	pcn "github.com/estuary/flow/go/protocols/connector"
-	"github.com/estuary/flow/go/protocols/derive"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/protocols/ops"
-	"github.com/estuary/flow/go/protocols/runtime"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"go.gazette.dev/core/allocator"
@@ -30,7 +26,6 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
-	"google.golang.org/grpc"
 )
 
 // FlowConsumerConfig configures the Flow consumer application.
@@ -43,7 +38,7 @@ type FlowConsumerConfig struct {
 		Dashboard     pb.Endpoint `long:"dashboard" env:"DASHBOARD" description:"Address of the Estuary dashboard"`
 		DataPlaneFQDN string      `long:"data-plane-fqdn" env:"DATA_PLANE_FQDN" description:"Fully-qualified domain name of the data-plane to which this reactor belongs"`
 		Network       string      `long:"network" env:"NETWORK" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
-		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"The number of proxy connector runtimes that may run concurrently"`
+		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"Deprecated and ignored. Connectors are proxied through the connector.Connector service"`
 		SidecarPort   uint16      `long:"sidecar-port" env:"SIDECAR_PORT" description:"Port of the runtime-sidecar co-located on every reactor machine (fleet-wide, fixed). Required when any task uses the runtime-v2 feature flag."`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
@@ -367,17 +362,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
 		pf.NewVerifiedNetworkProxyServer(&network.ProxyServer{Resolver: args.Service.Resolver}, f.service.Verifier))
-
-	var connectorProxy = &connectorProxy{
-		address:   args.Server.Endpoint(),
-		host:      f,
-		runtimes:  make(map[string]*grpc.ClientConn),
-		semaphore: make(chan struct{}, config.Flow.ProxyRuntimes),
-	}
-	runtime.RegisterConnectorProxyServer(args.Server.GRPCServer, connectorProxy)
-	capture.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
-	derive.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
-	materialize.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
 
 	// One V2 task service for every proxied connector of this reactor. Its
 	// `TaskName` labels only the service's own tracing — connectors are named
