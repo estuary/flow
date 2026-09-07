@@ -5,9 +5,7 @@ extern crate allocator;
 use anyhow::Context;
 use axum::http;
 use clap::Parser;
-use control_plane_api::{
-    App, discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
-};
+use control_plane_api::{App, publications::Publisher};
 use derivative::Derivative;
 use futures::FutureExt;
 use sqlx::{ConnectOptions, Connection};
@@ -316,11 +314,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
-    let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors.clone());
 
     let connector_factory =
         Arc::new(control_plane_api::connectors::ControlPlaneConnectorFactory::new(logs_tx.clone()));
+    let discover_handler =
+        control_plane_api::discovers::DiscoverHandler::new(connector_factory.clone());
+
     let builder = control_plane_api::publications::builds::new_builder(connector_factory);
     let mut publisher = Publisher::new(
         &args.builds_root,

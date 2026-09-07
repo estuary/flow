@@ -1,18 +1,17 @@
 use control_plane_api::connectors::{ConnectorFactory, Connectors};
-use control_plane_api::proxy_connectors::DiscoverConnectors;
 use futures::FutureExt;
 use proto_flow::{capture, connector, derive, materialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 pub type MockDiscover = Result<(capture::response::Spec, capture::response::Discovered), String>;
 pub type MockConnectorResponse =
     Result<(connector::response::Started, connector::response::Kind), String>;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct MockConnectors {
-    discover_mocks: Arc<Mutex<HashMap<models::Capture, MockConnectorResponse>>>,
-    discover_requests: Arc<Mutex<HashMap<models::Capture, capture::request::Discover>>>,
+    discover_mocks: Mutex<HashMap<models::Capture, MockConnectorResponse>>,
+    discover_requests: Mutex<HashMap<models::Capture, capture::request::Discover>>,
 }
 
 impl MockConnectors {
@@ -112,32 +111,6 @@ impl ConnectorFactory for MockConnectors {
         _logs_token: uuid::Uuid,
     ) -> Box<Connectors<'a>> {
         Box::new(move |_data_plane, request| self.connect(request))
-    }
-}
-
-impl DiscoverConnectors for MockConnectors {
-    async fn discover<'a>(
-        &'a self,
-        _data_plane: &'a tables::DataPlane,
-        _task: &'a models::Capture,
-        _logs_token: uuid::Uuid,
-        request: capture::Request,
-    ) -> anyhow::Result<(capture::response::Spec, capture::response::Discovered)> {
-        let Some(capture::request::Kind::Discover(discover)) = request.kind else {
-            anyhow::bail!("unexpected capture request type: {request:?}")
-        };
-        let (started, response) = self.discover(*discover)?;
-
-        match (started.spec, response) {
-            (
-                Some(connector::response::started::Spec::Capture(spec)),
-                connector::response::Kind::Capture(capture::Response {
-                    kind: Some(capture::response::Kind::Discovered(discovered)),
-                    ..
-                }),
-            ) => Ok((*spec, discovered)),
-            _ => anyhow::bail!("mock connector did not return capture Discovered"),
-        }
     }
 }
 
