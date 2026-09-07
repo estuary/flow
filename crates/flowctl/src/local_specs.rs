@@ -96,7 +96,7 @@ async fn validate(
         build::local(
             models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
             models::Id::new([0xff; 8]), // Must be larger than all real last_build_id's.
-            &ctx.connector_network,
+            ctx.local_connector_router(),
             log_handler,
             noop_captures,
             noop_derivations,

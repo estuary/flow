@@ -15,7 +15,8 @@ async fn build_catalog(yaml: &str) -> build::Output {
     std::fs::write(&path, yaml).unwrap();
     let url = build::arg_source_to_url(path.to_str().unwrap(), false).unwrap();
 
-    let output = build::for_catalog_test(&url, "", ::ops::tracing_log_handler).await;
+    let connector_router = runtime_local::local_test_router();
+    let output = build::for_catalog_test(&url, connector_router, ::ops::tracing_log_handler).await;
     assert!(
         output.errors().next().is_none(),
         "catalog should build cleanly: {:?}",

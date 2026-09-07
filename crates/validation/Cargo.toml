@@ -34,7 +34,6 @@ url = { workspace = true }
 xxhash-rust = { workspace = true }
 
 [dev-dependencies]
-coroutines = { path = "../coroutines" }
 proto-gazette = { path = "../proto-gazette" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
