@@ -265,7 +265,7 @@ async fn spec_materialization(
         ..Default::default()
     };
 
-    // TODO(johnny): select a data-plane and use ProxyConnectors.
+    // TODO(johnny): route this request through a selected data plane.
     let Some(materialize::response::Kind::Spec(spec)) = runtime.unary_materialize(req).await?.kind
     else {
         anyhow::bail!("connector didn't send expected Spec response");
@@ -311,7 +311,7 @@ async fn spec_capture(
         ..Default::default()
     };
 
-    // TODO(johnny): select a data-plane and use ProxyConnectors.
+    // TODO(johnny): route this request through a selected data plane.
     let Some(capture::response::Kind::Spec(spec)) = runtime.unary_capture(req).await?.kind else {
         anyhow::bail!("connector didn't send expected Spec response");
     };
