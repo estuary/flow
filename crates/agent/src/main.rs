@@ -7,7 +7,7 @@ use axum::http;
 use clap::Parser;
 use control_plane_api::{
     App, connectors::ControlPlaneConnectorFactory, discovers::DiscoverHandler,
-    proxy_connectors::DataPlaneConnectors, publications::Publisher,
+    publications::Publisher,
 };
 use derivative::Derivative;
 use futures::FutureExt;
@@ -317,10 +317,9 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
-    let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors.clone());
-
     let connector_factory = Arc::new(ControlPlaneConnectorFactory::new(logs_tx.clone()));
+    let discover_handler = DiscoverHandler::new(connector_factory.clone());
+
     let builder = control_plane_api::publications::builds::new_builder(connector_factory);
     let mut publisher = Publisher::new(
         &args.builds_root,

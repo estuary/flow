@@ -179,7 +179,8 @@ pub struct TestHarness {
     pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
-    pub discover_handler: DiscoverHandler<connectors::MockConnectors>,
+    pub connectors: Arc<MockConnectors>,
+    pub discover_handler: DiscoverHandler,
     /// Watch of the authorization Snapshot used by the discovers and
     /// publications executors. It is refreshed before each such automation
     /// poll, so that grants created by the test are visible to authorization.
@@ -247,11 +248,10 @@ impl HarnessBuilder {
             eprintln!("end of PUB-LOG");
         });
 
-        let mock_connectors = connectors::MockConnectors::default();
-        let discover_handler = DiscoverHandler::new(mock_connectors.clone());
+        let connectors = Arc::new(MockConnectors::default());
+        let discover_handler = DiscoverHandler::new(connectors.clone());
 
-        let builder =
-            control_plane_api::publications::builds::new_builder(Arc::new(mock_connectors));
+        let builder = control_plane_api::publications::builds::new_builder(connectors.clone());
         let publisher = Publisher::new(
             &url::Url::from_directory_path(builds_root.path()).unwrap(),
             &logs_tx,
@@ -298,6 +298,7 @@ impl HarnessBuilder {
             pool,
             publisher,
             builds_root,
+            connectors,
             discover_handler,
             snapshot_watch: executor_snapshot_watch,
             snapshot_replace,
@@ -1336,8 +1337,7 @@ impl TestHarness {
         .unwrap();
         let disco_id = disco.id;
 
-        self.discover_handler
-            .connectors
+        self.connectors
             .mock_discover(capture_name, mock_discover_resp);
 
         disco_id
@@ -1932,7 +1932,7 @@ struct ControlPlaneMocks {
 #[derive(Clone)]
 pub struct TestControlPlane {
     pub auto_discover_enabled: bool,
-    inner: PGControlPlane<MockConnectors>,
+    inner: PGControlPlane,
     mocks: Arc<Mutex<ControlPlaneMocks>>,
     controller_config: Arc<Mutex<crate::controllers::ControllerConfig>>,
     /// Replaces the Snapshot behind the shared manually-driven watch, which
@@ -1972,7 +1972,7 @@ impl publications::FinalizeBuild for InjectBuildFailures {
 
 impl TestControlPlane {
     fn new(
-        inner: PGControlPlane<MockConnectors>,
+        inner: PGControlPlane,
         snapshot_replace: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     ) -> Self {
         Self {
