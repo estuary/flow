@@ -19,7 +19,6 @@ mod interval;
 pub mod jobs;
 pub mod live_specs;
 pub mod logs;
-pub mod proxy_connectors;
 pub mod publications;
 pub mod server;
 mod text_json;
@@ -97,26 +96,6 @@ pub async fn get_user_id_for_email(email: &str, db: &sqlx::PgPool) -> sqlx::Resu
     )
     .fetch_one(db)
     .await
-}
-
-// timeout is a convenience for tokio::time::timeout which merges
-// its error with the Future's nested anyhow::Result Output.
-pub async fn timeout<Ok, Fut, C, WC>(
-    dur: std::time::Duration,
-    fut: Fut,
-    with_context: WC,
-) -> anyhow::Result<Ok>
-where
-    C: std::fmt::Display + Send + Sync + 'static,
-    Fut: std::future::Future<Output = anyhow::Result<Ok>>,
-    WC: FnOnce() -> C,
-{
-    use anyhow::Context;
-
-    match tokio::time::timeout(dur, fut).await {
-        Ok(result) => result,
-        Err(err) => Err(anyhow::anyhow!(err)).with_context(with_context),
-    }
 }
 
 pub async fn decrypt_hmac_keys(
