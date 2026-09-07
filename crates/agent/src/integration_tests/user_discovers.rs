@@ -6,6 +6,64 @@ use crate::{
 use proto_flow::capture::response::{Discovered, discovered::Binding};
 
 #[tokio::test]
+async fn test_discover_rejects_non_discovered_responses() {
+    let mut harness = TestHarness::init("test_discover_rejects_non_discovered_responses").await;
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    let draft_id = harness
+        .create_draft(user_id, "squirrels/capture", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), Default::default())),
+        )
+        .await;
+    // A capture response which is not Discovered. Responses of the wrong
+    // protocol are rejected upstream by `proto_grpc::connector::unary`.
+    harness.connectors.mock_raw_discover(
+        "squirrels/capture",
+        Ok((
+            proto_flow::connector::response::Started {
+                spec: Some(proto_flow::connector::response::started::Spec::Capture(
+                    Box::new(spec_fixture()),
+                )),
+                ..Default::default()
+            },
+            proto_flow::connector::response::Kind::Capture(proto_flow::capture::Response {
+                kind: Some(proto_flow::capture::response::Kind::Validated(
+                    Default::default(),
+                )),
+                ..Default::default()
+            }),
+        )),
+    );
+
+    let result = harness.run_queued_discover(discover_id).await;
+    assert!(
+        matches!(
+            result.job_status,
+            crate::discovers::JobStatus::DiscoverFailed
+        ),
+        "unexpected status: {:?}",
+        result.job_status
+    );
+    assert_eq!(1, result.errors.len());
+    assert!(
+        result.errors[0]
+            .1
+            .contains("connector did not return capture Discovered"),
+        "unexpected error: {:?}",
+        result.errors
+    );
+}
+
+#[tokio::test]
 async fn test_user_discovers() {
     let mut harness = TestHarness::init("test_user_discovers").await;
 

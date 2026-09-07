@@ -424,11 +424,11 @@ the schemas are absent and a publish can still fail.
 
 The **reactor** sets `FLOW_NETWORK=supabase_network_<stack>` (per stack), and the
 data plane spawns every connector container onto that network — at runtime *and*
-at build / discover / Validate time. The agent proxies connectors to the data
-plane (`ProxyConnectors`), so they land on the reactor's network regardless of
-the agent's own config. A connector endpoint config can therefore point straight
-at this stack's Supabase Postgres (`db:5432` inside the network — the
-container-internal port is always 5432 regardless of the host-published port);
+at build / discover / Validate time. The control-plane connector factory routes
+requests through the data plane, so connectors land on the reactor's network
+regardless of the agent's own config. A connector endpoint config can therefore
+point straight at this stack's Supabase Postgres (`db:5432` inside the network
+— the container-internal port is always 5432 regardless of the host-published port);
 other services must be `docker network connect supabase_network_<stack>`'d first.
 
 ## Provisioning tenant credentials

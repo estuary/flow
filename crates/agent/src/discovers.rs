@@ -3,7 +3,6 @@ use control_plane_api::{
     connector_tags,
     discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
-    proxy_connectors::DiscoverConnectors,
 };
 use models::Id;
 use serde::{Deserialize, Serialize};
@@ -86,14 +85,14 @@ fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
     (status, Err(Vec::new()))
 }
 
-pub struct DiscoverExecutor<C: DiscoverConnectors> {
-    pub handler: DiscoverHandler<C>,
+pub struct DiscoverExecutor {
+    pub handler: DiscoverHandler,
     /// Watch of the authorization Snapshot. Each poll pins one Snapshot for
     /// the entire discover operation.
     pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
 }
 
-impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
+impl automations::Executor for DiscoverExecutor {
     const TASK_TYPE: automations::TaskType = automations::task_types::DISCOVERS;
 
     type Receive = serde_json::Value;
@@ -136,7 +135,7 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
     }
 }
 
-impl<C: DiscoverConnectors> DiscoverExecutor<C> {
+impl DiscoverExecutor {
     #[tracing::instrument(err, skip_all, fields(id=?row.id, draft_id = ?row.draft_id, user_id = %row.user_id))]
     async fn process(
         &self,
