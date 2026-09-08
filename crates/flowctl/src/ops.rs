@@ -133,18 +133,14 @@ async fn ops_collection_spec(collection: OpsCollection, ops_journal: &str) -> fl
 
 /// Build the embedded ops bundle into its `logs` and `stats` CollectionSpecs,
 /// keyed by trailing path segment ("logs" / "stats"). The build is offline:
-/// the collections carry no connectors and `build::NoOpCatalogResolver` supplies
+/// the collections carry no connectors and an offline live catalog supplies
 /// a catch-all storage mapping, so no control-plane or runtime IO occurs.
 async fn build_ops_specs() -> BTreeMap<String, flow::CollectionSpec> {
-    use tables::CatalogResolver;
-
     let catalog: models::Catalog =
         serde_json::from_str(OPS_TASK_BUNDLE).expect("embedded ops bundle must be valid JSON");
     let draft: tables::DraftCatalog = catalog.into();
 
-    let live = build::NoOpCatalogResolver
-        .resolve(draft.all_spec_names().collect())
-        .await;
+    let live = build::no_op_live_catalog();
     let connector_router = runtime_local::local_test_router();
 
     // Fixed, deterministic build ids and no connector network.

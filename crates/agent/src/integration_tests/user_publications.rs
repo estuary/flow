@@ -936,22 +936,6 @@ async fn add_private_plane(harness: &mut TestHarness) {
         .await;
 }
 
-// Neither `storage_mappings` nor `data_planes` are reset between tests, so a
-// tenant's mapping reflects whichever planes existed when its first test
-// provisioned it. Pin the mapping to just the default test plane so that
-// data-plane resolution (and its error suggestions) are deterministic.
-async fn pin_storage_mapping_planes(harness: &TestHarness, catalog_prefix: &str) {
-    sqlx::query!(
-        r#"update storage_mappings
-        set spec = jsonb_set(spec::jsonb, '{data_planes}', '["ops/dp/public/test"]'::jsonb)::json
-        where catalog_prefix = $1"#,
-        catalog_prefix,
-    )
-    .execute(&harness.pool)
-    .await
-    .expect("failed to pin storage mapping data-planes");
-}
-
 // A derivation is used because a new, unbound plain collection would be
 // pruned by `PruneUnboundCollections`, turning a successful publication
 // into an `EmptyDraft`.
@@ -1184,7 +1168,6 @@ async fn test_publication_spec_to_spec_write_authorization() {
 async fn test_publication_no_data_plane() {
     let mut harness = TestHarness::init("test_publication_no_data_plane").await;
     let user_id = harness.setup_tenant("cats").await;
-    pin_storage_mapping_planes(&harness, "cats/").await;
 
     // The unreadable plane must be indistinguishable from a missing one.
     add_private_plane(&mut harness).await;
@@ -1214,8 +1197,8 @@ async fn test_publication_no_data_plane() {
             "unauthorized plane",
             [
                 (
-                    "file:///",
-                    "data plane ops/dp/private/other, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
+                    "flow://dataPlane/ops/dp/private/other",
+                    "data plane 'ops/dp/private/other' was not found",
                 ),
             ],
         ),
@@ -1223,8 +1206,8 @@ async fn test_publication_no_data_plane() {
             "missing plane",
             [
                 (
-                    "file:///",
-                    "data plane ops/dp/public/missing, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
+                    "flow://dataPlane/ops/dp/public/missing",
+                    "data plane 'ops/dp/public/missing' was not found",
                 ),
             ],
         ),
@@ -1232,8 +1215,9 @@ async fn test_publication_no_data_plane() {
     "#);
 }
 
-// Uses its own `lynx` tenant: `storage_mappings` is not reset between tests,
-// so mutating the shared `cats/` mapping would leak into other tests.
+// Uses its own `lynx` tenant rather than the `cats` of its neighbours, because
+// it breaks that tenant's storage mapping and every subsequent publication of
+// the tenant fails with it.
 #[tokio::test]
 async fn test_publication_storage_mapping_unreadable_plane() {
     let mut harness = TestHarness::init("test_publication_storage_mapping_unreadable_plane").await;
@@ -1277,9 +1261,8 @@ async fn test_publication_storage_mapping_unreadable_plane() {
         }))
     };
 
-    // Without an explicit plane, new collections fall back to the mapping's
-    // default plane. The unreadable default is filtered from the resolved
-    // data-planes, indistinguishable from a missing one.
+    // Resolution requires every plane of the mapping, so the unreadable entry
+    // fails the publication whether or not anything would have been placed in it.
     let result = harness
         .user_publication_in_plane(user_id, "mapping default plane", draft(), "")
         .await;
@@ -1287,34 +1270,34 @@ async fn test_publication_storage_mapping_unreadable_plane() {
     insta::assert_debug_snapshot!(result.errors, @r#"
     [
         (
-            "flow://collection/lynx/paws",
-            "data plane ops/dp/private/other, referenced by storage mapping lynx/, was not found; did you mean data plane ops/dp/public/test?",
-        ),
-        (
-            "flow://collection/lynx/paws-clean",
-            "data plane ops/dp/private/other, referenced by storage mapping lynx/, was not found; did you mean data plane ops/dp/public/test?",
+            "flow://storageMapping/lynx/",
+            "data plane 'ops/dp/private/other' was not found",
         ),
     ]
     "#);
 
-    // When the publication explicitly targets the readable plane, the
-    // unreadable mapping entry goes unused and is silently tolerated.
+    // Naming a readable plane explicitly does not rescue the mapping: the
+    // entry is checked up front, before anything selects a plane, so the
+    // publication fails identically.
     let result = harness
         .user_publication(user_id, "explicit readable plane", draft())
         .await;
-    assert!(
-        result.status.is_success(),
-        "pub failed with status {:?}: {:?}",
-        result.status,
-        result.errors
-    );
+    assert!(!result.status.is_success());
+    insta::assert_debug_snapshot!(result.errors, @r#"
+    [
+        (
+            "flow://storageMapping/lynx/",
+            "data plane 'ops/dp/private/other' was not found",
+        ),
+    ]
+    "#);
 
-    // Though unused, the mapping plane was still denied at partition time,
-    // which eagerly requests an early background refresh.
+    // Denying the mapping plane also eagerly requests an early background
+    // refresh, on the chance that the Snapshot is merely stale.
     let snapshot = harness.snapshot_watch.token();
     assert!(
         snapshot.result().unwrap().revoke.is_cancelled(),
-        "expected the unused denied mapping plane to cancel the Snapshot's revoke token"
+        "expected the denied mapping plane to cancel the Snapshot's revoke token"
     );
 }
 
@@ -1327,7 +1310,6 @@ async fn test_publication_no_data_plane_requests_snapshot_refresh() {
     let mut harness =
         TestHarness::init("test_publication_no_data_plane_requests_snapshot_refresh").await;
     let user_id = harness.setup_tenant("cats").await;
-    pin_storage_mapping_planes(&harness, "cats/").await;
 
     add_private_plane(&mut harness).await;
 
@@ -1361,7 +1343,6 @@ async fn test_publication_no_data_plane_requests_snapshot_refresh() {
 async fn test_publication_system_user_data_plane_filter() {
     let mut harness = TestHarness::init("test_publication_system_user_data_plane_filter").await;
     let _user_id = harness.setup_tenant("cats").await;
-    pin_storage_mapping_planes(&harness, "cats/").await;
 
     // A plane outside every grant of the system user, which holds admin only
     // to `ops/` and `estuary_support/`.
@@ -1391,7 +1372,7 @@ async fn test_publication_system_user_data_plane_filter() {
         .collect();
     insta::assert_debug_snapshot!(errors, @r#"
     [
-        "data plane acmeCo/dp/other, referenced by build parameter, was not found; did you mean data plane ops/dp/public/test?",
+        "data plane 'acmeCo/dp/other' was not found",
     ]
     "#);
     // `publish` re-took and pinned the shared watch's Snapshot; the denial

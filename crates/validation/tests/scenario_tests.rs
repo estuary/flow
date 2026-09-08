@@ -1425,19 +1425,6 @@ driver:
 }
 
 #[test]
-fn test_data_plane_not_found() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d": null
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_storage_mapping_prefix_mismatch() {
     let errors = common::run_errors(
         &MODEL_YAML,
@@ -1462,20 +1449,6 @@ driver:
   storageMappings:
     recovery/testing/:
       data_planes: ["ops/dp/public/test-other"]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_data_plane_does_not_exist() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  storageMappings:
-    testing/:
-      data_planes: ["ops/dp/public/test-not-found"]
 "#,
     );
     insta::assert_debug_snapshot!(errors);

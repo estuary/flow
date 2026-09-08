@@ -475,6 +475,20 @@ impl TestHarness {
             del_publications as (
                 delete from publications
             ),
+            -- Scoped to the tenants this run created, so that the `ops/`
+            -- mappings which `seed.sql` provides survive. Data-modifying CTEs
+            -- all observe the pre-statement snapshot, so this still sees the
+            -- rows `del_tenants` removes.
+            del_storage_mappings as (
+                delete from storage_mappings sm
+                using tenants t
+                where sm.catalog_prefix = t.tenant
+                   or sm.catalog_prefix = 'recovery/' || t.tenant
+            ),
+            -- `seed.sql` seeds no data-planes: every row is one a test added.
+            del_data_planes as (
+                delete from data_planes
+            ),
             del_tenants as (
                 delete from tenants
             ),

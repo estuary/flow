@@ -33,24 +33,25 @@ pub async fn fetch_ops_journal_template(
 /// This creates a client that can make RPCs to the data plane's broker,
 /// authenticated with HMAC-signed JWT claims.
 pub fn build_journal_client(
-    data_plane: &tables::DataPlane,
+    snapshot: &crate::Snapshot,
+    data_plane_id: models::Id,
 ) -> anyhow::Result<gazette::journal::Client> {
-    // Parse first data-plane HMAC key (used for signing tokens).
-    let (encode_key, _decode) =
-        tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.iter().take(1))
-            .context("invalid data-plane HMAC key")?;
+    let data_plane = snapshot
+        .data_plane_by_id(data_plane_id)
+        .context("data-plane not found")?;
 
     let iat = tokens::now();
     let claims = proto_gazette::Claims {
         cap: proto_gazette::capability::LIST | proto_gazette::capability::READ,
         exp: (iat + tokens::TimeDelta::seconds(60)).timestamp() as u64,
         iat: iat.timestamp() as u64,
-        iss: data_plane.data_plane_fqdn.clone(),
+        iss: String::new(),
         sel: broker::LabelSelector::default(),
         sub: "control-plane-api".to_string(),
     };
-    let token =
-        tokens::jwt::sign(&claims, &encode_key).context("failed to sign claims for data-plane")?;
+    let token = data_plane
+        .sign_claims(claims)
+        .context("failed to sign claims for data-plane")?;
 
     let metadata = proto_grpc::Metadata::new()
         .with_bearer_token(&token)

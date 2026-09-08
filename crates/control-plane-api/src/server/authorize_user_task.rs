@@ -24,13 +24,11 @@ pub async fn authorize_user_task(
     let (
         expiry,
         (
-            encoding_key,
+            data_plane,
             mut broker_claims,
-            broker_address,
             ops_logs_journal,
             ops_stats_journal,
             mut reactor_claims,
-            reactor_address,
             shard_id_prefix,
         ),
     ) = match env.authorization_outcome(policy_result).await {
@@ -49,36 +47,34 @@ pub async fn authorize_user_task(
     reactor_claims.exp = expiry.timestamp() as u64;
     reactor_claims.iat = env.started.timestamp() as u64;
 
-    let broker_token = tokens::jwt::sign(&broker_claims, &encoding_key)?;
-    let reactor_token = tokens::jwt::sign(&reactor_claims, &encoding_key)?;
+    let broker_token = data_plane.sign_claims(broker_claims)?;
+    let reactor_token = data_plane.sign_claims(reactor_claims)?;
 
     Ok(axum::Json(Response {
         broker_token,
-        broker_address,
+        broker_address: data_plane.broker_address.clone(),
         reactor_token,
         ops_logs_journal,
         ops_stats_journal,
-        reactor_address,
+        reactor_address: data_plane.reactor_address.clone(),
         shard_id_prefix,
         retry_millis: 0,
     }))
 }
 
-fn evaluate_authorization(
-    snapshot: &crate::Snapshot,
+fn evaluate_authorization<'s>(
+    snapshot: &'s crate::Snapshot,
     claims: &crate::ControlClaims,
     task_name: &models::Name,
     capability: models::Capability,
 ) -> tonic::Result<(
     Option<chrono::DateTime<chrono::Utc>>,
     (
-        tokens::jwt::EncodingKey,
+        &'s crate::snapshot::DataPlane,
         proto_gazette::Claims, // Broker claims.
-        String,                // Broker address.
         String,                // ops logs journal
         String,                // opts stats journal
         proto_gazette::Claims, // Reactor claims.
-        String,                // Reactor address.
         String,                // Shard ID prefix.
     ),
 )> {
@@ -123,21 +119,12 @@ fn evaluate_authorization(
             "task {task_name} is not known"
         )));
     };
-    let Some(data_plane) = snapshot.data_planes.get_by_key(&task.data_plane_id) else {
+    let Some(data_plane) = snapshot.data_plane_by_id(task.data_plane_id) else {
         return Err(tonic::Status::internal(format!(
             "task data-plane {} not found",
             task.data_plane_id
         )));
     };
-    let Some(encoding_key) = data_plane.hmac_keys.first() else {
-        return Err(tonic::Status::internal(format!(
-            "task data-plane {} has no configured HMAC keys",
-            data_plane.data_plane_name
-        )));
-    };
-    let encoding_key =
-        tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
-
     let (Some(ops_logs), Some(ops_stats)) = (
         snapshot.collection_by_catalog_name(&data_plane.ops_logs_name),
         snapshot.collection_by_catalog_name(&data_plane.ops_stats_name),
@@ -185,13 +172,11 @@ fn evaluate_authorization(
     Ok((
         snapshot.cordon_at(&task.task_name, data_plane),
         (
-            encoding_key,
+            data_plane,
             broker_claims,
-            data_plane.broker_address.clone(),
             ops_logs_journal,
             ops_stats_journal,
             reactor_claims,
-            data_plane.reactor_address.clone(),
             task.shard_template_id.clone(),
         ),
     ))
@@ -504,13 +489,11 @@ mod tests {
             Ok((
                 cordon_at,
                 (
-                    _key,
+                    data_plane,
                     mut broker_claims,
-                    broker_address,
                     ops_logs_journal,
                     ops_stats_journal,
                     mut reactor_claims,
-                    reactor_address,
                     shard_id_prefix,
                 ),
             )) => {
@@ -521,9 +504,9 @@ mod tests {
                 reactor_claims.exp = 0;
 
                 let output = (
-                    broker_address,
+                    data_plane.broker_address.clone(),
                     broker_claims,
-                    reactor_address,
+                    data_plane.reactor_address.clone(),
                     reactor_claims,
                     ops_logs_journal,
                     ops_stats_journal,

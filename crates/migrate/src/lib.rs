@@ -508,35 +508,44 @@ fn merge_splits<S>(
 }
 
 struct DataPlane {
-    row: tables::DataPlane,
+    row: DataPlaneRow,
     shard_client: gazette::shard::Client,
     journal_client: gazette::journal::Client,
     ops_logs_template: broker::JournalSpec,
     ops_stats_template: broker::JournalSpec,
 }
 
+// TODO(johnny): Migrate this to use Snapshot, which requires extracting it out
+// of control-plane-api and into a common crate shared with `migrate`.
+#[derive(sqlx::FromRow)]
+struct DataPlaneRow {
+    control_id: models::Id,
+    data_plane_name: String,
+    data_plane_fqdn: String,
+    hmac_keys: Vec<String>,
+    broker_address: String,
+    reactor_address: String,
+    ops_logs_name: models::Collection,
+    ops_stats_name: models::Collection,
+}
+
 async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<DataPlane> {
-    let row = sqlx::query_as!(
-        tables::DataPlane,
+    let row = sqlx::query_as::<_, DataPlaneRow>(
         r#"
         SELECT
-            id AS "control_id: models::Id",
+            id AS control_id,
             data_plane_name,
             data_plane_fqdn,
-            closed,
             hmac_keys,
-            encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
             broker_address,
             reactor_address,
-            dekaf_address,
-            dekaf_registry_address,
-            ops_logs_name AS "ops_logs_name: models::Collection",
-            ops_stats_name AS "ops_stats_name: models::Collection"
+            ops_logs_name,
+            ops_stats_name
         FROM data_planes
         WHERE data_plane_name = $1
         "#,
-        name
     )
+    .bind(name)
     .fetch_one(pg_pool)
     .await
     .with_context(|| format!("failed to fetch data-plane {name}"))?;

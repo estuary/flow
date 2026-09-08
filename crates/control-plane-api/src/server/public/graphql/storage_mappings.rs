@@ -114,15 +114,16 @@ async fn check_store_health(
 
 /// Run storage health checks for each data plane + store combination.
 async fn run_all_health_checks(
+    snapshot: &crate::Snapshot,
     catalog_prefix: &models::Prefix,
-    data_planes: &[&tables::DataPlane],
+    data_planes: &[&crate::snapshot::DataPlane],
     fragment_stores: &[models::Store],
 ) -> Vec<StorageHealthItem> {
     let mut results = Vec::new();
     let mut handles = Vec::new();
 
     for dp in data_planes {
-        let client = match crate::data_plane::build_journal_client(dp) {
+        let client = match crate::data_plane::build_journal_client(snapshot, dp.control_id) {
             Ok(client) => client,
             Err(err) => {
                 for store in fragment_stores {
@@ -220,7 +221,7 @@ impl StorageMappingsMutation {
 
         // Run health checks.
         let health_checks =
-            run_all_health_checks(&catalog_prefix, &data_planes, &spec.stores).await;
+            run_all_health_checks(snapshot, &catalog_prefix, &data_planes, &spec.stores).await;
         let failures: Vec<&StorageHealthItem> =
             health_checks.iter().filter(|c| c.error.is_some()).collect();
 
@@ -352,7 +353,7 @@ impl StorageMappingsMutation {
 
         // Run health checks outside of transaction so as not to keep rows locked too long.
         let health_checks =
-            run_all_health_checks(&catalog_prefix, &data_planes, &spec.stores).await;
+            run_all_health_checks(snapshot, &catalog_prefix, &data_planes, &spec.stores).await;
 
         // Begin a transaction to fetch existing mapping and update.
         let mut txn = env.pg_pool.begin().await?;
@@ -496,7 +497,8 @@ impl StorageMappingsMutation {
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
         // Run health checks and collect results.
-        let results = run_all_health_checks(&catalog_prefix, &data_planes, &spec.stores).await;
+        let results =
+            run_all_health_checks(snapshot, &catalog_prefix, &data_planes, &spec.stores).await;
 
         Ok(ConnectionHealthTestResult {
             catalog_prefix,
@@ -563,7 +565,7 @@ fn check_authorization(
 fn resolve_data_planes<'s>(
     snapshot: &'s crate::Snapshot,
     data_plane_names: &[String],
-) -> Result<Vec<&'s tables::DataPlane>, async_graphql::Error> {
+) -> Result<Vec<&'s crate::snapshot::DataPlane>, async_graphql::Error> {
     data_plane_names
         .iter()
         .map(|name| {

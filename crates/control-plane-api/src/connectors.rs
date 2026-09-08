@@ -10,6 +10,7 @@ pub use validation::Connectors;
 pub trait ConnectorFactory: std::fmt::Debug + Sync + Send + 'static {
     fn make_connectors<'a>(
         &'a self,
+        snapshot: &'a crate::Snapshot,
         log_task: &'static str,
         logs_token: Uuid,
     ) -> Box<Connectors<'a>>;
@@ -28,17 +29,22 @@ impl ControlPlaneConnectorFactory {
 
     fn connect(
         &self,
+        snapshot: &crate::Snapshot,
         log_task: &'static str,
         logs_token: Uuid,
-        data_plane: &tables::DataPlane,
+        data_plane_id: models::Id,
         request: connector::Request,
     ) -> futures::future::BoxFuture<
         'static,
         anyhow::Result<(connector::response::Started, connector::response::Kind)>,
     > {
-        let route = crate::connector_router::data_plane_route(data_plane);
-        let data_plane_name = data_plane.data_plane_name.clone();
+        let data_plane_name = snapshot
+            .data_plane_by_id(data_plane_id)
+            .map(|data_plane| data_plane.data_plane_name.clone())
+            .unwrap_or_else(|| data_plane_id.to_string());
+
         let log_handler = logs::ops_handler(self.logs_tx.clone(), log_task.to_string(), logs_token);
+        let route = snapshot.data_plane_connector_route(data_plane_id);
 
         async move {
             let route = route?;
@@ -68,10 +74,13 @@ impl ControlPlaneConnectorFactory {
 impl ConnectorFactory for ControlPlaneConnectorFactory {
     fn make_connectors<'a>(
         &'a self,
+        snapshot: &'a crate::Snapshot,
         log_task: &'static str,
         logs_token: Uuid,
     ) -> Box<Connectors<'a>> {
-        Box::new(move |data_plane, request| self.connect(log_task, logs_token, data_plane, request))
+        Box::new(move |data_plane_id, request| {
+            self.connect(snapshot, log_task, logs_token, data_plane_id, request)
+        })
     }
 }
 

@@ -2,12 +2,12 @@ use anyhow::Context;
 use std::collections::HashMap;
 
 // SnapshotData encapsulates all data required to construct a Snapshot.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct SnapshotData {
     // Platform collections.
     pub collections: Vec<SnapshotCollection>,
     // Platform data-planes.
-    pub data_planes: Vec<tables::DataPlane>,
+    pub data_planes: Vec<DataPlane>,
     // Data-plane migrations that are underway.
     pub migrations: Vec<SnapshotMigration>,
     // Platform role grants.
@@ -28,7 +28,7 @@ pub struct Snapshot {
     // Indices of `collections`, indexed on `collection_name`.
     pub collections_idx_name: Vec<usize>,
     // Platform data-planes.
-    pub data_planes: tables::DataPlanes,
+    data_planes: Vec<DataPlane>,
     // Indices of `data_planes`, indexed on `data_plane_fqdn`.
     pub data_planes_idx_fqdn: Vec<usize>,
     // Indices of `data_planes`, indexed on `data_plane_name`.
@@ -86,6 +86,63 @@ pub struct SnapshotMigration {
     pub src_plane_id: models::Id,
     // Data-plane being migrated to.
     pub tgt_plane_id: models::Id,
+}
+
+/// Operational details of a data plane carried by an authorization Snapshot.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct DataPlane {
+    /// Control-plane identifier for this data-plane.
+    pub control_id: models::Id,
+    /// Name of this data-plane within the catalog namespace.
+    pub data_plane_name: String,
+    /// Unique and fully-qualified domain name of this data-plane.
+    pub data_plane_fqdn: String,
+    /// Whether this data-plane is closed to new selection. Closed planes keep
+    /// serving existing tenants but are hidden from the default `dataPlanes`
+    /// listing for new tenants.
+    pub closed: bool,
+    /// Name of the collection for ops logs of the data-plane.
+    pub ops_logs_name: models::Collection,
+    /// Name of the collection for ops stats of the data-plane.
+    pub ops_stats_name: models::Collection,
+    /// Address of brokers within the data-plane.
+    pub broker_address: String,
+    /// Address of reactors within the data-plane.
+    pub reactor_address: String,
+    /// Kafka-protocol URI for this dataplane's Dekaf instance.
+    /// None if this data-plane has no Dekaf instance.
+    pub dekaf_address: Option<String>,
+    /// Schema registry endpoint for this dataplane's Dekaf instance.
+    /// None if this data-plane has no Dekaf instance.
+    pub dekaf_registry_address: Option<String>,
+    // HMAC material is intentionally private and redacted from Debug output.
+    #[serde(default)]
+    hmac_keys: HmacKeys,
+}
+
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(transparent)]
+struct HmacKeys(Vec<String>);
+
+impl std::fmt::Debug for HmacKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
+impl DataPlane {
+    /// Does this data plane have ready HMAC material for signing tokens?
+    /// Managed planes are created keyless: they're added later during bring-up.
+    pub fn can_sign(&self) -> bool {
+        !self.hmac_keys.0.is_empty()
+    }
+
+    /// Sign Gazette claims, setting their issuer to this data plane's FQDN.
+    pub fn sign_claims(&self, mut claims: proto_gazette::Claims) -> tonic::Result<String> {
+        let encoding_key = data_plane_signing_key(self)?;
+        claims.iss.clone_from(&self.data_plane_fqdn);
+        tokens::jwt::sign(claims, &encoding_key)
+    }
 }
 
 impl Snapshot {
@@ -153,7 +210,7 @@ impl Snapshot {
             taken: chrono::DateTime::UNIX_EPOCH,
             collections: Vec::new(),
             collections_idx_name: Vec::new(),
-            data_planes: tables::DataPlanes::default(),
+            data_planes: Vec::new(),
             data_planes_idx_fqdn: Vec::new(),
             data_planes_idx_name: Vec::new(),
             migrations: Vec::new(),
@@ -169,14 +226,13 @@ impl Snapshot {
     pub fn new(taken: tokens::DateTime, data: SnapshotData) -> Self {
         let SnapshotData {
             mut collections,
-            data_planes,
+            mut data_planes,
             mut migrations,
             role_grants,
             user_grants,
             mut tasks,
         } = data;
 
-        let data_planes = tables::DataPlanes::from_iter(data_planes);
         let role_grants = tables::RoleGrants::from_iter(role_grants);
         let user_grants = tables::UserGrants::from_iter(user_grants);
 
@@ -194,6 +250,7 @@ impl Snapshot {
 
         tasks.sort_by(|t1, t2| t1.shard_template_id.cmp(&t2.shard_template_id));
         collections.sort_by(|c1, c2| c1.journal_template_name.cmp(&c2.journal_template_name));
+        data_planes.sort_by_key(|data_plane| data_plane.control_id);
 
         let mut collections_idx_name = Vec::from_iter(0..collections.len());
         let mut data_planes_idx_fqdn = Vec::from_iter(0..data_planes.len());
@@ -327,7 +384,7 @@ impl Snapshot {
     }
 
     // Retrieve the data-plane having the exact catalog `name`.
-    pub fn data_plane_by_catalog_name<'s>(&'s self, name: &str) -> Option<&'s tables::DataPlane> {
+    pub fn data_plane_by_catalog_name<'s>(&'s self, name: &str) -> Option<&'s DataPlane> {
         self.data_planes_idx_name
             .binary_search_by(|i| self.data_planes[*i].data_plane_name.as_str().cmp(name))
             .ok()
@@ -338,6 +395,36 @@ impl Snapshot {
             })
     }
 
+    /// Iterate over all data planes in control-ID order.
+    pub fn data_planes(&self) -> impl ExactSizeIterator<Item = &DataPlane> {
+        self.data_planes.iter()
+    }
+
+    /// Retrieve the data plane having the exact control-plane ID.
+    pub fn data_plane_by_id(&self, id: models::Id) -> Option<&DataPlane> {
+        self.data_planes
+            .binary_search_by_key(&id, |data_plane| data_plane.control_id)
+            .ok()
+            .map(|index| &self.data_planes[index])
+    }
+
+    /// Build an authenticated connector route for a data plane.
+    pub fn data_plane_connector_route(
+        &self,
+        data_plane_id: models::Id,
+    ) -> tonic::Result<proto_grpc::connector::EndpointRouter> {
+        let data_plane = self.data_plane_by_id(data_plane_id).ok_or_else(|| {
+            self.request_refresh();
+            tonic::Status::internal(format!("data-plane {data_plane_id} not found"))
+        })?;
+        let encoding_key = data_plane_signing_key(data_plane)?;
+
+        Ok(proto_grpc::connector::EndpointRouter::new(
+            data_plane.reactor_address.clone(),
+            proto_grpc::Signer::new(data_plane.data_plane_fqdn.clone(), encoding_key),
+        ))
+    }
+
     /// Verify a data-plane token and return its DataPlane if valid.
     /// Returns `Ok(None)` if the data-plane FQDN is unknown or the token doesn't verify.
     /// We discard error information to avoid leaking the existence of data-planes.
@@ -345,7 +432,7 @@ impl Snapshot {
         &'s self,
         iss_fqdn: &str,
         token: &str,
-    ) -> tonic::Result<Option<&'s tables::DataPlane>> {
+    ) -> tonic::Result<Option<&'s DataPlane>> {
         let data_plane = self
             .data_planes_idx_fqdn
             .binary_search_by(|i| self.data_planes[*i].data_plane_fqdn.as_str().cmp(iss_fqdn))
@@ -361,7 +448,7 @@ impl Snapshot {
         };
 
         let (_encode_key, decode_keys) =
-            tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.iter())?;
+            tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.0.iter())?;
 
         Ok(
             tokens::jwt::verify::<proto_gazette::Claims>(token.as_bytes(), 0, &decode_keys)
@@ -375,7 +462,7 @@ impl Snapshot {
     pub fn cordon_at<'s>(
         &'s self,
         catalog_name: &str,
-        data_plane: &tables::DataPlane,
+        data_plane: &DataPlane,
     ) -> Option<chrono::DateTime<chrono::Utc>> {
         self.migrations
             .binary_search_by(|migration| {
@@ -493,8 +580,23 @@ pub async fn try_fetch(
     .await
     .context("failed to fetch view of live collections")?;
 
+    struct FetchedDataPlane {
+        control_id: models::Id,
+        data_plane_name: String,
+        data_plane_fqdn: String,
+        closed: bool,
+        hmac_keys: Vec<String>,
+        encrypted_hmac_keys: models::RawValue,
+        ops_logs_name: models::Collection,
+        ops_stats_name: models::Collection,
+        broker_address: String,
+        reactor_address: String,
+        dekaf_address: Option<String>,
+        dekaf_registry_address: Option<String>,
+    }
+
     let mut data_planes = sqlx::query_as!(
-        tables::DataPlane,
+        FetchedDataPlane,
         r#"
         SELECT
             d.id AS "control_id: models::Id",
@@ -510,7 +612,6 @@ pub async fn try_fetch(
             d.ops_logs_name AS "ops_logs_name: models::Collection",
             d.ops_stats_name AS "ops_stats_name: models::Collection"
         FROM data_planes d
-        WHERE d.hmac_keys::text <> '{}' or d.encrypted_hmac_keys::text <> '{}'
         "#,
     )
     .fetch_all(pg_pool)
@@ -592,8 +693,15 @@ pub async fn try_fetch(
     // For each data-plane, if we have a decrypted HMAC key that matches the unchanged encryption, then use it.
     let mut decrypt_jobs = Vec::new();
     for dp in data_planes.iter_mut() {
-        if !dp.hmac_keys.is_empty() {
-            continue;
+        // A plane without keys must not reach `decrypt_hmac_keys` (sops fails).
+        // `encrypted_hmac_keys` is a `json` column, so judge "empty" structurally.
+        let encrypted_is_empty = serde_json::from_str::<
+            std::collections::BTreeMap<String, serde::de::IgnoredAny>,
+        >(dp.encrypted_hmac_keys.get())
+        .is_ok_and(|obj| obj.is_empty());
+
+        if !dp.hmac_keys.is_empty() || encrypted_is_empty {
+            continue; // Nothing to decrypt: keys are plaintext, or absent.
         }
         if let Some((enc, dec)) = decrypted_hmac_keys.get(&dp.data_plane_name)
             && enc.get() == dp.encrypted_hmac_keys.get()
@@ -604,11 +712,11 @@ pub async fn try_fetch(
 
         // Start a decryption of this data-plane's encrypted keys.
         decrypt_jobs.push(async {
-            let decrypted = crate::decrypt_hmac_keys(&dp.encrypted_hmac_keys).await?;
-            Result::Ok::<(&mut tables::DataPlane, Vec<String>), anyhow::Error>((dp, decrypted))
+            let decrypted = decrypt_hmac_keys(&dp.encrypted_hmac_keys).await?;
+            Result::Ok::<(&mut FetchedDataPlane, Vec<String>), anyhow::Error>((dp, decrypted))
         });
     }
-    let decrypt_jobs: Vec<(&mut tables::DataPlane, Vec<String>)> =
+    let decrypt_jobs: Vec<(&mut FetchedDataPlane, Vec<String>)> =
         futures::future::try_join_all(decrypt_jobs).await?;
 
     for (dp, hmac_keys) in decrypt_jobs {
@@ -619,6 +727,23 @@ pub async fn try_fetch(
         dp.hmac_keys = hmac_keys;
     }
 
+    let data_planes = data_planes
+        .into_iter()
+        .map(|dp| DataPlane {
+            control_id: dp.control_id,
+            data_plane_name: dp.data_plane_name,
+            data_plane_fqdn: dp.data_plane_fqdn,
+            closed: dp.closed,
+            hmac_keys: HmacKeys(dp.hmac_keys),
+            ops_logs_name: dp.ops_logs_name,
+            ops_stats_name: dp.ops_stats_name,
+            broker_address: dp.broker_address,
+            reactor_address: dp.reactor_address,
+            dekaf_address: dp.dekaf_address,
+            dekaf_registry_address: dp.dekaf_registry_address,
+        })
+        .collect();
+
     Ok(SnapshotData {
         collections,
         data_planes,
@@ -627,6 +752,60 @@ pub async fn try_fetch(
         user_grants,
         tasks,
     })
+}
+
+async fn decrypt_hmac_keys(encrypted_hmac_keys: &models::RawValue) -> anyhow::Result<Vec<String>> {
+    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+
+    #[derive(serde::Deserialize)]
+    struct HmacKeys {
+        hmac_keys: Vec<String>,
+    }
+
+    let async_process::Output {
+        stderr,
+        stdout,
+        status,
+    } = async_process::input_output(
+        async_process::Command::new(sops).args([
+            "--decrypt",
+            "--input-type",
+            "json",
+            "--output-type",
+            "json",
+            "/dev/stdin",
+        ]),
+        encrypted_hmac_keys.get().as_bytes(),
+    )
+    .await
+    .context("failed to run sops")?;
+
+    let stdout = zeroize::Zeroizing::from(stdout);
+    if !status.success() {
+        anyhow::bail!(
+            "decrypting hmac sops document failed: {}",
+            String::from_utf8_lossy(&stderr),
+        );
+    }
+
+    Ok(serde_json::from_slice::<HmacKeys>(&stdout)
+        .context("parsing decrypted sops document")?
+        .hmac_keys)
+}
+
+fn data_plane_signing_key(data_plane: &DataPlane) -> tonic::Result<tokens::jwt::EncodingKey> {
+    tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.0.iter().take(1))
+        .map(|(encoding_key, _decoding_keys)| encoding_key)
+        .map_err(|err| {
+            tonic::Status::new(
+                err.code(),
+                format!(
+                    "data-plane {} has no usable HMAC key: {}",
+                    data_plane.data_plane_name,
+                    err.message()
+                ),
+            )
+        })
 }
 
 #[cfg(test)]
@@ -644,23 +823,70 @@ impl Snapshot {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_data_plane_debug_redacts_hmac_keys() {
+        let snapshot = Snapshot::build_fixture(None);
+        let debug = format!(
+            "{:?}",
+            snapshot.data_plane_by_id(models::Id::new([1; 8])).unwrap()
+        );
+
+        assert!(debug.contains("hmac_keys: <redacted>"));
+        assert!(!debug.contains("a2V5MQ=="));
+    }
+
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "alice"))
     )]
     async fn test_snapshot_fetch(pool: sqlx::PgPool) {
+        // Exercise both sides of the in-progress HMAC representation migration.
+        sqlx::query(
+            r#"
+            UPDATE data_planes
+            SET hmac_keys = ARRAY['cGxhaW4='], encrypted_hmac_keys = '{}'::json
+            WHERE data_plane_name = 'ops/dp/public/gcp-us-central1-c2'
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let mut decrypted_keys = HashMap::new();
         let result = try_fetch(&pool, &mut decrypted_keys)
             .await
             .expect("snapshot refresh should succeed");
-        assert_eq!(2, result.data_planes.len());
+        assert_eq!(3, result.data_planes.len());
         assert!(
+            !result
+                .data_planes
+                .iter()
+                .find(|dp| dp.data_plane_fqdn == "dp.keyless")
+                .expect("the keyless data plane is carried")
+                .can_sign(),
+            "a keyless data plane cannot sign"
+        );
+        assert_eq!(
+            vec!["c2VjcmV0", "b3RoZXI="],
             result
                 .data_planes
                 .iter()
-                .find(|dp| dp.data_plane_name.contains("defunct"))
-                .is_none(),
-            "expected the defunct data plane to be excluded"
+                .find(|dp| dp.data_plane_name == "ops/dp/public/aws-us-west-2-c1")
+                .unwrap()
+                .hmac_keys
+                .0,
+            "encrypted keys are resolved into the snapshot"
+        );
+        assert_eq!(
+            vec!["cGxhaW4="],
+            result
+                .data_planes
+                .iter()
+                .find(|dp| dp.data_plane_name == "ops/dp/public/gcp-us-central1-c2")
+                .unwrap()
+                .hmac_keys
+                .0,
+            "plaintext keys are carried into the snapshot"
         );
     }
 

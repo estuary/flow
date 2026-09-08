@@ -607,9 +607,9 @@ async fn test_discover_no_data_plane() {
             vec!["c2VjcmV0".to_string()],
         )
         .await;
-    // A readable plane with no HMAC keys at all is excluded from the
-    // authorization Snapshot by construction, and cannot sign anything a
-    // discover would need. It is treated the same as a missing plane.
+    // A readable plane with no HMAC keys at all is carried by the Snapshot,
+    // but cannot sign anything a discover would need. It is treated the same
+    // as a missing plane.
     harness
         .add_data_plane(
             "ops/dp/public/keyless",

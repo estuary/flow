@@ -9,6 +9,7 @@ use std::path;
 pub trait Builder: Send + Sync + std::fmt::Debug {
     async fn build(
         &self,
+        snapshot: &crate::Snapshot,
         builds_root: &url::Url,
         draft: tables::DraftCatalog,
         live: tables::LiveCatalog,
@@ -17,7 +18,7 @@ pub trait Builder: Send + Sync + std::fmt::Debug {
         tmpdir: &path::Path,
         logs_tx: logs::Tx,
         logs_token: sqlx::types::Uuid,
-        explicit_plane_name: Option<&str>,
+        default_data_plane: Option<&validation::DefaultDataPlane>,
     ) -> anyhow::Result<build::Output>;
 }
 
@@ -36,6 +37,7 @@ impl BuilderImpl {
 impl Builder for BuilderImpl {
     async fn build(
         &self,
+        snapshot: &crate::Snapshot,
         builds_root: &url::Url,
         draft: tables::DraftCatalog,
         live: tables::LiveCatalog,
@@ -44,9 +46,12 @@ impl Builder for BuilderImpl {
         tmpdir: &path::Path,
         logs_tx: logs::Tx,
         logs_token: sqlx::types::Uuid,
-        explicit_plane_name: Option<&str>,
+        default_data_plane: Option<&validation::DefaultDataPlane>,
     ) -> anyhow::Result<build::Output> {
-        let connectors = self.connector_factory.make_connectors("build", logs_token);
+        let connectors = self
+            .connector_factory
+            .make_connectors(snapshot, "build", logs_token);
+
         build_catalog(
             builds_root,
             draft,
@@ -57,7 +62,7 @@ impl Builder for BuilderImpl {
             logs_tx,
             logs_token,
             connectors.as_ref(),
-            explicit_plane_name,
+            default_data_plane,
         )
         .await
     }
@@ -78,7 +83,7 @@ async fn build_catalog(
     logs_tx: logs::Tx,
     logs_token: sqlx::types::Uuid,
     connectors: &validation::Connectors<'_>,
-    explicit_plane_name: Option<&str>,
+    default_data_plane: Option<&validation::DefaultDataPlane>,
 ) -> anyhow::Result<build::Output> {
     // Stage the build database under a ./builds/ subdirectory of the working
     // temporary directory; it is uploaded to `builds_root` further below.
@@ -101,7 +106,7 @@ async fn build_catalog(
         build_id,
         &project_root,
         connectors,
-        explicit_plane_name,
+        default_data_plane,
         &draft,
         &live,
         true,  // Fail_fast.

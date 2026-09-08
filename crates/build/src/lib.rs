@@ -110,8 +110,7 @@ pub async fn local(
 
     // Build a validation::Connectors against the local connector service.
     // As we're local (user can ctrl-C), apply no timeout.
-    let connectors = move |_data_plane: &tables::DataPlane,
-                           request: proto_flow::connector::Request| {
+    let connectors = move |_data_plane_id: models::Id, request: proto_flow::connector::Request| {
         let router = connector_router.clone();
         let log_handler = log_handler.clone();
 
@@ -154,16 +153,13 @@ pub async fn local(
 ///
 /// When `noop_connectors` is true, all connector validations are skipped.
 pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output {
-    use tables::CatalogResolver;
-
     let file_root = std::path::Path::new("/");
     let draft = load(source, file_root).await;
 
     if !draft.errors.is_empty() {
         return Output::new(draft, Default::default(), Default::default());
     }
-    let catalog_names = draft.all_spec_names().collect();
-    let live = NoOpCatalogResolver.resolve(catalog_names).await;
+    let live = no_op_live_catalog();
 
     if !live.errors.is_empty() {
         return Output::new(draft, live, Default::default());
@@ -186,25 +182,22 @@ pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output 
 
 /// Build a source catalog for local catalog testing (`flowctl raw test`).
 ///
-/// Live specs resolve against a `NoOpCatalogResolver`, so there is no
-/// control-plane round-trip. Derivation connectors are validated through
-/// `connector_router`, while capture and materialization connectors are not: a
-/// catalog test never runs those tasks.
+/// Live specs use a minimal offline catalog, so there is no control-plane
+/// round-trip. Derivation connectors are validated through `connector_router`,
+/// while capture and materialization connectors are not: a catalog test never
+/// runs those tasks.
 pub async fn for_catalog_test(
     source: &url::Url,
     connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     log_handler: impl Fn(&ops::Log) + Send + Sync + Clone + 'static,
 ) -> Output {
-    use tables::CatalogResolver;
-
     let file_root = std::path::Path::new("/");
     let draft = load(source, file_root).await;
 
     if !draft.errors.is_empty() {
         return Output::new(draft, Default::default(), Default::default());
     }
-    let catalog_names = draft.all_spec_names().collect();
-    let live = NoOpCatalogResolver.resolve(catalog_names).await;
+    let live = no_op_live_catalog();
 
     if !live.errors.is_empty() {
         return Output::new(draft, live, Default::default());
@@ -437,47 +430,21 @@ impl sources::Fetcher for Fetcher {
     }
 }
 
-/// NoOpCatalogResolver is a CatalogResolver which does nothing, for use by
-/// test cases which want to build catalogs without an integrated control plane.
-pub struct NoOpCatalogResolver;
+/// Build the minimal live catalog used by offline and test builds.
+pub fn no_op_live_catalog() -> tables::LiveCatalog {
+    let mut live = tables::LiveCatalog::default();
 
-impl tables::CatalogResolver for NoOpCatalogResolver {
-    fn resolve<'a>(
-        &'a self,
-        _catalog_names: Vec<&'a str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tables::LiveCatalog> + Send + 'a>> {
-        async move {
-            let mut live = tables::LiveCatalog::default();
+    live.storage_mappings.insert_row(
+        models::Prefix::new(""),
+        models::Id::zero(),
+        vec![models::Store::Gcs(models::GcsBucketAndPrefix {
+            bucket: "example-bucket".to_string(),
+            prefix: None,
+        })],
+        vec![models::Id::zero()],
+    );
 
-            live.storage_mappings.insert_row(
-                models::Prefix::new(""),
-                models::Id::zero(),
-                vec![models::Store::Gcs(models::GcsBucketAndPrefix {
-                    bucket: "example-bucket".to_string(),
-                    prefix: None,
-                })],
-                vec!["ops/dp/public/noop".to_string()],
-            );
-
-            live.data_planes.insert_row(
-                models::Id::zero(),
-                "ops/dp/public/noop".to_string(),
-                "noop.dp.estuary-data.com".to_string(),
-                false, // closed
-                vec!["hmac-key".to_string()],
-                models::RawValue::from_string("{}".to_string()).unwrap(),
-                models::Collection::new("ops/logs"),
-                models::Collection::new("ops/stats"),
-                "broker:address".to_string(),
-                "reactor:address".to_string(),
-                Some("tls://dekaf.noop.dp.estuary-data.com:9092".to_string()),
-                Some("https://dekaf.noop.dp.estuary-data.com:443".to_string()),
-            );
-
-            live
-        }
-        .boxed()
-    }
+    live
 }
 
 pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);

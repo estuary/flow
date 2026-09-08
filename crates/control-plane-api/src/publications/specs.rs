@@ -2,7 +2,6 @@ use super::{LockFailure, UncommittedBuild};
 use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
 use anyhow::Context;
-use itertools::Itertools;
 use models::Capability;
 use models::{Id, ModelDef, SourceType, TargetNaming, split_image_tag};
 use serde_json::value::RawValue;
@@ -727,6 +726,11 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
+pub struct ResolvedLiveCatalog {
+    pub live: tables::LiveCatalog,
+    pub default_data_plane: Option<validation::DefaultDataPlane>,
+}
+
 pub async fn resolve_live_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
@@ -734,7 +738,7 @@ pub async fn resolve_live_specs(
     snapshot: &crate::Snapshot,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
-) -> anyhow::Result<tables::LiveCatalog> {
+) -> anyhow::Result<ResolvedLiveCatalog> {
     // We're expecting to get a row for each catalog name that's either drafted or
     // referenced by a drafted spec, even if the live spec does not exist.
     // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
@@ -772,9 +776,6 @@ pub async fn resolve_live_specs(
     // Check the user and spec authorizations.
     // Start by making an easy way to lookup whether each row was drafted or not.
     let drafted_names = draft.all_spec_names().collect::<HashSet<_>>();
-
-    // Gather IDs of data-planes in use by live specs.
-    let mut data_plane_ids = Vec::new();
 
     // AuthZ errors will be pushed to the live catalog
     let mut live = tables::LiveCatalog::default();
@@ -899,8 +900,6 @@ pub async fn resolve_live_specs(
             )
             .with_context(|| format!("adding live spec for {:?}", spec_row.catalog_name))?;
         }
-
-        data_plane_ids.push(spec_row.data_plane_id);
     }
 
     // Note that we don't need storage mappings for live specs, only the drafted ones.
@@ -913,88 +912,77 @@ pub async fn resolve_live_specs(
 
     let storage_rows = db::resolve_storage_mappings(tenant_names, db).await?;
     for row in storage_rows {
+        let scope = tables::synthetic_scope("storageMapping", &row.catalog_prefix);
+
         let store: models::StorageDef = match serde_json::from_value(row.spec) {
             Ok(s) => s,
             Err(err) => {
                 live.errors.push(tables::Error {
-                    scope: tables::synthetic_scope("storageMapping", &row.catalog_prefix),
+                    scope,
                     error: anyhow::Error::from(err).context("deserializing storage mapping spec"),
                 });
                 continue;
             }
         };
+
+        // Map data-plane names to IDs, accruing mapping errors as we go.
+        // An unauthorized and missing plane have the same diagnostic.
+        let mut data_plane_ids = Vec::with_capacity(store.data_planes.len());
+        for name in &store.data_planes {
+            let data_plane = snapshot
+                .is_user_authorized(user_id, name, Capability::Read)
+                .then(|| snapshot.data_plane_by_catalog_name(name))
+                .flatten();
+
+            if let Some(data_plane) = data_plane {
+                data_plane_ids.push(data_plane.control_id);
+            } else {
+                snapshot.request_refresh();
+                live.errors.push(tables::Error {
+                    scope: scope.clone(),
+                    error: anyhow::anyhow!("data plane '{name}' was not found"),
+                });
+            }
+        }
+        if data_plane_ids.len() != store.data_planes.len() {
+            continue;
+        }
+
         live.storage_mappings.insert(tables::StorageMapping {
             control_id: row.id.into(),
             catalog_prefix: models::Prefix::new(row.catalog_prefix),
             stores: store.stores,
-            data_planes: store.data_planes,
+            data_plane_ids,
         });
     }
 
-    // Fetch data planes that are referenced by live specs (`data_plane_ids`),
-    // or by storage mappings (`data_plane_names`), or by `explicit_plane_name`.
-    let data_plane_names: Vec<&str> = live
-        .storage_mappings
-        .iter()
-        .flat_map(|m| m.data_planes.iter().map(String::as_str))
-        .chain(explicit_plane_name.into_iter())
-        .sorted()
-        .dedup()
-        .collect();
-
-    data_plane_ids.sort();
-    data_plane_ids.dedup();
-
-    // Data-plane name read authorization is evaluated in-process against the
-    // pinned Snapshot, as discovers do. A denied name is excluded exactly as
-    // a missing one, so that authorization does not leak the existence of
-    // unauthorized planes. The filter is deliberately unconditional,
-    // independent of `verify_user_authz`: the system user's controller
-    // publications pass through it identically.
-    // Planes referenced by id require no check: they come from
-    // live-spec rows which resolution above already admitted — user-authorized,
-    // or deliberately exempt (injected ops collections, and publications with
-    // `verify_user_authz: false`).
-    let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) = data_plane_names
-        .into_iter()
-        .partition(|name| snapshot.is_user_authorized(user_id, name, Capability::Read));
-    if !denied_names.is_empty() {
-        snapshot.request_refresh();
-        tracing::warn!(?denied_names, "excluding unauthorized data-plane names");
-    }
-
-    live.data_planes = sqlx::query_as!(
-        tables::DataPlane,
-        r#"
-        SELECT
-            d.id AS "control_id: Id",
-            d.data_plane_name,
-            d.closed,
-            d.hmac_keys,
-            d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
-            d.data_plane_fqdn,
-            d.broker_address,
-            d.reactor_address,
-            d.dekaf_address,
-            d.dekaf_registry_address,
-            d.ops_logs_name AS "ops_logs_name: models::Collection",
-            d.ops_stats_name AS "ops_stats_name: models::Collection"
-        FROM data_planes d
-        WHERE
-            d.id IN (SELECT id FROM UNNEST($1::flowid[]) AS t(id)) OR
-            d.data_plane_name IN (SELECT name FROM UNNEST($2::text[]) AS t(name))
-        "#,
-        &data_plane_ids as &[Id],
-        &authorized_names as &[&str],
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .collect();
+    // Resolve the request-scoped default independently of storage mappings.
+    // An unauthorized and missing plane have the same diagnostic.
+    let default_data_plane = explicit_plane_name.and_then(|name| {
+        snapshot
+            .is_user_authorized(user_id, name, Capability::Read)
+            .then(|| snapshot.data_plane_by_catalog_name(name))
+            .flatten()
+            .map(|data_plane| validation::DefaultDataPlane {
+                id: data_plane.control_id,
+                name: data_plane.data_plane_name.clone(),
+            })
+            .or_else(|| {
+                snapshot.request_refresh();
+                live.errors.push(tables::Error {
+                    scope: tables::synthetic_scope("dataPlane", name),
+                    error: anyhow::anyhow!("data plane '{name}' was not found"),
+                });
+                None
+            })
+    });
 
     resolve_inferred_schemas(draft, &mut live, db).await?;
 
-    Ok(live)
+    Ok(ResolvedLiveCatalog {
+        live,
+        default_data_plane,
+    })
 }
 
 /// Returns an option because `catalog_name` is from a drafted spec, and we've yet to
