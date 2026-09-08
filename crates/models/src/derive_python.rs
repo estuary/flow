@@ -13,12 +13,14 @@ pub struct DeriveUsingPython {
     /// extends the generated IDerivation base class.
     #[schemars(schema_with = "DeriveUsingPython::module_schema")]
     pub module: super::RawValue,
-
     /// # Python package dependencies.
     /// Map of package name to version specifier (e.g., {"httpx": ">=0.27", "pydantic": ">=2.0"}).
     /// These dependencies will be included in the generated pyproject.toml.
     #[serde(default)]
     pub dependencies: BTreeMap<String, String>,
+    /// # Environment variables made available to the Python module.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub environment: BTreeMap<String, String>,
 }
 
 impl DeriveUsingPython {
