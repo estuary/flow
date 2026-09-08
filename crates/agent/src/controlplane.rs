@@ -287,7 +287,7 @@ impl PGControlPlane {
         let refresh = self.snapshot_watch.token();
         let snapshot = refresh.result().unwrap();
 
-        let Some(data_plane) = snapshot.data_planes.get_by_key(&data_plane_id) else {
+        let Some(data_plane) = snapshot.data_plane_by_id(data_plane_id) else {
             snapshot.revoke.cancel();
             return Err(anyhow::anyhow!(
                 "data-plane {data_plane_id} not in snapshot"
@@ -301,21 +301,17 @@ impl PGControlPlane {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        // Parse first data-plane HMAC key (used for signing tokens).
-        let (encode_key, _decode) =
-            tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.iter().take(1))
-                .context("invalid data-plane HMAC key")?;
-
         let iat = tokens::now();
         let claims = proto_gazette::Claims {
             cap: proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
             exp: (iat + tokens::TimeDelta::minutes(1)).timestamp() as u64,
             iat: iat.timestamp() as u64,
-            iss: data_plane.data_plane_fqdn.clone(),
+            iss: String::new(),
             sel: broker::LabelSelector::default(),
             sub: "agent".to_string(),
         };
-        let token = tokens::jwt::sign(&claims, &encode_key)
+        let token = data_plane
+            .sign_claims(claims)
             .context("failed to sign claims for data-plane")?;
 
         let metadata = proto_grpc::Metadata::new()
@@ -633,11 +629,6 @@ impl ControlPlane for PGControlPlane {
         let refresh = snapshot_watch.token();
         let snapshot = refresh.result().unwrap();
 
-        let data_plane = snapshot
-            .data_planes
-            .get_by_key(&data_plane_id)
-            .with_context(|| format!("data-plane {data_plane_id} not in snapshot"))?;
-
         let req = Discover {
             user_id: *system_user_id,
             filter_user_authz: false,
@@ -646,7 +637,7 @@ impl ControlPlane for PGControlPlane {
             update_only,
             reset_on_key_change,
             logs_token,
-            data_plane: data_plane.clone(),
+            data_plane_id,
             created_at,
             snapshot,
         };

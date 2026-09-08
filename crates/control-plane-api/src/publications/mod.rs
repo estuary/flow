@@ -9,6 +9,7 @@ use sqlx::types::Uuid;
 use tables::BuiltRow;
 
 pub mod builds;
+mod catalog_test_router;
 mod commit;
 mod db;
 mod finalize;
@@ -408,7 +409,10 @@ impl Publisher {
             });
         }
 
-        let live_catalog = specs::resolve_live_specs(
+        let specs::ResolvedLiveCatalog {
+            live: live_catalog,
+            default_data_plane,
+        } = specs::resolve_live_specs(
             user_id,
             &draft,
             &self.db,
@@ -448,6 +452,7 @@ impl Publisher {
         let built = self
             .builder
             .build(
+                snapshot,
                 &self.builds_root,
                 draft,
                 live_catalog,
@@ -456,7 +461,7 @@ impl Publisher {
                 tmpdir,
                 self.logs_tx.clone(),
                 logs_token,
-                explicit_plane_name,
+                default_data_plane.as_ref(),
             )
             .await?;
 
@@ -465,8 +470,11 @@ impl Publisher {
             && !self.skip_tests
             && built.errors().next().is_none()
         {
-            let router = crate::connector_router::DataPlaneRouter::new(&built)
-                .context("routing derivation connectors to their data planes")?;
+            let router = catalog_test_router::CatalogTestConnectorRouter::new(
+                snapshot,
+                &built.built.built_collections,
+            )
+            .context("routing derivation connectors to their data planes")?;
 
             tracing::info!(%build_id, %publication_id, "running tests");
             let errors = builds::test_catalog(

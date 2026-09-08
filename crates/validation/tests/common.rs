@@ -146,23 +146,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         config: models::RawValue::from_str("{\"live\":\"config\"}").unwrap(),
     };
 
-    for (control_id, _mock) in &mock_calls.data_planes {
-        live.data_planes.insert_row(
-            control_id,
-            format!("ops/dp/public/test-{control_id}"),
-            "the-data-plane.dp.estuary-data.com".to_string(),
-            false, // closed
-            vec!["hmac-key".to_string()],
-            models::RawValue::from_string("{}".to_string()).unwrap(),
-            models::Collection::new("ops/logs"),
-            models::Collection::new("ops/stats"),
-            "broker:address".to_string(),
-            "reactor:address".to_string(),
-            None::<String>, // dekaf_address
-            None::<String>, // dekaf_registry_address
-        );
-    }
-
     // Load into LiveCatalog::live_captures.
     for (capture, mock) in &mock_calls.live_captures {
         let model = models::CaptureDef {
@@ -438,11 +421,23 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
+        let data_plane_ids = storage
+            .data_planes
+            .iter()
+            .map(|name| {
+                mock_calls
+                    .data_planes
+                    .keys()
+                    .find(|id| name == &format!("ops/dp/public/test-{id}"))
+                    .copied()
+                    .unwrap_or_else(models::Id::zero)
+            })
+            .collect::<Vec<_>>();
         live.storage_mappings.insert_row(
             prefix,
             models::Id::zero(),
             &storage.stores,
-            &storage.data_planes,
+            data_plane_ids,
         );
     }
     // Allow fixtures to omit a storage mapping by providing a default.
@@ -452,23 +447,19 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             prefix: None,
             region: None,
         });
-        let data_planes: Vec<_> = live
-            .data_planes
-            .iter()
-            .map(|r| r.data_plane_name.clone())
-            .collect();
+        let data_plane_ids = mock_calls.data_planes.keys().copied().collect::<Vec<_>>();
         live.storage_mappings.insert_row(
             models::Prefix::new(""),
             models::Id::zero(),
             vec![store],
-            data_planes,
+            data_plane_ids,
         );
     }
 
     // Use a constant initialization vector for deterministic test output.
     const TEST_INIT_VECTOR: &[u8] = b"test-init-vector";
 
-    let connectors = |_data_plane: &tables::DataPlane, request| mock_calls.connect(request);
+    let connectors = |_data_plane_id: models::Id, request| mock_calls.connect(request);
     let validations = futures::executor::block_on(validation::validate(
         models::Id::new([32; 8]),
         models::Id::new([33; 8]),

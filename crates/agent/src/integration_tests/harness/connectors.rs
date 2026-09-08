@@ -107,6 +107,7 @@ impl MockConnectors {
 impl ConnectorFactory for MockConnectors {
     fn make_connectors<'a>(
         &'a self,
+        _snapshot: &'a control_plane_api::Snapshot,
         _log_task: &'static str,
         _logs_token: uuid::Uuid,
     ) -> Box<Connectors<'a>> {

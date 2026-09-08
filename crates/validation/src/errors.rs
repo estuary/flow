@@ -314,12 +314,6 @@ pub enum Error {
         ref_entity: &'static str,
         ref_name: String,
     },
-    #[error("{this_entity} {this_name} requires data plane {data_plane_id}, which was not found")]
-    MissingDataPlaneId {
-        this_entity: &'static str,
-        this_name: String,
-        data_plane_id: models::Id,
-    },
     #[error("draft model is a 'touch' operation but is not equal to the live model (and must be)")]
     TouchModelIsNotEqual,
     #[error(
@@ -364,24 +358,21 @@ pub enum Error {
         partition_mapping: models::Prefix,
     },
     #[error(
-        "{entity} {name} recovery storage mapping recovery/{partition_mapping} has data planes {recovery_planes:?}, which doesn't match mapping {partition_mapping} planes {partition_planes:?}"
+        "{entity} {name} recovery storage mapping recovery/{partition_mapping} has data planes which don't match mapping {partition_mapping}"
     )]
     StorageMappingDataPlanesMismatch {
         entity: &'static str,
         name: String,
         partition_mapping: models::Prefix,
-        partition_planes: Vec<String>,
-        recovery_planes: Vec<String>,
     },
     #[error(
-        "{entity} {name} storage mapping {partition_mapping} is restricted to data planes {listed_data_planes:?}, and doesn't permit {data_plane}"
+        "{entity} {name} storage mapping {partition_mapping} doesn't permit data plane {data_plane}"
     )]
     DataPlaneNotInStorageMapping {
         entity: &'static str,
         name: String,
         partition_mapping: models::Prefix,
         data_plane: String,
-        listed_data_planes: Vec<String>,
     },
 
     #[error("trigger {index}: invalid URL: {detail}")]

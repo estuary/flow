@@ -211,10 +211,10 @@ impl DiscoverExecutor {
         )
         .then(|| snapshot.data_plane_by_catalog_name(&row.data_plane_name))
         .flatten()
-        .cloned() else {
-            // Request an early background refresh: the plane or its grant may
-            // have been created after this Snapshot was taken, and cancelling
-            // narrows the staleness window for a manual retry.
+        .filter(|data_plane| data_plane.can_sign()) else {
+            // Request an early background refresh: the plane, its grant, or its
+            // HMAC keys may have landed after this Snapshot was taken, and
+            // cancelling narrows the staleness window for a manual retry.
             snapshot.revoke.cancel();
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
             return Ok(precheck_failed(JobStatus::NoDataPlane));
@@ -229,7 +229,7 @@ impl DiscoverExecutor {
             row.update_only,
             row.logs_token,
             image_composed,
-            data_plane,
+            data_plane.control_id,
             snapshot,
             pool,
         )
@@ -287,7 +287,7 @@ async fn prepare_discover<'a>(
     update_only: bool,
     logs_token: uuid::Uuid,
     image_composed: String,
-    data_plane: tables::DataPlane,
+    data_plane_id: models::Id,
     snapshot: &'a control_plane_api::Snapshot,
     pool: &sqlx::PgPool,
 ) -> anyhow::Result<Discover<'a>> {
@@ -385,7 +385,7 @@ async fn prepare_discover<'a>(
         user_id,
         filter_user_authz: true,
         capture_name,
-        data_plane,
+        data_plane_id,
         draft,
         update_only,
         reset_on_key_change,
@@ -468,20 +468,7 @@ mod test {
         let endpoint_config = models::RawValue::from_str(r#"{"a": "discoversA"}"#).unwrap();
         let logs_token = Uuid::from_str("22222222-3333-4444-5555-666666666666").unwrap();
         let image_composed = String::from("discovers/image:tag");
-        let data_plane = tables::DataPlane {
-            control_id: Id::zero(),
-            data_plane_name: "test-data-plane".to_string(),
-            data_plane_fqdn: "data.plane.test".to_string(),
-            closed: false,
-            hmac_keys: Vec::new(),
-            encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
-            ops_logs_name: models::Collection::new("tha/logs"),
-            ops_stats_name: models::Collection::new("tha/stats"),
-            broker_address: "broker.test".to_string(),
-            reactor_address: "reactor.test".to_string(),
-            dekaf_address: None,
-            dekaf_registry_address: None,
-        };
+        let data_plane_id = Id::zero();
 
         // The authorization Snapshot must reflect the grants inserted above.
         harness.refresh_snapshot().await;
@@ -495,7 +482,7 @@ mod test {
             false, // !update_only
             logs_token,
             image_composed.clone(),
-            data_plane.clone(),
+            data_plane_id,
             snapshot.result().unwrap(),
             &harness.pool,
         )
@@ -504,13 +491,7 @@ mod test {
 
         assert_eq!(capture_name, result.capture_name);
 
-        assert_eq!(Id::zero(), result.data_plane.control_id);
-        assert_eq!("test-data-plane", &result.data_plane.data_plane_name);
-        assert_eq!("data.plane.test", &result.data_plane.data_plane_fqdn);
-        assert_eq!("tha/logs", result.data_plane.ops_logs_name.as_str());
-        assert_eq!("tha/stats", result.data_plane.ops_stats_name.as_str());
-        assert_eq!("broker.test", &result.data_plane.broker_address);
-        assert_eq!("reactor.test", &result.data_plane.reactor_address);
+        assert_eq!(Id::zero(), result.data_plane_id);
 
         assert_eq!(logs_token, result.logs_token);
         assert_eq!(user_id, result.user_id);

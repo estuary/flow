@@ -186,11 +186,7 @@ fn evaluate_authorization(
             )));
         }
 
-        let Some(target_dataplane) = snapshot
-            .data_planes
-            .iter()
-            .find(|dp| dp.control_id == task.data_plane_id)
-        else {
+        let Some(target_dataplane) = snapshot.data_plane_by_id(task.data_plane_id) else {
             return Err(tonic::Status::internal(format!(
                 "target dataplane for task {task_name} not found"
             )));

@@ -22,7 +22,7 @@ pub async fn authorize_user_collection(
         evaluate_authorization(env.snapshot(), env.claims()?, &collection, capability);
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
-    let (expiry, (encoding_key, mut claims, broker_address, journal_name_prefix)) =
+    let (expiry, (data_plane, mut claims, journal_name_prefix)) =
         match env.authorization_outcome(policy_result).await {
             Ok(ok) => ok,
             Err(crate::ApiError::AuthZRetry(retry)) if started_unix != 0 => {
@@ -37,25 +37,24 @@ pub async fn authorize_user_collection(
     claims.iat = env.started.timestamp() as u64;
     claims.exp = expiry.timestamp() as u64;
 
-    let broker_token = tokens::jwt::sign(&claims, &encoding_key)?;
+    let broker_token = data_plane.sign_claims(claims)?;
 
     Ok(axum::Json(Response {
-        broker_address,
+        broker_address: data_plane.broker_address.clone(),
         broker_token,
         journal_name_prefix,
         retry_millis: 0,
     }))
 }
 
-fn evaluate_authorization(
-    snapshot: &crate::Snapshot,
+fn evaluate_authorization<'s>(
+    snapshot: &'s crate::Snapshot,
     claims: &crate::ControlClaims,
     collection_name: &models::Collection,
     capability: models::Capability,
 ) -> crate::AuthZResult<(
-    tokens::jwt::EncodingKey,
+    &'s crate::snapshot::DataPlane,
     proto_gazette::Claims,
-    String,
     String,
 )> {
     let models::authorizations::ControlClaims {
@@ -99,21 +98,12 @@ fn evaluate_authorization(
             "collection {collection_name} is not known"
         )));
     };
-    let Some(data_plane) = snapshot.data_planes.get_by_key(&collection.data_plane_id) else {
+    let Some(data_plane) = snapshot.data_plane_by_id(collection.data_plane_id) else {
         return Err(tonic::Status::internal(format!(
             "collection data-plane {} not found",
             collection.data_plane_id
         )));
     };
-    let Some(encoding_key) = data_plane.hmac_keys.first() else {
-        return Err(tonic::Status::internal(format!(
-            "collection data-plane {} has no configured HMAC keys",
-            data_plane.data_plane_name
-        )));
-    };
-    let encoding_key =
-        tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
-
     let claims = proto_gazette::Claims {
         cap: super::map_capability_to_gazette(capability),
         exp: 0, // Filled later.
@@ -131,12 +121,7 @@ fn evaluate_authorization(
 
     Ok((
         snapshot.cordon_at(&collection.collection_name, data_plane),
-        (
-            encoding_key,
-            claims,
-            data_plane.broker_address.clone(),
-            collection.journal_template_name.clone(),
-        ),
+        (data_plane, claims, collection.journal_template_name.clone()),
     ))
 }
 
@@ -374,10 +359,11 @@ mod tests {
         };
 
         match evaluate_authorization(&snapshot, &claims, &collection, capability) {
-            Ok((cordon_at, (_key, mut data_claims, broker_address, journal_name_prefix))) => {
+            Ok((cordon_at, (data_plane, mut data_claims, journal_name_prefix))) => {
                 // Zero out timestamps for stable snapshots.
                 data_claims.iat = 0;
                 data_claims.exp = 0;
+                let broker_address = data_plane.broker_address.clone();
 
                 if cordon_at.is_some() {
                     Outcome::OkCordoned((broker_address, journal_name_prefix, data_claims))

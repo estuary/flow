@@ -28,39 +28,37 @@ pub async fn authorize_user_prefix(
     );
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
-    let (
-        expiry,
-        (encoding_key, mut broker_claims, broker_address, mut reactor_claims, reactor_address),
-    ) = match env.authorization_outcome(policy_result).await {
-        Ok(ok) => ok,
-        Err(crate::ApiError::AuthZRetry(retry)) if started_unix != 0 => {
-            return Ok(axum::Json(Response {
-                retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
-                ..Default::default()
-            }));
-        }
-        Err(err) => return Err(err),
-    };
+    let (expiry, (data_plane, mut broker_claims, mut reactor_claims)) =
+        match env.authorization_outcome(policy_result).await {
+            Ok(ok) => ok,
+            Err(crate::ApiError::AuthZRetry(retry)) if started_unix != 0 => {
+                return Ok(axum::Json(Response {
+                    retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
+                    ..Default::default()
+                }));
+            }
+            Err(err) => return Err(err),
+        };
 
     broker_claims.exp = expiry.timestamp() as u64;
     broker_claims.iat = env.started.timestamp() as u64;
     reactor_claims.exp = expiry.timestamp() as u64;
     reactor_claims.iat = env.started.timestamp() as u64;
 
-    let broker_token = tokens::jwt::sign(&broker_claims, &encoding_key)?;
-    let reactor_token = tokens::jwt::sign(&reactor_claims, &encoding_key)?;
+    let broker_token = data_plane.sign_claims(broker_claims)?;
+    let reactor_token = data_plane.sign_claims(reactor_claims)?;
 
     Ok(axum::Json(Response {
         broker_token,
-        broker_address,
+        broker_address: data_plane.broker_address.clone(),
         reactor_token,
-        reactor_address,
+        reactor_address: data_plane.reactor_address.clone(),
         retry_millis: 0,
     }))
 }
 
-fn evaluate_authorization(
-    snapshot: &crate::Snapshot,
+fn evaluate_authorization<'s>(
+    snapshot: &'s crate::Snapshot,
     claims: &crate::ControlClaims,
     prefix: &models::Prefix,
     data_plane_name: &models::Name,
@@ -68,11 +66,9 @@ fn evaluate_authorization(
 ) -> tonic::Result<(
     Option<chrono::DateTime<chrono::Utc>>,
     (
-        tokens::jwt::EncodingKey,
+        &'s crate::snapshot::DataPlane,
         proto_gazette::Claims, // Broker claims.
-        String,                // Broker address.
         proto_gazette::Claims, // Reactor claims.
-        String,                // Reactor address.
     ),
 )> {
     let models::authorizations::ControlClaims {
@@ -128,14 +124,6 @@ fn evaluate_authorization(
             "data-plane {data_plane_name} not found"
         )));
     };
-    let Some(encoding_key) = data_plane.hmac_keys.first() else {
-        return Err(tonic::Status::internal(format!(
-            "data-plane {data_plane_name} has no configured HMAC keys"
-        )));
-    };
-    let encoding_key =
-        tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
-
     let broker_claims = proto_gazette::Claims {
         cap: super::map_capability_to_gazette(capability),
         exp: 0, // Filled later.
@@ -171,13 +159,7 @@ fn evaluate_authorization(
 
     Ok((
         None, // This API does not enforce cordons.
-        (
-            encoding_key,
-            broker_claims,
-            data_plane.broker_address.clone(),
-            reactor_claims,
-            data_plane.reactor_address.clone(),
-        ),
+        (data_plane, broker_claims, reactor_claims),
     ))
 }
 
@@ -554,10 +536,7 @@ mod tests {
         };
 
         match evaluate_authorization(&snapshot, &claims, &prefix, &data_plane, capability) {
-            Ok((
-                _cordon_at,
-                (_key, mut broker_claims, broker_address, mut reactor_claims, reactor_address),
-            )) => {
+            Ok((_cordon_at, (data_plane, mut broker_claims, mut reactor_claims))) => {
                 // Zero out timestamps for stable snapshots.
                 broker_claims.iat = 0;
                 broker_claims.exp = 0;
@@ -565,9 +544,9 @@ mod tests {
                 reactor_claims.exp = 0;
 
                 Outcome::Ok((
-                    broker_address,
+                    data_plane.broker_address.clone(),
                     broker_claims,
-                    reactor_address,
+                    data_plane.reactor_address.clone(),
                     reactor_claims,
                 ))
             }

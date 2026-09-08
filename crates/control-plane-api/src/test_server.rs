@@ -231,6 +231,7 @@ struct NoopBuilder;
 impl crate::publications::builds::Builder for NoopBuilder {
     async fn build(
         &self,
+        _snapshot: &crate::Snapshot,
         _builds_root: &url::Url,
         _draft: tables::DraftCatalog,
         _live: tables::LiveCatalog,
@@ -239,7 +240,7 @@ impl crate::publications::builds::Builder for NoopBuilder {
         _tmpdir: &std::path::Path,
         _logs_tx: crate::logs::Tx,
         _logs_token: sqlx::types::Uuid,
-        _explicit_plane_name: Option<&str>,
+        _default_data_plane: Option<&validation::DefaultDataPlane>,
     ) -> anyhow::Result<build::Output> {
         panic!("NoopBuilder::build called in test - this should not happen for authorization tests")
     }

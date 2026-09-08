@@ -188,23 +188,6 @@ driver:
 }
 
 #[test]
-fn test_update_but_missing_data_planes() {
-    let errors = common::run_errors(
-        MODEL_YAML,
-        r#"
-driver:
-  dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1d": {}
-    "12:12:12:12:12:12:12:01": null
-    "12:12:12:12:12:12:12:02": null
-    "12:12:12:12:12:12:12:03": null
-    "12:12:12:12:12:12:12:04": null
-    "#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_live_last_build_id_is_larger_than_current_build_id() {
     let errors = common::run_errors(
         MODEL_YAML,
