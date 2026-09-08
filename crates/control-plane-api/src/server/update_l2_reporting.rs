@@ -122,6 +122,7 @@ pub async fn update_l2_reporting(
 
     let models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
         module: l2_stats_module_raw,
+        ..
     }) = l2_stats_using
     else {
         return Err(
@@ -131,6 +132,7 @@ pub async fn update_l2_reporting(
 
     let models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
         module: l2_stats_new_module_raw,
+        ..
     }) = l2_stats_new_using
     else {
         return Err(tonic::Status::internal(

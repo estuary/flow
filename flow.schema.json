@@ -635,6 +635,13 @@
           },
           "default": {}
         },
+        "environment": {
+          "title": "Environment variables made available to the Python module.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "module": {
           "title": "Python module implementing this derivation.",
           "description": "Module is either a relative URL of a Python module file,\nor is an inline representation of a Python module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
@@ -689,6 +696,13 @@
     "DeriveUsingTypescript": {
       "type": "object",
       "properties": {
+        "environment": {
+          "title": "Environment variables made available to the TypeScript module.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "module": {
           "title": "TypeScript module implementing this derivation.",
           "description": "Module is either a relative URL of a TypeScript module file,\nor is an inline representation of a Typescript module.\nThe module must have a exported Derivation variable which\nis an instance implementing the corresponding Derivation\ninterface.",

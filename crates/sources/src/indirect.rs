@@ -373,7 +373,7 @@ fn indirect_derivation(
                 );
             }
         }
-        models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module }) => {
+        models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module, .. }) => {
             indirect_raw(
                 Scope::new(scope)
                     .push_prop("derive")

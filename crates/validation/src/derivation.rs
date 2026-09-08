@@ -1008,6 +1008,7 @@ mod test {
         let repo = "ghcr.io/estuary/derive-typescript";
         let config = models::DeriveUsingTypescript {
             module: models::RawValue::from_str("\"mod.ts\"").unwrap(),
+            environment: Default::default(),
         };
 
         // Legacy V1 (no flags) maps to the frozen `:dev` image.
