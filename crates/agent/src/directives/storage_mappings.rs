@@ -93,11 +93,6 @@ async fn validate(
     // Note: we must assert that user has admin capability for the _entire tenant_, even if in the
     // future we allow for updating mappings of narrower prefixes. This is required because a new
     // storage mapping for `a/b/` may implicitly override the existing mapping for `a/`.
-    //
-    // The Snapshot walk enforces exactly that, where the SQL
-    // `internal.user_roles()` gate it replaced accepted any admin role
-    // beneath the tenant — a sub-prefix admin could rewrite storage for
-    // sibling prefixes they held nothing on.
     if !snapshot.is_user_authorized(
         row.user_id,
         &claims.catalog_prefix,
@@ -341,16 +336,13 @@ mod test {
 
     /// Authorization cases of the storage-mappings directive. A mapping for
     /// `mappingCo/` may be set only by an admin of the whole tenant: a new
-    /// mapping implicitly overrides storage for everything beneath it, so a
-    /// sub-prefix admin must be denied — the check is over the pinned
-    /// authorization Snapshot, whose walk requires admin of the tenant
-    /// itself, where the SQL `internal.user_roles()` gate it replaced
-    /// accepted any admin role beneath the tenant.
+    /// mapping implicitly overrides storage for everything beneath it, so
+    /// admins of a sub-prefix or of an unrelated tenant are denied.
     ///
-    /// The tenant admin's application still fails — later, at the bucket
-    /// access check, whose error text varies by environment — which is
-    /// exactly what proves the gate admitted them. We assert on the absence
-    /// of the capability denial rather than the bucket error's wording.
+    /// The tenant admin's application also fails, later, at the bucket
+    /// access check, whose error text varies by environment. Passing the
+    /// gate is therefore asserted as the absence of the capability denial
+    /// rather than on the bucket error's wording.
     #[tokio::test]
     async fn test_authorization_cases() {
         let mut harness = crate::integration_tests::harness::TestHarness::init(
