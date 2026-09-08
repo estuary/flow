@@ -78,30 +78,8 @@ pub(super) fn filtered_authorized_prefixes(
 mod tests {
     use super::super::filters::PrefixFilter;
     use super::{authorized_prefixes, filtered_authorized_prefixes};
+    use crate::test_server::make_grants;
     use models::Capability::{Admin, Read, Write};
-
-    fn make_grants(
-        user_grants: &[(uuid::Uuid, &str, models::Capability)],
-        role_grants: &[(&str, &str, models::Capability)],
-    ) -> (tables::UserGrants, tables::RoleGrants) {
-        let ug = tables::UserGrants::from_iter(user_grants.iter().map(|(id, obj, cap)| {
-            tables::UserGrant {
-                user_id: *id,
-                object_role: models::Prefix::new(*obj),
-                capability: *cap,
-                bundles: vec![],
-            }
-        }));
-        let rg = tables::RoleGrants::from_iter(role_grants.iter().map(|(sub, obj, cap)| {
-            tables::RoleGrant {
-                subject_role: models::Prefix::new(*sub),
-                object_role: models::Prefix::new(*obj),
-                capability: *cap,
-                bundles: vec![],
-            }
-        }));
-        (ug, rg)
-    }
 
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
