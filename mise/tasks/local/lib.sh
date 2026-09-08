@@ -72,7 +72,9 @@ CGO_LDFLAGS="${CGO_LDFLAGS}"
 FLOW_ROOT="${_root}"
 GOBIN="${GOBIN}"
 JEMALLOC_OVERRIDE="${JEMALLOC_OVERRIDE}"
-PATH="${PATH}:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/debug/:${GOBIN}"
+# flow-connector-init is built for x86_64 (the platform connector containers
+# run as), so search that directory ahead of the host-arch musl one.
+PATH="${PATH}:${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/debug/:${GOBIN}"
 ROCKSDB_INCLUDE_DIR="${ROCKSDB_INCLUDE_DIR}"
 ROCKSDB_LIB_DIR="${ROCKSDB_LIB_DIR}"
 ROCKSDB_VERSION="${ROCKSDB_VERSION}"
