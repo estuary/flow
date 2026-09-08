@@ -331,9 +331,9 @@ mod test {
     /// Denial-path coverage of the `ops/` admin gate. Only denials are
     /// exercised end-to-end: an authorized request proceeds into data-plane
     /// provisioning, which is out of scope for authorization tests (and would
-    /// panic in the test server's NoopBuilder). The allowed cases — including
-    /// the ancestor-subject admin chain — are pinned by the gate's unit
-    /// tests in the parent module.
+    /// panic in the test server's NoopBuilder). The allowed case is pinned by
+    /// the gate's unit test in the parent module, and the grant walk it
+    /// composes is covered by the `tables` crate.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "alice"))

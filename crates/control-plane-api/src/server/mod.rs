@@ -451,45 +451,4 @@ mod tests {
         let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
         assert!(evaluate(&snapshot).is_err());
     }
-
-    /// Pins the deliberate semantic change from the `internal.user_roles()`
-    /// SQL gate this check replaced: an admin chain reached through an
-    /// *ancestor* subject role. The user admins `estuary/support/`, and
-    /// `estuary/` (its ancestor) is granted admin of `ops/`. The SQL gate
-    /// walked only downward from held roles and wrongly denied this; the
-    /// Snapshot walk authorizes it.
-    #[test]
-    fn test_evaluate_ops_admin_ancestor_subject_chain() {
-        use models::Capability::{Admin, Read};
-        let user = uuid::Uuid::from_bytes([0x11; 16]);
-
-        let snapshot = snapshot_of_grants(
-            &[(user, "estuary/support/", Admin)],
-            &[("estuary/", "ops/", Admin)],
-        );
-        assert!(
-            evaluate_names_authorization(
-                &snapshot,
-                &claims(user),
-                models::Capability::Admin,
-                ["ops/"]
-            )
-            .is_ok()
-        );
-
-        // The same chain with a non-admin object grant is denied.
-        let snapshot = snapshot_of_grants(
-            &[(user, "estuary/support/", Admin)],
-            &[("estuary/", "ops/", Read)],
-        );
-        assert!(
-            evaluate_names_authorization(
-                &snapshot,
-                &claims(user),
-                models::Capability::Admin,
-                ["ops/"]
-            )
-            .is_err()
-        );
-    }
 }
