@@ -98,7 +98,7 @@ pub async fn local(
     pub_id: models::Id,
     build_id: models::Id,
     connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
-    log_handler: impl runtime::LogHandler,
+    log_handler: impl ::ops::LogHandler,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
@@ -115,7 +115,7 @@ pub async fn local(
         let log_handler = log_handler.clone();
 
         async move {
-            let logger = move |log: &ops::Log| runtime::LogHandler::log(&log_handler, log);
+            let logger = move |log: &ops::Log| ::ops::LogHandler::log(&log_handler, log);
             proto_grpc::connector::unary(
                 &*router,
                 &logger,
