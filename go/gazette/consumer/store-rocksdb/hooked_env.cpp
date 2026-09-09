@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <memory>
 #include <iostream>
 #include <rocksdb/env.h>
@@ -18,6 +19,17 @@ using rocksdb::Status;
 using rocksdb::WritableFile;
 using rocksdb::WritableFileWrapper;
 using std::unique_ptr;
+
+
+// Converts an observer callback result into a Status; null |msg| is success.
+static Status observer_status(char* msg) {
+  if (msg == nullptr) {
+    return Status::OK();
+  }
+  Status status = Status::IOError(msg);
+  std::free(msg);
+  return status;
+}
 
 
 // Implementation of rocksdb::WritableFile which notifies via cgo of calls to hooked methods.
@@ -54,21 +66,21 @@ class HookedWritableFile : public WritableFileWrapper {
   virtual Status Sync() override {
     Status status = WritableFileWrapper::Sync();
     if (status.ok()) {
-      observe_wf_sync(handle_);
+      status = observer_status(observe_wf_sync(handle_));
     }
     return status;
   }
   virtual Status Fsync() override {
     Status status = WritableFileWrapper::Fsync();
     if (status.ok()) {
-      observe_wf_fsync(handle_);
+      status = observer_status(observe_wf_fsync(handle_));
     }
     return status;
   }
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override {
     Status status = WritableFileWrapper::RangeSync(offset, nbytes);
     if (status.ok()) {
-      observe_wf_range_sync(handle_, offset, nbytes);
+      status = observer_status(observe_wf_range_sync(handle_, offset, nbytes));
     }
     return status;
   }

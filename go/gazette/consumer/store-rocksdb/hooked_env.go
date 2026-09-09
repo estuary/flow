@@ -1,6 +1,7 @@
 package store_rocksdb
 
 /*
+#include <stdlib.h>
 #include <sys/types.h>
 #include "rocksdb/c.h"
 
@@ -41,12 +42,12 @@ type WritableFileObserver interface {
 	// Invoked when the file is closed.
 	Close()
 	// Invoked when the file is Synced.
-	Sync()
+	Sync() error
 	// Invoked when the file is Fsync'd. Note that this may in turn
 	// delegate to sync, and result in a call to the Sync() observer.
-	Fsync()
+	Fsync() error
 	// Invoked when the file is RangeSync'd.
-	RangeSync(offset, nbytes uint64)
+	RangeSync(offset, nbytes uint64) error
 }
 
 // NewHookedEnv returns a "hooked" RocksDB Environment which delegates to a default
@@ -121,18 +122,26 @@ func observe_wf_close(idx C.int) {
 }
 
 //export observe_wf_sync
-func observe_wf_sync(idx C.int) {
-	getWFObserver(idx).Sync()
+func observe_wf_sync(idx C.int) *C.char {
+	return observerError(getWFObserver(idx).Sync())
 }
 
 //export observe_wf_fsync
-func observe_wf_fsync(idx C.int) {
-	getWFObserver(idx).Fsync()
+func observe_wf_fsync(idx C.int) *C.char {
+	return observerError(getWFObserver(idx).Fsync())
 }
 
 //export observe_wf_range_sync
-func observe_wf_range_sync(idx C.int, offset C.uint64_t, nbytes C.uint64_t) {
-	getWFObserver(idx).RangeSync(uint64(offset), uint64(nbytes))
+func observe_wf_range_sync(idx C.int, offset C.uint64_t, nbytes C.uint64_t) *C.char {
+	return observerError(getWFObserver(idx).RangeSync(uint64(offset), uint64(nbytes)))
+}
+
+// observerError allocates a C string of |err| which the C++ caller must free.
+func observerError(err error) *C.char {
+	if err == nil {
+		return nil
+	}
+	return C.CString(err.Error())
 }
 
 // liveObservers is a registry of observers which have been passed to C++

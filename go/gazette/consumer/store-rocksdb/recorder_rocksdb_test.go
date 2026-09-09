@@ -178,6 +178,59 @@ func TestResolutionOfConflictingWriters(t *testing.T) {
 	})
 }
 
+// A fenced Recorder must fail synced writes, rather than report a checkpoint
+// as durable which never committed to the log.
+func TestSyncFailsWhenRecorderIsFenced(t *testing.T) {
+	var bk, cleanup = newBrokerAndLog(t)
+	defer cleanup()
+
+	var replica = newTestReplica(t, bk)
+	replica.checkRegisters = true
+	defer replica.teardown()
+
+	replica.startWriting(aRecoveryLog)
+	replica.put("key one", "value one")
+
+	// Another author takes the log's registers, as a new primary does on hand-off.
+	var fence = client.NewAppender(context.Background(), bk, pb.AppendRequest{
+		Journal:        aRecoveryLog,
+		UnionRegisters: recoverylog.NewRandomAuthor().Fence(),
+	})
+	_, _ = fence.Write([]byte("hand-off"))
+	require.NoError(t, fence.Close())
+
+	var err = replica.db.Put(replica.dbWO, []byte("key two"), []byte("value two"))
+	require.ErrorContains(t, err, "recorder barrier")
+	require.ErrorContains(t, err, "REGISTER_MISMATCH")
+
+	// The failed sync is latched: further writes to this handle also fail.
+	require.Error(t, replica.db.Put(replica.dbWO, []byte("key three"), []byte("value three")))
+}
+
+// Cancellation -- what a shard teardown produces -- fails synced writes in the
+// same way. A barrier resolving with context.Canceled is not durability.
+func TestSyncFailsWhenRecorderIsCancelled(t *testing.T) {
+	var bk, cleanup = newBrokerAndLog(t)
+	defer cleanup()
+
+	// Scope the Recorder's appends to a cancel-able context.
+	var ctx, cancel = context.WithCancel(context.Background())
+	var replica = newTestReplica(t, client.NewAppendService(ctx, bk))
+	replica.checkRegisters = true
+	defer replica.teardown()
+
+	replica.startWriting(aRecoveryLog)
+	replica.put("key one", "value one")
+
+	cancel()
+
+	var err = replica.db.Put(replica.dbWO, []byte("key two"), []byte("value two"))
+	require.ErrorContains(t, err, "recorder barrier")
+	require.ErrorContains(t, err, "context canceled")
+
+	require.Error(t, replica.db.Put(replica.dbWO, []byte("key three"), []byte("value three")))
+}
+
 func TestStopAndStartWithLogChange(t *testing.T) {
 	var bk, cleanup = newBrokerAndLog(t)
 	defer cleanup()
@@ -268,6 +321,9 @@ type testReplica struct {
 	recorder *recoverylog.Recorder
 	player   *recoverylog.Player
 	t        require.TestingT
+
+	// checkRegisters retains the Recorder's fencing register checks.
+	checkRegisters bool
 }
 
 func newTestReplica(t require.TestingT, client client.AsyncJournalClient) *testReplica {
@@ -315,7 +371,9 @@ func (r *testReplica) initDB(log pb.Journal, fsm *recoverylog.FSM) {
 
 	// Tests in this package predate register checks, and deliberately
 	// exercise recovery log sequencing and conflict handling.
-	r.recorder.DisableRegisterChecks()
+	if !r.checkRegisters {
+		r.recorder.DisableRegisterChecks()
+	}
 
 	r.dbO = rocks.NewDefaultOptions()
 	r.dbO.SetCreateIfMissing(true)
