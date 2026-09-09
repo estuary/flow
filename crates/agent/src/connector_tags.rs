@@ -1,11 +1,10 @@
 use anyhow::Context;
 use control_plane_api::{
     connector_tags::{self, Row, fetch_connector_tag, resolve},
-    logs,
+    connectors::ConnectorFactory,
 };
 use models::Id;
-use proto_flow::flow;
-use runtime::{LogHandler, Runtime, RuntimeProtocol};
+use proto_flow::{connector, flow};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tables::utils::pointer_for_schema;
@@ -44,15 +43,18 @@ impl JobStatus {
 
 /// A TagHandler is a Handler which evaluates tagged connector images.
 pub struct TagExecutor {
-    connector_network: String,
-    logs_tx: logs::Tx,
+    connector_factory: std::sync::Arc<dyn ConnectorFactory>,
+    snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
 }
 
 impl TagExecutor {
-    pub fn new(connector_network: &str, logs_tx: &logs::Tx) -> Self {
+    pub fn new(
+        connector_factory: std::sync::Arc<dyn ConnectorFactory>,
+        snapshot_watch: std::sync::Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
+    ) -> Self {
         Self {
-            connector_network: connector_network.to_string(),
-            logs_tx: logs_tx.clone(),
+            connector_factory,
+            snapshot_watch,
         }
     }
 }
@@ -89,10 +91,7 @@ impl automations::Executor for TagExecutor {
         let row = fetch_connector_tag(task_id, pool).await?;
         tracing::debug!(?inbox, %task_id, "processing connector_tags task");
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-        let next_status = self.process(row, pool).await.unwrap_or_else(|err| {
-            tracing::warn!(error = %err, "failed to process connector tag");
-            JobStatus::InternalError
-        });
+        let next_status = self.process(row, pool).await?;
 
         info!(%time_queued, id = %task_id, status = ?next_status, "finished");
         inbox.clear();
@@ -128,39 +127,86 @@ impl TagExecutor {
             }
         }
 
-        let proto_type = match runtime::flow_runtime_protocol(&image_composed).await {
-            Ok(ct) => ct,
-            Err(err) => {
-                tracing::warn!(image = %image_composed, error = %err, "failed to determine connector protocol");
-                return Ok(JobStatus::SpecFailed);
+        // Spin awaiting a Snapshot that includes a ready public data-plane.
+        // (This spin is meaningful for local-stack startup, not in production).
+        let mut refresh: std::sync::Arc<tokens::Refresh<control_plane_api::Snapshot>>;
+        let data_plane_id = loop {
+            refresh = self.snapshot_watch.token();
+            let snapshot = refresh.result().expect("Snapshot refresh never fails");
+
+            if let Some(data_plane_id) = snapshot
+                .data_planes()
+                .find(|plane| {
+                    plane.data_plane_name.starts_with("ops/dp/public/") && plane.can_sign()
+                })
+                .map(|plane| plane.control_id)
+            {
+                break data_plane_id;
             }
+
+            snapshot.request_refresh();
+            tracing::info!("awaiting a Snapshot with a ready public data-plane");
+            _ = refresh.expired().await;
         };
 
-        let log_handler =
-            logs::ops_handler(self.logs_tx.clone(), "spec".to_string(), row.logs_token);
-
-        // We always pass `Local` here because we need the runtime to publish
-        // the container ports so we can connect directly to it. This is safe
-        // only because we control which images can appear in `connectors`.
-        let runtime = Runtime::new(
-            runtime::Plane::Local,
-            self.connector_network.clone(),
-            log_handler,
-            None, // no need to change log level
-            "ops/connector-tags-job".to_string(),
+        // Call out to the named public plane to fulfill the Spec request.
+        let connectors = self.connector_factory.make_connectors(
+            refresh.result().unwrap(),
+            "spec",
+            row.logs_token,
         );
 
-        let spec_result = match proto_type {
-            RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
-            RuntimeProtocol::Materialize => spec_materialization(&image_composed, runtime).await,
-            RuntimeProtocol::Derive => {
-                tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
-                return Ok(JobStatus::SpecFailed);
+        let protocols = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT protocol FROM connector_tags WHERE connector_id = $1 AND protocol IS NOT NULL ORDER BY protocol",
+        )
+        .bind(row.connector_id)
+        .fetch_all(pool)
+        .await?;
+
+        let protocol = if row.image_name.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
+            Some(ConnectorProtocol::Materialization)
+        } else {
+            match protocols.as_slice() {
+                [] => None,
+                [protocol] if protocol == "capture" => Some(ConnectorProtocol::Capture),
+                [protocol] if protocol == "materialization" => {
+                    Some(ConnectorProtocol::Materialization)
+                }
+                protocols => {
+                    tracing::warn!(?protocols, "connector has invalid or conflicting protocols");
+                    return Ok(JobStatus::InternalError);
+                }
             }
         };
 
-        let spec = match spec_result {
-            Ok(s) => s,
+        let spec_result = match protocol {
+            Some(ConnectorProtocol::Capture) => {
+                spec_capture(&image_composed, connectors.as_ref(), data_plane_id)
+                    .await
+                    .map(|spec| (ConnectorProtocol::Capture, spec))
+            }
+            Some(ConnectorProtocol::Materialization) => {
+                spec_materialization(&image_composed, connectors.as_ref(), data_plane_id)
+                    .await
+                    .map(|spec| (ConnectorProtocol::Materialization, spec))
+            }
+            None => match spec_capture(&image_composed, connectors.as_ref(), data_plane_id).await {
+                Ok(spec) => Ok((ConnectorProtocol::Capture, spec)),
+                Err(capture_err) => {
+                    match spec_materialization(&image_composed, connectors.as_ref(), data_plane_id)
+                        .await
+                    {
+                        Ok(spec) => Ok((ConnectorProtocol::Materialization, spec)),
+                        Err(_) if is_retryable(&capture_err) => Err(capture_err),
+                        Err(materialization_err) => Err(materialization_err),
+                    }
+                }
+            },
+        };
+
+        let (proto_type, spec) = match spec_result {
+            Ok(spec) => spec,
+            Err(err) if is_retryable(&err) => return Err(err),
             Err(err) => {
                 tracing::warn!(error = ?err, image = %image_composed, "connector Spec RPC failed");
                 return Ok(JobStatus::SpecFailed);
@@ -175,7 +221,7 @@ impl TagExecutor {
             resource_path_pointers,
         } = spec;
 
-        if proto_type == RuntimeProtocol::Capture {
+        if proto_type == ConnectorProtocol::Capture {
             tracing::info!(
                 image = %image_composed,
                 included = %!resource_path_pointers.is_empty(),
@@ -185,7 +231,7 @@ impl TagExecutor {
 
         // Validate that there is an x-collection-name annotation in the resource config schema
         // of materialization connectors
-        if proto_type == RuntimeProtocol::Materialize {
+        if proto_type == ConnectorProtocol::Materialization {
             if let Err(err) = pointer_for_schema(resource_config_schema.get()) {
                 tracing::warn!(image = %image_composed, error = %err, "resource schema does not have x-collection-name annotation");
                 return Ok(JobStatus::SpecFailed);
@@ -219,6 +265,32 @@ impl TagExecutor {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ConnectorProtocol {
+    Capture,
+    Materialization,
+}
+
+impl ConnectorProtocol {
+    fn database_string_value(self) -> &'static str {
+        match self {
+            Self::Capture => "capture",
+            Self::Materialization => "materialization",
+        }
+    }
+}
+
+fn is_retryable(err: &anyhow::Error) -> bool {
+    if err.downcast_ref::<tokio::time::error::Elapsed>().is_some() {
+        return true;
+    }
+    matches!(
+        err.downcast_ref::<proto_grpc::StatusError>()
+            .map(|err| err.code()),
+        Some(tonic::Code::Unavailable | tonic::Code::DeadlineExceeded)
+    )
+}
+
 // TODO(phil): maybe unify this with the controlplane::ConnectorSpec?
 struct ConnectorSpec {
     documentation_url: String,
@@ -230,7 +302,8 @@ struct ConnectorSpec {
 
 async fn spec_materialization(
     image: &str,
-    runtime: Runtime<impl LogHandler>,
+    connectors: &validation::Connectors<'_>,
+    data_plane_id: models::Id,
 ) -> anyhow::Result<ConnectorSpec> {
     use proto_flow::materialize;
 
@@ -255,20 +328,31 @@ async fn spec_materialization(
         )
     };
 
-    let req = materialize::Request {
-        kind: Some(materialize::request::Kind::Spec(
-            materialize::request::Spec {
-                connector_type,
-                config_json,
+    let req = connector::Request {
+        start: Some(connector::request::Start::default()),
+        kind: Some(connector::request::Kind::Materialize(
+            materialize::Request {
+                kind: Some(materialize::request::Kind::Spec(
+                    materialize::request::Spec {
+                        connector_type,
+                        config_json,
+                    },
+                )),
+                ..Default::default()
             },
         )),
-        ..Default::default()
     };
 
-    // TODO(johnny): route this request through a selected data plane.
-    let Some(materialize::response::Kind::Spec(spec)) = runtime.unary_materialize(req).await?.kind
+    let (started, response) = connectors(data_plane_id, req).await?;
+    let (
+        Some(connector::response::started::Spec::Materialize(spec)),
+        connector::response::Kind::Materialize(materialize::Response {
+            kind: Some(materialize::response::Kind::Spec(_)),
+            ..
+        }),
+    ) = (started.spec, response)
     else {
-        anyhow::bail!("connector didn't send expected Spec response");
+        anyhow::bail!("connector didn't return materialization Spec");
     };
 
     let materialize::response::Spec {
@@ -298,22 +382,33 @@ async fn spec_materialization(
 
 async fn spec_capture(
     image: &str,
-    runtime: Runtime<impl LogHandler>,
+    connectors: &validation::Connectors<'_>,
+    data_plane_id: models::Id,
 ) -> anyhow::Result<ConnectorSpec> {
     use proto_flow::capture;
-    let req = capture::Request {
-        kind: Some(capture::request::Kind::Spec(capture::request::Spec {
-            connector_type: flow::capture_spec::ConnectorType::Image as i32,
-            config_json: serde_json::json!({"image": image, "config": {}})
-                .to_string()
-                .into(),
+    let req = connector::Request {
+        start: Some(connector::request::Start::default()),
+        kind: Some(connector::request::Kind::Capture(capture::Request {
+            kind: Some(capture::request::Kind::Spec(capture::request::Spec {
+                connector_type: flow::capture_spec::ConnectorType::Image as i32,
+                config_json: serde_json::json!({"image": image, "config": {}})
+                    .to_string()
+                    .into(),
+            })),
+            ..Default::default()
         })),
-        ..Default::default()
     };
 
-    // TODO(johnny): route this request through a selected data plane.
-    let Some(capture::response::Kind::Spec(spec)) = runtime.unary_capture(req).await?.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
+    let (started, response) = connectors(data_plane_id, req).await?;
+    let (
+        Some(connector::response::started::Spec::Capture(spec)),
+        connector::response::Kind::Capture(capture::Response {
+            kind: Some(capture::response::Kind::Spec(_)),
+            ..
+        }),
+    ) = (started.spec, response)
+    else {
+        anyhow::bail!("connector didn't return capture Spec");
     };
 
     let capture::response::Spec {
