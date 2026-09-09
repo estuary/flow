@@ -1910,8 +1910,9 @@ type QueryRoot {
 	Returns storage mappings accessible to the current user.
 	
 	Returns mappings under every prefix where the caller has catalog-read
-	capability. The optional `filter` narrows those authorized results.
-	Results are paginated and sorted by catalog_prefix.
+	capability. The optional `filter` narrows those authorized results by
+	catalog prefix, by store, or by both. Results are paginated and sorted
+	by catalog_prefix.
 	"""
 	storageMappings(by: StorageMappingsBy @deprecated(reason: "Prefer `filter: { catalogPrefix }`: `startsWith` replaces `underPrefix` and `in` replaces `exactPrefixes`. `by` is retained only for existing clients."), filter: StorageMappingsFilter, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
 	"""
@@ -2508,6 +2509,16 @@ type StorageMapping {
 	The current user's capability to this storage mapping's prefix.
 	"""
 	userCapability: Capability!
+	"""
+	The data planes named by `spec.data_planes`, resolved to nodes. Order
+	follows the spec, so the first entry is the plane used by default for
+	tasks and collections under this prefix.
+	
+	A name is omitted when no data plane carries it or when the caller
+	lacks read capability on it, so this list can be shorter than
+	`spec.data_planes`.
+	"""
+	dataPlanes: [DataPlane!]!
 }
 
 type StorageMappingConnection {
@@ -2567,6 +2578,76 @@ input StorageMappingsFilter {
 	the caller's authorized read prefixes.
 	"""
 	catalogPrefix: PrefixFilter
+	"""
+	Narrow to mappings that write to a matching store: at least one entry
+	of `spec.stores` must carry every field set here. This answers "which
+	prefixes land in this bucket", within the caller's read scope.
+	"""
+	store: StoreFilter
+}
+
+"""
+Matches a single store within a storage mapping's `spec.stores`. Every
+field is optional; the fields that are set must all hold on one store, and
+a mapping matches when at least one of its stores satisfies them.
+
+Each field belongs to the providers that carry it, so pairing one with a
+`provider` that does not carry it matches nothing.
+"""
+input StoreFilter {
+	"""
+	Match the store's provider.
+	"""
+	provider: StoreProvider
+	"""
+	Match the bucket of an `S3`, `GCS`, or `CUSTOM` store. An `AZURE`
+	store addresses a container instead; see `containerName`.
+	"""
+	bucket: String
+	"""
+	Match the AWS region of an `S3` store, such as `us-east-1`.
+	"""
+	region: String
+	"""
+	Match the S3-compatible endpoint of a `CUSTOM` store.
+	"""
+	endpoint: String
+	"""
+	Match the tenant that owns an `AZURE` store's storage account.
+	"""
+	accountTenantId: String
+	"""
+	Match the storage account name of an `AZURE` store, which is that
+	provider's equivalent of a bucket.
+	"""
+	storageAccountName: String
+	"""
+	Match the container name within an `AZURE` store's storage account.
+	"""
+	containerName: String
+}
+
+"""
+Cloud storage provider of a store. These are the `provider` discriminants
+that `spec.stores` entries carry.
+"""
+enum StoreProvider {
+	"""
+	Amazon Simple Storage Service.
+	"""
+	S3
+	"""
+	Google Cloud Storage.
+	"""
+	GCS
+	"""
+	Azure object storage service.
+	"""
+	AZURE
+	"""
+	An S3-compatible endpoint, such as Minio or R2.
+	"""
+	CUSTOM
 }
 
 input StringFilter {
