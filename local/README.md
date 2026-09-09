@@ -415,10 +415,10 @@ psql "$FLOW_PG_URL" -c "SELECT c.image_name, t.image_tag,
 mise exec -- ./local/install-connector.sh ghcr.io/estuary/materialize-sqlite dev
 ```
 
-Registering queues a `connector_tags` job; the agent runs the image to fill in
-its protocol and endpoint/resource spec schemas, which validation needs. Wait
-for that row to reach `success` (a few seconds) before publishing — until then
-the schemas are absent and a publish can still fail.
+Registering queues a `connector_tags` job; the agent asks a public data plane to
+run the image and fill in its protocol and endpoint/resource spec schemas, which
+validation needs. Wait for that row to reach `success` (a few seconds) before
+publishing — until then the schemas are absent and a publish can still fail.
 
 ## Connectors run on the Supabase Docker network
 
