@@ -16,7 +16,6 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-grpc = { path = "../proto-grpc", features = ["connector_client"] }
-runtime = { path = "../runtime" }
 service-kit = { path = "../service-kit" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }

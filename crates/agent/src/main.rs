@@ -33,9 +33,6 @@ struct Args {
     /// URL endpoint into which build database are placed.
     #[clap(long = "builds-root", env = "BUILDS_ROOT")]
     builds_root: url::Url,
-    /// Docker network for connector invocations.
-    #[clap(long = "connector-network", default_value = "bridge")]
-    connector_network: String,
     /// Email address of user which provisions and maintains tenant accounts.
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
@@ -320,7 +317,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let connector_factory = Arc::new(ControlPlaneConnectorFactory::new(logs_tx.clone()));
     let discover_handler = DiscoverHandler::new(connector_factory.clone());
 
-    let builder = control_plane_api::publications::builds::new_builder(connector_factory);
+    let builder = control_plane_api::publications::builds::new_builder(connector_factory.clone());
     let mut publisher = Publisher::new(
         &args.builds_root,
         &logs_tx,
@@ -406,7 +403,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     let automations_fut = if args.max_automations > 0 {
         let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
-        let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
+        let connector_tags_executor =
+            agent::TagExecutor::new(connector_factory, snapshot_watch.clone());
         let mut automations_server = automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,

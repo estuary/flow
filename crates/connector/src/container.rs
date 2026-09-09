@@ -117,6 +117,19 @@ pub(crate) async fn start(
     let tmp_connector_init = tmp_connector_init.into_temp_path();
     let tmp_docker_inspect = tmp_docker_inspect.into_temp_path();
 
+    // Ensure the declared task type matches the image's inspected label.
+    if !matches!(
+        (image_inspection.runtime_protocol, task_type),
+        (RuntimeProtocol::Capture, ops::TaskType::Capture)
+            | (RuntimeProtocol::Derive, ops::TaskType::Derivation)
+            | (RuntimeProtocol::Materialize, ops::TaskType::Materialization)
+    ) {
+        anyhow::bail!(
+            "connector protocol {:?} does not match requested type {task_type:?}",
+            image_inspection.runtime_protocol,
+        );
+    }
+
     // This is default `docker run` behavior if --network is not provided.
     let network = if network == "" { "bridge" } else { network };
     let log_level = log_level.or(ops::LogLevel::Warn);

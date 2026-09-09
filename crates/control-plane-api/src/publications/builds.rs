@@ -192,7 +192,7 @@ pub async fn test_catalog(
         connector_router,
         splits: 2, // Exercise multi-shard key routing.
         log_handler: std::sync::Arc::new(move |log: &ops::Log| {
-            runtime::LogHandler::log(&ops_handler, log)
+            ::ops::LogHandler::log(&ops_handler, log)
         }),
         timeouts: catalog_tests::Timeouts::default(),
     };

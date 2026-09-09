@@ -41,7 +41,7 @@ macro_rules! unwrap_single {
 /// this point, as we plan to eventually make connectors a part of the catalog
 /// namespace.
 pub struct ConnectorSpec {
-    pub protocol: runtime::RuntimeProtocol,
+    pub protocol: String,
     pub documentation_url: String,
     pub endpoint_config_schema: models::Schema,
     pub resource_config_schema: models::Schema,
@@ -546,18 +546,17 @@ impl ControlPlane for PGControlPlane {
             oauth2,
             auto_discover_interval,
         } = row;
-        let Some(runtime_protocol) =
-            runtime::RuntimeProtocol::from_database_string_value(&protocol)
-        else {
-            anyhow::bail!("invalid protocol {:?}", protocol);
-        };
+        anyhow::ensure!(
+            matches!(protocol.as_str(), "capture" | "materialization" | "derive"),
+            "invalid protocol {protocol:?}",
+        );
 
         let resource_path_pointers = resource_path_pointers
             .into_iter()
             .map(|p| json::Pointer::from_str(&p))
             .collect::<Vec<_>>();
         Ok(ConnectorSpec {
-            protocol: runtime_protocol,
+            protocol,
             documentation_url,
             endpoint_config_schema: models::Schema::new(models::RawValue::from(
                 endpoint_config_schema.0,
