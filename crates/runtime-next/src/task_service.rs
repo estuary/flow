@@ -42,7 +42,7 @@ impl TaskService {
             ops::LogLevel::Warn,
             log_handler.clone(),
             task_name.clone(),
-            1,
+            worker_threads(),
         );
 
         let control_api_endpoint: url::Url =
@@ -128,6 +128,15 @@ impl TaskService {
         };
         let () = tokio_context.block_on(tokio_context.spawn(log)).unwrap();
     }
+}
+
+// This count is per-shard, and multiplies by the reactor's shard count.
+fn worker_threads() -> usize {
+    std::env::var("FLOW_RUNTIME_WORKER_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n != 0)
+        .unwrap_or(1)
 }
 
 // Decode the first key from `CONSUMER_AUTH_KEYS`, matching Gazette's
