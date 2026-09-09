@@ -142,7 +142,9 @@ types.
 - **`TaskService::new`** (`task_service.rs`) — CGO constructor invoked by Go
   on shard assignment. Wires the data-plane environment (FQDN, control API,
   signing key), constructs a `shard::Service`, and serves it over a per-shard
-  Unix domain socket.
+  Unix domain socket. Each shard gets its own tokio runtime of
+  `FLOW_RUNTIME_WORKER_THREADS` workers (default one), so raising it multiplies
+  by the reactor's shard count.
 - **`leader::Service::new`** (`leader/service.rs`) — sidecar process builds
   one of these and registers it on the sidecar port alongside `shuffle::Service`.
 - **`shard::Service`** (`shard/service.rs`) — implements the controller-facing
