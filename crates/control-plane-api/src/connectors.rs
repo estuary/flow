@@ -1,7 +1,7 @@
 use crate::logs;
 use futures::FutureExt;
+use ops::LogHandler;
 use proto_flow::connector;
-use runtime::LogHandler;
 use uuid::Uuid;
 
 pub use validation::Connectors;

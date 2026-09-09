@@ -29,7 +29,6 @@ ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["connector_client"] }
-runtime = { path = "../runtime" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 tokens = { path = "../tokens" }

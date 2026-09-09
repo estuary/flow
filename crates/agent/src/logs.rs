@@ -152,7 +152,7 @@ pub struct OpsHandler {
     token: Uuid,
 }
 
-impl runtime::LogHandler for OpsHandler {
+impl ::ops::LogHandler for OpsHandler {
     fn log(&self, log: &ops::Log) {
         let Err(tokio::sync::mpsc::error::TrySendError::Full(line)) = self.tx.try_send(Line {
             token: self.token.clone(),
