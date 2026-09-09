@@ -978,12 +978,10 @@ type CollectionSpec_Derivation struct {
 	// readers resolve `collection_index` and must not assume that entries
 	// are unique on name.
 	LinkedCollections []CollectionSpec `protobuf:"bytes,10,rep,name=linked_collections,json=linkedCollections,proto3" json:"linked_collections"`
-	// Secrets of this derivation, mapping a JSON pointer within `config_json`
-	// to the catalog name of a secret which the runtime resolves and merges
+	// Secrets of this derivation, mapping a catalog secret name to its JSON
+	// pointer within `config_json`. The runtime resolves and merges each secret
 	// into that location, as an RFC 7396 merge patch, before handing the
-	// configuration to the connector. Entries are applied in lexicographic
-	// pointer order. Empty if this derivation uses no secrets, or if
-	// `config_json` is instead sops-encrypted.
+	// configuration to the connector.
 	Secrets              map[string]string `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -1201,12 +1199,10 @@ type CaptureSpec struct {
 	// readers resolve `collection_index` and must not assume that entries
 	// are unique on name.
 	LinkedCollections []CollectionSpec `protobuf:"bytes,12,rep,name=linked_collections,json=linkedCollections,proto3" json:"linked_collections"`
-	// Secrets of this capture, mapping a JSON pointer within `config_json`
-	// to the catalog name of a secret which the runtime resolves and merges
+	// Secrets of this capture, mapping a catalog secret name to its JSON
+	// pointer within `config_json`. The runtime resolves and merges each secret
 	// into that location, as an RFC 7396 merge patch, before handing the
-	// configuration to the connector. Entries are applied in lexicographic
-	// pointer order. Empty if this capture uses no secrets, or if
-	// `config_json` is instead sops-encrypted.
+	// configuration to the connector.
 	Secrets              map[string]string `protobuf:"bytes,13,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -1352,12 +1348,10 @@ type MaterializationSpec struct {
 	// having differing `group_by` rewrite the binding's `key` and
 	// `projections[*].is_primary_key` to match, so same name != same spec.
 	LinkedCollections []CollectionSpec `protobuf:"bytes,13,rep,name=linked_collections,json=linkedCollections,proto3" json:"linked_collections"`
-	// Secrets of this materialization, mapping a JSON pointer within `config_json`
-	// to the catalog name of a secret which the runtime resolves and merges
-	// into that location, as an RFC 7396 merge patch, before handing the
-	// configuration to the connector. Entries are applied in lexicographic
-	// pointer order. Empty if this materialization uses no secrets, or if
-	// `config_json` is instead sops-encrypted.
+	// Secrets of this materialization, mapping a catalog secret name to its
+	// JSON pointer within `config_json`. The runtime resolves and merges each
+	// secret into that location, as an RFC 7396 merge patch, before handing the
+	// configuration to the connector.
 	Secrets              map[string]string `protobuf:"bytes,14,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`

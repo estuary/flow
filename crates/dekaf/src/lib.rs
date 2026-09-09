@@ -235,8 +235,8 @@ impl App {
         let token = auth.task_token()?;
 
         // A redirected task is steered to its new plane without its password
-        // being checked: a redirected task's config is never resolved here,
-        // so there's nothing to compare against. See README.md.
+        // being checked: this plane cannot decrypt a `secrets`-backed password
+        // of a task which no longer resides here. See README.md.
         let TaskToken::Authorized {
             spec,
             token: expected,

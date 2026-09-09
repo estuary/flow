@@ -37,12 +37,16 @@ pub use container::flow_runtime_protocol;
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
-pub use service::Service;
+pub use service::{Rotation, Service};
 
 /// Build a connector router for tests and other offline callers which need no
 /// shared registry and never attach containers to a Docker network.
 pub fn local_test_router() -> std::sync::Arc<dyn proto_grpc::connector::Router> {
-    let (_service, router) = Service::new_local(String::new(), service_kit::Registry::new());
+    let (_service, router) = Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    );
     std::sync::Arc::new(router)
 }
 
@@ -177,6 +181,9 @@ pub(crate) fn json_field(value: &impl serde::Serialize) -> bytes::Bytes {
 pub(crate) fn invalid_argument(message: String) -> anyhow::Error {
     proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(message))
 }
+
+static EMPTY_SECRETS: std::collections::BTreeMap<String, String> =
+    std::collections::BTreeMap::new();
 
 #[cfg(test)]
 mod deadline_tests {

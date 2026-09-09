@@ -19,6 +19,15 @@ use tokens::{TimeDelta, Watch};
 /// and a cold journal listing.
 const LINGER: std::time::Duration = std::time::Duration::from_secs(3 * 60);
 
+lazy_static::lazy_static! {
+    /// Config schema of a Dekaf endpoint config, which `unseal::resolve` uses
+    /// to locate the locations a `secrets` stanza may address. Dekaf's schema
+    /// is static: unlike an image connector, there's no Spec RPC to ask.
+    static ref CONFIG_SCHEMA: Vec<u8> =
+        serde_json::to_vec(&schemars::schema_for!(connector::DekafConfig))
+            .expect("DekafConfig schema always serializes");
+}
+
 /// Where a migrated task's sessions must go instead.
 #[derive(Clone, Debug)]
 pub struct Redirect {
@@ -33,8 +42,8 @@ pub struct Redirect {
 /// Only `/token` is `secret: true` in [`connector::DekafConfig`]'s schema, so
 /// these are plaintext in every well-formed config. That's what lets a task
 /// which has migrated to another data-plane still serve Metadata: the source
-/// plane never resolves the config of a task which no longer lives there, and
-/// must not need to.
+/// plane cannot decrypt a `secrets`-backed value of a task which no longer
+/// lives there, and must not need to.
 #[derive(Clone, Debug)]
 pub struct PublicConfig {
     pub deletions: connector::DeletionMode,
@@ -135,6 +144,8 @@ pub struct Env {
     pub ops_clients: journal::ClientFactory,
     /// Factory of journal clients which list and read a collection's journals.
     pub partition_clients: journal::ClientFactory,
+    /// Resolver of a task's `secrets` stanza.
+    pub resolver: Arc<dyn flow_client_next::SecretResolver>,
     /// Upper bound on the refresh cadence of a task's authorization.
     pub max_refresh: TimeDelta,
 }
@@ -234,7 +245,12 @@ impl Registry {
         tracing::info!(task_name = name, "starting to track task");
 
         let env = self.env.clone();
-        let task = Arc::new(new_task(&env, name, resolve_config));
+        let task_name = name.to_string();
+        let resolver = env.resolver.clone();
+
+        let task = Arc::new(new_task(&env, name, move |sealed, secrets| {
+            resolve_config(resolver.clone(), task_name.clone(), sealed, secrets)
+        }));
         tasks.insert(name.to_string(), Arc::downgrade(&task));
 
         tokio::spawn(Self::linger(self.clone(), name.to_string(), task.clone()));
@@ -268,11 +284,14 @@ impl Registry {
 }
 
 /// Build the watch tree of a Task. `resolve` turns a sealed endpoint config
-/// into plaintext, and is a parameter so that tests may drive the tree
-/// without running `sops`.
+/// and its `secrets` stanza into plaintext, and is a parameter so that tests
+/// may drive the tree without a config-encryption service.
 fn new_task<Resolve, Fut>(env: &Arc<Env>, name: &str, resolve: Resolve) -> Task
 where
-    Resolve: Fn(models::RawValue) -> Fut + Send + Sync + 'static,
+    Resolve: Fn(models::RawValue, std::collections::BTreeMap<String, String>) -> Fut
+        + Send
+        + Sync
+        + 'static,
     Fut: std::future::Future<Output = anyhow::Result<connector::DekafConfig>> + Send + 'static,
 {
     let auth = tokens::watch(flow_client_next::workflows::TaskDekafAuth::new(
@@ -312,8 +331,8 @@ struct Parsed {
     build: String,
     /// True if `build` differs from the prior Parsed's. The build changes on
     /// every publication, and is the edge on which the endpoint config is
-    /// re-resolved: resolution is a `sops` round-trip, and its input changes
-    /// only when the task is published.
+    /// re-resolved: a rotated secret *value* changes neither `config_json`
+    /// nor `secrets`, so a no-op publish is the user's lever to pick one up.
     changed: bool,
     ops_logs_journal: String,
     ops_stats_journal: String,
@@ -397,8 +416,9 @@ fn parse(
 ///
 /// Each field is decoded on its own, so that a config which encrypts one of
 /// them -- a `sops` `ENC[...]` string where a bool or an enum is expected --
-/// says which. Everything else in the document is ignored, including the
-/// `token`, which is encrypted.
+/// says which. Everything else in the document is ignored, including a `token`
+/// which is encrypted, or which is absent because a `secrets` stanza supplies
+/// it.
 fn public_config(sealed: &models::RawValue) -> anyhow::Result<PublicConfig> {
     #[derive(serde::Deserialize)]
     struct Fields<'a> {
@@ -440,7 +460,10 @@ fn resolve_stream<Resolve, Fut>(
     resolve: Resolve,
 ) -> impl futures::Stream<Item = tonic::Result<TaskToken>>
 where
-    Resolve: Fn(models::RawValue) -> Fut + Send + Sync + 'static,
+    Resolve: Fn(models::RawValue, std::collections::BTreeMap<String, String>) -> Fut
+        + Send
+        + Sync
+        + 'static,
     Fut: std::future::Future<Output = anyhow::Result<connector::DekafConfig>> + Send + 'static,
 {
     coroutines::coroutine(move |mut co| async move {
@@ -466,7 +489,7 @@ async fn next_token<Resolve, Fut>(
     resolve: &Resolve,
 ) -> tonic::Result<TaskToken>
 where
-    Resolve: Fn(models::RawValue) -> Fut,
+    Resolve: Fn(models::RawValue, std::collections::BTreeMap<String, String>) -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<connector::DekafConfig>>,
 {
     let parsed = match parsed {
@@ -478,9 +501,9 @@ where
         }
     };
 
-    // A redirect resolves nothing: the task runs elsewhere, and its password
-    // authenticates sessions only there. The cache is cleared so that a task
-    // which migrates *back* resolves afresh.
+    // A redirect resolves nothing: the task runs elsewhere, and this plane
+    // cannot decrypt a secret of a task which doesn't reside in it. The cache
+    // is cleared so that a task which migrates *back* resolves afresh.
     if let Some(redirect) = &parsed.redirect {
         *cached = None;
 
@@ -499,7 +522,7 @@ where
     }
 
     if parsed.changed || cached.is_none() {
-        match resolve(parsed.sealed.clone()).await {
+        match resolve(parsed.sealed.clone(), parsed.spec.secrets.clone()).await {
             // Only the password is kept: every other field of the resolved
             // document is read from the sealed config instead.
             Ok(config) => *cached = Some(config.token),
@@ -556,8 +579,43 @@ pub fn sealed_config(spec: &MaterializationSpec) -> anyhow::Result<models::RawVa
 }
 
 /// Resolve a sealed Dekaf endpoint config into its plaintext.
-async fn resolve_config(sealed: models::RawValue) -> anyhow::Result<connector::DekafConfig> {
-    let resolved = unseal::decrypt_sops(&sealed).await?;
+async fn resolve_config(
+    resolver: Arc<dyn flow_client_next::SecretResolver>,
+    task_name: String,
+    sealed: models::RawValue,
+    secrets: std::collections::BTreeMap<String, String>,
+) -> anyhow::Result<connector::DekafConfig> {
+    let resolved = unseal::resolve(&sealed, &secrets, &CONFIG_SCHEMA, |name| {
+        let (resolver, task_name) = (resolver.clone(), task_name.clone());
+
+        async move {
+            let decrypted = resolver
+                .decrypt(
+                    proto_flow::ops::TaskType::Materialization,
+                    &task_name,
+                    // Dekaf runs in-process and has no connector image to
+                    // attest, so it may use only sibling secrets.
+                    None,
+                    models::Secret::new(name),
+                )
+                .await?;
+
+            let (Some(value), Some(_id)) = (decrypted.value, decrypted.secret_id) else {
+                panic!("a successful secret decryption has a value and a secret id");
+            };
+            Ok(value)
+        }
+    })
+    .await
+    .map_err(|err| match err {
+        // A misconfiguration of the task, and not a failure of this runtime.
+        // Mirrors `connector::protocol`, so that the code survives into the
+        // TaskToken and `next_token` can tell it from a transient failure.
+        err @ unseal::Error::SopsWithSecrets => {
+            proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(err.to_string()))
+        }
+        err => anyhow::Error::new(err),
+    })?;
 
     Ok(serde_json::from_str(resolved.get()).context("decoding resolved Dekaf configuration")?)
 }
@@ -744,13 +802,14 @@ fn partitions(response: &broker::ListResponse) -> tonic::Result<Vec<Partition>> 
 mod tests {
     use super::*;
     use ::flow_client_next::workflows::DekafAuth;
+    use std::collections::BTreeMap;
 
     /// How a [`MockResolve`] fails, if it does.
     #[derive(Clone, Copy, Default, PartialEq)]
     enum Failure {
         #[default]
         None,
-        /// As `resolve_config` fails when `sops` cannot reach its key service.
+        /// As `resolve_config` fails when config-encryption is unreachable.
         Transient,
         /// As `resolve_config` fails on a task misconfiguration.
         Misconfigured,
@@ -768,15 +827,21 @@ mod tests {
         fn fail(&self, failure: Failure) {
             self.0.lock().unwrap().1 = failure;
         }
-        async fn resolve(self, sealed: models::RawValue) -> anyhow::Result<connector::DekafConfig> {
+        async fn resolve(
+            self,
+            sealed: models::RawValue,
+            secrets: BTreeMap<String, String>,
+        ) -> anyhow::Result<connector::DekafConfig> {
             let mut state = self.0.lock().unwrap();
-            state.0.push(sealed.get().to_string());
+            state
+                .0
+                .push(format!("{} with secrets {secrets:?}", sealed.get()));
 
             match state.1 {
                 Failure::None => Ok(serde_json::from_str(sealed.get())?),
-                Failure::Transient => anyhow::bail!("sops is unavailable"),
+                Failure::Transient => anyhow::bail!("config-encryption is unavailable"),
                 Failure::Misconfigured => Err(proto_grpc::status_to_anyhow(
-                    tonic::Status::invalid_argument("endpoint configuration is malformed"),
+                    tonic::Status::invalid_argument("sops with secrets"),
                 )),
             }
         }
@@ -807,6 +872,7 @@ mod tests {
             })
             .to_string()
             .into(),
+            secrets: BTreeMap::from([("acmeCo/password".to_string(), "/token".to_string())]),
             shard_template: Some(proto_gazette::consumer::ShardSpec {
                 id: crate::dekaf_shard_template_id("acmeCo/dekaf"),
                 labels: Some(labels::build_set([
@@ -850,7 +916,7 @@ mod tests {
         let stream = resolve_stream(
             "acmeCo/dekaf".to_string(),
             auth.map(parse),
-            move |sealed| resolve.clone().resolve(sealed),
+            move |sealed, secrets| resolve.clone().resolve(sealed, secrets),
         );
         (tokens::watch(tokens::StreamSource::new(stream)), replace)
     }
@@ -876,9 +942,9 @@ mod tests {
         let mut observed = vec![token_of(&task.token())];
 
         // A version of the same build re-uses the cached plaintext, even
-        // though this response's sealed config says otherwise -- the sealed
-        // config changes only through a publication, which moves the build,
-        // so that's the only occasion to resolve again.
+        // though this response's sealed config says otherwise -- a rotated
+        // secret *value* wouldn't change the config, so only a publication
+        // (which moves the build) is an occasion to resolve again.
         let refresh = task.token();
         _ = replace(Ok(response("1111111111111111", "ignored")));
         () = refresh.expired().await;
@@ -898,8 +964,8 @@ mod tests {
                 "Ok(second)",
             ],
             [
-                "{\"strict_topic_names\":false,\"token\":\"first\"}",
-                "{\"strict_topic_names\":false,\"token\":\"second\"}",
+                "{\"strict_topic_names\":false,\"token\":\"first\"} with secrets {\"acmeCo/password\": \"/token\"}",
+                "{\"strict_topic_names\":false,\"token\":\"second\"} with secrets {\"acmeCo/password\": \"/token\"}",
             ],
         )
         "###);
@@ -945,7 +1011,7 @@ mod tests {
         insta::assert_debug_snapshot!((observed, resolve.calls().len()), @r###"
         (
             [
-                "Err(failed to resolve endpoint config: sops is unavailable)",
+                "Err(failed to resolve endpoint config: config-encryption is unavailable)",
                 "Ok(first)",
                 "Err(agent is down)",
                 "Ok(first)",
@@ -974,7 +1040,7 @@ mod tests {
         assert_eq!(status.code(), tonic::Code::InvalidArgument);
         assert_eq!(
             status.message(),
-            "failed to resolve endpoint config: endpoint configuration is malformed"
+            "failed to resolve endpoint config: sops with secrets"
         );
         assert!(!revoke.is_cancelled());
     }
@@ -984,8 +1050,9 @@ mod tests {
         let resolve = MockResolve::default();
         let (task, replace) = fixture(resolve.clone());
 
-        // A redirected task's config is never resolved here: its password
-        // authenticates sessions only in the plane where the task now runs.
+        // A redirected task's config cannot be resolved here at all: this plane
+        // signs with its own key, and the control-plane refuses to decrypt a
+        // secret of a task which resides elsewhere.
         _ = replace(Ok(response_redirect("1111111111111111")));
         let task = task.ready_owned().await;
         let mut observed = vec![token_of(&task.token())];
@@ -1024,4 +1091,21 @@ mod tests {
         insta::assert_snapshot!(status.message(), @"`strict_topic_names` of the Dekaf endpoint configuration must be plaintext: invalid type: string \"ENC[AES256_GCM,data:def]\", expected a boolean at line 1 column 26");
     }
 
+    #[tokio::test]
+    async fn test_resolve_config_classifies_sops_with_secrets() {
+        // A `sops` document alongside a `secrets` stanza is the user's error,
+        // and surfaces as InvalidArgument rather than as a runtime failure.
+        let err = resolve_config(
+            Arc::new(flow_client_next::secret_resolver::NoOp),
+            "acmeCo/dekaf".to_string(),
+            models::RawValue::from_string(r#"{"sops":{},"token":"ENC[...]"}"#.to_string()).unwrap(),
+            BTreeMap::from([("acmeCo/password".to_string(), "/token".to_string())]),
+        )
+        .await
+        .unwrap_err();
+
+        let status = proto_grpc::anyhow_to_status(err);
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        insta::assert_snapshot!(status.message(), @"endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza");
+    }
 }

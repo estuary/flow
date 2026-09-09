@@ -85,12 +85,10 @@ pub mod request {
         /// `projections\[*\].is_primary_key` to match, so same name != same spec.
         #[prost(message, repeated, tag = "7")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
-        /// Secrets of this materialization, mapping a JSON pointer within `config_json`
-        /// to the catalog name of a secret which the runtime resolves and merges
+        /// Secrets of this materialization, mapping a catalog secret name to its JSON
+        /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
-        /// configuration to the connector. Entries are applied in lexicographic
-        /// pointer order. Empty if this materialization uses no secrets, or if
-        /// `config_json` is instead sops-encrypted.
+        /// configuration to the connector.
         #[prost(btree_map = "string, string", tag = "8")]
         pub secrets: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
@@ -196,11 +194,9 @@ pub mod request {
         /// Last-persisted connector checkpoint state from a previous session.
         #[prost(bytes = "bytes", tag = "4")]
         pub state_json: ::prost::bytes::Bytes,
-        /// Sealed (encrypted) endpoint configuration of this materialization.
-        /// This is the SOPS-encrypted document from which the runtime derived the
-        /// decrypted `materialization.config_json`, including any `sops` metadata stanza.
-        /// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-        /// overlay fields without re-encrypting the configuration.
+        /// Endpoint configuration of this materialization exactly as published,
+        /// before whole-document unsealing or secrets-stanza injection. Connectors
+        /// may reuse it as the non-secret baseline of a `configUpdate`.
         #[prost(bytes = "bytes", tag = "5")]
         pub sealed_config_json: ::prost::bytes::Bytes,
     }

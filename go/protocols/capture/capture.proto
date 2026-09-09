@@ -107,12 +107,10 @@ message Request {
     // a connector discovering on behalf of a to-be-created task should
     // assume a current date.
     string created_at = 4;
-    // Secrets of this capture, mapping a JSON pointer within `config_json`
-    // to the catalog name of a secret which the runtime resolves and merges
+    // Secrets of this capture, mapping a catalog secret name to its JSON
+    // pointer within `config_json`. The runtime resolves and merges each secret
     // into that location, as an RFC 7396 merge patch, before handing the
-    // configuration to the connector. Entries are applied in lexicographic
-    // pointer order. Empty if this capture uses no secrets, or if
-    // `config_json` is instead sops-encrypted.
+    // configuration to the connector.
     map<string, string> secrets = 5;
   }
   Discover discover = 2;
@@ -176,12 +174,10 @@ message Request {
     // are unique on name.
     repeated flow.CollectionSpec linked_collections = 7
         [ (gogoproto.nullable) = false ];
-    // Secrets of this capture, mapping a JSON pointer within `config_json`
-    // to the catalog name of a secret which the runtime resolves and merges
+    // Secrets of this capture, mapping a catalog secret name to its JSON
+    // pointer within `config_json`. The runtime resolves and merges each secret
     // into that location, as an RFC 7396 merge patch, before handing the
-    // configuration to the connector. Entries are applied in lexicographic
-    // pointer order. Empty if this capture uses no secrets, or if
-    // `config_json` is instead sops-encrypted.
+    // configuration to the connector.
     map<string, string> secrets = 8;
   }
   Validate validate = 3;
@@ -232,11 +228,9 @@ message Request {
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "state"
     ];
-    // Sealed (encrypted) endpoint configuration of this capture.
-    // This is the SOPS-encrypted document from which the runtime derived the
-    // decrypted `capture.config_json`, including any `sops` metadata stanza.
-    // Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-    // overlay fields without re-encrypting the configuration.
+    // Endpoint configuration of this capture exactly as published, before
+    // whole-document unsealing or secrets-stanza injection. Connectors may
+    // reuse it as the non-secret baseline of a `configUpdate`.
     bytes sealed_config_json = 5 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "sealedConfig"

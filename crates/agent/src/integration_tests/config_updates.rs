@@ -174,6 +174,135 @@ async fn test_config_update_publication_success() {
     assert!(updated_config() == materialization_endpoint.config.to_value());
 }
 
+/// A connector which rotates its own credentials updates the `secrets` stanza
+/// alongside the configuration which refers to it, and both replace their
+/// model counterparts wholesale. A legacy connector emits no stanza at all,
+/// and the one it published must survive its config updates untouched.
+#[tokio::test]
+async fn test_config_update_replaces_the_secrets_stanza() {
+    let mut harness = TestHarness::init("test_config_update_replaces_the_secrets_stanza").await;
+    let _user_id = harness.setup_tenant("ducks").await;
+
+    const CAPTURE_NAME: &str = "ducks/capture";
+
+    // As a migrating connector leaves it: a plaintext configuration drawing
+    // its credentials from one sibling secret.
+    let published_secrets = serde_json::json!({
+        "ducks/oauth-tokens": "/credentials",
+    });
+    // As it leaves it after a rotation which also adopts the vendor's
+    // image-rule secret for the OAuth client.
+    let rotated_secrets = serde_json::json!({
+        "ducks/oauth-tokens": "/credentials",
+        "acmeVendor/oauth/source/test/oauth-client": "/credentials",
+    });
+
+    let initial_draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "ducks/pond/quacks": {
+                "schema": {"type": "object", "properties": {"id": {"type": "string"}}},
+                "key": ["/id"]
+            }
+        },
+        "captures": {
+            CAPTURE_NAME: {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {"start_date": "2025-05-05T00:00:00Z"},
+                    }
+                },
+                "secrets": published_secrets,
+                // A stanza is resolved only on the V2 runtime path.
+                "shards": {"flags": {"enable-runtime-v2": "true"}},
+                "bindings": [
+                    {
+                        "resource": {"name": "greetings", "prefix": "Howdy {}!"},
+                        "target": "ducks/pond/quacks"
+                    }
+                ]
+            }
+        }
+    }));
+
+    let result = harness
+        .control_plane()
+        .publish(
+            Some("initial publication".to_string()),
+            Uuid::new_v4(),
+            initial_draft,
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .expect("initial publish failed");
+    assert!(
+        result.status.is_success(),
+        "publication failed with: {:?}",
+        result.draft_errors()
+    );
+
+    let states = harness.run_pending_controllers(None).await;
+    let build = states
+        .iter()
+        .find(|s| s.catalog_name == CAPTURE_NAME)
+        .expect("capture state to exist")
+        .last_build_id;
+
+    let shard = ShardRef {
+        name: CAPTURE_NAME.to_string(),
+        build,
+        key_begin: "00000000".to_string(),
+        r_clock_begin: "00000000".to_string(),
+    };
+
+    // A rotation: the stanza is replaced wholesale, not merged.
+    upsert_config_update_with_secrets(
+        &mut harness,
+        &shard,
+        serde_json::json!({"start_date": "2025-05-06T00:00:00Z"}),
+        Some(rotated_secrets.clone()),
+    )
+    .await;
+    let state = harness.run_pending_controller(CAPTURE_NAME).await;
+
+    let capture = state.live_spec.unwrap();
+    let capture = capture.as_capture().unwrap();
+    assert_eq!(
+        serde_json::to_value(&capture.secrets).unwrap(),
+        rotated_secrets
+    );
+
+    // A legacy `configUpdate`, which knows nothing of secrets: the published
+    // stanza stands.
+    let shard = ShardRef {
+        build: state.last_build_id,
+        ..shard
+    };
+    upsert_config_update(
+        &mut harness,
+        &shard,
+        serde_json::json!({"start_date": "2025-05-07T00:00:00Z"}),
+    )
+    .await;
+    let state = harness.run_pending_controller(CAPTURE_NAME).await;
+
+    let capture = state.live_spec.unwrap();
+    let capture = capture.as_capture().unwrap();
+    assert_eq!(
+        serde_json::to_value(&capture.secrets).unwrap(),
+        rotated_secrets,
+        "a config update without a `secrets` field must leave the stanza alone"
+    );
+
+    let CaptureEndpoint::Connector(ref endpoint) = capture.endpoint else {
+        panic!("expected capture endpoint")
+    };
+    assert_eq!(
+        endpoint.config.to_value(),
+        serde_json::json!({"start_date": "2025-05-07T00:00:00Z"})
+    );
+}
+
 #[tokio::test]
 async fn test_config_update_publication_failure() {
     // Set up harness & tenant.
@@ -528,12 +657,27 @@ async fn upsert_config_update(
     shard: &ShardRef,
     updated_config: serde_json::Value,
 ) {
-    let fields = serde_json::from_value(serde_json::json!({
+    upsert_config_update_with_secrets(harness, shard, updated_config, None).await
+}
+
+// As above, additionally carrying a `secrets` stanza. A legacy connector emits
+// a `configUpdate` log with no `secrets` field at all, which is what `None`
+// stands for -- distinct from a stanza which is deliberately empty.
+async fn upsert_config_update_with_secrets(
+    harness: &mut TestHarness,
+    shard: &ShardRef,
+    updated_config: serde_json::Value,
+    updated_secrets: Option<serde_json::Value>,
+) {
+    let mut fields = serde_json::json!({
         "eventType": "configUpdate",
         "eventTarget": shard.name.as_str(),
         "config": updated_config,
-    }))
-    .unwrap();
+    });
+    if let Some(updated_secrets) = updated_secrets {
+        fields["secrets"] = updated_secrets;
+    }
+    let fields = serde_json::from_value(fields).unwrap();
 
     let ts = harness.control_plane().current_time();
     let event = serde_json::to_value(models::status::connector::ConfigUpdate {

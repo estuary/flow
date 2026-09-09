@@ -7,8 +7,8 @@ use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{KafkaApiClient, KafkaClientAuth, Session, log_appender::GazetteWriter, logging};
 use flow_client_next::{
-    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_DATA_PLANE_FQDN,
-    LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
+    DEFAULT_AGENT_URL, DEFAULT_CONFIG_ENCRYPTION_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
+    LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
 };
 use futures::TryStreamExt;
 use rustls::pki_types::CertificateDer;
@@ -58,6 +58,15 @@ pub struct Cli {
             env = "AGENT_ENDPOINT"
         )]
     agent_endpoint: Url,
+
+    /// Endpoint of the config-encryption service, which decrypts the secrets
+    /// of a task's `secrets` stanza.
+    #[arg(
+        long,
+        default_value = DEFAULT_CONFIG_ENCRYPTION_URL.as_str(),
+        env = "CONFIG_ENCRYPTION_ENDPOINT"
+    )]
+    config_encryption_endpoint: Url,
 
     /// When true, override the configured API endpoint and token,
     /// in preference of a local control plane.
@@ -285,6 +294,15 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                  stack's agent URL (see `mise run local:stack-info`)."
             );
         }
+        if cli.config_encryption_endpoint == *DEFAULT_CONFIG_ENCRYPTION_URL {
+            bail!(
+                "--local requires an explicit CONFIG_ENCRYPTION_ENDPOINT (or \
+                 --config-encryption-endpoint): local-stack ports are dynamic, so there \
+                 is no local default. Run dekaf via `mise run local:data-plane`, or set \
+                 CONFIG_ENCRYPTION_ENDPOINT to your stack's config-encryption URL \
+                 (see `mise run local:stack-info`)."
+            );
+        }
     }
 
     let (api_endpoint, api_key) = (cli.api_endpoint, cli.api_key);
@@ -316,6 +334,11 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                 cli.data_plane_fqdn.clone(),
                 signing_token.clone(),
             ),
+        resolver: Arc::new(flow_client_next::secret_resolver::Task::new(
+            flow_client_next::rest::Client::new(&cli.config_encryption_endpoint, &user_agent),
+            cli.data_plane_fqdn,
+            signing_token,
+        )),
         max_refresh: tokens::TimeDelta::from_std(cli.spec_ttl)?,
     });
 

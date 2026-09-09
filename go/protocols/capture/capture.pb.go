@@ -145,12 +145,10 @@ type Request_Discover struct {
 	// a connector discovering on behalf of a to-be-created task should
 	// assume a current date.
 	CreatedAt string `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// Secrets of this capture, mapping a JSON pointer within `config_json`
-	// to the catalog name of a secret which the runtime resolves and merges
+	// Secrets of this capture, mapping a catalog secret name to its JSON
+	// pointer within `config_json`. The runtime resolves and merges each secret
 	// into that location, as an RFC 7396 merge patch, before handing the
-	// configuration to the connector. Entries are applied in lexicographic
-	// pointer order. Empty if this capture uses no secrets, or if
-	// `config_json` is instead sops-encrypted.
+	// configuration to the connector.
 	Secrets              map[string]string `protobuf:"bytes,5,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -224,12 +222,10 @@ type Request_Validate struct {
 	// readers resolve `collection_index` and must not assume that entries
 	// are unique on name.
 	LinkedCollections []flow.CollectionSpec `protobuf:"bytes,7,rep,name=linked_collections,json=linkedCollections,proto3" json:"linked_collections"`
-	// Secrets of this capture, mapping a JSON pointer within `config_json`
-	// to the catalog name of a secret which the runtime resolves and merges
+	// Secrets of this capture, mapping a catalog secret name to its JSON
+	// pointer within `config_json`. The runtime resolves and merges each secret
 	// into that location, as an RFC 7396 merge patch, before handing the
-	// configuration to the connector. Entries are applied in lexicographic
-	// pointer order. Empty if this capture uses no secrets, or if
-	// `config_json` is instead sops-encrypted.
+	// configuration to the connector.
 	Secrets              map[string]string `protobuf:"bytes,8,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -398,11 +394,9 @@ type Request_Open struct {
 	Range *flow.RangeSpec `protobuf:"bytes,3,opt,name=range,proto3" json:"range,omitempty"`
 	// Last-persisted connector checkpoint state from a previous invocation.
 	StateJson encoding_json.RawMessage `protobuf:"bytes,4,opt,name=state_json,json=state,proto3,casttype=encoding/json.RawMessage" json:"state_json,omitempty"`
-	// Sealed (encrypted) endpoint configuration of this capture.
-	// This is the SOPS-encrypted document from which the runtime derived the
-	// decrypted `capture.config_json`, including any `sops` metadata stanza.
-	// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-	// overlay fields without re-encrypting the configuration.
+	// Endpoint configuration of this capture exactly as published, before
+	// whole-document unsealing or secrets-stanza injection. Connectors may
+	// reuse it as the non-secret baseline of a `configUpdate`.
 	SealedConfigJson     encoding_json.RawMessage `protobuf:"bytes,5,opt,name=sealed_config_json,json=sealedConfig,proto3,casttype=encoding/json.RawMessage" json:"sealed_config_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`

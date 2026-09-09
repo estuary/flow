@@ -17,6 +17,7 @@ mod ops;
 mod output;
 mod poll;
 pub mod raw;
+mod secret;
 mod shuffle_read;
 mod version;
 
@@ -113,6 +114,14 @@ pub enum Command {
     Logs(ops::Logs),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
+    /// Manage the secrets which your tasks draw credentials from.
+    ///
+    /// A secret is a named catalog entity which lives apart from the
+    /// specifications that use it: a task names its secrets in a `secrets`
+    /// stanza, and the runtime resolves them as it starts. The value itself
+    /// is never part of a published specification.
+    #[clap(name = "secret", alias = "secrets")]
+    Secrets(secret::Secrets),
 }
 
 pub struct CliContext {
@@ -136,6 +145,15 @@ pub struct CliContext {
 }
 
 impl CliContext {
+    /// Client of the profile's config-encryption service, which wraps and
+    /// unwraps secrets.
+    pub(crate) fn config_encryption_client(&self) -> flow_client_next::rest::Client {
+        flow_client_next::rest::Client {
+            base_url: self.config.get_config_encryption_url().clone(),
+            http_client: self.rest.http_client.clone(),
+        }
+    }
+
     pub(crate) fn local_connector_router(
         &self,
     ) -> std::sync::Arc<dyn proto_grpc::connector::Router> {
@@ -201,8 +219,6 @@ impl Cli {
         let pg = config.build_pg();
         let rest = config.build_rest();
         let router = gazette::Router::new("local");
-        let connector_router =
-            runtime_local::local_router(self.connector_network.clone(), registry.clone());
 
         // An ambient FLOW_AUTH_TOKEN, if present, overrides the profile's stored
         // tokens. It's used but never persisted (it may still rotate in memory).
@@ -279,6 +295,19 @@ impl Cli {
             )))
         };
 
+        // Locally-run connectors decrypt secrets under the user's authority.
+        let connector_router = runtime_local::local_router(
+            self.connector_network.clone(),
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::User::new(
+                flow_client_next::rest::Client {
+                    base_url: config.get_config_encryption_url().clone(),
+                    http_client: rest.http_client.clone(),
+                },
+                user_tokens.clone(),
+            )),
+        );
+
         let mut context = CliContext {
             pg,
             rest,
@@ -305,6 +334,7 @@ impl Cli {
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
+            Command::Secrets(secrets) => secrets.run(&mut context).await,
         };
 
         // Print before `result?` so the warning is visible even when the command fails

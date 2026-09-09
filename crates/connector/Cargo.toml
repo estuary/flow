@@ -13,7 +13,9 @@ async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
 dekaf-connector = { path = "../dekaf-connector" }
 derive-sqlite = { path = "../derive-sqlite" }
+flow-client-next = { path = "../flow-client-next" }
 iam-auth = { path = "../iam-auth" }
+labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
 models = { path = "../models" }
 ops = { path = "../ops" }
@@ -42,6 +44,7 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]

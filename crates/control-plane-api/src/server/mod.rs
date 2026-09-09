@@ -14,6 +14,7 @@ mod create_data_plane;
 mod error;
 pub mod public;
 pub mod snapshot;
+mod task_update;
 mod update_l2_reporting;
 
 pub use error::{ApiError, AuthZRetry};
@@ -228,6 +229,10 @@ pub fn build_router(
             "/authorize/user/task",
             post(authorize_user_task::authorize_user_task).options(preflight_handler),
         )
+        // A task updating its own state. Not under `/authorize`: these routes
+        // act on the control-plane's own tables rather than minting a token.
+        .route("/task/set-secret", post(task_update::task_set_secret))
+        .route("/task/update-config", post(task_update::task_update_config))
         .route(
             "/admin/create-data-plane",
             post(create_data_plane::create_data_plane),
@@ -371,6 +376,59 @@ async fn fetch_secret(
         secret_id: Some(row.secret_id),
         retry_millis: 0,
     })
+}
+
+/// The catalog prefix which directly contains `name`, or None if `name` isn't a
+/// catalog name at all. Two names are siblings when their prefixes are equal.
+fn parent_prefix(name: &str) -> Option<&str> {
+    name.rfind('/').map(|index| &name[..index + 1])
+}
+
+/// Whether the storage mapping covering `task_name` admits `data_plane_name`.
+///
+/// This is the fallback by which a task the Snapshot does not know of -- a
+/// Discover or Validate of a task not yet published -- is still tied to a plane
+/// its tenant has opted into. `/authorize/task/decrypt-secret` fuses the same
+/// check into its read, for one round trip and to settle admissibility before
+/// existence; the two must agree, and any change belongs in both.
+///
+/// The longest covering mapping alone decides, mirroring publication's
+/// `lookup_mapping`: it names the planes a task could be created in, and a
+/// parent mapping's planes are never promoted into the decision. No covering
+/// mapping at all, or one without the plane, denies.
+async fn storage_mapping_admits(
+    pg_pool: &sqlx::PgPool,
+    task_name: &str,
+    data_plane_name: &str,
+) -> Result<bool, ApiError> {
+    // Storage mapping prefixes are always slash-terminated, so the mappings
+    // which could cover the task name are its slash-terminated prefixes.
+    // Enumerating them lets us ensure we hit the unique index over `catalog_prefix`.
+    let prefixes: Vec<&str> = task_name
+        .rmatch_indices('/')
+        .map(|(index, _)| &task_name[..index + 1])
+        .collect();
+
+    let admissible = sqlx::query_scalar!(
+        r#"
+        SELECT COALESCE(
+            (
+                SELECT $2 IN (SELECT json_array_elements_text(m.spec -> 'data_planes'))
+                FROM storage_mappings m
+                WHERE m.catalog_prefix = ANY ($1::text[])
+                ORDER BY length(m.catalog_prefix) DESC
+                LIMIT 1
+            ),
+            false
+        ) AS "admissible!: bool"
+        "#,
+        &prefixes as &[&str],
+        data_plane_name,
+    )
+    .fetch_one(pg_pool)
+    .await?;
+
+    Ok(admissible)
 }
 
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {

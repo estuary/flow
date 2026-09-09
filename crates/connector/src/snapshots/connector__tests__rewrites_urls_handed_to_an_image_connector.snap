@@ -1,0 +1,34 @@
+---
+source: crates/connector/src/tests.rs
+expression: "(rewrite, outcomes)"
+---
+(
+    Some(
+        (
+            "flow.localhost",
+            "host.docker.internal",
+        ),
+    ),
+    [
+        (
+            "http://agent.flow.localhost:13020/",
+            "http://host.docker.internal:13020/",
+        ),
+        (
+            "http://config-encryption.flow.localhost:13021/",
+            "http://host.docker.internal:13021/",
+        ),
+        (
+            "http://flow.localhost/",
+            "http://host.docker.internal/",
+        ),
+        (
+            "http://notflow.localhost/",
+            "http://notflow.localhost/",
+        ),
+        (
+            "https://agent.estuary.dev/",
+            "https://agent.estuary.dev/",
+        ),
+    ],
+)

@@ -46,10 +46,11 @@ Watches, and a session reads the current value at each access rather than
 being handed a snapshot. `task.rs` documents the tree; the two properties
 worth knowing here:
 
-**The endpoint config is resolved on the build ID, not on a timer.** The
-sealed config changes only through a publication, which moves the build, so
-there's nothing else to key on. The upside is that an established session is
-never exposed to a transient failure of `sops`.
+**The endpoint config is resolved on the build ID, not on a timer.** A
+rotated secret *value* changes neither `config_json` nor `secrets`, so there's
+nothing else to key on; a no-op publish is the user's lever. The upside is
+that an established session is never exposed to a transient failure of `sops`
+or of config-encryption.
 
 **A session which sees something stale asks for a re-fetch.** An unknown
 topic, a rejected password, a journal that has vanished, a rejected
@@ -79,8 +80,8 @@ which produce no error at all, such as a removed binding.
   answers with the target data-plane's addresses, which Metadata and
   FindCoordinator advertise as the only broker, and which the schema registry
   proxies to directly. The redirect is served *before* the password is
-  checked: a redirected task's config is never resolved here, so this plane
-  has nothing to compare against. A client
+  checked: a `secrets`-backed password can be decrypted only by the plane the
+  task resides in, so this plane has nothing to compare against. A client
   which names an existing task therefore learns where it moved to, and its
   collection names, without authenticating -- accepted, because
   `dekaf.estuary.dev` exists to serve exactly this discovery, and because the

@@ -11,10 +11,14 @@ use proto_flow::{capture, derive, flow, materialize};
 use proto_grpc::connector::Router as _;
 use tokio::sync::mpsc;
 
-/// A local `Service` and the router which mints its bearers, for the many
-/// tests which need a working pair and nothing more.
+/// A local `Service` and its router which resolve no secrets, for the many
+/// tests which never reference one.
 fn local_service() -> (crate::Service, crate::ServiceRouter) {
-    crate::Service::new_local(String::new(), service_kit::Registry::new())
+    crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    )
 }
 
 // ---------------------------------------------------------------- identity --
@@ -267,6 +271,47 @@ fn task_identity_rejects_shapeless_requests() {
 
 // --------------------------------------------------------------------- authz --
 
+struct StubSecretResolver;
+
+#[tonic::async_trait]
+impl flow_client_next::SecretResolver for StubSecretResolver {
+    async fn decrypt(
+        &self,
+        task_type: ops::TaskType,
+        task_name: &str,
+        _image: Option<&str>,
+        name: models::Secret,
+    ) -> anyhow::Result<models::authorizations::SecretDecryption> {
+        match task_type {
+            ops::TaskType::Capture => assert_eq!(task_name, "acmeCo/capture"),
+            ops::TaskType::Materialization => assert_eq!(task_name, "acmeCo/materialization"),
+            _ => panic!("unexpected task type"),
+        }
+        assert_eq!(name.as_str(), "acmeCo/password");
+
+        Ok(models::authorizations::SecretDecryption {
+            value: Some(models::RawValue::from_str(r#""resolved""#).unwrap()),
+            secret_id: Some(models::Id::new([1, 2, 3, 4, 5, 6, 7, 8])),
+            retry_millis: 0,
+        })
+    }
+}
+
+struct PanickingSecretResolver;
+
+#[tonic::async_trait]
+impl flow_client_next::SecretResolver for PanickingSecretResolver {
+    async fn decrypt(
+        &self,
+        _task_type: ops::TaskType,
+        _task_name: &str,
+        _image: Option<&str>,
+        _name: models::Secret,
+    ) -> anyhow::Result<models::authorizations::SecretDecryption> {
+        panic!("mixed configurations must be rejected before resolution")
+    }
+}
+
 fn authorize(
     service: &crate::Service,
     metadata: &proto_grpc::Metadata,
@@ -340,6 +385,8 @@ fn authentication_requires_the_capability_and_the_issuer() {
         ),
         None,
         service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        None,
     );
     let signer = |issuer: &str, key: &[u8]| {
         proto_grpc::Signer::new(
@@ -423,6 +470,8 @@ fn an_endpoint_router_mints_for_the_service_it_names() {
         ),
         None,
         service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        None,
     );
     let router = proto_grpc::connector::EndpointRouter::new(
         "unix:/run/reactor.sock".to_string(),
@@ -628,6 +677,216 @@ fn start(sqlite_vfs_uri: &str) -> proto::request::Start {
         log_level: ops::LogLevel::Debug as i32,
         sqlite_vfs_uri: sqlite_vfs_uri.to_string(),
     }
+}
+
+/// Secret resolution happens after Spec, but before the connector receives its
+/// initial Open. The connector sees the resolved config while sealedConfig
+/// remains the as-published, non-secret baseline, and the lifecycle id is
+/// observable in the preceding INFO log.
+#[tokio::test]
+async fn resolves_secrets_and_preserves_the_published_open_config() {
+    let (_service, router) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(StubSecretResolver),
+    );
+
+    let script = r#"
+read spec_request
+echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
+read open_request
+case "$open_request" in
+  *'"config":{"actual":"resolved","base":"published"}'*) ;;
+  *) echo 'resolved configuration was not provided' >&2; exit 7 ;;
+esac
+case "$open_request" in
+  *'"sealedConfig":{"base":"published"}'*) ;;
+  *) echo 'published baseline was not preserved' >&2; exit 7 ;;
+esac
+echo '{"opened":{}}'
+"#;
+    let endpoint = serde_json::json!({
+        "command": ["/bin/sh", "-c", script],
+        "config": {"base": "published"},
+    });
+    let capture = flow::CaptureSpec {
+        name: "acmeCo/capture".to_string(),
+        connector_type: flow::capture_spec::ConnectorType::Local as i32,
+        config_json: endpoint.to_string().into(),
+        secrets: [("acmeCo/password".to_string(), "/actual".to_string())]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    };
+
+    let responses = drive_router(
+        &router,
+        ops::TaskType::Capture,
+        "acmeCo/capture",
+        vec![proto::Request {
+            start: Some(start("")),
+            kind: Some(proto::request::Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Open(Box::new(
+                    capture::request::Open {
+                        capture: Some(capture),
+                        ..Default::default()
+                    },
+                ))),
+                ..Default::default()
+            })),
+        }],
+    )
+    .await;
+
+    let log = responses
+        .iter()
+        .find_map(|response| match response.as_ref().ok()?.kind.as_ref()? {
+            proto::response::Kind::Log(log) if log.message == "resolved task secret" => Some(log),
+            _ => None,
+        })
+        .expect("resolution log is present");
+    let fields: std::collections::BTreeMap<&str, serde_json::Value> = log
+        .fields_json_map
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.as_str(),
+                serde_json::from_slice(value).expect("log field is JSON"),
+            )
+        })
+        .collect();
+    insta::assert_debug_snapshot!(fields, @r###"
+    {
+        "secret": String("acmeCo/password"),
+        "secretId": String("0102030405060708"),
+    }
+    "###);
+    insta::assert_debug_snapshot!(render(responses), @r###"
+    [
+        "Log(info): resolved task secret",
+        "Started(codec=Json, container=false, process=false, spec=capture)",
+        "Capture(opened)",
+    ]
+    "###);
+}
+
+#[tokio::test]
+async fn rejects_a_sops_key_together_with_a_secrets_stanza() {
+    let (_service, router) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(PanickingSecretResolver),
+    );
+    let endpoint = serde_json::json!({
+        "command": [
+            "/bin/sh",
+            "-c",
+            "read request; echo '{\"spec\":{\"configSchema\":true}}'; read forever",
+        ],
+        "config": {"sops": null},
+    });
+    let capture = flow::CaptureSpec {
+        name: "acmeCo/capture".to_string(),
+        connector_type: flow::capture_spec::ConnectorType::Local as i32,
+        config_json: endpoint.to_string().into(),
+        secrets: [("acmeCo/password".to_string(), "/actual".to_string())]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    };
+
+    let responses = drive_router(
+        &router,
+        ops::TaskType::Capture,
+        "acmeCo/capture",
+        vec![proto::Request {
+            start: Some(start("")),
+            kind: Some(proto::request::Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Open(Box::new(
+                    capture::request::Open {
+                        capture: Some(capture),
+                        ..Default::default()
+                    },
+                ))),
+                ..Default::default()
+            })),
+        }],
+    )
+    .await;
+
+    insta::assert_debug_snapshot!(render(responses), @r###"
+    [
+        "Status(InvalidArgument): endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza",
+    ]
+    "###);
+}
+
+// Dekaf's `{variant, config}` wrapper is split before startup, so the pipeline
+// resolves the *inner* configuration and Dekaf validates its token from the
+// request slot.
+#[tokio::test]
+async fn dekaf_resolves_inner_configuration() {
+    let (_service, router) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(StubSecretResolver),
+    );
+    let mut outcomes = Vec::new();
+    for (config, use_secrets) in [
+        (serde_json::json!({"token": "plaintext"}), false),
+        (serde_json::json!({}), true),
+        (serde_json::json!({"sops": null}), true),
+    ] {
+        let responses = drive_router(
+            &router,
+            ops::TaskType::Materialization,
+            "acmeCo/materialization",
+            vec![proto::Request {
+                start: Some(start("")),
+                kind: Some(proto::request::Kind::Materialize(materialize::Request {
+                    kind: Some(materialize::request::Kind::Validate(Box::new(
+                        materialize::request::Validate {
+                            name: "acmeCo/materialization".to_string(),
+                            connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
+                            config_json: serde_json::json!({
+                                "variant": "test",
+                                "config": config,
+                            })
+                            .to_string()
+                            .into(),
+                            secrets: if use_secrets {
+                                [("acmeCo/password".to_string(), "/token".to_string())]
+                                    .into_iter()
+                                    .collect()
+                            } else {
+                                Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    ))),
+                    ..Default::default()
+                })),
+            }],
+        )
+        .await;
+        outcomes.push(render(responses));
+    }
+    insta::assert_debug_snapshot!(outcomes, @r###"
+    [
+        [
+            "Started(codec=Proto, container=false, process=false, spec=materialize)",
+            "Materialize(validated)",
+        ],
+        [
+            "Log(info): resolved task secret",
+            "Started(codec=Proto, container=false, process=false, spec=materialize)",
+            "Materialize(validated)",
+        ],
+        [
+            "Status(InvalidArgument): endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza",
+        ],
+    ]
+    "###);
 }
 
 fn derive_request(request: derive::Request) -> proto::Request {
@@ -1039,4 +1298,248 @@ async fn an_invalid_request_cannot_be_swallowed_as_eof() {
         "Status(InvalidArgument): every Connector request must set exactly one protocol request, of the type established by the first request",
     ]
     "#);
+}
+
+// ----------------------------------------------------------------- rotation --
+
+/// A router over a Service holding `rotation`, mirroring `Service::new_local`
+/// which deliberately holds none.
+fn rotation_router(rotation: Option<crate::Rotation>) -> crate::ServiceRouter {
+    let key: [u8; 32] = rand::random();
+
+    let service = crate::Service::new(
+        crate::Plane::Local,
+        String::new(),
+        proto_grpc::Authenticator::new(
+            crate::LOCAL_ISSUER.to_string(),
+            vec![tokens::jwt::DecodingKey::from_secret(&key)],
+        ),
+        None,
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        rotation,
+    );
+    crate::ServiceRouter::new(
+        service,
+        proto_grpc::Signer::new(
+            crate::LOCAL_ISSUER.to_string(),
+            tokens::jwt::EncodingKey::from_secret(&key),
+        ),
+    )
+}
+
+fn stub_rotation() -> crate::Rotation {
+    crate::Rotation {
+        signer: proto_grpc::Signer::new(
+            "fqdn.example.com".to_string(),
+            tokens::jwt::EncodingKey::from_secret(b"a reactor's data-plane key"),
+        ),
+        control_api: url::Url::parse("https://control.example.com/").unwrap(),
+        config_encryption: url::Url::parse("https://config-encryption.example.com/").unwrap(),
+    }
+}
+
+/// The claims of a minted rotation token. A session's carries the build it
+/// runs, which `/task/update-config` requires and which pins the proposed
+/// configuration to a model the connector has actually seen. A unary request
+/// has no session, and so no build and a much shorter lifetime.
+#[test]
+fn mints_a_rotation_token_scoped_to_its_task() {
+    let rotation = stub_rotation();
+
+    let outcomes = [
+        ("session", true, Some("1122334455667788")),
+        ("unary", false, None),
+    ]
+    .map(|(label, is_session, build)| {
+        let (env, expires_at) = crate::protocol::mint_rotation(
+            &rotation,
+            ops::TaskType::Capture,
+            "acmeCo/source-widgets",
+            build,
+            is_session,
+            &None,
+        )
+        .unwrap();
+
+        let env: std::collections::BTreeMap<&str, String> = env.into_iter().collect();
+        let claims = tokens::jwt::parse_unverified::<proto_gazette::Claims>(
+            env["FLOW_ROTATION_TOKEN"].as_bytes(),
+        )
+        .unwrap()
+        .claims()
+        .clone();
+
+        // Wall-clock, so the lifetime is rendered in whole hours.
+        let lifetime = expires_at
+            .duration_since(std::time::SystemTime::now())
+            .unwrap()
+            .as_secs()
+            / 3600;
+
+        (
+            label,
+            claims.cap,
+            claims.iss,
+            claims.sub,
+            claims.sel,
+            format!("~{lifetime}h"),
+            env["FLOW_CONTROL_API"].clone(),
+            env["FLOW_CONFIG_ENCRYPTION_URL"].clone(),
+        )
+    });
+
+    insta::assert_debug_snapshot!(outcomes);
+}
+
+/// The URL rewrite, by which a reactor hands an image connector an address its
+/// container can actually dial. It matches a host suffix and replaces the whole
+/// host: the container resolves one name for its host, and the port is what
+/// tells two rewritten services apart.
+#[test]
+fn rewrites_urls_handed_to_an_image_connector() {
+    let rewrite =
+        crate::container::parse_url_rewrite(" flow.localhost = host.docker.internal ").unwrap();
+
+    let outcomes: Vec<(&str, String)> = [
+        // Subdomains of the suffix, distinguished after rewriting by their ports.
+        "http://agent.flow.localhost:13020/",
+        "http://config-encryption.flow.localhost:13021/",
+        // The suffix itself, and a host which merely ends in the same letters.
+        "http://flow.localhost/",
+        "http://notflow.localhost/",
+        // No match: an address which is already meaningful everywhere.
+        "https://agent.estuary.dev/",
+    ]
+    .into_iter()
+    .map(|url| {
+        let rewritten =
+            crate::container::rewrite_url(&url::Url::parse(url).unwrap(), &rewrite).unwrap();
+        (url, rewritten.to_string())
+    })
+    .collect();
+
+    insta::assert_debug_snapshot!((rewrite, outcomes));
+}
+
+/// An unset variable rewrites nothing, and a malformed one fails the connector
+/// start rather than silently not applying.
+#[test]
+fn parses_the_url_rewrite() {
+    let outcomes: Vec<(&str, Result<Option<(String, String)>, String>)> =
+        ["", "   ", "flow.localhost", "=host.docker.internal", "a="]
+            .into_iter()
+            .map(|spec| {
+                (
+                    spec,
+                    crate::container::parse_url_rewrite(spec).map_err(|err| err.to_string()),
+                )
+            })
+            .collect();
+
+    insta::assert_debug_snapshot!(outcomes, @r#"
+    [
+        (
+            "",
+            Ok(
+                None,
+            ),
+        ),
+        (
+            "   ",
+            Ok(
+                None,
+            ),
+        ),
+        (
+            "flow.localhost",
+            Err(
+                "CONNECTOR_URL_REWRITE 'flow.localhost' is not of the form <from-suffix>=<to-host>",
+            ),
+        ),
+        (
+            "=host.docker.internal",
+            Err(
+                "CONNECTOR_URL_REWRITE '=host.docker.internal' has an empty side",
+            ),
+        ),
+        (
+            "a=",
+            Err(
+                "CONNECTOR_URL_REWRITE 'a=' has an empty side",
+            ),
+        ),
+    ]
+    "#);
+}
+
+/// The minted credentials reach the connector's process environment, and a
+/// Service holding no `Rotation` -- every local context -- injects nothing,
+/// which is how a connector knows to rotate in memory only.
+#[tokio::test]
+async fn injects_rotation_credentials_into_the_connector_environment() {
+    // `test` over each variable, so a missing one is reported by name rather
+    // than as an opaque non-zero exit.
+    let script = r#"
+read spec_request
+echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
+read open_request
+for name in FLOW_ROTATION_TOKEN FLOW_CONTROL_API FLOW_CONFIG_ENCRYPTION_URL; do
+  eval "value=\$$name"
+  if [ "$EXPECT_ROTATION" = "yes" ] && [ -z "$value" ]; then
+    echo "$name is unset" >&2; exit 7
+  fi
+  if [ "$EXPECT_ROTATION" = "no" ] && [ -n "$value" ]; then
+    echo "$name is set" >&2; exit 7
+  fi
+done
+echo '{"opened":{}}'
+"#;
+
+    let run = async |router: &crate::ServiceRouter, expect: &str| {
+        let endpoint = serde_json::json!({
+            "command": ["/bin/sh", "-c", script],
+            "config": {},
+            "env": {"EXPECT_ROTATION": expect},
+        });
+        let capture = flow::CaptureSpec {
+            name: "acmeCo/capture".to_string(),
+            connector_type: flow::capture_spec::ConnectorType::Local as i32,
+            config_json: endpoint.to_string().into(),
+            ..Default::default()
+        };
+
+        render(
+            drive_router(
+                router,
+                ops::TaskType::Capture,
+                "acmeCo/capture",
+                vec![proto::Request {
+                    start: Some(start("")),
+                    kind: Some(proto::request::Kind::Capture(capture::Request {
+                        kind: Some(capture::request::Kind::Open(Box::new(
+                            capture::request::Open {
+                                capture: Some(capture),
+                                ..Default::default()
+                            },
+                        ))),
+                        ..Default::default()
+                    })),
+                }],
+            )
+            .await,
+        )
+    };
+
+    let with_rotation = rotation_router(Some(stub_rotation()));
+    let (_service, local) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    );
+
+    insta::assert_debug_snapshot!([
+        ("injected", run(&with_rotation, "yes").await),
+        ("new_local injects nothing", run(&local, "no").await),
+    ]);
 }

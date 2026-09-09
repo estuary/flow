@@ -254,12 +254,10 @@ type Request_Validate struct {
 	// having differing `group_by` rewrite the binding's `key` and
 	// `projections[*].is_primary_key` to match, so same name != same spec.
 	LinkedCollections []flow.CollectionSpec `protobuf:"bytes,7,rep,name=linked_collections,json=linkedCollections,proto3" json:"linked_collections"`
-	// Secrets of this materialization, mapping a JSON pointer within `config_json`
-	// to the catalog name of a secret which the runtime resolves and merges
+	// Secrets of this materialization, mapping a catalog secret name to its JSON
+	// pointer within `config_json`. The runtime resolves and merges each secret
 	// into that location, as an RFC 7396 merge patch, before handing the
-	// configuration to the connector. Entries are applied in lexicographic
-	// pointer order. Empty if this materialization uses no secrets, or if
-	// `config_json` is instead sops-encrypted.
+	// configuration to the connector.
 	Secrets              map[string]string `protobuf:"bytes,8,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -446,11 +444,9 @@ type Request_Open struct {
 	Range *flow.RangeSpec `protobuf:"bytes,3,opt,name=range,proto3" json:"range,omitempty"`
 	// Last-persisted connector checkpoint state from a previous session.
 	StateJson encoding_json.RawMessage `protobuf:"bytes,4,opt,name=state_json,json=state,proto3,casttype=encoding/json.RawMessage" json:"state_json,omitempty"`
-	// Sealed (encrypted) endpoint configuration of this materialization.
-	// This is the SOPS-encrypted document from which the runtime derived the
-	// decrypted `materialization.config_json`, including any `sops` metadata stanza.
-	// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-	// overlay fields without re-encrypting the configuration.
+	// Endpoint configuration of this materialization exactly as published,
+	// before whole-document unsealing or secrets-stanza injection. Connectors
+	// may reuse it as the non-secret baseline of a `configUpdate`.
 	SealedConfigJson     encoding_json.RawMessage `protobuf:"bytes,5,opt,name=sealed_config_json,json=sealedConfig,proto3,casttype=encoding/json.RawMessage" json:"sealed_config_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`

@@ -21,28 +21,13 @@ pub struct CaptureDef {
     /// # Endpoint to capture from.
     pub endpoint: CaptureEndpoint,
     /// # Secrets which are merged into the endpoint configuration.
-    /// Maps a JSON pointer within the endpoint configuration to the name of a
-    /// secret which is resolved and merged into that location as the task
-    /// starts. Secrets are named catalog entities, managed apart from the
-    /// specification, and must be siblings of this task: secret
-    /// `acmeCo/widgets/password` may be used by capture `acmeCo/widgets/source-pg`.
+    /// Maps the name of a secret to a JSON pointer within the endpoint
+    /// configuration. On task start, the resolved value is applied into
+    /// the specified location as an RFC 7396 JSON merge patch.
     ///
-    /// Each entry synthesizes a document from its pointer -- pointer `/a/b`
-    /// with resolved value `v` becomes `{"a":{"b":v}}` -- which is applied to
-    /// the configuration as an RFC 7396 merge patch. Entries are applied in
-    /// lexicographic pointer order, so a deeper pointer wins where two entries
-    /// overlap, and a `null` value deletes its location.
-    ///
-    /// Pointer tokens are always object property names: token `2` addresses the
-    /// property `"2"` and never an array index, and `-` is the literal property
-    /// `"-"`. Arrays are therefore atomic values: to change one, point at the
-    /// property holding it and supply the whole array. The empty pointer merges
-    /// at the configuration root, and its secret must resolve to an object.
-    ///
-    /// A configuration using `secrets` must be plaintext: it cannot also be
-    /// encrypted, and its top-level `sops` property is reserved.
+    /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub secrets: BTreeMap<JsonPointer, Secret>,
+    pub secrets: BTreeMap<Secret, JsonPointer>,
     /// # Bound collections to capture from the endpoint.
     pub bindings: Vec<CaptureBinding>,
     /// # Interval of time between invocations of the capture.
@@ -221,22 +206,21 @@ mod test {
         let fixture = json!({
             "endpoint": {"connector": {"image": "an/image", "config": {}}},
             "secrets": {
-                "": "acmeCo/widgets/whole-config",
-                "/credentials/password": "acmeCo/widgets/password",
+                "acmeCo/widgets/password": "/credentials/password",
+                "acmeCo/widgets/whole-config": "",
             },
             "bindings": [],
         });
         let model: CaptureDef = serde_json::from_value(fixture.clone()).unwrap();
 
-        // Pointers order lexicographically, which is the order in which
-        // resolved secrets are merge-patched into the configuration.
+        // Secret names are unique and canonicalized into lexicographic order.
         assert_eq!(
             model
                 .secrets
                 .keys()
                 .map(AsRef::as_ref)
                 .collect::<Vec<&str>>(),
-            ["", "/credentials/password"],
+            ["acmeCo/widgets/password", "acmeCo/widgets/whole-config"],
         );
         assert_eq!(serde_json::to_value(&model).unwrap(), fixture);
 

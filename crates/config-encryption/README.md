@@ -40,6 +40,11 @@ whether that caller may have it. See [issue #3366](https://github.com/estuary/fl
 
 ## Non-obvious details
 
+- **`/secret/encrypt` canonicalizes before it wraps.** sops MACs data values in
+  their traversal order, so a document decrypts only under the property order it
+  was wrapped with. It's common for JSON documents to be re-ordered (such as by
+  PostgreSQL `jsonb` or `serde_json::Value`), so we canonicalize to sorted order
+  before sealing with `sops`.
 - **`/secret/encrypt` is unauthenticated.** Wrapping a value the caller already
   holds discloses nothing. Authority is enforced where the secret is *set*, by
   the control plane's `setSecret` mutation. Keeping the two separable is what

@@ -72,11 +72,19 @@ impl Protocol for Derive {
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,
     ) -> anyhow::Result<Extracted<'r, Self>> {
-        let (connector_type, config_json) = match &mut request.kind {
-            Some(request::Kind::Spec(spec)) => (spec.connector_type, &mut spec.config_json),
-            Some(request::Kind::Validate(validate)) => {
-                (validate.connector_type, &mut validate.config_json)
-            }
+        let mut is_session = false;
+
+        let (connector_type, config_json, secrets) = match &mut request.kind {
+            Some(request::Kind::Spec(spec)) => (
+                spec.connector_type,
+                &mut spec.config_json,
+                &super::EMPTY_SECRETS,
+            ),
+            Some(request::Kind::Validate(validate)) => (
+                validate.connector_type,
+                &mut validate.config_json,
+                &validate.secrets,
+            ),
             Some(request::Kind::Open(open)) => {
                 let inner = open
                     .collection
@@ -90,7 +98,8 @@ impl Protocol for Derive {
                         )
                     })?;
 
-                (inner.connector_type, &mut inner.config_json)
+                is_session = true;
+                (inner.connector_type, &mut inner.config_json, &inner.secrets)
             }
             _ => unreachable!("checked by task_name"),
         };
@@ -141,6 +150,15 @@ impl Protocol for Derive {
             endpoint,
             initial_config_slot: config_json,
             initial_sealed_config_slot: None,
+            secrets,
+            is_session,
+            // No build, deliberately. `/task/set-secret` is task-type agnostic,
+            // so a derivation may rotate a secret it manages and gets a
+            // session-lifetime token to do it with. `/task/update-config` is
+            // not: a derivation's configuration is its module and environment,
+            // which the connector doesn't author. Withholding the build label
+            // makes that refusal independent of the route's own task-type check.
+            build: None,
         })
     }
 }

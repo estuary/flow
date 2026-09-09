@@ -60,12 +60,10 @@ pub mod request {
         /// assume a current date.
         #[prost(string, tag = "4")]
         pub created_at: ::prost::alloc::string::String,
-        /// Secrets of this capture, mapping a JSON pointer within `config_json`
-        /// to the catalog name of a secret which the runtime resolves and merges
+        /// Secrets of this capture, mapping a catalog secret name to its JSON
+        /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
-        /// configuration to the connector. Entries are applied in lexicographic
-        /// pointer order. Empty if this capture uses no secrets, or if
-        /// `config_json` is instead sops-encrypted.
+        /// configuration to the connector.
         #[prost(btree_map = "string, string", tag = "5")]
         pub secrets: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
@@ -117,12 +115,10 @@ pub mod request {
         /// are unique on name.
         #[prost(message, repeated, tag = "7")]
         pub linked_collections: ::prost::alloc::vec::Vec<super::super::flow::CollectionSpec>,
-        /// Secrets of this capture, mapping a JSON pointer within `config_json`
-        /// to the catalog name of a secret which the runtime resolves and merges
+        /// Secrets of this capture, mapping a catalog secret name to its JSON
+        /// pointer within `config_json`. The runtime resolves and merges each secret
         /// into that location, as an RFC 7396 merge patch, before handing the
-        /// configuration to the connector. Entries are applied in lexicographic
-        /// pointer order. Empty if this capture uses no secrets, or if
-        /// `config_json` is instead sops-encrypted.
+        /// configuration to the connector.
         #[prost(btree_map = "string, string", tag = "8")]
         pub secrets: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,
@@ -205,11 +201,9 @@ pub mod request {
         /// Last-persisted connector checkpoint state from a previous invocation.
         #[prost(bytes = "bytes", tag = "4")]
         pub state_json: ::prost::bytes::Bytes,
-        /// Sealed (encrypted) endpoint configuration of this capture.
-        /// This is the SOPS-encrypted document from which the runtime derived the
-        /// decrypted `capture.config_json`, including any `sops` metadata stanza.
-        /// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-        /// overlay fields without re-encrypting the configuration.
+        /// Endpoint configuration of this capture exactly as published, before
+        /// whole-document unsealing or secrets-stanza injection. Connectors may
+        /// reuse it as the non-secret baseline of a `configUpdate`.
         #[prost(bytes = "bytes", tag = "5")]
         pub sealed_config_json: ::prost::bytes::Bytes,
     }

@@ -18,31 +18,41 @@ pub struct TaskSecretDecrypt {
 }
 
 /// Build a SignedSource for authoring TaskSecretDecrypt request tokens, scoping
-/// the requesting data-plane & task shard, and the requested secret.
+/// the requesting data-plane and task, and the requested secret.
 ///
-/// `secret_name` is the catalog name of the secret to decrypt. It must be a
-/// sibling of the task -- they share a catalog prefix -- which is the rule the
-/// control-plane enforces over these claims.
+/// `secret_name` is the catalog name of the secret to decrypt. It must either
+/// be a sibling of the task -- they share a catalog prefix -- or be admitted by
+/// the image rule against `image`. The control-plane enforces both over these
+/// claims.
 ///
-/// `shard_id` is the Shard ID of the requesting subject. Apply and Open run
-/// within a shard and use its own ID. Discover, Validate, and shards of a
-/// specification which hasn't published instead use a synthetic Shard ID over
-/// the task's type and name, with an all-zero generation ID -- which callers
-/// owe whenever the shard's generation isn't the live one.
+/// `task_name` is the task subject authorized by the connector service, and
+/// `task_type` is the type of the connector protocol request.
+///
+/// `image` is the repository of the connector image being run, with its tag and
+/// digest stripped, and is the runtime's attestation of *which* image is asking.
+/// It's None for local and in-process connectors, which may use only siblings.
 ///
 /// `data_plane_fqdn` is the FQDN of the data-plane hosting the task, and
 /// `data_plane_signing_key` is its corresponding secret signing key.
 pub fn new_signed_source(
     secret_name: &models::Secret,
-    shard_id: String,
+    task_type: proto_flow::ops::TaskType,
+    task_name: &str,
+    image: Option<&str>,
     data_plane_fqdn: String,
     data_plane_signing_key: tokens::jwt::EncodingKey,
 ) -> tokens::jwt::SignedSource<proto_gazette::Claims> {
+    let mut include = labels::build_set([
+        (labels::SECRET_NAME, secret_name.as_str()),
+        (labels::TASK_NAME, task_name),
+        (labels::TASK_TYPE, task_type.as_str_name()),
+    ]);
+    if let Some(image) = image {
+        include = labels::add_value(include, labels::IMAGE_NAME, image);
+    }
+
     let sel = proto_gazette::broker::LabelSelector {
-        include: Some(labels::build_set([(
-            labels::SECRET_NAME,
-            secret_name.as_str(),
-        )])),
+        include: Some(include),
         exclude: None,
     };
 
@@ -52,7 +62,7 @@ pub fn new_signed_source(
         iat: 0,
         iss: data_plane_fqdn,
         sel,
-        sub: shard_id,
+        sub: task_name.to_string(),
     };
 
     tokens::jwt::SignedSource {
@@ -103,8 +113,8 @@ mod tests {
     use super::{TaskSecretDecrypt, new_signed_source};
     use tokens::RestSource;
 
-    /// The task path carries its subject and its secret in the token, and
-    /// nothing else: `started` is recoverable from `iat`, so it doesn't travel.
+    /// The task path carries its subject, type, and secret in the token.
+    /// `started` is recoverable from `iat`, so it doesn't travel separately.
     #[tokio::test]
     async fn test_task_request() {
         let name = models::Secret::new("acmeCo/password");
@@ -118,7 +128,9 @@ mod tests {
             name: name.clone(),
             signed_source: new_signed_source(
                 &name,
-                "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000".to_string(),
+                proto_flow::ops::TaskType::Capture,
+                "acmeCo/source-pineapple",
+                Some("ghcr.io/acmeVendor/source-pineapple"),
                 "fqdn.example.com".to_string(),
                 tokens::jwt::EncodingKey::from_secret(b"secret"),
             ),
@@ -153,11 +165,33 @@ mod tests {
         assert_eq!(claims.iat, started.timestamp() as u64);
         assert!(claims.exp > tokens::now().timestamp() as u64);
 
+        // A connector with no image attests none, which is how the
+        // control-plane tells a local or in-process connector from an image.
+        let no_image = new_signed_source(
+            &name,
+            proto_flow::ops::TaskType::Capture,
+            "acmeCo/source-pineapple",
+            None,
+            "fqdn.example.com".to_string(),
+            tokens::jwt::EncodingKey::from_secret(b"secret"),
+        );
+        assert!(
+            !no_image
+                .claims
+                .sel
+                .include
+                .as_ref()
+                .unwrap()
+                .labels
+                .iter()
+                .any(|label| label.name == labels::IMAGE_NAME)
+        );
+
         insta::assert_debug_snapshot!(
             (claims.sub, claims.iss, claims.cap, claims.sel),
             @r###"
         (
-            "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
+            "acmeCo/source-pineapple",
             "fqdn.example.com",
             65536,
             LabelSelector {
@@ -165,8 +199,23 @@ mod tests {
                     LabelSet {
                         labels: [
                             Label {
+                                name: "estuary.dev/image-name",
+                                value: "ghcr.io/acmeVendor/source-pineapple",
+                                prefix: false,
+                            },
+                            Label {
                                 name: "estuary.dev/secret-name",
                                 value: "acmeCo/password",
+                                prefix: false,
+                            },
+                            Label {
+                                name: "estuary.dev/task-name",
+                                value: "acmeCo/source-pineapple",
+                                prefix: false,
+                            },
+                            Label {
+                                name: "estuary.dev/task-type",
+                                value: "capture",
                                 prefix: false,
                             },
                         ],

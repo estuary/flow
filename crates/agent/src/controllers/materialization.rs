@@ -10,7 +10,7 @@ use crate::controllers::{
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
-    MaterializationEndpoint, ModelDef, RawValue, SourceType,
+    MaterializationEndpoint, ModelDef, SourceType,
     status::{
         Alerts,
         connector::ConfigUpdate,
@@ -39,19 +39,23 @@ pub async fn update<C: ControlPlane>(
         events,
         control_plane,
         |config_update: &ConfigUpdate| -> anyhow::Result<PendingPublication> {
-            let Some(updated_config) = config_update.fields.get("config") else {
-                anyhow::bail!("expected config to be present in fields");
-            };
+            let (updated_config, updated_secrets) = config_update::extract_update(config_update)?;
 
             let mut updated_model = model.clone();
             match &mut updated_model.endpoint {
                 MaterializationEndpoint::Connector(connector) => {
                     // Overwrite the connector's config with the updated config.
-                    connector.config = RawValue::from_string(updated_config.to_string())?;
+                    connector.config = updated_config;
                 }
                 _ => {
                     anyhow::bail!("expected Connector endpoint for config update event");
                 }
+            }
+            // A legacy connector emits no stanza, and its published one stands.
+            // One which does carry a stanza replaces it wholesale -- an empty
+            // stanza is a deliberate clearing, and not an absent field.
+            if let Some(updated_secrets) = updated_secrets {
+                updated_model.secrets = updated_secrets;
             }
 
             let materialization_name = models::Materialization::new(&state.catalog_name);

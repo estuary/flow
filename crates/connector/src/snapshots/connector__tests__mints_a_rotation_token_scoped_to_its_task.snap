@@ -1,0 +1,67 @@
+---
+source: crates/connector/src/tests.rs
+expression: outcomes
+---
+[
+    (
+        "session",
+        2162688,
+        "fqdn.example.com",
+        "acmeCo/source-widgets",
+        LabelSelector {
+            include: Some(
+                LabelSet {
+                    labels: [
+                        Label {
+                            name: "estuary.dev/build",
+                            value: "1122334455667788",
+                            prefix: false,
+                        },
+                        Label {
+                            name: "estuary.dev/task-name",
+                            value: "acmeCo/source-widgets",
+                            prefix: false,
+                        },
+                        Label {
+                            name: "estuary.dev/task-type",
+                            value: "capture",
+                            prefix: false,
+                        },
+                    ],
+                },
+            ),
+            exclude: None,
+        },
+        "~167h",
+        "https://control.example.com/",
+        "https://config-encryption.example.com/",
+    ),
+    (
+        "unary",
+        2162688,
+        "fqdn.example.com",
+        "acmeCo/source-widgets",
+        LabelSelector {
+            include: Some(
+                LabelSet {
+                    labels: [
+                        Label {
+                            name: "estuary.dev/task-name",
+                            value: "acmeCo/source-widgets",
+                            prefix: false,
+                        },
+                        Label {
+                            name: "estuary.dev/task-type",
+                            value: "capture",
+                            prefix: false,
+                        },
+                    ],
+                },
+            ),
+            exclude: None,
+        },
+        "~0h",
+        "https://control.example.com/",
+        "https://config-encryption.example.com/",
+    ),
+]

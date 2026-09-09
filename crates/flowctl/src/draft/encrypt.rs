@@ -24,10 +24,16 @@ pub async fn encrypt_configs(
     let mut schema_cache: HashMap<String, Option<RawValue>> = HashMap::new();
 
     for capture in draft.captures.iter_mut() {
-        if let Some(models::CaptureEndpoint::Connector(connector)) =
-            capture.model.as_mut().map(|model| &mut model.endpoint)
-        {
-            if !is_encrypted(&connector.config) {
+        let Some(model) = capture.model.as_mut() else {
+            continue;
+        };
+        // A task which draws its secrets from a `secrets` stanza has a
+        // deliberately plaintext endpoint configuration. Wrapping it would
+        // manufacture the mixed state that publication then rejects.
+        let uses_secrets = !model.secrets.is_empty();
+
+        if let models::CaptureEndpoint::Connector(connector) = &mut model.endpoint {
+            if !uses_secrets && !is_encrypted(&connector.config) {
                 let maybe_schema =
                     fetch_or_cache_schema(&connector.image, &mut schema_cache, ctx).await?;
                 let endpoint_spec_schema = require_schema(&capture.scope, maybe_schema)?;
@@ -50,9 +56,13 @@ pub async fn encrypt_configs(
             continue;
         };
 
+        // Trigger configurations are independent of the `secrets` stanza, and
+        // keep being encrypted for a task which has one.
+        let uses_secrets = !model.secrets.is_empty();
+
         // Encrypt endpoint config if not already encrypted.
         if let models::MaterializationEndpoint::Connector(connector) = &mut model.endpoint {
-            if !is_encrypted(&connector.config) {
+            if !uses_secrets && !is_encrypted(&connector.config) {
                 let maybe_schema =
                     fetch_or_cache_schema(&connector.image, &mut schema_cache, ctx).await?;
                 let endpoint_spec_schema = require_schema(&materialization.scope, maybe_schema)?;

@@ -82,11 +82,27 @@ impl DekafTestEnv {
     /// The fixture is a catalog YAML. Names are automatically
     /// rewritten to include a unique test namespace.
     pub async fn setup(test_name: &str, fixture_yaml: &str) -> anyhow::Result<Self> {
+        Self::setup_with_secrets(test_name, fixture_yaml, &[]).await
+    }
+
+    /// Setup as [`Self::setup`], first setting each `(name, value)` of
+    /// `secrets` as a sibling secret of the test's namespace.
+    ///
+    /// A task's secrets must exist before it's published: a publication's
+    /// Validate resolves them as the connector starts.
+    pub async fn setup_with_secrets(
+        test_name: &str,
+        fixture_yaml: &str,
+        secrets: &[(&str, &str)],
+    ) -> anyhow::Result<Self> {
         let suffix = format!("{:04x}", rand::random::<u16>());
         let namespace = format!("{}/{test_name}/{suffix}", test_namespace_prefix());
 
         tracing::info!(%namespace, "Setting up test environment");
 
+        for (name, value) in secrets {
+            set_secret(&format!("{namespace}/{name}"), value).await?;
+        }
         let catalog = rewrite_fixture(&namespace, fixture_yaml)?;
 
         let temp_file = tempfile::Builder::new().suffix(".json").tempfile()?;
@@ -556,8 +572,53 @@ impl DekafTestEnv {
         self.publish_catalog(&catalog).await
     }
 
+    /// Set a sibling secret of this test's namespace.
+    pub async fn set_secret(&self, name: &str, value: &str) -> anyhow::Result<()> {
+        set_secret(&format!("{}/{name}", self.namespace), value).await
+    }
+
+    /// Publish the materialization again, under a new value of the inert shard
+    /// flag `test-nonce`.
+    ///
+    /// `flowctl catalog publish` prunes a specification which is byte-identical
+    /// to the live one, so a literal no-op publish does nothing. This stands in
+    /// for whatever real publication a user makes to pick up a rotated secret:
+    /// any of them moves the task's build ID, which is the edge Dekaf resolves
+    /// its endpoint configuration on.
+    pub async fn republish_materialization(&self, nonce: &str) -> anyhow::Result<()> {
+        let (name, def) = self
+            .catalog
+            .materializations
+            .iter()
+            .next()
+            .context("no materialization in fixture")?;
+
+        let mut def = def.clone();
+        def.shards
+            .flags
+            .insert(models::Token::new("test-nonce"), models::Token::new(nonce));
+
+        tracing::info!(%name, nonce, "Re-publishing materialization");
+
+        self.publish_catalog(&models::Catalog {
+            materializations: [(name.clone(), def)].into(),
+            ..Default::default()
+        })
+        .await
+    }
+
     /// Cleanup test specs synchronously.
     fn cleanup_sync(&self) {
+        // Secrets are catalog entities of their own, which `catalog delete`
+        // doesn't reach.
+        if let Ok(mut cmd) = flowctl_command() {
+            cmd.args(["secret", "delete", "--recursive", &self.namespace]);
+            let _ = std::process::Command::new(cmd.get_program())
+                .args(cmd.get_args())
+                .envs(cmd.get_envs().filter_map(|(k, v)| v.map(|v| (k, v))))
+                .output();
+        }
+
         let cmd = match flowctl_command() {
             Ok(mut cmd) => {
                 cmd.args([
@@ -831,6 +892,31 @@ pub async fn wait_for_dekaf_redirect(
 }
 
 /// Rewrite fixture names to include test namespace.
+/// Set a secret's value through `flowctl secret set`, which takes it from a
+/// file rather than an argument.
+pub async fn set_secret(name: &str, value: &str) -> anyhow::Result<()> {
+    let temp_file = tempfile::NamedTempFile::new()?;
+    std::fs::write(temp_file.path(), value)?;
+
+    let output = async_process::output(flowctl_command()?.args([
+        "secret",
+        "set",
+        name,
+        "--from-file",
+        temp_file.path().to_str().unwrap(),
+    ]))
+    .await?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "flowctl secret set {name} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    tracing::info!(%name, "Set secret");
+    Ok(())
+}
+
 fn rewrite_fixture(namespace: &str, yaml: &str) -> anyhow::Result<models::Catalog> {
     let yaml_value: serde_yaml::Value = serde_yaml::from_str(yaml)?;
     let original: models::Catalog = serde_json::from_value(serde_json::to_value(&yaml_value)?)?;
@@ -867,6 +953,14 @@ fn rewrite_fixture(namespace: &str, yaml: &str) -> anyhow::Result<models::Catalo
                     .source
                     .set_collection(models::Collection::new(prefix(old_collection.as_ref())));
             }
+            // A secret must be a sibling of the task which uses it, so it
+            // moves into the test namespace along with everything else.
+            def.secrets = def
+                .secrets
+                .into_iter()
+                .map(|(secret, ptr)| (models::Secret::new(prefix(secret.as_ref())), ptr))
+                .collect();
+
             (models::Materialization::new(prefix(name.as_ref())), def)
         })
         .collect();

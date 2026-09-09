@@ -16,12 +16,13 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 
 ## Key Types and Entry Points
 
+- `resolve()` - The joint which tells the two forms apart and dispatches to the
+  routines below, rejecting a document which is somehow both.
 - `decrypt_sops()` - Decrypt a wrapped document, stripping any `encrypted_suffix`.
   A document with no `sops` stanza passes through unchanged.
 - `overlay::decrypt_with_overlay()` - As above, additionally applying a
   `sops.overlay` which is first validated to touch only `nonsensitive: true`
   schema locations.
-- `secrets::is_sops()` - The sniff which chooses between the two forms.
 - `secrets::resolve()` - Resolve a `secrets` stanza into a plaintext
   configuration, generic over an async decrypt callback. This crate holds no
   transport and no tokens: callers supply the callback.
@@ -30,8 +31,15 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 
 - Decryption shells out to the `sops` and `jq` binaries, located via
   `locate-bin`.
-- `secrets::resolve` merge-patches (RFC 7396) each entry in lexicographic
-  pointer order, so a deeper pointer wins wherever two entries overlap, and a
-  `null` leaf deletes its property. Pointer tokens are always object property
-  names -- never array indices.
+- A stanza is keyed by *secret name* and valued by the pointer it lands at, so
+  one secret can never be resolved twice, and several secrets may legitimately
+  target one location. They apply in lexicographic name order, so connectors
+  are expected to merge non-overlapping properties at a shared location --
+  credentials which must agree belong in a single object-valued secret.
+- `secrets::resolve` builds each location with `json::ptr::create_value` and
+  then merge-patches (RFC 7396) the resolved value there. Consequences, all
+  intended: a numeric token indexes an array and pads it with `null`; a `null`
+  secret *sets* its location to `null` rather than deleting it (the merge patch
+  is rooted at the location, not at its parent); and the empty pointer
+  merge-patches the document root.
 - Error messages never carry secret material.

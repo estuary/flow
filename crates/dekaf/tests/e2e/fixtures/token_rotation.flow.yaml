@@ -1,0 +1,37 @@
+# Fixture for secret-backed Dekaf passwords.
+#
+# The materialization's `token` appears nowhere in the specification: it exists
+# only as the resolved value of the sibling secret `dekaf-token`, which the test
+# sets before publishing. Rotating that secret and publishing again is what a
+# password rotation looks like to a user.
+collections:
+    test_data:
+        schema:
+            type: object
+            properties:
+                id: { type: string }
+            required: [id]
+        key: [/id]
+
+materializations:
+    dekaf_rotation:
+        endpoint:
+            dekaf:
+                variant: testing
+                config:
+                    strict_topic_names: false
+        # `/token` is annotated `secret: true` in DekafConfig's schema, so a
+        # plaintext value here would be rejected at publication.
+        secrets:
+            dekaf-token: /token
+        shards:
+            flags:
+                # Secrets are resolved by the V2 connector start pipeline,
+                # which materializations reach only via this flag.
+                enable-runtime-v2: "true"
+        bindings:
+            - source: test_data
+              resource: { topic_name: test_topic }
+              fields:
+                  recommended: true
+                  exclude: [flow_published_at]

@@ -1,5 +1,6 @@
 use super::{ControlPlane, ControllerState, Inbox, NextRun};
 use crate::controllers::{RetryableError, publication_status};
+use anyhow::Context;
 use control_plane_api::controllers::Message;
 use models::status::{
     Alerts, PendingConfigUpdateStatus, connector::ConfigUpdate, publications::PublicationStatus,
@@ -7,6 +8,34 @@ use models::status::{
 
 pub const CONFIG_UPDATE_PUBLICATION_DETAIL: &str =
     "in response to an updated config emitted by the connector";
+
+/// A task's `secrets` stanza: catalog secret names mapped to the JSON pointers
+/// of the endpoint configuration where their values are merged.
+pub type Stanza = std::collections::BTreeMap<models::Secret, models::JsonPointer>;
+
+/// Read the endpoint configuration an update proposes, and the `secrets`
+/// stanza which accompanies it.
+///
+/// Both wholly replace their model counterparts; neither is a patch. The
+/// stanza is optional because a legacy connector emits a `configUpdate` log
+/// which knows nothing of secrets, and whose stanza must therefore be left
+/// exactly as published -- distinct from an update which deliberately carries
+/// an empty one to clear it.
+pub fn extract_update(update: &ConfigUpdate) -> anyhow::Result<(models::RawValue, Option<Stanza>)> {
+    let Some(config) = update.fields.get("config") else {
+        anyhow::bail!("expected config to be present in fields");
+    };
+    let config = models::RawValue::from_string(config.to_string())?;
+
+    let secrets = update
+        .fields
+        .get("secrets")
+        .map(|secrets| serde_json::from_value(secrets.clone()))
+        .transpose()
+        .context("decoding `secrets` stanza of config update")?;
+
+    Ok((config, secrets))
+}
 
 pub async fn updated_config_publish<C: ControlPlane, F>(
     state: &ControllerState,

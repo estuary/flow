@@ -74,25 +74,45 @@ impl Protocol for Capture {
         if sqlite_vfs_uri.is_some() {
             return Err(crate::protocol::sqlite_vfs_uri_error());
         }
-        let (connector_type, config_json, sealed_config_json) = match &mut request.kind {
-            Some(request::Kind::Spec(spec)) => (spec.connector_type, &mut spec.config_json, None),
-            Some(request::Kind::Discover(discover)) => {
-                (discover.connector_type, &mut discover.config_json, None)
-            }
-            Some(request::Kind::Validate(validate)) => {
-                (validate.connector_type, &mut validate.config_json, None)
-            }
+        let (mut is_session, mut build) = (false, None);
+
+        let (connector_type, config_json, sealed_config_json, secrets) = match &mut request.kind {
+            Some(request::Kind::Spec(spec)) => (
+                spec.connector_type,
+                &mut spec.config_json,
+                None,
+                &super::EMPTY_SECRETS,
+            ),
+            Some(request::Kind::Discover(discover)) => (
+                discover.connector_type,
+                &mut discover.config_json,
+                None,
+                &discover.secrets,
+            ),
+            Some(request::Kind::Validate(validate)) => (
+                validate.connector_type,
+                &mut validate.config_json,
+                None,
+                &validate.secrets,
+            ),
             Some(request::Kind::Apply(apply)) => {
                 let inner = apply.capture.as_mut().expect("checked by task_name");
-                (inner.connector_type, &mut inner.config_json, None)
+                (
+                    inner.connector_type,
+                    &mut inner.config_json,
+                    None,
+                    &inner.secrets,
+                )
             }
             Some(request::Kind::Open(open)) => {
                 let sealed_config_json = &mut open.sealed_config_json;
                 let inner = open.capture.as_mut().expect("checked by task_name");
+                (is_session, build) = (true, crate::protocol::shard_build(&inner.shard_template));
                 (
                     inner.connector_type,
                     &mut inner.config_json,
                     Some(sealed_config_json),
+                    &inner.secrets,
                 )
             }
             _ => unreachable!("checked by task_name"),
@@ -116,6 +136,9 @@ impl Protocol for Capture {
             connector_type,
             endpoint,
             initial_sealed_config_slot: sealed_config_json,
+            secrets,
+            is_session,
+            build,
         })
     }
 }

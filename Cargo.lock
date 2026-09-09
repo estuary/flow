@@ -1676,6 +1676,7 @@ dependencies = [
  "bytes",
  "doc",
  "extractors",
+ "flow-client-next",
  "futures",
  "insta",
  "json",
@@ -2034,9 +2035,11 @@ dependencies = [
  "connector-init",
  "dekaf-connector",
  "derive-sqlite",
+ "flow-client-next",
  "futures",
  "iam-auth",
  "insta",
+ "labels",
  "locate-bin",
  "models",
  "ops",
@@ -2056,6 +2059,7 @@ dependencies = [
  "tonic",
  "tracing",
  "unseal",
+ "url",
  "zeroize",
 ]
 
@@ -7480,6 +7484,7 @@ dependencies = [
  "bytes",
  "connector",
  "doc",
+ "flow-client-next",
  "json",
  "labels",
  "models",
@@ -9591,6 +9596,7 @@ dependencies = [
  "models",
  "serde",
  "serde_json",
+ "thiserror 2.0.17",
  "tokio",
  "zeroize",
 ]

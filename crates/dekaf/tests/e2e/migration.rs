@@ -8,7 +8,23 @@ use serde_json::json;
 use std::time::Duration;
 
 const FIXTURE: &str = include_str!("fixtures/basic.flow.yaml");
+/// A task whose password lives in a `secrets` stanza, rather than in a `sops`
+/// document which the source plane could decrypt on its own.
+const SECRET_FIXTURE: &str = include_str!("fixtures/token_rotation.flow.yaml");
 const MIGRATION_TIMEOUT: Duration = Duration::from_secs(30);
+/// Password which [`SECRET_FIXTURE`]'s sibling secret supplies, and one which
+/// it doesn't.
+const DEKAF_PASSWORD: &str = "t0ken-behind-a-secret";
+const WRONG_PASSWORD: &str = "not-the-password";
+/// How long the source plane may take to learn that a task has moved.
+///
+/// A redirect produces no client-visible error, so nothing revokes the
+/// authorization Dekaf already holds: it learns of the migration only when
+/// that authorization expires, bounded by `--spec-ttl` (5 minutes by
+/// default), plus the control plane's own snapshot refresh. The scenarios
+/// above sit out that same window while waiting for a shard to go primary;
+/// this one has no shard, and waits here instead.
+const REDIRECT_TIMEOUT: Duration = Duration::from_mins(8);
 
 // NOTE: This depends on the following:
 // - Recovery log fragments being persisted by the source dataplane
@@ -47,6 +63,14 @@ fn redact_dekaf_ports(
         rendered = rendered.replace(&format!("port: {port},"), &format!("port: {token},"));
     }
     rendered
+}
+
+fn topic_names(metadata: &kafka_protocol::messages::MetadataResponse) -> Vec<&str> {
+    metadata
+        .topics
+        .iter()
+        .filter_map(|t| t.name.as_ref().map(|n| n.as_str()))
+        .collect()
 }
 
 fn extract_ids(records: &[super::kafka::DecodedRecord]) -> Vec<&str> {
@@ -256,6 +280,81 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
         Some(0),
         "post-migration fetch from target should succeed"
     );
+
+    Ok(())
+}
+
+/// A task whose password comes from a `secrets` stanza still redirects.
+///
+/// The source plane cannot resolve such a password once the task has moved:
+/// it signs the decryption request with its own key, and the control plane
+/// refuses to decrypt a secret of a task which resides elsewhere. So the
+/// redirect must be served from the *sealed* config alone, and before the
+/// password is compared -- which is also why a wrong password is redirected
+/// rather than refused. The target plane, which can resolve it, refuses.
+#[tokio::test]
+async fn test_secret_backed_task_migration_redirects() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup_with_secrets(
+        "migration_secrets",
+        SECRET_FIXTURE,
+        &[("dekaf-token", DEKAF_PASSWORD)],
+    )
+    .await?;
+
+    let username = env.materialization_name().context("no materialization")?;
+    let collections: Vec<String> = env.collection_names().map(String::from).collect();
+    let (src_cluster, tgt_cluster) = (cluster_name(), cluster_name_2());
+
+    let src_info =
+        connection_info_for_dataplane(&src_cluster, username, collections.clone()).await?;
+    let tgt_info = connection_info_for_dataplane(&tgt_cluster, username, collections).await?;
+
+    let mut client = TestKafkaClient::connect(&src_info.broker, username, DEKAF_PASSWORD).await?;
+    assert_eq!(topic_names(&client.metadata(&[]).await?), ["test_topic"]);
+    drop(client);
+
+    let migration_id = trigger_migration(&env.namespace, &src_cluster, &tgt_cluster).await?;
+    wait_for_migration_complete(migration_id, MIGRATION_TIMEOUT).await?;
+
+    // There's no shard to wait for -- this fixture is a Dekaf materialization
+    // of a collection -- but Dekaf's authorization still has to refresh before
+    // it knows of the migration, and the control plane's snapshot before that.
+    wait_for_dekaf_redirect(
+        &src_cluster,
+        &tgt_cluster,
+        username,
+        DEKAF_PASSWORD,
+        REDIRECT_TIMEOUT,
+    )
+    .await?;
+
+    // A wrong password is redirected just the same, and sees the collection
+    // names it would see from the target: this is what `dekaf.estuary.dev`
+    // serves as discovery, and it's deliberate.
+    let mut wrong = TestKafkaClient::connect(&src_info.broker, username, WRONG_PASSWORD).await?;
+    let metadata = wrong.metadata(&[]).await?;
+
+    let brokers: Vec<String> = metadata
+        .brokers
+        .iter()
+        .map(|b| format!("{}:{}", b.host.as_str(), b.port))
+        .collect();
+    assert_eq!(brokers, [tgt_info.broker.clone()]);
+    assert_eq!(topic_names(&metadata), ["test_topic"]);
+
+    // The plane the task actually runs in resolves that password, and refuses.
+    assert!(
+        TestKafkaClient::connect(&tgt_info.broker, username, WRONG_PASSWORD)
+            .await
+            .is_err(),
+        "the target plane must refuse a wrong password",
+    );
+
+    // ... and accepts the right one.
+    let mut client = TestKafkaClient::connect(&tgt_info.broker, username, DEKAF_PASSWORD).await?;
+    assert_eq!(topic_names(&client.metadata(&[]).await?), ["test_topic"]);
 
     Ok(())
 }

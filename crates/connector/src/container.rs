@@ -4,7 +4,7 @@ use crate::{LogSink, RuntimeProtocol};
 use anyhow::Context;
 use futures::channel::oneshot;
 use proto_flow::{flow, runtime};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tokio::io::AsyncBufReadExt;
 
 // Port on which flow-connector-init listens for requests.
@@ -23,6 +23,9 @@ const RUNTIME_PROTO_LABEL: &str = "FLOW_RUNTIME_PROTOCOL";
 const USAGE_RATE_LABEL: &str = "dev.estuary.usage-rate";
 const PORT_PUBLIC_LABEL_PREFIX: &str = "dev.estuary.port-public.";
 const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
+/// Comma-delimited catalog names of the secrets this image may be handed under
+/// the image rule, whatever task runs it. Absent means none.
+const SECRETS_LABEL: &str = "dev.estuary.secrets";
 
 // `flow-connector-init` is extracted from this image when a locally-built copy
 // isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
@@ -62,6 +65,10 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 /// events are reported through its `log_sink`. The context's `task_name` and
 /// `task_type` are used only to label the container.
 ///
+/// `repo` is `image` with its tag or digest stripped, and `secrets` is the
+/// task's stanza: together they decide, after the image is inspected but before
+/// it runs, whether every secret the task names may be handed to this image.
+///
 /// The returned [`Guard`] owns the container: dropping it SIGKILLs the `docker
 /// run` client, which closes the container's stderr and lets the log pump run
 /// to completion -- reporting "stopped connector container" and then releasing
@@ -70,6 +77,9 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 pub(crate) async fn start(
     ctx: &crate::protocol::StartContext,
     image: &str,
+    repo: &str,
+    secrets: &BTreeMap<String, String>,
+    rotation_env: &Option<Vec<(&'static str, String)>>,
     task_type: ops::TaskType,
 ) -> anyhow::Result<(
     runtime::Container,
@@ -116,6 +126,16 @@ pub(crate) async fn start(
     // Close our open files but retain a deletion guard.
     let tmp_connector_init = tmp_connector_init.into_temp_path();
     let tmp_docker_inspect = tmp_docker_inspect.into_temp_path();
+
+    // Refuse a stanza this image cannot be handed before it runs, rather than
+    // after a doomed container is already up and asking for the secret.
+    check_image_secrets(
+        task_name,
+        secrets.keys().map(String::as_str),
+        image,
+        repo,
+        &image_inspection.secrets,
+    )?;
 
     // Ensure the declared task type matches the image's inspected label.
     if !matches!(
@@ -174,10 +194,23 @@ pub(crate) async fn start(
         format!("--label=task-type={}", task_type.as_str_name()),
     ];
 
+    // Credentials by which the connector rotates what it manages. Passed as
+    // environment rather than a mount: this host already holds the key which
+    // signed the token, so `docker inspect` here is not a new boundary.
+    for (name, value) in rotation_env.iter().flatten() {
+        docker_args.push(format!("--env={name}={value}"));
+    }
+
     // When running locally, we publish ports so that connectors are accessible
     // on the host from Windows and MacOS (e.x. Docker Desktop).
     if matches!(plane, crate::Plane::Local) {
         docker_args.append(&mut vec![
+            // A local stack's control plane and config-encryption listen on the
+            // developer's own machine, so a connector reaches them only through
+            // an alias for its host. Docker Desktop defines one already; a plain
+            // Linux daemon does so only when asked. This is what makes a
+            // `CONNECTOR_URL_REWRITE` onto `host.docker.internal` resolve.
+            "--add-host=host.docker.internal:host-gateway".to_string(),
             // Support Docker Desktop in non-production contexts (for example, `flowctl`)
             // where the container IP is not directly addressable. As an alternative,
             // we ask Docker to provide mapped host ports that are then advertised
@@ -368,6 +401,99 @@ pub(crate) async fn start(
     ))
 }
 
+/// The catalog prefix which directly contains `name`, or None if `name` has no
+/// prefix at all. Two names are siblings when their prefixes are equal.
+fn parent_prefix(name: &str) -> Option<&str> {
+    name.rfind('/').map(|index| &name[..index + 1])
+}
+
+/// Whether `secret` is admitted under the image rule for image `repo`: the
+/// repository must be the secret's immediate parent, beneath some non-empty
+/// catalog prefix. So a secret of `ghcr.io/acmeVendor/source-widgets` looks
+/// like `acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client`.
+///
+/// The prefix must be non-empty because it, and not the repository, is what
+/// AuthZ is expressed over: a secret rooted at the registry host would belong
+/// to no tenant. No prefix is special -- `ops/connectors/` is merely where
+/// Estuary keeps its own.
+fn admitted_by_image_rule(secret: &str, repo: &str) -> bool {
+    let Some(parent) = parent_prefix(secret) else {
+        return false;
+    };
+    // `parent` always ends in '/', and must be `<non-empty prefix>/<repo>/`.
+    match parent
+        .strip_suffix('/')
+        .and_then(|parent| parent.strip_suffix(repo))
+    {
+        Some(prefix) => prefix.ends_with('/'),
+        None => false,
+    }
+}
+
+/// Check a task's `secrets` stanza against the image which is about to run it.
+///
+/// A stanza entry is admitted if it's a sibling of the task, or if the image
+/// declared it in `SECRETS_LABEL`. Every declared name is itself checked
+/// against the image rule -- whether the task uses it or not -- so that an
+/// image which names a secret it could never be handed fails loudly at start,
+/// rather than at the moment some task first depends on it.
+///
+/// Pure, and called before `docker run`: a stanza the control-plane will refuse
+/// should never reach a container.
+fn check_image_secrets<'a>(
+    task_name: &str,
+    stanza: impl IntoIterator<Item = &'a str>,
+    image: &str,
+    repo: &str,
+    declared: &BTreeSet<String>,
+) -> anyhow::Result<()> {
+    for secret in declared {
+        if !admitted_by_image_rule(secret, repo) {
+            anyhow::bail!(
+                "image '{image}' declares secret '{secret}' in its '{SECRETS_LABEL}' label, \
+                 but the image rule cannot admit it: a declared secret must be named \
+                 <prefix>/{repo}/<leaf>"
+            );
+        }
+    }
+
+    let task_prefix = parent_prefix(task_name).unwrap_or("");
+
+    for secret in stanza {
+        if parent_prefix(secret).unwrap_or("") == task_prefix || declared.contains(secret) {
+            continue;
+        }
+        anyhow::bail!(
+            "task '{task_name}' uses secret '{secret}', which is neither a sibling of the task \
+             (under '{task_prefix}') nor declared by image '{image}' in its '{SECRETS_LABEL}' \
+             label (which declares {declared:?})"
+        );
+    }
+    Ok(())
+}
+
+/// Check a task's `secrets` stanza for a connector which runs without an image
+/// -- a local subprocess or an in-process connector -- and so has nothing to
+/// attest under the image rule. Only siblings of the task are admitted.
+pub(crate) fn check_local_secrets<'a>(
+    task_name: &str,
+    stanza: impl IntoIterator<Item = &'a String>,
+) -> anyhow::Result<()> {
+    let task_prefix = parent_prefix(task_name).unwrap_or("");
+
+    for secret in stanza {
+        if parent_prefix(secret).unwrap_or("") == task_prefix {
+            continue;
+        }
+        anyhow::bail!(
+            "task '{task_name}' uses secret '{secret}', which is not a sibling of the task \
+             (under '{task_prefix}'). A connector which runs without an image can use only \
+             sibling secrets, as it has no image identity under which to be granted others"
+        );
+    }
+    Ok(())
+}
+
 /// Validates that a connector image is allowed to run in this data-plane.
 fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<()> {
     if matches!(plane, crate::Plane::Public) {
@@ -440,6 +566,69 @@ fn docker_cli() -> String {
     std::env::var("DOCKER_CLI")
         .ok()
         .unwrap_or_else(|| "docker".to_string())
+}
+
+/// Host rewrite applied to the URLs handed to an image connector, parsed from
+/// the optional `CONNECTOR_URL_REWRITE`: a single `<from-suffix>=<to-host>`,
+/// e.g. `flow.localhost=host.docker.internal`.
+///
+/// It exists because a container's view of the network is not its host's. A
+/// local stack serves its control plane and config-encryption on the
+/// developer's own machine, under names (`agent.flow.localhost`,
+/// `config-encryption.flow.localhost`) which inside a container resolve to the
+/// container itself. Unset -- every deployed data plane, whose services have
+/// names meaningful everywhere -- rewrites nothing.
+pub(crate) fn url_rewrite() -> anyhow::Result<Option<(String, String)>> {
+    parse_url_rewrite(&std::env::var("CONNECTOR_URL_REWRITE").unwrap_or_default())
+}
+
+/// Pure half of [`url_rewrite`], over the variable's value.
+pub(crate) fn parse_url_rewrite(spec: &str) -> anyhow::Result<Option<(String, String)>> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Ok(None);
+    }
+    let Some((from, to)) = spec.split_once('=') else {
+        anyhow::bail!("CONNECTOR_URL_REWRITE '{spec}' is not of the form <from-suffix>=<to-host>");
+    };
+    let (from, to) = (from.trim(), to.trim());
+
+    if from.is_empty() || to.is_empty() {
+        anyhow::bail!("CONNECTOR_URL_REWRITE '{spec}' has an empty side");
+    }
+    Ok(Some((from.to_string(), to.to_string())))
+}
+
+/// Replace the host of `url` with `to`, where its host is `from` or a subdomain
+/// of it. The scheme, port, and path are the reactor's own: the port is what
+/// tells two rewritten services apart.
+///
+/// The whole host is replaced, leading labels included, because the container
+/// resolves exactly one name for its host -- the alias [`start`] adds -- and
+/// `agent.host.docker.internal` is not it.
+///
+/// Rewriting a host is a TLS-visible change: an `https` URL moved onto a name
+/// its certificate does not cover fails verification inside the connector,
+/// which trusts only its own image's CA bundle. That is not a problem where
+/// this is used -- a local stack serves both of these over plain HTTP -- but it
+/// is the boundary of the knob.
+pub(crate) fn rewrite_url(
+    url: &url::Url,
+    rewrite: &Option<(String, String)>,
+) -> anyhow::Result<url::Url> {
+    let (Some((from, to)), Some(host)) = (rewrite, url.host_str()) else {
+        return Ok(url.clone());
+    };
+    if host != from && !host.ends_with(&format!(".{from}")) {
+        return Ok(url.clone());
+    }
+
+    let mut rewritten = url.clone();
+    rewritten
+        .set_host(Some(to))
+        .with_context(|| format!("URL rewrite '{to}' is not a valid host"))?;
+
+    Ok(rewritten)
 }
 
 fn connector_memory_limit() -> String {
@@ -621,6 +810,9 @@ struct ImageInspection {
     id: String,
     /// The creation timestamp of the image, for debugging purposes
     image_created_at: String,
+    /// Secrets the image declares under `SECRETS_LABEL`, which it may be handed
+    /// under the image rule even though they're not siblings of the task.
+    secrets: BTreeSet<String>,
 }
 
 fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
@@ -716,6 +908,8 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
         }
     };
 
+    let secrets = parse_secrets_label(labels.get(SECRETS_LABEL).map(String::as_str))?;
+
     Ok(ImageInspection {
         runtime_protocol,
         network_ports,
@@ -723,7 +917,34 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
         usage_rate_source,
         id,
         image_created_at: created,
+        secrets,
     })
+}
+
+/// Parse the comma-delimited `SECRETS_LABEL` value of an image into the set of
+/// secrets it declares. An absent label declares none.
+///
+/// Items are trimmed of surrounding whitespace, because a human maintains this
+/// label in a Dockerfile. An empty item is a typo (a doubled or trailing comma)
+/// and is refused rather than silently dropped, since the cost of guessing
+/// wrong is an image which quietly cannot read a secret it meant to declare.
+fn parse_secrets_label(label: Option<&str>) -> anyhow::Result<BTreeSet<String>> {
+    let Some(label) = label else {
+        return Ok(BTreeSet::new());
+    };
+    let label = label.trim();
+
+    if label.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+
+    label
+        .split(',')
+        .map(|item| match item.trim() {
+            "" => anyhow::bail!("image label '{SECRETS_LABEL}' has an empty item: {label:?}"),
+            item => Ok(item.to_string()),
+        })
+        .collect()
 }
 
 async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Result<()> {
@@ -811,7 +1032,10 @@ async fn inspect_image_and_copy(
 
 #[cfg(test)]
 mod test {
-    use super::{parse_image_inspection, sanitize_event_type, start};
+    use super::{
+        BTreeMap, BTreeSet, check_image_secrets, check_local_secrets, parse_image_inspection,
+        parse_secrets_label, sanitize_event_type, start,
+    };
     use futures::stream::StreamExt;
     use proto_flow::flow;
     use serde_json::json;
@@ -823,6 +1047,8 @@ mod test {
             log_sink: crate::LogSink::tracing(),
             plane: crate::Plane::Local,
             process: None,
+            secret_resolver: std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+            rotation: None,
             task_name: "a-task-name".to_string(),
         }
     }
@@ -839,6 +1065,9 @@ mod test {
         let (container, channel, _guard, _codec) = start(
             &context(),
             "ghcr.io/estuary/source-http-ingest:dev",
+            "ghcr.io/estuary/source-http-ingest",
+            &BTreeMap::new(),
+            &None,
             proto_flow::ops::TaskType::Capture,
         )
         .await
@@ -899,6 +1128,9 @@ mod test {
         let Err(err) = start(
             &context(),
             "alpine", // Not a connector.
+            "alpine",
+            &BTreeMap::new(),
+            &None,
             proto_flow::ops::TaskType::Capture,
         )
         .await
@@ -922,6 +1154,7 @@ mod test {
                         "dev.estuary.port-public.567":"true",
                         "dev.estuary.port-proto.789":"h2",
                         "dev.estuary.usage-rate": "1.3",
+                        "dev.estuary.secrets": " acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client ,acmeVendor/other",
                     }
                 }
             }
@@ -946,6 +1179,218 @@ mod test {
         assert_eq!(1.3, inspection.usage_rate);
         assert_eq!("test-image-id", &inspection.id);
         assert_eq!("2024-02-02T14:39:11.958Z", &inspection.image_created_at);
+
+        // Items are trimmed, and the label is parsed independently of whether
+        // the image rule can actually admit what it names.
+        insta::assert_debug_snapshot!(inspection.secrets, @r###"
+        {
+            "acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client",
+            "acmeVendor/other",
+        }
+        "###);
+    }
+
+    #[test]
+    fn test_parse_secrets_label() {
+        let cases = [
+            None,
+            Some(""),
+            Some("   "),
+            Some("acmeCo/one"),
+            Some(" acmeCo/one , acmeCo/two "),
+            // Duplicates collapse, as the label is a set.
+            Some("acmeCo/one,acmeCo/one"),
+            // Empty items are typos, and are refused rather than dropped.
+            Some("acmeCo/one,,acmeCo/two"),
+            Some("acmeCo/one,"),
+            Some(","),
+        ];
+        let outcomes: Vec<_> = cases
+            .into_iter()
+            .map(|label| {
+                (
+                    label,
+                    parse_secrets_label(label).map_err(|err| format!("{err:#}")),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!(outcomes, @r###"
+        [
+            (
+                None,
+                Ok(
+                    {},
+                ),
+            ),
+            (
+                Some(
+                    "",
+                ),
+                Ok(
+                    {},
+                ),
+            ),
+            (
+                Some(
+                    "   ",
+                ),
+                Ok(
+                    {},
+                ),
+            ),
+            (
+                Some(
+                    "acmeCo/one",
+                ),
+                Ok(
+                    {
+                        "acmeCo/one",
+                    },
+                ),
+            ),
+            (
+                Some(
+                    " acmeCo/one , acmeCo/two ",
+                ),
+                Ok(
+                    {
+                        "acmeCo/one",
+                        "acmeCo/two",
+                    },
+                ),
+            ),
+            (
+                Some(
+                    "acmeCo/one,acmeCo/one",
+                ),
+                Ok(
+                    {
+                        "acmeCo/one",
+                    },
+                ),
+            ),
+            (
+                Some(
+                    "acmeCo/one,,acmeCo/two",
+                ),
+                Err(
+                    "image label 'dev.estuary.secrets' has an empty item: \"acmeCo/one,,acmeCo/two\"",
+                ),
+            ),
+            (
+                Some(
+                    "acmeCo/one,",
+                ),
+                Err(
+                    "image label 'dev.estuary.secrets' has an empty item: \"acmeCo/one,\"",
+                ),
+            ),
+            (
+                Some(
+                    ",",
+                ),
+                Err(
+                    "image label 'dev.estuary.secrets' has an empty item: \",\"",
+                ),
+            ),
+        ]
+        "###);
+    }
+
+    #[test]
+    fn test_check_image_secrets() {
+        const REPO: &str = "ghcr.io/acmeVendor/source-widgets";
+        const TASK: &str = "acmeCo/team/capture";
+        // Named as the image rule requires: `<non-empty prefix>/<repo>/<leaf>`.
+        const IMAGE_RULE: &str = "acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client";
+
+        let cases: [(&str, &[&str], &[&str]); 10] = [
+            // A stanza of siblings needs no label at all.
+            ("sibling only", &["acmeCo/team/password"], &[]),
+            // An image-rule secret is admitted when the image declares it.
+            ("declared image-rule secret", &[IMAGE_RULE], &[IMAGE_RULE]),
+            (
+                "both kinds",
+                &["acmeCo/team/password", IMAGE_RULE],
+                &[IMAGE_RULE],
+            ),
+            // A declared secret the task doesn't use is still checked.
+            (
+                "declared but unused",
+                &["acmeCo/team/password"],
+                &[IMAGE_RULE],
+            ),
+            // ... and a declaration the image rule cannot admit fails the start,
+            // used or not, because the image could never be handed it.
+            (
+                "declares a non-admissible name",
+                &[],
+                &["acmeCo/team/password"],
+            ),
+            (
+                "declares another image's secret",
+                &[],
+                &["acmeVendor/oauth/ghcr.io/acmeVendor/source-gadgets/oauth-client"],
+            ),
+            // The repository must be the *immediate* parent.
+            (
+                "repo is a grandparent",
+                &[],
+                &["acmeVendor/ghcr.io/acmeVendor/source-widgets/nested/leaf"],
+            ),
+            // ... beneath a non-empty prefix, so a secret rooted at the registry
+            // host belongs to no tenant and is refused.
+            (
+                "no prefix above the repo",
+                &[],
+                &["ghcr.io/acmeVendor/source-widgets/oauth-client"],
+            ),
+            // An undeclared non-sibling is refused even though it's named as the
+            // image rule would have it: the image never asked for it.
+            ("undeclared image-rule secret", &[IMAGE_RULE], &[]),
+            ("undeclared stranger", &["acmeCo/other-team/password"], &[]),
+        ];
+
+        let outcomes: Vec<_> = cases
+            .into_iter()
+            .map(|(case, stanza, declared)| {
+                let declared: BTreeSet<String> = declared.iter().map(|s| s.to_string()).collect();
+
+                (
+                    case,
+                    check_image_secrets(
+                        TASK,
+                        stanza.iter().copied(),
+                        "ghcr.io/acmeVendor/source-widgets:v1",
+                        REPO,
+                        &declared,
+                    )
+                    .map_err(|err| format!("{err:#}")),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!(outcomes);
+    }
+
+    #[test]
+    fn test_check_local_secrets() {
+        let stanza: Vec<String> = [
+            "acmeCo/team/password",
+            "acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        // Siblings pass, and an image-rule name has no image to vouch for it.
+        check_local_secrets("acmeCo/team/capture", &stanza[..1]).unwrap();
+
+        insta::assert_snapshot!(
+            format!("{:#}", check_local_secrets("acmeCo/team/capture", &stanza).unwrap_err()),
+            @"task 'acmeCo/team/capture' uses secret 'acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client', which is not a sibling of the task (under 'acmeCo/team/'). A connector which runs without an image can use only sibling secrets, as it has no image identity under which to be granted others"
+        );
     }
 
     #[test]

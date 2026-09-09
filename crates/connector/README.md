@@ -55,7 +55,8 @@ owns its container, image, and local-connector implementation independently.
 | `flow_runtime_protocol`         | Image inspection, for callers which only need an image's protocol         |
 | `protocol::start`               | The start pipeline every connector goes through                          |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
-| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process          |
+| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets |
+| `Rotation`                      | Signer and URLs by which a connector rotates what it manages; None locally |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
 
 ## Layout
@@ -85,6 +86,62 @@ cancellation.
   client's initial request follows after its configuration is unsealed, then
   subsequent client requests pass directly to the transport.
   `Started` carries the `Spec` response so the client can use it as well.
+
+- **Endpoint configuration resolves through `unseal::resolve`.** That one joint
+  chooses between whole-document `sops` unsealing and a merge-patched `secrets`
+  stanza. `protocol::start` wraps it. A task-less Spec passes its configuration
+  through untouched, and IAM injection follows every other outcome.
+  Plaintext values are never cached by this crate.
+
+- **A task may name a secret which isn't its sibling, if its image vouches for
+  it.** The image rule admits `<prefix>/<repo>/<leaf>`, where `<repo>` is the
+  running image with its tag or digest stripped: it's how a vendor's OAuth
+  client secret reaches every task using that connector. An image opts in by
+  listing full secret names in a `dev.estuary.secrets` label.
+
+  Two enforcement points, for two different failure modes.
+  `container::check_image_secrets` runs between `docker inspect` and `docker
+  run`, so a stanza the control-plane will refuse never reaches a container;
+  it also checks every *declared* name against the image rule, used or not, so
+  a typo'd label fails at start rather than whenever some task first depends
+  on it. `container::check_local_secrets` is the same check for a local or
+  in-process connector, which has no image and so gets siblings only -- run in
+  `protocol::start` before anything is pulled or spawned.
+
+  The real enforcement is the control-plane's: `protocol::start` captures the
+  repository before `connect` consumes the endpoint, and threads it into each
+  `SecretResolver::decrypt`, which attests it as `estuary.dev/image-name` in
+  the decrypt JWT's selector. Being absent is meaningful -- it's how the
+  control-plane tells a local connector from an image one.
+
+- **A connector rotates its own credentials through injected environment.**
+  A reactor holds `Rotation`: the data-plane signer, plus the control-plane and
+  config-encryption URLs. `protocol::start` mints an
+  `AUTHORIZE | TASK_UPDATE` token scoped to the task, and passes
+  `FLOW_ROTATION_TOKEN`, `FLOW_CONTROL_API` and `FLOW_CONFIG_ENCRYPTION_URL` to
+  `docker run --env` and to the local subprocess alike. Environment rather than
+  a mounted file: this host already holds the key which signed the token, so
+  `docker inspect` here is not a new boundary.
+
+  Only a session's token carries `estuary.dev/build`, which
+  `/task/update-config` requires -- a connector a publication behind must not
+  clobber a model it hasn't seen -- and only a session gets the week-long
+  lifetime; the unary kinds get ten minutes. A session's `token_restart_at` is
+  the earlier of the IAM and rotation deadlines, so the session re-establishes,
+  and both credentials re-mint, before either lapses.
+
+  `Service::new_local` (flowctl, tests) holds no `Rotation` and injects
+  nothing, which is how a connector knows to rotate in memory only.
+
+  A container does not share its host's view of the network, so the two URLs
+  are rewritten on their way into an image connector: `CONNECTOR_URL_REWRITE`
+  is one `<from-suffix>=<to-host>` (`container::url_rewrite`) which
+  `container::rewrite_url` applies to a matching URL host, replacing it whole
+  -- the container resolves exactly one name for its host, and the port is what
+  tells the rewritten services apart. It is how a local stack's
+  `*.flow.localhost` services stay reachable from inside a container, and it is
+  unset in every deployed data plane. Local and in-process connectors run on
+  the host and are handed the URLs unchanged.
 
 - **Invalid later requests close connector input and terminate the session.**
 The handler owns request validation, so malformed input cannot disappear as a
