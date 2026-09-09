@@ -7,25 +7,21 @@ type Response = models::authorizations::DecryptAuthorization;
 /// token from a data-plane reactor caller, and holds the KMS grant that can
 /// decrypt our successful result.
 ///
-/// The request token is signed by the issuing data-plane:
+/// The request token is signed by the issuing data-plane. Its `sel` names the
+/// task type, task name, and requested secret under `estuary.dev/task-type`,
+/// `estuary.dev/task-name`, and `estuary.dev/secret-name`. Its `sub` is
+/// advisory and is not inspected as part of authorization.
 ///
-///  * Its `sub` is the Shard ID requesting decryption, or -- where the shard's
-///    generation isn't the live one -- a synthetic Shard ID having an all-zero
-///    generation. Note we must handle requests for tasks that have not yet been
-///    published, and cannot require that task shards are in the Snapshot as
-///    `/authorize/task` does.
-///
-///  * Its `sel` names the requested secret under `estuary.dev/secret-name`.
-///
-/// Two things are checked:
+/// Three things are verified:
 ///
 ///  * The sibling rule: a task may use only the secrets which sit beside it,
 ///    `dirname(secret) == dirname(task)`.
 ///  * Residency: a task the Snapshot knows of must live in the issuing
 ///    data-plane, so that a compromised plane cannot ask for the secrets of
 ///    tasks it doesn't run.
+///  * Type: a task the Snapshot knows of must have the claimed task type.
 ///
-/// If a task is new (it has no shard), then the requesting data-plane must be
+/// If a task is not in the Snapshot, then the requesting data-plane must be
 /// admitted by the longest-prefix storage mapping covering the task and secret
 /// name -- the same mapping which decides where the task could be created.
 ///
@@ -57,21 +53,42 @@ pub async fn authorize_task_secret(
     env.started = tokens::DateTime::from_timestamp_secs(1 + unverified.claims().iat as i64)
         .unwrap_or_default();
 
-    let name = labels::expect_one(unverified.claims().sel.include(), labels::SECRET_NAME)
+    let secret_name = labels::expect_one(unverified.claims().sel.include(), labels::SECRET_NAME)
         .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
-    let name = models::Name::new(name);
+    let task_name = labels::expect_one(unverified.claims().sel.include(), labels::TASK_NAME)
+        .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
+    let task_type = labels::expect_one(unverified.claims().sel.include(), labels::TASK_TYPE)
+        .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
+
+    let secret_name = models::Name::new(secret_name);
+    let task_name = models::Name::new(task_name);
 
     // `err` renders as ": {name} doesn't match pattern ...", restating the name.
-    if let Err(err) = validator::Validate::validate(&name) {
+    if let Err(err) = validator::Validate::validate(&secret_name) {
         return Err(tonic::Status::invalid_argument(format!("invalid secret name{err}")).into());
     }
+    if let Err(err) = validator::Validate::validate(&task_name) {
+        return Err(tonic::Status::invalid_argument(format!("invalid task name{err}")).into());
+    }
+
+    let task_type = match task_type {
+        labels::TASK_TYPE_CAPTURE => models::CatalogType::Capture,
+        labels::TASK_TYPE_DERIVATION => models::CatalogType::Collection,
+        labels::TASK_TYPE_MATERIALIZATION => models::CatalogType::Materialization,
+        other => {
+            return Err(
+                tonic::Status::invalid_argument(format!("invalid task type '{other}'")).into(),
+            );
+        }
+    };
 
     let policy_result = evaluate_authorization(
         env.snapshot(),
-        &unverified.claims().sub,
+        task_type,
+        &task_name,
         &unverified.claims().iss,
         &token,
-        &name,
+        &secret_name,
     );
 
     let fallback_check_data_plane = match env.authorization_outcome(policy_result).await {
@@ -91,16 +108,18 @@ pub async fn authorize_task_secret(
     let Some(fallback_check_data_plane) = fallback_check_data_plane else {
         // Happy path: the Snapshot was able to establish task residency and we
         // bypass the storage-mapping fallback check.
-        return Ok(axum::Json(super::fetch_secret(&env.pg_pool, &name).await?));
+        return Ok(axum::Json(
+            super::fetch_secret(&env.pg_pool, &secret_name).await?,
+        ));
     };
 
     // Storage mapping prefixes are always slash-terminated, so the mappings
     // which could cover `name` are those of its slash-terminated prefixes.
     // Enumerating them lets us ensure we hit the unique index over `catalog_prefix`.
-    let prefixes: Vec<&str> = name
+    let prefixes: Vec<&str> = secret_name
         .as_str()
         .rmatch_indices('/')
-        .map(|(index, _)| &name.as_str()[..index + 1])
+        .map(|(index, _)| &secret_name.as_str()[..index + 1])
         .collect();
 
     // The longest covering mapping alone decides admissibility, mirroring
@@ -125,7 +144,7 @@ pub async fn authorize_task_secret(
         FROM (SELECT $1::text::catalog_name) AS q (catalog_name)
         LEFT JOIN internal.secrets s ON s.catalog_name = q.catalog_name
         "#,
-        name.as_str(),
+        secret_name.as_str(),
         &prefixes as &[&str],
         fallback_check_data_plane,
     )
@@ -136,8 +155,7 @@ pub async fn authorize_task_secret(
     // doesn't learn from a 404 which secrets are there.
     if !row.admissible {
         return Err(tonic::Status::permission_denied(format!(
-            "no task of shard {} is known, and the storage mapping of secret '{name}' does not admit data-plane {fallback_check_data_plane}",
-            unverified.claims().sub,
+            "task '{task_name}' is not known, and the storage mapping of secret '{secret_name}' does not admit data-plane {fallback_check_data_plane}",
         ))
         .into());
     }
@@ -145,7 +163,9 @@ pub async fn authorize_task_secret(
     // Absence is terminal: unlike a grant, a secret is read at its current
     // value, so a later read cannot turn this answer around.
     let (Some(document), Some(secret_id)) = (row.document, row.secret_id) else {
-        return Err(tonic::Status::not_found(format!("secret '{name}' does not exist")).into());
+        return Err(
+            tonic::Status::not_found(format!("secret '{secret_name}' does not exist")).into(),
+        );
     };
 
     Ok(axum::Json(Response {
@@ -159,7 +179,8 @@ pub async fn authorize_task_secret(
 /// or the data-plane name to verify during the storage-mapping fallback check.
 fn evaluate_authorization<'s>(
     snapshot: &'s crate::Snapshot,
-    shard_id: &str,
+    task_type: models::CatalogType,
+    task_name: &str,
     task_data_plane_fqdn: &str,
     token: &str,
     secret_name: &models::Name,
@@ -170,17 +191,6 @@ fn evaluate_authorization<'s>(
         return Err(tonic::Status::unauthenticated(
             "no data-plane keys validated against the token signature",
         ));
-    };
-
-    // Map `claims.sub`, a real or synthetic Shard ID, into its live task.
-    let (task_name, task) = if let Some(task) = snapshot.task_by_shard_id(shard_id) {
-        (task.task_name.as_str(), Some(task))
-    } else if let Some(task_name) = synthetic_task_name(shard_id) {
-        (task_name, snapshot.task_by_catalog_name(task_name))
-    } else {
-        return Err(tonic::Status::failed_precondition(format!(
-            "task shard {shard_id} within data-plane {task_data_plane_fqdn} is not known"
-        )));
     };
 
     let (Some(task_parent), Some(secret_parent)) =
@@ -197,16 +207,22 @@ fn evaluate_authorization<'s>(
         )));
     }
 
-    let mapping_fallback = if let Some(task) = task {
+    let mapping_fallback = if let Some(task) = snapshot.task_by_catalog_name(task_name) {
         // Residency: a task we know of must run in the issuing plane, or bust.
         if task.data_plane_id != task_data_plane.control_id {
             return Err(tonic::Status::permission_denied(format!(
                 "task '{task_name}' does not run in data-plane {task_data_plane_fqdn}"
             )));
         }
+        if task.spec_type != task_type {
+            return Err(tonic::Status::permission_denied(format!(
+                "task '{task_name}' is a {}, not a {task_type}",
+                task.spec_type
+            )));
+        }
         None
     } else {
-        // Unknown synthetic tasks (Validate / Discover) check the storage-mapping.
+        // Unknown tasks (Validate / Discover) check the storage mapping.
         Some(task_data_plane.data_plane_name.as_str())
     };
 
@@ -214,32 +230,6 @@ fn evaluate_authorization<'s>(
         snapshot.cordon_at(task_name, task_data_plane),
         mapping_fallback,
     ))
-}
-
-/// The task name of a *synthetic* Shard ID: an all-zero generation ID over any
-/// key / r-clock range, naming a shard of a generation which isn't live --
-/// Discover and Validate, which have no shard, and shards of a specification
-/// under test which hasn't published.
-///
-/// Callers owe us that zero whenever the shard's generation isn't the live one:
-/// a new task, and equally a reset, whose built generation is its draft's
-/// publication ID. Any other generation resolves through the Snapshot instead,
-/// which matches it exactly and so fences off a stale one. The range is only
-/// shape-checked, but the fixed shape of both suffixes -- not their values --
-/// keeps a truncated Shard ID from yielding a shorter, more privileged name.
-fn synthetic_task_name(shard_id: &str) -> Option<&str> {
-    let (prefix, range) = shard_id.rsplit_once('/')?;
-    let prefix = prefix.strip_suffix("/0000000000000000")?;
-
-    let hex_8 = |s: &str| s.len() == 8 && s.bytes().all(|b| b.is_ascii_hexdigit());
-    let (key_begin, r_clock_begin) = range.split_once('-')?;
-
-    if !hex_8(key_begin) || !hex_8(r_clock_begin) {
-        return None;
-    }
-    let (task_type, task_name) = prefix.split_once('/')?;
-
-    matches!(task_type, "capture" | "derivation" | "materialize").then_some(task_name)
 }
 
 /// The catalog prefix which directly contains `name`, or None if `name` isn't a
@@ -260,81 +250,58 @@ mod tests {
 
     /// Every case is driven through the same fixture Snapshot, whose tasks and
     /// migrations are what each case selects among.
-    /// Cases are (label, shard ID, issuing data-plane, secret name).
+    /// Cases are (label, task type, task name, issuing data-plane, secret name).
     #[test]
     fn test_evaluate_authorization() {
         let cases = [
-            // Sibling secrets of a task resident in the issuing plane, asked
-            // for by the synthetic shard of a Validate and then by a running
-            // shard of the task's published generation.
             (
                 "resident",
-                "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
-                PLANE_ONE,
-                "acmeCo/password",
-            ),
-            (
-                "resident/running-shard",
-                "capture/acmeCo/source-pineapple/0011223344556677/80000000-00000000",
-                PLANE_ONE,
-                "acmeCo/password",
-            ),
-            // A synthetic shard of a *split* task under test: only the
-            // all-zero generation bears on the outcome.
-            (
-                "resident/synthetic-split",
-                "capture/acmeCo/source-pineapple/0000000000000000/40000000-c0000000",
-                PLANE_ONE,
-                "acmeCo/password",
-            ),
-            // The range is still shape-checked, so a malformed one names no
-            // shard, synthetic or otherwise.
-            (
-                "bad-range",
-                "capture/acmeCo/source-pineapple/0000000000000000/4000000-c0000000",
-                PLANE_ONE,
-                "acmeCo/password",
-            ),
-            // A shard of a generation which is no longer published is fenced
-            // off, rather than being re-authorized because its name still
-            // reads out of the Shard ID.
-            (
-                "resident/zombie-generation",
-                "capture/acmeCo/source-pineapple/7766554433221100/80000000-00000000",
-                PLANE_ONE,
-                "acmeCo/password",
-            ),
-            // A legacy shard, whose Shard ID has no generation ID at all. Its
-            // task is named by the Snapshot, which is why nothing here needs
-            // to guess whether a trailing name component is a generation.
-            (
-                "resident/legacy-shard",
-                "capture/acmeCo/source-legacy/80000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
             ),
             (
                 "resident/nested",
-                "capture/bobCo/widgets/source-squash/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "bobCo/widgets/source-squash",
                 PLANE_TWO,
                 "bobCo/widgets/password",
             ),
-            // The three task types a synthetic Shard ID may name.
             (
                 "resident/materialize",
-                "materialize/acmeCo/materialize-pear/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_MATERIALIZATION,
+                "acmeCo/materialize-pear",
                 PLANE_ONE,
                 "acmeCo/password",
             ),
             (
                 "unknown/derivation",
-                "derivation/acmeCo/derive-plum/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_DERIVATION,
+                "acmeCo/derive-plum",
                 PLANE_ONE,
                 "acmeCo/password",
             ),
             (
                 "bad-task-type",
-                "dekaf/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
+                "dekaf",
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                "acmeCo/password",
+            ),
+            (
+                "type-mismatch",
+                labels::TASK_TYPE_MATERIALIZATION,
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                "acmeCo/password",
+            ),
+            // The mismatch is reported in the label vocabulary of the request,
+            // where a derivation is a "derivation" and not a "collection".
+            (
+                "type-mismatch/derivation",
+                labels::TASK_TYPE_DERIVATION,
+                "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
             ),
@@ -342,41 +309,29 @@ mod tests {
             // sibling-looking name under another tenant.
             (
                 "child",
-                "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/db/password",
             ),
             (
                 "parent",
-                "capture/bobCo/widgets/source-squash/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "bobCo/widgets/source-squash",
                 PLANE_TWO,
                 "bobCo/password",
             ),
             (
                 "other-tenant",
-                "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
-                PLANE_ONE,
-                "bobCo/password",
-            ),
-            // `sub` isn't a shard ID, and a shard ID whose task isn't a
-            // catalog name. A shard *template* ID names no shard and isn't
-            // synthetic, so it's rejected rather than read as the task
-            // `bobCo/widgets`, which would make `bobCo/password` its sibling.
-            (
-                "not-a-shard-id",
+                labels::TASK_TYPE_CAPTURE,
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
-                "acmeCo/password",
-            ),
-            (
-                "template-prefix",
-                "capture/bobCo/widgets/source-squash/0000000000000000",
-                PLANE_TWO,
                 "bobCo/password",
             ),
             (
                 "not-a-name",
-                "capture/source-pineapple/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
             ),
@@ -384,7 +339,8 @@ mod tests {
             // compare, and `models::Name` allows one, so it's rejected here.
             (
                 "secret-not-a-name",
-                "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "password",
             ),
@@ -393,19 +349,22 @@ mod tests {
             // but plane-two is denied until the task's residency actually moves.
             (
                 "wrong-plane",
-                "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
                 PLANE_TWO,
                 "acmeCo/password",
             ),
             (
                 "migration/src",
-                "capture/acmeCo/source-banana/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-banana",
                 PLANE_ONE,
                 "acmeCo/password",
             ),
             (
                 "migration/tgt",
-                "capture/acmeCo/source-banana/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-banana",
                 PLANE_TWO,
                 "acmeCo/password",
             ),
@@ -413,14 +372,16 @@ mod tests {
             // of the live DB, which only `fetch_secret` can settle.
             (
                 "unknown",
-                "capture/acmeCo/source-new/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-new",
                 PLANE_ONE,
                 "acmeCo/password",
             ),
             // An otherwise-valid request, signed with the other plane's key.
             (
                 "bad-signature",
-                "capture/acmeCo/source-pineapple/0000000000000000/00000000-00000000",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
                 (PLANE_ONE.0, PLANE_TWO.1),
                 "acmeCo/password",
             ),
@@ -428,14 +389,17 @@ mod tests {
 
         let outcomes: Vec<(&str, String)> = cases
             .into_iter()
-            .map(|(label, shard, plane, secret)| (label, run(shard, plane, secret)))
+            .map(|(label, task_type, task_name, plane, secret)| {
+                (label, run(task_type, task_name, plane, secret))
+            })
             .collect();
 
         insta::assert_debug_snapshot!(outcomes);
     }
 
     fn run(
-        shard_id: &str,
+        task_type: &str,
+        task_name: &str,
         (task_data_plane_fqdn, hmac_key): (&str, &str),
         secret_name: &str,
     ) -> String {
@@ -448,10 +412,14 @@ mod tests {
             cap: proto_flow::capability::AUTHORIZE,
             iss: task_data_plane_fqdn.to_string(),
             sel: proto_gazette::LabelSelector {
-                include: Some(labels::build_set([(labels::SECRET_NAME, secret_name)])),
+                include: Some(labels::build_set([
+                    (labels::SECRET_NAME, secret_name),
+                    (labels::TASK_NAME, task_name),
+                    (labels::TASK_TYPE, task_type),
+                ])),
                 exclude: None,
             },
-            sub: shard_id.to_string(),
+            sub: task_name.to_string(),
         };
         let token = tokens::jwt::sign(
             &claims,
@@ -459,9 +427,17 @@ mod tests {
         )
         .unwrap();
 
+        let task_type = match task_type {
+            labels::TASK_TYPE_CAPTURE => models::CatalogType::Capture,
+            labels::TASK_TYPE_DERIVATION => models::CatalogType::Collection,
+            labels::TASK_TYPE_MATERIALIZATION => models::CatalogType::Materialization,
+            other => return format!("400 invalid task type '{other}'"),
+        };
+
         match evaluate_authorization(
             &snapshot,
-            shard_id,
+            task_type,
+            task_name,
             task_data_plane_fqdn,
             &token,
             &models::Name::new(secret_name),
@@ -489,14 +465,14 @@ mod tests {
     use crate::test_server;
 
     /// Drive the route as config-encryption would, asking for `secret_names` on
-    /// behalf of the synthetic shard of `task` -- a Shard ID with `task`'s type
-    /// and name, the shape a Discover or Validate sends -- issued by the
-    /// data-plane of FQDN `iss`. Names are plural only so that a selector
-    /// bearing no name, or two, is expressible.
+    /// behalf of a task of `task_type` and `task_name`, issued by the data-plane
+    /// of FQDN `iss`. Names are plural only so that a selector bearing no secret
+    /// name, or two, is expressible.
     async fn post(
         server: &test_server::TestServer,
         iss: &str,
-        task: &str,
+        task_type: &str,
+        task_name: &str,
         secret_names: &[&str],
     ) -> String {
         let now = tokens::now().timestamp() as u64;
@@ -508,11 +484,17 @@ mod tests {
             iss: iss.to_string(),
             sel: proto_gazette::LabelSelector {
                 include: Some(labels::build_set(
-                    secret_names.iter().map(|name| (labels::SECRET_NAME, *name)),
+                    secret_names
+                        .iter()
+                        .map(|name| (labels::SECRET_NAME, *name))
+                        .chain([
+                            (labels::TASK_NAME, task_name),
+                            (labels::TASK_TYPE, task_type),
+                        ]),
                 )),
                 exclude: None,
             },
-            sub: format!("{task}/0000000000000000/00000000-00000000"),
+            sub: task_name.to_string(),
         };
         // "c2VjcmV0" of the data_planes fixture, base64-decoded.
         let token =
@@ -575,7 +557,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/aliceCo/in/capture-foo",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
                     &["aliceCo/in/token"],
                 )
                 .await,
@@ -585,7 +568,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "materialize/aliceCo/out/materialize-bar",
+                    labels::TASK_TYPE_MATERIALIZATION,
+                    "aliceCo/out/materialize-bar",
                     &["aliceCo/out/token"],
                 )
                 .await,
@@ -595,7 +579,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "materialize/aliceCo/out/materialize-bar",
+                    labels::TASK_TYPE_MATERIALIZATION,
+                    "aliceCo/out/materialize-bar",
                     &["aliceCo/in/token"],
                 )
                 .await,
@@ -605,7 +590,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/aliceCo/in/capture-foo",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
                     &["aliceCo/in/nonexistent"],
                 )
                 .await,
@@ -615,7 +601,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/aliceCo/in/capture-foo",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
                     &["aliceCo/bad name"],
                 )
                 .await,
@@ -624,14 +611,22 @@ mod tests {
             // is a request this route can answer.
             (
                 "no-selector",
-                post(&server, "dp.one", "capture/aliceCo/in/capture-foo", &[]).await,
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[],
+                )
+                .await,
             ),
             (
                 "two-selectors",
                 post(
                     &server,
                     "dp.one",
-                    "capture/aliceCo/in/capture-foo",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
                     &["aliceCo/in/token", "aliceCo/out/token"],
                 )
                 .await,
@@ -646,7 +641,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/aliceCo/in/capture-new",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-new",
                     &["aliceCo/in/token"],
                 )
                 .await,
@@ -656,7 +652,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/aliceCo/in/capture-new",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-new",
                     &["aliceCo/in/nonexistent"],
                 )
                 .await,
@@ -666,7 +663,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/bobCo/capture-new",
+                    labels::TASK_TYPE_CAPTURE,
+                    "bobCo/capture-new",
                     &["bobCo/token"],
                 )
                 .await,
@@ -676,7 +674,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/carolCo/capture-new",
+                    labels::TASK_TYPE_CAPTURE,
+                    "carolCo/capture-new",
                     &["carolCo/token"],
                 )
                 .await,
@@ -690,7 +689,8 @@ mod tests {
                 post(
                     &server,
                     "dp.one",
-                    "capture/aliceCo/private/capture-new",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/private/capture-new",
                     &["aliceCo/private/token"],
                 )
                 .await,
@@ -700,7 +700,8 @@ mod tests {
                 post(
                     &server,
                     "dp.two",
-                    "capture/aliceCo/private/capture-new",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/private/capture-new",
                     &["aliceCo/private/token"],
                 )
                 .await,
@@ -747,15 +748,15 @@ mod tests {
             ),
             (
                 "unknown/other-plane",
-                "403 no task of shard capture/bobCo/capture-new/0000000000000000/00000000-00000000 is known, and the storage mapping of secret 'bobCo/token' does not admit data-plane ops/dp/public/aws-us-west-2-c1",
+                "403 task 'bobCo/capture-new' is not known, and the storage mapping of secret 'bobCo/token' does not admit data-plane ops/dp/public/aws-us-west-2-c1",
             ),
             (
                 "unknown/no-mapping",
-                "403 no task of shard capture/carolCo/capture-new/0000000000000000/00000000-00000000 is known, and the storage mapping of secret 'carolCo/token' does not admit data-plane ops/dp/public/aws-us-west-2-c1",
+                "403 task 'carolCo/capture-new' is not known, and the storage mapping of secret 'carolCo/token' does not admit data-plane ops/dp/public/aws-us-west-2-c1",
             ),
             (
                 "nested/parent-not-promoted",
-                "403 no task of shard capture/aliceCo/private/capture-new/0000000000000000/00000000-00000000 is known, and the storage mapping of secret 'aliceCo/private/token' does not admit data-plane ops/dp/public/aws-us-west-2-c1",
+                "403 task 'aliceCo/private/capture-new' is not known, and the storage mapping of secret 'aliceCo/private/token' does not admit data-plane ops/dp/public/aws-us-west-2-c1",
             ),
             (
                 "nested/admitted",
@@ -789,7 +790,8 @@ mod tests {
         let outcome = post(
             &server,
             "dp.one",
-            "capture/aliceCo/in/capture-foo",
+            labels::TASK_TYPE_CAPTURE,
+            "aliceCo/in/capture-foo",
             &["aliceCo/in/token"],
         )
         .await;
