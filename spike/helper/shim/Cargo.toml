@@ -1,0 +1,22 @@
+[package]
+name = "flow-sandbox-helper"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Its own workspace root: the spike is not a member of the repo's `crates/*`
+# workspace and must not perturb the repo's lockfile.
+[workspace]
+
+[[bin]]
+name = "flow-sandbox-helper"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+panic = "abort"

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Placeholder for WP02's DNS forwarder. The real one runs until killed; this
+# exits 0 immediately, which the shim tolerates because it never waits on it.
+exit 0

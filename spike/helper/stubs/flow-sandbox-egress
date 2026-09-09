@@ -1,0 +1,17 @@
+#!/bin/sh
+# Placeholder for WP02's ruleset loader. It loads an empty `inet flow_sandbox`
+# table so the helper's nft path is exercised end to end - the table must exist
+# before the VM starts either way - but enforces no policy.
+#
+# Idempotent by the usual nft trick: declare, delete, then define.
+set -eu
+nft -f - <<'RULES'
+table inet flow_sandbox {}
+delete table inet flow_sandbox
+table inet flow_sandbox {
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+        counter comment "WP02 placeholder: no egress policy is enforced"
+    }
+}
+RULES

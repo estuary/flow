@@ -1,0 +1,5 @@
+#!/bin/sh
+# Placeholder for WP04's guest init. It is injected into the guest root at
+# /flow-init and never runs while the smoke tests pass --no-flow-init.
+echo "flow-init: WP04 has not landed; run the helper with --no-flow-init" >&2
+exit 125
