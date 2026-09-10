@@ -178,9 +178,9 @@ read-only (with `dax` when asked); mount `/dev/vda` ext4 at `/scratch`; if
 `--deps-dev`, `mkdir -p /opt/venv` and mount it there read-only with
 `--deps-fstype`; if `--as-root-exec`, run it via
 `/bin/sh -c` and wait (probes that need root before the drop); set
-`TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`; chdir to the workdir it was
-started in; `setgroups([])`, `setgid`, `setuid` unless `--run-as-root`; exec
-ARGV. Environment is inherited from libkrun's init (which applies the image's
+`TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`; `setgroups([])`, `setgid`,
+`setuid` unless `--run-as-root`; exec ARGV. The cwd is whatever libkrun's
+init set from `WorkingDir`; flow-init does not touch it. Environment is inherited from libkrun's init (which applies the image's
 `Env` from `/.krun_config.json`) and passed through.
 
 On any failure: one line to stderr (no leading space), exit 125.
