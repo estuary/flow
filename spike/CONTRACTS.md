@@ -11,9 +11,12 @@ deviation in STATUS.md for the master thread to propagate.
   `/mnt/local/reactor`: the reactor writes per-connector state under it, and
   it is mounted at the SAME path inside the fake reactor.
 - Per-connector directory: `$SPIKE_REACTOR_DIR/<id>/` with subdirs
-  `init/` (holds `flow-connector-init` and `image-inspect.json`), `sock/`
-  (helper creates `init.sock` here), `scratch/` (helper opens an O_TMPFILE
-  here). The runtime creates it before launch and removes it after exit.
+  `init/` (holds `flow-connector-init`, `image-inspect.json`, and
+  `policy.json`), `sock/` (helper creates `init.sock` here), `scratch/`
+  (helper opens an O_TMPFILE here). The runtime creates it before launch and
+  removes it after exit. `<id>` is unique per launch and never reused: a
+  stale `sock/init.sock` makes libkrun fail with EEXIST, and the shim does
+  not unlink files it does not own.
 - Helper image: `localhost/flow-sandbox-helper:spike`.
 - Stub helper image (WP05 testing only): `localhost/flow-sandbox-stub:spike`.
 - Derived image (WP08): `localhost/derive-python-pandas:spike`.
@@ -36,8 +39,9 @@ deviation in STATUS.md for the master thread to propagate.
 ```
 flow-sandbox-helper --policy PATH --memory-mib N --vcpus N --disk-mib N \
     --upper-mib N [--venv-dax] [--thp-disable] [--run-as-root] [--debug] \
-    [--no-flow-init] [--exec ARGV...]
+    [--as-root-exec CMD] [--no-flow-init] [--exec ARGV...]
 ```
+`PATH` is `/init/policy.json`; the runtime writes it next to connector-init.
 
 - Mounts it expects, all provided by the caller's `podman run`:
   `/rootfs` (connector image via `--mount type=image`), `/init` (dir with
@@ -52,6 +56,9 @@ flow-sandbox-helper --policy PATH --memory-mib N --vcpus N --disk-mib N \
   flow-init (WP03 smoke tests before flow-init exists).
 - `--run-as-root` makes flow-init skip the uid/gid drop (probes that need
   guest root, e.g. sysctl, drop_caches).
+- `--as-root-exec CMD` is passed to flow-init verbatim: it runs `CMD` via
+  `/bin/sh -c` as guest root after mounts and before the uid drop, then
+  continues to the workload.
 - `--venv-dax` gives the `venv` virtiofs a DAX window (512 MiB) and tells
   flow-init to mount it with `dax`.
 - `--thp-disable` calls `prctl(PR_SET_THP_DISABLE)` before starting the VM.
@@ -59,15 +66,26 @@ flow-sandbox-helper --policy PATH --memory-mib N --vcpus N --disk-mib N \
 - `--debug` tees the guest kernel console to stderr with prefix `kernel: `
   and raises libkrun's log level. Without it, kernel console goes to the
   helper's stdout only.
-- stdout: guest kernel console. stderr: the workload's stderr, byte for byte
-  (connector-init logs and its readiness byte), plus helper diagnostics that
-  never begin with a space.
+- stdout: guest kernel console and the workload's stdout, interleaved (they
+  share one host descriptor by libkrun's construction). stderr: the
+  workload's stderr, byte for byte (connector-init logs and its readiness
+  byte), plus helper diagnostics that never begin with a space.
 - Exit code: the guest workload's exit code. libkrun's init uses 125 (init
   setup failed), 126 (not executable), 127 (not found). The helper exits 2
   for its own failures before the VM starts.
 - vsock: guest port 49092 is mapped to `/sock/init.sock` with libkrun
   listening on the socket (`krun_add_vsock_port2(..., listen=true)`). The
-  reactor connects; the guest never initiates.
+  reactor connects; the guest never initiates. libkrun's unix proxy treats a
+  host-side half-close (`shutdown(SHUT_WR)`) as a full close and resets the
+  guest connection. gRPC never half-closes; hand-written test clients must
+  not either.
+- libkrun in the helper image is v1.19.4 built from source (`BLK=1 NET=1`)
+  plus one patch carried in `spike/helper/Dockerfile`: the virtiofs
+  passthrough answers unknown ioctls with ENOTTY instead of EOPNOTSUPP.
+  Without it overlayfs cannot copy up from a virtiofs lower (it needs
+  FS_IOC_GETFLAGS to fail with ENOTTY or EINVAL), so there is no writable
+  root. libkrunfw is Fedora's package. The shim carries its own ABI
+  declarations.
 - Egress: the helper execs `flow-sandbox-egress` and `flow-sandbox-resolver`
   (below) before starting the VM. With `egress: none` no resolver runs.
 
@@ -120,8 +138,13 @@ UDP DNS forwarder. Runs until killed. Behavior:
 Baseline denylist (in the ruleset, not the policy): 0.0.0.0/8, 10.0.0.0/8,
 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16,
 224.0.0.0/4, 240.0.0.0/4, the helper's tap and eth0 subnets as found on its
-interfaces at start, and tcp/25 to anywhere. The tap subnet exception is
-exactly `192.0.2.2 -> 192.0.2.1 udp/53`.
+interfaces at start, and tcp/25 to anywhere. These are destination drops in
+the forward chain; the guest's masqueraded traffic to non-baseline
+destinations still leaves through eth0. The only exception anywhere is
+`192.0.2.2 -> 192.0.2.1 udp/53`, in the input chain. The helper's eth0
+subnet (10.89.0.0/24 on `flow-connectors`) sits inside 10/8, so the baseline
+set is `flags interval` with `auto-merge`, or entries are deduplicated before
+load; nft rejects overlapping interval elements otherwise.
 
 Structural rules that hold for any policy: only TCP and UDP cross the tap;
 guest packets must have source `192.0.2.2`; no IPv6; no ICMP; nothing inbound
@@ -151,6 +174,21 @@ ARGV. Environment is inherited from libkrun's init (which applies the image's
 `Env` from `/.krun_config.json`) and passed through.
 
 On any failure: one line to stderr (no leading space), exit 125.
+
+Facts WP04 established that later packages must not undo:
+- flow-init runs in its own mount namespace (`unshare(CLONE_NEWNS)`, then the
+  tree is made private). libkrun's init reports the workload's exit code only
+  while ITS `/` is still virtiofs; a `pivot_root` in the shared namespace
+  makes every guest exit code silently 0.
+- `/dev` is mounted again inside the new root rather than moved (the tmpfs
+  holding the new root lives under `/dev`); devpts and shm are remade there.
+- The scratch mount point is chowned to the image's uid:gid after mount, or a
+  dropped workload cannot write `TMPDIR`.
+- `/etc/hosts` is `127.0.0.1 localhost` only; the guest hostname is the
+  kernel default `localhost`. Nothing in the spike reads it. If a connector
+  turns out to, that is a `sethostname` in phase 2.
+- `--as-root-exec` ignores its command's exit status by design; probes
+  report their own results.
 
 ## connector-init (WP01 provides)
 

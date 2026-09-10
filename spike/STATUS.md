@@ -11,7 +11,7 @@ maintains the table. Newest log entries at the bottom.
 | 01 | connector-init --vsock-port             | -            | todo   | daveg/libkrun-spike |       |
 | 02 | Egress ruleset + resolver (netns)       | -            | todo   | daveg/libkrun-spike |       |
 | 03 | Helper image + shim                     | -            | done   | daveg/libkrun-spike | a1e1ea562f2; libkrun 1.19.4 build folded into WP04 step 0 |
-| 04 | flow-init                               | 03 (to test) | todo   | daveg/libkrun-spike |       |
+| 04 | flow-init                               | 03 (to test) | done   | daveg/libkrun-spike | ba94256e321; libkrun 1.19.4 + ENOTTY patch |
 | 05 | runtime-next spike switch               | 01 (real)    | todo   | daveg/libkrun-spike |       |
 | 06 | Integration: experiments 1-4            | 00-05        | todo   | daveg/libkrun-spike |       |
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
@@ -530,3 +530,32 @@ any runtime work is spent.)
     container the short container id. If anything in the reactor or a
     connector cares, flow-init should `sethostname`; nothing in CONTRACTS
     asks for it, so it does not.
+
+### 2026-09-10 master: WP04 accepted; the libkrun patch stays
+
+- The patch: option (a). Carry it through the spike and open the upstream
+  PR now, while it is one line. Rationale: a FUSE server that does not
+  implement FUSE_IOCTL yields ENOTTY to the caller (the kernel maps the
+  server's ENOSYS to ENOTTY), and the VFS itself returns ENOTTY for an
+  unsupported ioctl. libkrun implementing the op and answering EOPNOTSUPP
+  for unknown commands is the deviation; overlayfs is right to treat it as
+  a real error. So the design (overlayfs writable root over a read-only
+  virtiofs image) is sound and the bug is libkrun's. Production cost is
+  honest and small: we already build libkrun from source in the helper
+  image, so a one-line patch until upstream lands is a Dockerfile line, not
+  a new capability. Named in PLAN's report section as an open problem with
+  owner "us: upstream PR", and option (b) recorded as the fallback if
+  upstream refuses.
+- `--as-root-exec` keeps ignoring its command's exit status. WP07's probes
+  report through their own JSON lines; a failing probe is visible there.
+- Hostname stays `localhost`. Nothing in the spike reads it. Noted in
+  CONTRACTS so a connector that does is a phase-2 `sethostname`, not a
+  surprise.
+- Housekeeping for WP06 (broad "small fixes" remit): delete the dead
+  `spike/helper/stubs/flow-init`; fix `spike/helper/README.md` (libkrun is
+  built from source and patched; stubs line). Recorded in WP06's brief.
+- flow-init's `unshare(CLONE_NEWNS)` finding is now in CONTRACTS: without
+  it every guest exit code is silently 0. WP05 and WP06 must not "fix"
+  that away.
+- Next: WP08 (experiment 5). It is the last big unknown before the plumbing
+  packages, and it needs nothing from WP01/05/06.

@@ -36,6 +36,8 @@ How production launches connectors today, from a live reactor:
 - `/mnt/local/reactor` is `rm -rf`'d on every reactor restart. Anything the
   launcher creates per connector lives under it.
 - Host: Ubuntu noble, podman 4.9.3, nftables 1.0.9, `/dev/net/tun` present.
+  Reactor image at inspection: `ghcr.io/estuary/reactor:v0.6.13-54-gb3f769fb452`
+  (the spike uses the newest tag; only the podman client and caps matter).
 
 libkrun 1.19 facts the design relies on:
 
@@ -58,6 +60,15 @@ libkrun 1.19 facts the design relies on:
   virtio-blk, vsock, FUSE DAX, free-page reporting on; no MAGIC_SYSRQ.
 - The balloon device is on by default and reports free pages via
   `madvise(MADV_DONTNEED)`.
+- libkrun's virtiofs passthrough answers unknown ioctls with EOPNOTSUPP.
+  overlayfs copy-up issues FS_IOC_GETFLAGS on the lower and tolerates only
+  ENOTTY or EINVAL, so a writable overlay over the image share needs a
+  one-line libkrun patch (ENOTTY, which is what FUSE without ioctl support
+  and the VFS itself return). Carried in the helper image; upstream PR is an
+  open problem in the report.
+- libkrun's init reports the workload's exit code only while its own `/` is
+  virtiofs; a guest init that pivots root must do so in its own mount
+  namespace or every exit code is 0.
 
 ## Environment
 
@@ -73,7 +84,10 @@ libkrun 1.19 facts the design relies on:
   (`source-hello-world` or similar), one Go materialization with a local
   endpoint (`materialize-sqlite` or similar). A derived image
   (derive-python plus a venv layer containing pandas) for experiment 5.
-- libkrun v1.19.x with libkrunfw, in a helper image we build for the spike.
+- libkrun v1.19.4 built from source (Fedora 43 packages 1.19.0, which
+  predates the 1.19.3 virtiofs attribute-caching change) plus the ENOTTY
+  patch, with Fedora's libkrunfw (kernel 6.12.91), in a helper image we
+  build for the spike.
 - An nginx container on its own podman network with subnet 198.51.100.0/24
   (TEST-NET-2: not RFC1918, not in the baseline, routable on the host).
 
@@ -129,14 +143,17 @@ static guest init), and the shim. The shim, in order:
      `/image-inspect.json`, `/.krun_config.json`
    - `krun_add_disk3("scratch", "/proc/self/fd/N", RAW, rw, ...)`
    - `krun_add_net_tap("tapN", mac, features, 0)`
-   - `krun_add_vsock(ctx, 0)` then
+   - `krun_disable_implicit_vsock`, `krun_add_vsock(ctx, 0)` (1.19 rejects
+     the explicit call unless the implicit device is disabled first), then
      `krun_add_vsock_port2(ctx, 49092, "/sock/init.sock", listen=true)`
    - `krun_disable_implicit_console` then
      `krun_add_virtio_console_default(devnull, stdout, stderr)`: kernel
      console goes to helper stdout (which the reactor discards today), the
      workload's stderr goes straight to fd 2 so connector-init's logs and
      readiness byte reach the reactor unchanged. A spike `--debug` tees.
-   - `krun_set_exec("/flow-init", ...)` and `krun_start_enter`.
+   - `krun_start_enter`. No `krun_set_exec`: it sets `KRUN_INIT`, which
+     makes libkrun's init ignore `Cmd`; argv, env, and workdir all come from
+     the injected `/.krun_config.json`.
 
 ### flow-init (guest, runs as root under libkrun's init)
 
@@ -145,11 +162,14 @@ Static binary, no libc or shell assumed in the image. In order:
 1. Static eth0: guest end of the /30, default route via the helper, using the
    `SIOCSIFADDR`/`SIOCSIFNETMASK`/`SIOCSIFFLAGS`/`SIOCADDRT` ioctls. Disable
    IPv6 via sysctl.
-2. Mount a size-capped tmpfs, overlay it over the read-only virtiofs root,
-   `pivot_root`. The guest sees a writable, ephemeral root like a container.
+2. `unshare(CLONE_NEWNS)` and make the tree private. Mount a size-capped
+   tmpfs under `/dev`, overlay it over the read-only virtiofs root,
+   `pivot_root`, and mount devtmpfs, devpts and shm again inside. The guest
+   sees a writable, ephemeral root like a container.
 3. Write `/etc/resolv.conf` (nameserver = helper address) and `/etc/hosts`.
    Create `/venv` and `/scratch`. Mount the `venv` virtiofs (with `dax` in
-   the experiment 5 variant) and `/dev/vda` ext4 at `/scratch`.
+   the experiment 5 variant) and `/dev/vda` ext4 at `/scratch`, chowned to
+   the image's uid:gid.
 4. Set `TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`, chdir to the workdir,
    drop to the image's uid:gid, and exec
    `/flow-connector-init --image-inspect-json-path=/image-inspect.json
@@ -345,7 +365,9 @@ One document containing:
   sequence, and the mkfs options that passed, so phase 2 starts from them.
 - The measured cgroup overhead constant and the THP result.
 - Anything that only worked from a root shell on the host.
-- Open problems found along the way, each with a proposed owner.
+- Open problems found along the way, each with a proposed owner. Known
+  already: the libkrun ENOTTY patch (owner: us, upstream PR; fallback is a
+  per-path tmpfs writable root, which loses the podman-shaped root).
 
 ## Decision
 
