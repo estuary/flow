@@ -141,7 +141,9 @@ static guest init), and the shim. The shim, in order:
    - `krun_add_virtiofs3("venv", "/venv", <shm or 0>, read_only)`
    - overlay files at the root: `/flow-init`, `/flow-connector-init`,
      `/image-inspect.json`, `/.krun_config.json`
-   - `krun_add_disk3("scratch", "/proc/self/fd/N", RAW, rw, ...)`
+   - `krun_add_disk3("scratch", "/proc/self/fd/N", RAW, rw, ...)`, then
+     when a dependency image is given, `krun_add_disk3("deps", "/deps.img",
+     RAW, read_only, ...)` so it lands as `/dev/vdb`
    - `krun_add_net_tap("tapN", mac, features, 0)`
    - `krun_disable_implicit_vsock`, `krun_add_vsock(ctx, 0)` (1.19 rejects
      the explicit call unless the implicit device is disabled first), then
@@ -169,7 +171,8 @@ Static binary, no libc or shell assumed in the image. In order:
 3. Write `/etc/resolv.conf` (nameserver = helper address) and `/etc/hosts`.
    Create `/venv` and `/scratch`. Mount the `venv` virtiofs (with `dax` in
    the experiment 5 variant) and `/dev/vda` ext4 at `/scratch`, chowned to
-   the image's uid:gid.
+   the image's uid:gid. When a dependency image is attached, mount `/dev/vdb`
+   read-only at `/opt/venv`.
 4. Set `TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`, chdir to the workdir,
    drop to the image's uid:gid, and exec
    `/flow-connector-init --image-inspect-json-path=/image-inspect.json
@@ -229,7 +232,17 @@ guests receive prebuilt dependencies.
 
 ### 5. virtiofs cold import (gate, no worse than 2x)
 
-Primary: boot the derived image (derive-python plus venv layer) as the root.
+Result (WP08, commit f6498560dea): FAIL on virtiofs, 2.88x as an image
+layer, 2.40x as a separate share, DAX and THP irrelevant, CPU identical to a
+container. The cost is per-file metadata round trips, not bandwidth: warm
+virtiofs is still 2.2x a warm container. The identical venv on ext4 over
+virtio-blk imports at 0.89x. Redesign: the dependency set ships as a per-tag
+read-only disk image on a second virtio-blk device (`--deps-image`), mounted
+at `/opt/venv`. WP08b reruns the gate on that transport. The root stays on
+virtiofs; its measured cost is ~15 ms per process start (interpreter and
+stdlib), recorded in the report.
+
+Original design of the experiment, kept for the record. Primary: boot the derived image (derive-python plus venv layer) as the root.
 In a fresh guest (guest cache cold, host cache warm), time `import pandas`
 and `python -c pass`; the second isolates interpreter-and-stdlib cost on the
 root share from site-packages cost. Baseline: same two commands in a fresh
@@ -379,12 +392,13 @@ redesign it forces rather than declaring a no-go:
 - Experiment 2 fails: the breakdown decides. Time in podman create/start is
   a podman question; time in the guest kernel means a slimmer libkrunfw; time
   in virtiofs or flow-init means experiment 5's variants decide.
-- Experiment 5 fails on the primary: if the separate-share DAX variant
-  passes, the venv becomes a separate share rather than an image layer. If
-  the root share is the slow part, options are unpacking the image to a
-  plain host directory once per tag (removes podman's overlayfs beneath
-  virtiofs) or supplying our own kernel command line for root DAX (libkrun
-  2.0 or `krun_set_kernel`). Everything else is unchanged.
+- Experiment 5 failed on the primary and on every listed fallback (WP08).
+  The redesign it forced: dependency sets are read-only block images per
+  tag, not virtiofs, attached as a second virtio-blk device and mounted at
+  `/opt/venv`. The builder emits a disk image instead of a directory. Root
+  stays virtiofs. WP08b measures the redesign; if IT fails under 2x, the
+  next step is the whole root on a block image, which gives up the
+  podman-shaped writable root and is a much larger change.
 - Experiments 6, 7, 8, 11, 12, or 13 fail: bugs in the spike's ruleset,
   shim, or flow-init, not in the design. Fix and rerun.
 - Experiment 3 or 4 fails: something about connector-init, the codec, or

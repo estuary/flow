@@ -15,14 +15,15 @@ maintains the table. Newest log entries at the bottom.
 | 05 | runtime-next spike switch               | 01 (real)    | todo   | daveg/libkrun-spike |       |
 | 06 | Integration: experiments 1-4            | 00-05        | todo   | daveg/libkrun-spike |       |
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
-| 08 | virtiofs import matrix: experiment 5    | 03, 04       | todo   | daveg/libkrun-spike |       |
+| 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
+| 08b| deps as read-only block image: exp 5 rerun | 08        | todo   | daveg/libkrun-spike | the redesign experiment 5 forced |
 | 09 | Churn and density: experiments 9-10     | 00, 06       | todo   | daveg/libkrun-spike |       |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | todo   | daveg/libkrun-spike |       |
 | 11 | libkrun source read: experiment 12      | -            | todo   | daveg/libkrun-spike |       |
 | 12 | Report                                  | all          | todo   | daveg/libkrun-spike |       |
 
 Sequential order, one session at a time, biggest unknowns first:
-00, 03, 04, 08, 01, 05, 06, 02, 07, 11, 10, 09, 12. (03 answers "does it
+00, 03, 04, 08, 08b, 01, 05, 06, 02, 07, 11, 10, 09, 12. (03 answers "does it
 boot from an image mount here"; 08 answers "is virtiofs fast enough" before
 any runtime work is spent.)
 
@@ -738,3 +739,23 @@ any runtime work is spent.)
     expensive to build, is 2.88x actually disqualifying, or was 2x a proxy for
     "boot plus import stays under the budget"? Not arguing for moving the
     goalposts - asking whether the goalpost is the right one, once.
+
+### 2026-09-10 master: WP08 accepted as a gate failure with a forced redesign; WP08b opened
+
+- Verdict: experiment 5 FAILS on virtiofs and the diagnosis is accepted as
+  conclusive (CPU identical, warm virtiofs still 2.2x, block device 0.89x).
+  Per PLAN's Decision section this is a redesign, not a no-go: the
+  dependency set ships as a per-tag read-only block image on a second
+  virtio-blk device, mounted at `/opt/venv`. PLAN, CONTRACTS, WP05 updated;
+  WP08b written to measure it (ext4 and erofs, reactor launch, and a
+  host-cold cell for the first-ever-launch number).
+- Root stays on virtiofs. Its cost is ~15 ms per process start, small and
+  now measured; moving it is the fallback only if 08b also fails.
+- The 2x gate stands. It was a proxy for startup budget and by absolute
+  numbers we would have passed, but the metadata cost is paid on every
+  file operation for the connector's life, and a cheap fix passes outright.
+- Housekeeping recorded for WP06: stale `fs_*/` directories in the reactor
+  dir; `env-check.sh` should warn.
+- CONTRACTS now says `/init` must hold all three files even for `--exec`
+  launches (the shim opens connector-init regardless).
+- Next: WP08b, then WP01.

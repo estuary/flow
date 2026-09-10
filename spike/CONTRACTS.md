@@ -38,16 +38,25 @@ deviation in STATUS.md for the master thread to propagate.
 
 ```
 flow-sandbox-helper --policy PATH --memory-mib N --vcpus N --disk-mib N \
-    --upper-mib N [--venv-dax] [--thp-disable] [--run-as-root] [--debug] \
+    --upper-mib N [--deps-image PATH [--deps-fstype ext4|erofs]] \
+    [--venv-dax] [--thp-disable] [--run-as-root] [--debug] \
     [--as-root-exec CMD] [--no-flow-init] [--exec ARGV...]
 ```
 `PATH` is `/init/policy.json`; the runtime writes it next to connector-init.
 
 - Mounts it expects, all provided by the caller's `podman run`:
   `/rootfs` (connector image via `--mount type=image`), `/init` (dir with
-  `flow-connector-init` and `image-inspect.json`), `/venv` (dir, may be
-  empty; also carries probe and bench scripts for WP07/WP08 under
-  `/venv/spike/`), `/sock` (dir), `/scratch-backing` (dir).
+  `flow-connector-init`, `image-inspect.json`, `policy.json`; the shim opens
+  `flow-connector-init` even when `--exec` replaces the workload, so all
+  three must exist for every launch), `/venv` (dir, may be empty; spike
+  tooling only: probe and bench scripts under `/venv/spike/`), `/sock`
+  (dir), `/scratch-backing` (dir), and optionally `/deps.img` (a read-only
+  bind of the per-tag dependency disk image, see `--deps-image`).
+- `--deps-image PATH`: attach PATH as a read-only virtio-blk device after the
+  scratch disk (so scratch stays `/dev/vda`, deps is `/dev/vdb`). flow-init
+  mounts it read-only at `/opt/venv`. `--deps-fstype` defaults to `ext4`.
+  This is the production transport for the dependency set; WP08 measured
+  virtiofs at 2.4x-2.9x for it and a block device at 0.9x.
 - Default workload argv:
   `/flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092`
 - `--exec ARGV...` replaces the workload argv. flow-init still does all of its
@@ -160,13 +169,15 @@ libkrun's init, which has already mounted `/dev`, `/proc`, `/sys`,
 ```
 /flow-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 \
     --upper-mib N --uid U --gid G [--venv-dax] [--run-as-root] \
-    [--as-root-exec 'CMD'] -- ARGV...
+    [--deps-dev /dev/vdb --deps-fstype FS] [--as-root-exec 'CMD'] -- ARGV...
 ```
 In order: static eth0 and default route; IPv6 disabled; capped tmpfs upper
 over the read-only virtiofs root via overlayfs, then `pivot_root`; write
 `/etc/resolv.conf` (`nameserver <ns>`) and `/etc/hosts`; `mkdir -p /venv
 /scratch`; mount virtiofs tag `venv` at `/venv` read-only (with `dax` when
-asked); mount `/dev/vda` ext4 at `/scratch`; if `--as-root-exec`, run it via
+asked); mount `/dev/vda` ext4 at `/scratch`; if `--deps-dev`, `mkdir -p
+/opt/venv` and mount it there read-only with `--deps-fstype`; if
+`--as-root-exec`, run it via
 `/bin/sh -c` and wait (probes that need root before the drop); set
 `TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`; chdir to the workdir it was
 started in; `setgroups([])`, `setgid`, `setuid` unless `--run-as-root`; exec
@@ -214,6 +225,8 @@ of TCP. Other variables, all with defaults:
 | FLOW_SANDBOX_SPIKE_DISK_MIB       | 4096                               |
 | FLOW_SANDBOX_SPIKE_UPPER_MIB      | 256                                |
 | FLOW_SANDBOX_SPIKE_VENV_DIR       | (empty dir under `<id>/`)          |
+| FLOW_SANDBOX_SPIKE_DEPS_IMAGE     | (unset: no deps disk) host path, bound read-only at `/deps.img`, passed as `--deps-image /deps.img` |
+| FLOW_SANDBOX_SPIKE_DEPS_FSTYPE    | ext4                               |
 | FLOW_SANDBOX_SPIKE_HELPER_ARGS    | (extra helper args, space-split)   |
 
 The unmodified code path must be byte-identical when the variable is unset.
