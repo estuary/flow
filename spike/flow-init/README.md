@@ -1,9 +1,11 @@
 # spike/flow-init
 
 The guest init. libkrun's own init hands it the VM as root, and it gives the
-connector image what podman gives a container today - network, a writable
-root, mounts, environment, user - before exec'ing the connector. See
-CONTRACTS.md "flow-init" for the CLI, PLAN.md for where it sits.
+connector image what podman gives a container today - network, mounts,
+environment, user - before exec'ing the connector. The root needs nothing done
+to it: it is podman's per-container writable layer over the image, served
+read-write over virtiofs. See CONTRACTS.md "flow-init" for the CLI, PLAN.md
+for where it sits.
 
 Built for `x86_64-unknown-linux-musl` and injected into the guest root at
 `/flow-init` by the helper shim, which also builds its argv
@@ -18,8 +20,8 @@ libc, no shell and no dynamic loader, so the binary is static and depends on
 - `cli.rs`   the CONTRACTS CLI. Everything after `--` is the workload's argv.
 - `net.rs`   eth0, the default route, and the IPv6 sysctls, over the classic
              `ifreq`/`rtentry` ioctls.
-- `root.rs`  the mounts: overlay root, `pivot_root`, `/etc`, venv, scratch,
-             deps.
+- `root.rs`  the mounts and the two files podman would write: `/etc`, venv,
+             scratch, deps.
 - `sys.rs`   the syscall wrappers the rest is written in terms of.
 
 Verify with `spike/tasks/flow-init-test.sh`, which boots derive-python under
@@ -27,27 +29,23 @@ the helper and asserts what the connector finds.
 
 ## Non-obvious details
 
-- **A mount namespace of its own, first.** libkrun's init shares this
-  namespace and still needs its original root: on workload exit its
-  `set_exit_code` reports the code through an ioctl on `/`, and only when
-  `statfs("/")` returns virtiofs magic. Pivot the shared namespace and it
-  silently skips the report - the VM then exits 0 whatever the workload
-  returned. `unshare(CLONE_NEWNS)` keeps init's view intact.
-- **Then `MS_REC | MS_PRIVATE`.** libkrun's init ends by marking the tree
-  `MS_REC | MS_SHARED`, which the new namespace inherits; both `MS_MOVE` and
-  `pivot_root` refuse a mount whose parent propagates (EINVAL).
-- **devtmpfs is the only writable place before the overlay**, which is why the
-  tmpfs staging directory is `/dev/.flow`: the image's root share is
-  read-only.
-- **/dev is remounted, not moved.** The tmpfs holding the new root lives inside
-  /dev, and `MS_MOVE` refuses a target within the mount being moved. devtmpfs
-  is one kernel-wide instance, so a second mount shows the same nodes; devpts
-  and shm are remade over it.
-- **Overlay copy-up needs a libkrun patch.** Every FUSE inode carries
-  `S_NOATIME`, so overlayfs copies the lower's fileattr flags on copy-up;
-  libkrun answers that ioctl with `EOPNOTSUPP`, which overlayfs treats as
-  fatal. `spike/helper/Dockerfile` turns it into `ENOTTY`. Without it nothing
-  can be written to the root at all.
+- **No overlay, and no `pivot_root`.** The root arrives writable, so there is
+  nothing to lay over it - and a guest-side overlayfs could not work anyway:
+  every FUSE inode carries `S_NOATIME`, so overlayfs copies the lower's
+  fileattr flags on copy-up, and libkrun answers that ioctl with `EOPNOTSUPP`,
+  which overlayfs treats as fatal (`failed to retrieve lower fileattr (/etc,
+  err=-95)`). WP04 carried a one-line libkrun patch for it; WP04b removed
+  both the overlay and the patch.
+- **Nothing here may change the root of the shared mount namespace.**
+  libkrun's init reports the workload's exit code through an ioctl on `/`, and
+  only when `statfs("/")` returns virtiofs magic. A `pivot_root` in this
+  namespace leaves init looking at something else, so it skips the report
+  silently and the VM exits 0 whatever the workload returned. WP04 hit this
+  and worked around it with `unshare(CLONE_NEWNS)`; there is no pivot to
+  unshare from now, and `flow-init-test.sh` still asserts the exit code.
+- **Root writes are bounded by host disk, not by the VM's memory.** They land
+  in podman's container layer, exactly as a container's do today, which is why
+  `TMPDIR` and `UV_CACHE_DIR` point at the sized, disposable scratch disk.
 - **The scratch disk is chowned to the image's user.** mkfs leaves its root
   owned by root, and `TMPDIR` points there.
 - **The dependency set arrives as a block device, not a share.** `--deps-dev`

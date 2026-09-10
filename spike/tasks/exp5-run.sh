@@ -124,7 +124,7 @@ run_guest() {
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" --log-driver=none \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
         --sysctl net.ipv4.ip_forward=1 \
-        "--mount=type=image,source=$image,destination=/rootfs" \
+        "$(spike_image_mount "$image")" \
         "--mount=type=bind,source=$SPIKE_REACTOR_DIR/$id/init,target=/init,ro" \
         "--mount=type=bind,source=$venvdir,target=/venv,ro" \
         "--mount=type=bind,source=$SPIKE_REACTOR_DIR/$id/sock,target=/sock" \
@@ -132,7 +132,7 @@ run_guest() {
         "${deps_mount[@]}" \
         "$SPIKE_HELPER_IMAGE" \
         --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 1024 \
-        --upper-mib 256 --run-as-root $extra \
+        --run-as-root $extra \
         --exec "$SPIKE_GUEST_PYTHON" /venv/spike/bench.py \
         --venv "$venvarg" --label "$cell")
 

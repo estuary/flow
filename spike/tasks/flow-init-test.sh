@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Prove flow-init gives a connector image what podman gives a container today:
-# a default route, a writable root, the venv and scratch mounts, the image's
+# a default route, a writable root (podman's own per-container layer, served
+# read-write over virtiofs), the venv, scratch and deps mounts, the image's
 # user and environment, and a shell's exit codes.
 #
 #   flow-init-test.sh            launch through the fake reactor (as production would)
@@ -112,14 +113,14 @@ helper_run_argv() {
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" --log-driver=none \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
         --sysctl net.ipv4.ip_forward=1 \
-        "--mount=type=image,source=$GUEST_IMAGE,destination=/rootfs" \
+        "$(spike_image_mount "$GUEST_IMAGE")" \
         "--mount=type=bind,source=$dir/init,target=/init,ro" \
         "--mount=type=bind,source=$dir/venv,target=/venv,ro" \
         "--mount=type=bind,source=$dir/sock,target=/sock" \
         "--mount=type=bind,source=$dir/scratch,target=/scratch-backing" \
         "${deps[@]}" \
         "$SPIKE_HELPER_IMAGE" \
-        --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 1024 --upper-mib 256 \
+        --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 1024 \
         "$@"
 }
 
@@ -169,8 +170,9 @@ else
     # default route is the one with destination 00000000.
     matches "route: default via 192.0.2.1 on eth0" \
         "$WORK/probe.out" '^eth0[[:space:]]+00000000[[:space:]]+010200C0'
-    matches "root: overlay is /" "$WORK/probe.out" '^overlay / overlay '
-    matches "root: the image's user writes to the overlay" \
+    matches "root: / is the image share, read-write" \
+        "$WORK/probe.out" '^/dev/root / virtiofs rw,'
+    matches "root: the image's user writes to the root" \
         "$WORK/probe.out" '^tmp-writable$'
     # Parity with podman, not a flow-init limit: /etc belongs to root in the
     # image, and the workload is the image's unprivileged user either way.
@@ -219,18 +221,55 @@ indent "$WORK/probe.out"
 say "      helper stderr:"
 indent "$WORK/probe.err"
 
-# --------------------------------------------------------------- --run-as-root
+# ------------------------------------ --run-as-root, and where root writes go
+# Guest root writes land in podman's per-container layer: they succeed, they
+# never reach the image, and they leave with the container (PLAN experiment 11).
+GUEST_WRITE=flow-init-test-write
+
+# Containers row of `podman system df`: how many, and how many bytes of
+# per-container layer. The helper's layer must be gone once it exits.
+df_containers() {
+    sudo podman system df --format json | python3 -c '
+import json, sys
+row = next(r for r in json.load(sys.stdin) if r["Type"] == "Containers")
+print(row["TotalCount"], row["RawSize"])'
+}
+
+read -r df_count_before df_bytes_before < <(df_containers)
 id="$(new_connector)"
 rc=0
-run_helper asroot "$id" --run-as-root --exec /bin/sh -c \
-    'id; touch /etc/x && echo etc-writable' || rc=$?
+# One line: run_helper's mapfile splits every argv element on newlines.
+asroot_probe="id; touch /etc/$GUEST_WRITE && echo etc-writable;"
+asroot_probe="$asroot_probe touch /usr/$GUEST_WRITE && echo usr-writable"
+run_helper asroot "$id" --run-as-root --exec /bin/sh -c "$asroot_probe" || rc=$?
 if [ "$rc" -ne 0 ]; then
     fail "--run-as-root: the helper exited $rc"
     indent "$WORK/asroot.err"
 else
     matches "--run-as-root: the workload keeps uid 0" "$WORK/asroot.out" '^uid=0\(root\)'
-    matches "--run-as-root: a root-owned lower directory copies up" \
-        "$WORK/asroot.out" '^etc-writable$'
+    matches "root: as guest root, /etc takes a write" "$WORK/asroot.out" '^etc-writable$'
+    matches "root: as guest root, /usr takes a write" "$WORK/asroot.out" '^usr-writable$'
+fi
+
+# The image itself, read from podman's own storage.
+image_root="$(sudo podman image mount "$GUEST_IMAGE")"
+if sudo test -e "$image_root/etc/$GUEST_WRITE" || sudo test -e "$image_root/usr/$GUEST_WRITE"; then
+    fail "root: the guest's writes reached the image at $image_root"
+else
+    ok "root: the guest's writes are not in the image"
+fi
+sudo podman image umount "$GUEST_IMAGE" >/dev/null
+
+read -r df_count_after df_bytes_after < <(df_containers)
+say "      podman system df, Containers: $df_count_before/$df_bytes_before B before, $df_count_after/$df_bytes_after B after"
+# The byte total has a tolerance because every other container on the box (the
+# spike's nginx) counts toward it too; the count must match exactly.
+if [ "$df_count_after" -ne "$df_count_before" ]; then
+    fail "root: $((df_count_after - df_count_before)) container(s) left behind"
+elif [ "$((df_bytes_after - df_bytes_before))" -ge 1048576 ]; then
+    fail "root: $((df_bytes_after - df_bytes_before)) B of container layer survived the run"
+else
+    ok "root: the writable layer left with the container"
 fi
 
 # ------------------------------------------------------------- --as-root-exec

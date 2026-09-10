@@ -6,9 +6,9 @@ connector itself; see PLAN.md "Helper launch" and CONTRACTS.md "Helper CLI".
 
 ## Layout
 
-- `Dockerfile`   builds `localhost/flow-sandbox-helper:spike`. Fedora 43, whose
-                 `libkrun` (1.19.0) and `libkrunfw` (5.5.0) packages are used
-                 as-is rather than built from source.
+- `Dockerfile`   builds `localhost/flow-sandbox-helper:spike`. Fedora 43 with
+                 its `libkrunfw` (5.5.0) package, and libkrun v1.19.4 built
+                 from source, unpatched: Fedora's is 1.19.0.
 - `shim/`        the Rust shim, PID 1 of the helper container.
 - `guest/`       code injected into the guest, so static and libc-free.
 - `stubs/`       placeholders for binaries other packages own: `flow-init`
@@ -40,10 +40,13 @@ calls, and none of them talk to libkrun except `sys`.
   `/.krun_config.json`'s `Cmd` only when `KRUN_INIT` is absent, and
   `krun_set_exec` is what sets `KRUN_INIT`. Setting both silently discards the
   config's argv, so the shim only ever writes `Cmd`.
-- **The root share is read-only, so mount points cannot be created in it.**
-  libkrun's init `mkdir`s `/dev`, `/proc` and `/sys` before mounting them;
-  busybox has no `/proc` or `/sys` and distroless images have none of the three.
-  The shim injects the missing ones as empty virtual directories.
+- **The root share is read-write, and that is the guest's writable root.**
+  `/rootfs` is podman's per-container layer over the image
+  (`--mount type=image,...,rw=true`), removed with the container, so guest
+  writes behave as a container's do and nothing overlays it inside the guest.
+  It also means libkrun's init can `mkdir` `/dev`, `/proc` and `/sys` itself
+  where an image lacks them - busybox has no `/proc` or `/sys` - so the shim
+  no longer injects them as virtual directories (WP04b).
 - **hvc0 and `krun-stdout` share one host descriptor.** The kernel console and
   the workload's stdout are interleaved on fd 1 by construction; only the
   workload's stderr (fd 2, which the reactor reads) is separate.

@@ -389,3 +389,55 @@ As experiment 5, plus:
   already exported. Immaterial to the measurement - bench.py puts
   site-packages on `sys.path` rather than running the venv's interpreter - but
   a phase-2 builder should create the venv at its final path.
+
+# Experiment 5c: the same number on podman's writable root
+
+**FAIL at 2.13x** (`blk-ext4` 709.4 ms vs `baseline` 332.7 ms, medians, n=10),
+which is 5b's 2.12x restated on a different root shape. The ruling 5b was
+accepted under does not change.
+
+WP04b replaced the guest-side overlayfs with podman's own per-container
+writable layer, served read-write over virtiofs, and removed the libkrun patch
+the overlay needed. That takes a filesystem layer off every root read, so the
+number was worth restating. It did not move.
+
+## The matrix
+
+Same method and cells as 5b, reduced to the two that decide the gate.
+
+| cell       | import median | import p95 | pass median | wall median | n  |
+|------------|---------------|------------|-------------|-------------|----|
+| `blk-ext4` |         709.4 |      726.3 |        36.7 |      2092.0 | 10 |
+| `baseline` |         332.7 |      336.8 |         9.7 |       872.5 | 10 |
+
+Raw runs: `data/exp5-4b.csv`.
+
+## Reading it
+
+- **The ratio is unchanged: 2.13x against 5b's 2.12x.**
+- **Both cells are 14-15% faster in absolute terms than in 5b** (709.4 vs
+  826.8; 332.7 vs 390.5). `baseline` is a plain `podman run` of the derived
+  image and has no guest, no helper and no root share, so nothing in WP04b can
+  reach it. Two cells moving together by the same fraction is machine state -
+  this is a shared cloud host - not the design. The ratio is the part that
+  carries between sessions, which is why the gate is written as one.
+- **Removing the overlay was never going to move much**, and this quantifies
+  it. Since 5b the dependency set arrives on `/dev/vdb`, so the overlay sat
+  only on the root's own reads: `attrib.py` counted 152 modules and 5.4 MB
+  there against 407 and 41.7 MB off the deps disk. Root *writes*, which is
+  what WP04b actually changed, are not on the import path at all.
+- The 371 ms first-import tax of 5b, about half of it guest memory
+  first-touch, is untouched by this and remains what it was.
+
+## Environment (5c)
+
+As experiment 5b, except:
+
+- **libkrun 1.19.4 built from source, unpatched.** 5 and 5b carried WP04's
+  ENOTTY patch, which only the guest overlay needed. Verified on the running
+  library rather than assumed: an overlay over the virtiofs root still refuses
+  copy-up with `overlayfs: failed to retrieve lower fileattr (/etc, err=-95)`.
+- Root share `krun_add_virtiofs3(..., read_only=false)` over
+  `--mount type=image,...,rw=true`, and no `--upper-mib` anywhere.
+- Measured on WP04b's tree; `data/exp5-4b.csv` names commit `358da8b59b8`,
+  its parent, because the runs preceded the commit.

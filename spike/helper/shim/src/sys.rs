@@ -46,12 +46,6 @@ extern "C" {
         mode: u32,
         one_shot: bool,
     ) -> i32;
-    pub fn krun_fs_add_overlay_dir(
-        ctx_id: u32,
-        fs_tag: *const c_char,
-        path: *const c_char,
-        mode: u32,
-    ) -> i32;
     pub fn krun_add_disk3(
         ctx_id: u32,
         block_id: *const c_char,

@@ -95,15 +95,18 @@ fn run() -> anyhow::Result<std::convert::Infallible> {
         sys::krun_set_vm_config(ctx, args.vcpus, args.memory_mib)
     })?;
 
-    // Read-only root: the connector image itself, which the guest may never
-    // modify. flow-init lays a capped tmpfs over it with overlayfs.
+    // Writable root: `/rootfs` is podman's per-container layer over the
+    // connector image (`--mount type=image,...,rw=true`), removed with the
+    // container. The guest root is writable exactly as a container's is today,
+    // and nothing lays an overlay inside the guest - one over a virtiofs lower
+    // cannot copy up at all, see CONTRACTS "Helper CLI".
     sys::check("krun_add_virtiofs3(/dev/root)", unsafe {
         sys::krun_add_virtiofs3(
             ctx,
             sys::KRUN_FS_ROOT_TAG.as_ptr(),
             rootfs.as_ptr(),
             0,
-            true,
+            false,
         )
     })?;
     sys::check("krun_add_virtiofs3(venv)", unsafe {
@@ -115,26 +118,6 @@ fn run() -> anyhow::Result<std::convert::Infallible> {
             true,
         )
     })?;
-
-    // libkrun's init mounts devtmpfs, procfs and sysfs at these paths, and can
-    // only mkdir them on a writable root. The connector image's share is
-    // read-only, so any the image does not already carry - busybox has no /proc
-    // or /sys, and distroless images have none of the three - are injected as
-    // empty virtual directories for init to mount over.
-    for dir in ["dev", "proc", "sys"] {
-        if Path::new(ROOTFS).join(dir).exists() {
-            continue;
-        }
-        let dir_c = CString::new(dir)?;
-        sys::check(&format!("krun_fs_add_overlay_dir({dir})"), unsafe {
-            sys::krun_fs_add_overlay_dir(
-                ctx,
-                sys::KRUN_FS_ROOT_TAG.as_ptr(),
-                dir_c.as_ptr(),
-                0o40555,
-            )
-        })?;
-    }
 
     // Overlay paths carry no leading slash: they are entries in the root
     // virtiofs, which is how libkrun serves its own /init.krun.
@@ -267,8 +250,6 @@ fn guest_cmd(args: &cli::Args, image: &image::ImageConfig) -> Vec<String> {
         net::HELPER_IP.to_string(),
         "--nameserver".to_string(),
         net::HELPER_IP.to_string(),
-        "--upper-mib".to_string(),
-        args.upper_mib.to_string(),
         "--uid".to_string(),
         image.uid.to_string(),
         "--gid".to_string(),

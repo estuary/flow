@@ -10,7 +10,6 @@ pub struct Args {
     pub prefix_len: u8,
     pub gateway: Ipv4Addr,
     pub nameserver: Ipv4Addr,
-    pub upper_mib: u32,
     pub uid: u32,
     pub gid: u32,
     pub venv_dax: bool,
@@ -25,14 +24,13 @@ pub struct Args {
 }
 
 pub const USAGE: &str = "usage: /flow-init --guest-ip A.B.C.D/N --gateway A.B.C.D \
-     --nameserver A.B.C.D --upper-mib N --uid U --gid G [--venv-dax] [--run-as-root] \
+     --nameserver A.B.C.D --uid U --gid G [--venv-dax] [--run-as-root] \
      [--deps-dev DEV --deps-fstype FS] [--as-root-exec CMD] -- ARGV...";
 
 pub fn parse(argv: Vec<String>) -> Result<Args, String> {
     let mut guest_ip = None;
     let mut gateway = None;
     let mut nameserver = None;
-    let mut upper_mib = None;
     let mut uid = None;
     let mut gid = None;
     let mut venv_dax = false;
@@ -79,7 +77,6 @@ pub fn parse(argv: Vec<String>) -> Result<Args, String> {
             }
             "--gateway" => (gateway, i) = (Some(address(i)?), i + 2),
             "--nameserver" => (nameserver, i) = (Some(address(i)?), i + 2),
-            "--upper-mib" => (upper_mib, i) = (Some(number(i)?), i + 2),
             "--uid" => (uid, i) = (Some(number(i)?), i + 2),
             "--gid" => (gid, i) = (Some(number(i)?), i + 2),
             "--venv-dax" => (venv_dax, i) = (true, i + 1),
@@ -110,7 +107,6 @@ pub fn parse(argv: Vec<String>) -> Result<Args, String> {
         prefix_len,
         gateway: gateway.ok_or_else(|| missing("--gateway"))?,
         nameserver: nameserver.ok_or_else(|| missing("--nameserver"))?,
-        upper_mib: upper_mib.ok_or_else(|| missing("--upper-mib"))?,
         uid: uid.ok_or_else(|| missing("--uid"))?,
         gid: gid.ok_or_else(|| missing("--gid"))?,
         venv_dax,

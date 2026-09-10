@@ -11,7 +11,6 @@ pub struct Args {
     pub memory_mib: u32,
     pub vcpus: u8,
     pub disk_mib: u64,
-    pub upper_mib: u32,
     /// The per-tag dependency disk image, attached read-only as `/dev/vdb`.
     pub deps_image: Option<PathBuf>,
     pub deps_fstype: String,
@@ -28,7 +27,7 @@ pub struct Args {
 }
 
 pub const USAGE: &str = "usage: flow-sandbox-helper --policy PATH --memory-mib N --vcpus N \
-     --disk-mib N --upper-mib N [--deps-image PATH [--deps-fstype ext4|erofs]] [--venv-dax] \
+     --disk-mib N [--deps-image PATH [--deps-fstype ext4|erofs]] [--venv-dax] \
      [--thp-disable] [--run-as-root] [--debug] [--as-root-exec CMD] [--no-flow-init] \
      [--exec ARGV...]";
 
@@ -42,7 +41,6 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
     let mut memory_mib = None;
     let mut vcpus = None;
     let mut disk_mib = None;
-    let mut upper_mib = None;
     let mut deps_image = None;
     let mut deps_fstype = None;
     let mut venv_dax = false;
@@ -66,7 +64,6 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
             "--memory-mib" => (memory_mib, i) = (Some(value(i)?.parse()?), i + 2),
             "--vcpus" => (vcpus, i) = (Some(value(i)?.parse()?), i + 2),
             "--disk-mib" => (disk_mib, i) = (Some(value(i)?.parse()?), i + 2),
-            "--upper-mib" => (upper_mib, i) = (Some(value(i)?.parse()?), i + 2),
             "--deps-image" => (deps_image, i) = (Some(PathBuf::from(value(i)?)), i + 2),
             "--deps-fstype" => (deps_fstype, i) = (Some(value(i)?.to_string()), i + 2),
             "--venv-dax" => (venv_dax, i) = (true, i + 1),
@@ -89,7 +86,6 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
         memory_mib: memory_mib.ok_or_else(|| missing("--memory-mib"))?,
         vcpus: vcpus.ok_or_else(|| missing("--vcpus"))?,
         disk_mib: disk_mib.ok_or_else(|| missing("--disk-mib"))?,
-        upper_mib: upper_mib.ok_or_else(|| missing("--upper-mib"))?,
         deps_image,
         deps_fstype: deps_fstype.unwrap_or_else(|| DEPS_FSTYPES[0].to_string()),
         venv_dax,

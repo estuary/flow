@@ -80,12 +80,3 @@ pub fn mkdir(path: &str, mode: libc::mode_t) -> Result<()> {
 pub fn write_file(path: &str, content: &str) -> Result<()> {
     std::fs::write(path, content).map_err(|e| format!("writing {path}: {e}"))
 }
-
-pub fn chdir(path: &str) -> Result<()> {
-    let path_c = cstring(path);
-    // Safety: a NUL-terminated path that outlives the call.
-    if unsafe { libc::chdir(path_c.as_ptr()) } < 0 {
-        return Err(last_error(format!("chdir {path}")));
-    }
-    Ok(())
-}

@@ -1,6 +1,7 @@
 //! `flow-init`: the guest init that gives a connector image what podman gives
-//! a container today - network, a writable root, mounts, environment, user -
-//! and then becomes the connector.
+//! a container today - network, mounts, environment, user - and then becomes
+//! the connector. The root arrives writable from podman, so nothing here
+//! touches it.
 //!
 //! Runs as guest root, as a child of libkrun's init, which has already mounted
 //! /dev, /proc, /sys, /sys/fs/cgroup, /dev/pts and /dev/shm, brought up `lo`,
@@ -11,8 +12,6 @@ mod cli;
 mod net;
 mod root;
 mod sys;
-
-use std::path::Path;
 
 fn main() -> std::process::ExitCode {
     // `run` is typed to never return successfully: it ends in an `execve` that
@@ -31,13 +30,6 @@ fn run() -> Result<std::convert::Infallible, String> {
     net::configure(args.guest_ip, args.prefix_len, args.gateway)?;
     net::disable_ipv6()?;
 
-    // The image's `WorkingDir`, which libkrun's init already chdir'd to.
-    // pivot_root leaves the cwd on the new root, so it is read back here and
-    // restored after the mounts are in place.
-    let workdir =
-        std::env::current_dir().map_err(|e| format!("reading the working directory: {e}"))?;
-
-    root::pivot(args.upper_mib)?;
     root::write_etc(args.nameserver, args.guest_ip)?;
     root::mount_venv(args.venv_dax)?;
     root::mount_scratch(args.uid, args.gid)?;
@@ -56,28 +48,22 @@ fn run() -> Result<std::convert::Infallible, String> {
             .map_err(|e| format!("running --as-root-exec via /bin/sh: {e}"))?;
     }
 
-    exec_workload(&args, &workdir)
+    exec_workload(&args)
 }
 
-/// Environment, working directory, user, and finally the workload itself.
+/// Environment, user, and finally the workload itself. The working directory
+/// is libkrun's init's doing and nothing since has changed it.
 ///
 /// Never returns: either `execv` replaces this process, or the failure is
 /// reported with the code libkrun's init and a shell would use for it, so the
 /// reactor cannot tell flow-init's exec apart from the one it replaced.
-fn exec_workload(args: &cli::Args, workdir: &Path) -> Result<std::convert::Infallible, String> {
-    // Both point at the scratch disk rather than the memory-backed root: a
-    // pip or uv install of any size would otherwise be charged to the VM's
-    // RAM. `setenv` overwrites, so these beat the image's own values.
+fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
+    // Both point at the scratch disk, which is sized and disposable: a pip or
+    // uv install of any size would otherwise land in podman's container layer
+    // on host disk, where nothing bounds it. `setenv` overwrites, so these
+    // beat the image's own values.
     std::env::set_var("TMPDIR", root::SCRATCH);
     std::env::set_var("UV_CACHE_DIR", root::SCRATCH);
-
-    // A `WorkingDir` that is not UTF-8 is not something an image config can
-    // express, and falling back to `/` would hide the surprise.
-    sys::chdir(
-        workdir
-            .to_str()
-            .unwrap_or_else(|| panic!("working directory {workdir:?} is not UTF-8")),
-    )?;
 
     if !args.run_as_root {
         drop_privileges(args.uid, args.gid)?;

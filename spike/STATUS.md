@@ -38,8 +38,10 @@ any runtime work is spent.)
   delta.
 - RESOLVED (WP00): `vsock_loopback` loads on this box; WP01 can test
   `--vsock-port` host-side against CID 1.
-- Does `--mount type=image,...,rw=true` work through the podman API service,
-  and is the per-container layer removed on `--rm`? (WP04b)
+- RESOLVED (WP04b): `--mount type=image,...,rw=true` works through the podman
+  API service, and the per-container layer is removed on `--rm` - guest writes
+  to `/etc` and `/usr` are absent from the image afterwards and
+  `podman system df` returns to its pre-run Containers row.
 - What does the libkrun README's "does not provide any protection against the
   guest attempting to access other directories in the same filesystem" mean
   concretely for the read-only image share? (WP11)
@@ -1009,3 +1011,148 @@ any runtime work is spent.)
   master session than the one that wrote this entry. Both are read; nothing
   conflicts. One master thread from here on.
 - Next: WP04b, then WP01.
+
+### 2026-09-10 WP04b: the writable root is podman's layer; the libkrun patch is gone and the guest overlay with it. Experiment 5 restates at 2.13x, unchanged.
+
+- shipped:
+  - `spike/tasks/helper-common.sh`: `spike_image_mount IMAGE`, the one place
+    the connector image mount is built, now with `rw=true`. Used by
+    `flow-init-test.sh`, `helper-smoke.sh`, `exp5-run.sh` and `exp5-diag.sh`,
+    which had four copies of the string between them.
+  - shim: root share is `krun_add_virtiofs3(..., read_only=false)`; the
+    `/dev`, `/proc`, `/sys` overlay-dir injection is gone, and with it the
+    `krun_fs_add_overlay_dir` declaration in `sys.rs` (WP11 audits that file);
+    `--upper-mib` removed from `cli.rs` and from flow-init's argv.
+  - `spike/helper/Dockerfile`: the ENOTTY patch block is gone. libkrun stays
+    v1.19.4 built from source, `BLK=1 NET=1`, unpatched.
+  - flow-init: no `unshare`, no `MS_REC | MS_PRIVATE`, no tmpfs, no overlay,
+    no `MS_MOVE`, no `/dev` remount, no `pivot_root`, no lazy umount, no
+    `--upper-mib`. `root.rs` is 80 lines where it was 175. Everything else
+    stands: eth0, IPv6 off, `/etc/resolv.conf` and `/etc/hosts` straight into
+    the root, venv, scratch and its chown, WP08b's deps mount,
+    `--as-root-exec`, `TMPDIR`/`UV_CACHE_DIR`, uid drop, exec.
+  - `spike/tasks/flow-init-test.sh`: the root assertions are rewritten for
+    the new shape and three are new (below). 43 assertions, was 41.
+  - `spike/tasks/helper-smoke.sh`: the `CONNECTORS+=` subshell bug WP08b
+    diagnosed, fixed the same way (an id file the trap reads).
+  - `report/exp5.md` gains "Experiment 5c"; `report/data/exp5-4b.csv`
+    (20 runs).
+  - `spike/flow-init/README.md` and `spike/helper/README.md` rewritten where
+    this change made them wrong.
+
+- verification:
+  ```
+  $ spike/tasks/helper-build.sh && spike/tasks/helper-smoke.sh
+  helper-smoke.sh: ok                      # all 10, unchanged
+
+  $ spike/tasks/flow-init-test.sh          # 43 assertions
+  ok    root: / is the image share, read-write
+  ok    root: the image's user writes to the root
+  ok    root: /etc stays root-owned under the dropped uid
+  ok    root: as guest root, /etc takes a write
+  ok    root: as guest root, /usr takes a write
+  ok    root: the guest's writes are not in the image
+        podman system df, Containers: 1/11836 B before, 1/11836 B after
+  ok    root: the writable layer left with the container
+  ok    exit code: a workload that is not there exits 127
+  ...                                      # the other 35, all ok
+  flow-init-test.sh: ok
+
+  $ spike/tasks/flow-init-test.sh --host
+  flow-init-test.sh: ok
+
+  $ cargo fmt --check; cargo clippy --all-targets    -> clean, both crates
+  ```
+  The guest's root mount, from the probe boot:
+  `/dev/root / virtiofs rw,relatime` - no `overlay` line anywhere, and
+  `devtmpfs /dev`, `devpts /dev/pts`, `shm /dev/shm` are libkrun's init's own.
+
+  Reactor directories: 115 before each suite and 115 after, so neither
+  script leaks any now. The 115 standing are still WP06's.
+
+- **the libkrun build is unpatched, proven rather than assumed.** The image
+  was rebuilt with `--no-cache` (the first cached build of the session made
+  the library's mtime ambiguous), and then the old failure was reproduced on
+  the running library: an overlayfs with `lowerdir=/` over the virtiofs root
+  still refuses copy-up, `touch: Operation not supported`, with
+  `overlayfs: failed to retrieve lower fileattr (/etc, err=-95)` on the
+  kernel console. Nothing in the design uses that path any more.
+
+- **the overlay-dir injection is not needed, and busybox is what proves it.**
+  With the share writable, libkrun's init `mkdir`s `/dev`, `/proc` and `/sys`
+  itself: `helper-smoke.sh`'s busybox guest (no `/proc`, no `/sys` in the
+  image) boots and reads both. Dropped rather than kept. A distroless Go
+  connector was checked too - `ghcr.io/estuary/source-hello-world:dev` boots
+  through flow-init and runs `/connector/source-hello-world spec` to
+  completion, and `--exec /nonexistent` there exits 127, which is every mount
+  step succeeding - but that image carries all three directories already, so
+  busybox is the case that decides it.
+
+- experiment 5c: **2.13x, against 5b's 2.12x.** Same cells, same method.
+  ```
+  cell                import median   import p95    pass median    wall median   n
+  blk-ext4                    709.4        726.3           36.7         2092.0  10
+  baseline                    332.7        336.8            9.7          872.5  10
+  ```
+  Both cells are 14-15% faster in absolute terms than in 5b (709.4 vs 826.8,
+  332.7 vs 390.5). `baseline` is a plain `podman run` of the derived image -
+  no guest, no helper, no root share - so nothing in WP04b can reach it: two
+  cells moving together by the same fraction is machine state on a shared
+  cloud host, not the design. The ratio is the part that carries between
+  sessions, and it did not move. Removing the overlay was never going to move
+  much: since 5b the dependency set arrives on `/dev/vdb`, so the overlay sat
+  only on the root's own 152 modules and 5.4 MB, and root *writes* are not on
+  the import path at all.
+
+- deviations from CONTRACTS.md: none. Departures from the WP04b brief:
+  - **`report/exp5.md` and `report/data/exp5-4b.csv` are outside the brief's
+    paths**, which stop at the task scripts, but step 5 asks for the 5c
+    section. Same shape as WP08b's note about `flow-init-test.sh`.
+  - **flow-init no longer chdirs to the workdir**, and CONTRACTS still lists
+    it. It only ever existed because `pivot_root` left the cwd on the new
+    root; libkrun's init applies `WorkingDir` before exec'ing flow-init and
+    nothing since changes the cwd, so the call and its `getcwd` were dead by
+    construction. `sys::chdir` went with them. See the question below.
+  - **`spike/helper/README.md`'s libkrun line is fixed here**, which was on
+    WP06's housekeeping list, because this change is what made it wrong.
+    What is left for WP06 in that file is the `stubs/` line naming flow-init,
+    plus deleting the dead `spike/helper/stubs/flow-init`.
+
+- findings other packages need:
+  - **The root share is writable now, which changes what a virtiofs path
+    escape would mean.** WP11's open question - libkrun's README saying it
+    "does not provide any protection against the guest attempting to access
+    other directories in the same filesystem" - was a read-escape question
+    while the share was read-only. It is a write-escape question now, and the
+    server runs as root in the helper container with the reactor directory and
+    podman's storage on the same filesystem. Worth WP11 answering in those
+    terms.
+  - **Root writes are bounded by host disk only.** A runaway writer fills the
+    reactor's storage rather than being stopped by a cap; that is exactly what
+    a container does today, and experiment 11 (WP10) is where it gets
+    measured. `TMPDIR` and `UV_CACHE_DIR` still steer the big writers to
+    `/scratch`, which is sized.
+  - **`podman build` cache hits can hide a stale library.** The libkrun stage
+    is one `RUN` that clones and builds; a cached layer looks identical in the
+    log and the installed `.so` keeps its original mtime through `COPY`, so
+    "did my Dockerfile change actually take" is not answerable by looking. It
+    is answerable by testing the behavior that changed, which is what the
+    ENOTTY check above does. Anything that changes libkrun's source should do
+    the same.
+  - The `mapfile` trap bit once more while writing the new root case: a
+    two-line `--exec` string became two argv elements. Flattened, and the
+    comment naming the trap is on the line above it now.
+
+- questions for master:
+  - CONTRACTS' flow-init sequence still says "chdir to the workdir it was
+    started in". flow-init no longer does, because with the pivot gone the
+    call could not change anything. Drop the clause, or should flow-init keep
+    an explicit chdir so the postcondition is its own rather than libkrun's
+    init's? I removed it as dead code; restoring it is two lines.
+  - 5c is measured on this package's tree but `exp5-4b.csv` names commit
+    `358da8b59b8`, its parent, because the runs preceded the commit. Say if
+    you want raw data re-run under the WP04b commit hash for the report.
+  - Nothing else. WP05 can take the launch line from
+    `spike_image_mount` in `helper-common.sh`: `--mount type=image,
+    source=<img>,destination=/rootfs,rw=true`, and there is no `--upper-mib`
+    to plumb.

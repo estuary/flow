@@ -1,8 +1,8 @@
 # localhost/flow-sandbox-helper:spike
 #
-# libkrun is built from source at v1.19.4 rather than taken from Fedora's
-# 1.19.0 package: 1.19.3 fixed virtiofs attribute caching, which sits on
-# experiment 5's measurement path, and WP11 audits v1.19.4's source, so the
+# libkrun is built from source at v1.19.4, unpatched, rather than taken from
+# Fedora's 1.19.0 package: 1.19.3 fixed virtiofs attribute caching, which sits
+# on experiment 5's measurement path, and WP11 audits v1.19.4's source, so the
 # binary that runs must be the one that was read. libkrunfw stays Fedora's.
 
 FROM quay.io/fedora/fedora:43 AS libkrun
@@ -12,25 +12,8 @@ FROM quay.io/fedora/fedora:43 AS libkrun
 RUN dnf install -y --setopt=install_weak_deps=False \
         git make cargo rust libkrunfw-devel clang-devel glibc-static \
  && dnf clean all
-RUN git clone --depth 1 --branch v1.19.4 https://github.com/containers/libkrun /src/libkrun
-
-# WP04 deviation, awaiting the master thread: without this, overlayfs cannot
-# copy anything up from a virtiofs lower, so flow-init has no writable root.
-#
-# Every FUSE inode carries S_NOATIME, which makes overlayfs copy the lower's
-# fileattr flags on copy-up (FS_IOC_GETFLAGS). libkrun answers an unrecognized
-# ioctl with EOPNOTSUPP; overlayfs tolerates only ENOTTY and EINVAL there
-# ("failed to retrieve lower fileattr (/etc, err=-95)") and fails the copy-up.
-# ENOTTY is also what a filesystem without inode flags - tmpfs - returns, so
-# this looks upstreamable. The grep makes a moved line fail the build rather
-# than silently leaving the helper broken.
-RUN cd /src/libkrun \
- && grep -q "_ => Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP))," \
-        src/devices/src/virtio/fs/linux/passthrough.rs \
- && sed -i "s/_ => Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP)),/_ => Err(io::Error::from_raw_os_error(libc::ENOTTY)),/" \
-        src/devices/src/virtio/fs/linux/passthrough.rs
-
-RUN make -C /src/libkrun BLK=1 NET=1 -j"$(nproc)" \
+RUN git clone --depth 1 --branch v1.19.4 https://github.com/containers/libkrun /src/libkrun \
+ && make -C /src/libkrun BLK=1 NET=1 -j"$(nproc)" \
  && make -C /src/libkrun BLK=1 NET=1 PREFIX=/usr DESTDIR=/staging install
 
 FROM quay.io/fedora/fedora:43 AS build

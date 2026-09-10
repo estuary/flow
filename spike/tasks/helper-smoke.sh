@@ -21,16 +21,20 @@ fi
 
 GUEST_IMAGE=docker.io/library/busybox:latest
 WORK="$(mktemp -d)"
-CONNECTORS=()
+CONNECTORS="$WORK/connectors"
+: >"$CONNECTORS"
 FAILURES=0
 
+# Reads the id file rather than an array: callers invoke new_connector through
+# a command substitution, so anything it appends to a shell variable dies with
+# that subshell and the trap would have nothing to clean.
 cleanup() {
     local id
-    for id in "${CONNECTORS[@]:-}"; do
+    while read -r id; do
         [ -n "$id" ] || continue
         sudo podman rm -f "$id" >/dev/null 2>&1 || true
         sudo rm -rf "${SPIKE_REACTOR_DIR:?}/$id"
-    done
+    done <"$CONNECTORS"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -58,7 +62,7 @@ new_connector() {
     printf '%s\n' '{"egress":"public","allowAll":false,"declaredCidrs":[],"connectionsPerMinute":null,"distinctDestinationsPerMinute":null,"ttlFloorSecs":90,"ttlCapSecs":3600}' \
         | sudo tee "$dir/init/policy.json" >/dev/null
 
-    CONNECTORS+=("$id")
+    printf '%s\n' "$id" >>"$CONNECTORS"
     printf '%s' "$id"
 }
 
@@ -72,13 +76,13 @@ helper_run_argv() {
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" --log-driver=none \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
         --sysctl net.ipv4.ip_forward=1 \
-        "--mount=type=image,source=$GUEST_IMAGE,destination=/rootfs" \
+        "$(spike_image_mount "$GUEST_IMAGE")" \
         "--mount=type=bind,source=$dir/init,target=/init,ro" \
         "--mount=type=bind,source=$dir/venv,target=/venv,ro" \
         "--mount=type=bind,source=$dir/sock,target=/sock" \
         "--mount=type=bind,source=$dir/scratch,target=/scratch-backing" \
         "$SPIKE_HELPER_IMAGE" \
-        --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 1024 --upper-mib 256 \
+        --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 1024 \
         "$@"
 }
 
