@@ -59,6 +59,7 @@ impl PrefixesQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 user_id,
+                models::authz::CapabilityMask::ALL_CAPABILITIES,
             );
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
