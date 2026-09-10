@@ -17,13 +17,14 @@ maintains the table. Newest log entries at the bottom.
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
+| 04b| podman writable layer, no guest overlay | 04, 08b      | todo   | daveg/libkrun-spike | removes the libkrun patch; must precede 05 |
 | 09 | Churn and density: experiments 9-10     | 00, 06       | todo   | daveg/libkrun-spike |       |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | todo   | daveg/libkrun-spike |       |
 | 11 | libkrun source read: experiment 12      | -            | todo   | daveg/libkrun-spike |       |
 | 12 | Report                                  | all          | todo   | daveg/libkrun-spike |       |
 
 Sequential order, one session at a time, biggest unknowns first:
-00, 03, 04, 08, 08b, 01, 05, 06, 02, 07, 11, 10, 09, 12. (03 answers "does it
+00, 03, 04, 08, 08b, 04b, 01, 05, 06, 02, 07, 11, 10, 09, 12. (03 answers "does it
 boot from an image mount here"; 08 answers "is virtiofs fast enough" before
 any runtime work is spent.)
 
@@ -37,6 +38,8 @@ any runtime work is spent.)
   delta.
 - RESOLVED (WP00): `vsock_loopback` loads on this box; WP01 can test
   `--vsock-port` host-side against CID 1.
+- Does `--mount type=image,...,rw=true` work through the podman API service,
+  and is the per-container layer removed on `--rm`? (WP04b)
 - What does the libkrun README's "does not provide any protection against the
   guest attempting to access other directories in the same filesystem" mean
   concretely for the read-only image share? (WP11)
@@ -981,3 +984,28 @@ any runtime work is spent.)
   builder should fix; and `helper-smoke.sh`'s copy of the `CONNECTORS+=`
   subshell bug, which is WP06's along with the 115 stale directories.
 - Next: WP01.
+
+### 2026-09-10 master: no libkrun patch; the writable root is podman's layer (WP04b opened)
+
+- Decision: we will not carry or submit the ENOTTY patch. The image mount
+  becomes `rw=true`, podman's per-container writable overlay, served to the
+  guest read-write. No overlayfs in the guest, so no copy-up, so no ioctl.
+  This is literally the writable layer a container has today.
+- Consequences, accepted with eyes open: root writes go to host disk over
+  virtiofs and are bounded only by that disk, as containers are today; the
+  `--upper-mib` memory cap and its `memory.current` accounting are gone.
+  Big writers are still steered to `/scratch` via TMPDIR/UV_CACHE_DIR.
+- flow-init loses the unshare, the tmpfs, the pivot, and the `/dev` remount,
+  and keeps WP08b's deps mount. Its exit-code trap disappears with the pivot;
+  the test keeps asserting it.
+- Options considered and set aside: carry the patch privately (lightest, but
+  a patched libkrun is not wanted), and root as a per-tag erofs image (retired
+  on WP08b's measurements regardless). libkrun main still returns EOPNOTSUPP,
+  so there was no upstream fix to wait for.
+- WP04b must precede WP05, which bakes the launch line in. Briefs WP06 and
+  WP10 lost their `--upper-mib` references; experiment 11's first bullet is
+  rewritten in PLAN and WP10; CONTRACTS describes the new root.
+- Process note: WP08b's acceptance entry above was written by a different
+  master session than the one that wrote this entry. Both are read; nothing
+  conflicts. One master thread from here on.
+- Next: WP04b, then WP01.

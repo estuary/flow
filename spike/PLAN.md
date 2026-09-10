@@ -60,12 +60,13 @@ libkrun 1.19 facts the design relies on:
   virtio-blk, vsock, FUSE DAX, free-page reporting on; no MAGIC_SYSRQ.
 - The balloon device is on by default and reports free pages via
   `madvise(MADV_DONTNEED)`.
-- libkrun's virtiofs passthrough answers unknown ioctls with EOPNOTSUPP.
-  overlayfs copy-up issues FS_IOC_GETFLAGS on the lower and tolerates only
-  ENOTTY or EINVAL, so a writable overlay over the image share needs a
-  one-line libkrun patch (ENOTTY, which is what FUSE without ioctl support
-  and the VFS itself return). Carried in the helper image; upstream PR is an
-  open problem in the report.
+- libkrun's virtiofs passthrough answers unknown ioctls with EOPNOTSUPP,
+  and overlayfs copy-up tolerates only ENOTTY or EINVAL from
+  FS_IOC_GETFLAGS, so a guest-side overlay over the image share cannot copy
+  up without patching libkrun (WP04 proved this with a one-line patch). We
+  chose not to carry a patch: the writable root is podman's own per-container
+  layer (`--mount type=image,...,rw=true`) served read-write, which is what a
+  container has today. Root writes are bounded by host disk, as today.
 - libkrun's init reports the workload's exit code only while its own `/` is
   virtiofs; a guest init that pivots root must do so in its own mount
   namespace or every exit code is 0.
@@ -84,10 +85,10 @@ libkrun 1.19 facts the design relies on:
   (`source-hello-world` or similar), one Go materialization with a local
   endpoint (`materialize-sqlite` or similar). A derived image
   (derive-python plus a venv layer containing pandas) for experiment 5.
-- libkrun v1.19.4 built from source (Fedora 43 packages 1.19.0, which
-  predates the 1.19.3 virtiofs attribute-caching change) plus the ENOTTY
-  patch, with Fedora's libkrunfw (kernel 6.12.91), in a helper image we
-  build for the spike.
+- libkrun v1.19.4 built from source, unpatched (Fedora 43 packages 1.19.0,
+  which predates the 1.19.3 virtiofs attribute-caching change), with
+  Fedora's libkrunfw (kernel 6.12.91), in a helper image we build for the
+  spike.
 - An nginx container on its own podman network with subnet 198.51.100.0/24
   (TEST-NET-2: not RFC1918, not in the baseline, routable on the host).
 
@@ -105,7 +106,7 @@ podman run --rm --name=<name> --network=flow-connectors --log-driver=none \
   --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
   --sysctl net.ipv4.ip_forward=1 \
   --memory <memoryMib + overhead>m --cpus <vcpus> \
-  --mount type=image,source=<connector image>,destination=/rootfs \
+  --mount type=image,source=<connector image>,destination=/rootfs,rw=true \
   --mount type=bind,source=/mnt/local/reactor/<id>/init,target=/init,ro \
   --mount type=bind,source=<host venv dir or empty>,target=/venv,ro \
   --mount type=bind,source=/mnt/local/reactor/<id>/sock,target=/sock \
@@ -137,7 +138,9 @@ static guest init), and the shim. The shim, in order:
    `Cmd=/flow-init`.
 4. Configures libkrun:
    - `krun_set_vm_config(vcpus, memoryMib)`
-   - `krun_add_virtiofs3("/dev/root", "/rootfs", 0, read_only)`
+   - `krun_add_virtiofs3("/dev/root", "/rootfs", 0, read_only=false)`; the
+     share is podman's writable layer over the image, removed with the
+     container
    - `krun_add_virtiofs3("venv", "/venv", <shm or 0>, read_only)`
    - overlay files at the root: `/flow-init`, `/flow-connector-init`,
      `/image-inspect.json`, `/.krun_config.json`
@@ -164,16 +167,12 @@ Static binary, no libc or shell assumed in the image. In order:
 1. Static eth0: guest end of the /30, default route via the helper, using the
    `SIOCSIFADDR`/`SIOCSIFNETMASK`/`SIOCSIFFLAGS`/`SIOCADDRT` ioctls. Disable
    IPv6 via sysctl.
-2. `unshare(CLONE_NEWNS)` and make the tree private. Mount a size-capped
-   tmpfs under `/dev`, overlay it over the read-only virtiofs root,
-   `pivot_root`, and mount devtmpfs, devpts and shm again inside. The guest
-   sees a writable, ephemeral root like a container.
-3. Write `/etc/resolv.conf` (nameserver = helper address) and `/etc/hosts`.
+2. Write `/etc/resolv.conf` (nameserver = helper address) and `/etc/hosts`.
    Create `/venv` and `/scratch`. Mount the `venv` virtiofs (with `dax` in
    the experiment 5 variant) and `/dev/vda` ext4 at `/scratch`, chowned to
    the image's uid:gid. When a dependency image is attached, mount `/dev/vdb`
    read-only at `/opt/venv`.
-4. Set `TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`, chdir to the workdir,
+3. Set `TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`, chdir to the workdir,
    drop to the image's uid:gid, and exec
    `/flow-connector-init --image-inspect-json-path=/image-inspect.json
    --vsock-port=49092`.
@@ -342,12 +341,14 @@ once off. No gate; the numbers inform `resources` defaults.
 
 ### 11. Storage behavior (gate)
 
-- The writable upper layer fills at its cap and the write fails; the
-  helper's `memory.current` reflects it.
+- Guest writes to the root land in podman's per-container writable layer on
+  host disk, not in guest memory, and are bounded only by that disk, exactly
+  as a container's are today. Record where they land and confirm the layer
+  is gone after `podman run --rm` exits (`podman system df` before/after).
 - `/scratch` fills at `diskMib` and the write fails; host memory does not
   grow to match.
-- Guest writes under `/usr` and `/etc` succeed (they land in the upper
-  layer) and do not appear in the host's image mount afterwards.
+- Guest writes under `/usr` and `/etc` (as guest root) succeed and do not
+  appear in the image afterwards (`podman image mount` is unchanged).
 - Writes under `/venv` fail (read-only share).
 - After `podman run --rm` exits, the scratch directory is empty and `df`
   shows the space returned.
@@ -388,9 +389,7 @@ One document containing:
   sequence, and the mkfs options that passed, so phase 2 starts from them.
 - The measured cgroup overhead constant and the THP result.
 - Anything that only worked from a root shell on the host.
-- Open problems found along the way, each with a proposed owner. Known
-  already: the libkrun ENOTTY patch (owner: us, upstream PR; fallback is a
-  per-path tmpfs writable root, which loses the podman-shaped root).
+- Open problems found along the way, each with a proposed owner.
 
 ## Decision
 
@@ -406,9 +405,10 @@ redesign it forces rather than declaring a no-go:
   The redesign it forced: dependency sets are read-only block images per
   tag, not virtiofs, attached as a second virtio-blk device and mounted at
   `/opt/venv`. The builder emits a disk image instead of a directory. Root
-  stays virtiofs. WP08b measures the redesign; if IT fails under 2x, the
-  next step is the whole root on a block image, which gives up the
-  podman-shaped writable root and is a much larger change.
+  stays virtiofs. WP08b measured the redesign at 2.12x first import and
+  1.15x steady state and the gate was ruled closed; the "whole root on a
+  block image" fallback is retired on that data, since the root is not the
+  residual.
 - Experiments 6, 7, 8, 11, 12, or 13 fail: bugs in the spike's ruleset,
   shim, or flow-init, not in the design. Fix and rerun.
 - Experiment 3 or 4 fails: something about connector-init, the codec, or

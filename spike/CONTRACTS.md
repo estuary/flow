@@ -38,14 +38,17 @@ deviation in STATUS.md for the master thread to propagate.
 
 ```
 flow-sandbox-helper --policy PATH --memory-mib N --vcpus N --disk-mib N \
-    --upper-mib N [--deps-image PATH [--deps-fstype ext4|erofs]] \
+    [--deps-image PATH [--deps-fstype ext4|erofs]] \
     [--venv-dax] [--thp-disable] [--run-as-root] [--debug] \
     [--as-root-exec CMD] [--no-flow-init] [--exec ARGV...]
 ```
 `PATH` is `/init/policy.json`; the runtime writes it next to connector-init.
 
 - Mounts it expects, all provided by the caller's `podman run`:
-  `/rootfs` (connector image via `--mount type=image`), `/init` (dir with
+  `/rootfs` (connector image via `--mount type=image,...,rw=true`: podman's
+  per-container writable overlay of the image, removed with the container;
+  the shim serves it read-write, so the guest root is writable exactly as a
+  container's is today, with no overlay inside the guest), `/init` (dir with
   `flow-connector-init`, `image-inspect.json`, `policy.json`; the shim opens
   `flow-connector-init` even when `--exec` replaces the workload, so all
   three must exist for every launch), `/venv` (dir, may be empty; spike
@@ -88,13 +91,10 @@ flow-sandbox-helper --policy PATH --memory-mib N --vcpus N --disk-mib N \
   host-side half-close (`shutdown(SHUT_WR)`) as a full close and resets the
   guest connection. gRPC never half-closes; hand-written test clients must
   not either.
-- libkrun in the helper image is v1.19.4 built from source (`BLK=1 NET=1`)
-  plus one patch carried in `spike/helper/Dockerfile`: the virtiofs
-  passthrough answers unknown ioctls with ENOTTY instead of EOPNOTSUPP.
-  Without it overlayfs cannot copy up from a virtiofs lower (it needs
-  FS_IOC_GETFLAGS to fail with ENOTTY or EINVAL), so there is no writable
-  root. libkrunfw is Fedora's package. The shim carries its own ABI
-  declarations.
+- libkrun in the helper image is v1.19.4 built from source (`BLK=1 NET=1`),
+  unpatched. (A guest-side overlayfs over a virtiofs lower would need
+  libkrun to answer unknown ioctls with ENOTTY; we do not use one.)
+  libkrunfw is Fedora's package. The shim carries its own ABI declarations.
 - Egress: the helper execs `flow-sandbox-egress` and `flow-sandbox-resolver`
   (below) before starting the VM. With `egress: none` no resolver runs.
 
@@ -168,16 +168,15 @@ libkrun's init, which has already mounted `/dev`, `/proc`, `/sys`,
 
 ```
 /flow-init --guest-ip 192.0.2.2/30 --gateway 192.0.2.1 --nameserver 192.0.2.1 \
-    --upper-mib N --uid U --gid G [--venv-dax] [--run-as-root] \
+    --uid U --gid G [--venv-dax] [--run-as-root] \
     [--deps-dev /dev/vdb --deps-fstype FS] [--as-root-exec 'CMD'] -- ARGV...
 ```
-In order: static eth0 and default route; IPv6 disabled; capped tmpfs upper
-over the read-only virtiofs root via overlayfs, then `pivot_root`; write
-`/etc/resolv.conf` (`nameserver <ns>`) and `/etc/hosts`; `mkdir -p /venv
-/scratch`; mount virtiofs tag `venv` at `/venv` read-only (with `dax` when
-asked); mount `/dev/vda` ext4 at `/scratch`; if `--deps-dev`, `mkdir -p
-/opt/venv` and mount it there read-only with `--deps-fstype`; if
-`--as-root-exec`, run it via
+In order: static eth0 and default route; IPv6 disabled; write
+`/etc/resolv.conf` (`nameserver <ns>`) and `/etc/hosts` into the (writable)
+root; `mkdir -p /venv /scratch`; mount virtiofs tag `venv` at `/venv`
+read-only (with `dax` when asked); mount `/dev/vda` ext4 at `/scratch`; if
+`--deps-dev`, `mkdir -p /opt/venv` and mount it there read-only with
+`--deps-fstype`; if `--as-root-exec`, run it via
 `/bin/sh -c` and wait (probes that need root before the drop); set
 `TMPDIR=/scratch` and `UV_CACHE_DIR=/scratch`; chdir to the workdir it was
 started in; `setgroups([])`, `setgid`, `setuid` unless `--run-as-root`; exec
@@ -187,12 +186,10 @@ ARGV. Environment is inherited from libkrun's init (which applies the image's
 On any failure: one line to stderr (no leading space), exit 125.
 
 Facts WP04 established that later packages must not undo:
-- flow-init runs in its own mount namespace (`unshare(CLONE_NEWNS)`, then the
-  tree is made private). libkrun's init reports the workload's exit code only
-  while ITS `/` is still virtiofs; a `pivot_root` in the shared namespace
-  makes every guest exit code silently 0.
-- `/dev` is mounted again inside the new root rather than moved (the tmpfs
-  holding the new root lives under `/dev`); devpts and shm are remade there.
+- flow-init does no `pivot_root` and no overlay. libkrun's init reports the
+  workload's exit code only while ITS `/` is virtiofs, so anything that
+  changes the root in the shared mount namespace silently turns every guest
+  exit code into 0.
 - The scratch mount point is chowned to the image's uid:gid after mount, or a
   dropped workload cannot write `TMPDIR`.
 - `/etc/hosts` is `127.0.0.1 localhost` only; the guest hostname is the
@@ -223,7 +220,6 @@ of TCP. Other variables, all with defaults:
 | FLOW_SANDBOX_SPIKE_MEMORY_OVERHEAD_MIB | 256 (until WP09 measures)     |
 | FLOW_SANDBOX_SPIKE_VCPUS          | 2                                  |
 | FLOW_SANDBOX_SPIKE_DISK_MIB       | 4096                               |
-| FLOW_SANDBOX_SPIKE_UPPER_MIB      | 256                                |
 | FLOW_SANDBOX_SPIKE_VENV_DIR       | (empty dir under `<id>/`)          |
 | FLOW_SANDBOX_SPIKE_DEPS_IMAGE     | (unset: no deps disk) host path, bound read-only at `/deps.img`, passed as `--deps-image /deps.img` |
 | FLOW_SANDBOX_SPIKE_DEPS_FSTYPE    | ext4                               |
