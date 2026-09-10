@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO internal.billing_adjustments (id, tenant, billed_month, usd_cents, authorizer, detail)\n        VALUES (internal.id_generator(), $1::catalog_tenant, $2, $3, $4, $5)\n        RETURNING\n            id as \"id!: models::Id\",\n            created_at as \"created_at!: DateTime<Utc>\",\n            updated_at as \"updated_at!: DateTime<Utc>\",\n            tenant as \"tenant!: String\",\n            billed_month as \"billed_month!: DateTime<Utc>\",\n            usd_cents as \"usd_cents!\",\n            authorizer as \"authorizer!\",\n            detail as \"detail: String\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_at!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "tenant!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "billed_month!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "usd_cents!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "authorizer!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "detail: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_tenant",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Timestamptz",
+        "Int4",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "07182f87013ae554a79d327e694e36a2db9096775201a50d89881e99cfccf81e"
+}
