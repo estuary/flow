@@ -47,6 +47,13 @@ pub mod task_types {
     pub const DATA_MOVEMENT_ALERT_EVALS: TaskType = TaskType(11);
     /// Per-tenant controller that reconciles billing contact with Stripe
     pub const TENANT_CONTROLLER: TaskType = TaskType(12);
+    /// Second deployment of the data-plane-controller, which serves only the
+    /// data-planes explicitly assigned to it. This is the *same* executor as
+    /// DATA_PLANE_CONTROLLER registered under a second type: each deployment
+    /// registers one of the two, and the dequeue predicate divides the
+    /// data-planes between them. Note this is the inverse of the hazard called
+    /// out above, which is two *different* executors sharing one task type.
+    pub const DATA_PLANE_CONTROLLER_DEV: TaskType = TaskType(13);
 }
 
 /// Outcome of an `Executor::poll()` for a given task, which encloses
