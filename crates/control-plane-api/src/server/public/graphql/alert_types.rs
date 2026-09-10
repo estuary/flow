@@ -21,6 +21,10 @@ pub struct AlertTypeInfo {
 #[async_graphql::Object]
 impl AlertTypesQuery {
     /// Returns all possible alert types with their user-facing metadata.
+    ///
+    /// A static enumeration with no catalog prefix, so a token's scope has
+    /// nothing to narrow here. See `connectors` for the other global
+    /// reference-data surface a scope deliberately does not reach.
     async fn alert_types(&self) -> Vec<AlertTypeInfo> {
         AlertType::all()
             .iter()

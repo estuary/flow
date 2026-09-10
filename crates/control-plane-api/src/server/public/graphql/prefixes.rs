@@ -50,16 +50,9 @@ impl PrefixesQuery {
         let env = ctx.data::<crate::Envelope>()?;
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
-            let snapshot = env.snapshot();
-            let user_id = env.claims()?.sub;
-
             let min_bits: models::authz::CapabilitySet = by.min_capability.into();
 
-            let reachable = tables::UserGrant::reachable_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                user_id,
-            );
+            let reachable = env.authority()?.reachable_prefixes();
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
             // prefix, rather than iterating from the start and filtering

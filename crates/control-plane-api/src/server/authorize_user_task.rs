@@ -18,7 +18,8 @@ pub async fn authorize_user_task(
             tokens::DateTime::from_timestamp_secs(1 + started_unix as i64).unwrap_or_default();
     }
 
-    let policy_result = evaluate_authorization(env.snapshot(), env.claims()?, &task, capability);
+    let policy_result =
+        evaluate_authorization(env.snapshot(), &env.authority()?, &task, capability);
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
     let (
@@ -66,7 +67,7 @@ pub async fn authorize_user_task(
 
 fn evaluate_authorization(
     snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
+    authority: &crate::Authority<'_>,
     task_name: &models::Name,
     capability: models::Capability,
 ) -> tonic::Result<(
@@ -82,20 +83,10 @@ fn evaluate_authorization(
         String,                // Shard ID prefix.
     ),
 )> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+    let user_email = authority.user_email();
+    let user_id = authority.user_id();
 
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        *user_id,
-        task_name,
-        capability,
-    ) {
+    if !authority.is_authorized(task_name, capability) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {task_name} for {capability:?}",
         )));
@@ -103,13 +94,8 @@ fn evaluate_authorization(
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
     if capability == models::Capability::Admin {
-        let has_support_access = tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            *user_id,
-            "estuary_support/",
-            models::Capability::Admin,
-        );
+        let has_support_access =
+            authority.is_authorized("estuary_support/", models::Capability::Admin);
 
         if !has_support_access {
             return Err(tonic::Status::permission_denied(format!(
@@ -498,9 +484,15 @@ mod tests {
             sub: user_id,
             role: "authenticated".to_string(),
             email,
+            scope_prefix: None,
         };
 
-        match evaluate_authorization(&snapshot, &claims, &task, capability) {
+        match evaluate_authorization(
+            &snapshot,
+            &crate::Authority::resolve(&snapshot, &claims),
+            &task,
+            capability,
+        ) {
             Ok((
                 cordon_at,
                 (

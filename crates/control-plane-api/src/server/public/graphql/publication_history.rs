@@ -112,6 +112,13 @@ pub type SpecHistoryConnection = async_graphql::connection::Connection<
 
 /// Fetches the publication history for a given live spec, **without performing
 /// any authorization checks**.
+///
+/// The caller must have authorized `catalog_name` first. That check is where a
+/// token's scope is applied, so this function is scope-correct only by virtue of
+/// its callers — nothing here would notice an unauthorized name. This is the
+/// shape to watch for when adding resolvers: the prefix exists but arrives from a
+/// row rather than being checked, which reads as authorized code while enforcing
+/// nothing.
 pub async fn fetch_spec_history_no_authz(
     ctx: &Context<'_>,
     catalog_name: models::Name,

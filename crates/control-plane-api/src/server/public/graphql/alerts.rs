@@ -139,12 +139,9 @@ async fn fetch_alert_history_by_prefix(
     let env = ctx.data::<crate::Envelope>()?;
 
     // Verify user authorization to read alerts for the given prefix.
-    let policy_result = crate::server::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        models::Capability::Read,
-        [&by.prefix],
-    );
+    let policy_result = env
+        .authority()?
+        .evaluate(models::Capability::Read, [&by.prefix]);
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     connection::query_with::<PaginatedAlertsCursor, _, _, _, _>(
