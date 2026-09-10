@@ -559,3 +559,182 @@ any runtime work is spent.)
   that away.
 - Next: WP08 (experiment 5). It is the last big unknown before the plumbing
   packages, and it needs nothing from WP01/05/06.
+
+### 2026-09-10 WP08: experiment 5 FAILS at 2.88x, and the diagnosis is unambiguous - virtiofs metadata, not CPU, not the layer, not DAX. A block device passes at 0.89x.
+
+- shipped:
+  - `spike/derived/Dockerfile` -> `localhost/derive-python-pandas:spike`:
+    derive-python plus a pinned `pandas==3.0.5` venv at `/opt/venv`, installed
+    with `--compile-bytecode`, `chmod -R a+rX`, and `USER nobody` restored so
+    the derived image's `Config.User` is byte-identical to derive-python's.
+  - `spike/derived/bench.py` - the measurement of the brief's step 2. Runs
+    unchanged as the guest workload and under a plain `podman run`.
+  - `spike/derived/cpu.py` - an IO-free loop, so "the guest is slow" can be
+    separated from "virtiofs is slow".
+  - `spike/derived/summarize.py` - either CSV into the report's table; groups
+    by whichever of `cell`/`stage` the file carries.
+  - `spike/derived/README.md`.
+  - `spike/tasks/exp5-common.sh`, `exp5-build.sh` (image plus the identical
+    venv exported to a host directory for the share cells), `exp5-run.sh` (the
+    matrix), `exp5-diag.sh` (the breakdown).
+  - `spike/report/exp5.md`, `spike/report/data/exp5-runs.csv` (80 runs),
+    `spike/report/data/exp5-diag.csv` (75 runs).
+
+- verification:
+  ```
+  $ spike/tasks/exp5-build.sh && spike/tasks/exp5-run.sh
+
+  cell                import median   import p95    pass median    wall median   n
+  primary                    1115.5       1133.7           40.0         2456.0  10
+  primary-nothp              1117.2       1140.9           40.0         2466.5  10
+  share                       930.4        960.9           38.2         2436.0  10
+  share-nothp                 939.0        964.3           38.5         2434.0  10
+  share-dax                   959.3        985.4           38.3         2492.5  10
+  share-dax-nothp             966.0        994.9           38.8         2504.5  10
+  baseline                    387.1        391.1           11.2          968.0  10
+  baseline-root               390.1        392.2           11.2          970.0  10
+
+  gate: primary 1115.5 ms / baseline 387.1 ms = 2.88x -> FAIL (limit 2.00x)
+
+  $ spike/tasks/exp5-diag.sh
+
+  stage               import median   import p95    pass median     cpu median   n
+  primary-cold               1106.4       1130.8           39.3              -   5
+  primary-warm                513.9        535.2           28.6              -   5
+  primary-cold2               672.2        674.3           28.3              -   5
+  primary-blk-cold            347.6        354.0           28.0              -   5
+  primary-blk-warm            250.0        252.1           28.2              -   5
+  primary-cpu                     -            -              -          557.4   5
+  share-cold                  951.3        962.4           38.3              -   5
+  share-warm                  473.8        531.1           35.1              -   5
+  share-cold2                 508.2        571.3           27.4              -   5
+  share-blk-cold              344.4        352.1           25.8              -   5
+  share-blk-warm              241.7        247.3           25.6              -   5
+  share-cpu                       -            -              -          556.6   5
+  container-cold              389.6        394.0           11.3              -   5
+  container-warm              219.3        220.0           10.9              -   5
+  container-cpu                   -            -              -          558.4   5
+  ```
+  A first full matrix at the same commit, before `cpu.py` joined `bench.py` in
+  the shares, agreed within 2% on every cell (primary 1115.7, share 952.0,
+  share-dax 962.5, baseline 389.9). Both CSVs stamp every row with the commit.
+
+  The reactor launch path was checked too, since the number has to be
+  independent of it: `exp5-run.sh --reactor --runs 2 --cells share` imports in
+  951.1 and 985.5 ms against the host-launched cell's 930.4 median / 960.9 p95,
+  and pays its extra ~290 ms in the wall column (2728 vs 2436). The matrix and
+  diag numbers above are host launches.
+
+- the gate, and what it forces:
+  - **The gate fails and no variant saves it.** Layer 2.88x, separate share
+    2.40x, share+DAX 2.48x, all against a 2.00x limit.
+  - **It is not the guest.** The CPU control is 557.4 / 556.6 ms in the guest
+    against 558.4 ms in a container - identical. Nothing about running under
+    libkrun costs measurable CPU at this workload.
+  - **It is not the image layer, and not podman's overlayfs under virtiofs.**
+    The `share` cell reads the venv from a plain host directory with no image,
+    no podman overlay and no guest overlay on the read path, and still fails at
+    2.40x. PLAN's "unpack the image to a plain host directory once per tag"
+    option is thereby already measured, and it does not pass.
+  - **It is not DAX.** `share-dax` is a few percent *worse* than `share` in
+    both matrix runs. PLAN's stated fallback ("if the separate-share DAX
+    variant passes, the venv becomes a separate share") does not apply, and by
+    extension root DAX is unlikely to be worth libkrun 2.0 or
+    `krun_set_kernel`: a 512 MiB window over a 144 MiB venv bought nothing.
+  - **It is not THP.** Every `-nothp` cell is within noise of its pair.
+  - **It is virtiofs metadata.** Warm virtiofs - every byte already in the
+    guest's page cache - is still 2.2-2.3x the warm container. `import pandas`
+    pulls in 594 modules, so it is thousands of path lookups and opens, each a
+    round trip. Data bandwidth is not the cost; per-file work is.
+  - **A block device passes at 0.89x.** The identical venv, copied inside the
+    guest onto the ext4 scratch disk and read cold after `drop_caches`, imports
+    in 347.6 ms - *faster than podman today* (389.6 ms). Same guest, same
+    kernel, same bytes; only the transport differs.
+  - So the redesign the failure forces is: **ship the dependency set as a
+    read-only block image (ext4/erofs/squashfs) built once per tag and attached
+    as a second virtio-blk device**, the way the scratch disk already is. That
+    is a second `krun_add_disk3` in the shim, a mount in flow-init instead of
+    the `venv` virtiofs, and an artifact builder. It is not a change to the
+    design's shape, and it is not a libkrun problem.
+  - Residual if only the venv moves: the interpreter and stdlib stay on the
+    virtiofs root, which the `pass` column prices at ~15 ms per process
+    (25.8-28.0 ms vs the container's 10.9). Cheap next to the import, but the
+    same effect, and it caps what a venv-only fix wins.
+
+- root DAX, concretely (the brief asks for this explicitly): the shim adds the
+  root as an ordinary share, `krun_add_virtiofs3(ctx, "/dev/root", ...)`, so it
+  *could* pass a DAX window. What it cannot do is make the guest mount with
+  `dax`: the root is mounted from libkrun's own kernel command line, which
+  reads `... rootfstype=virtiofs rw quiet no-kvmapf init=/init.krun ...` with
+  no `rootflags=` and no libkrun 1.19 API to add one. Verified by `cat
+  /proc/cmdline` in a running guest. Root DAX therefore needs libkrun 2.0's
+  configurable cmdline or `krun_set_kernel` - and per the above, is probably
+  not worth either.
+
+- deviations from CONTRACTS.md: none. Departures from the WP08 brief:
+  - **Step 4's no-overlay cell was not run.** The `share` cell already answers
+    step 4's question ("if overlayfs-over-virtiofs is a suspect"): its read
+    path has no overlayfs and no image, and it fails at 2.40x. Isolating the
+    overlay could only redistribute the ~17% between "guest overlay" and "extra
+    podman layer"; it cannot move the gate. It would also have meant adding a
+    flag to `spike/flow-init/`, which is not in WP08's "may touch" list, while
+    the brief's step 4 says to add one - so the two read against each other and
+    I took the reading that spends nothing. Say the word and it is a
+    `--no-overlay` flag plus one cell.
+  - Two cells beyond the brief's list, both cheap and both load-bearing:
+    `baseline-root` (`--user 0`), because the guest cells run as root and the
+    plain baseline runs as the image's `nobody` - the 1% between them retires
+    the question; and the whole of `exp5-diag.sh`, which is what turns "it
+    failed" into "it failed for this reason, and here is the fix".
+  - `--compile-bytecode` on both venv installs. Without it the read-only share
+    cells would recompile 1848 files on every boot and the matrix would measure
+    that instead of virtiofs. Named in the report.
+  - `spike/tasks/exp5-common.sh` holds WP08's names (derived image, pandas pin,
+    build-output dir). Matches the brief's `spike/tasks/exp5-*.sh` glob.
+  - `spike/derived/summarize.py` and `cpu.py` live under `spike/derived/` (in
+    the brief's paths) rather than `spike/tasks/`, whose glob only admits
+    `exp5-*.sh`.
+
+- findings other packages need:
+  - **The shim opens `/init/flow-connector-init` even when `--exec` replaces
+    the workload**, so every launch needs the file to exist. Harmless once
+    known; it cost a debugging round here. WP09's benchmarks will hit it too.
+  - **`printf | mapfile` cannot build a podman argv whose last element is a
+    multi-line script** - mapfile splits it into one element per line, and the
+    guest silently runs only the first. `exp5-diag.sh` builds its array
+    directly. WP03/WP04's scripts carry the warning in a comment; this is the
+    trap it warns about, sprung.
+  - The `--as-root-exec` path was not needed: `--exec /bin/sh -c ...` with
+    `--run-as-root` covers a root workload, and `drop_caches` works from there.
+  - flow-init's scratch `chown` (WP04) is what lets the diag copy the venv onto
+    `/scratch` at all. It earned its keep immediately.
+
+- housekeeping seen, not touched: `$SPIKE_REACTOR_DIR` holds 68 stale
+  `fs_*/` directories (2.5 MB) from WP03 and WP04 runs - all carry the `venv/`
+  subdir those scripts create and predate this session. WP08's runs clean up
+  after themselves. Worth a line in WP06's housekeeping remit, or an
+  `env-check.sh` warning.
+
+- questions for master:
+  - **This is a gate failure, so PLAN's Decision section applies, and the
+    branch it names is not the branch the data points at.** PLAN offers
+    separate-share DAX, unpack-per-tag, and root DAX; the matrix retires all
+    three. The option that passes - a per-tag read-only block image on a second
+    virtio-blk - is not in PLAN. Does that become a WP08 follow-up (build one
+    ext4 image, add `krun_add_disk3` and a flow-init mount, rerun the primary
+    cell), or does the master thread want it in the report as the recommended
+    redesign and sequenced after the remaining gates?
+  - Related: should the *root* also move off virtiofs? The `pass` column says
+    virtiofs costs ~15 ms per process for interpreter and stdlib, which is
+    small here but is paid by every connector process, and it would grow with
+    experiment 3's protocol traffic if anything else stats the root. Not
+    measured; a whole-root block image is a much bigger change than a venv one
+    (it gives up the "podman-shaped root" property WP04 established, and the
+    overlayfs/ENOTTY patch exists to serve exactly that).
+  - The 2x limit was chosen before any of this was measured. 2.88x is a clear
+    miss, but for the record: the absolute miss is 728 ms of one-time import
+    cost per connector start, against a 5-second boot budget (experiment 2)
+    that the wall column says is currently ~2.5 s. If the block-device fix is
+    expensive to build, is 2.88x actually disqualifying, or was 2x a proxy for
+    "boot plus import stays under the budget"? Not arguing for moving the
+    goalposts - asking whether the goalpost is the right one, once.
