@@ -1268,3 +1268,187 @@ any runtime work is spent.)
 - Pre-existing clippy errors on the tree (`crates/doc/src/bump_vec.rs`,
   connector-init's readiness `write`) are not WP01's and not the spike's.
 - Next: WP05, then WP06.
+
+### 2026-09-10 WP05: runtime-next spike switch
+
+- side fix shipped first:
+  - `crates/connector-init/tests/vsock.rs`: `bind_probe` is now async and
+    binds *and* connects to `VMADDR_CID_LOCAL` before the test proceeds,
+    skipping unless both succeed. Skip message unchanged.
+- shipped:
+  - `crates/runtime-next/src/container.rs`: three changes. `mod spike;` and a
+    four-line branch at the top of `start` that delegates when
+    `FLOW_SANDBOX_SPIKE_POLICY` is set. The spawn, stderr pump, and readiness
+    wait move verbatim into a new `spawn_and_await_ready`, so both paths run
+    one copy of the readiness protocol and the log decoder rather than two
+    that can drift. `Guard`'s two `TempPath` fields become `Option`, and it
+    gains an `Option<spike::DirGuard>` declared after `_process`.
+  - `crates/runtime-next/src/container/spike.rs` (new, a child module so it
+    reaches `container`'s private helpers without widening any visibility):
+    `Settings::from_env` for the CONTRACTS variable table, the `podman run`
+    of PLAN "Helper launch", and the tonic dial over
+    `<id>/sock/init.sock`. It reuses `find_connector_init_and_copy` and
+    `inspect_image_and_copy` unchanged, pointing them at
+    `<id>/init/`, and chmods the inspection JSON to 0644 (the unmodified path
+    gets that from its tempfile). `DirGuard` is taken before anything that can
+    fail, so an error return cleans up too.
+  - `crates/runtime-next/Cargo.toml`: `hyper-util` and `tower`, both already
+    in `[workspace.dependencies]`, for the Unix-socket connector tonic needs.
+  - `spike/stub-helper/`: `localhost/flow-sandbox-stub:spike`, the reactor
+    image plus socat. Its entrypoint accepts and ignores the helper CLI,
+    copies `/init` into `/rootfs/init`, bridges `/sock/init.sock` to
+    `127.0.0.1:49092`, and chroots into `/rootfs` to run connector-init.
+  - `spike/catalog/`: `capture-hello-world.flow.yaml` (static Go connector,
+    `acmeCo/` names) and `policy-egress-none.json`.
+  - `spike/tasks/preview-stub.sh` (the button), plus `preview-common.sh`,
+    `preview-stub-build.sh`, and `preview-sudo-podman.sh` (a `DOCKER_CLI`
+    that execs `sudo podman`: the spike's images and networks are root's, and
+    `DOCKER_CLI` takes one program name, not a command line).
+- verification:
+  ```
+  $ mise exec -- spike/tasks/preview-stub.sh
+    == stub helper image
+    localhost/flow-sandbox-stub:spike bf45a7fed8fb309b94bf7f17dfe2cbbc6a10aee...
+    == 1/3 switch off: the unmodified runtime
+    == 2/3 switch on, from the host
+    == 3/3 switch on, inside the fake reactor
+    == results
+    documents: off=5 host=5 reactor=5
+    ["acmeCo/events",{"_meta":{"uuid":"DocUUIDPlaceholder-329Bb50aa48EAa9ef"},
+      "message":"Hello 0!","ts":"<redacted>"}]
+    PASS: switch on (host) == switch off
+    PASS: switch on (reactor) == switch off
+    PASS: no reactor directory leaked (115 present, unchanged)
+  ```
+  `ts` is the only field redacted; every other byte of all three runs is
+  identical. Positive control that the switch was really taken in both
+  switched-on cases: six `stub-helper: ignoring helper args: --policy
+  /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 4096` lines came
+  back through the log pump (three sessions each), and the
+  `container_started` event carries `{"container":{"ipAddr":"192.0.2.2"}}`.
+
+  Unswitched launch line against master, per the brief. `container.rs` at
+  `HEAD` is identical to `master` (`git diff master HEAD` empty for the file),
+  so `HEAD` stands in. Captured `docker_args` at `RUST_LOG=debug` from both
+  trees, folding the random name and the two temp paths to placeholders:
+  ```
+  $ diff args-master.txt args-wp05.txt && echo IDENTICAL
+    IDENTICAL
+
+  $ cat args-wp05.txt
+    ["run", "--rm", "--name=fc_NAME", "--network=flow-connectors",
+     "--entrypoint=/flow-connector-init", "--log-driver=none",
+     "--mount=type=bind,source=/tmp/.tmpTEMP,target=/flow-connector-init",
+     "--mount=type=bind,source=/tmp/.tmpTEMP,target=/image-inspect.json",
+     "--env=LOG_FORMAT=json", "--env=LOG_LEVEL=warn", "--memory", "1g",
+     "--cpus", "2", "--platform=linux/amd64",
+     "--label=image=ghcr.io/estuary/source-hello-world:dev",
+     "--label=task-name=acmeCo/hello-world", "--label=task-type=capture",
+     "--publish=0.0.0.0::49092", "--publish-all",
+     "ghcr.io/estuary/source-hello-world:dev",
+     "--image-inspect-json-path=/image-inspect.json", "--port=49092"]
+  ```
+  ```
+  $ mise exec -- cargo build -p runtime-next -p flowctl
+      Finished `dev` profile [optimized] target(s) in 1m 03s
+
+  $ mise exec -- cargo nextest run -p runtime-next --no-fail-fast
+       Summary [  38.044s] 219 tests run: 219 passed (1 slow), 0 skipped
+
+  $ mise exec -- cargo nextest run -p connector-init
+        PASS [   0.033s] ( 6/13) connector-init::vsock spec_rpc_over_vsock
+       Summary [   0.074s] 13 tests run: 13 passed, 0 skipped
+
+  $ mise exec -- cargo clippy --no-deps -p runtime-next  # error count
+    76   # and 76 with this package's Rust changes stashed: no new findings
+  ```
+  `cargo nextest run -p runtime-next` first failed three `split_e2e` tests for
+  a missing gazette broker; `mise run build:gazette` fixed that, and the run
+  above is after it. Plain `cargo clippy -p runtime-next` cannot reach the
+  crate at all: `json`, `tuple`, and `proto-gazette` fail first with 41, 12,
+  and 67 pre-existing errors under the tree's `-D warnings`. `--no-deps`
+  lints only this crate, where 76 errors are pre-existing (confirmed by
+  stashing). My two new findings in `spike.rs` -- both copied from
+  `container.rs`'s own style, `network == ""` and `var(..).ok()` -- are fixed
+  in `spike.rs` only; `container.rs`'s originals are left alone.
+
+  The side fix, proven both ways with `vsock_loopback` unloaded and the
+  `vsock` transport still present, which is the case master flagged:
+  ```
+  $ sudo modprobe -r vsock_loopback
+
+  # new probe:
+    skipping: AF_VSOCK loopback is unavailable (vsock_loopback not loaded)
+        PASS [   0.003s] (1/1) connector-init::vsock spec_rpc_over_vsock
+
+  # old probe (git stash of just that file):
+        FAIL [   0.004s] (1/1) connector-init::vsock spec_rpc_over_vsock
+    panicked at crates/connector-init/tests/vsock.rs:87:10   # the connect
+  ```
+- deviations from CONTRACTS.md:
+  - The launch line adds `--env=LOG_FORMAT=json` and
+    `--env=LOG_LEVEL=<level>`, which PLAN "Helper launch" does not list. The
+    stub honors them, and the brief's log-decoder parity depends on them.
+    Under the real helper they are probably inert: libkrun's init applies the
+    *image's* `Env`, not the helper container's. Question below.
+  - No `--platform` on the helper's own `podman run`, following PLAN's block.
+    The connector image is still pulled and inspected with
+    `--platform=linux/amd64` by the unchanged helpers.
+  - `Guard` drop removes `<id>` best effort, but `async_process::Child::drop`
+    SIGKILLs without waiting, so the removal can race the helper's exit. The
+    bind mounts pin the inodes until it does exit, so racing is harmless --
+    but "after the process exits" is not literally achievable, only
+    `_process`-is-dropped-first.
+  - No new environment variable. The brief allowed a stub-only one for
+    `--cap-add SYS_ADMIN`; the stub instead copies `/init` into
+    `/rootfs/init` rather than bind-mounting it, needs only CAP_SYS_CHROOT
+    (already in podman's default set), and so the generated launch line has
+    nothing stub-specific in it. CONTRACTS' variable table is unchanged.
+- questions for master:
+  - `flowctl preview` validates the catalog before it drives anything, and
+    that step launches the connector through the *legacy* `runtime` crate
+    (`crates/runtime/src/container.rs`), which the switch does not touch. So
+    every switched-on preview still starts two unsandboxed `fc_*` containers
+    before the first `fs_*` one. Fine for WP05 (the brief scopes the change
+    to `runtime-next`), but WP06 should know that derive-python's `Spec` and
+    `Validate` will run outside the sandbox, and phase 2 has to decide whether
+    validation is in scope for sandboxing at all.
+  - That legacy path bind-mounts host temporaries, so inside the fake reactor
+    it fails with `statfs /tmp/.tmpXXXXXX: no such file or directory` -- the
+    reactor container's `/tmp` does not exist for the host podman that
+    receives the mount. `preview-stub.sh` sets `TMPDIR` under
+    `$SPIKE_REACTOR_DIR` to get past it. Worth keeping: it is a clean
+    demonstration of why the reactor-directory contract exists.
+  - `fake-reactor.sh` mounts `$REPO_DIR/target` at `/flow-target` so a locally
+    built `flowctl` is reachable, but under mise `CARGO_TARGET_DIR` is
+    `~/cargo-target/flow`, so that mount is empty. `preview-stub.sh` copies
+    the two binaries into `$REPO_DIR/target/debug/` to satisfy WP00's
+    contract as written. Suggest WP00's script mount `$CARGO_TARGET_DIR`
+    instead; say if you want that folded in here.
+  - Socket permissions. The stub creates `init.sock` with mode 0777 so a
+    reactor running as an ordinary user can connect; podman rootful containers
+    share the host user namespace, so the socket is otherwise root-owned.
+    Under the real helper libkrun owns that mode. If it is 0755, WP06 driving
+    a preview from the host as a non-root user cannot connect, and would need
+    to run under `fake-reactor.sh` (root) or the helper would need to chmod
+    the socket. Production's reactor is root, so this may never matter in
+    production -- but it will bite WP06 on this box.
+  - `crates/runtime-next/Cargo.toml` was edited to add `hyper-util` and
+    `tower`; the brief's paths named `container.rs` and a sibling module.
+    Both were already in `[workspace.dependencies]` and are declared
+    `workspace = true` like every other dependency in the crate.
+  - `crates/runtime-next/README.md` "Layout" does not enumerate
+    `container.rs`, so the new child module leaves nothing stale there. WP01's
+    note about `crates/connector-init/` having no README still stands.
+  - Experiment 3 also wants a Go *materialization* previewed both ways.
+    `preview-stub.sh` covers only the capture, which is what this brief asked
+    for. The script is the harness experiment 3 can reuse against the real
+    helper; the materialization half is unwritten, and materialize-sqlite
+    needs a writable endpoint path inside the guest, so it is better added
+    with the real helper than against the stub.
+  - The stub emits `socat[12] E write(...): Broken pipe` through the log pump
+    when a session ends and the runtime drops the channel. It is a stub
+    artifact -- socat noticing connector-init has gone -- and I left it
+    unsuppressed rather than hide a class of real failure.
+  - The 115 stale `fs_*` reactor directories from WP03/WP04b are still there,
+    as scheduled for WP06. This package leaked none of its own.

@@ -56,6 +56,9 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 futures = { workspace = true }
 handlebars = { workspace = true }
+# hyper-util and tower are the sandbox spike's, for the Unix-socket connector
+# it hands to tonic (`container/spike.rs`).
+hyper-util = { workspace = true }
 json-patch = { workspace = true }
 jsonwebtoken = { workspace = true }
 librocksdb-sys = { workspace = true }
@@ -76,6 +79,7 @@ time = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
+tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }

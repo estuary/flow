@@ -15,7 +15,7 @@ const EXPECT_PROTOCOL: u32 = 3032023;
 
 #[tokio::test]
 async fn spec_rpc_over_vsock() {
-    let Some(probe) = bind_probe() else {
+    let Some(probe) = bind_probe().await else {
         eprintln!("skipping: AF_VSOCK loopback is unavailable (vsock_loopback not loaded)");
         return;
     };
@@ -105,12 +105,25 @@ async fn spec_rpc_over_vsock() {
     assert_eq!(responses, vec![expect]);
 }
 
-/// Bind the test's vsock port to learn whether AF_VSOCK loopback works here.
-/// Returns the listener so the caller can hold the port until it spawns.
-fn bind_probe() -> Option<tokio_vsock::VsockListener> {
-    tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(
+/// Learn whether AF_VSOCK loopback works here, by binding the test's port and
+/// then dialing it at CID 1. Binding alone is not enough: a host with some
+/// other vsock transport binds fine and only fails the connect, which is the
+/// case that must skip rather than fail. Returns the listener so the caller can
+/// hold the port until it spawns.
+async fn bind_probe() -> Option<tokio_vsock::VsockListener> {
+    let listener = tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(
         tokio_vsock::VMADDR_CID_ANY,
         VSOCK_PORT,
     ))
-    .ok()
+    .ok()?;
+
+    // Only the handshake matters; the connected stream is dropped immediately.
+    tokio_vsock::VsockStream::connect(tokio_vsock::VsockAddr::new(
+        tokio_vsock::VMADDR_CID_LOCAL,
+        VSOCK_PORT,
+    ))
+    .await
+    .ok()?;
+
+    Some(listener)
 }

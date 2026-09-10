@@ -1,0 +1,13 @@
+# localhost/flow-sandbox-stub:spike - a VM-less stand-in for the libkrun helper,
+# so WP05's launch line and Unix-socket dial can be exercised without libkrun.
+# The reactor image is the base because it is what the real helper's guest-side
+# connector-init is built against, and it already has a shell and coreutils.
+ARG REACTOR_IMAGE
+FROM ${REACTOR_IMAGE}
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends socat \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY entrypoint.sh /usr/local/bin/flow-sandbox-stub
+ENTRYPOINT ["/usr/local/bin/flow-sandbox-stub"]

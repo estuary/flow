@@ -1,0 +1,35 @@
+# A capture whose connector is a static Go binary, which is all the stub helper
+# can run. `rate: 2` and a bounded `--sessions` make the document count
+# deterministic, so the switched-on and switched-off previews can be diffed.
+---
+captures:
+  acmeCo/hello-world:
+    endpoint:
+      connector:
+        image: "ghcr.io/estuary/source-hello-world:dev"
+        config:
+          rate: 2
+    bindings:
+      - resource:
+          name: greetings
+          prefix: "Hello {}!"
+        target: acmeCo/events
+collections:
+  acmeCo/events:
+    schema:
+      $schema: "http://json-schema.org/draft/2020-12/schema"
+      type: object
+      title: Example Output Record
+      properties:
+        ts:
+          type: string
+          format: date-time
+          title: Timestamp
+        message:
+          type: string
+          title: Message
+      required:
+        - ts
+        - message
+    key:
+      - /ts

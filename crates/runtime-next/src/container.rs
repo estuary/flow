@@ -1,3 +1,7 @@
+// Launch line for the libkrun sandbox spike, gated on an environment variable
+// and dead in every other context. Nothing under `spike/` merges to master.
+mod spike;
+
 use crate::RuntimeProtocol;
 use anyhow::Context;
 use futures::channel::oneshot;
@@ -74,6 +78,14 @@ pub async fn start<L: crate::Logger>(
     connector_init::Codec,
 )> {
     validate_connector_image(image, plane)?;
+
+    // Spike only: launch the connector as a micro-VM inside a helper container.
+    if let Some(settings) = spike::Settings::from_env()? {
+        return spike::start(
+            settings, image, logger, log_level, network, task_name, task_type,
+        )
+        .await;
+    }
 
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
@@ -181,6 +193,137 @@ pub async fn start<L: crate::Logger>(
         format!("--port={CONNECTOR_INIT_PORT}"),
     ]);
 
+    let process = spawn_and_await_ready(docker_args, task_name, &logger).await?;
+
+    // Ask docker for network configuration that it assigned to the container.
+    let (ip_addr, mapped_host_ports) = inspect_container_network(&name).await?;
+
+    // Dial the gRPC endpoint hosted by `flow-connector-init` within the container context.
+    let init_address = if let Some(addr) = mapped_host_ports.get(&(CONNECTOR_INIT_PORT as u32)) {
+        format!("http://{addr}")
+    } else {
+        format!("http://{ip_addr}:{CONNECTOR_INIT_PORT}")
+    };
+    let channel = tonic::transport::Endpoint::new(init_address.clone())
+        .expect("formatting endpoint address")
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .http2_keep_alive_interval(std::time::Duration::from_secs(5))
+        // Default is 20s. The task runtime is single-threaded and hyper checks
+        // this timer before reading the pending PONG, so a long synchronous
+        // stretch of shard work would otherwise be misread as a dead peer.
+        .keep_alive_timeout(std::time::Duration::from_secs(60))
+        .connect()
+        .await
+        .with_context(|| {
+            format!("failed to connect to container connector-init at {init_address}")
+        })?;
+
+    // Low-level network / codec detail stays at debug; the user-facing "started"
+    // event is reported to the logger below (whose default logs it at info).
+    tracing::debug!(
+        %image,
+        %init_address,
+        %ip_addr,
+        mapped_host_ports = ?ops::DebugJson(&mapped_host_ports),
+        %name,
+        image_inspection = ?ops::DebugJson(&image_inspection),
+        ?codec,
+        %task_name,
+        ?task_type,
+        "dialed connector container"
+    );
+    let usage_rate = image_inspection.usage_rate;
+    let network_ports = image_inspection.network_ports;
+
+    let container = runtime::Container {
+        ip_addr: format!("{ip_addr}"),
+        network_ports,
+        usage_rate,
+        mapped_host_ports,
+    };
+    logger.event(crate::LogEvent::ContainerStarted {
+        image,
+        container: &container,
+    });
+
+    Ok((
+        container,
+        channel,
+        Guard {
+            _tmp_connector_init: Some(tmp_connector_init),
+            _tmp_docker_inspect: Some(tmp_docker_inspect),
+            _process: process,
+            _spike_dir: None,
+            image: image.to_string(),
+            logger,
+        },
+        codec,
+    ))
+}
+
+/// Validates that a connector image is allowed to run in this data-plane.
+fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<()> {
+    if matches!(plane, crate::Plane::Public) {
+        if !image.starts_with("ghcr.io/estuary/") {
+            anyhow::bail!(
+                "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
+            );
+        }
+        if image.starts_with("ghcr.io/estuary/derive-python:") {
+            anyhow::bail!("Python derivations may only run in private data-planes");
+        }
+    }
+    Ok(())
+}
+
+/// Performs a basic validation of logs that represent events, to restrict
+/// connectors to emitting connectorStatus and configUpdate events for the
+/// currently running task.
+fn sanitize_event_type(quoted_task_name: &bytes::Bytes, mut log: ops::Log) -> ops::Log {
+    match log
+        .fields_json_map
+        .get("eventType")
+        .map(|v| v == "\"connectorStatus\"" || v == "\"configUpdate\"")
+    {
+        Some(true) => {
+            match log
+                .fields_json_map
+                .get("eventTarget")
+                .map(|t| t == quoted_task_name)
+            {
+                Some(true) => { /* eventTarget is valid */ }
+                Some(false) => {
+                    let v = log.fields_json_map.remove("eventTarget").unwrap();
+                    log.fields_json_map
+                        .insert("_sanitized_eventTarget".to_string(), v);
+                    log.fields_json_map
+                        .insert("eventTarget".to_string(), quoted_task_name.clone());
+                }
+                None => {
+                    log.fields_json_map
+                        .insert("eventTarget".to_string(), quoted_task_name.clone());
+                }
+            }
+        }
+        Some(false) => {
+            let v = log.fields_json_map.remove("eventType").unwrap();
+            log.fields_json_map
+                .insert("_sanitized_eventType".to_string(), v);
+        }
+        None => { /* this is not an event */ }
+    }
+    log
+}
+
+/// Spawn the docker CLI with `docker_args`, pumping the container's stderr
+/// into `logger` as decoded `ops::Log`s, and return the child once
+/// `flow-connector-init` has signalled its readiness. The pump task runs on
+/// for the life of the child.
+async fn spawn_and_await_ready<L: crate::Logger>(
+    docker_args: Vec<String>,
+    task_name: &str,
+    logger: &L,
+) -> anyhow::Result<async_process::Child> {
     tracing::debug!(docker_args=?docker_args, "invoking docker");
 
     let mut process: async_process::Child = async_process::Command::new(docker_cli())
@@ -247,8 +390,8 @@ pub async fn start<L: crate::Logger>(
             let sanitized = sanitize_event_type(&quoted_task_name, log);
             pump_logger.log(&sanitized);
         }
-        // An un-sent `ready_tx` cancels on drop, telling `start()` that stderr
-        // closed before the container came up.
+        // An un-sent `ready_tx` cancels on drop, telling our caller that
+        // stderr closed before the container came up.
     });
 
     // Wait for container to become ready, or close its stderr (likely due to a crash),
@@ -265,132 +408,20 @@ pub async fn start<L: crate::Logger>(
         },
     }
 
-    // Ask docker for network configuration that it assigned to the container.
-    let (ip_addr, mapped_host_ports) = inspect_container_network(&name).await?;
-
-    // Dial the gRPC endpoint hosted by `flow-connector-init` within the container context.
-    let init_address = if let Some(addr) = mapped_host_ports.get(&(CONNECTOR_INIT_PORT as u32)) {
-        format!("http://{addr}")
-    } else {
-        format!("http://{ip_addr}:{CONNECTOR_INIT_PORT}")
-    };
-    let channel = tonic::transport::Endpoint::new(init_address.clone())
-        .expect("formatting endpoint address")
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .http2_keep_alive_interval(std::time::Duration::from_secs(5))
-        // Default is 20s. The task runtime is single-threaded and hyper checks
-        // this timer before reading the pending PONG, so a long synchronous
-        // stretch of shard work would otherwise be misread as a dead peer.
-        .keep_alive_timeout(std::time::Duration::from_secs(60))
-        .connect()
-        .await
-        .with_context(|| {
-            format!("failed to connect to container connector-init at {init_address}")
-        })?;
-
-    // Low-level network / codec detail stays at debug; the user-facing "started"
-    // event is reported to the logger below (whose default logs it at info).
-    tracing::debug!(
-        %image,
-        %init_address,
-        %ip_addr,
-        mapped_host_ports = ?ops::DebugJson(&mapped_host_ports),
-        %name,
-        image_inspection = ?ops::DebugJson(&image_inspection),
-        ?codec,
-        %task_name,
-        ?task_type,
-        "dialed connector container"
-    );
-    let usage_rate = image_inspection.usage_rate;
-    let network_ports = image_inspection.network_ports;
-
-    let container = runtime::Container {
-        ip_addr: format!("{ip_addr}"),
-        network_ports,
-        usage_rate,
-        mapped_host_ports,
-    };
-    logger.event(crate::LogEvent::ContainerStarted {
-        image,
-        container: &container,
-    });
-
-    Ok((
-        container,
-        channel,
-        Guard {
-            _tmp_connector_init: tmp_connector_init,
-            _tmp_docker_inspect: tmp_docker_inspect,
-            _process: process,
-            image: image.to_string(),
-            logger,
-        },
-        codec,
-    ))
-}
-
-/// Validates that a connector image is allowed to run in this data-plane.
-fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<()> {
-    if matches!(plane, crate::Plane::Public) {
-        if !image.starts_with("ghcr.io/estuary/") {
-            anyhow::bail!(
-                "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
-            );
-        }
-        if image.starts_with("ghcr.io/estuary/derive-python:") {
-            anyhow::bail!("Python derivations may only run in private data-planes");
-        }
-    }
-    Ok(())
-}
-
-/// Performs a basic validation of logs that represent events, to restrict
-/// connectors to emitting connectorStatus and configUpdate events for the
-/// currently running task.
-fn sanitize_event_type(quoted_task_name: &bytes::Bytes, mut log: ops::Log) -> ops::Log {
-    match log
-        .fields_json_map
-        .get("eventType")
-        .map(|v| v == "\"connectorStatus\"" || v == "\"configUpdate\"")
-    {
-        Some(true) => {
-            match log
-                .fields_json_map
-                .get("eventTarget")
-                .map(|t| t == quoted_task_name)
-            {
-                Some(true) => { /* eventTarget is valid */ }
-                Some(false) => {
-                    let v = log.fields_json_map.remove("eventTarget").unwrap();
-                    log.fields_json_map
-                        .insert("_sanitized_eventTarget".to_string(), v);
-                    log.fields_json_map
-                        .insert("eventTarget".to_string(), quoted_task_name.clone());
-                }
-                None => {
-                    log.fields_json_map
-                        .insert("eventTarget".to_string(), quoted_task_name.clone());
-                }
-            }
-        }
-        Some(false) => {
-            let v = log.fields_json_map.remove("eventType").unwrap();
-            log.fields_json_map
-                .insert("_sanitized_eventType".to_string(), v);
-        }
-        None => { /* this is not an event */ }
-    }
-    log
+    Ok(process)
 }
 
 /// Guard contains a running image container instance,
 /// which will be stopped and cleaned up when the Guard is dropped.
 /// Its drop reports a `container_stopped` event through the logger.
 pub struct Guard<L: crate::Logger> {
-    _tmp_connector_init: tempfile::TempPath,
-    _tmp_docker_inspect: tempfile::TempPath,
+    _tmp_connector_init: Option<tempfile::TempPath>,
+    _tmp_docker_inspect: Option<tempfile::TempPath>,
     _process: async_process::Child,
+    // Spike only: the per-connector reactor directory, which holds what the
+    // temporaries above hold in the unmodified path, plus the helper's socket.
+    // Declared after `_process` so the helper is signalled before it goes away.
+    _spike_dir: Option<spike::DirGuard>,
     image: String,
     logger: L,
 }
