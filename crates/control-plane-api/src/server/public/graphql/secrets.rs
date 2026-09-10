@@ -208,12 +208,8 @@ impl SecretsMutation {
                 "invalid catalog name: {err}"
             )));
         }
-        super::verify_authorization(
-            env,
-            catalog_name.as_str(),
-            models::authz::Capability::EditSecret,
-        )
-        .await?;
+        env.verify_authorization(catalog_name.as_str(), models::authz::Capability::EditSecret)
+            .await?;
 
         let SecretDocument(document) = document;
         let last_modified = validate_document(catalog_name.as_str(), &document)?;
@@ -351,7 +347,8 @@ impl SecretsMutation {
             ));
         }
 
-        super::verify_authorization(env, target, models::authz::Capability::EditSecret).await?;
+        env.verify_authorization(target, models::authz::Capability::EditSecret)
+            .await?;
 
         // Two statements rather than one branching on a parameter, so each is a
         // shape the planner can index: the primary key for a name, and

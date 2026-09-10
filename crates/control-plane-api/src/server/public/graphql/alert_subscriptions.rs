@@ -30,7 +30,9 @@ impl AlertSubscriptionsQuery {
     ) -> async_graphql::Result<Vec<AlertSubscription>> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = super::verify_authorization(env, &by.prefix, models::Capability::Admin).await?;
+        let _ = env
+            .verify_authorization(&by.prefix, models::Capability::Admin)
+            .await?;
 
         let mut conn = env.pg_pool.acquire().await?;
         let alerts = fetch_alert_subscriptions_prefixed_by(&by.prefix, &mut conn).await?;
@@ -55,7 +57,9 @@ impl AlertSubscriptionsMutation {
     ) -> async_graphql::Result<AlertSubscription> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = super::verify_authorization(env, &prefix, models::Capability::Admin).await?;
+        let _ = env
+            .verify_authorization(&prefix, models::Capability::Admin)
+            .await?;
 
         // Validate the email address. Note that we _don't_ support mailbox
         // address syntax like `Foo <foo@bar.test>`. We just want the plain
@@ -112,7 +116,9 @@ impl AlertSubscriptionsMutation {
     ) -> async_graphql::Result<AlertSubscription> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = super::verify_authorization(env, &prefix, models::Capability::Admin).await?;
+        let _ = env
+            .verify_authorization(&prefix, models::Capability::Admin)
+            .await?;
         if alert_types.is_none() && detail.is_none() {
             return Err(async_graphql::Error::new(
                 "must provide at least one of: alertTypes, detail",
@@ -161,7 +167,9 @@ impl AlertSubscriptionsMutation {
     ) -> async_graphql::Result<AlertSubscription> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = super::verify_authorization(env, &prefix, models::Capability::Admin).await?;
+        let _ = env
+            .verify_authorization(&prefix, models::Capability::Admin)
+            .await?;
 
         let Some(existing) =
             delete_alert_subscription(prefix.as_str(), email.as_str(), &env.pg_pool).await?

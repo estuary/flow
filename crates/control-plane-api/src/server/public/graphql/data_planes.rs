@@ -732,7 +732,7 @@ fn map_link_db_error(err: sqlx::Error) -> async_graphql::Error {
 /// the caller may not modify both return the same "not found" error, so an
 /// unauthorized caller cannot probe which link ids exist. This deliberately uses
 /// the visibility gate ([`super::may_access`]) rather than the hard gate
-/// ([`super::verify_authorization`]) so a denial is hidden as not-found instead
+/// ([`crate::Envelope::verify_authorization`]) so a denial is hidden as not-found instead
 /// of surfacing as a distinguishable permission-denied that names the data plane.
 async fn resolve_modifiable_link(
     ctx: &Context<'_>,
@@ -780,8 +780,7 @@ impl DataPlanesMutation {
     ) -> async_graphql::Result<DataPlanePrivateLink> {
         let env = ctx.data::<crate::Envelope>()?;
         require_private_dp_name(&data_plane_name)?;
-        super::verify_authorization(
-            env,
+        env.verify_authorization(
             &data_plane_name,
             models::authz::Capability::ModifyDataPlanePrivateNetworking,
         )

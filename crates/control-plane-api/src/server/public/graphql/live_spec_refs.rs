@@ -288,16 +288,14 @@ impl LiveSpecsQuery {
         let names = names.unwrap_or_default();
 
         // Fail the entire request if it passed a name or prefix that the user is unauthorized to.
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            env.claims()?,
-            models::Capability::Read,
+        env.verify_authorization_iter(
             names
                 .iter()
                 .map(models::Name::as_str)
                 .chain(prefix.as_ref().map(models::Prefix::as_str).into_iter()),
-        );
-        let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
+            models::Capability::Read,
+        )
+        .await?;
 
         if names.is_empty() && prefix.is_none() {
             return Err("must provide at least one of `names` or `prefix`".into());

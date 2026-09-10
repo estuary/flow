@@ -52,7 +52,7 @@ pub(crate) use scalars::Sensitive;
 ///
 /// This is the visibility gate: use it to hide a field or filter a list,
 /// failing closed to an empty or default value when it returns `false`. Unlike
-/// [`verify_authorization`] it neither errors nor refreshes the Snapshot on a
+/// [`crate::Envelope::verify_authorization`] it neither errors nor refreshes the Snapshot on a
 /// negative result, because momentarily hiding a field against a slightly-stale
 /// Snapshot is the correct, low-cost behavior.
 ///
@@ -72,30 +72,6 @@ fn may_access(
         name,
         capability,
     ))
-}
-
-/// Errors unless the current user holds `capability` on `prefix`.
-///
-/// This is the hard gate for mutations and access-controlled queries: a denial
-/// becomes `permission_denied`, and a provisional denial against a stale
-/// Snapshot follows the standard refresh-and-retry path. See [`may_access`] for
-/// the visibility-gate counterpart that fails closed instead of erroring.
-///
-/// `capability` accepts a legacy `models::Capability`, an orthogonal
-/// `models::authz::Capability` bit, or a `models::authz::CapabilitySet`.
-async fn verify_authorization(
-    env: &crate::Envelope,
-    prefix: &str,
-    capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
-) -> async_graphql::Result<()> {
-    let policy_result = crate::server::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        capability,
-        [prefix],
-    );
-    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
-    Ok(())
 }
 
 /// A JSON object, the shape of which is opaque to the graphql schema

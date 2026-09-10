@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use super::super::tenant::Tenant;
-use super::super::verify_authorization;
 use super::billing_provider;
 use super::contact::{self, BillingContact};
 use super::invoices::{Invoice, InvoiceFilter};
@@ -18,7 +17,8 @@ use async_graphql::{
 impl Tenant {
     async fn billing(&self, ctx: &Context<'_>) -> Result<TenantBilling> {
         let env = ctx.data::<crate::Envelope>()?;
-        verify_authorization(env, &self.name, models::authz::Capability::ViewBilling).await?;
+        env.verify_authorization(&self.name, models::authz::Capability::ViewBilling)
+            .await?;
         let provider = billing_provider(ctx)?;
         Ok(TenantBilling::new(self.name.clone(), provider))
     }
