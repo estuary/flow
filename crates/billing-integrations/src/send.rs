@@ -183,13 +183,15 @@ async fn update_draft_collection_methods(
     stripe_client: &Client,
     mut to_update: Vec<Invoice>,
 ) -> anyhow::Result<Vec<Invoice>> {
-    // Identify invoices that are `charge_automatically` but don't have a default payment method
+    // Identify invoices that need to be switched to `send_invoice`:
+    // - Manual invoices should always be sent as invoices, never auto-charged
+    // - Auto-charge invoices without a payment method on file must be sent as invoices
     let needs_update: HashSet<InvoiceId> = to_update
         .iter()
         .filter(|inv| {
             inv.collection_method().map_or(false, |cm| {
                 cm == stripe::CollectionMethod::ChargeAutomatically
-            }) && !inv.has_cc()
+            }) && (inv.is_manual() || !inv.has_cc())
         })
         .map(|inv| inv.id().clone())
         .collect::<HashSet<_>>();
@@ -248,6 +250,9 @@ async fn update_collection_methods(
     let pb = ProgressBar::new(invoices.len() as u64);
     pb.set_message("updating collection method");
     pb.set_style(ProgressStyle::with_template(PROGRESS_BAR_TEMPLATE).unwrap());
+    // Continue past per-invoice failures: the following invoice table shows the
+    // true state of every draft (failed switches stay flagged as missing a
+    // payment method) before the finalize prompt, so the operator can abort.
     for inv in invoices {
         let res: Result<stripe::Invoice, _> = stripe_client
             .post_form(
@@ -260,7 +265,7 @@ async fn update_collection_methods(
             .await;
         match res {
             Ok(_) => {
-                inv.collection_method = Some(method.clone());
+                inv.collection_method = Some(method);
             }
             Err(e) => {
                 pb.println(format!(
