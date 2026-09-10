@@ -17,7 +17,7 @@ maintains the table. Newest log entries at the bottom.
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
-| 04b| podman writable layer, no guest overlay | 04, 08b      | todo   | daveg/libkrun-spike | removes the libkrun patch; must precede 05 |
+| 04b| podman writable layer, no guest overlay | 04, 08b      | done   | daveg/libkrun-spike | 981c434e5fd; unpatched libkrun; exp 5c 2.13x |
 | 09 | Churn and density: experiments 9-10     | 00, 06       | todo   | daveg/libkrun-spike |       |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | todo   | daveg/libkrun-spike |       |
 | 11 | libkrun source read: experiment 12      | -            | todo   | daveg/libkrun-spike |       |
@@ -33,9 +33,9 @@ any runtime work is spent.)
 - RESOLVED (WP03): `krun_set_exec` wins, and the two must not be combined -
   when `KRUN_INIT` is set, init keeps the kernel cmdline's argv and ignores
   `Cmd` entirely. The shim uses `Cmd` alone.
-- RESOLVED (WP03): Fedora 43 packages libkrun 1.19.0 and libkrunfw 5.5.0, so
-  neither is built from source. See WP03's question about the 1.19.0 / 1.19.4
-  delta.
+- RESOLVED (WP03, then master): Fedora 43 packages libkrun 1.19.0; we build
+  v1.19.4 from source anyway (WP04 step 0), unpatched since WP04b. libkrunfw
+  stays Fedora's 5.5.0.
 - RESOLVED (WP00): `vsock_loopback` loads on this box; WP01 can test
   `--vsock-port` host-side against CID 1.
 - RESOLVED (WP04b): `--mount type=image,...,rw=true` works through the podman
@@ -44,7 +44,9 @@ any runtime work is spent.)
   `podman system df` returns to its pre-run Containers row.
 - What does the libkrun README's "does not provide any protection against the
   guest attempting to access other directories in the same filesystem" mean
-  concretely for the read-only image share? (WP11)
+  concretely, now that the root share is read-write and served by a root
+  process on the filesystem that also holds the reactor directory and
+  podman's storage? Can guest writes escape the shared directory? (WP11)
 
 ## Log
 
@@ -1156,3 +1158,20 @@ any runtime work is spent.)
     `spike_image_mount` in `helper-common.sh`: `--mount type=image,
     source=<img>,destination=/rootfs,rw=true`, and there is no `--upper-mib`
     to plumb.
+
+### 2026-09-10 master: WP04b accepted
+
+- chdir: dropped from CONTRACTS. libkrun's init applies `WorkingDir` before
+  exec'ing flow-init and nothing after changes the cwd; a postcondition that
+  restates the caller's is not worth two lines and a syscall wrapper.
+- Raw data hash: no re-run. 5c was measured on WP04b's tree before its
+  commit; the report cites 981c434e5fd for 5c and notes the CSV names the
+  parent. The ratio is what carries, and it did not move.
+- WP11's open question is reframed as a write-escape question now that the
+  root share is read-write and served by a root process on the filesystem
+  that also holds the reactor directory and podman's storage. In the brief
+  and in the unknowns list.
+- Left for WP06 as scheduled: dead `spike/helper/stubs/flow-init`, the
+  `stubs/` line in the helper README, the 115 stale reactor directories.
+- Next: WP01. WP05 takes the launch line from `spike_image_mount` in
+  `helper-common.sh`.
