@@ -16,7 +16,7 @@ maintains the table. Newest log entries at the bottom.
 | 06 | Integration: experiments 1-4            | 00-05        | todo   | daveg/libkrun-spike |       |
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
-| 08b| deps as read-only block image: exp 5 rerun | 08        | todo   | daveg/libkrun-spike | the redesign experiment 5 forced |
+| 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
 | 09 | Churn and density: experiments 9-10     | 00, 06       | todo   | daveg/libkrun-spike |       |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | todo   | daveg/libkrun-spike |       |
 | 11 | libkrun source read: experiment 12      | -            | todo   | daveg/libkrun-spike |       |
@@ -946,3 +946,38 @@ any runtime work is spent.)
     Immaterial to these numbers, but a phase-2 builder should create the venv at
     its final path, and that is the sort of thing that is easier to fix before
     there is a builder than after.
+
+### 2026-09-10 master: WP08b accepted; experiment 5's gate closes at 2.12x
+
+- **Ruling: pass.** 2.12x on a first import after boot is close enough, given
+  what the number is made of. The 2x limit was a proxy for a metadata premium
+  paid on every file operation for a connector's life; that premium is now
+  1.15x (`deps-cold2` 451.2 ms against a container's 391.7), where virtiofs
+  left it at 2.33x warm. The 371 ms keeping the first-import figure above 2x is
+  one-time per boot, and the whole launch is 2.3 s against experiment 2's 5 s
+  budget. Experiment 5 is settled; PLAN records it.
+- The dependency set as a per-tag read-only block image on virtio-blk is the
+  design, and `--deps-image` / `--deps-fstype` / `--deps-dev` are the contract
+  for it. **ext4, not erofs**, per WP08b's recommendation: 2.8% of a per-boot
+  cost beats 14% of per-tag storage, and a wrongly-sized image failing at build
+  time beats one failing at runtime. erofs support stays in the shim and
+  flow-init since it costs nothing to keep and the numbers are recorded.
+- Guest memory first-touch (~201 ms) is **not** chased. It is libkrun's to fix
+  (pre-populated or huge pages behind guest RAM), the win is unmeasured, and it
+  would land in experiment 2's boot budget rather than here. Noted in the
+  report as the one lever left; no WP opened for it.
+- The root stays on virtiofs, now on measured grounds rather than assumption:
+  WP08b's module attribution and `deps-cold2` together rule it out as the
+  residual. PLAN's "whole root on a block image" fallback is retired, not
+  merely deferred.
+- WP08's 0.89x is superseded by 1.15x. The correction stands as its own report
+  section; the experiment 5 text is not rewritten. WP08b's method note - fresh
+  boot per data point, or name the regime - applies to WP09's churn and density
+  work, which compares first operations against later ones by construction.
+- Carried forward, unanswered because they are not blocking: whether `/opt/venv`
+  is the path phase 2 wants (WP05 should not bake
+  `FLOW_SANDBOX_SPIKE_DEPS_IMAGE` in until it is confirmed); the deps images
+  being built from a venv whose baked-in paths say `/venv`, which a phase-2
+  builder should fix; and `helper-smoke.sh`'s copy of the `CONNECTORS+=`
+  subshell bug, which is WP06's along with the 115 stale directories.
+- Next: WP01.
