@@ -10,7 +10,7 @@ maintains the table. Newest log entries at the bottom.
 | 00 | Environment                             | -            | done   | daveg/libkrun-spike | a19095ede57 |
 | 01 | connector-init --vsock-port             | -            | todo   | daveg/libkrun-spike |       |
 | 02 | Egress ruleset + resolver (netns)       | -            | todo   | daveg/libkrun-spike |       |
-| 03 | Helper image + shim                     | -            | todo   | daveg/libkrun-spike |       |
+| 03 | Helper image + shim                     | -            | done   | daveg/libkrun-spike | a1e1ea562f2; libkrun 1.19.4 build folded into WP04 step 0 |
 | 04 | flow-init                               | 03 (to test) | todo   | daveg/libkrun-spike |       |
 | 05 | runtime-next spike switch               | 01 (real)    | todo   | daveg/libkrun-spike |       |
 | 06 | Integration: experiments 1-4            | 00-05        | todo   | daveg/libkrun-spike |       |
@@ -315,3 +315,218 @@ any runtime work is spent.)
   - PLAN.md, CONTRACTS.md and WP02.md carry uncommitted edits from the master
     thread's WP00 acceptance. This commit leaves them untouched; STATUS.md is
     committed because the brief requires appending to it.
+
+### 2026-09-10 master: WP03 accepted; answers to its questions
+
+- libkrun version: build v1.19.4 from source in a builder stage, libkrunfw
+  from Fedora. Reasons, in order: 1.19.3's "virtiofs attribute caching" is
+  on experiment 5's path and would make us measure a since-fixed cost as
+  the design's cost; WP11 audits v1.19.4 source and the running binary must
+  be what was audited; the 1.19.1 credentials fix is a no-op for a root
+  helper but costs nothing. Folded into WP04 as step 0 since WP04 already
+  touches the Dockerfile. libkrun's Makefile gates block and net devices
+  behind `BLK=1 NET=1`; Fedora's package had them on, the build must too.
+- Policy JSON: `<id>/init/policy.json`, passed as `--policy /init/policy.json`.
+  Now in CONTRACTS.
+- `--as-root-exec CMD` is added to the helper CLI as a verbatim passthrough
+  to flow-init. WP04 implements it in the shim alongside flow-init, since it
+  is the one building flow-init's argv. Now in CONTRACTS.
+- Findings absorbed: `krun_disable_implicit_vsock` precedes
+  `krun_add_vsock(ctx, 0)` (PLAN updated); mount points on the read-only
+  root are injected as overlay dirs (WP04 brief); workload stdout shares fd 1
+  with the kernel console (CONTRACTS); the vsock unix proxy treats
+  half-close as close (CONTRACTS, test clients only); `<id>` is never reused
+  because a stale `init.sock` is EEXIST (WP05 brief).
+- Next: WP04.
+
+### 2026-09-10 WP04: a connector image boots to its own connector-init, with a writable root, mounts and the image's user - after a one-line libkrun patch.
+
+- shipped:
+  - `spike/flow-init/` - the guest init, Rust, `x86_64-unknown-linux-musl`,
+    static, `libc` only. `src/main.rs` is the sequence and ends in `execv`;
+    `cli.rs` is the CONTRACTS CLI, `net.rs` the `ifreq`/`rtentry` ioctls,
+    `root.rs` the mounts and `pivot_root`, `sys.rs` the syscall wrappers.
+    `spike/flow-init/README.md`.
+  - `spike/helper/Dockerfile` - step 0a: a builder stage that builds libkrun
+    v1.19.4 from source (`make BLK=1 NET=1`), libkrunfw still Fedora's; the
+    `libkrun` package is no longer installed. Also the real `/flow-init`
+    instead of WP03's stub, and the libkrun patch below.
+  - shim step 0b: `--as-root-exec CMD` in `cli.rs`, passed into the flow-init
+    argv verbatim in `main.rs`'s `guest_cmd`. Nothing else in the shim.
+  - `spike/tasks/flow-init-test.sh` - 30 assertions over 6 boots of
+    derive-python. `--host` and reactor launch both pass.
+
+- libkrun version, exactly: tag `v1.19.4`, commit
+  `728df8125077d0db44265f6e997c72b81b65c015`, Makefile `FULL_VERSION=1.19.4`,
+  installed as `/usr/lib64/libkrun.so.1.19.4` with SONAME `libkrun.so.1`,
+  `libkrun.pc` `Version: 1.19.4`. Build deps beyond WP03's: `clang-devel`
+  (bindgen's libclang) and `glibc-static` (libkrun's static init blob).
+  libkrunfw is unchanged: `libkrunfw-5.5.0-1.fc43`, `libkrunfw.so.5.5.0`,
+  guest kernel `6.12.91`. The library carries the one-line patch below.
+
+- verification:
+  ```
+  $ spike/tasks/helper-build.sh && spike/tasks/flow-init-test.sh
+  flow-init-test.sh: launching via reactor, guest ghcr.io/estuary/derive-python:dev
+
+  ok    route: default via 192.0.2.1 on eth0
+  ok    root: overlay is /
+  ok    root: the image's user writes to the overlay
+  ok    root: /etc stays root-owned under the dropped uid
+  ok    mounts: venv virtiofs at /venv, read-only
+  ok    mounts: /venv holds the share, not an empty mount point
+  ok    mounts: /venv rejects a write
+  ok    mounts: /dev/vda ext4 at /scratch, read-write
+  ok    mounts: /scratch takes the workload's writes
+  ok    mounts: df sees the scratch disk
+  ok    mounts: devtmpfs, devpts and shm under /dev
+  ok    user: the image's uid:gid, no supplementary groups
+  ok    resolution: nameserver is the helper
+  ok    resolution: /etc/hosts names localhost
+  ok    network: IPv6 is disabled
+  ok    env: TMPDIR is the scratch disk
+  ok    env: UV_CACHE_DIR overrides the image's value
+  ok    env: PATH is the image's (PATH=/usr/local/bin:/usr/local/sbin:...)
+  ok    stderr: no line begins with a space
+  ok    --run-as-root: the workload keeps uid 0
+  ok    --run-as-root: a root-owned lower directory copies up
+  ok    --as-root-exec: runs as guest root, after the mounts
+  ok    --as-root-exec: the workload still drops to the image's user
+  ok    default workload: connector-init's exit code reached the caller
+  ok    default workload: connector-init got its image-inspect and vsock port
+  ok    --venv-dax: /venv is mounted with dax
+  ok    --venv-dax: the share reads through the DAX window
+  ok    exit code: a workload that is not there exits 127
+  ok    exit code: the failure is one line on stderr
+
+  flow-init-test.sh: ok
+
+  $ spike/tasks/flow-init-test.sh --host
+  flow-init-test.sh: ok
+
+  $ spike/tasks/helper-smoke.sh          # step 0a: WP03 still passes
+  helper-smoke.sh: ok                    # all 10 checks, unchanged
+  ```
+  What the guest sees, from the probe boot:
+  ```
+  eth0  00000000  010200C0  0003  ...          (default via 192.0.2.1)
+  eth0  000200C0  00000000  0001  ... FCFFFFFF (192.0.2.0/30 on link)
+  proc /proc proc rw,nosuid,nodev,noexec,relatime
+  sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime
+  cgroup2 /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime
+  overlay / overlay rw,relatime,lowerdir=/,upperdir=/dev/.flow/upper,workdir=/dev/.flow/work,uuid=on
+  devtmpfs /dev devtmpfs rw,relatime,size=520920k,nr_inodes=130230,mode=755
+  devpts /dev/pts devpts rw,relatime,mode=620,ptmxmode=666
+  shm /dev/shm tmpfs rw,relatime
+  venv /venv virtiofs ro,relatime            (with --venv-dax: ro,relatime,dax=always)
+  /dev/vda /scratch ext4 rw,relatime
+  uid=65534(nobody) gid=65534(nogroup) groups=65534(nogroup)
+  ```
+  Checks run by hand at this commit, not in the script:
+  ```
+  busybox as the guest      -> boots: /proc and /sys arrive as the shim's
+                               injected overlay dirs, /etc is created, the
+                               image has no `User` so the workload keeps uid 0
+  /flow-init with no argv   -> "flow-init: --guest-ip is required; usage: ..."
+  ```
+
+- findings other packages need:
+  - **flow-init must own its mount namespace, or every exit code is lost.**
+    libkrun's init reports the workload's code with an ioctl on `/`, and only
+    when `statfs("/")` returns virtiofs magic (`init.c`'s `set_exit_code`,
+    v1.19.4 line 1124). flow-init shares that namespace, so a `pivot_root`
+    there leaves init looking at the overlay: it skips the report silently and
+    the VM exits **0** whatever the workload returned. `unshare(CLONE_NEWNS)`
+    first, and the code comes back. This is invisible in a passing test - the
+    first symptom was `--exec /nonexistent` exiting 0 instead of 127 - so it
+    is worth WP05 and WP06 knowing it exists.
+  - **libkrun's init marks the whole tree `MS_REC | MS_SHARED`** (`init.c`
+    line 1401). Both `MS_MOVE` and `pivot_root` refuse a mount whose parent
+    propagates, so flow-init makes the tree private right after unsharing.
+    Without it: `mount /proc at /dev/.flow/root/proc: Invalid argument`.
+  - **`/dev` cannot be `MS_MOVE`d into the new root**, because the tmpfs
+    holding that root is inside `/dev` and MS_MOVE refuses a target under the
+    mount being moved. devtmpfs is one kernel-wide instance, so flow-init
+    mounts it again at `<newroot>/dev` and remakes `devpts` and `shm` over it.
+    Departure from the WP04 brief's step 2, which said to move all three.
+  - **The scratch disk needs a `chown`.** mkfs leaves the ext4 root owned by
+    root and mode 0755, so with `TMPDIR=/scratch` the dropped workload could
+    not write its own temp files. flow-init chowns the mount point to the
+    image's uid:gid. Not in the brief or CONTRACTS; WP08's uv cache and WP07's
+    probes both depend on it.
+  - `/etc/hosts` gets `127.0.0.1 localhost` only. The guest's own name is the
+    kernel default, which *is* `localhost`, and no `::1` line is written
+    because IPv6 is off and a client that tried it first would eat a connect
+    timeout on every localhost lookup.
+  - Exit codes are a shell's, matching libkrun's init: 127 when the workload
+    is not there, 126 when it cannot be run, 125 for flow-init's own failures,
+    one line on stderr and never a leading space.
+  - flow-init is **537 KiB** in the image (musl, stripped). The shim mmaps it
+    and hands the pointer to libkrun for the VM's life, so that is per-VM host
+    memory, shared page cache aside.
+
+- deviations from CONTRACTS.md:
+  - **libkrun is patched.** One line, in the builder stage, with the reasoning
+    in the Dockerfile: `passthrough.rs`'s unknown-ioctl arm returns `ENOTTY`
+    instead of `EOPNOTSUPP`. Without it there is no writable root at all -
+    see the question below. CONTRACTS says libkrun "is v1.19.4 built from
+    source"; it is now v1.19.4 plus that line.
+  - Everything else in CONTRACTS "flow-init" is as written, with the two
+    additions above (`unshare`, scratch `chown`) and `/dev` remounted rather
+    than moved.
+  - Departures from the WP04 brief:
+    - `spike/tasks/helper-build.sh` gained one line,
+      `--build-context flow-init=$SPIKE_DIR/flow-init`: the helper's build
+      context is `spike/helper`, and `spike/flow-init` is outside it, so the
+      Dockerfile reaches the sources with `COPY --from=flow-init`. podman
+      4.9.3 supports it. The brief's "may touch" list did not include the
+      script; nothing else in it changed.
+    - The brief's verification asserts `etc-writable` under the dropped uid.
+      As uid 65534 that is EACCES, exactly as it is under podman today, so the
+      script asserts the parity (`etc-denied-as-user`), proves the overlay is
+      writable where the image allows it (`/tmp`), and asserts `etc-writable`
+      in the `--run-as-root` case, which is what proves copy-up of a
+      root-owned lower directory.
+    - Two cases the brief did not list, because the packages next in line
+      depend on them: the default workload argv (no `--exec`, so
+      connector-init's argv and exit code come back through libkrun) and
+      `--venv-dax`.
+  - `spike/helper/stubs/flow-init` is now dead: the Dockerfile copies the real
+    binary. Left in place - it is outside WP04's paths.
+  - `spike/helper/README.md` is now stale in two places (libkrun "1.19.0 ...
+    used as-is rather than built from source", and the `stubs/` line naming
+    flow-init). Also outside WP04's paths.
+
+- questions for master:
+  - **The libkrun patch. This is the decision this session needs reviewed.**
+    Overlayfs over a virtiofs lower cannot copy anything up on this kernel:
+    ```
+    overlayfs: failed to retrieve lower fileattr (/etc, err=-95)
+    touch: cannot touch '/etc/x': Operation not supported
+    ```
+    Every FUSE inode carries `S_NOATIME`, which is in overlayfs's
+    `OVL_COPY_I_FLAGS_MASK`, so every copy-up first copies the lower's
+    fileattr flags (`FS_IOC_GETFLAGS`). libkrun's passthrough fs answers any
+    ioctl it does not recognize with `EOPNOTSUPP`
+    (`src/devices/src/virtio/fs/linux/passthrough.rs:2192`), and overlayfs
+    tolerates only `ENOTTY` and `EINVAL` there. Verified against the
+    unpatched build first; `-o userxattr` and a tmpfs-on-tmpfs overlay were
+    ruled out as causes (tmpfs supports `trusted.*` and `user.*` xattrs here,
+    and a tmpfs lower copies up fine). The patch turns that arm into
+    `ENOTTY` - which is what a filesystem with no inode flags, tmpfs
+    included, returns - and everything works. Options as I see them:
+    (a) carry the patch through the spike and open an upstream PR, which is
+    where I have left it; (b) build the writable root some other way, e.g.
+    tmpfs over each path that must be writable, seeded from the image, which
+    is image-specific and loses the "podman-shaped root" property; (c) treat
+    it as a gate failure for the design. If (a), production needs either an
+    upstreamed fix or a vendored libkrun, which is a real cost to name in the
+    report.
+  - `--as-root-exec` ignores its command's exit status, per CONTRACTS
+    ("run `CMD` ... then continues to the workload"). A failing probe is
+    therefore silent unless it says so itself. Confirm that is wanted for
+    WP07, or should a non-zero status fail the launch?
+  - The guest hostname is the kernel default `localhost`. podman gives a
+    container the short container id. If anything in the reactor or a
+    connector cares, flow-init should `sethostname`; nothing in CONTRACTS
+    asks for it, so it does not.

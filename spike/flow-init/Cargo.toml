@@ -1,0 +1,22 @@
+[package]
+name = "flow-init"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Its own workspace root: the spike is not a member of the repo's `crates/*`
+# workspace and must not perturb the repo's lockfile.
+[workspace]
+
+[[bin]]
+name = "flow-init"
+path = "src/main.rs"
+
+# Built for x86_64-unknown-linux-musl and injected into the guest root, where
+# the image may carry no libc, no shell and no dynamic loader at all.
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+panic = "abort"
+strip = true

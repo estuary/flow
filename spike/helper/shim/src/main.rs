@@ -254,6 +254,10 @@ fn guest_cmd(args: &cli::Args, image: &image::ImageConfig) -> Vec<String> {
     if args.run_as_root {
         cmd.push("--run-as-root".to_string());
     }
+    if let Some(command) = &args.as_root_exec {
+        cmd.push("--as-root-exec".to_string());
+        cmd.push(command.clone());
+    }
     cmd.push("--".to_string());
     cmd.extend(workload);
     cmd

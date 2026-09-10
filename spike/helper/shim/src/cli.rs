@@ -15,6 +15,9 @@ pub struct Args {
     pub venv_dax: bool,
     pub thp_disable: bool,
     pub run_as_root: bool,
+    /// Passed through to flow-init verbatim: `/bin/sh -c CMD` as guest root,
+    /// before the uid drop.
+    pub as_root_exec: Option<String>,
     pub debug: bool,
     pub no_flow_init: bool,
     /// Replaces the default workload argv when present.
@@ -23,7 +26,7 @@ pub struct Args {
 
 pub const USAGE: &str = "usage: flow-sandbox-helper --policy PATH --memory-mib N --vcpus N \
      --disk-mib N --upper-mib N [--venv-dax] [--thp-disable] [--run-as-root] [--debug] \
-     [--no-flow-init] [--exec ARGV...]";
+     [--as-root-exec CMD] [--no-flow-init] [--exec ARGV...]";
 
 pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
     let mut policy = None;
@@ -34,6 +37,7 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
     let mut venv_dax = false;
     let mut thp_disable = false;
     let mut run_as_root = false;
+    let mut as_root_exec = None;
     let mut debug = false;
     let mut no_flow_init = false;
     let mut exec = None;
@@ -55,6 +59,7 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
             "--venv-dax" => (venv_dax, i) = (true, i + 1),
             "--thp-disable" => (thp_disable, i) = (true, i + 1),
             "--run-as-root" => (run_as_root, i) = (true, i + 1),
+            "--as-root-exec" => (as_root_exec, i) = (Some(value(i)?.to_string()), i + 2),
             "--debug" => (debug, i) = (true, i + 1),
             "--no-flow-init" => (no_flow_init, i) = (true, i + 1),
             "--exec" => {
@@ -75,6 +80,7 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
         venv_dax,
         thp_disable,
         run_as_root,
+        as_root_exec,
         debug,
         no_flow_init,
         exec,
