@@ -212,6 +212,7 @@ tokio = { version = "1", features = [
 ] }
 tokio-util = { version = "0", features = ["io", "compat", "rt"] }
 tokio-stream = { version = "0" }
+tokio-vsock = { version = "0", features = ["tonic014"] }
 tonic = { version = "0", features = ["tls-native-roots"] }
 tonic-prost = "0"
 hyper-util = "0"

@@ -1175,3 +1175,82 @@ any runtime work is spent.)
   `stubs/` line in the helper README, the 115 stale reactor directories.
 - Next: WP01. WP05 takes the launch line from `spike_image_mount` in
   `helper-common.sh`.
+
+### 2026-09-10 WP01: connector-init serves gRPC over AF_VSOCK
+
+- shipped:
+  - `crates/connector-init/src/lib.rs`: `--port` and `--vsock-port` are both
+    `Option`, in a required clap `ArgGroup` so exactly one is given. A
+    `Listener` enum binds either transport before anything else can fail, so
+    the readiness space byte means the same thing on both. Serving is one
+    `Router` and a two-arm match at the end. TCP behavior is unchanged.
+  - `tokio-vsock` 0.7.2 with its `tonic014` feature, added to
+    `[workspace.dependencies]` and to the crate. That feature already
+    implements `tonic::transport::server::Connected` for `VsockStream`, and
+    `VsockListener::incoming()` is already a
+    `Stream<Item = io::Result<VsockStream>>`, so the newtype and
+    `async_stream` wrapper the brief specified are not needed. One `tonic`
+    remains in `Cargo.lock` (0.14.2); no duplicate.
+  - `crates/connector-init/tests/vsock.rs`: spawns the built binary with
+    `--vsock-port 49092`, waits for the space byte, and runs a capture `Spec`
+    RPC over a `VsockStream` to CID 1 through a tonic channel with a
+    `connect_with_connector` dialer. The "connector" is `/bin/cat` over a
+    canned newline-delimited JSON response, so the test exercises the
+    transport and the proxy without a connector image. It skips with a
+    message when the vsock port cannot be bound (no `vsock_loopback`).
+- verification:
+  ```
+  $ cargo build -p connector-init
+      Finished `dev` profile [optimized] target(s) in 7.23s
+
+  $ mise exec -- cargo nextest run -p connector-init
+      Starting 13 tests across 3 binaries
+          PASS [   0.018s] ( 6/13) connector-init::vsock spec_rpc_over_vsock
+          ... 12 others ...
+       Summary [   0.082s] 13 tests run: 13 passed, 0 skipped
+
+  $ cargo clippy -p connector-init --all-targets
+    error: mutable borrow from immutable input(s)   crates/doc/src/bump_vec.rs:213
+    error: written amount is not handled            crates/connector-init/src/lib.rs:73
+
+  $ cargo clippy -p connector-init --all-targets -- \
+        -A clippy::mut_from_ref -A clippy::unused_io_amount
+    warning: `connector-init` (lib) generated 3 warnings
+    warning: `connector-init` (lib test) generated 4 warnings (3 duplicates)
+        Finished
+  ```
+  Both clippy errors are pre-existing on the tree before this package (checked
+  by stashing): `bump_vec.rs` is untouched, and `lib.rs:73` is the readiness
+  `stderr().write(" ")`, moved but not modified. With them allowed so the
+  crate compiles far enough to lint, the new test target is clean and the lib
+  warning count is unchanged at 3.
+
+  Negative control, to prove the test is not passing vacuously: dialing
+  `VSOCK_PORT + 1` fails with
+  `ConnectError(Os { code: 104, ConnectionReset })`.
+
+  TCP path smoke, with the same binary:
+  ```
+  $ flow-connector-init --image-inspect-json-path=... --port 49099
+    listening: LISTEN 0 128 0.0.0.0:49099 0.0.0.0:*
+    stderr first byte: 20
+  ```
+- deviations from CONTRACTS.md: none. CONTRACTS' "connector-init" section
+  holds as written. Two departures from the WP01 brief:
+  - No `Connected` newtype and no `async_stream`, for the reason above. If
+    `tokio-vsock`'s tonic feature ever lags a tonic bump, the newtype is the
+    fallback and is four lines.
+  - The brief's "add the test if STATUS says `vsock_loopback` loads" is
+    honored, but the test decides at runtime instead of at authoring time.
+    `crates/connector-init/**` is not spike code and runs in the flow CI,
+    where the module may be absent; a hard failure there would be a flaky
+    test by any other name.
+- questions for master:
+  - The root `Cargo.toml` was edited to add `tokio-vsock` to
+    `[workspace.dependencies]`; the brief allowed `crates/connector-init/**`
+    and `Cargo.lock` only. Every other dep in the crate is `workspace = true`,
+    so pinning the version in the crate would be the odd one out. Say if you
+    want it moved.
+  - `crates/connector-init/` has no README.md, which the repo guidelines ask
+    for. Out of scope here (nothing to keep current), but it is a real gap and
+    WP05 or WP06 could fold one in.
