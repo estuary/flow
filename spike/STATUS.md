@@ -8,7 +8,7 @@ maintains the table. Newest log entries at the bottom.
 | WP | Title                                   | Depends on   | Status | Branch              | Notes |
 |----|-----------------------------------------|--------------|--------|---------------------|-------|
 | 00 | Environment                             | -            | done   | daveg/libkrun-spike | a19095ede57 |
-| 01 | connector-init --vsock-port             | -            | todo   | daveg/libkrun-spike |       |
+| 01 | connector-init --vsock-port             | -            | done   | daveg/libkrun-spike | 2d50c60ae84; skip-probe tightening handed to WP05 |
 | 02 | Egress ruleset + resolver (netns)       | -            | todo   | daveg/libkrun-spike |       |
 | 03 | Helper image + shim                     | -            | done   | daveg/libkrun-spike | a1e1ea562f2; libkrun 1.19.4 build folded into WP04 step 0 |
 | 04 | flow-init                               | 03 (to test) | done   | daveg/libkrun-spike | ba94256e321; libkrun 1.19.4 + ENOTTY patch |
@@ -1254,3 +1254,17 @@ any runtime work is spent.)
   - `crates/connector-init/` has no README.md, which the repo guidelines ask
     for. Out of scope here (nothing to keep current), but it is a real gap and
     WP05 or WP06 could fold one in.
+
+### 2026-09-10 master: WP01 accepted
+
+- `tokio-vsock` stays in `[workspace.dependencies]`; that is the crate's
+  convention and the brief's path list was simply too narrow.
+- The README gap is real and deferred: nothing merges from this branch, so it
+  matters only if the vsock change is lifted into phase 2. Note it there.
+- One fix handed to WP05: the test's skip probe checks bind, but the test
+  needs loopback connect to CID 1 (`vsock_loopback`). On a host with a vsock
+  transport and no loopback it would fail hard rather than skip. Probe must
+  bind and connect. In WP05's brief as a side item.
+- Pre-existing clippy errors on the tree (`crates/doc/src/bump_vec.rs`,
+  connector-init's readiness `write`) are not WP01's and not the spike's.
+- Next: WP05, then WP06.
