@@ -94,6 +94,9 @@ pub async fn authorize_dekaf(
         sub: uuid::Uuid::nil(),
         role: DEKAF_ROLE.to_string(),
         email: None,
+        // This token authorizes the `dekaf` role rather than a user (`sub`
+        // is nil), so there is no user authority for a mask to attenuate.
+        capability_mask: None,
     };
 
     // Only return a token if we are not redirecting
