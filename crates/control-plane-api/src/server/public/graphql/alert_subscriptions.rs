@@ -30,8 +30,7 @@ impl AlertSubscriptionsQuery {
     ) -> async_graphql::Result<Vec<AlertSubscription>> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = env
-            .verify_authorization(&by.prefix, models::Capability::Admin)
+        env.verify_authorization(&by.prefix, models::Capability::Admin)
             .await?;
 
         let mut conn = env.pg_pool.acquire().await?;
@@ -57,8 +56,7 @@ impl AlertSubscriptionsMutation {
     ) -> async_graphql::Result<AlertSubscription> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = env
-            .verify_authorization(&prefix, models::Capability::Admin)
+        env.verify_authorization(&prefix, models::Capability::Admin)
             .await?;
 
         // Validate the email address. Note that we _don't_ support mailbox
@@ -116,8 +114,7 @@ impl AlertSubscriptionsMutation {
     ) -> async_graphql::Result<AlertSubscription> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = env
-            .verify_authorization(&prefix, models::Capability::Admin)
+        env.verify_authorization(&prefix, models::Capability::Admin)
             .await?;
         if alert_types.is_none() && detail.is_none() {
             return Err(async_graphql::Error::new(
@@ -167,8 +164,7 @@ impl AlertSubscriptionsMutation {
     ) -> async_graphql::Result<AlertSubscription> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let _ = env
-            .verify_authorization(&prefix, models::Capability::Admin)
+        env.verify_authorization(&prefix, models::Capability::Admin)
             .await?;
 
         let Some(existing) =
