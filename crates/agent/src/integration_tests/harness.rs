@@ -290,8 +290,11 @@ impl HarnessBuilder {
 
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
-        let directive_exec =
-            crate::directives::DirectiveHandler::new("support@estuary.test".to_string(), &logs_tx);
+        let directive_exec = crate::directives::DirectiveHandler::new(
+            "support@estuary.test".to_string(),
+            &logs_tx,
+            executor_snapshot_watch.clone(),
+        );
 
         let mut harness = TestHarness {
             test_name,
@@ -1153,7 +1156,13 @@ impl TestHarness {
                     snapshot_watch: self.snapshot_watch.clone(),
                 })
             }
-            task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
+            task_types::APPLIED_DIRECTIVES => {
+                // Directive authorization is evaluated against the executor's
+                // pinned Snapshot; refresh it so grants created by the test
+                // are visible.
+                self.refresh_snapshot().await;
+                Server::new().register(self.directive_exec.clone())
+            }
             task_types::TENANT_ALERT_EVALS => Server::new().register(
                 crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
             ),
