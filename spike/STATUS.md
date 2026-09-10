@@ -12,7 +12,7 @@ maintains the table. Newest log entries at the bottom.
 | 02 | Egress ruleset + resolver (netns)       | -            | todo   | daveg/libkrun-spike |       |
 | 03 | Helper image + shim                     | -            | done   | daveg/libkrun-spike | a1e1ea562f2; libkrun 1.19.4 build folded into WP04 step 0 |
 | 04 | flow-init                               | 03 (to test) | done   | daveg/libkrun-spike | ba94256e321; libkrun 1.19.4 + ENOTTY patch |
-| 05 | runtime-next spike switch               | 01 (real)    | todo   | daveg/libkrun-spike |       |
+| 05 | runtime-next spike switch               | 01 (real)    | done   | daveg/libkrun-spike | 8f745facd8c; unswitched args identical to master |
 | 06 | Integration: experiments 1-4            | 00-05        | todo   | daveg/libkrun-spike |       |
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
@@ -1452,3 +1452,28 @@ any runtime work is spent.)
     unsuppressed rather than hide a class of real failure.
   - The 115 stale `fs_*` reactor directories from WP03/WP04b are still there,
     as scheduled for WP06. This package leaked none of its own.
+
+### 2026-09-10 master: WP05 accepted
+
+- `--env=LOG_FORMAT`/`LOG_LEVEL` on the helper line are not inert: the shim
+  reads them from its own environment into the guest's `.krun_config.json`
+  (CONTRACTS "Helper image" step 3). Added to PLAN's launch line; not a
+  deviation.
+- Validation runs through the legacy `runtime` crate, unsandboxed, before
+  runtime-next drives Open. Accepted for the spike: experiments 3 and 4 prove
+  the sandbox on the Open-and-documents path, which is where the connector
+  actually runs; Spec/Validate sandboxing is a phase-2 item already implied
+  by "connector_proxy.go must move to runtime-next first". WP06 writes it
+  into the report.
+- Socket permissions: no chmod in the shim. Production's reactor is root;
+  WP06 drives previews through `fake-reactor.sh`, which is root and is the
+  faithful path regardless.
+- `fake-reactor.sh` should mount `$CARGO_TARGET_DIR`; handed to WP06 as a
+  one-line housekeeping fix alongside the stale directories and the stubs.
+- Experiment 3's materialization harness is WP06's, against the real helper.
+- `Cargo.toml` additions were already workspace deps; fine. The stub's
+  socat broken-pipe line stays unsuppressed; agreed.
+- Not reviewed line by line: `container/spike.rs`. The production-path
+  change was proven by the unswitched `docker run` args matching master and
+  219 runtime-next tests passing; the spike module dies with the branch.
+- Next: WP06, the first real end-to-end and experiments 1 to 4.

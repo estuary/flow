@@ -105,6 +105,7 @@ podman run --rm --name=<name> --network=flow-connectors --log-driver=none \
   --label=image=... --label=task-name=... --label=task-type=... \
   --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
   --sysctl net.ipv4.ip_forward=1 \
+  --env=LOG_FORMAT=json --env=LOG_LEVEL=<level> \
   --memory <memoryMib + overhead>m --cpus <vcpus> \
   --mount type=image,source=<connector image>,destination=/rootfs,rw=true \
   --mount type=bind,source=/mnt/local/reactor/<id>/init,target=/init,ro \
