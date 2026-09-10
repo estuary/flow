@@ -21,7 +21,6 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 - `overlay::decrypt_with_overlay()` - As above, additionally applying a
   `sops.overlay` which is first validated to touch only `nonsensitive: true`
   schema locations.
-- `secrets::is_sops()` - The sniff which chooses between the two forms.
 - `secrets::resolve()` - Resolve a `secrets` stanza into a plaintext
   configuration, generic over an async decrypt callback. This crate holds no
   transport and no tokens: callers supply the callback.

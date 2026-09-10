@@ -375,6 +375,37 @@ pub enum Error {
         data_plane: String,
     },
 
+    #[error(
+        "{entity} {name} uses `{capability}`, which requires the V2 task runtime: set `{flag}: \"true\"` under its `shards.flags`"
+    )]
+    RequireRuntimeV2 {
+        entity: &'static str,
+        name: String,
+        capability: &'static str,
+        flag: &'static str,
+    },
+    #[error(
+        "{entity} {name} may use only secrets which are its siblings, but secret {secret} is not directly under the prefix {prefix}"
+    )]
+    SecretNotSibling {
+        entity: &'static str,
+        name: String,
+        secret: String,
+        prefix: String,
+    },
+    #[error(
+        "{entity} {name} uses `secrets`, but its endpoint configuration has a top-level `sops` property: a configuration is either wrapped as a whole by `sops`, or is plaintext and draws its secrets from `secrets` (where `sops` is reserved)"
+    )]
+    SecretsWithSops { entity: &'static str, name: String },
+    #[error(
+        "{entity} {name} endpoint configuration location {ptr} is annotated `secret: true` and cannot hold a plaintext value: set it with `flowctl secret set` and reference the secret from `secrets`"
+    )]
+    SecretsPlaintextValue {
+        entity: &'static str,
+        name: String,
+        ptr: String,
+    },
+
     #[error("trigger {index}: invalid URL: {detail}")]
     TriggerInvalidUrl { index: usize, detail: String },
     #[error("trigger {index}: timeout must be greater than 0")]

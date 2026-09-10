@@ -308,11 +308,38 @@ async fn walk_derivation(
         return None;
     }
 
+    // Only the V2 runtime passes `environment` through to a built-in connector.
+    let environment = match &using {
+        models::DeriveUsing::Typescript(config) => !config.environment.is_empty(),
+        models::DeriveUsing::Python(config) => !config.environment.is_empty(),
+        _ => false,
+    };
+    if environment && !shards.uses_runtime_v2(models::CatalogType::Collection) {
+        Error::RequireRuntimeV2 {
+            entity: "derivation",
+            name: collection.to_string(),
+            capability: "environment",
+            flag: models::ENABLE_RUNTIME_V2,
+        }
+        .push(scope, errors);
+    }
+
     let derive::request::Spec {
         connector_type,
         config_json,
     } = derive_spec_request(&using, &shards);
     let secrets_spec = assemble::secrets(&secrets);
+    let secrets_ctx = crate::secrets::Context::of_derivation(&secrets, &using);
+
+    crate::secrets::walk_model(
+        scope,
+        "derivation",
+        collection,
+        models::CatalogType::Collection,
+        &shards,
+        &secrets_ctx,
+        errors,
+    );
 
     // Resolve the data-plane for this task. We cannot continue without it.
     let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)
@@ -506,7 +533,7 @@ async fn walk_derivation(
     };
     linked::install_derive_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports) = super::validate_connector(
+    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
         scope,
         connectors,
         noop_derivations || shards.disable,
@@ -526,6 +553,15 @@ async fn walk_derivation(
         errors,
     )
     .await?;
+
+    crate::secrets::walk_plaintext(
+        scope,
+        "derivation",
+        collection,
+        &secrets_ctx,
+        &config_schema_json,
+        errors,
+    );
 
     let derive::response::Validated {
         transforms: transforms_validated,

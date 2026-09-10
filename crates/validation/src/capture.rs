@@ -159,6 +159,17 @@ async fn walk_capture(
     };
 
     let secrets_spec = assemble::secrets(&secrets);
+    let secrets_ctx = crate::secrets::Context::of_capture(&secrets, &endpoint);
+
+    crate::secrets::walk_model(
+        scope,
+        "capture",
+        capture,
+        models::CatalogType::Capture,
+        &shards,
+        &secrets_ctx,
+        errors,
+    );
 
     // Index live binding models having a non-empty resource /_meta/path .
     let live_bindings_model: BTreeMap<Vec<String>, &models::CaptureBinding> = live_model
@@ -261,7 +272,7 @@ async fn walk_capture(
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports) = super::validate_connector(
+    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
         scope,
         connectors,
         noop_captures || shards.disable,
@@ -281,6 +292,15 @@ async fn walk_capture(
         errors,
     )
     .await?;
+
+    crate::secrets::walk_plaintext(
+        scope,
+        "capture",
+        capture,
+        &secrets_ctx,
+        &config_schema_json,
+        errors,
+    );
 
     let capture::response::Validated {
         bindings: bindings_validated,
