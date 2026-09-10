@@ -38,14 +38,30 @@ User X automatically inherits read access to `outside-org/acmeCo-share/`, but us
 
 ## Default authorization settings
 
-When you first sign up to use Estuary, your organization is provisioned a prefix, and your username is granted admin access to the prefix.
-Your prefix is granted write access to itself and read access to its logs, which are stored under a unique sub-prefix of the global `ops/` prefix.
+When you first sign up to use Estuary, your organization is provisioned a prefix, and your username is granted `admin` access to the prefix.
+Your prefix is granted write access to itself.
 
-Using the same example, say user X signs up on behalf of their company, AcmeCo. User X is automatically granted `admin` access to the `acmeCo/` prefix.
-`acmeCo/`, in turn, has write access to `acmeCo/` and read access to `ops/acmeCo/`.
+Using the same example, say user X signs up on behalf of their company, AcmeCo.
+User X is automatically granted `admin` access to the `acmeCo/` prefix, and `acmeCo/` in turn has write access to `acmeCo/`.
 
 As more users and prefixes are added, admins can [provision capabilities](#provisioning-capabilities) using the CLI or [dashboard](/guides/dashboard/admin/#account-access).
 See [configuration guides](/guides/prefix-access-control) for additional scenarios as you add users.
+
+### Access to logs and stats
+
+Estuary's operational logs and stats collections are provisioned per data plane, not per tenant.
+Where they live and what you can read depends on which data plane your tasks run on:
+
+* **Public data planes.** Logs and stats for all tasks on a given public plane are written to shared collections at
+`ops/tasks/public/<region>-<suffix>/logs` and `.../stats`.
+Because these collections contain data from multiple tenants, no default read grant is provisioned.
+You can still retrieve logs and stats for your own tasks using `flowctl logs --task` and `flowctl raw stats --task`,
+which authorize access at the per-task partition level.
+
+* **Private data planes.** Logs and stats are written to per-tenant collections at
+`ops/tasks/private/<tenant>/<data-plane-name>/logs` and `.../stats`.
+Your prefix is granted read access to `ops/tasks/private/<tenant>/` when the private data plane is provisioned,
+which lets you materialize your logs and stats to any supported destination like any other collection.
 
 ## Authenticating Estuary in the web app
 
