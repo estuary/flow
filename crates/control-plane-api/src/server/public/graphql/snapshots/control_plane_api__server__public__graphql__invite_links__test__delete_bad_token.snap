@@ -12,10 +12,22 @@ expression: bad_delete
           "line": 3
         }
       ],
-      "message": "Invalid invite link",
+      "message": "invite link not found",
       "path": [
         "deleteInviteLink"
-      ]
+      ],
+      "extensions": {
+        "authorization": {
+          "requirements": [
+            {
+              "allOf": [
+                "DeleteInviteLink"
+              ]
+            }
+          ]
+        },
+        "code": "NOT_FOUND"
+      }
     }
   ]
 }
