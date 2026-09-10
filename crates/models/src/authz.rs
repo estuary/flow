@@ -46,6 +46,8 @@ pub enum Capability {
     DecryptSecret,
     Delegate,
     Assume,
+    QueryInviteLinks,
+    DeleteInviteLink,
 }
 
 impl std::fmt::Display for Capability {
@@ -147,7 +149,9 @@ impl CapabilityBundle {
             Self::TeamAdmin => {
                 CreateGrant
                     | DeleteGrant
+                    | QueryInviteLinks
                     | CreateInviteLink
+                    | DeleteInviteLink
                     | Self::ManageServiceAccounts.capabilities()
             }
             Self::ManageDataPlane => {
