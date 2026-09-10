@@ -68,6 +68,7 @@ Use the below properties to configure a Dekaf materialization, which will direct
 | --- | --- | --- | --- | --- |
 | `/token` | Auth Token | The password that Kafka consumers can use to authenticate to this task. | string | Required |
 | `/strict_topic_names` | Strict Topic Names | Whether or not to expose topic names in a strictly Kafka-compliant format. | boolean | `false` |
+| `/allow_empty_topics` | Allow Empty Topics | Whether to expose bound collections that have never been written as valid, empty topics with a single partition at offset 0. When off, such a topic reports a retryable `LeaderNotAvailable` error, which prevents a consumer group from stabilizing across the whole subscription. | boolean | `false` |
 | `/deletions` | Deletion Mode | Can choose between `kafka` or `cdc` deletion modes. | string | `kafka` |
 
 #### Bindings

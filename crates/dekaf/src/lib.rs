@@ -122,6 +122,13 @@ impl SessionAuthentication {
             SessionAuthentication::Redirect { config, .. } => config.deletions,
         }
     }
+
+    pub fn allow_empty_topics(&self) -> bool {
+        match self {
+            SessionAuthentication::Task(task_auth) => task_auth.config.allow_empty_topics,
+            SessionAuthentication::Redirect { config, .. } => config.allow_empty_topics,
+        }
+    }
 }
 
 impl TaskAuth {
