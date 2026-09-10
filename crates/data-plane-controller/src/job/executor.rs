@@ -31,6 +31,9 @@ pub struct Outcome {
     pub status: Status,
     // When Some, stack exports to publish into data_planes row.
     pub publish_exports: Option<stack::ControlExports>,
+    // When Some, per-link results observed at `PulumiUp1` to publish ahead of
+    // the end-of-converge write, which later re-applies the same content.
+    pub publish_link_results: Option<Vec<stack::LinkResult>>,
     // When Some, updated configuration to publish into data_planes row.
     pub publish_stack: Option<stack::PulumiStack>,
     // KMS key used to encrypt HMAC keys
@@ -233,6 +236,7 @@ impl Executor {
             sleep,
             status: state_ref.status,
             publish_exports: state_ref.publish_exports.take(),
+            publish_link_results: state_ref.publish_link_results.take(),
             publish_stack,
             kms_key: self.controller_config.secrets_provider.clone(),
             pinned_links: state_ref.pinned_links.clone(),
@@ -498,6 +502,7 @@ async fn fetch_row_state(
         pending_refresh: false,
         pending_converge: false,
         pinned_links,
+        publish_link_results: None,
         publish_exports: None,
         publish_stack: None,
     })
@@ -685,6 +690,18 @@ impl automations::Outcome for Outcome {
                 self.data_plane_id,
                 &self.pinned_links,
                 link_results.as_deref().unwrap_or_default(),
+                true,
+            )
+            .await?;
+        }
+
+        if let Some(link_results) = &self.publish_link_results {
+            write_private_link_statuses(
+                &mut *txn,
+                self.data_plane_id,
+                &self.pinned_links,
+                link_results,
+                false,
             )
             .await?;
         }
@@ -708,11 +725,21 @@ impl automations::Outcome for Outcome {
 /// generation, so it is skipped here (this converge did not provision its
 /// current config) and is settled by the follow-up converge queued when the
 /// per-poll refresh observed the edit.
+///
+/// `converge_complete` distinguishes the two points this runs from. At the end
+/// of a converge it is true and every column is written. At `PulumiUp1` it is
+/// false: a link's DNS names are already final, so `details` is published then,
+/// but `provisioned` means "a completed converge observed this", so a
+/// successful link keeps `status = 'pending'` and a null `observed_at` until
+/// the converge finishes. A `failed` result is exempt because it is itself a
+/// completed observation: the Pulumi program caught the error and no later
+/// stage revisits it.
 async fn write_private_link_statuses(
     conn: &mut sqlx::PgConnection,
     data_plane_id: models::Id,
     pinned_links: &[stack::PinnedLink],
     link_results: &[stack::LinkResult],
+    converge_complete: bool,
 ) -> anyhow::Result<()> {
     let pinned_ids: Vec<models::Id> = pinned_links.iter().map(|l| l.id).collect();
     let pinned_generations: Vec<i64> = pinned_links.iter().map(|l| l.generation).collect();
@@ -754,10 +781,11 @@ async fn write_private_link_statuses(
                     AS r(id, status, error, detail)
         )
         UPDATE internal.data_plane_private_links l SET
-            status = r.status,
+            status = case when $8 or r.status = 'failed' then r.status else l.status end,
             details = r.detail,
             error = r.error,
-            observed_at = now(),
+            observed_at = case
+                when $8 or r.status = 'failed' then now() else l.observed_at end,
             updated_at = now()
         FROM internal.data_plane_private_links l2
         JOIN pinned p ON p.id = l2.id AND p.generation = l2.generation
@@ -772,6 +800,7 @@ async fn write_private_link_statuses(
         &result_statuses,
         result_errors as Vec<Option<String>>,
         result_details as Vec<Option<serde_json::Value>>,
+        converge_complete,
     )
     .execute(&mut *conn)
     .await
@@ -825,6 +854,103 @@ mod tests {
         .fetch_one(pool)
         .await
         .unwrap()
+    }
+
+    async fn observed_at_of(
+        pool: &sqlx::PgPool,
+        identity: &str,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        sqlx::query_scalar!(
+            r#"SELECT observed_at
+               FROM internal.data_plane_private_links WHERE service_identity = $1"#,
+            identity,
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    // The `PulumiUp1` write publishes each link's DNS details early while
+    // leaving the "a completed converge observed this" columns alone, except
+    // for a failed link, which is already a completed observation.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "fixtures", scripts("private_link_statuses"))
+    )]
+    async fn write_private_link_statuses_early_publishes_details_only(pool: sqlx::PgPool) {
+        let data_plane_id: models::Id = sqlx::query_scalar!(
+            r#"SELECT id as "id: models::Id" FROM data_planes WHERE data_plane_name = $1"#,
+            "ops/dp/private/testCo/aws-1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let results = vec![
+            stack::LinkResult {
+                id: Some(link_id(&pool, "svc-a").await),
+                status: "provisioned".to_string(),
+                error: None,
+                details: Some(serde_json::json!({
+                    "service_name": "svc-a",
+                    "dns_entries": [{"dns_name": "vpce-123.vpce.amazonaws.com"}]
+                })),
+            },
+            stack::LinkResult {
+                id: Some(link_id(&pool, "svc-g").await),
+                status: "failed".to_string(),
+                error: Some("Invalid PrivateLink Availability Zone ID".to_string()),
+                details: None,
+            },
+        ];
+        let pinned = vec![
+            PinnedLink {
+                id: link_id(&pool, "svc-a").await,
+                generation: 1,
+            },
+            PinnedLink {
+                id: link_id(&pool, "svc-g").await,
+                generation: 1,
+            },
+        ];
+
+        let mut conn = pool.acquire().await.unwrap();
+        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results, false)
+            .await
+            .unwrap();
+
+        // The DNS names are published now, but the converge has not finished,
+        // so the link is still `pending` and unobserved.
+        let (status, details) = status_of(&pool, "svc-a").await;
+        assert_eq!(status, "pending");
+        assert_eq!(
+            details.unwrap()["dns_entries"][0]["dns_name"],
+            "vpce-123.vpce.amazonaws.com"
+        );
+        assert!(observed_at_of(&pool, "svc-a").await.is_none());
+
+        // A failure is authoritative at `PulumiUp1`, so it records in full.
+        let (status, _) = status_of(&pool, "svc-g").await;
+        assert_eq!(status, "failed");
+        assert_eq!(
+            error_of(&pool, "svc-g").await.as_deref(),
+            Some("Invalid PrivateLink Availability Zone ID"),
+        );
+        assert!(observed_at_of(&pool, "svc-g").await.is_some());
+
+        // The end-of-converge write then settles the successful link, and is a
+        // no-op in content for the details already published.
+        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results, true)
+            .await
+            .unwrap();
+
+        let (status, details) = status_of(&pool, "svc-a").await;
+        assert_eq!(status, "provisioned");
+        assert_eq!(
+            details.unwrap()["dns_entries"][0]["dns_name"],
+            "vpce-123.vpce.amazonaws.com"
+        );
+        assert!(observed_at_of(&pool, "svc-a").await.is_some());
     }
 
     // Matches this converge's exported link results to the pinned links by id
@@ -910,7 +1036,7 @@ mod tests {
         ];
 
         let mut conn = pool.acquire().await.unwrap();
-        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results)
+        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results, true)
             .await
             .unwrap();
 
@@ -952,7 +1078,7 @@ mod tests {
             id: link_id(&pool, "svc-edited").await,
             generation: 2,
         }];
-        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results)
+        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results, true)
             .await
             .unwrap();
         let (status, details) = status_of(&pool, "svc-edited").await;
