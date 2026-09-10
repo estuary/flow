@@ -32,7 +32,7 @@ pub struct Outcome {
     // When Some, stack exports to publish into data_planes row.
     pub publish_exports: Option<stack::ControlExports>,
     // When Some, per-link results observed at `PulumiUp1` to publish ahead of
-    // the end-of-converge write, which later re-applies the same content.
+    // the end-of-converge write.
     pub publish_link_results: Option<Vec<stack::LinkResult>>,
     // When Some, updated configuration to publish into data_planes row.
     pub publish_stack: Option<stack::PulumiStack>,
@@ -728,12 +728,21 @@ impl automations::Outcome for Outcome {
 ///
 /// `converge_complete` distinguishes the two points this runs from. At the end
 /// of a converge it is true and every column is written. At `PulumiUp1` it is
-/// false: a link's DNS names are already final, so `details` is published then,
-/// but `provisioned` means "a completed converge observed this", so a
-/// successful link keeps `status = 'pending'` and a null `observed_at` until
-/// the converge finishes. A `failed` result is exempt because it is itself a
-/// completed observation: the Pulumi program caught the error and no later
-/// stage revisits it.
+/// false: a link's endpoint exists and its DNS names are final, and nothing
+/// after that stage affects a link, so `details` is published about ten
+/// minutes early. But `provisioned` means "a completed converge observed
+/// this", so a successful link keeps its prior `status`, `error` and
+/// `observed_at` until the converge finishes. A `failed` result is exempt
+/// because it is itself a completed observation: the Pulumi program caught the
+/// error and no later stage revisits it.
+///
+/// `status`, `error` and `observed_at` therefore move together, under one
+/// condition. Retaining a stale `failed` status while clearing its `error`
+/// would leave a link reading as failed with its diagnosis erased, which is
+/// reachable without a config edit (an unavailable AZ that later frees up
+/// retries with no `config` change, so the desired-edit trigger never fires).
+/// `details` is deliberately outside the condition: it is what the early write
+/// exists to publish.
 async fn write_private_link_statuses(
     conn: &mut sqlx::PgConnection,
     data_plane_id: models::Id,
@@ -783,7 +792,7 @@ async fn write_private_link_statuses(
         UPDATE internal.data_plane_private_links l SET
             status = case when $8 or r.status = 'failed' then r.status else l.status end,
             details = r.detail,
-            error = r.error,
+            error = case when $8 or r.status = 'failed' then r.error else l.error end,
             observed_at = case
                 when $8 or r.status = 'failed' then now() else l.observed_at end,
             updated_at = now()
@@ -938,8 +947,30 @@ mod tests {
         );
         assert!(observed_at_of(&pool, "svc-g").await.is_some());
 
-        // The end-of-converge write then settles the successful link, and is a
-        // no-op in content for the details already published.
+        // A retry converge whose link now succeeds: svc-g is still `failed`
+        // from above, and no `config` edit happened (an unavailable AZ that
+        // freed up needs none), so the desired-edit trigger has not cleared
+        // the row. The early write must not strip the error off a status it
+        // is retaining, which would leave a failed link with no diagnosis.
+        let retry = vec![stack::LinkResult {
+            id: Some(link_id(&pool, "svc-g").await),
+            status: "provisioned".to_string(),
+            error: None,
+            details: Some(serde_json::json!({"service_name": "svc-g"})),
+        }];
+        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &retry, false)
+            .await
+            .unwrap();
+
+        let (status, _) = status_of(&pool, "svc-g").await;
+        assert_eq!(status, "failed");
+        assert_eq!(
+            error_of(&pool, "svc-g").await.as_deref(),
+            Some("Invalid PrivateLink Availability Zone ID"),
+        );
+
+        // The end-of-converge write then settles both links, and is a no-op in
+        // content for the details already published.
         write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results, true)
             .await
             .unwrap();

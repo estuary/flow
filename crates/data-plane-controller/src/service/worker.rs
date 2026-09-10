@@ -314,9 +314,8 @@ impl Worker {
         // DNS propagation backoff is relative to this moment.
         state.last_pulumi_up = chrono::Utc::now();
 
-        // Each link's endpoint now exists with its final DNS names, and nothing
-        // after this stage touches a link, so publish them now instead of after
-        // the DNS wait and Ansible.
+        // Publish each link's DNS names now rather than after the DNS wait and
+        // Ansible; `write_private_link_statuses` covers why this is safe here.
         state.publish_link_results = self
             .stack_output(state, checkout)
             .await?

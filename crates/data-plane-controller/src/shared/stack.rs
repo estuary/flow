@@ -82,10 +82,9 @@ pub struct State {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pinned_links: Vec<PinnedLink>,
 
-    // When Some, per-link results observed at `PulumiUp1`, written into
-    // `data_plane_private_links` about ten minutes ahead of the end-of-converge
-    // write. Nothing after `PulumiUp1` affects a link, so its DNS names are
-    // already final and support need not read the raw converge logs for them.
+    // When Some, per-link results observed at `PulumiUp1`, to be written into
+    // `data_plane_private_links` ahead of the end-of-converge write. See
+    // `write_private_link_statuses` for which columns the early write sets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish_link_results: Option<Vec<LinkResult>>,
 

@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH pinned AS (\n            SELECT id, generation\n                FROM unnest($2::flowid[], $3::bigint[]) AS p(id, generation)\n        ),\n        results AS (\n            SELECT id, status, error, detail\n                FROM unnest($4::flowid[], $5::text[], $6::text[], $7::jsonb[])\n                    AS r(id, status, error, detail)\n        )\n        UPDATE internal.data_plane_private_links l SET\n            status = case when $8 or r.status = 'failed' then r.status else l.status end,\n            details = r.detail,\n            error = case when $8 or r.status = 'failed' then r.error else l.error end,\n            observed_at = case\n                when $8 or r.status = 'failed' then now() else l.observed_at end,\n            updated_at = now()\n        FROM internal.data_plane_private_links l2\n        JOIN pinned p ON p.id = l2.id AND p.generation = l2.generation\n        JOIN results r ON r.id = l2.id\n        WHERE l.id = l2.id\n          AND l2.data_plane_id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Int8Array",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TextArray",
+        "TextArray",
+        "JsonbArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "62bd80a5a749b08a2e1efcf9a9b8db7c5efebd51c1738cd7a3d1390031ecd548"
+}
