@@ -113,14 +113,6 @@ impl Envelope {
             Ok((Some(cordon_at), ok)) if cordon_at > self.started => {
                 return Ok((std::cmp::min(exp, cordon_at), ok));
             }
-            // The request carries no verified bearer, or the policy otherwise
-            // rejected it as unauthenticated. That is a property of the request
-            // and not of the Snapshot: no refresh can cure it, so it must never
-            // enter the provisional path below, which would revoke the Snapshot
-            // and redirect an anonymous caller to retry.
-            Err(status) if status.code() == tonic::Code::Unauthenticated => {
-                return Err(status.into());
-            }
             // Authorization is invalid and the Snapshot was taken after the
             // start of the authorization request. Terminal failure.
             Err(status) if snapshot.taken_after(self.started) => {
@@ -197,8 +189,7 @@ impl Envelope {
         capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
     ) -> Result<(), crate::ApiError> {
         let policy_result = self.evaluate_names_authorization([prefix], capability);
-        let (_expiry, ()) = self.authorization_outcome(policy_result).await?;
-        Ok(())
+        self.user_authorization_outcome(policy_result).await
     }
 
     /// This does the same thing as verify authorization just for a list of
@@ -213,8 +204,33 @@ impl Envelope {
         S: AsRef<str> + std::fmt::Display,
     {
         let policy_result = self.evaluate_names_authorization(prefixes, capability);
-        let (_expiry, ()) = self.authorization_outcome(policy_result).await?;
-        Ok(())
+        self.user_authorization_outcome(policy_result).await
+    }
+
+    /// Runs a user-authorization policy result through [`Self::authorization_outcome`],
+    /// first letting an unauthenticated request escape as a terminal error.
+    ///
+    /// A user policy reports Unauthenticated only when the request carries no
+    /// verified bearer. That is a property of the request and not of the
+    /// Snapshot, so no refresh can cure it and it must not take the provisional
+    /// path, which would revoke the Snapshot and redirect an anonymous caller
+    /// to retry. The dispatch lives here rather than in `authorization_outcome`
+    /// because task-token policies (`authorize_task`, `authorize_task_secret`,
+    /// `authorize_dekaf`) legitimately report a Snapshot-dependent
+    /// Unauthenticated when no known data-plane key validates the token: the
+    /// issuing plane may be newer than the Snapshot, so theirs must stay
+    /// provisional.
+    async fn user_authorization_outcome(
+        &self,
+        policy_result: AuthZResult<()>,
+    ) -> Result<(), crate::ApiError> {
+        match policy_result {
+            Err(status) if status.code() == tonic::Code::Unauthenticated => Err(status.into()),
+            policy_result => {
+                let (_expiry, ()) = self.authorization_outcome(policy_result).await?;
+                Ok(())
+            }
+        }
     }
 
     /// Evaluate whether the user identified by `claims` is authorized to access all
@@ -271,8 +287,7 @@ impl Envelope {
     ) -> Result<(), crate::ApiError> {
         let policy_result =
             self.evaluate_storage_mapping_authorization(catalog_prefix, data_plane_names);
-        self.authorization_outcome(policy_result).await?;
-        Ok(())
+        self.user_authorization_outcome(policy_result).await
     }
 
     /// The pure policy half of [`Self::verify_storage_mapping_authorization`].
