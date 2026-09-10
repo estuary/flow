@@ -28,7 +28,9 @@ calls, and none of them talk to libkrun except `sys`.
                 remaining argument.
 - `image.rs`    `image-inspect.json` -> `/.krun_config.json`, plus `User`
                 resolution against the image's own passwd/group files.
-- `disk.rs`     the `O_TMPFILE` scratch disk and its `mkfs.ext4`.
+- `disk.rs`     the `O_TMPFILE` scratch disk and its `mkfs.ext4`. The
+                read-only deps disk needs no builder: `--deps-image` is a path
+                the caller already bound in.
 - `net.rs`      the tap, and the egress binaries the shim execs before the VM.
 - `console.rs`  console descriptors, and `--debug`'s tee.
 

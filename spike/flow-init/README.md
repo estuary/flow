@@ -18,7 +18,8 @@ libc, no shell and no dynamic loader, so the binary is static and depends on
 - `cli.rs`   the CONTRACTS CLI. Everything after `--` is the workload's argv.
 - `net.rs`   eth0, the default route, and the IPv6 sysctls, over the classic
              `ifreq`/`rtentry` ioctls.
-- `root.rs`  the mounts: overlay root, `pivot_root`, `/etc`, venv, scratch.
+- `root.rs`  the mounts: overlay root, `pivot_root`, `/etc`, venv, scratch,
+             deps.
 - `sys.rs`   the syscall wrappers the rest is written in terms of.
 
 Verify with `spike/tasks/flow-init-test.sh`, which boots derive-python under
@@ -49,6 +50,12 @@ the helper and asserts what the connector finds.
   can be written to the root at all.
 - **The scratch disk is chowned to the image's user.** mkfs leaves its root
   owned by root, and `TMPDIR` points there.
+- **The dependency set arrives as a block device, not a share.** `--deps-dev`
+  mounts `/dev/vdb` read-only at `/opt/venv`. WP08 measured a cold
+  `import pandas` at 2.4x-2.9x of podman over virtiofs and 0.9x on ext4 over
+  virtio-blk; the cost was per-file metadata round trips, which a block device
+  answers from the guest's own caches. No `chown` here, unlike scratch: it is
+  read-only and built world-readable.
 - **Exit codes are a shell's.** 127 for a workload that is not there, 126 for
   one that cannot be run, 125 for a failure of flow-init's own - the codes
   libkrun's init would have used.

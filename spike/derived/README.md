@@ -14,17 +14,27 @@ instruments that measure it. Results in `spike/report/exp5.md`.
   unchanged as the guest workload and under a plain `podman run`.
 - `cpu.py` - the CPU control: an IO-free loop, so a slow import can be
   attributed to the transport rather than to the vCPUs.
+- `prefault.py` - first-touches a given number of MiB of anonymous memory and
+  frees it. Isolates the part of a first import that is the guest faulting in
+  host pages rather than reading anything (WP08b: ~201 ms of 371).
+- `attrib.py` - imports pandas once and counts where the modules came from,
+  deps disk versus virtiofs root. Answers "is the root what is left?" with a
+  count instead of an argument.
 - `summarize.py` - either experiment-5 CSV into the report's table. Groups by
   whichever of `cell`/`stage` the file has and summarizes whichever measures it
   carries, so one reader serves both.
 
 ## Entry points
 
-`spike/tasks/exp5-build.sh` builds the image and exports the identical venv to
-a host directory (built at `/venv` inside a container of the same image, so the
+`spike/tasks/exp5-build.sh` builds the image, exports the identical venv to a
+host directory (built at `/venv` inside a container of the same image, so the
 interpreter and the venv's baked-in paths both match what the guest sees) for
-the separate-share cells. `spike/tasks/exp5-run.sh` runs the matrix,
-`spike/tasks/exp5-diag.sh` the breakdown that says where the time went.
+the separate-share cells, and turns that directory into the two per-tag disk
+images (`deps.ext4`, `deps.erofs`) the block cells attach.
+`spike/tasks/exp5-run.sh` runs the matrix, `spike/tasks/exp5-diag.sh` the
+breakdown that says where the time went. Both take `--out NAME`: experiment 5's
+CSVs are the record of a failure that stands, so 5b writes its own
+(`exp5-5b.csv`, `exp5-5b-diag.csv`).
 
 ## Non-obvious details
 
@@ -49,3 +59,12 @@ the separate-share cells. `spike/tasks/exp5-run.sh` runs the matrix,
 - `exp5-diag.sh` builds its podman argv as a bash array rather than through
   `printf | mapfile` the way `exp5-run.sh` does: its workload is a multi-line
   shell script, and mapfile would split it into one argv element per line.
+- **A stage that runs late in a guest's life is not comparable to a fresh-boot
+  cell.** Experiment 5's `blk-cold` stage measured 347.6 ms and was reported as
+  a block device beating podman; 5b's `deps-cold`, the same read as the first
+  thing after boot, is 822.0. The difference is that `blk-cold` ran after a
+  boot, a full import and a 144 MiB `cp -a`, which prefaulted the guest's
+  memory. Fresh boot per data point, or say which regime the number is from.
+- `mkfs.ext4 -d` prints "Creating regular file ..." on stdout even under `-q`,
+  so a function that returns the image path by echoing it must send mkfs's
+  stdout elsewhere.

@@ -13,6 +13,7 @@ pub const KRUN_LOG_LEVEL_DEBUG: u32 = 4;
 pub const KRUN_LOG_STYLE_NEVER: u32 = 2;
 
 pub const KRUN_DISK_FORMAT_RAW: u32 = 0;
+pub const KRUN_SYNC_NONE: u32 = 0;
 pub const KRUN_SYNC_RELAXED: u32 = 1;
 
 /// `KRUN_FS_ROOT_TAG`: the virtiofs tag libkrun's kernel cmdline mounts as `/`.

@@ -21,17 +21,27 @@ fi
 
 GUEST_IMAGE=ghcr.io/estuary/derive-python:dev
 VENV_MARKER=venv-marker
+DEPS_MARKER=deps-marker
 WORK="$(mktemp -d)"
-CONNECTORS=()
+CONNECTORS="$WORK/connectors"
+: >"$CONNECTORS"
 FAILURES=0
 
+# Set per case by run_helper's callers: the host path of the deps disk image to
+# bind at /deps.img, or empty for the launches that must look exactly as they
+# did before --deps-image existed.
+DEPS_IMAGE=""
+
+# Reads the id file rather than an array: callers invoke new_connector through
+# a command substitution, so anything it appends to a shell variable dies with
+# that subshell and the trap would have nothing to clean.
 cleanup() {
     local id
-    for id in "${CONNECTORS[@]:-}"; do
+    while read -r id; do
         [ -n "$id" ] || continue
         sudo podman rm -f "$id" >/dev/null 2>&1 || true
         sudo rm -rf "${SPIKE_REACTOR_DIR:?}/$id"
-    done
+    done <"$CONNECTORS"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -71,8 +81,24 @@ new_connector() {
     printf '%s\n' '{"egress":"public","allowAll":false,"declaredCidrs":[],"connectionsPerMinute":null,"distinctDestinationsPerMinute":null,"ttlFloorSecs":90,"ttlCapSecs":3600}' \
         | sudo tee "$dir/init/policy.json" >/dev/null
 
-    CONNECTORS+=("$id")
+    printf '%s\n' "$id" >>"$CONNECTORS"
     printf '%s' "$id"
+}
+
+# A read-only disk image holding one marked file, built on the host the way a
+# per-tag dependency image would be. Small and self-contained: the standing
+# suite must not depend on experiment 5's build outputs.
+make_deps_image() {
+    local fstype="$1" content="$WORK/deps-content" image="$WORK/deps.$1"
+    mkdir -p "$content"
+    printf 'deps\n' >"$content/$DEPS_MARKER"
+    # stdout goes nowhere: mkfs.ext4 -d announces "Creating regular file ..."
+    # even under -q, and the caller reads this function's stdout as the path.
+    case "$fstype" in
+        ext4)  mkfs.ext4 -d "$content" -O ^has_journal -m 0 -q -F "$image" 16m >/dev/null ;;
+        erofs) mkfs.erofs --quiet "$image" "$content" >/dev/null ;;
+    esac
+    printf '%s' "$image"
 }
 
 # The podman run of PLAN "Helper launch", minus the labels and cgroup parent
@@ -80,7 +106,8 @@ new_connector() {
 helper_run_argv() {
     local id="$1"
     shift
-    local dir="$SPIKE_REACTOR_DIR/$id"
+    local dir="$SPIKE_REACTOR_DIR/$id" deps=()
+    [ -n "$DEPS_IMAGE" ] && deps=("--mount=type=bind,source=$DEPS_IMAGE,target=/deps.img,ro")
     printf '%s\n' \
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" --log-driver=none \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
@@ -90,6 +117,7 @@ helper_run_argv() {
         "--mount=type=bind,source=$dir/venv,target=/venv,ro" \
         "--mount=type=bind,source=$dir/sock,target=/sock" \
         "--mount=type=bind,source=$dir/scratch,target=/scratch-backing" \
+        "${deps[@]}" \
         "$SPIKE_HELPER_IMAGE" \
         --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 1024 --upper-mib 256 \
         "$@"
@@ -252,6 +280,54 @@ else
     matches "--venv-dax: /venv is mounted with dax" "$WORK/dax.out" '^venv /venv virtiofs ro,relatime,dax=always'
     matches "--venv-dax: the share reads through the DAX window" "$WORK/dax.out" '^dax-read-ok$'
 fi
+
+# ---------------------------------------------------------------- --deps-image
+# The per-tag dependency disk of CONTRACTS "Helper CLI": scratch keeps /dev/vda,
+# deps is /dev/vdb, and flow-init mounts it read-only at /opt/venv.
+for fstype in ext4 erofs; do
+    DEPS_IMAGE="$(make_deps_image "$fstype")"
+    id="$(new_connector)"
+    rc=0
+    deps_args=(--deps-image /deps.img)
+    [ "$fstype" = ext4 ] || deps_args+=(--deps-fstype "$fstype")
+    # One line: run_helper's mapfile splits every argv element on newlines.
+    deps_probe="cat /proc/partitions; grep -E ' /scratch | /opt/venv ' /proc/mounts;"
+    deps_probe="$deps_probe cat /opt/venv/$DEPS_MARKER;"
+    deps_probe="$deps_probe touch /opt/venv/x 2>/dev/null || echo deps-ro"
+    run_helper "deps-$fstype" "$id" "${deps_args[@]}" --exec /bin/sh -c \
+        "$deps_probe" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        fail "--deps-image $fstype: the helper exited $rc"
+        indent "$WORK/deps-$fstype.err"
+    else
+        matches "--deps-image $fstype: scratch is still /dev/vda" \
+            "$WORK/deps-$fstype.out" '^/dev/vda /scratch ext4 rw,'
+        matches "--deps-image $fstype: the deps disk arrived as vdb" \
+            "$WORK/deps-$fstype.out" '^ *254 *16 .* vdb$'
+        matches "--deps-image $fstype: mounted read-only at /opt/venv" \
+            "$WORK/deps-$fstype.out" "^/dev/vdb /opt/venv $fstype ro,"
+        matches "--deps-image $fstype: the workload reads the image's content" \
+            "$WORK/deps-$fstype.out" '^deps$'
+        matches "--deps-image $fstype: /opt/venv rejects a write" \
+            "$WORK/deps-$fstype.out" '^deps-ro$'
+    fi
+    DEPS_IMAGE=""
+done
+
+# A bad filesystem name must fail before the VM starts, not as an opaque mount
+# error inside the guest.
+DEPS_IMAGE="$(make_deps_image ext4)"
+id="$(new_connector)"
+rc=0
+run_helper depsbad "$id" --deps-image /deps.img --deps-fstype btrfs \
+    --exec /bin/true || rc=$?
+if [ "$rc" -eq 2 ]; then
+    ok "--deps-fstype: an unsupported filesystem is refused before the VM starts"
+else
+    fail "--deps-fstype: expected exit 2 for an unsupported filesystem, got $rc"
+    indent "$WORK/depsbad.err"
+fi
+DEPS_IMAGE=""
 
 # ------------------------------------------------------------------ exit codes
 id="$(new_connector)"

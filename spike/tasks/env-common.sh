@@ -29,7 +29,9 @@ SPIKE_NGINX_NAME=spike-nginx
 SPIKE_NGINX_IP=198.51.100.10
 SPIKE_NGINX_IMAGE=docker.io/library/nginx:latest
 
-SPIKE_APT_PACKAGES=(podman uidmap slirp4netns netavark aardvark-dns)
+# erofs-utils is WP08b's: mkfs.erofs builds the per-tag dependency image. e2fsprogs
+# (mkfs.ext4) is already on an Ubuntu host.
+SPIKE_APT_PACKAGES=(podman uidmap slirp4netns netavark aardvark-dns erofs-utils)
 
 SPIKE_IMAGES=(
     "$SPIKE_REACTOR_IMAGE"

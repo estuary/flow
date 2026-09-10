@@ -12,6 +12,9 @@ pub struct Args {
     pub vcpus: u8,
     pub disk_mib: u64,
     pub upper_mib: u32,
+    /// The per-tag dependency disk image, attached read-only as `/dev/vdb`.
+    pub deps_image: Option<PathBuf>,
+    pub deps_fstype: String,
     pub venv_dax: bool,
     pub thp_disable: bool,
     pub run_as_root: bool,
@@ -25,8 +28,14 @@ pub struct Args {
 }
 
 pub const USAGE: &str = "usage: flow-sandbox-helper --policy PATH --memory-mib N --vcpus N \
-     --disk-mib N --upper-mib N [--venv-dax] [--thp-disable] [--run-as-root] [--debug] \
-     [--as-root-exec CMD] [--no-flow-init] [--exec ARGV...]";
+     --disk-mib N --upper-mib N [--deps-image PATH [--deps-fstype ext4|erofs]] [--venv-dax] \
+     [--thp-disable] [--run-as-root] [--debug] [--as-root-exec CMD] [--no-flow-init] \
+     [--exec ARGV...]";
+
+/// The filesystems the guest kernel (libkrunfw 5.5.0, 6.12.91) carries for a
+/// read-only dependency image. Checked here so a typo fails before the VM
+/// starts rather than as an opaque mount failure inside the guest.
+const DEPS_FSTYPES: [&str; 2] = ["ext4", "erofs"];
 
 pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
     let mut policy = None;
@@ -34,6 +43,8 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
     let mut vcpus = None;
     let mut disk_mib = None;
     let mut upper_mib = None;
+    let mut deps_image = None;
+    let mut deps_fstype = None;
     let mut venv_dax = false;
     let mut thp_disable = false;
     let mut run_as_root = false;
@@ -56,6 +67,8 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
             "--vcpus" => (vcpus, i) = (Some(value(i)?.parse()?), i + 2),
             "--disk-mib" => (disk_mib, i) = (Some(value(i)?.parse()?), i + 2),
             "--upper-mib" => (upper_mib, i) = (Some(value(i)?.parse()?), i + 2),
+            "--deps-image" => (deps_image, i) = (Some(PathBuf::from(value(i)?)), i + 2),
+            "--deps-fstype" => (deps_fstype, i) = (Some(value(i)?.to_string()), i + 2),
             "--venv-dax" => (venv_dax, i) = (true, i + 1),
             "--thp-disable" => (thp_disable, i) = (true, i + 1),
             "--run-as-root" => (run_as_root, i) = (true, i + 1),
@@ -77,6 +90,8 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
         vcpus: vcpus.ok_or_else(|| missing("--vcpus"))?,
         disk_mib: disk_mib.ok_or_else(|| missing("--disk-mib"))?,
         upper_mib: upper_mib.ok_or_else(|| missing("--upper-mib"))?,
+        deps_image,
+        deps_fstype: deps_fstype.unwrap_or_else(|| DEPS_FSTYPES[0].to_string()),
         venv_dax,
         thp_disable,
         run_as_root,
@@ -91,6 +106,13 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
     }
     if args.no_flow_init && args.exec.is_none() {
         anyhow::bail!("--no-flow-init requires --exec\n{USAGE}");
+    }
+    if !DEPS_FSTYPES.contains(&args.deps_fstype.as_str()) {
+        anyhow::bail!(
+            "--deps-fstype {:?} is not one of {}\n{USAGE}",
+            args.deps_fstype,
+            DEPS_FSTYPES.join(", ")
+        );
     }
     Ok(args)
 }

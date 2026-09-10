@@ -759,3 +759,190 @@ any runtime work is spent.)
 - CONTRACTS now says `/init` must hold all three files even for `--exec`
   launches (the shim opens connector-init regardless).
 - Next: WP08b, then WP01.
+
+### 2026-09-10 WP08b: the block image works and the gate still fails, at 2.12x. The transport is at parity (1.15x); what is left is a per-boot tax, half of it guest memory first-touch.
+
+- shipped:
+  - shim: `--deps-image PATH [--deps-fstype ext4|erofs]` in `cli.rs` (fstype
+    validated against what the guest kernel carries, so a typo fails before the
+    VM starts), one `krun_add_disk3(ctx, "deps", ..., read_only=true,
+    direct_io=false, KRUN_SYNC_NONE)` in `main.rs` placed after the scratch
+    disk so scratch keeps `/dev/vda`, `KRUN_SYNC_NONE` added to `sys.rs`, and
+    `--deps-dev /dev/vdb --deps-fstype FS` appended to flow-init's argv.
+  - flow-init: `--deps-dev DEV --deps-fstype FS` (both or neither),
+    `root::mount_deps` mounting it read-only at `/opt/venv` after the scratch
+    mount. No `chown`: read-only, and the image is built world-readable.
+  - `spike/derived/prefault.py` and `attrib.py`, the two probes that turned
+    "the first import is slow" into "this much of it is memory, this much is
+    not the root".
+  - `spike/tasks/exp5-build.sh`: `mkfs.ext4 -d` and `mkfs.erofs` from the venv
+    directory it already exported, sizes reported against it.
+  - `spike/tasks/exp5-run.sh`: the four `blk-*` cells, plus `--out NAME` and
+    per-cell launch and host-cold overrides.
+  - `spike/tasks/exp5-diag.sh`: the `deps` and `deps-prefault` sequences, the
+    module attribution, `--out NAME`.
+  - `spike/tasks/flow-init-test.sh`: 11 assertions over the deps disk.
+  - `report/exp5.md` gains "Experiment 5b" and a correction section;
+    `report/data/exp5-5b.csv` (50 runs), `exp5-5b-diag.csv` (105 runs).
+
+- verification:
+  ```
+  $ spike/tasks/exp5-run.sh --out exp5-5b.csv \
+      --cells blk-ext4,blk-erofs,blk-ext4-reactor,blk-ext4-hostcold,baseline
+
+  cell                import median   import p95    pass median    wall median   n
+  blk-ext4                    826.8        848.7           38.7         2322.5  10
+  blk-erofs                   849.6        864.8           39.1         2333.5  10
+  blk-ext4-reactor            824.1        835.0           37.6         2570.0  10
+  blk-ext4-hostcold          1235.6       1293.5           39.5         3671.5  10
+  baseline                    390.5        395.0           11.3          972.5  10
+
+  gate: blk-ext4 826.8 ms / baseline 390.5 ms = 2.12x -> FAIL (limit 2.00x)
+
+  $ spike/tasks/exp5-diag.sh --out exp5-5b-diag.csv     # deps-* stages only shown
+  deps-cold                   822.0        835.5           38.3              -   5
+  deps-prefault               621.4        622.7           27.4              -   5
+  deps-cold2                  451.2        480.6           33.1              -   5
+  deps-warm                   254.8        358.9           27.4              -   5
+  deps-cpu                        -            -              -          567.4   5
+  container-cold              391.7        393.5           11.4              -   5
+
+  $ spike/tasks/flow-init-test.sh          # 41 assertions, 11 of them new
+  ok    --deps-image ext4: scratch is still /dev/vda
+  ok    --deps-image ext4: the deps disk arrived as vdb
+  ok    --deps-image ext4: mounted read-only at /opt/venv
+  ok    --deps-image ext4: the workload reads the image's content
+  ok    --deps-image ext4: /opt/venv rejects a write
+  ok    --deps-image erofs: (the same five)
+  ok    --deps-fstype: an unsupported filesystem is refused before the VM starts
+  flow-init-test.sh: ok
+  $ spike/tasks/flow-init-test.sh --host   -> ok
+  $ spike/tasks/helper-smoke.sh            -> ok (all 10, unchanged)
+  $ cargo clippy --all-targets             -> clean, both crates; cargo fmt applied
+  ```
+  WP08's `exp5-runs.csv` and `exp5-diag.csv` are untouched and still summarize
+  to the numbers in the experiment 5 tables.
+
+- the gate, and the case for and against it:
+  - **2.12x, so it fails as written.** ext4 826.8 ms against a same-session
+    baseline of 390.5.
+  - **The transport is at parity.** `deps-cold2` reads the same blocks off the
+    same device with the guest's page cache, dentries and inodes just dropped:
+    451.2 ms against the container's 391.7, **1.15x**. Warm is 254.8 vs 221.7,
+    also 1.15x. On virtiofs those were 685.5 (1.75x) and 516.3 (2.33x).
+  - **So the reason the gate was kept is satisfied.** The master thread held
+    the line at 2x because the metadata premium "is paid on every file
+    operation for the connector's life". That premium is now 1.15x, not 2.33x.
+    What remains is paid once per boot.
+  - **The residual is 371 ms of first-import tax**, and ~201 ms of it is the
+    guest first-touching its own memory: a fresh boot that writes one byte to
+    every page of a 600 MiB buffer, frees it, and then imports gets 621.4 ms
+    instead of 822.0. Nothing is read during that prefault, so it is not cache
+    warming. The other ~170 ms is cold helper/virtiofs-server and guest ext4
+    state; not pursued, since the levers are libkrun's.
+  - **It is not the virtiofs root**, which was PLAN's next fallback. `attrib.py`
+    counts 407 modules (41.7 MB) off the deps disk against 152 (5.4 MB) off the
+    root, and `deps-cold2` drops the cache for both yet still lands at 1.15x.
+    Moving the root to a block image would not buy this back. I would not spend
+    the change on it.
+  - **ext4 over erofs.** 826.8 vs 849.6 ms (2.8% slower) against 159,260 KiB
+    vs 136,508 KiB allocated (14% smaller). Per-boot time beats per-tag bytes,
+    and a wrongly-sized ext4 image fails at build time rather than at runtime.
+  - **First-ever launch per tag: 1235.6 ms import, 3671 ms wall** - the number
+    WP08's entry flagged as unmeasured. Upper bound: dropping the host cache
+    evicts the helper image, connector image and libkrunfw too, not just the
+    deps image.
+  - **Launch path is irrelevant to the number**, as expected: 824.1 through the
+    fake reactor against 826.8 on the host, with the extra 248 ms in `wall`.
+
+- **a correction to WP08, which I got wrong.** WP08's report claimed a block
+  device would import at 0.89x and recommended the redesign on that number. The
+  redesign was right; the number was not. Its `blk-cold` stage ran late in a
+  long sequence - after a boot, a full import, and a `cp -a` of the whole
+  144 MiB venv - and that copy prefaulted the guest's memory and left the host
+  cache maximally hot. So it was a prefaulted second-import measurement placed
+  next to first-import cells. It reproduces exactly here (`primary-blk-cold`
+  344.8, `share-blk-cold` 343.0), so it was repeatable, just not comparable.
+  The steady-state half of the claim survives and is now measured directly at
+  1.15x; "faster than podman today" does not. Recorded in report/exp5.md as its
+  own section rather than by editing the experiment 5 text, and as a method note
+  in `spike/derived/README.md`: fresh boot per data point, or name the regime.
+
+- deviations from CONTRACTS.md: none. Departures from the WP08b brief:
+  - **`--out NAME` on both scripts, and the verification command needs it.**
+    The brief's verification line would have truncated `exp5-runs.csv`, which
+    is WP08's raw data and which the brief also says must stand. Run it as
+    `exp5-run.sh --out exp5-5b.csv --cells ...`.
+  - **`erofs-utils` went into `env-common.sh`, not `env-setup.sh`.** The brief
+    named env-setup.sh, but `SPIKE_APT_PACKAGES` lives in env-common.sh; adding
+    it there also gets it checked by `env-check.sh` for free. Same shape as
+    WP03's `SPIKE_HELPER_IMAGE` note.
+  - **`spike/tasks/flow-init-test.sh` gained the deps assertions**, and it is
+    not in the brief's paths (which stop at `spike/flow-init/src/`). A new
+    flow-init mount with no coverage in flow-init's own suite seemed worse than
+    the path departure; the benchmark scripts are not tests. The images it uses
+    are built in the test (16 MiB, one marker file), so the standing suite does
+    not depend on experiment 5's 180 MiB artifacts.
+  - **`spike/flow-init/README.md` and `spike/helper/README.md`** document code
+    this package changed, so both gained a line. WP04's pre-existing staleness
+    in the helper README (libkrun "1.19.0 ... used as-is", the `stubs/` line) is
+    left for WP06 as recorded.
+  - Two probes beyond the brief's step 5, `prefault.py` and `attrib.py`. Step 5
+    asked that `pass` and `cpu` be kept so the root's cost is restated; those
+    two are what actually answered where the 371 ms goes, and without them this
+    entry would say "it fails at 2.12x" and stop.
+
+- findings other packages need:
+  - **`mkfs.ext4 -d` writes to stdout even under `-q`** ("Creating regular
+    file ..."). A shell function that returns a path by echoing it must send
+    mkfs's stdout elsewhere, or the caller gets a two-line path and podman says
+    `invalid reference format`.
+  - **`mkfs.erofs` 1.7.1 has no `-q`**; it is `--quiet`.
+  - The guest kernel (libkrunfw 5.5.0, 6.12.91) carries ext4 and erofs but not
+    squashfs, per `/proc/filesystems`. No libkrunfw change was needed.
+  - The `mapfile` trap bit again, in `flow-init-test.sh` this time: a
+    multi-line `--exec` probe became one argv element per line and the guest
+    silently ran only `set -e`. That script already flattens its main probe
+    with `${PROBE//$'\n'/ }`; the new one is built as a single line.
+  - **Guest memory first-touch is a real, measurable cost** (~201 ms for a
+    144 MiB read). Anything in WP09's density or churn work that compares a
+    first operation against a later one will see it.
+  - **The stale `fs_*/` directories have a cause, and it is a one-line bug.**
+    `new_connector` in `flow-init-test.sh` and `helper-smoke.sh` ends with
+    `CONNECTORS+=("$id")`, but every caller invokes it as
+    `id="$(new_connector)"` - a command substitution, so the append happens in
+    a subshell and the parent's array stays empty. The cleanup trap then
+    iterates nothing and every dir survives. Fixed in `flow-init-test.sh` and
+    in both `exp5-*.sh` (the id goes to a file the trap reads); a full
+    `flow-init-test.sh` run now leaves zero dirs behind where it used to leave
+    about ten. **`helper-smoke.sh` still has it** - outside this package's
+    paths, one line, same fix. Worth WP06 fixing the cause rather than only
+    warning in `env-check.sh`. The 115 dirs standing now are left for WP06 as
+    scheduled; none are from this package's benchmark runs, which removed each
+    directory explicitly.
+
+- questions for master:
+  - **Does 2.12x pass or fail?** As written it fails. The reason the gate was
+    kept - a metadata premium paid for the connector's life - is satisfied at
+    1.15x. The residual is one-time and sits inside a 2.3 s total launch
+    against experiment 2's 5 s budget. I have no in-scope lever left: the
+    transport is at parity, the root is measured and is not the problem, and
+    ext4 vs erofs is 3%. So this is a judgment call about what the gate was
+    for, and it is yours rather than mine.
+  - If the answer is "fail", the only remaining lever I can see is libkrun
+    backing guest RAM with pre-populated or huge pages, which would move ~201 ms
+    out of the first import and into boot. **Whether that is a net win is
+    unmeasured** - prefaulting moves the cost, it does not obviously remove it,
+    and my probe (a Python byte-per-page loop, 2.1 s for 600 MiB) is far too
+    slow to answer. It would need a real measurement, and it lands in
+    experiment 2's budget, not this one. Worth a WP of its own if you want it.
+  - CONTRACTS says flow-init mounts the deps image at `/opt/venv`, and WP08b
+    puts changing derive-python to consume it in phase 2. Nothing in the spike
+    reads `/opt/venv` except bench.py, so the path is currently only a
+    convention. Confirm it is the one phase 2 wants before WP05 bakes
+    `FLOW_SANDBOX_SPIKE_DEPS_IMAGE` into the runtime switch.
+  - The deps images here are built from experiment 5's exported directory, so
+    the venv's baked-in paths say `/venv` while it is mounted at `/opt/venv`.
+    Immaterial to these numbers, but a phase-2 builder should create the venv at
+    its final path, and that is the sort of thing that is easier to fix before
+    there is a builder than after.

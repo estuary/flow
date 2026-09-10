@@ -14,6 +14,10 @@ pub struct Args {
     pub uid: u32,
     pub gid: u32,
     pub venv_dax: bool,
+    /// The dependency disk the shim attached, and the filesystem on it. Both
+    /// present or both absent; absent means no deps mount at all.
+    pub deps_dev: Option<String>,
+    pub deps_fstype: Option<String>,
     pub run_as_root: bool,
     /// Run by `/bin/sh -c` as guest root before the uid drop.
     pub as_root_exec: Option<String>,
@@ -22,7 +26,7 @@ pub struct Args {
 
 pub const USAGE: &str = "usage: /flow-init --guest-ip A.B.C.D/N --gateway A.B.C.D \
      --nameserver A.B.C.D --upper-mib N --uid U --gid G [--venv-dax] [--run-as-root] \
-     [--as-root-exec CMD] -- ARGV...";
+     [--deps-dev DEV --deps-fstype FS] [--as-root-exec CMD] -- ARGV...";
 
 pub fn parse(argv: Vec<String>) -> Result<Args, String> {
     let mut guest_ip = None;
@@ -32,6 +36,8 @@ pub fn parse(argv: Vec<String>) -> Result<Args, String> {
     let mut uid = None;
     let mut gid = None;
     let mut venv_dax = false;
+    let mut deps_dev = None;
+    let mut deps_fstype = None;
     let mut run_as_root = false;
     let mut as_root_exec = None;
     let mut workload = None;
@@ -77,6 +83,8 @@ pub fn parse(argv: Vec<String>) -> Result<Args, String> {
             "--uid" => (uid, i) = (Some(number(i)?), i + 2),
             "--gid" => (gid, i) = (Some(number(i)?), i + 2),
             "--venv-dax" => (venv_dax, i) = (true, i + 1),
+            "--deps-dev" => (deps_dev, i) = (Some(value(i)?.to_string()), i + 2),
+            "--deps-fstype" => (deps_fstype, i) = (Some(value(i)?.to_string()), i + 2),
             "--run-as-root" => (run_as_root, i) = (true, i + 1),
             "--as-root-exec" => (as_root_exec, i) = (Some(value(i)?.to_string()), i + 2),
             "--" => {
@@ -93,6 +101,9 @@ pub fn parse(argv: Vec<String>) -> Result<Args, String> {
     if argv.is_empty() {
         return Err(format!("-- requires a workload argv; {USAGE}"));
     }
+    if deps_dev.is_some() != deps_fstype.is_some() {
+        return Err(format!("--deps-dev and --deps-fstype go together; {USAGE}"));
+    }
 
     Ok(Args {
         guest_ip,
@@ -103,6 +114,8 @@ pub fn parse(argv: Vec<String>) -> Result<Args, String> {
         uid: uid.ok_or_else(|| missing("--uid"))?,
         gid: gid.ok_or_else(|| missing("--gid"))?,
         venv_dax,
+        deps_dev,
+        deps_fstype,
         run_as_root,
         as_root_exec,
         argv,

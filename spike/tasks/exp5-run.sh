@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Run experiment 5's matrix and write the raw runs as CSV.
 #
-#   exp5-run.sh                    every cell, 10 measured runs each
+#   exp5-run.sh                    experiment 5's virtiofs matrix (WP08)
 #   exp5-run.sh --runs 3           fewer runs, for checking the harness
 #   exp5-run.sh --cells share,baseline
 #   exp5-run.sh --reactor          launch the guests through fake-reactor.sh
+#   exp5-run.sh --out exp5-5b.csv --cells blk-ext4,blk-erofs,blk-ext4-reactor,blk-ext4-hostcold,baseline
+#                                  WP08b's block-device rerun. --out keeps it
+#                                  out of WP08's raw data, which stands.
 #
 # Each guest cell boots a fresh VM per run, so the guest page cache is cold by
 # construction; one throwaway boot per cell warms the host's cache first, which
@@ -12,53 +15,67 @@
 # guest (bench.py's perf_counter deltas), so the launch path does not enter the
 # number; --host is the default only because it is the shorter path.
 #
-# Writes $SPIKE_DIR/report/data/exp5-runs.csv and prints the summary table.
+# Writes $SPIKE_DIR/report/data/<--out> and prints the summary table.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/exp5-common.sh"
 
 RUNS=10
 LAUNCH=host
+OUT=exp5-runs.csv
 CELLS=primary,primary-nothp,share,share-nothp,share-dax,share-dax-nothp,baseline,baseline-root
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --runs)    RUNS="$2"; shift 2 ;;
         --cells)   CELLS="$2"; shift 2 ;;
+        --out)     OUT="$2"; shift 2 ;;
         --reactor) LAUNCH=reactor; shift ;;
-        *) echo "usage: exp5-run.sh [--runs N] [--cells LIST] [--reactor]" >&2; exit 2 ;;
+        *) echo "usage: exp5-run.sh [--runs N] [--cells LIST] [--out NAME] [--reactor]" >&2; exit 2 ;;
     esac
 done
 
 COMMIT="$(git -C "$REPO_DIR" rev-parse --short HEAD)"
-CSV="$SPIKE_DIR/report/data/exp5-runs.csv"
+CSV="$SPIKE_DIR/report/data/$OUT"
 WORK="$(mktemp -d)"
-CONNECTORS=()
+CONNECTORS="$WORK/connectors"
+: >"$CONNECTORS"
 FAILURES=0
 
+# Reads the id file rather than an array: callers invoke new_connector through
+# a command substitution, so anything it appends to a shell variable dies with
+# that subshell and the trap would have nothing to clean.
 cleanup() {
     local id
-    for id in "${CONNECTORS[@]:-}"; do
+    while read -r id; do
         [ -n "$id" ] || continue
         sudo podman rm -f "$id" >/dev/null 2>&1 || true
         sudo rm -rf "${SPIKE_REACTOR_DIR:?}/$id"
-    done
+    done <"$CONNECTORS"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
 
 # ------------------------------------------------------------------ the cells
 #
-# cell -> guest image | venv share | bench.py's --venv | extra helper args.
+# cell -> guest image | venv share | bench.py's --venv | extra helper args |
+#         deps disk image on the host | launch override | drop the host cache
+#
 # The interpreter is the image's in every case; only where site-packages comes
-# from, and the helper flags around it, change.
+# from, and the helper flags around it, change. The `blk-*` cells (WP08b) put
+# the venv on a read-only virtio-blk device that flow-init mounts at
+# `/opt/venv`, so their `venv` share carries nothing but the bench scripts.
 cell_spec() {
     case "$1" in
-        primary)          echo "$SPIKE_DERIVED_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv|" ;;
-        primary-nothp)    echo "$SPIKE_DERIVED_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv|--thp-disable" ;;
-        share)            echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv|" ;;
-        share-nothp)      echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv|--thp-disable" ;;
-        share-dax)        echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv|--venv-dax" ;;
-        share-dax-nothp)  echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv|--venv-dax --thp-disable" ;;
+        primary)          echo "$SPIKE_DERIVED_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv||||" ;;
+        primary-nothp)    echo "$SPIKE_DERIVED_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv|--thp-disable|||" ;;
+        share)            echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv||||" ;;
+        share-nothp)      echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv|--thp-disable|||" ;;
+        share-dax)        echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv|--venv-dax|||" ;;
+        share-dax-nothp)  echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_VENV|/venv|--venv-dax --thp-disable|||" ;;
+        blk-ext4)         echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv|--deps-image $SPIKE_DEPS_IMG|$SPIKE_EXP5_EXT4||" ;;
+        blk-erofs)        echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv|--deps-image $SPIKE_DEPS_IMG --deps-fstype erofs|$SPIKE_EXP5_EROFS||" ;;
+        blk-ext4-reactor) echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv|--deps-image $SPIKE_DEPS_IMG|$SPIKE_EXP5_EXT4|reactor|" ;;
+        blk-ext4-hostcold) echo "$SPIKE_GUEST_IMAGE|$SPIKE_EXP5_BENCH|/opt/venv|--deps-image $SPIKE_DEPS_IMG|$SPIKE_EXP5_EXT4||hostcold" ;;
         *) return 1 ;;
     esac
 }
@@ -79,16 +96,27 @@ new_connector() {
     printf '%s\n' '{"egress":"public","allowAll":false,"declaredCidrs":[],"connectionsPerMinute":null,"distinctDestinationsPerMinute":null,"ttlFloorSecs":90,"ttlCapSecs":3600}' \
         | sudo tee "$dir/init/policy.json" >/dev/null
 
-    CONNECTORS+=("$id")
+    printf '%s\n' "$id" >>"$CONNECTORS"
     printf '%s' "$id"
 }
 
 # One boot. Prints bench.py's JSON line on success.
 run_guest() {
-    local cell="$1" tag="$2" spec image venvdir venvarg extra id argv=()
+    local cell="$1" tag="$2" spec image venvdir venvarg extra deps launch hostcold
+    local id argv=() deps_mount=()
     spec="$(cell_spec "$cell")"
-    IFS='|' read -r image venvdir venvarg extra <<<"$spec"
+    IFS='|' read -r image venvdir venvarg extra deps launch hostcold <<<"$spec"
     id="$(new_connector "$image")"
+    [ -n "$deps" ] && deps_mount=("--mount=type=bind,source=$deps,target=$SPIKE_DEPS_IMG,ro")
+    [ -n "$launch" ] || launch="$LAUNCH"
+
+    # The first-ever-launch-per-tag number: this drops the whole host cache, not
+    # just the deps blocks, so it is an upper bound on a cold start rather than
+    # an isolated measure of the deps image.
+    if [ -n "$hostcold" ]; then
+        sync
+        echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
+    fi
 
     # PLAN "Helper launch", minus the labels and cgroup parent that only the
     # reactor cares about. --run-as-root per the WP08 brief's cells.
@@ -101,6 +129,7 @@ run_guest() {
         "--mount=type=bind,source=$venvdir,target=/venv,ro" \
         "--mount=type=bind,source=$SPIKE_REACTOR_DIR/$id/sock,target=/sock" \
         "--mount=type=bind,source=$SPIKE_REACTOR_DIR/$id/scratch,target=/scratch-backing" \
+        "${deps_mount[@]}" \
         "$SPIKE_HELPER_IMAGE" \
         --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 1024 \
         --upper-mib 256 --run-as-root $extra \
@@ -110,7 +139,7 @@ run_guest() {
     local rc=0 started ended
     started="$(date +%s%N)"
     set +e
-    if [ "$LAUNCH" = host ]; then
+    if [ "$launch" = host ]; then
         sudo podman "${argv[@]}" >"$WORK/$tag.out" 2>"$WORK/$tag.err"
     else
         "$SPIKE_TASKS_DIR/fake-reactor.sh" podman "${argv[@]}" >"$WORK/$tag.out" 2>"$WORK/$tag.err"
@@ -184,11 +213,14 @@ for cell in "${cell_list[@]}"; do
     esac
 
     # The throwaway: warms the host page cache for this cell's image and share,
-    # and is discarded.
-    if ! run_one "$cell" "$cell-warm" >/dev/null; then
-        FAILURES=$((FAILURES + 1))
-        say "exp5-run.sh: $cell skipped, its warm-up boot failed"
-        continue
+    # and is discarded. Skipped for a host-cold cell, whose whole point is the
+    # opposite state.
+    if [[ "$cell" != *-hostcold ]]; then
+        if ! run_one "$cell" "$cell-warm" >/dev/null; then
+            FAILURES=$((FAILURES + 1))
+            say "exp5-run.sh: $cell skipped, its warm-up boot failed"
+            continue
+        fi
     fi
 
     for run in $(seq 1 "$RUNS"); do

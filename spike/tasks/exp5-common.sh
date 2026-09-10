@@ -15,6 +15,13 @@ SPIKE_PANDAS_PIN=pandas==3.0.5
 SPIKE_EXP5_VENV="$SPIKE_EXP5_DIR/venv"
 SPIKE_EXP5_BENCH="$SPIKE_EXP5_DIR/bench"
 
+# WP08b: the same venv as per-tag read-only disk images, which is the transport
+# the design settled on after virtiofs missed the gate. Bound into the helper at
+# /deps.img and mounted by flow-init at /opt/venv.
+SPIKE_EXP5_EXT4="$SPIKE_EXP5_DIR/deps.ext4"
+SPIKE_EXP5_EROFS="$SPIKE_EXP5_DIR/deps.erofs"
+SPIKE_DEPS_IMG=/deps.img
+
 # derive-python's interpreter, per CONTRACTS "Probes and benchmarks".
 SPIKE_GUEST_PYTHON=/usr/local/bin/python
 

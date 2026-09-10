@@ -17,33 +17,47 @@
 #   blk-warm  again from /scratch                        block, warm
 #   cpu       an IO-free loop                            the CPU control
 #
+# The `deps` sequence (WP08b) runs the same cold/warm/cold2 against the real
+# per-tag block image on /dev/vdb, with no copy step. It exists because the
+# `blk-cold` stage above turned out to flatter the block device: it is measured
+# late in a guest's life, after a boot and a full import, where `cold` is
+# measured first. Comparing the two says how much of a cold import is the
+# transport and how much is simply being first.
+#
 # The container side runs the same cold import and the same CPU loop, so the
 # CPU ratio can be read against the import ratio.
 #
-# Writes $SPIKE_DIR/report/data/exp5-diag.csv.
+# Writes $SPIKE_DIR/report/data/<--out>. WP08's breakdown was measured before
+# the deps disk existed, so its CSV stands: WP08b writes exp5-5b-diag.csv.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/exp5-common.sh"
 
 RUNS=5
+OUT=exp5-diag.csv
 while [ $# -gt 0 ]; do
     case "$1" in
         --runs) RUNS="$2"; shift 2 ;;
-        *) echo "usage: exp5-diag.sh [--runs N]" >&2; exit 2 ;;
+        --out)  OUT="$2"; shift 2 ;;
+        *) echo "usage: exp5-diag.sh [--runs N] [--out NAME]" >&2; exit 2 ;;
     esac
 done
 
 COMMIT="$(git -C "$REPO_DIR" rev-parse --short HEAD)"
-CSV="$SPIKE_DIR/report/data/exp5-diag.csv"
+CSV="$SPIKE_DIR/report/data/$OUT"
 WORK="$(mktemp -d)"
-CONNECTORS=()
+CONNECTORS="$WORK/connectors"
+: >"$CONNECTORS"
 
+# Reads the id file rather than an array: callers invoke new_connector through
+# a command substitution, so anything it appends to a shell variable dies with
+# that subshell and the trap would have nothing to clean.
 cleanup() {
     local id
-    for id in "${CONNECTORS[@]:-}"; do
+    while read -r id; do
         [ -n "$id" ] || continue
         sudo podman rm -f "$id" >/dev/null 2>&1 || true
         sudo rm -rf "${SPIKE_REACTOR_DIR:?}/$id"
-    done
+    done <"$CONNECTORS"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -70,6 +84,36 @@ sync; echo 3 >/proc/sys/vm/drop_caches
 SEQ
 }
 
+# A fresh boot that first-touches 600 MiB of anonymous memory and frees it,
+# then imports. Those host pages stay assigned to the guest, so the page cache
+# the import fills is no longer faulting them in for the first time. It has to
+# be its own boot: the point is what the *first* import pays.
+prefault_sequence() {
+    local prefix="$1"
+    cat <<SEQ
+set -e
+P=$SPIKE_GUEST_PYTHON
+\$P /venv/spike/prefault.py 600 >/dev/null
+\$P /venv/spike/bench.py --venv /opt/venv --label $prefix
+SEQ
+}
+
+# No copy step: the venv is already on /dev/vdb where flow-init mounted it, so
+# `cold` here is the production first import and `cold2` is the same read after
+# the guest's cache is thrown away.
+deps_sequence() {
+    local prefix="$1"
+    cat <<SEQ
+set -e
+P=$SPIKE_GUEST_PYTHON
+\$P /venv/spike/bench.py --venv /opt/venv --label $prefix-cold
+\$P /venv/spike/bench.py --venv /opt/venv --label $prefix-warm
+sync; echo 3 >/proc/sys/vm/drop_caches
+\$P /venv/spike/bench.py --venv /opt/venv --label $prefix-cold2
+\$P /venv/spike/cpu.py --label $prefix-cpu
+SEQ
+}
+
 new_connector() {
     local image="$1" id dir
     id="fs_$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
@@ -79,14 +123,19 @@ new_connector() {
     printf '#!/bin/sh\nexit 0\n' | sudo tee "$dir/init/flow-connector-init" >/dev/null
     printf '%s\n' '{"egress":"public","allowAll":false,"declaredCidrs":[],"connectionsPerMinute":null,"distinctDestinationsPerMinute":null,"ttlFloorSecs":90,"ttlCapSecs":3600}' \
         | sudo tee "$dir/init/policy.json" >/dev/null
-    CONNECTORS+=("$id")
+    printf '%s\n' "$id" >>"$CONNECTORS"
     printf '%s' "$id"
 }
 
 # --disk-mib is larger than the matrix's: the sequence copies the venv onto it.
 run_guest_sequence() {
-    local cell="$1" tag="$2" image="$3" venvdir="$4" venvarg="$5" id argv=() rc=0
+    local cell="$1" tag="$2" image="$3" venvdir="$4" sequence="$5" deps="${6:-}"
+    local id argv=() deps_mount=() deps_flag=() rc=0
     id="$(new_connector "$image")"
+    if [ -n "$deps" ]; then
+        deps_mount=("--mount=type=bind,source=$deps,target=$SPIKE_DEPS_IMG,ro")
+        deps_flag=(--deps-image "$SPIKE_DEPS_IMG")
+    fi
     # Built as an array, not through `printf | mapfile` the way the matrix
     # script does: the sequence is a multi-line shell script, and mapfile would
     # split it into one argv element per line.
@@ -99,10 +148,12 @@ run_guest_sequence() {
         "--mount=type=bind,source=$venvdir,target=/venv,ro"
         "--mount=type=bind,source=$SPIKE_REACTOR_DIR/$id/sock,target=/sock"
         "--mount=type=bind,source=$SPIKE_REACTOR_DIR/$id/scratch,target=/scratch-backing"
+        "${deps_mount[@]}"
         "$SPIKE_HELPER_IMAGE"
         --policy /init/policy.json --memory-mib 1024 --vcpus 2 --disk-mib 2048
         --upper-mib 256 --run-as-root
-        --exec /bin/sh -c "$(guest_sequence "$venvarg" "$cell")"
+        "${deps_flag[@]}"
+        --exec /bin/sh -c "$sequence"
     )
 
     set +e
@@ -170,12 +221,28 @@ say ""
 
 for run in $(seq 1 "$RUNS"); do
     run_guest_sequence primary "primary-$run" \
-        "$SPIKE_DERIVED_IMAGE" "$SPIKE_EXP5_BENCH" /opt/venv | to_csv "$run" >>"$CSV"
+        "$SPIKE_DERIVED_IMAGE" "$SPIKE_EXP5_BENCH" \
+        "$(guest_sequence /opt/venv primary)" | to_csv "$run" >>"$CSV"
     run_guest_sequence share "share-$run" \
-        "$SPIKE_GUEST_IMAGE" "$SPIKE_EXP5_VENV" /venv | to_csv "$run" >>"$CSV"
+        "$SPIKE_GUEST_IMAGE" "$SPIKE_EXP5_VENV" \
+        "$(guest_sequence /venv share)" | to_csv "$run" >>"$CSV"
+    run_guest_sequence deps "deps-$run" \
+        "$SPIKE_GUEST_IMAGE" "$SPIKE_EXP5_BENCH" \
+        "$(deps_sequence deps)" "$SPIKE_EXP5_EXT4" | to_csv "$run" >>"$CSV"
+    run_guest_sequence deps-prefault "deps-prefault-$run" \
+        "$SPIKE_GUEST_IMAGE" "$SPIKE_EXP5_BENCH" \
+        "$(prefault_sequence deps-prefault)" "$SPIKE_EXP5_EXT4" | to_csv "$run" >>"$CSV"
     run_container_sequence "container-$run" | to_csv "$run" >>"$CSV"
     say "  run $run done"
 done
+
+say ""
+say 'exp5-diag.sh: where the modules of an "import pandas" come from, with the'
+say '               venv on the deps disk (one boot, counts and bytes, no timings):'
+run_guest_sequence attrib attrib \
+    "$SPIKE_GUEST_IMAGE" "$SPIKE_EXP5_BENCH" \
+    "$SPIKE_GUEST_PYTHON /venv/spike/attrib.py" "$SPIKE_EXP5_EXT4" \
+    | python3 -m json.tool | sed 's/^/      /'
 
 say ""
 say "exp5-diag.sh: raw runs in $CSV"

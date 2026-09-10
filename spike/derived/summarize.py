@@ -72,15 +72,20 @@ def main() -> None:
             line += f" {statistics.median(series):14.1f} {percentile(series, 0.95):12.1f}"
         print(line + f" {count:3d}")
 
-    # PLAN experiment 5's gate. Only the matrix CSV has both rows.
+    # PLAN experiment 5's gate, against whichever transport the file measured:
+    # `primary` is the venv as an image layer on virtiofs (WP08), `blk-ext4`
+    # the per-tag block image that replaced it (WP08b).
     imports = values.get("import_pandas_ms", {})
-    if "primary" in imports and "baseline" in imports:
-        primary = statistics.median(imports["primary"])
+    if "baseline" in imports:
         baseline = statistics.median(imports["baseline"])
-        ratio = primary / baseline
-        print()
-        print(f"gate: primary {primary:.1f} ms / baseline {baseline:.1f} ms = "
-              f"{ratio:.2f}x -> {'PASS' if ratio <= 2.0 else 'FAIL'} (limit 2.00x)")
+        for cell in ("primary", "blk-ext4"):
+            if cell not in imports:
+                continue
+            median = statistics.median(imports[cell])
+            ratio = median / baseline
+            print()
+            print(f"gate: {cell} {median:.1f} ms / baseline {baseline:.1f} ms = "
+                  f"{ratio:.2f}x -> {'PASS' if ratio <= 2.0 else 'FAIL'} (limit 2.00x)")
 
 
 main()

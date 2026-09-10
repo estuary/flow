@@ -41,6 +41,9 @@ fn run() -> Result<std::convert::Infallible, String> {
     root::write_etc(args.nameserver, args.guest_ip)?;
     root::mount_venv(args.venv_dax)?;
     root::mount_scratch(args.uid, args.gid)?;
+    if let (Some(dev), Some(fstype)) = (&args.deps_dev, &args.deps_fstype) {
+        root::mount_deps(dev, fstype)?;
+    }
 
     // `--as-root-exec`: a probe that needs guest root - sysctls, drop_caches -
     // run while that privilege is still here. Its exit status is deliberately

@@ -24,6 +24,9 @@ const VENV_DIR: &str = "/venv";
 const SCRATCH_BACKING: &str = "/scratch-backing";
 const INIT_SOCK: &str = "/sock/init.sock";
 
+/// The deps disk's guest device name. Second disk added, so second name.
+const DEPS_DEV: &str = "/dev/vdb";
+
 const VSOCK_PORT: u32 = 49092;
 const VENV_DAX_BYTES: u64 = 512 * 1024 * 1024;
 
@@ -78,6 +81,11 @@ fn run() -> anyhow::Result<std::convert::Infallible> {
     let rootfs = CString::new(ROOTFS)?;
     let venv_dir = CString::new(VENV_DIR)?;
     let scratch_path = CString::new(disk::proc_path(scratch_fd))?;
+    let deps_image = args
+        .deps_image
+        .as_ref()
+        .map(|path| CString::new(path.as_os_str().as_encoded_bytes()))
+        .transpose()?;
     let init_sock = CString::new(INIT_SOCK)?;
     let mut tap = CString::new(net::TAP)?.into_bytes_with_nul();
     let console_out = console::output_fd(args.debug)?;
@@ -168,6 +176,24 @@ fn run() -> anyhow::Result<std::convert::Infallible> {
         )
     })?;
 
+    // The per-tag dependency image, second so that scratch keeps `/dev/vda`
+    // and this is `/dev/vdb` (flow-init is told the name, and the test asserts
+    // it). Read-only, and KRUN_SYNC_NONE because nothing can write it: a flush
+    // the guest cannot cause is a virtqueue round trip for nothing.
+    if let Some(deps_image) = &deps_image {
+        sys::check("krun_add_disk3(deps)", unsafe {
+            sys::krun_add_disk3(
+                ctx,
+                c"deps".as_ptr(),
+                deps_image.as_ptr(),
+                sys::KRUN_DISK_FORMAT_RAW,
+                true,
+                false,
+                sys::KRUN_SYNC_NONE,
+            )
+        })?;
+    }
+
     sys::check("krun_add_net_tap", unsafe {
         sys::krun_add_net_tap(
             ctx,
@@ -248,6 +274,12 @@ fn guest_cmd(args: &cli::Args, image: &image::ImageConfig) -> Vec<String> {
         "--gid".to_string(),
         image.gid.to_string(),
     ];
+    if args.deps_image.is_some() {
+        cmd.push("--deps-dev".to_string());
+        cmd.push(DEPS_DEV.to_string());
+        cmd.push("--deps-fstype".to_string());
+        cmd.push(args.deps_fstype.clone());
+    }
     if args.venv_dax {
         cmd.push("--venv-dax".to_string());
     }

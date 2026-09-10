@@ -209,3 +209,183 @@ same effect and it sets a floor on how much a venv-only fix can win.
   exported host directory are built by the same interpreter with the same pin
   and agree to within 4 KiB, which is the `spike/` directory of bench scripts
   the exported copy also carries.
+
+# Experiment 5b: the dependency set as a per-tag block image
+
+**FAIL, narrowly: 2.12x** (`blk-ext4` 826.8 ms vs `baseline` 390.5 ms, medians,
+n=10), against the same 2.00x limit. The redesign worked and did not go far
+enough: virtiofs was 2.88x, a read-only ext4 image on a second virtio-blk
+device is 2.12x.
+
+But the transport itself is no longer the cost. Read the same 144 MiB venv off
+the same device with an empty guest page cache, *once the guest is past its
+first import*, and it costs **451.2 ms against the container's 391.7 - 1.15x**.
+Warm, it is 254.8 vs 221.7, also 1.15x, where virtiofs stayed at 2.33x warm.
+What is left in the 826.8 is a tax on the **first** import after boot, ~371 ms
+of it, and about half of that is measurably the guest touching its own memory
+for the first time.
+
+So the per-file metadata cost that WP08 found, the one the master thread kept
+the gate for because it "is paid on every file operation for the connector's
+life", is gone. What replaced it is paid once per boot.
+
+Measured at commit `18ae8986a0a53f46a75531c34c5f9cd6ea380763`.
+
+## The matrix
+
+Same method as experiment 5: 10 measured boots per cell, fresh guest each time,
+one discarded warm-up boot per cell (except `blk-ext4-hostcold`, whose point is
+the opposite). Guest root is `ghcr.io/estuary/derive-python:dev` with no venv
+in it; the venv arrives on `/dev/vdb` and flow-init mounts it read-only at
+`/opt/venv`. `baseline` is re-run here, so every ratio is same-session.
+
+Raw runs: `data/exp5-5b.csv`. Reproduce with `spike/tasks/exp5-build.sh &&
+spike/tasks/exp5-run.sh --out exp5-5b.csv --cells
+blk-ext4,blk-erofs,blk-ext4-reactor,blk-ext4-hostcold,baseline`.
+
+| cell               | import median | import p95 | vs baseline | pass median | wall median | n  |
+|--------------------|--------------:|-----------:|------------:|------------:|------------:|---:|
+| blk-ext4           |        826.8  |     848.7  |    2.12x    |      38.7   |      2323   | 10 |
+| blk-erofs          |        849.6  |     864.8  |    2.18x    |      39.1   |      2334   | 10 |
+| blk-ext4-reactor   |        824.1  |     835.0  |    2.11x    |      37.6   |      2570   | 10 |
+| blk-ext4-hostcold  |       1235.6  |    1293.5  |    3.16x    |      39.5   |      3672   | 10 |
+| baseline           |        390.5  |     395.0  |    1.00x    |      11.3   |       973   | 10 |
+
+- **ext4 vs erofs: ext4 wins on time, erofs on size.** 826.8 vs 849.6 ms, so
+  erofs costs 2.8% more on the import - outside the run-to-run spread but not
+  by much. It pays for itself in bytes: the images are 159,260 KiB (ext4,
+  blocks actually allocated; 186,368 KiB nominal) against 136,508 KiB (erofs),
+  from a source directory of 135,874 KiB apparent / 147,500 KiB allocated.
+  erofs is essentially the data with no overhead, because it packs file tails;
+  ext4 carries 8% of inode tables and block groups on top and needs a nominal
+  size chosen at build time. Recommendation: ext4, on the grounds that 2.8% of
+  a per-boot cost is worth more than 14% of per-tag storage, and that a
+  wrongly-sized ext4 image is a build-time failure rather than a runtime one.
+  Revisit if per-tag storage ever becomes the constraint.
+- **The launch path does not enter the number.** `blk-ext4-reactor` goes through
+  `fake-reactor.sh` the way production would and lands at 824.1 against the
+  host launch's 826.8 - the same number - while paying its extra 248 ms in the
+  `wall` column.
+- **First-ever launch of a tag: 1235.6 ms, 3.16x.** `blk-ext4-hostcold` drops
+  the entire host page cache before every boot, so this is an upper bound, not
+  an isolated measure of the deps image: the helper image, the connector image,
+  libkrunfw and the deps image all come off the disk again, which is also why
+  `wall` goes to 3672 ms. The number WP08's entry asked for, and the honest
+  reading is "the first launch after a tag is built costs about 400 ms more
+  import and 1.3 s more wall, once".
+
+## Where the remaining 371 ms goes
+
+One guest per run, whole sequence per boot, 5 runs. The `deps-*` stages are new
+in 5b and read `/opt/venv` off `/dev/vdb` with no copy step, so `deps-cold` is
+exactly what production pays. Raw runs: `data/exp5-5b-diag.csv`. Reproduce with
+`spike/tasks/exp5-diag.sh --out exp5-5b-diag.csv`.
+
+| stage             | import median | import p95 | vs container | pass median | cpu median | n |
+|-------------------|--------------:|-----------:|-------------:|------------:|-----------:|--:|
+| deps-cold         |        822.0  |     835.5  |     2.10x    |      38.3   |          - | 5 |
+| deps-prefault     |        621.4  |     622.7  |     1.59x    |      27.4   |          - | 5 |
+| deps-cold2        |        451.2  |     480.6  |     1.15x    |      33.1   |          - | 5 |
+| deps-warm         |        254.8  |     358.9  |     0.65x    |      27.4   |          - | 5 |
+| deps-cpu          |            -  |         -  |         -    |          -  |      567.4 | 5 |
+| primary-cold      |       1122.7  |    1134.5  |     2.87x    |      40.3   |          - | 5 |
+| primary-cold2     |        685.5  |     713.1  |     1.75x    |      30.0   |          - | 5 |
+| primary-warm      |        516.3  |     530.5  |     1.32x    |      28.4   |          - | 5 |
+| container-cold    |        391.7  |     393.5  |     1.00x    |      11.4   |          - | 5 |
+| container-warm    |        221.7  |     232.3  |     0.57x    |      11.0   |          - | 5 |
+| container-cpu     |            -  |         -  |         -    |          -  |      571.3 | 5 |
+
+(The `share-*` and `*-blk-*` stages still run and are in the CSV; they are
+experiment 5's and unchanged. The full virtiofs rows are in the 5 tables above.)
+
+Reading it:
+
+- **The block device beats virtiofs at every cache state, by about 1.5x.**
+  cold 822.0 vs 1122.7, cold2 451.2 vs 685.5, warm 254.8 vs 516.3. The
+  redesign is right.
+- **Steady state is 1.15x, not 2.12x.** `deps-cold2` reads the same blocks off
+  the same device with the guest's page cache, dentries and inodes just
+  dropped, and costs 451.2 ms against the container's 391.7. That is the
+  transport's actual price. `deps-warm` at 254.8 vs 221.7 is the same 1.15x
+  with the cache intact - against virtiofs's 2.33x warm, which is the number
+  that mattered for a connector's whole life.
+- **~201 ms of the first-import tax is first-touch guest memory.** A fresh boot
+  that first writes one byte to every page of a 600 MiB buffer and frees it,
+  then imports (`deps-prefault`), gets 621.4 ms instead of 822.0. Those host
+  pages stay assigned to the guest, so the page cache the import fills is no
+  longer being faulted in from the host one page at a time. Nothing is read
+  during the prefault, so this is not cache warming.
+- **~170 ms of it is other first-boot state**: 621.4 (prefaulted, still first
+  import) against 451.2 (same guest, second import, cache dropped). Candidates
+  are the helper's virtiofs server starting cold, the guest's ext4 metadata for
+  a freshly mounted device, and whatever the guest is still doing in its first
+  second. Not pursued further: it is under 200 ms and the levers for it are
+  libkrun's, not ours.
+- **Not the virtiofs root.** Counting where the modules come from, an
+  `import pandas` with the venv on the deps disk loads 407 modules
+  (41,651,378 bytes) off `/dev/vdb`, 152 (5,435,374 bytes) off the virtiofs
+  root, and 35 builtins. The root's share is small, and `deps-cold2` drops the
+  cache for root and disk alike yet still lands at 1.15x - so the interpreter
+  and stdlib on virtiofs are not what is left. Moving the root off virtiofs,
+  PLAN's next fallback, would not buy this back.
+- **Not CPU, still.** 567.4 ms in the guest against 571.3 in a container.
+
+## A correction to experiment 5
+
+Experiment 5's report claimed a block device would import at **0.89x**, from
+its `blk-cold` stage (347.6 ms), and recommended the redesign on that basis.
+The redesign was the right call, but that number was optimistic and 5b's
+`deps-cold` at 822.0 ms is the honest one.
+
+The reason is where in a guest's life `blk-cold` was measured. It ran late in a
+long sequence: after a boot, a full `import pandas`, and a `cp -a` of the whole
+144 MiB venv onto the scratch disk. That copy first-touched enough guest memory
+to prefault it, and left the host's cache for those blocks maximally hot - so
+`blk-cold` was a prefaulted, second-import measurement compared against
+first-import cells. 5b's `primary-blk-cold` (344.8) and `share-blk-cold`
+(343.0) reproduce it exactly, so the measurement was repeatable; it just was
+not measuring the same thing as the cells beside it.
+
+The steady-state claim survives intact and is now measured directly:
+`deps-cold2` 451.2 ms, 1.15x. The claim that did not survive is "faster than
+podman today", which held only for a guest that had already done the work once.
+
+Method note for anything later in this spike: a stage that runs after other
+stages in the same guest is not comparable to a fresh-boot cell, and copying a
+large file is enough to change the result. Fresh boot per data point, or say
+plainly which regime the number is from.
+
+## What this leaves for the decision
+
+- The gate as written fails at 2.12x. The gate's stated purpose - not paying a
+  metadata premium on every file operation for the connector's life - is met:
+  that premium is 1.15x now, and was 2.33x on virtiofs.
+- The residual is one-time per boot, about 371 ms, roughly half of it guest
+  memory first-touch. Eliminating that means libkrun backing guest RAM with
+  pre-populated or huge pages, which is a libkrun-side change and would show up
+  in experiment 2's boot budget rather than here. Whether it is a net win is
+  **not measured**: prefaulting moves the cost earlier, it does not obviously
+  remove it, and the probe used here (a Python loop) is far too slow to say.
+- In absolute terms: the whole `podman run`, boot and import together, is
+  2.3 s against experiment 2's 5-second budget, with 826.8 ms of that the
+  import. (The `wall` column already contains the import, so the two do not
+  add.) The same container does it in 973 ms.
+- Nothing in scope is left to try. The transport is at parity; the root is not
+  the problem (measured above, so PLAN's "whole root on a block image" fallback
+  is not indicated); ext4 and erofs are within 3% of each other.
+
+## Environment (5b)
+
+As experiment 5, plus:
+
+- `erofs-utils` 1.7.1 on the host (`mkfs.erofs`); `mkfs.ext4` from e2fsprogs.
+- Guest kernel 6.12.91 carries both ext4 and erofs (`/proc/filesystems`), so
+  no libkrunfw change was needed. No squashfs.
+- deps disk attached with `krun_add_disk3(ctx, "deps", ..., read_only=true,
+  direct_io=false, KRUN_SYNC_NONE)`, added after the scratch disk so scratch
+  keeps `/dev/vda`.
+- The venv's own baked-in paths say `/venv` while the image is mounted at
+  `/opt/venv`, because the images are built from the directory experiment 5
+  already exported. Immaterial to the measurement - bench.py puts
+  site-packages on `sys.path` rather than running the venv's interpreter - but
+  a phase-2 builder should create the venv at its final path.

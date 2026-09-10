@@ -1,4 +1,4 @@
-//! The mount work: a writable root over the read-only image, and the two
+//! The mount work: a writable root over the read-only image, and the three
 //! extra filesystems the connector needs.
 
 use std::ffi::CString;
@@ -14,6 +14,7 @@ const NEW_ROOT: &str = "/dev/.flow/root";
 
 pub const VENV: &str = "/venv";
 pub const SCRATCH: &str = "/scratch";
+pub const DEPS: &str = "/opt/venv";
 
 /// A capped tmpfs over the image, and the guest root becomes it. Everything
 /// the connector writes outside `/scratch` lands in that tmpfs and is charged
@@ -130,6 +131,22 @@ pub fn mount_scratch(uid: u32, gid: u32) -> Result<()> {
         return Err(sys::last_error(format!("chown {SCRATCH} to {uid}:{gid}")));
     }
     Ok(())
+}
+
+/// The per-tag dependency image on `/dev/vdb`, which is what the connector's
+/// Python actually imports from. A block device rather than a second virtiofs
+/// share because WP08 measured virtiofs at 2.4x-2.9x of podman on a cold
+/// `import pandas` and ext4 over virtio-blk at 0.9x: the cost was per-file
+/// metadata round trips, which a block device answers from the guest's own
+/// caches.
+///
+/// No `chown`, unlike scratch: this is read-only and the image is built with
+/// world-readable modes.
+pub fn mount_deps(dev: &str, fstype: &str) -> Result<()> {
+    // Two levels, and `/opt` usually does not exist in a connector image.
+    sys::mkdir("/opt", 0o755)?;
+    sys::mkdir(DEPS, 0o755)?;
+    sys::mount(dev, DEPS, fstype, libc::MS_RDONLY, "")
 }
 
 fn pivot_root(new_root: &str, put_old: &str) -> Result<()> {
