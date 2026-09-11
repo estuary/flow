@@ -324,10 +324,13 @@ timeout. That latency is an accepted cost and belongs in the report.
 ### 8. Rate and fan-out limits (gate)
 
 With `connectionsPerMinute: 60` and `distinctDestinationsPerMinute: 5`, a
-Python loop that resolves and connects to 20 distinct hosts sees the sixth
-distinct destination refused and connections beyond the rate refused within
-the minute (nft `limit` is a token bucket with a burst, so "exactly the
-61st" is not the claim). Both recover after the window. Report the nftables
+Python loop that connects to 20 distinct destinations sees the sixth
+distinct destination unreachable for the rest of the window, and the
+sustained connection rate held to 60 per minute. WP02 established that a
+dropped SYN is retransmitted after one second and the bucket refills at one
+per second, so the rate limit surfaces as pacing, not as errors: every
+connection eventually completes, at the configured rate. The fan-out limit
+surfaces as a connect timeout. Both recover after the window. Report the nftables
 constructs used (expected: `limit rate` and a dynamic set with `size 5` and
 a timeout) so the runtime implementation copies them.
 
@@ -405,6 +408,18 @@ One document containing:
 - Anything that only worked from a root shell on the host.
 - Open problems found along the way, each with a proposed owner. Known so
   far:
+  - The resolver's `nft add element` does not refresh an existing element's
+    timeout, so a name re-resolved late in its window still expires at the
+    original time; a connect in that moment is dropped. The runtime's netlink
+    implementation should update in place (delete-then-add opens a window).
+    Owner: runtime.
+  - The helper inherits the host's `rp_filter`. The nft anti-spoof rule is
+    the enforced control; `rp_filter` is defense in depth and the shim should
+    set it strictly on the tap rather than inherit. Owner: runtime.
+  - `connectionsPerMinute` behaves as pacing (connections slow to the rate)
+    rather than refusal. Accepted for the spike; whether the policy should be
+    named and documented as a rate rather than a limit is a phase-2 policy
+    question. Owner: product.
   - Spec and Validate run unsandboxed. `flowctl preview` (and the agent's
     connector proxy in production) drive them through the legacy runtime.
     For derive-python that means the customer's dependencies are fetched and

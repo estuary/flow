@@ -9,7 +9,7 @@ maintains the table. Newest log entries at the bottom.
 |----|-----------------------------------------|--------------|--------|---------------------|-------|
 | 00 | Environment                             | -            | done   | daveg/libkrun-spike | a19095ede57 |
 | 01 | connector-init --vsock-port             | -            | done   | daveg/libkrun-spike | 2d50c60ae84; skip-probe tightening handed to WP05 |
-| 02 | Egress ruleset + resolver (netns)       | -            | todo   | daveg/libkrun-spike |       |
+| 02 | Egress ruleset + resolver (netns)       | -            | done   | daveg/libkrun-spike | 5a811b0518b; 49 probes, 0 failures in netns |
 | 03 | Helper image + shim                     | -            | done   | daveg/libkrun-spike | a1e1ea562f2; libkrun 1.19.4 build folded into WP04 step 0 |
 | 04 | flow-init                               | 03 (to test) | done   | daveg/libkrun-spike | ba94256e321; libkrun 1.19.4 + ENOTTY patch |
 | 05 | runtime-next spike switch               | 01 (real)    | done   | daveg/libkrun-spike | 8f745facd8c; unswitched args identical to master |
@@ -1887,3 +1887,24 @@ any runtime work is spent.)
     198.51.100.0/24 there and the check is real. Inside the helper (or the
     netns) the only subnets are the tap and the uplink, so it loads. Same in
     production, where the helper sits on `flow-connectors`.
+
+### 2026-09-11 master: WP02 accepted
+
+- Rate limits as pacing: keep `drop`. The purpose of `connectionsPerMinute`
+  is to cap what our egress addresses can be used for, and pacing a bursty
+  connector to the configured rate does that without spurious failures. The
+  fan-out limit surfacing as a timeout is consistent with "deny is drop"
+  everywhere. PLAN experiment 8 is reworded to what the mechanism does;
+  whether the policy should be named a rate is a phase-2 product question,
+  recorded in the report's open problems.
+- `rp_filter`: the nft anti-spoof rule is the enforced control. WP07 spoofs
+  from inside the /30 so the rule's counter is the evidence regardless of the
+  inherited setting, and records the value. Setting it strictly on the tap in
+  the shim is a phase-2 runtime item, in the report.
+- Element timeout not refreshed on re-resolve: real, small window, phase-2
+  netlink update. In the report's open problems.
+- Dead placeholder scripts removed in this commit.
+- WP07's brief gains the two-pass rule, the in-/30 spoof source, testnet.py
+  as the TTL fixture with a spike-only `--resolver-upstream` shim flag, and
+  the host-vs-helper note for `declared.json`.
+- Next: WP07 (experiments 6 to 8 from the guest, and the experiment 4 rerun).
