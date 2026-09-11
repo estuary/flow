@@ -193,6 +193,13 @@ experiment 3.
 Each experiment names a pass condition. "Gate" means a failure is a no-go or
 a redesign. "Measure" means record the number and move on.
 
+Results so far: 1 PASS (WP06: CapEff is podman's default plus NET_ADMIN,
+two devices, nothing needed the host shell). 2 PASS (WP06: p95 0.735 s
+against 5 s; sandbox adds ~275 ms over today, of which ~290 ms after
+flow-init is guest stderr reaching the host through libkrun's console).
+3 PASS (WP06: six diffs empty across a Go capture and materialization).
+4 PASS provisional (see experiment 4). 5 PASS by ruling at 2.12x (WP08b).
+
 ### 1. Launch through the podman API from the reactor's privilege level (gate)
 
 From the fake reactor, the helper starts, the guest boots, connector-init
@@ -222,6 +229,12 @@ derive-python specific and that connector-init, the codec, and the console
 log path work inside the guest.
 
 ### 4. derive-python end to end, permissive network (gate)
+
+Result (WP06, commit dff79afbc3e): PASS under WP03's placeholder egress
+extended with masquerade and a forwarding resolver, i.e. an unenforced
+network. Provisional until WP07 reruns it under WP02's real `allowAll`
+ruleset. Four documents byte-identical to the unsandboxed run; uv fetched
+pandas 3.0.5 inside the guest; `/scratch` footprint 183 MB.
 
 Preview a derivation with at least one non-trivial dependency (pandas) with
 the ruleset in allow-all mode, so `uv` fetches from PyPI inside the guest.
@@ -390,7 +403,26 @@ One document containing:
   sequence, and the mkfs options that passed, so phase 2 starts from them.
 - The measured cgroup overhead constant and the THP result.
 - Anything that only worked from a root shell on the host.
-- Open problems found along the way, each with a proposed owner.
+- Open problems found along the way, each with a proposed owner. Known so
+  far:
+  - Spec and Validate run unsandboxed. `flowctl preview` (and the agent's
+    connector proxy in production) drive them through the legacy runtime.
+    For derive-python that means the customer's dependencies are fetched and
+    built (sdist build backends execute) and the module type-checked on the
+    reactor's network before anything is sandboxed. Owner: runtime; this is
+    the "connector proxy moves to runtime-next" prerequisite and the builder
+    VM phase, already in the design.
+  - derive-python's pyright `strict` mode fails Validate on any dependency
+    without type information, so customer Python is limited to typed
+    libraries or ones with a stubs package. Flagged, not proposed; owner:
+    derive-python / product. Evidence is one library (pandas, fixed with
+    `pandas-stubs`).
+  - A derivation module that prints to stdout kills its session, since
+    stdout is the protocol channel. Owner: derive-python (redirect or
+    document).
+  - Levers not pulled: the ~290 ms guest-stderr console latency in libkrun
+    (42% of sandboxed launch time, under a gate passed with 4.3 s to spare);
+    guest memory first-touch (~200 ms on first import).
 
 ## Decision
 
