@@ -542,7 +542,7 @@ impl DataPlanesQuery {
                         claims.sub,
                         &dp.data_plane_name,
                         models::Capability::Read,
-                        models::authz::CapabilityMask::ALL_CAPABILITIES,
+                        env.capability_mask(),
                     )
             })
             .collect();
@@ -590,6 +590,7 @@ impl DataPlanesQuery {
         let edges = crate::server::attach_user_capabilities(
             env.snapshot(),
             env.claims()?,
+            env.capability_mask(),
             names.into_iter(),
             |data_plane_name, user_capability| {
                 let dp = row_data.get(&data_plane_name)?;
@@ -902,6 +903,42 @@ impl DataPlanesMutation {
 mod tests {
     use super::*;
     use crate::test_server;
+
+    // Alice reaches `ops/dp/public/` only through a role grant, so a mask
+    // without `Delegate` hides every public plane, and adding it back
+    // restores them.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_data_planes_honor_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let query = serde_json::json!({
+            "query": r#"query { dataPlanes { edges { node { name } } } }"#
+        });
+        let names = |response: serde_json::Value| -> Vec<String> {
+            response["data"]["dataPlanes"]["edges"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{response}"))
+                .iter()
+                .map(|e| e["node"]["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+
+        let unmasked = server.make_access_token(alice, None);
+        let all: Vec<String> = names(server.graphql(&query, Some(&unmasked)).await);
+        assert!(!all.is_empty());
+
+        let viewer = server.make_masked_access_token(alice, None, &["Viewer"]);
+        assert!(names(server.graphql(&query, Some(&viewer)).await).is_empty());
+
+        let delegating = server.make_masked_access_token(alice, None, &["Viewer", "Delegate"]);
+        assert_eq!(names(server.graphql(&query, Some(&delegating)).await), all);
+    }
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
