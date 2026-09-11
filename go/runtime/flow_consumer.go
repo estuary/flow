@@ -92,7 +92,7 @@ func (c *FlowConsumerConfig) Plane() pr.Plane {
 	return pr.Plane_PUBLIC
 }
 
-// FlowConsumer implements the Estuary Flow Consumer.
+// FlowConsumer implements the Estuary Consumer.
 type FlowConsumer struct {
 	// Configuration of this FlowConsumer.
 	config *FlowConsumerConfig
