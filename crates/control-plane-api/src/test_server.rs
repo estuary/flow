@@ -73,6 +73,37 @@ pub struct TestServer {
     _shutdown_tx: tokio::sync::oneshot::Sender<()>,
 }
 
+/// Build an App without binding a listener, for tests which drive extractors
+/// or handlers directly. The Publisher is deliberately invalid and blows up if
+/// used; nothing here touches it.
+pub fn build_app(
+    pg_pool: sqlx::PgPool,
+    snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+) -> Arc<crate::App> {
+    // TODO(johnny): Aggregate into a sink?
+    let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(1);
+
+    let publisher = crate::publications::Publisher::new(
+        &url::Url::parse("file:///invalid").unwrap(),
+        &"invalid",
+        &logs_tx,
+        pg_pool.clone(),
+        models::IdGenerator::new(0),
+        Box::new(NoopBuilder),
+    );
+
+    Arc::new(crate::App::new(
+        models::IdGenerator::new(0),
+        billing_provider,
+        b"test-jwt-secret-for-integration-tests",
+        pg_pool,
+        publisher,
+        snapshot,
+        Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
+    ))
+}
+
 impl TestServer {
     pub async fn start(pg_pool: sqlx::PgPool, snapshot: Arc<dyn tokens::Watch<Snapshot>>) -> Self {
         Self::start_with_config(
@@ -105,28 +136,7 @@ impl TestServer {
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        // TODO(johnny): Aggregate into a sink?
-        let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(1);
-
-        // Build an invalid Publisher that will blow up if used.
-        let publisher = crate::publications::Publisher::new(
-            &url::Url::parse("file:///invalid").unwrap(),
-            &"invalid",
-            &logs_tx,
-            pg_pool.clone(),
-            models::IdGenerator::new(0),
-            Box::new(NoopBuilder),
-        );
-
-        let app = Arc::new(crate::App::new(
-            models::IdGenerator::new(0),
-            billing_provider,
-            b"test-jwt-secret-for-integration-tests",
-            pg_pool.clone(),
-            publisher,
-            snapshot,
-            Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
-        ));
+        let app = build_app(pg_pool, snapshot, billing_provider);
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -169,6 +179,7 @@ impl TestServer {
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: email.map(String::from),
+            capability_mask: None,
         };
 
         jsonwebtoken::encode(

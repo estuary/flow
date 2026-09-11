@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use models::authz::CapabilityMask;
+
 use crate::AuthZResult;
 
 /// MaybeControlClaims wraps an optional Verified<ControlClaims> and represents
@@ -72,6 +74,15 @@ pub struct Envelope {
     /// primarily just used with connectors at the moment, though it could be
     /// used by any api that returns human-readable text.
     pub locale: Locale,
+
+    /// The capability mask that restricts or enables capabilities for a token.
+    /// This make only enables a capability it doesn't grant a capability,
+    /// meaning that full mask with everything enabled doesn't extend or
+    /// increase a users privilege.
+    ///
+    /// If the mask within the token is not set, as is the case for most tokens,
+    /// the mask enables everything.
+    pub capability_mask: CapabilityMask,
 }
 
 impl Envelope {
@@ -83,6 +94,11 @@ impl Envelope {
     /// Returns the request's associated Snapshot.
     pub fn snapshot(&self) -> &crate::Snapshot {
         self.refresh.result().expect("Snapshot refresh never fails")
+    }
+
+    /// Provides access to the current set of available capabilities.
+    pub fn capability_mask(self) -> CapabilityMask {
+        self.capability_mask
     }
 
     /// Evaluate an authorization policy result and return its outcome.
@@ -333,6 +349,15 @@ impl Envelope {
 
         Ok((None, ()))
     }
+
+    fn build_capability_mask(maybe_claims: Option<&crate::ControlClaims>) -> CapabilityMask {
+        let Some(claims) = maybe_claims else {
+            // This is the unauthenticated case, we are not responsible for
+            // handling the unauthorized error. That is handled elsewhere.
+            return CapabilityMask::ALL_CAPABILITIES;
+        };
+        CapabilityMask::from_claim(claims.capability_mask.as_deref())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -431,7 +456,8 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
             // For now, we hard code it, because we don't have translations for
             // any other locales anyway.
             let locale = Locale::EnUS;
-
+            // Parse and extract the capability mask from the token.
+            let capability_mask = Self::build_capability_mask(maybe_claims.result().ok());
             Ok(Envelope {
                 maybe_claims,
                 retry_after: retry_after.unwrap_or(tokens::DateTime::UNIX_EPOCH),
@@ -441,6 +467,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                 pg_pool: state.pg_pool.clone(),
                 original_uri,
                 locale,
+                capability_mask,
             })
         }
     }
@@ -458,24 +485,76 @@ mod tests {
 
     const USER: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
-    /// Verified claims for `USER`. `Verified` can only come out of
-    /// `tokens::jwt::verify`, so the claims take a sign-then-verify round trip
-    /// through a throwaway secret.
-    fn verified_claims() -> MaybeControlClaims {
+    /// Unexpired claims for `USER`, carrying `capability_mask` as given.
+    fn user_claims(capability_mask: Option<Vec<String>>) -> models::authorizations::ControlClaims {
         // The verifier skims claims as i64, so `exp` must stay within range.
         let now = tokens::now();
-        let claims = models::authorizations::ControlClaims {
+        models::authorizations::ControlClaims {
             iat: now.timestamp() as u64,
             exp: (now + chrono::TimeDelta::hours(1)).timestamp() as u64,
             sub: USER,
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: Some("user@example.test".to_string()),
+            capability_mask,
+        }
+    }
+
+    /// An App over an empty Snapshot whose pool is never dialed: the extractor
+    /// touches it only to exchange a refresh token, and these tests send JWTs.
+    async fn test_app() -> Arc<crate::App> {
+        let snapshot = tokens::fixed(Ok(crate::Snapshot::empty()))
+            .ready_owned()
+            .await;
+        let pg_pool = sqlx::PgPool::connect_lazy("postgres://unused.invalid/unused").unwrap();
+        crate::test_server::build_app(pg_pool, snapshot, None)
+    }
+
+    /// Sign `claims` with the App's own key, as the control plane mints tokens.
+    fn sign(app: &crate::App, claims: &impl serde::Serialize) -> String {
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            claims,
+            &app.control_plane_jwt_encode_key,
+        )
+        .unwrap()
+    }
+
+    /// Run the `FromRequestParts` extractor over a request carrying `bearer`,
+    /// exactly as axum would for a handler taking an `Envelope`.
+    async fn extract_envelope(
+        app: &Arc<crate::App>,
+        bearer: Option<&str>,
+    ) -> Result<Envelope, Rejection> {
+        use axum::extract::FromRequestParts;
+
+        let mut request = axum::http::Request::builder().uri("/test");
+        if let Some(bearer) = bearer {
+            request = request.header(
+                axum::http::header::AUTHORIZATION,
+                format!("Bearer {bearer}"),
+            );
+        }
+        let (mut parts, ()) = request.body(()).unwrap().into_parts();
+        Envelope::from_request_parts(&mut parts, app).await
+    }
+
+    fn unauthenticated_message(rejection: Rejection) -> String {
+        let Rejection::Status(status) = rejection else {
+            panic!("expected a Status rejection, got {rejection:?}");
         };
+        assert_eq!(status.code(), tonic::Code::Unauthenticated);
+        status.message().to_string()
+    }
+
+    /// Verified claims for `USER`. `Verified` can only come out of
+    /// `tokens::jwt::verify`, so the claims take a sign-then-verify round trip
+    /// through a throwaway secret.
+    fn verified_claims() -> MaybeControlClaims {
         let secret = b"envelope-test-secret";
         let token = jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
-            &claims,
+            &user_claims(None),
             &jsonwebtoken::EncodingKey::from_secret(secret),
         )
         .unwrap();
@@ -513,6 +592,7 @@ mod tests {
             started_set: false,
             pg_pool: sqlx::PgPool::connect_lazy("postgres://unused.invalid/unused").unwrap(),
             locale: Locale::EnUS,
+            capability_mask: CapabilityMask::ALL_CAPABILITIES,
         }
     }
 
@@ -654,5 +734,69 @@ mod tests {
             }
         }
         assert!(env.snapshot().revoke.is_cancelled());
+    }
+    #[tokio::test]
+    async fn test_extractor_without_mask_is_unrestricted() {
+        let app = test_app().await;
+
+        let token = sign(&app, &user_claims(None));
+        let env = extract_envelope(&app, Some(&token)).await.unwrap();
+        assert_eq!(env.maybe_claims.result().unwrap().sub, USER);
+        assert_eq!(env.capability_mask, CapabilityMask::ALL_CAPABILITIES);
+
+        // No bearer at all is likewise unrestricted: the mask is never what
+        // fails an unauthenticated request, that is `maybe_claims`' job.
+        let env = extract_envelope(&app, None).await.unwrap();
+        assert!(env.maybe_claims.result().is_err());
+        assert_eq!(env.capability_mask, CapabilityMask::ALL_CAPABILITIES);
+    }
+
+    #[tokio::test]
+    async fn test_extractor_applies_mask_claim() {
+        let app = test_app().await;
+
+        let token = sign(
+            &app,
+            &user_claims(Some(vec!["Viewer".to_string(), "Delegate".to_string()])),
+        );
+        let env = extract_envelope(&app, Some(&token)).await.unwrap();
+        assert_eq!(env.maybe_claims.result().unwrap().sub, USER);
+        assert_eq!(
+            env.capability_mask,
+            CapabilityMask::new(
+                models::authz::CapabilityBundle::Viewer.capabilities()
+                    | models::authz::Capability::Delegate
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_extractor_rejects_invalid_token() {
+        let app = test_app().await;
+
+        // Well-formed claims under a key the App does not trust.
+        let forged = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &user_claims(None),
+            &jsonwebtoken::EncodingKey::from_secret(b"not-the-app-secret"),
+        )
+        .unwrap();
+        let err = extract_envelope(&app, Some(&forged)).await.unwrap_err();
+        assert_eq!(
+            unauthenticated_message(err),
+            "failed to verify token: InvalidSignature"
+        );
+
+        // A mask claim that is not an array fails claim deserialization, so a
+        // malformed mask rejects the token outright rather than reaching
+        // `build_capability_mask` and being read as a lenient empty mask.
+        let mut claims = serde_json::to_value(user_claims(None)).unwrap();
+        claims["capability_mask"] = serde_json::json!("Viewer");
+        let token = sign(&app, &claims);
+        let err = extract_envelope(&app, Some(&token)).await.unwrap_err();
+        assert_eq!(
+            unauthenticated_message(err),
+            "failed to deserialize verified JWT claims: invalid type: string \"Viewer\", expected a sequence at line 1 column 49"
+        );
     }
 }

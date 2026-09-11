@@ -1711,6 +1711,7 @@ impl TestHarness {
             exp: (req_start + chrono::Duration::hours(1)).timestamp() as u64,
             role: "authenticated".to_string(),
             email: Some("user@example.com".to_string()),
+            capability_mask: None,
         };
 
         let token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)
@@ -1727,6 +1728,7 @@ impl TestHarness {
             started: tokens::now(),
             started_set: false,
             locale: control_plane_api::Locale::EnUS,
+            capability_mask: control_plane_api::CapabilityMask::ALL_CAPABILITIES,
         };
 
         // Create GraphQL schema
