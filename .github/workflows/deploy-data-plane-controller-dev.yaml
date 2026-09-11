@@ -1,10 +1,23 @@
-name: Deploy data-plane-controller
+name: Deploy data-plane-controller (dev)
 
-# Deployed manually rather than on every master build, so a candidate image can
-# be validated by the dev deployment (deploy-data-plane-controller-dev.yaml)
-# against test data-planes before it reaches the rest of the fleet. Both
-# deployments take the same tag, so what gets promoted is the same artifact that
-# was tested. Mirrors deploy-agent-api.yaml.
+# The dev deployment of the data-plane-controller. It is identical to the
+# primary deployment except that it passes DPC_DEV=true, which makes it serve
+# the DATA_PLANE_CONTROLLER_DEV task type instead of DATA_PLANE_CONTROLLER.
+# Only data-planes whose controller task has been explicitly moved to that type
+# are operated on here, so this deployment can run a candidate build against
+# test planes without touching the rest of the fleet. Move a plane with:
+#
+#   UPDATE internal.tasks SET task_type = 13
+#   WHERE task_id = (SELECT controller_task_id FROM data_planes
+#                    WHERE data_plane_name = '<name>');
+#
+# Both Cloud Run resources are created on first run: `gcloud run deploy` and
+# `gcloud run jobs deploy`, which this action wraps, each create or update.
+#
+# Deploy here first, then promote the same tag with
+# deploy-data-plane-controller.yaml once it looks good on the test planes.
+# Neither workflow builds anything: the tag must already have been pushed by a
+# Platform Build run.
 on:
   workflow_dispatch:
     inputs:
@@ -39,16 +52,18 @@ jobs:
           service_account: cd-github-actions@estuary-control.iam.gserviceaccount.com
           workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
 
-      - name: Deploy Cloud Run service `data-plane-controller-service`
+      - name: Deploy Cloud Run service `data-plane-controller-service-dev`
         id: deploy-service
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: data-plane-controller-service
+          service: data-plane-controller-service-dev
           project_id: estuary-control
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
           timeout: 3600s
-          # Declare the VPC egress (previously set out-of-band) in code so it survives a full replace.
+          # Same network as the primary deployment, so this service egresses via the
+          # NAT IP that every data-plane's `ssh_subnets` already allows. Without that
+          # the Ansible step could not reach instances.
           flags: '--args=service --no-allow-unauthenticated --service-account=data-plane-controller@estuary-control.iam.gserviceaccount.com --network=data-plane-controller --subnet=data-plane-controller-sn1 --vpc-egress=all-traffic'
 
           # NOTE: env_vars and secrets are literal block scalars (|-); every
@@ -56,6 +71,8 @@ jobs:
           # KEY=SECRET:version. Do NOT put `#` comments inside them.
           # DPC_GIT_AUTH_MODE selects git auth (ssh | github-app); see
           # crates/data-plane-controller/entrypoint.sh.
+          # The service takes no DPC_DEV: it executes whatever the job dispatches
+          # to it and never dequeues, so it has no task type of its own.
           env_vars: |-
             DPC_DATABASE_CA=/etc/db-ca.crt
             DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
@@ -79,6 +96,25 @@ jobs:
 
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite
+
+      # The service has no application-level auth: nothing in src/service/ checks
+      # Authorization, so this binding is the only thing stopping anyone who can
+      # reach the URL from driving Pulumi and Ansible. The job authenticates with a
+      # GCP ID token minted from the metadata server, and on failure to mint one it
+      # logs a warning and proceeds tokenless, so a missing binding shows up as a
+      # 403 on /execute rather than as an auth error. Adding a binding that already
+      # exists is a no-op, so this is safe to re-run.
+      #
+      # This needs run.services.setIamPolicy on the deploying identity. If
+      # cd-github-actions lacks it this step fails, and the binding can be applied
+      # once by hand with the same command.
+      - name: Grant the controller service account invoker on the dev service
+        run: |
+          gcloud run services add-iam-policy-binding data-plane-controller-service-dev \
+            --project=estuary-control \
+            --region=us-central1 \
+            --member=serviceAccount:data-plane-controller@estuary-control.iam.gserviceaccount.com \
+            --role=roles/run.invoker
 
   deploy-job:
     runs-on: ubuntu-24.04
@@ -104,10 +140,10 @@ jobs:
           service_account: cd-github-actions@estuary-control.iam.gserviceaccount.com
           workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
 
-      - name: Update Cloud Run job `data-plane-controller`
+      - name: Update Cloud Run job `data-plane-controller-dev`
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          job: data-plane-controller
+          job: data-plane-controller-dev
           project_id: estuary-control
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
@@ -117,11 +153,21 @@ jobs:
           # provisioning SSH, so it does not need the data-plane-controller egress IP.
           flags: '--args=job --service-account=data-plane-controller@estuary-control.iam.gserviceaccount.com --network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic'
 
+          # NOTE: literal block scalars, as above. No `#` comments inside them.
+          # DPC_DEV selects the DATA_PLANE_CONTROLLER_DEV task type and must be
+          # exactly `true` or `false`; the flag rejects anything else at startup
+          # rather than defaulting to false.
+          # DPC_SERVICE_URL must be this deployment's own service, because the job
+          # uses it verbatim as the ID-token audience. Pointing it at the primary
+          # service's URL yields a 403 from Cloud Run.
+          # DPC_CONCURRENCY is lower than the primary deployment's: this one serves
+          # a handful of test planes, not the fleet.
           env_vars: |-
             DPC_DATABASE_CA=/etc/db-ca.crt
             DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             DPC_SERVICE_URL=${{ needs.deploy-service.outputs.service-url }}
-            DPC_CONCURRENCY=10
+            DPC_CONCURRENCY=2
+            DPC_DEV=true
             NO_COLOR=1
 
           secrets: |-

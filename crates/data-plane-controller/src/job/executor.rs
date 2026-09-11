@@ -175,6 +175,33 @@ impl automations::Executor for Executor {
     }
 }
 
+/// Serves the same controller logic as `Executor`, registered under the dev
+/// task type so a second deployment can operate on a disjoint set of
+/// data-planes. Which data-planes those are is decided entirely by the
+/// automations dequeue predicate: nothing below this point behaves
+/// differently, because a task is joined to its data-plane row by
+/// `controller_task_id` and never by task type.
+pub struct DevExecutor(pub Executor);
+
+impl automations::Executor for DevExecutor {
+    const TASK_TYPE: automations::TaskType = automations::task_types::DATA_PLANE_CONTROLLER_DEV;
+
+    type Receive = Message;
+    type State = Option<State>;
+    type Outcome = Outcome;
+
+    fn poll<'s>(
+        &'s self,
+        pool: &'s sqlx::PgPool,
+        task_id: models::Id,
+        parent_id: Option<models::Id>,
+        state: &'s mut Self::State,
+        inbox: &'s mut VecDeque<(models::Id, Option<Message>)>,
+    ) -> impl std::future::Future<Output = anyhow::Result<Self::Outcome>> + Send + 's {
+        <Executor as automations::Executor>::poll(&self.0, pool, task_id, parent_id, state, inbox)
+    }
+}
+
 impl Executor {
     pub async fn on_poll(
         &self,
