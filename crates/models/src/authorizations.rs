@@ -20,6 +20,10 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    /// An optional capability mask. If this is omitted, which is the norm, we
+    /// assume that there is no restriction on the user's capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_mask: Option<Vec<String>>,
 }
 
 impl ControlClaims {
