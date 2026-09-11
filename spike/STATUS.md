@@ -1631,8 +1631,7 @@ any runtime work is spent.)
     mode**, so a module using untyped pandas does not build. The spec declares
     `pandas-stubs`, and the module uses `Series.sum()` rather than `.iloc[0]`,
     whose type the stubs leave partially unknown. Unrelated to the sandbox, but
-    it is a real constraint on customer Python that the phase-2 story should
-    name.
+    it is a real constraint on customer Python. See the open problem below.
   - **The capture's `bytesTotal` is not reproducible even within one arm.**
     Documents carry a wall-clock `ts` whose serialization is sometimes one byte
     shorter (trailing zero trimmed). `docsTotal` and `txnCount` are stable.
@@ -1669,3 +1668,30 @@ any runtime work is spent.)
     a WP?
   - **`--sessions` and the twice-started connector.** Nothing depends on it
     here, but if WP09 counts launches it should know one preview is two.
+
+- **open problem, not WP06's to decide: pyright `strict` on customer modules.**
+  derive-python hardcodes `"typeCheckingMode": "strict"`
+  (`crates/derive-python/src/lib.rs:381`), force-installs pyright as a
+  dependency (`:400`), and fails the **Validate** RPC on any finding (`:262`).
+  There is no way to relax it from a catalog spec: `DeriveUsingPython` carries
+  only `module` and `dependencies`, and the connector writes its own
+  `pyrightconfig.json` into the generated project.
+
+  Why this is a problem and not a preference: in strict mode
+  `reportUnknownMemberType` and `reportUnknownVariableType` make any dependency
+  without type information poison every expression that touches it. So the
+  constraint on customer Python is not "write typed code", it is "only use
+  libraries that ship `py.typed` or have a stubs package". That sits directly
+  across the spike's premise, which is running customer Python with arbitrary
+  dependencies.
+
+  **Scope of the evidence: one library.** pandas is the only case measured here,
+  and it was resolvable by declaring `pandas-stubs`. Nothing in this spike
+  surveys how much of the ecosystem is affected, and that survey is what a
+  decision should rest on.
+
+  **This is flagged, not proposed.** dgreer's position is that strict mode looks
+  untenable going forward, and equally that relaxing it is not his call to make
+  unilaterally: it needs someone to ask for it. Nothing in the spike touches
+  derive-python, and nothing should. Recorded so the decision has a place to
+  happen rather than being discovered by the first customer.

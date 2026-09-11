@@ -100,8 +100,8 @@ that WP02 needs to preserve except the masquerade, which it owes anyway.
   `typeCheckingMode: strict`, so untyped pandas fails the build before anything
   runs. The spec therefore declares `pandas-stubs` alongside `pandas`, and the
   module uses `Series.sum()` rather than `.iloc[0]`, whose type pandas-stubs
-  leaves partially unknown. Worth knowing before a customer hits it: this is a
-  real constraint on customer Python, and it is unrelated to the sandbox.
+  leaves partially unknown. Unrelated to the sandbox and pre-existing, but see
+  the open problem below: it is the friction this experiment actually hit.
 - **A derivation module must not print to stdout.** stdout is the derive
   protocol's own channel and connector-init parses every line of it as a JSON
   response; the first version of the footprint probe printed there and killed
@@ -112,3 +112,30 @@ that WP02 needs to preserve except the masquerade, which it owes anyway.
   customer's module was type-checked and validated - and its dependencies
   fetched - outside the sandbox. See `exp3.md` "Scope" for the phase-2 open
   problem; it matters more here than it does for a Go connector.
+
+## Open problem, and not one the spike should decide: pyright `strict`
+
+**Owner: derive-python. Flagged here, not proposed.**
+
+derive-python hardcodes `"typeCheckingMode": "strict"`
+(`crates/derive-python/src/lib.rs:381`), force-installs pyright as a required
+dependency (`:400`), and fails the **Validate** RPC on any finding (`:262`),
+which fails the publish or preview. It cannot be relaxed from a catalog spec:
+`DeriveUsingPython` carries only `module` and `dependencies`, and the connector
+writes its own `pyrightconfig.json` into the generated project.
+
+In strict mode `reportUnknownMemberType` and `reportUnknownVariableType` make a
+dependency without type information poison every expression that touches it. The
+effective constraint on customer Python is therefore not "write typed code" but
+"only use libraries that ship `py.typed` or have a stubs package" - which sits
+across the premise of this whole spike, that customers bring arbitrary Python
+with arbitrary dependencies.
+
+**What the evidence here actually covers: one library.** pandas, and it was
+resolvable by declaring `pandas-stubs`. This spike does not survey how much of
+the ecosystem is affected, and that survey is what any decision should rest on.
+
+It is recorded because the sandbox is the thing that makes customer Python a
+product surface, so this is the moment the constraint stops being theoretical.
+Changing it is a decision for whoever owns derive-python, on someone's explicit
+ask. Nothing in this spike touches that connector.
