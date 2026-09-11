@@ -13,7 +13,7 @@ maintains the table. Newest log entries at the bottom.
 | 03 | Helper image + shim                     | -            | done   | daveg/libkrun-spike | a1e1ea562f2; libkrun 1.19.4 build folded into WP04 step 0 |
 | 04 | flow-init                               | 03 (to test) | done   | daveg/libkrun-spike | ba94256e321; libkrun 1.19.4 + ENOTTY patch |
 | 05 | runtime-next spike switch               | 01 (real)    | done   | daveg/libkrun-spike | 8f745facd8c; unswitched args identical to master |
-| 06 | Integration: experiments 1-4            | 00-05        | done   | daveg/libkrun-spike | all four gates PASS; exp 4 under placeholder egress, WP07 reruns |
+| 06 | Integration: experiments 1-4            | 00-05        | done   | daveg/libkrun-spike | dff79afbc3e, 8d95d06724f; gates 1-3 pass, 4 provisional until WP07 |
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
@@ -1695,3 +1695,26 @@ any runtime work is spent.)
   unilaterally: it needs someone to ask for it. Nothing in the spike touches
   derive-python, and nothing should. Recorded so the decision has a place to
   happen rather than being discovered by the first customer.
+
+### 2026-09-11 master: WP06 accepted; four gates, one provisional
+
+- Experiment 4: both. It reruns as WP07's first step under WP02's real
+  `allowAll` ruleset, AND PLAN's gate table carries it as provisional until
+  then, so it cannot be read as settled. In WP07's brief.
+- Spec/Validate unsandboxed: framing confirmed and sharpened. In production
+  the agent's connector proxy drives Validate through the same legacy path,
+  so this is not a preview artifact. For derive-python, Validate is where uv
+  resolves and builds dependencies (sdist build backends execute) and where
+  pyright runs, all on the reactor's network. That is exactly the builder VM
+  phase of the design plus the "connector proxy moves to runtime-next"
+  prerequisite. It is the top open problem in the report; PLAN lists it.
+- The ~290 ms console latency: a lever in the report, not a WP. The gate has
+  4.3 s of headroom and the mechanism is libkrun's console device. If WP09
+  makes launch latency scarce, it is the first thing to open.
+- Twice-started connectors per preview and the guest-clock rule are in
+  WP09's brief.
+- pyright strict and the stdout footgun are recorded in PLAN's open problems
+  as flagged, not proposed. Neither is the spike's to change.
+- The placeholder egress/resolver extensions are accepted as WP06 recorded
+  them; WP02 replaces both files wholesale (in its brief).
+- Next: WP02, then WP07. WP11 can run any time before WP10.
