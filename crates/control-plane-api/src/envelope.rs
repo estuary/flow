@@ -96,8 +96,9 @@ impl Envelope {
         self.refresh.result().expect("Snapshot refresh never fails")
     }
 
-    /// Provides access to the current set of available capabilities.
-    pub fn capability_mask(self) -> CapabilityMask {
+    /// The bearer's capability mask. Unmasked bearers, and unauthenticated
+    /// requests, carry `ALL_CAPABILITIES`.
+    pub fn capability_mask(&self) -> CapabilityMask {
         self.capability_mask
     }
 
@@ -274,14 +275,19 @@ impl Envelope {
         } = claims;
         let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
         let snapshot = self.snapshot();
-        for prefix_or_name in prefixes_or_names.into_iter() {
+        let mut prefixes_or_names = prefixes_or_names.into_iter().peekable();
+
+        if let Some(first) = prefixes_or_names.peek() {
+            masked_shortfall(self.capability_mask, min_capability.into(), first.as_ref())?;
+        }
+        for prefix_or_name in prefixes_or_names {
             if !tables::UserGrant::is_authorized(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 *user_id,
                 prefix_or_name.as_ref(),
                 min_capability,
-                models::authz::CapabilityMask::ALL_CAPABILITIES,
+                self.capability_mask,
             ) {
                 return Err(tonic::Status::permission_denied(format!(
                     "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
@@ -321,6 +327,11 @@ impl Envelope {
         } = self.claims()?;
         let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
         let snapshot = self.snapshot();
+        masked_shortfall(
+            self.capability_mask,
+            models::Capability::Admin.into(),
+            catalog_prefix,
+        )?;
         // Verify the User admins `catalog_prefix`.
         if !tables::UserGrant::is_authorized(
             &snapshot.role_grants,
@@ -328,7 +339,7 @@ impl Envelope {
             *user_id,
             catalog_prefix,
             models::Capability::Admin,
-            models::authz::CapabilityMask::ALL_CAPABILITIES,
+            self.capability_mask,
         ) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
@@ -360,6 +371,31 @@ impl Envelope {
         };
         CapabilityMask::from_claim(claims.capability_mask.as_deref())
     }
+}
+
+/// Errors if `mask` withholds any of `required`. A non-empty shortfall is a
+/// property of the token alone: no grant could authorize the request under
+/// this mask, so the denial names the withheld bits in claim vocabulary and
+/// never consults the grant walk, disclosing nothing about the bearer's
+/// grants to `prefix_or_name`. An empty shortfall defers to the walk, whose
+/// denial reads as it does for an unmasked bearer.
+fn masked_shortfall(
+    mask: CapabilityMask,
+    required: models::authz::CapabilitySet,
+    prefix_or_name: &str,
+) -> tonic::Result<()> {
+    let missing = required - mask.apply(required);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let missing = missing
+        .iter()
+        .map(|bit| bit.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(tonic::Status::permission_denied(format!(
+        "token does not enable capabilities [{missing}] required to access prefix or name '{prefix_or_name}'",
+    )))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -482,24 +518,12 @@ impl aide::operation::OperationInput for Envelope {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_server::snapshot_of_grants;
+    use crate::test_server::{ALICE as USER, snapshot_of_grants, viewer_mask};
     use models::Capability::{Admin, Read};
-
-    const USER: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
     /// Unexpired claims for `USER`, carrying `capability_mask` as given.
     fn user_claims(capability_mask: Option<Vec<String>>) -> models::authorizations::ControlClaims {
-        // The verifier skims claims as i64, so `exp` must stay within range.
-        let now = tokens::now();
-        models::authorizations::ControlClaims {
-            iat: now.timestamp() as u64,
-            exp: (now + chrono::TimeDelta::hours(1)).timestamp() as u64,
-            sub: USER,
-            role: "authenticated".to_string(),
-            aud: "authenticated".to_string(),
-            email: Some("user@example.test".to_string()),
-            capability_mask,
-        }
+        crate::test_server::control_claims(USER, Some("user@example.test"), capability_mask)
     }
 
     /// An App over an empty Snapshot whose pool is never dialed: the extractor
@@ -581,6 +605,7 @@ mod tests {
         mut snapshot: crate::Snapshot,
         maybe_claims: MaybeControlClaims,
         started: tokens::DateTime,
+        capability_mask: CapabilityMask,
     ) -> Envelope {
         snapshot.taken = tokens::now();
         let refresh = tokens::fixed(Ok(snapshot)).ready_owned().await.token();
@@ -594,13 +619,19 @@ mod tests {
             started_set: false,
             pg_pool: sqlx::PgPool::connect_lazy("postgres://unused.invalid/unused").unwrap(),
             locale: Locale::EnUS,
-            capability_mask: CapabilityMask::ALL_CAPABILITIES,
+            capability_mask,
         }
     }
 
-    /// An authenticated Envelope whose denials are terminal.
-    async fn authenticated_envelope(snapshot: crate::Snapshot) -> Envelope {
-        envelope_for_test(snapshot, verified_claims(), tokens::DateTime::UNIX_EPOCH).await
+    /// An authenticated Envelope carrying `mask`, whose denials are terminal.
+    async fn authenticated_envelope(snapshot: crate::Snapshot, mask: CapabilityMask) -> Envelope {
+        envelope_for_test(
+            snapshot,
+            verified_claims(),
+            tokens::DateTime::UNIX_EPOCH,
+            mask,
+        )
+        .await
     }
 
     /// A request which started after the Snapshot was taken, so that a denial
@@ -626,12 +657,19 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_ops_admin_gate() {
         // A direct admin grant to `ops/` is authorized.
-        let env = authenticated_envelope(snapshot_of_grants(&[(USER, "ops/", Admin)], &[])).await;
+        let env = authenticated_envelope(
+            snapshot_of_grants(&[(USER, "ops/", Admin)], &[]),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
         assert!(env.evaluate_names_authorization(["ops/"], Admin).is_ok());
 
         // Admin of an unrelated tenant is denied.
-        let env =
-            authenticated_envelope(snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[])).await;
+        let env = authenticated_envelope(
+            snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[]),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
         let status = env
             .evaluate_names_authorization(["ops/"], Admin)
             .unwrap_err();
@@ -642,20 +680,31 @@ mod tests {
         );
 
         // A read grant to `ops/` is not admin.
-        let env = authenticated_envelope(snapshot_of_grants(&[(USER, "ops/", Read)], &[])).await;
+        let env = authenticated_envelope(
+            snapshot_of_grants(&[(USER, "ops/", Read)], &[]),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
         assert!(env.evaluate_names_authorization(["ops/"], Admin).is_err());
     }
 
     #[tokio::test]
     async fn test_verify_authorization_admits_admin_grant() {
-        let env = authenticated_envelope(snapshot_of_grants(&[(USER, "ops/", Admin)], &[])).await;
+        let env = authenticated_envelope(
+            snapshot_of_grants(&[(USER, "ops/", Admin)], &[]),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
         env.verify_authorization("ops/", Admin).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_verify_authorization_denies_as_permission_denied() {
-        let env =
-            authenticated_envelope(snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[])).await;
+        let env = authenticated_envelope(
+            snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[]),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
 
         let err = env.verify_authorization("ops/", Admin).await.unwrap_err();
         assert_eq!(
@@ -664,17 +713,21 @@ mod tests {
         );
 
         // A grant below the required capability is likewise denied.
-        let env = authenticated_envelope(snapshot_of_grants(&[(USER, "ops/", Read)], &[])).await;
+        let env = authenticated_envelope(
+            snapshot_of_grants(&[(USER, "ops/", Read)], &[]),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
         let err = env.verify_authorization("ops/", Admin).await.unwrap_err();
         denied_message(err);
     }
 
     #[tokio::test]
     async fn test_verify_authorization_iter_requires_every_name() {
-        let env = authenticated_envelope(snapshot_of_grants(
-            &[(USER, "acmeCo/", Read), (USER, "bobCo/", Read)],
-            &[],
-        ))
+        let env = authenticated_envelope(
+            snapshot_of_grants(&[(USER, "acmeCo/", Read), (USER, "bobCo/", Read)], &[]),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
         .await;
 
         env.verify_authorization_iter(["acmeCo/foo", "bobCo/bar"], Read)
@@ -700,6 +753,7 @@ mod tests {
             snapshot_of_grants(&[(USER, "ops/", Admin)], &[]),
             MaybeControlClaims::with_unauthenticated(),
             started_after_snapshot(),
+            CapabilityMask::ALL_CAPABILITIES,
         )
         .await;
 
@@ -724,6 +778,7 @@ mod tests {
             snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[]),
             verified_claims(),
             started_after_snapshot(),
+            CapabilityMask::ALL_CAPABILITIES,
         )
         .await;
 
@@ -737,6 +792,188 @@ mod tests {
         }
         assert!(env.snapshot().revoke.is_cancelled());
     }
+    // The mask attenuates every bit the walk would otherwise emit, so a
+    // `Viewer` mask over an admin grant authorizes reads and nothing more.
+    #[tokio::test]
+    async fn test_evaluate_names_authorization_honors_mask() {
+        let grants = || snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[]);
+
+        let env = authenticated_envelope(grants(), viewer_mask()).await;
+        assert!(env.evaluate_names_authorization(["acmeCo/"], Read).is_ok());
+
+        // Bits the mask withholds are named in claim vocabulary, in
+        // `Capability` declaration order, without reference to the grant walk.
+        let status = env
+            .evaluate_names_authorization(["acmeCo/"], Admin)
+            .unwrap_err();
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+        insta::assert_snapshot!(status.message(), @"token does not enable capabilities [JournalAppend, SpecEdit, CreateGrant, DeleteGrant, CreateInviteLink, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey, ViewSecret, EditSecret, DecryptSecret, Delegate] required to access prefix or name 'acmeCo/'");
+
+        let status = env
+            .evaluate_names_authorization(["acmeCo/"], models::authz::Capability::SpecEdit)
+            .unwrap_err();
+        assert_eq!(
+            status.message(),
+            "token does not enable capabilities [SpecEdit] required to access prefix or name 'acmeCo/'"
+        );
+
+        // The shortfall is a function of the token alone: a name the bearer
+        // holds no grant to reports the same message, disclosing nothing
+        // about grants.
+        let status = env
+            .evaluate_names_authorization(["bobCo/"], models::authz::Capability::SpecEdit)
+            .unwrap_err();
+        assert_eq!(
+            status.message(),
+            "token does not enable capabilities [SpecEdit] required to access prefix or name 'bobCo/'"
+        );
+
+        // When the mask enables everything required, denial is the walk's and
+        // reads exactly as it does for an unmasked bearer.
+        let status = env
+            .evaluate_names_authorization(["bobCo/"], Read)
+            .unwrap_err();
+        assert_eq!(
+            status.message(),
+            "user@example.test is not authorized to access prefix or name 'bobCo/' with required capability read"
+        );
+
+        // Over several names, the shortfall is reported against the first.
+        let status = env
+            .evaluate_names_authorization(["acmeCo/", "bobCo/"], Admin)
+            .unwrap_err();
+        assert!(
+            status
+                .message()
+                .ends_with("required to access prefix or name 'acmeCo/'"),
+            "{}",
+            status.message()
+        );
+
+        // The same grants unmasked authorize admin.
+        let env = authenticated_envelope(grants(), CapabilityMask::ALL_CAPABILITIES).await;
+        assert!(env.evaluate_names_authorization(["acmeCo/"], Admin).is_ok());
+    }
+
+    // A mask without `Delegate` confines the bearer to their direct grants:
+    // the role-grant edge out of `acmeCo/` is never followed.
+    #[tokio::test]
+    async fn test_evaluate_names_authorization_mask_confines_to_direct_grants() {
+        let grants = || {
+            snapshot_of_grants(
+                &[(USER, "acmeCo/", Admin)],
+                &[("acmeCo/", "sharedCo/", Read)],
+            )
+        };
+
+        let env = authenticated_envelope(grants(), CapabilityMask::ALL_CAPABILITIES).await;
+        assert!(
+            env.evaluate_names_authorization(["sharedCo/"], Read)
+                .is_ok()
+        );
+
+        let env = authenticated_envelope(grants(), viewer_mask()).await;
+        assert!(
+            env.evaluate_names_authorization(["sharedCo/"], Read)
+                .is_err()
+        );
+        // Admin bundle bits include `Delegate`, so an `Admin` mask reaches it.
+        let env = authenticated_envelope(
+            grants(),
+            CapabilityMask::new(models::authz::CapabilityBundle::Admin.capabilities()),
+        )
+        .await;
+        assert!(
+            env.evaluate_names_authorization(["sharedCo/"], Read)
+                .is_ok()
+        );
+    }
+
+    // Only the user half of the storage-mapping policy is masked: the prefix's
+    // own Read on the data plane is a role-grant walk, independent of the bearer.
+    #[tokio::test]
+    async fn test_evaluate_storage_mapping_authorization_honors_mask() {
+        let grants = || {
+            snapshot_of_grants(
+                &[(USER, "acmeCo/", Admin)],
+                &[("acmeCo/", "ops/dp/public/", Read)],
+            )
+        };
+        let prefix = models::Prefix::new("acmeCo/");
+        let planes = vec!["ops/dp/public/gcp".to_string()];
+
+        let env = authenticated_envelope(grants(), CapabilityMask::ALL_CAPABILITIES).await;
+        assert!(
+            env.evaluate_storage_mapping_authorization(&prefix, &planes)
+                .is_ok()
+        );
+
+        let env = authenticated_envelope(grants(), viewer_mask()).await;
+        let status = env
+            .evaluate_storage_mapping_authorization(&prefix, &planes)
+            .unwrap_err();
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+        insta::assert_snapshot!(status.message(), @"token does not enable capabilities [JournalAppend, SpecEdit, CreateGrant, DeleteGrant, CreateInviteLink, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey, ViewSecret, EditSecret, DecryptSecret, Delegate] required to access prefix or name 'acmeCo/'");
+
+        // An `Editor` mask reaches the prefix but lacks the admin-only bits;
+        // the walk's own denial is not consulted because the token can never
+        // pass.
+        let env = authenticated_envelope(
+            grants(),
+            CapabilityMask::new(models::authz::CapabilityBundle::Editor.capabilities()),
+        )
+        .await;
+        let status = env
+            .evaluate_storage_mapping_authorization(&prefix, &planes)
+            .unwrap_err();
+        insta::assert_snapshot!(status.message(), @"token does not enable capabilities [JournalAppend, CreateGrant, DeleteGrant, CreateInviteLink, ViewDataPlanePrivateNetworking, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey] required to access prefix or name 'acmeCo/'");
+
+        let env = authenticated_envelope(
+            grants(),
+            CapabilityMask::new(models::authz::CapabilityBundle::Admin.capabilities()),
+        )
+        .await;
+        assert!(
+            env.evaluate_storage_mapping_authorization(&prefix, &planes)
+                .is_ok()
+        );
+    }
+
+    // A mask shortfall is a terminal denial only against a current Snapshot.
+    // Started after the Snapshot, the request takes the same provisional
+    // retry as any other denial, and the shortfall message rides along in it.
+    #[tokio::test]
+    async fn test_mask_shortfall_after_snapshot_stays_provisional() {
+        let env = envelope_for_test(
+            snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[]),
+            verified_claims(),
+            started_after_snapshot(),
+            viewer_mask(),
+        )
+        .await;
+
+        match env
+            .verify_authorization("acmeCo/", Admin)
+            .await
+            .unwrap_err()
+        {
+            crate::ApiError::AuthZRetry(retry) => {
+                assert_eq!(retry.status.code(), tonic::Code::PermissionDenied);
+                assert!(
+                    retry
+                        .status
+                        .message()
+                        .starts_with("token does not enable capabilities ["),
+                    "{}",
+                    retry.status.message()
+                );
+            }
+            crate::ApiError::Status(status) => {
+                panic!("expected a provisional retry, got terminal {status:?}")
+            }
+        }
+    }
+
     #[tokio::test]
     async fn test_extractor_without_mask_is_unrestricted() {
         let app = test_app().await;
@@ -744,13 +981,13 @@ mod tests {
         let token = sign(&app, &user_claims(None));
         let env = extract_envelope(&app, Some(&token)).await.unwrap();
         assert_eq!(env.maybe_claims.result().unwrap().sub, USER);
-        assert_eq!(env.capability_mask, CapabilityMask::ALL_CAPABILITIES);
+        assert_eq!(env.capability_mask(), CapabilityMask::ALL_CAPABILITIES);
 
         // No bearer at all is likewise unrestricted: the mask is never what
         // fails an unauthenticated request, that is `maybe_claims`' job.
         let env = extract_envelope(&app, None).await.unwrap();
         assert!(env.maybe_claims.result().is_err());
-        assert_eq!(env.capability_mask, CapabilityMask::ALL_CAPABILITIES);
+        assert_eq!(env.capability_mask(), CapabilityMask::ALL_CAPABILITIES);
     }
 
     #[tokio::test]
