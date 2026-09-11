@@ -1,0 +1,62 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: alice_result
+---
+{
+  "inSet": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/private/capture",
+          "userCapability": "admin"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "userCapability": "admin"
+        }
+      }
+    ]
+  },
+  "startsWith": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "userCapability": "admin"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/b",
+          "userCapability": "admin"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/c",
+          "userCapability": "admin"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/capture",
+          "userCapability": "admin"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/disabled",
+          "userCapability": "admin"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/materialize",
+          "userCapability": "admin"
+        }
+      }
+    ]
+  }
+}

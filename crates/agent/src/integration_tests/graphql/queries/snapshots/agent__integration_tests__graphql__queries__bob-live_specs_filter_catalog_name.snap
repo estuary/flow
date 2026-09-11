@@ -1,0 +1,56 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "inSet": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "userCapability": "read"
+        }
+      }
+    ]
+  },
+  "startsWith": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/a",
+          "userCapability": "read"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/b",
+          "userCapability": "read"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/c",
+          "userCapability": "read"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/capture",
+          "userCapability": "read"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/disabled",
+          "userCapability": "read"
+        }
+      },
+      {
+        "node": {
+          "catalogName": "aliceCo/shared/materialize",
+          "userCapability": "read"
+        }
+      }
+    ]
+  }
+}
