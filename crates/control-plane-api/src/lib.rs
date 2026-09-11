@@ -50,7 +50,6 @@ pub use envelope::{Envelope, Locale, MaybeControlClaims};
 
 // TODO(johnny): These types are all fundamental to this crate, and should be
 // hoisted from the `server` module. For now, just re-export to minimize churn.
-pub(crate) use server::evaluate_names_authorization;
 pub use server::{
     ApiError, App, AuthZRetry, build_router,
     snapshot::{self, Snapshot},

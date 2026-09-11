@@ -35,13 +35,8 @@ pub async fn update_l2_reporting(
     let claims = env.claims()?;
     let user_id = claims.sub;
 
-    let policy_result = super::evaluate_names_authorization(
-        env.snapshot(),
-        claims,
-        models::Capability::Admin,
-        ["ops/"],
-    );
-    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
+    env.verify_authorization("ops/", models::Capability::Admin)
+        .await?;
 
     let template = include_str!("../../../../ops-catalog/reporting-L2-template.bundle.json");
     let tables::DraftCatalog { collections, .. } =

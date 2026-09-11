@@ -26,13 +26,8 @@ pub(crate) async fn handle_get_status(
         connected,
     }): axum_extra::extract::Query<StatusQuery>,
 ) -> Result<axum::Json<Vec<StatusResponse>>, crate::ApiError> {
-    let policy_result = crate::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        models::Capability::Read,
-        &name,
-    );
-    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
+    env.verify_authorization_iter(&name, models::Capability::Read)
+        .await?;
 
     let mut require_names = name.iter().map(|s| s.as_str()).collect::<BTreeSet<_>>();
 

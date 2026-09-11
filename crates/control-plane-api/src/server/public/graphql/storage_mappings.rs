@@ -206,7 +206,6 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -214,7 +213,8 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        env.verify_storage_mapping_authorization(&catalog_prefix, &spec.data_planes)
+            .await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -346,7 +346,8 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        env.verify_storage_mapping_authorization(&catalog_prefix, &spec.data_planes)
+            .await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -483,7 +484,6 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<ConnectionHealthTestResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -491,7 +491,8 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        env.verify_storage_mapping_authorization(&catalog_prefix, &spec.data_planes)
+            .await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -503,61 +504,6 @@ impl StorageMappingsMutation {
             results,
         })
     }
-}
-
-async fn evaluate_authorization(
-    env: &crate::Envelope,
-    claims: &crate::ControlClaims,
-    catalog_prefix: &models::Prefix,
-    data_plane_names: &[String],
-) -> Result<(), crate::ApiError> {
-    let policy_result =
-        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
-    env.authorization_outcome(policy_result).await?;
-    Ok(())
-}
-
-fn check_authorization(
-    snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
-    catalog_prefix: &models::Prefix,
-    data_plane_names: &[String],
-) -> crate::AuthZResult<()> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
-    // Verify the User admins `catalog_prefix`.
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        *user_id,
-        catalog_prefix,
-        models::Capability::Admin,
-    ) {
-        return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
-        )));
-    }
-
-    for data_plane_name in data_plane_names {
-        // Verify `catalog_prefix` is authorized to access the data-plane for Read.
-        if !tables::RoleGrant::is_authorized(
-            &snapshot.role_grants,
-            catalog_prefix,
-            data_plane_name,
-            models::Capability::Read,
-        ) {
-            return Err(tonic::Status::permission_denied(format!(
-                "'{catalog_prefix}' is not authorized to data plane '{data_plane_name}' for Read",
-            )));
-        }
-    }
-
-    Ok((None, ()))
 }
 
 fn resolve_data_planes<'s>(
