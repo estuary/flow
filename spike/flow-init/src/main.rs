@@ -25,6 +25,7 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run() -> Result<std::convert::Infallible, String> {
+    timing("start");
     let args = cli::parse(std::env::args().skip(1).collect())?;
 
     net::configure(args.guest_ip, args.prefix_len, args.gateway)?;
@@ -83,6 +84,8 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
         arguments.iter().map(|argument| argument.as_ptr()).collect();
     pointers.push(std::ptr::null());
 
+    timing("exec");
+
     // Safety: a NUL-terminated program path and a NULL-terminated argv, both
     // alive across the call. `execv` passes the current environment.
     unsafe { libc::execv(program.as_ptr(), pointers.as_ptr()) };
@@ -97,6 +100,19 @@ fn exec_workload(args: &cli::Args) -> Result<std::convert::Infallible, String> {
         | Some(libc::ELOOP) => 126,
         _ => 125,
     })
+}
+
+/// One line per stage on stderr, stamped with the guest's time since boot, so
+/// experiment 2 can split the guest's share of the launch. A boot-relative
+/// clock rather than a wall clock because it is the only one here that measures
+/// from a fixed guest event: the first reading IS the kernel's boot time, since
+/// nothing in the guest runs before flow-init. Never a leading space, which is
+/// connector-init's readiness signal.
+fn timing(stage: &str) {
+    eprintln!(
+        "flow-init: timing stage={stage} boot_us={}",
+        sys::monotonic_micros()
+    );
 }
 
 /// setgroups before setgid before setuid: after the uid is dropped there is no

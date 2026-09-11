@@ -27,9 +27,11 @@ esac
 
 sudo systemctl is-active --quiet podman.socket ||
     fail "podman.socket is not active"
-[ -S "$SPIKE_PODMAN_SOCKET" ] ||
+# `sudo`, because /run/podman is mode 0700: an ordinary caller cannot stat the
+# socket it reaches through sudo podman everywhere else in the spike.
+sudo test -S "$SPIKE_PODMAN_SOCKET" &&
+    ok "$SPIKE_PODMAN_SOCKET" ||
     fail "$SPIKE_PODMAN_SOCKET is missing (the reactor's only privilege)"
-[ -S "$SPIKE_PODMAN_SOCKET" ] && ok "$SPIKE_PODMAN_SOCKET"
 
 for dev in /dev/kvm /dev/net/tun; do
     [ -c "$dev" ] && ok "$dev" || fail "$dev is missing"
@@ -69,6 +71,13 @@ else
     ext4 | xfs) ok "$SPIKE_REACTOR_DIR is $fstype" ;;
     *) fail "$SPIKE_REACTOR_DIR is $fstype, want ext4 or xfs (O_TMPFILE)" ;;
     esac
+
+    # The runtime removes each `<id>` it creates, so a standing one is a leak.
+    # They cost little, but each pins a scratch backing file, and they hide the
+    # next real leak in the noise.
+    stale=$(sudo find "$SPIKE_REACTOR_DIR" -mindepth 1 -maxdepth 1 -name 'fs_*' | wc -l)
+    [ "$stale" -eq 0 ] ||
+        warn "$stale stale fs_* directories in $SPIKE_REACTOR_DIR (run reactor-clean.sh)"
 fi
 
 # Production's default capability set, decoded in PLAN "Inputs established

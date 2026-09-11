@@ -77,6 +77,19 @@ pub fn mkdir(path: &str, mode: libc::mode_t) -> Result<()> {
     Ok(())
 }
 
+/// Microseconds since the guest kernel booted. `CLOCK_MONOTONIC` shares its
+/// zero point with `/proc/uptime` but not its resolution: uptime is reported in
+/// centiseconds, which cannot resolve flow-init's own few milliseconds.
+pub fn monotonic_micros() -> u64 {
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // Safety: a timespec that outlives the call. CLOCK_MONOTONIC always exists.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
+    now.tv_sec as u64 * 1_000_000 + now.tv_nsec as u64 / 1_000
+}
+
 pub fn write_file(path: &str, content: &str) -> Result<()> {
     std::fs::write(path, content).map_err(|e| format!("writing {path}: {e}"))
 }

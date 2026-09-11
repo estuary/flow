@@ -11,8 +11,9 @@ connector itself; see PLAN.md "Helper launch" and CONTRACTS.md "Helper CLI".
                  from source, unpatched: Fedora's is 1.19.0.
 - `shim/`        the Rust shim, PID 1 of the helper container.
 - `guest/`       code injected into the guest, so static and libc-free.
-- `stubs/`       placeholders for binaries other packages own: `flow-init`
-                 (WP04) and the two egress binaries (WP02).
+- `stubs/`       placeholders for the two egress binaries WP02 owns. The
+                 `flow-init` stub is gone: the Dockerfile copies WP04's real
+                 binary.
 
 Build with `spike/tasks/helper-build.sh`, smoke with `spike/tasks/helper-smoke.sh`.
 

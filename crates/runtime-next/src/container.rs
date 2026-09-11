@@ -370,6 +370,12 @@ async fn spawn_and_await_ready<L: crate::Logger>(
 
             if first == b' ' && ready_tx.is_some() {
                 stderr.consume(1); // Discard.
+                // Spike only: experiment 2's stop watch. `invoking docker`
+                // above starts it, and this is the byte the gate is measured
+                // to. Logged here rather than at the caller so both the
+                // unmodified and the sandboxed launch are timed to the same
+                // event, and neither includes the dial that follows.
+                tracing::debug!("connector-init readiness byte received");
                 _ = ready_tx.take().unwrap().send(()); // Signal that we're ready.
                 continue;
             }

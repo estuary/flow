@@ -66,13 +66,12 @@ redact "$OUT/host.ndjson"
 
 step "3/3 switch on, inside the fake reactor"
 # fake-reactor.sh mounts only /run/podman, $SPIKE_REACTOR_DIR (at the same
-# path) and the repo's target/. The spec and policy therefore go under the
-# reactor directory, where both sides see one path, and the binaries go where
-# WP00's mount expects to find them.
+# path) and $CARGO_TARGET_DIR. The spec and policy therefore go under the
+# reactor directory, where both sides see one path; the binaries are already
+# reachable at /flow-target, which is this stack's $CARGO_TARGET_DIR (WP06).
 work="$SPIKE_REACTOR_DIR/wp05"
-mkdir -p "$work/tmp" "$REPO_DIR/target/debug"
+mkdir -p "$work/tmp"
 cp "$SPEC" "$POLICY" "$work/"
-cp "$SPIKE_BIN_DIR/flowctl" "$SPIKE_BIN_DIR/flow-connector-init" "$REPO_DIR/target/debug/"
 
 # TMPDIR must also land under the reactor directory. `flowctl preview` first
 # validates the catalog, and that step still runs its connector through the

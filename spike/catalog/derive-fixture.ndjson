@@ -1,0 +1,5 @@
+["acmeCo/events", {"ts": "2026-01-01T00:00:00Z", "message": "Hello number 0 here"}]
+["acmeCo/events", {"ts": "2026-01-01T00:00:01Z", "message": "Hello number 1 here"}]
+["acmeCo/events", {"ts": "2026-01-01T00:00:02Z", "message": "Hello number 2 here"}]
+["acmeCo/events", {"ts": "2026-01-01T00:00:03Z", "message": "Hello number 3 here"}]
+{"commit": true}

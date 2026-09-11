@@ -1,0 +1,51 @@
+# Experiment 4: derive-python end to end with a non-trivial dependency, so `uv`
+# has to reach PyPI from inside the guest. The policy that goes with it is
+# `policy-allow-all.json` (`egress: public`, `allowAll: true`).
+#
+# `acmeCo/events` is declared here rather than imported so the spec stands
+# alone; it is the same shape the capture and the materialization use.
+---
+collections:
+  acmeCo/events:
+    schema:
+      $schema: "http://json-schema.org/draft/2020-12/schema"
+      type: object
+      title: Example Output Record
+      properties:
+        ts:
+          type: string
+          format: date-time
+          title: Timestamp
+        message:
+          type: string
+          title: Message
+      required:
+        - ts
+        - message
+    key:
+      - /ts
+
+  acmeCo/pandas-rollup:
+    schema:
+      $schema: "http://json-schema.org/draft/2020-12/schema"
+      type: object
+      properties:
+        message: { type: string }
+        words: { type: integer }
+        characters: { type: integer }
+      required: [message, words, characters]
+    key:
+      - /message
+    derive:
+      using:
+        python:
+          module: derive-pandas.flow.py
+          dependencies:
+            pandas: ">=2.0"
+            # derive-python type-checks the module with pyright in strict mode,
+            # where untyped pandas is an error on every expression.
+            pandas-stubs: ">=2.0"
+      transforms:
+        - name: fromEvents
+          source: { name: acmeCo/events }
+          shuffle: { key: [/ts] }

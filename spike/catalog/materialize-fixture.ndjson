@@ -1,0 +1,8 @@
+["acmeCo/events", {"ts": "2026-01-01T00:00:00Z", "message": "Hello 0!"}]
+["acmeCo/events", {"ts": "2026-01-01T00:00:01Z", "message": "Hello 1!"}]
+["acmeCo/events", {"ts": "2026-01-01T00:00:02Z", "message": "Hello 2!"}]
+{"commit": true}
+["acmeCo/events", {"ts": "2026-01-01T00:00:03Z", "message": "Hello 3!"}]
+["acmeCo/events", {"ts": "2026-01-01T00:00:04Z", "message": "Hello 4!"}]
+["acmeCo/events", {"ts": "2026-01-01T00:00:05Z", "message": "Hello 5!"}]
+{"commit": true}

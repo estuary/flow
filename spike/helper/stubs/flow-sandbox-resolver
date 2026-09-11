@@ -1,4 +1,27 @@
 #!/bin/sh
-# Placeholder for WP02's DNS forwarder. The real one runs until killed; this
-# exits 0 immediately, which the shim tolerates because it never waits on it.
-exit 0
+# Placeholder for WP02's DNS forwarder. The real one checks every answer against
+# the baseline denylist, feeds the `resolved` nft set before replying, clamps
+# TTLs, and empties AAAA answers. This one just forwards, which is what an
+# allow-all policy reduces the real one to.
+#
+# It exists at all because flow-init writes `nameserver 192.0.2.1` into the
+# guest, so with nothing listening there the guest cannot resolve a name even
+# when the network is otherwise open. WP06 needed that for experiment 4; before
+# it, this script exited 0 immediately. WP02 replaces the whole thing.
+#
+# Runs until killed, as CONTRACTS says: the shim spawns it and never waits.
+set -eu
+
+upstream=
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --listen) listen="$2" && shift 2 ;;
+    --upstream) upstream="$2" && shift 2 ;;
+    *) shift ;;
+    esac
+done
+
+# `--listen HOST:PORT` and `--upstream HOST:PORT`; socat wants them separated.
+exec socat -T 10 \
+    "UDP4-RECVFROM:${listen##*:},bind=${listen%:*},fork,reuseaddr" \
+    "UDP4-SENDTO:${upstream%:*}:${upstream##*:}"

@@ -1,0 +1,38 @@
+# A materialization whose connector is a static Go binary, so experiment 3
+# proves the launcher on both halves of the protocol and not just the capture's.
+#
+# `config: {}` leaves the connector's default endpoint, a SQLite file at
+# /tmp/sqlite.db. That path is deliberate: with the switch on it lands in the
+# guest's writable root, which is podman's per-container layer of the connector
+# image, and a materialization that commits is what proves the root really is
+# writable under load and not just at `touch`.
+---
+collections:
+  acmeCo/events:
+    schema:
+      $schema: "http://json-schema.org/draft/2020-12/schema"
+      type: object
+      title: Example Output Record
+      properties:
+        ts:
+          type: string
+          format: date-time
+          title: Timestamp
+        message:
+          type: string
+          title: Message
+      required:
+        - ts
+        - message
+    key:
+      - /ts
+materializations:
+  acmeCo/events-sqlite:
+    endpoint:
+      connector:
+        image: "ghcr.io/estuary/materialize-sqlite:dev"
+        config: {}
+    bindings:
+      - source: acmeCo/events
+        resource:
+          table: events

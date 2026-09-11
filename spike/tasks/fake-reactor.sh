@@ -13,8 +13,12 @@ if [ $# -eq 0 ]; then
 fi
 
 # Bind-mounted so a locally built flowctl and flow-connector-init are reachable
-# from inside. Created here so podman does not make it root-owned.
-mkdir -p "$REPO_DIR/target"
+# from inside. Under mise the build lands in $CARGO_TARGET_DIR (per-stack, well
+# outside the repo), so mounting $REPO_DIR/target unconditionally would mount an
+# empty directory and every binary would be missing. Created here so podman does
+# not make it root-owned.
+SPIKE_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_DIR/target}"
+mkdir -p "$SPIKE_TARGET_DIR"
 sudo mkdir -p "$SPIKE_REACTOR_DIR"
 
 # sudo scrubs the caller's environment, so each FLOW_SANDBOX_SPIKE_* variable is
@@ -30,7 +34,7 @@ exec sudo podman run --rm -i \
     --no-hosts \
     -v /run/podman:/run/podman \
     -v "$SPIKE_REACTOR_DIR:$SPIKE_REACTOR_DIR" \
-    -v "$REPO_DIR/target:/flow-target" \
+    -v "$SPIKE_TARGET_DIR:/flow-target" \
     -e "CONTAINER_HOST=unix://$SPIKE_PODMAN_SOCKET" \
     -e DOCKER_CLI=podman \
     "${spike_env[@]}" \

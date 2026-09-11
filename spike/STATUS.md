@@ -13,7 +13,7 @@ maintains the table. Newest log entries at the bottom.
 | 03 | Helper image + shim                     | -            | done   | daveg/libkrun-spike | a1e1ea562f2; libkrun 1.19.4 build folded into WP04 step 0 |
 | 04 | flow-init                               | 03 (to test) | done   | daveg/libkrun-spike | ba94256e321; libkrun 1.19.4 + ENOTTY patch |
 | 05 | runtime-next spike switch               | 01 (real)    | done   | daveg/libkrun-spike | 8f745facd8c; unswitched args identical to master |
-| 06 | Integration: experiments 1-4            | 00-05        | todo   | daveg/libkrun-spike |       |
+| 06 | Integration: experiments 1-4            | 00-05        | done   | daveg/libkrun-spike | all four gates PASS; exp 4 under placeholder egress, WP07 reruns |
 | 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
@@ -1477,3 +1477,195 @@ any runtime work is spent.)
   change was proven by the unswitched `docker run` args matching master and
   219 runtime-next tests passing; the spike module dies with the branch.
 - Next: WP06, the first real end-to-end and experiments 1 to 4.
+
+### 2026-09-11 WP06: the sandbox runs a real connector end to end; experiments 1 to 4 all pass.
+
+- housekeeping first, as the brief scheduled:
+  - deleted the dead `spike/helper/stubs/flow-init`; fixed the `stubs/` line in
+    `spike/helper/README.md` (WP04b had already fixed the libkrun line).
+  - `spike/tasks/reactor-clean.sh` - the push-button for stale `fs_*`
+    directories, which refuses to run while any helper is up. The 115 standing
+    from WP03/WP04b are gone; `env-check.sh` now **warns** when any exist.
+  - `fake-reactor.sh` mounts `$CARGO_TARGET_DIR` when set, falling back to
+    `$REPO_DIR/target`. `preview-stub.sh` drops the copy step that compensated
+    for the empty mount.
+
+- shipped:
+  - `spike/tasks/exp1-launch.sh`, `exp2-boot.sh`, `exp3-parity.sh`,
+    `exp4-derive.sh` - one button per experiment, each ending in a pass/fail
+    line. exp2 carries its own parser and writes
+    `spike/report/data/exp2-boot.csv`.
+  - `spike/catalog/`: `materialize-sqlite.flow.yaml` plus
+    `materialize-fixture.ndjson` (experiment 3's other half, the materialization
+    WP05 left unwritten); `derive-pandas.flow.yaml`, `derive-pandas.flow.py` and
+    `derive-fixture.ndjson` (experiment 4); `policy-allow-all.json`. README
+    rewritten.
+  - `spike/tasks/preview-common.sh` gains `spike_stage_catalog` and
+    `spike_preview`, the driver all four experiments share.
+  - `spike/report/exp1.md`, `exp2.md`, `exp3.md`, `exp4.md`.
+  - instrumentation for experiment 2's breakdown (see deviations): one timing
+    line per stage from the shim and from flow-init, and one from the runtime
+    at the readiness byte.
+
+- verification:
+  ```
+  $ spike/tasks/env-check.sh                       -> env-check.sh: ok
+  $ mise exec -- spike/tasks/exp1-launch.sh        -> exp1-launch.sh: ok
+  $ mise exec -- spike/tasks/exp2-boot.sh --runs 20
+    arm       n   total med   total p95    podman      shim    kernel  flow-init  conn-init  (console)
+    on       40       683.8       735.4     135.5      23.9     201.9        6.4      315.1      290.3
+    off      40       408.9       437.3         -         -         -          -          -          -
+
+    gate: switch-on p95 0.735 s -> PASS (limit 5 s)
+    delta: median 683.8 ms sandboxed against 408.9 ms today, 1.67x
+
+  $ mise exec -- spike/tasks/exp3-parity.sh
+    ok    capture documents: identical (5 lines)
+    ok    capture connector: identical (2 lines)
+    ok    capture stats: identical (5 lines)
+    ok    materialize documents: identical (0 lines)
+    ok    materialize connector: identical (3 lines)
+    ok    materialize stats: identical (2 lines)
+    exp3-parity.sh: ok
+
+  $ mise exec -- spike/tasks/exp4-derive.sh
+    ok    the derivation produced 4 documents inside the guest
+    ok    sandboxed documents are byte-identical to unsandboxed
+    ok    uv fetched and imported pandas=3.0.5 from PyPI inside the guest
+    scratch-footprint: used=183164KiB total=4112096KiB
+    exp4-derive.sh: ok
+  ```
+  Regressions, all unchanged:
+  ```
+  $ spike/tasks/helper-smoke.sh                    -> ok (all 10)
+  $ spike/tasks/flow-init-test.sh                  -> ok (all 43)
+  $ mise exec -- spike/tasks/preview-stub.sh       -> 3 PASS, 0 leaked
+  $ mise exec -- cargo nextest run -p runtime-next -> 219 passed, 0 skipped
+  $ cargo fmt --all --check; (shim, flow-init) cargo fmt --check; clippy -> clean
+  ```
+
+- the four gates:
+  - **Experiment 1 PASS.** CapEff `00000000800415fb` = podman's default
+    `800405fb` plus bit 12, CAP_NET_ADMIN, and nothing else. `/dev/kvm` and
+    `/dev/net/tun` are the only added devices. 40 documents came back over
+    `<id>/sock/init.sock`. Nothing needed a root shell on the host.
+  - **Experiment 2 PASS, with 4.3 s of headroom.** p95 0.735 s against 5 s.
+    The sandbox costs +275 ms over today (1.67x). **The largest line item is
+    transport, not work**: of the 315 ms after flow-init execs, 290 ms is the
+    guest's stderr reaching the host, measured independently, leaving
+    connector-init ~25 ms to bind and signal. That 290 ms is libkrun's virtio
+    console and is the only lever this experiment found.
+  - **Experiment 3 PASS.** Six diffs empty across a Go capture and a Go
+    materialization: documents, connector log lines, transaction stats. The
+    materialization's `connector applied` DDL round-trips byte for byte.
+  - **Experiment 4 PASS, under the placeholder egress scripts** - see the
+    deviation below. Four documents, byte-identical to the unsandboxed run;
+    `uv` fetched pandas 3.0.5 from PyPI inside the guest; `/scratch` footprint
+    183 MB (venv 131 MB, uv cache 133 MB overlapping in the totals above).
+
+- **deviations from CONTRACTS.md:**
+  - **The egress and resolver placeholders now do two things they did not.**
+    The master thread flagged this mid-session and I took the two-line route it
+    recommended, extended by one more because masquerade alone was not enough.
+    `flow-sandbox-egress` gained `nat postrouting oifname "$uplink" masquerade`;
+    without it the guest's packets leave the tap untranslated and no reply ever
+    returns. `flow-sandbox-resolver` previously exited 0 immediately, so with
+    flow-init writing `nameserver 192.0.2.1` the guest could not resolve a name
+    even on an open network; it now forwards UDP/53 to the helper's upstream
+    with socat. Neither is policy, both are in files CONTRACTS assigns to WP02
+    wholesale, and CONTRACTS already owes the masquerade ("The helper
+    masquerades guest traffic out of eth0"). **Experiment 4's result is
+    therefore "passed under an unenforced network" and WP07 must rerun it under
+    the real ruleset.** `report/exp4.md` says exactly what was and was not
+    exercised - notably that the placeholder forwards AAAA answers verbatim
+    where the real resolver empties them.
+  - Nothing else. The launch line, the helper CLI, flow-init's sequence, the
+    policy JSON and the switch's variable table are all as written.
+
+- **departures from the WP06 brief's paths**, each because the brief's own steps
+  required it:
+  - **`crates/runtime-next/src/container.rs`**, three lines: a
+    `tracing::debug!("connector-init readiness byte received")` where the pump
+    consumes the byte. The brief's step 3 says "the runtime logs when the
+    readiness byte arrives"; it did not. It is in `spawn_and_await_ready`, which
+    both paths share, so both arms are timed to the same event - which matters,
+    because the unmodified path's next step is a `podman inspect` subprocess and
+    the sandboxed path's is a Unix connect. Timing to `container_started` would
+    have charged the baseline for that inspect.
+  - **`spike/helper/shim/src/main.rs`** and **`spike/flow-init/src/`**: a
+    `timing` function and two call sites each, per the brief's step 3. The shim
+    stamps the host wall clock; flow-init stamps `CLOCK_MONOTONIC`.
+  - **flow-init uses `CLOCK_MONOTONIC`, not `/proc/uptime`** as the brief says.
+    Same zero point, but uptime is reported in **centiseconds** and flow-init's
+    whole run is 6.4 ms, so both readings came back identical at `200000` us.
+    The brief's intent is the guest's boot clock; this is that clock at a
+    resolution that can see the interval.
+  - **`spike/tasks/preview-common.sh`** (WP05's) holds the shared preview
+    driver, rather than an `exp1-common.sh` that the other three would source by
+    number. Same shape as WP03's `SPIKE_HELPER_IMAGE` and WP08b's
+    `erofs-utils` notes.
+  - `spike/tasks/reactor-clean.sh` and the `env-check.sh` warning are the
+    brief's own housekeeping item; the script is outside the `exp{1,2,3,4}-*.sh`
+    glob.
+
+- bugs found by integration, fixed, with the package each belongs to:
+  - **WP00, `env-check.sh`**: `[ -S /run/podman/podman.sock ]` runs as the
+    calling user and `/run/podman` is mode 0700, so a working socket reported as
+    missing. Now `sudo test -S`. This was latent from the start and only
+    surfaced because the box had been restarted.
+  - **WP00, `fake-reactor.sh`**: mounted `$REPO_DIR/target`, which is empty
+    under mise. Now `$CARGO_TARGET_DIR` when set. (Scheduled by master.)
+  - **WP08b's `CONNECTORS+=` subshell bug**: no further instances; the count is
+    now asserted as a delta rather than against zero, so an unrelated leak
+    cannot fail an experiment.
+
+- findings other packages need:
+  - **`grep` on this box is `ugrep` 7.8.4**, in which `-oE '...[^\n]*'` does not
+    mean "to end of line" - it truncated a captured error message to one
+    character. Use `.*`. WP07 and WP09 will write log-scraping scripts.
+  - **A derivation module must not print to stdout.** stdout is the derive
+    protocol's channel; connector-init parses every line as a JSON response and
+    the session dies with `could not parse "..." into JSON response`. Cost a
+    debugging round here and a customer will hit it.
+  - **derive-python type-checks customer modules with pyright in `strict`
+    mode**, so a module using untyped pandas does not build. The spec declares
+    `pandas-stubs`, and the module uses `Series.sum()` rather than `.iloc[0]`,
+    whose type the stubs leave partially unknown. Unrelated to the sandbox, but
+    it is a real constraint on customer Python that the phase-2 story should
+    name.
+  - **The capture's `bytesTotal` is not reproducible even within one arm.**
+    Documents carry a wall-clock `ts` whose serialization is sometimes one byte
+    shorter (trailing zero trimmed). `docsTotal` and `txnCount` are stable.
+    Cost a false parity failure.
+  - **One `flowctl preview --sessions 1` starts the connector twice** (the
+    capture shard validates, then opens), so experiment 2's n is 40 over 20
+    previews. The two are within 10 ms of each other.
+  - **Guest stderr reaches the host ~290 ms late.** Any later experiment that
+    times a guest-side event by when the host saw it will be wrong by about
+    that much. Use the guest's own clock for in-guest intervals.
+  - `source-hello-world:dev` moved digest between WP00 and here
+    (`ebac9e3e...` -> `96147403...`); `materialize-sqlite:dev` likewise
+    (`54d2853c...` -> `7c89b59b...`). `derive-python:dev` is unchanged. The
+    report names what was measured.
+
+- questions for master:
+  - **Experiment 4 needs a rerun under WP02.** I recorded it as passing under
+    the placeholder's unenforced network, per your message. Is that a WP07 step
+    (its brief already owns experiments 6 to 8 under the real ruleset), or does
+    it want naming as its own line in the report's gate table so it cannot be
+    read as settled?
+  - **Sandboxing Spec and Validate is the one exposure this package surfaced
+    that is not a spike artifact.** For a Go connector it is a tidiness
+    question; for derive-python it means the customer's module is type-checked
+    and its dependencies fetched **outside** the sandbox, on the reactor's
+    network, before anything is sandboxed. `exp3.md` and `exp4.md` both record
+    it as a phase-2 open problem with owner "runtime". Worth confirming that is
+    the framing you want in the final report, since it is arguably the most
+    consequential thing WP06 found.
+  - **The 290 ms console lag.** Not chased: the gate passes by 4.3 seconds and
+    the mechanism is libkrun's. But it is 42% of the sandboxed launch, and if
+    WP09's density or churn work makes launch latency scarce it becomes the
+    first thing to look at. Worth a line in the report's "levers" list, or worth
+    a WP?
+  - **`--sessions` and the twice-started connector.** Nothing depends on it
+    here, but if WP09 counts launches it should know one preview is two.

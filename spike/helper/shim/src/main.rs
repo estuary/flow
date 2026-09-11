@@ -41,6 +41,7 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run() -> anyhow::Result<std::convert::Infallible> {
+    timing("start");
     let args = cli::parse(std::env::args().skip(1).collect())?;
     let egress = read_egress_mode(&args.policy)?;
 
@@ -220,8 +221,21 @@ fn run() -> anyhow::Result<std::convert::Infallible> {
 
     // Only returns on failure: otherwise libkrun takes over the process and
     // exits with the guest workload's code.
+    timing("krun_start_enter");
     sys::check("krun_start_enter", unsafe { sys::krun_start_enter(ctx) })?;
     anyhow::bail!("krun_start_enter returned without starting the VM")
+}
+
+/// One line per launch stage on stderr, stamped with the host wall clock, so
+/// experiment 2 can split the launch into podman's share and the shim's. The
+/// host clock is the right one here: the reactor's `podman run` and the
+/// readiness byte it waits for are both measured against it. Never a leading
+/// space, which is connector-init's readiness signal.
+fn timing(stage: &str) {
+    let micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros());
+    eprintln!("flow-sandbox-helper: timing stage={stage} wall_us={micros}");
 }
 
 /// The argv libkrun's guest init execs. flow-init leads it unless the caller
