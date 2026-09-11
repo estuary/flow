@@ -48,6 +48,13 @@ RUN cargo build --release --locked --manifest-path flow-init/Cargo.toml \
 COPY guest/vsock-echo.c ./guest/
 RUN gcc -static -O2 -Wall -Wextra -Werror -o /vsock-echo guest/vsock-echo.c
 
+# The egress binaries arrive as an additional build context, `spike/egress`,
+# for the same reason flow-init does. They run in this container, not in the
+# guest, so they link glibc like the shim.
+COPY --from=egress Cargo.toml Cargo.lock ./egress/
+COPY --from=egress src ./egress/src
+RUN cargo build --release --locked --manifest-path egress/Cargo.toml
+
 FROM quay.io/fedora/fedora:43
 # tcpdump and conntrack-tools are for diagnosing the later egress experiments
 # from inside the helper's namespace; socat exercises the vsock unix socket.
@@ -67,8 +74,7 @@ COPY --from=build /src/shim/target/release/flow-sandbox-helper /usr/local/bin/fl
 COPY --from=build /flow-init /flow-init
 COPY --from=build /vsock-echo /vsock-echo
 
-# Placeholders until WP02 lands.
-COPY stubs/flow-sandbox-egress /usr/local/bin/flow-sandbox-egress
-COPY stubs/flow-sandbox-resolver /usr/local/bin/flow-sandbox-resolver
+COPY --from=build /src/egress/target/release/flow-sandbox-egress /usr/local/bin/flow-sandbox-egress
+COPY --from=build /src/egress/target/release/flow-sandbox-resolver /usr/local/bin/flow-sandbox-resolver
 
 ENTRYPOINT ["/usr/local/bin/flow-sandbox-helper"]

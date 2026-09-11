@@ -1,0 +1,9 @@
+{
+  "egress": "public",
+  "allowAll": false,
+  "declaredCidrs": [],
+  "connectionsPerMinute": null,
+  "distinctDestinationsPerMinute": null,
+  "ttlFloorSecs": 90,
+  "ttlCapSecs": 3600
+}

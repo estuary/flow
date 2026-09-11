@@ -1718,3 +1718,172 @@ any runtime work is spent.)
 - The placeholder egress/resolver extensions are accepted as WP06 recorded
   them; WP02 replaces both files wholesale (in its brief).
 - Next: WP02, then WP07. WP11 can run any time before WP10.
+
+### 2026-09-11 WP02: egress ruleset, resolver and probes, proven in a netns pair.
+
+- shipped:
+  - `spike/egress/` - one crate, two binaries, sharing the policy, the baseline
+    denylist and the helper's own subnets so that "denied" is defined once:
+    - `flow-sandbox-egress`: policy JSON in, the complete `inet flow_sandbox`
+      table out, applied with `nft -f -`. `--print` emits it without touching
+      the kernel. Rejects a policy whose declared CIDR overlaps the baseline,
+      because the baseline drop runs first and such a policy would silently not
+      mean what it says.
+    - `flow-sandbox-resolver`: the guest's only nameserver. A answers are gated
+      against the baseline and the helper's subnets (one denied address REFUSEs
+      the whole answer), every surviving address goes into `@resolved` with
+      `clamp(ttl, floor, cap)` as its timeout *before* the answer is sent, and
+      the answer's TTLs are rewritten to the same value. AAAA answers NOERROR
+      with nothing in it; everything else is forwarded byte for byte.
+    - `probes.py`: four sets (`public`, `none`, `declared`, `ratelimit`), every
+      target from argv, 3.12 stdlib only, one JSON line per probe. `blocked`
+      passes only on a timeout - a `refused` means the packet was forwarded.
+    - `testnet.py`: test-only stand-in internet (see deviations).
+    - `examples/{public,none,declared,ratelimit}.json`, the policies those sets
+      expect. `README.md`.
+  - `spike/tasks/egress-build.sh`, `spike/tasks/egress-netns-test.sh`: build,
+    and prove. The test builds a `helper` and a `guest` namespace joined by a
+    veth pair playing the tap, with the helper's uplink deliberately inside
+    10/8 as `flow-connectors` is, runs the real binaries in `helper` and
+    probes.py in `guest` for each set, and asserts nft counters and a tcpdump
+    capture on the helper's uplink alongside the probe results. Tears down
+    everything - namespaces, veths, the two host iptables rules, the guest's
+    resolv.conf - on exit, including on error.
+  - `spike/helper/Dockerfile` builds the crate and installs both binaries in
+    place of WP03's placeholder scripts. Verified: the ruleset also loads under
+    the image's nft 1.1.3, not just the host's 1.0.9.
+
+- what the ruleset ended up being, for WP07 and the report:
+  - forward (policy drop): anti-spoof, established/related, IPv6, anything not
+    TCP or UDP, `@baseline`, tcp/25, then the rate limits, then a jump to
+    `egress_accept`, where the only three accepts live (`allowAll`,
+    `@resolved`, `@declared`). A jump that returns lands on the drop policy,
+    which is what makes a full `dests` set mean "drop" rather than "skip the
+    fan-out rule and accept anyway".
+  - input (policy drop): loopback, anti-spoof, established/related, and exactly
+    one thing from the tap - the guest's DNS to the helper. Anti-spoof sits
+    *ahead* of the conntrack accept on purpose: a guest that guessed the
+    resolver's source port and query id could otherwise forge an upstream
+    answer that conntrack would call established.
+  - output (policy accept): nothing but established replies may go to the tap,
+    so nothing in the helper can open a connection to the guest. The helper's
+    own uplink traffic, i.e. the resolver's queries, is untouched.
+  - The baseline covers *forwarded* traffic to the helper's own subnets (a
+    sibling connector on the same bridge). The helper's own addresses are the
+    input chain's job, because packets to a local address never reach forward.
+  - `egress: none` is the same skeleton with the accepts, the resolver and the
+    DNS input rule all gone. Dropping the guest's query rather than refusing it
+    is deliberate: it is what makes the guest pay its full resolver budget,
+    which is the number PLAN experiment 7 asks for.
+
+- numbers worth keeping (this box, commit of this entry):
+  - `none` mode failure latency: DNS 20.0 s (glibc's own budget: two attempts
+    x 5 s, A and AAAA); TCP connect 15.0 s, which is the probe's own cap, not
+    the kernel's - with `tcp_syn_retries=6` a dropped SYN takes ~127 s to
+    surface. WP07 should report it as "at least the cap it used".
+  - rate limiting at 60/minute does not produce errors, it produces slowness.
+    nft dropped 79 SYNs across 80 connect attempts, and all 80 still completed,
+    because the bucket refills at 1/s and TCP retransmits the SYN at 1 s. The
+    80 attempts took 79.9 s: exactly 60 connections per minute. The fan-out
+    limit behaves the opposite way - the 6th distinct destination is dropped
+    for the rest of the minute, so it surfaces as a connect timeout.
+  - `nft add element`: ~1 ms per query, one process per answered query.
+  - a re-resolved name does *not* get a fresh element timeout. `nft add
+    element` on an existing element succeeds and leaves the original expiry
+    alone, so a name re-resolved at second 80 of its 90 still expires at 90.
+    The runtime's netlink update fixes this; delete-then-add would open a
+    window where the address is unreachable.
+
+- verification:
+  ```
+  $ spike/tasks/egress-netns-test.sh
+    === set: public       20 probes, all pass; capture on the uplink empty
+    === set: none          3 probes, all pass; capture on the uplink empty
+    === set: declared      3 probes, all pass; capture on the uplink empty
+    === set: ratelimit    23 probes, all pass
+    49 probes, 0 failures.
+    counters asserted above zero, per set:
+      public     forward/{anti-spoof 1, baseline 6, smtp 3, tcp-udp-only 1,
+                 forward-drop 6}, egress_accept/resolved 3,
+                 input/{tap-dns 8, input-drop 7}, output/no-inbound 187
+      none       input/input-drop 4, forward/forward-drop 8
+      declared   egress_accept/declared 1, forward/forward-drop 6
+      ratelimit  forward/{fan-out 87, rate-limit 79, forward-drop 29}
+    nft add element x20: 35ms total, 1ms each, nftables v1.0.9
+    PASS: every probe and every counter assertion
+  ```
+  The probes that carry a number rather than a verdict:
+  ```
+  {"probe": "dns-public",                   "result": "ok:104.20.23.154,...", "ms": 21}
+  {"probe": "dns-rfc1918",                  "result": "error:gai-2",          "ms": 7}
+  {"probe": "dns-ttl-clamped",              "result": "ttl:90",               "ms": 2}
+  {"probe": "ttl-connect-after-expiry",     "result": "timeout",              "ms": 3003}
+  {"probe": "ttl-held-connection-survives", "result": "connected",            "ms": 0}
+  {"probe": "dns-any"        (none mode),   "result": "error:gai-3",          "ms": 20021}
+  {"probe": "connect-raw-ip" (none mode),   "result": "timeout",              "ms": 15015}
+  {"probe": "rate-limit", "result": "limited:80-reached-0-blocked-60-per-minute", "ms": 79869}
+  ```
+  And the ruleset the report will quote:
+  ```
+  $ cd spike/egress && ./target/release/flow-sandbox-egress --policy examples/public.json --print
+    table inet flow_sandbox { set baseline; set resolved;
+      chain forward; chain egress_accept; chain input; chain output;
+      chain postrouting }
+    (45 lines; run the command for the text. Loads unchanged under the helper
+     image's nft 1.1.3 and the host's 1.0.9.)
+  ```
+
+- deviations from CONTRACTS.md:
+  - `spike/tasks/helper-build.sh` gained one line, a `--build-context
+    egress=...`, which is outside the paths WP02 names. The Dockerfile cannot
+    reach `spike/egress` otherwise, and the brief hands me the Dockerfile.
+  - the fan-out rule is `ct state new update @dests { ip daddr }` with the
+    timeout on the set, not `add @dests { ip daddr timeout 1m }`. `update`
+    refreshes an element that is already there; `add` does not. The verdict is
+    on the same rule (`jump egress_accept`) so a failed update still falls to
+    the drop policy, which is the behavior the brief describes and which I
+    confirmed against nft directly before building on it.
+  - the resolver exits 2 rather than idling if it is handed a policy whose
+    egress is not `public`. CONTRACTS says no resolver runs for `none`; this
+    makes a mistake loud instead of silent.
+  - `probes.py` grew `--root-probes {auto,skip}`: `icmp-blocked` and
+    `spoofed-source` need raw sockets, and with `auto` they are absent from the
+    output entirely rather than reported as failures when euid is not 0.
+  - PLAN experiment 8 says the fan-out loop "resolves and connects to 20
+    distinct hosts". The netns test connects to 20 distinct *declared*
+    destinations instead: 20 resolvable names pointing at hosts I may hammer do
+    not exist, and the limits sit in front of every accept path, so the
+    constructs under test are identical. WP07 can do it with names if the guest
+    has somewhere to resolve them to.
+
+- test-support code that is not the sandbox: `spike/egress/testnet.py` answers
+  one `.invalid` name with a 5 second TTL pointing at a TCP server that never
+  hangs up, and forwards every other query to the box's real resolver. Two
+  probes need what public infrastructure will not promise - a TTL below the
+  clamp floor (public TTLs change), and a server that holds an idle connection
+  for more than 90 s (public servers hang up in seconds, which looks exactly
+  like the ruleset cutting the flow, and did: it was the one probe that failed
+  before this existed). The public-name, RFC1918-name and metadata probes are
+  all still real, against the real upstream.
+
+- questions for master:
+  - rate limits produce slow connections rather than errors (above). Is that
+    the UX we want for `connectionsPerMinute`, or should the over-rate rule
+    `reject` so the connector fails fast and visibly? This is a policy
+    question, not an nft one; both are one word in the ruleset.
+  - the netns test turns off `rp_filter` in the helper namespace so that the
+    nft anti-spoof rule is the thing under test. In production the helper
+    container inherits the host's setting, and if it is on, spoofed packets die
+    before nft sees them - so WP07 must not read a zero `anti-spoof` counter as
+    a failure. Worth deciding whether the runtime should set `rp_filter`
+    explicitly rather than inherit it.
+  - `spike/helper/stubs/flow-sandbox-egress` and `flow-sandbox-resolver` are
+    now unreferenced; the Dockerfile installs the real binaries. They are
+    outside my paths, so I left them.
+  - WP07 needs `--run-as-root` (or `--as-root-exec`) for the two root probes,
+    and a second non-root pass for everything else. Worth putting in its brief.
+  - `examples/declared.json` declares `198.51.100.10/32`, which the egress
+    binary *rejects* when run on the host itself, because podman2 owns
+    198.51.100.0/24 there and the check is real. Inside the helper (or the
+    netns) the only subnets are the tap and the uplink, so it loads. Same in
+    production, where the helper sits on `flow-connectors`.

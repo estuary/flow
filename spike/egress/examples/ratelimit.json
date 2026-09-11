@@ -1,0 +1,9 @@
+{
+  "egress": "public",
+  "allowAll": false,
+  "declaredCidrs": [ { "cidr": "203.0.113.0/24", "ports": [443] } ],
+  "connectionsPerMinute": 60,
+  "distinctDestinationsPerMinute": 5,
+  "ttlFloorSecs": 90,
+  "ttlCapSecs": 3600
+}
