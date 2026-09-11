@@ -83,6 +83,14 @@ There are several options for controlling the behavior of `autoDiscover`:
 
 * The `evolveIncompatibleCollections` option determines how to respond when the discovered updates would cause a breaking change to the collection. If `true`, it will trigger an [evolution](./advanced/evolutions.md) of the incompatible collection(s) to prevent failures.
 
+* Auto-discover only updates collections whose schema is *connector-managed*, meaning the schema has a `flow://connector-schema` entry in its `$defs`. Collections with a hand-authored schema are left untouched, and a discover on a capture that includes one fails until that schema is opted in. See [Connector-managed schemas](./schemas.md#connector-managed-schemas-and-auto-discover).
+
+When the source changes, auto-discover reconciles bindings by resource path:
+
+- A **new table** is added as a new binding when `addNewBindings` is `true` (added disabled when `false`).
+- A **dropped table** has its binding removed, so capture of that table stops. The collection and any data already captured are retained, not deleted.
+- A **renamed table** is treated as a dropped table plus a new one: the old binding is removed, and a new binding and collection are created under the new name with their own backfill. Data is not carried across from the old collection to the new one, so a rename is not a transparent migration.
+
 In Estuary's web app, you can set these properties when you create or edit a capture.
 
 ![Capture auto-discovery in the UI](./concept-images/captures-auto-discover-ui.png)
