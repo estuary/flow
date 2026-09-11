@@ -174,6 +174,18 @@ impl TestServer {
         self.sign_claims(user_id, email, None)
     }
 
+    /// Create an access token whose `capability_mask` claim names the given
+    /// `CapabilityBundle`s in their PascalCase claim spelling.
+    pub fn make_masked_access_token(
+        &self,
+        user_id: uuid::Uuid,
+        email: Option<&str>,
+        mask: &[&str],
+    ) -> String {
+        let mask = mask.iter().map(|name| name.to_string()).collect();
+        self.sign_claims(user_id, email, Some(mask))
+    }
+
     fn sign_claims(
         &self,
         user_id: uuid::Uuid,

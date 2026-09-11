@@ -218,7 +218,7 @@ impl Envelope {
             self.claims()?.sub,
             name,
             capability,
-            models::authz::CapabilityMask::ALL_CAPABILITIES,
+            self.capability_mask,
         ))
     }
 
