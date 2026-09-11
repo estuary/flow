@@ -168,23 +168,21 @@ impl TestServer {
         format!("http://{}", self.addr).parse().expect("valid URL")
     }
 
-    /// Create a valid access token for a test user.
+    /// Create a valid, unmasked access token for a test user.
     /// The token includes all required claims for the server's JWT validation.
     pub fn make_access_token(&self, user_id: uuid::Uuid, email: Option<&str>) -> String {
-        let now = tokens::now();
-        let claims = models::authorizations::ControlClaims {
-            iat: now.timestamp() as u64,
-            exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
-            sub: user_id,
-            role: "authenticated".to_string(),
-            aud: "authenticated".to_string(),
-            email: email.map(String::from),
-            capability_mask: None,
-        };
+        self.sign_claims(user_id, email, None)
+    }
 
+    fn sign_claims(
+        &self,
+        user_id: uuid::Uuid,
+        email: Option<&str>,
+        capability_mask: Option<Vec<String>>,
+    ) -> String {
         jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
-            &claims,
+            &control_claims(user_id, email, capability_mask),
             &self.encoding_key,
         )
         .expect("failed to encode JWT")
@@ -257,6 +255,36 @@ impl crate::publications::builds::Builder for NoopBuilder {
     }
 }
 
+/// The user the `alice` fixture provisions, and the default subject of
+/// grant-walk tests which build their own Snapshot.
+pub const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
+
+/// Unexpired control-plane claims for `user_id`, carrying `capability_mask`
+/// as given. Valid for one hour: the verifier skims claims as i64, so `exp`
+/// must stay within range.
+pub fn control_claims(
+    user_id: uuid::Uuid,
+    email: Option<&str>,
+    capability_mask: Option<Vec<String>>,
+) -> models::authorizations::ControlClaims {
+    let now = tokens::now();
+    models::authorizations::ControlClaims {
+        iat: now.timestamp() as u64,
+        exp: (now + chrono::TimeDelta::hours(1)).timestamp() as u64,
+        sub: user_id,
+        role: "authenticated".to_string(),
+        aud: "authenticated".to_string(),
+        email: email.map(String::from),
+        capability_mask,
+    }
+}
+
+/// A mask enabling exactly the `Viewer` bundle: reads, but neither `Delegate`
+/// nor any mutating bit, which makes it the natural probe for attenuation.
+pub fn viewer_mask() -> models::authz::CapabilityMask {
+    models::authz::CapabilityMask::new(models::authz::CapabilityBundle::Viewer.capabilities())
+}
+
 /// Build grant tables from compact (subject, object, capability) tuples,
 /// shared by tests which pin grant-walk authorization semantics.
 pub fn make_grants(
@@ -288,18 +316,7 @@ pub fn verified_control_claims(
     user_id: uuid::Uuid,
     email: Option<String>,
 ) -> crate::MaybeControlClaims {
-    // The verifier checks `exp` and skims claims as i64, so it must be a
-    // future timestamp which stays within range.
-    let now = tokens::now();
-    let claims = models::authorizations::ControlClaims {
-        iat: now.timestamp() as u64,
-        exp: (now + chrono::TimeDelta::hours(1)).timestamp() as u64,
-        sub: user_id,
-        role: "authenticated".to_string(),
-        aud: "authenticated".to_string(),
-        email,
-        capability_mask: None,
-    };
+    let claims = control_claims(user_id, email.as_deref(), None);
     let secret = b"test-envelope-secret";
     let token = jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
