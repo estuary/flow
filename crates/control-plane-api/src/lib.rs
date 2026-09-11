@@ -47,6 +47,9 @@ pub type AuthZResult<Ok> = tonic::Result<(Option<tokens::DateTime>, Ok)>;
 
 /// Envelope is common fields and parameters of every API request.
 pub use envelope::{Envelope, Locale, MaybeControlClaims};
+/// The claim-derived mask carried by every `Envelope`, re-exported so callers
+/// constructing an `Envelope` by hand (test harnesses) need not reach into `models`.
+pub use models::authz::CapabilityMask;
 
 // TODO(johnny): These types are all fundamental to this crate, and should be
 // hoisted from the `server` module. For now, just re-export to minimize churn.

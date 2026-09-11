@@ -1,0 +1,118 @@
+---
+source: crates/models/src/authz.rs
+expression: table
+---
+[
+  {
+    "name": "Viewer",
+    "serde": "viewer"
+  },
+  {
+    "name": "Writer",
+    "serde": "writer"
+  },
+  {
+    "name": "Editor",
+    "serde": "editor"
+  },
+  {
+    "name": "Admin",
+    "serde": "admin"
+  },
+  {
+    "name": "Billing",
+    "serde": "billing"
+  },
+  {
+    "name": "TeamAdmin",
+    "serde": "team_admin"
+  },
+  {
+    "name": "ManageServiceAccounts",
+    "serde": "manage_service_accounts"
+  },
+  {
+    "name": "ManageDataPlane",
+    "serde": "manage_data_plane"
+  },
+  {
+    "name": "Delegate",
+    "serde": "delegate"
+  },
+  {
+    "name": "Assume",
+    "serde": "assume"
+  },
+  {
+    "name": "CatalogRead",
+    "serde": "catalog_read"
+  },
+  {
+    "name": "JournalRead",
+    "serde": "journal_read"
+  },
+  {
+    "name": "JournalAppend",
+    "serde": "journal_append"
+  },
+  {
+    "name": "SpecEdit",
+    "serde": "spec_edit"
+  },
+  {
+    "name": "CreateGrant",
+    "serde": "create_grant"
+  },
+  {
+    "name": "DeleteGrant",
+    "serde": "delete_grant"
+  },
+  {
+    "name": "CreateInviteLink",
+    "serde": "create_invite_link"
+  },
+  {
+    "name": "ViewDataPlanePrivateNetworking",
+    "serde": "view_data_plane_private_networking"
+  },
+  {
+    "name": "ModifyDataPlanePrivateNetworking",
+    "serde": "modify_data_plane_private_networking"
+  },
+  {
+    "name": "ViewBilling",
+    "serde": "view_billing"
+  },
+  {
+    "name": "EditBilling",
+    "serde": "edit_billing"
+  },
+  {
+    "name": "QueryServiceAccounts",
+    "serde": "query_service_accounts"
+  },
+  {
+    "name": "CreateServiceAccount",
+    "serde": "create_service_account"
+  },
+  {
+    "name": "CreateApiKey",
+    "serde": "create_api_key"
+  },
+  {
+    "name": "RevokeApiKey",
+    "serde": "revoke_api_key"
+  },
+  {
+    "name": "ViewSecret",
+    "serde": "view_secret"
+  },
+  {
+    "name": "EditSecret",
+    "serde": "edit_secret"
+  },
+  {
+    "name": "DecryptSecret",
+    "serde": "decrypt_secret"
+  }
+]

@@ -94,6 +94,7 @@ pub async fn authorize_dekaf(
         sub: uuid::Uuid::nil(),
         role: DEKAF_ROLE.to_string(),
         email: None,
+        capability_mask: None,
     };
 
     // Only return a token if we are not redirecting
