@@ -2157,3 +2157,160 @@ any runtime work is spent.)
   the helper lacks CAP_NET_RAW by design, and adding it would have changed the
   thing under test.
 - Next: WP11 (source read, no VM), then WP10, WP09, WP12.
+
+### 2026-09-11 WP11: libkrun source read for experiment 12. The two gates we rely on hold; the interesting bugs are all one tier above the threat model.
+
+- shipped: `spike/report/libkrun-exposure.md` only. Nothing was run, nothing
+  was patched, no other path touched. Read at libkrun tag `v1.19.4`, commit
+  `728df8125077d0db44265f6e997c72b81b65c015`, cloned into the scratchpad.
+
+- **The headline: `krun_add_vsock(ctx, 0)` holds, and it holds twice.**
+  `TsiFlags::from_bits(0)` is empty, `tsi_enabled()` is false, and every TSI
+  control port in `send_dgram_pkt` carries an `if ... tsi_enabled()` guard
+  (`muxer.rs:514-534`), so a proxy-create datagram falls to the `_` arm and is
+  dropped with no proxy, no socket, no address parsed. `process_proxy_create`
+  then has a *second*, independent gate per address family
+  (`muxer.rs:286-297`, `:321-332`). `tsi_hijack` never reaches the kernel
+  cmdline either (`builder.rs:1049-1058`). The port map survives: the
+  `Explicit` arm passes `unix_ipc_port_map` through unchanged
+  (`lib.rs:2938-2949`). CONTRACTS' claim is correct as written.
+
+- **The one place PLAN's wording and the code disagree, which WP10 needs before
+  it writes a probe.** Experiment 12 says connecting to an unmapped vsock port
+  "is refused". It is not refused - the host sends *nothing*.
+  `process_op_request` finds the port in neither `proxy_map` nor
+  `unix_ipc_port_map` and simply returns (`muxer.rs:539-584`): no RST, no
+  response, not even a log line. A blocking AF_VSOCK `connect()` has no default
+  timeout and will hang the probe forever. The mapped port 49092 behaves
+  differently and better: `listen == true` makes the muxer send a Reset
+  (`muxer.rs:552-559`), so the guest gets a prompt ECONNRESET. Both bullets of
+  the gate pass, by two different mechanisms with two different observable
+  results, and exp12 should say so rather than blur them.
+
+- **"Remove root dir" request: none found.** I looked for the thing a 1.18
+  release restricted and there is no residue of it in 1.19.4. `Opcode::Rmdir`
+  is an ordinary FUSE rmdir (`server.rs:417-433`), EROFS on the read-only
+  shares, and `fuse::ROOT_ID` is never special-cased in `unlink` or `rmdir`.
+  Recorded as "none found", per the brief.
+
+- **The exit-code ioctl is wide open and it does not matter.** `AugmentFs`
+  intercepts `cmd == 0x7602` and stores `arg` as the VM's exit code with no
+  check on inode, handle, or uid (`augment_fs.rs:719-744`) - and because
+  `fs/worker.rs:107-128` wraps *every* server in `AugmentFs`, it works through
+  the read-only `/venv` and `/opt/venv` shares too. It grants no authority the
+  guest lacked: the exit code the helper reports *is* the workload's, and a
+  connector that wants to report 0 can just exit 0. The sentence worth carrying
+  into the report is narrower: **the helper's exit code is a value the guest
+  chooses, not a value the platform observes.** Every other ioctl is
+  EOPNOTSUPP (`linux/passthrough.rs:2162-2193`); EXPORT_FD needs an
+  `export_table` we never configure.
+
+- **The README warning, answered concretely: it is `..`, and embedded `/`, in a
+  single name argument.** `bytes_to_cstr` validates NULs and nothing else
+  (`server.rs:1493-1497`), and `lookup` hands the name straight to
+  `openat(parent_fd, name, O_PATH|O_NOFOLLOW)` (`linux/passthrough.rs:951-983`),
+  which resolves multi-component paths. No `openat2`, no `RESOLVE_BENEATH`, no
+  `RESOLVE_IN_ROOT` anywhere in the tree. Not symlinks (`O_NOFOLLOW`
+  everywhere, reopen via `/proc/self/fd`), not file handles
+  (`open_by_handle_at` appears nowhere), not mount crossings as a separate
+  mechanism. Upstream states the intended remedy in a comment on the struct
+  itself (`linux/passthrough.rs:394-398`): pivot_root into the share. libkrun
+  does not do it for you.
+
+  As the write-escape question the brief asked for: **at T1/T2 the guest cannot
+  express it** - the Linux FUSE client only sends single components the VFS has
+  already resolved, so `..` and `/` never reach the wire. That confinement is
+  real and lives entirely in the guest kernel, on the far side of the trust
+  boundary. At T3 it is expressible, and what bounds it is the helper
+  container's mount namespace: the server can only name what is mounted into
+  the helper (its own layer, `/rootfs`, `/init`, `/venv`, `/sock`,
+  `/scratch-backing`, `/deps.img`) - which does include binds out of
+  `$SPIKE_REACTOR_DIR/<id>/`. "Same host filesystem" does not help the guest,
+  because every path is resolved with `openat` from an fd inside the namespace.
+  Note `set_creds` (`linux/passthrough.rs:791-820`): **uid 0 is not scoped at
+  all**, so a request claiming uid 0 runs with the helper process's own
+  privilege. Deliberate, and it is what makes guest-root writes to the root
+  share work.
+
+- **Three guest-triggerable bugs, all at T3 (guest kernel control), none
+  reachable from the workload.** Recording them because "none found" would have
+  been wrong, not because they change the design:
+  - virtio-console indexes `self.ports[cmd.id as usize]` with an unchecked
+    guest u32 (`console/device.rs:212`, `:224`, `:249-268`). Out-of-range
+    panics the VMM; so does a second PORT_OPEN for the same port, via
+    `.take().expect(...)` on a `None`. DoS only - the guest could have killed
+    the VM anyway.
+  - virtio-balloon free-page reporting validates the descriptor *address* and
+    not its *length*: `madvise(host_addr, desc.len, MADV_DONTNEED)` with
+    `desc.len` up to 4 GiB (`balloon/device.rs:88-107`). The virtqueue layer is
+    no help - `DescriptorChain::is_valid` is literally
+    `!self.has_next() || self.next < self.queue_size` (`queue.rs:264-266`) and
+    bounds-checks neither field. Runs off the end of guest RAM into the
+    helper's own mappings.
+  - virtiofs DAX `setupmapping`/`removemapping` bounds-check with an unchecked
+    u64 add, `(moffset + len) > shm_size` (`linux/passthrough.rs:2081`,
+    `:2118`), then `mmap(MAP_FIXED)`. Reachable only under `--venv-dax`. The
+    read-only wrapper rejects WRITE mappings but not the offsets.
+
+- clean: tap is a pure byte mover and parses nothing, not even the virtio-net
+  header (`net/tap.rs:28-114`); there is no virtio-net control queue at all
+  (`NUM_QUEUES == 2`), so no MAC change, no promisc, no VLAN filter. Console
+  control messages are host-to-guest only apart from the three above. Balloon
+  services only the reporting queue. `timesync.rs` is macOS-only and absent
+  from our build. A `read_only` block device is opened without `.write()`
+  (`block/device.rs:241-249`), so the deps image is protected by the host fd
+  rather than by a flag - **if the shim passes `read_only=true`**, which this
+  package did not verify.
+
+- verification (the brief names no command; the deliverable is the document, so
+  I verified the thing that can actually be wrong in it): every source citation
+  in the report was checked mechanically against the v1.19.4 checkout -
+  83 (file, line-range, expected-substring) assertions.
+
+  ```
+  ok    src/libkrun/src/lib.rs:2644,2667  VsockConfig::Explicit { tsi_flags }
+  ok    src/devices/src/virtio/vsock/muxer.rs:514,534  tsi_flags.tsi_enabled() =>
+  ok    src/devices/src/virtio/vsock/muxer.rs:552,559  socket that is listening, sending rst
+  ok    src/devices/src/virtio/fs/augment_fs.rs:719,744  VIRTIO_IOC_EXIT_CODE_REQ: u32 = 0x7602
+  ok    src/devices/src/virtio/fs/linux/passthrough.rs:951,983  O_PATH | libc::O_NOFOLLOW
+  ok    src/devices/src/virtio/balloon/device.rs:88,107  get_host_address(desc.addr).unwrap()
+  ...  [77 more]
+  ---
+  ALL CITATIONS RESOLVE
+  ```
+
+  The first run found five citations off by a few lines (`vsock/mod.rs` port
+  constants, `ATTR_SUBMOUNT`, `README.md:88`); all five are corrected in the
+  report.
+
+- contract deviations: none. Nothing here changes CONTRACTS. The two facts it
+  asserts about libkrun that I set out to confirm - `krun_add_vsock(ctx, 0)`
+  disables TSI while leaving the port map live, and the passthrough answers
+  unknown ioctls with EOPNOTSUPP - are both true as written.
+
+- questions for the master thread:
+  - **The checking script is in the scratchpad, not in `spike/tasks/`.** WP11's
+    "May touch" is `report/libkrun-exposure.md` only, so I left it there rather
+    than widen the path. It is ~90 lines of bash and it is the only thing that
+    keeps this document honest as libkrun moves. Say the word and a follow-up
+    lands it as `spike/tasks/check-exposure-citations.sh`.
+  - **Experiment 12's first bullet needs rewording**, per the second item
+    above: "refused" is true of the mapped port and false of every other one.
+    Suggest "connecting from the guest to the mapped port is reset, and to any
+    other port gets no response at all". WP10 needs the probe to impose its own
+    timeout either way; that is in the report's probe list.
+  - **Two probes I added to WP10's list that PLAN does not call for**, both
+    cheap and both turning a source claim into a measurement: `ioctl(fd,
+    0x7602, 42)` as guest root to confirm the exit code is guest-chosen, and a
+    userspace `open("/../etc/passwd")` to confirm the `..` finding is *not*
+    reachable from T1. The second is the evidence for the sentence the report
+    most needs to be able to write. Drop them if WP10 is tight for time, but
+    drop the four extra TSI control ports first.
+  - **The T1/T2/T3 tiering is mine, not PLAN's.** The report leans on it
+    heavily because without it "libkrun has an unchecked index" and "a
+    connector can escape the share" read as the same sentence, and they are
+    nothing alike. If the final report wants different language, this is the
+    place to change it once.
+  - **`--venv-dax` now has a second cost** beyond the one WP08 measured: it is
+    the only thing that makes the setupmapping overflow reachable at all. Worth
+    a line next to the performance number if DAX stays optional.
