@@ -103,6 +103,7 @@ impl SecretsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
+                env.capability_mask(),
                 models::authz::Capability::ViewSecret,
                 filter.and_then(|f| f.catalog_name),
                 "filter.catalogName",

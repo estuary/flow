@@ -653,6 +653,7 @@ impl StorageMappingsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
+                env.capability_mask(),
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -725,7 +726,7 @@ impl StorageMappingsQuery {
                     &snapshot.user_grants,
                     claims.sub,
                     &row.catalog_prefix,
-                    models::authz::CapabilityMask::ALL_CAPABILITIES,
+                    env.capability_mask(),
                 )
                 .ok_or_else(|| {
                     async_graphql::Error::new(format!(
@@ -923,6 +924,84 @@ mod test {
             err.message,
             "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely"
         );
+    }
+
+    // The list narrows to prefixes reachable with `CatalogRead` under the
+    // bearer's mask: a `Viewer` mask keeps every mapping under the direct
+    // grant, while a mask without `CatalogRead` reaches nothing.
+    // `userCapability` stays the literal legacy column by design; the mask
+    // governs reachability, not what a reached grant reports.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mappings_honor_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let mut store = models::Store::example();
+        *store.prefix_mut() = models::Prefix::new("tenant/collection-data/");
+        let spec = crate::TextJson(models::StorageDef {
+            data_planes: Vec::new(),
+            stores: vec![store],
+        });
+        for prefix in ["aliceCo/", "aliceCo/team/", "otherCo/"] {
+            sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+                .bind(prefix)
+                .bind(&spec)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let query = serde_json::json!({
+            "query": r#"
+                query {
+                    storageMappings {
+                        edges { node { catalogPrefix userCapability } }
+                    }
+                }
+            "#,
+        });
+
+        let viewer = server.make_masked_access_token(alice, None, &["Viewer"]);
+        let response: serde_json::Value = server.graphql(&query, Some(&viewer)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/",
+                    "userCapability": "admin"
+                  }
+                },
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/team/",
+                    "userCapability": "admin"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        let journal_only = server.make_masked_access_token(alice, None, &["JournalRead"]);
+        let response: serde_json::Value = server.graphql(&query, Some(&journal_only)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": []
+            }
+          }
+        }
+        "#);
     }
 
     #[sqlx::test(

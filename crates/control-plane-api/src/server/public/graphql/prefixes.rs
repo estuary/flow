@@ -59,7 +59,7 @@ impl PrefixesQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 user_id,
-                models::authz::CapabilityMask::ALL_CAPABILITIES,
+                env.capability_mask(),
             );
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
@@ -101,6 +101,118 @@ impl PrefixesQuery {
 #[cfg(test)]
 mod tests {
     use crate::test_server;
+
+    // Alice admins `aliceCo/` and reaches `aliceCo/data/` and `ops/dp/public/`
+    // through role grants. A `Viewer` mask attenuates her bits and, lacking
+    // `Delegate`, never follows those edges. `userCapability` stays the
+    // literal legacy column by design; `capabilities` is what attenuates.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_prefixes_honor_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let query = |min_capability: &str| {
+            serde_json::json!({
+                "query": format!(r#"
+                    query {{
+                        prefixes(by: {{ minCapability: {min_capability} }}) {{
+                            edges {{ node {{ prefix userCapability capabilities }} }}
+                        }}
+                    }}
+                "#)
+            })
+        };
+
+        let viewer = server.make_masked_access_token(alice, None, &["Viewer"]);
+        let response: serde_json::Value = server.graphql(&query("read"), Some(&viewer)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "prefixes": {
+              "edges": [
+                {
+                  "node": {
+                    "capabilities": [
+                      "CatalogRead",
+                      "JournalRead",
+                      "ViewDataPlanePrivateNetworking"
+                    ],
+                    "prefix": "aliceCo/",
+                    "userCapability": "admin"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        let response: serde_json::Value = server.graphql(&query("admin"), Some(&viewer)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "prefixes": {
+              "edges": []
+            }
+          }
+        }
+        "#);
+
+        // Adding `Delegate` follows the role-grant edges again; every reached
+        // prefix still surfaces only the masked bits.
+        let delegating = server.make_masked_access_token(alice, None, &["Viewer", "Delegate"]);
+        let response: serde_json::Value = server.graphql(&query("read"), Some(&delegating)).await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "prefixes": {
+              "edges": [
+                {
+                  "node": {
+                    "capabilities": [
+                      "CatalogRead",
+                      "JournalRead",
+                      "ViewDataPlanePrivateNetworking",
+                      "Delegate"
+                    ],
+                    "prefix": "aliceCo/",
+                    "userCapability": "admin"
+                  }
+                },
+                {
+                  "node": {
+                    "capabilities": [
+                      "CatalogRead",
+                      "JournalRead",
+                      "ViewDataPlanePrivateNetworking"
+                    ],
+                    "prefix": "aliceCo/data/",
+                    "userCapability": "write"
+                  }
+                },
+                {
+                  "node": {
+                    "capabilities": [
+                      "CatalogRead",
+                      "JournalRead",
+                      "ViewDataPlanePrivateNetworking"
+                    ],
+                    "prefix": "ops/dp/public/",
+                    "userCapability": "read"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",

@@ -91,6 +91,9 @@ pub struct SnapshotMigration {
 impl Snapshot {
     /// Returns the user's maximum capability to `object_role_or_name`,
     /// evaluated against this Snapshot's grants.
+    ///
+    /// Evaluates unmasked, for executor paths (publications, discovers) which
+    /// act for a user without a bearer token.
     pub fn user_capability(
         &self,
         user_id: uuid::Uuid,
@@ -107,6 +110,8 @@ impl Snapshot {
 
     /// Returns whether the user holds `capability` to `object_role_or_name`,
     /// evaluated against this Snapshot's grants.
+    ///
+    /// Evaluates unmasked, for executor paths; see [`Self::user_capability`].
     pub fn is_user_authorized(
         &self,
         user_id: uuid::Uuid,
