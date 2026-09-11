@@ -1,7 +1,7 @@
 use super::raw_kafka::{TestKafkaClient, fetch_partition_error, list_offsets_partition_error};
 use super::{
-    DekafTestEnv, cluster_name, cluster_name_2, connection_info_for_dataplane, trigger_migration,
-    wait_for_dekaf_redirect, wait_for_migration_complete,
+    ConnectionInfo, DekafTestEnv, cluster_name, cluster_name_2, connection_info_for_dataplane,
+    trigger_migration, wait_for_dekaf_redirect, wait_for_migration_complete,
 };
 use anyhow::Context;
 use serde_json::json;
@@ -20,6 +20,34 @@ const MIGRATION_TIMEOUT: Duration = Duration::from_secs(30);
 // So, we must set the upper timeout bound at 8 minutes to be safe. That
 // makes this test only viable to run manually, unfortunately.
 const SHARD_PRIMARY_TIMEOUT: Duration = Duration::from_mins(8);
+
+/// Debug-render a protocol response with the two data planes' Dekaf ports
+/// rewritten to stable tokens.
+///
+/// A Dekaf port is derived from its checkout's stack index (`base(i) + 50`, see
+/// local/README.md), so a snapshot holding literal ports matches only the stack
+/// that recorded it. Source and target map to *distinct* tokens rather than
+/// being redacted alike, because which plane a migrated task advertises is the
+/// thing these snapshots exist to assert.
+fn redact_dekaf_ports(
+    value: &impl std::fmt::Debug,
+    source: &ConnectionInfo,
+    target: &ConnectionInfo,
+) -> String {
+    let mut rendered = format!("{value:#?}");
+
+    for (info, token) in [
+        (source, "[SOURCE_DEKAF_PORT]"),
+        (target, "[TARGET_DEKAF_PORT]"),
+    ] {
+        let (_, port) = info
+            .broker
+            .rsplit_once(':')
+            .expect("broker address is host:port");
+        rendered = rendered.replace(&format!("port: {port},"), &format!("port: {token},"));
+    }
+    rendered
+}
 
 fn extract_ids(records: &[super::kafka::DecodedRecord]) -> Vec<&str> {
     records
@@ -140,7 +168,10 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
     let mut client = TestKafkaClient::connect(&src_info.broker, username, &password).await?;
 
     let metadata = client.metadata(&["test_topic"]).await?;
-    insta::assert_debug_snapshot!("pre_migration_metadata", metadata);
+    insta::assert_snapshot!(
+        "pre_migration_metadata",
+        redact_dekaf_ports(&metadata, &src_info, &tgt_info)
+    );
 
     let fetch_resp = client.fetch_with_epoch("test_topic", 0, 0, -1).await?;
     let fetch_error = fetch_partition_error(&fetch_resp, "test_topic", 0);
@@ -178,7 +209,10 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
     let mut client = TestKafkaClient::connect(&src_info.broker, username, &password).await?;
 
     let metadata = client.metadata(&["test_topic"]).await?;
-    insta::assert_debug_snapshot!("post_migration_metadata_from_source", metadata);
+    insta::assert_snapshot!(
+        "post_migration_metadata_from_source",
+        redact_dekaf_ports(&metadata, &src_info, &tgt_info)
+    );
 
     let fetch_resp = client.fetch_with_epoch("test_topic", 0, 0, -1).await?;
     let fetch_error = fetch_partition_error(&fetch_resp, "test_topic", 0);
@@ -201,7 +235,10 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
     let mut target_client = TestKafkaClient::connect(&tgt_info.broker, username, &password).await?;
 
     let target_metadata = target_client.metadata(&["test_topic"]).await?;
-    insta::assert_debug_snapshot!("post_migration_metadata_from_target", target_metadata);
+    insta::assert_snapshot!(
+        "post_migration_metadata_from_target",
+        redact_dekaf_ports(&target_metadata, &src_info, &tgt_info)
+    );
 
     let target_epoch = target_metadata
         .topics

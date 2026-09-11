@@ -6,6 +6,7 @@ set -euo pipefail
 #USAGE flag "--update-snapshots" help="Update insta snapshots"
 #USAGE flag "--concurrency <concurrency>" help="How many tests to run at once"
 #USAGE flag "--debug" help="Enable debug logging and show all test output"
+#USAGE flag "--migration" help="Run the migration scenarios instead (excluded by default; minutes per test)"
 
 
 source "$(dirname "$0")/../local/lib.sh"
@@ -19,6 +20,14 @@ FILTER="${usage_filter:-}"
 UPDATE_SNAPSHOTS="${usage_update_snapshots:-false}"
 CONCURRENCY="${usage_concurrency:-"num-cpus"}"
 DEBUG="${usage_debug:-false}"
+
+# The migration scenarios need their own profile: the dekaf-e2e default-filter
+# excludes them, and they run for minutes by construction.
+if [ "${usage_migration:-false}" = "true" ]; then
+    PROFILE="dekaf-e2e-migration"
+else
+    PROFILE="dekaf-e2e"
+fi
 
 DP2_BASE=$((FLOW_PLANE_BASE + 200))
 DEKAF1_KAFKA_PORT=$((FLOW_PLANE_BASE + 50))
@@ -86,12 +95,12 @@ if [ -n "${FILTER}" ]; then
     # Use --ignore-default-filter since user is explicitly choosing what to run
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
     env ${INSTA_ENV} \
-    cargo nextest run --profile dekaf-e2e -p dekaf ${OUTPUT_FLAGS} \
+    cargo nextest run --profile "${PROFILE}" -p dekaf ${OUTPUT_FLAGS} \
         --ignore-default-filter -E "binary_id(/dekaf::e2e/) and test(${FILTER})" || TEST_EXIT_CODE=$?
 else
     PATH="${CARGO_TARGET_DIR}/debug:${PATH}" \
     env ${INSTA_ENV} \
-    cargo nextest run --profile dekaf-e2e -p dekaf ${OUTPUT_FLAGS} -j "${CONCURRENCY}" --no-fail-fast --retries=1 || TEST_EXIT_CODE=$?
+    cargo nextest run --profile "${PROFILE}" -p dekaf ${OUTPUT_FLAGS} -j "${CONCURRENCY}" --no-fail-fast --retries=1 || TEST_EXIT_CODE=$?
 fi
 
 # On failure, output service logs for debugging

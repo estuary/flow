@@ -17,13 +17,28 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 default-filter = 'not binary_id(/dekaf::e2e/) and not binary_id(/materialize-consistency::scenarios/)'
 
 [profile.dekaf-e2e]
-# Migration tests excluded due to 8-minute timeout.
+# Migration tests excluded due to 8-minute timeout; run them with the
+# dekaf-e2e-migration profile below (`ci:dekaf-e2e-run --migration`).
 default-filter = 'binary_id(/dekaf::e2e/) and not test(/migration/)'
 # These tests publish specs, wait for shards, and consume through Dekaf, so
 # they're routinely slower than the default 30s/120s. Under CI load the slowest
 # have been observed at ~80s, which is close enough to the inherited 120s
 # terminate-after to become its own source of flakiness.
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+# The migration scenarios the dekaf-e2e profile excludes, run on demand rather
+# than in CI.
+#
+# A migrated shard cannot go primary on the target plane until the source plane
+# has persisted its recovery-log fragments (up to 3 minutes, on a Gazette race)
+# and the target's fragment refresh has picked them up (5 minutes by default).
+# Minutes of waiting is the expected case, not a hang -- see
+# SHARD_PRIMARY_TIMEOUT in crates/dekaf/tests/e2e/migration.rs. The kill
+# threshold clears that 8-minute in-test bound with headroom, so a genuinely
+# stuck test still dies rather than running to the harness timeout.
+[profile.dekaf-e2e-migration]
+default-filter = 'binary_id(/dekaf::e2e/) and test(/migration/)'
+slow-timeout = { period = "120s", terminate-after = 10 }
 
 [profile.consistency]
 default-filter = 'binary_id(/materialize-consistency::scenarios/)'
