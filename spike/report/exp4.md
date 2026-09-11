@@ -1,18 +1,24 @@
 # Experiment 4: derive-python end to end, permissive network
 
-**PASS**, with a caveat on what "permissive" meant. The derivation produced its
-four documents, and they are byte-identical to the unsandboxed run. `uv`
-resolved a name, fetched pandas 3.0.5 from PyPI over TLS from inside the guest,
-built a 180 MiB environment on the scratch disk, and the module imported and ran
-under connector-init over vsock.
+**PASS, under WP02's real ruleset.** The derivation produced its four documents,
+and they are byte-identical to the unsandboxed run. `uv` resolved a name, fetched
+pandas 3.0.5 from PyPI over TLS from inside the guest, built a 180 MiB
+environment on the scratch disk, and the module imported and ran under
+connector-init over vsock.
 
-**Caveat:** this ran under the **placeholder** egress scripts, not WP02's
-ruleset, which does not exist yet. See "What 'allow-all' meant here" below.
-Experiment 4 should be rerun under the real ruleset once WP02 lands.
+WP06 first ran this under the **placeholder** egress scripts, because WP02 had
+not landed, and recorded it as provisional. WP07 reran it unchanged against the
+real `flow-sandbox-egress` and `flow-sandbox-resolver`, with the same
+`policy-allow-all.json`, and it passes: same four documents, same parity with
+the unsandboxed arm, same pandas 3.0.5 from PyPI. The provisional is closed. See
+"What 'allow-all' means here" below for what that policy does and does not
+switch off - the answer is less than the name suggests.
 
-Measured at commit `6a2a47d6af6` (WP06's parent; the runs precede the commit),
-`spike/tasks/exp4-derive.sh`, connector
-`ghcr.io/estuary/derive-python@sha256:c26548740a9e967274f6d7b9c79bed73630bf61bd187c3afca7564577ef364c7`.
+Measured at commit `6a2a47d6af6` (WP06's parent) and rerun at `8703b322029`
+(WP07's parent, the first commit at which the real binaries are in the helper
+image), `spike/tasks/exp4-derive.sh`, connector
+`ghcr.io/estuary/derive-python@sha256:c26548740a9e967274f6d7b9c79bed73630bf61bd187c3afca7564577ef364c7`
+in both runs.
 
 ## What ran
 
@@ -58,40 +64,47 @@ of which the venv and uv's cache are each about half. `TMPDIR` and
 `UV_CACHE_DIR` both point at `/scratch` (flow-init), which is why none of this
 landed in podman's container layer on host disk.
 
-## What "allow-all" meant here, and what it did not
+## What "allow-all" means here
 
-WP02 has not run, so the helper is still executing the placeholders in
-`spike/helper/stubs/`. WP06 changed both of them, minimally, because without the
-changes the guest has no working network at all and this experiment could not
-run:
+`allowAll: true` adds one accept at the head of `egress_accept` and changes
+nothing else, so the run is not on an unenforced network. The forward chain the
+rerun loaded, verbatim:
 
-- **`flow-sandbox-egress`** gained a `nat postrouting oifname "eth0" masquerade`
-  chain. Without it the guest's packets leave the tap with source `192.0.2.2`,
-  go out the uplink untranslated, and no reply can return. This is not policy -
-  CONTRACTS already assigns masquerading to the real ruleset ("The helper
-  masquerades guest traffic out of eth0") - it is the plumbing every policy
-  needs. The forward chain still accepts everything and enforces nothing.
-- **`flow-sandbox-resolver`** previously exited 0 immediately. flow-init writes
-  `nameserver 192.0.2.1` into the guest, so with nothing listening there the
-  guest cannot resolve a name even on an open network. It now forwards UDP/53 to
-  the helper's own upstream with socat.
+```
+chain forward {
+        type filter hook forward priority filter; policy drop;
+        iifname "tap0" ip saddr != 192.0.2.2 counter drop comment "anti-spoof"
+        ct state established,related counter accept comment "replies"
+        meta nfproto ipv6 counter drop comment "no-ipv6"
+        meta l4proto != { tcp, udp } counter drop comment "tcp-udp-only"
+        ip daddr @baseline counter drop comment "baseline"
+        tcp dport 25 counter drop comment "smtp"
+        ct state new counter jump egress_accept comment "egress"
+        counter comment "forward-drop"
+}
+chain egress_accept {
+        counter accept comment "allow-all"
+        ip daddr @resolved counter accept comment "resolved"
+}
+```
 
-So what this experiment exercised is an **unenforced** network that happens to
-work, which is what `allowAll: true` reduces the real pair to. What it did
-**not** exercise, and what WP07 must:
+So the rerun did exercise the anti-spoof rule, the baseline denylist, the
+IPv6 and non-TCP/UDP drops, the tcp/25 drop, the masquerade, the input chain
+that lets only the guest's DNS reach the helper, and the output chain that lets
+nothing open a connection to the guest. What `allowAll` removes is the
+requirement that a destination be *named*: with it set, `@resolved` and
+`@declared` no longer gate anything, so an address that was never resolved is
+still reachable as long as it is outside the baseline.
 
-- the baseline denylist, `declaredCidrs`, and the rate limits,
-- the resolver checking answers against the denylist and refusing the whole
-  answer on a hit, feeding the `resolved` nft set before replying, and clamping
-  TTLs,
-- AAAA answers being emptied. The placeholder forwards them verbatim, so the
-  guest saw four AAAA records for pypi.org alongside the A records. IPv6 is off
-  in the guest and Python picked IPv4, so nothing failed - but a client that
-  strictly preferred AAAA would have, and the real resolver is what prevents
-  that.
+The real resolver is also what answered, which is the other half of the earlier
+caveat. It gates every A answer against the baseline, empties AAAA answers,
+clamps TTLs and feeds `@resolved` before replying - and pypi.org still resolved
+and still fetched. WP06 had recorded that the placeholder forwarded pypi.org's
+four AAAA records verbatim and that a client strictly preferring AAAA would have
+failed; under the real resolver those records are gone.
 
-Both placeholders remain WP02's to replace wholesale; nothing was added to them
-that WP02 needs to preserve except the masquerade, which it owes anyway.
+What this experiment still does not exercise, and experiment 6 does: DNS-gated
+reachability with `allowAll` off, `declaredCidrs`, and the rate limits.
 
 ## Notes
 

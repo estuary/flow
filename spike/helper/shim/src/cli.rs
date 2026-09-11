@@ -22,6 +22,11 @@ pub struct Args {
     pub as_root_exec: Option<String>,
     pub debug: bool,
     pub no_flow_init: bool,
+    /// Spike-only: the upstream the resolver forwards to, in place of the
+    /// nameserver in the helper's `/etc/resolv.conf`. Experiment 6's TTL probes
+    /// need a name whose TTL is below the clamp floor, which no public zone
+    /// will promise, so they point the resolver at `spike/egress/testnet.py`.
+    pub resolver_upstream: Option<String>,
     /// Replaces the default workload argv when present.
     pub exec: Option<Vec<String>>,
 }
@@ -29,7 +34,7 @@ pub struct Args {
 pub const USAGE: &str = "usage: flow-sandbox-helper --policy PATH --memory-mib N --vcpus N \
      --disk-mib N [--deps-image PATH [--deps-fstype ext4|erofs]] [--venv-dax] \
      [--thp-disable] [--run-as-root] [--debug] [--as-root-exec CMD] [--no-flow-init] \
-     [--exec ARGV...]";
+     [--resolver-upstream IP:PORT] [--exec ARGV...]";
 
 /// The filesystems the guest kernel (libkrunfw 5.5.0, 6.12.91) carries for a
 /// read-only dependency image. Checked here so a typo fails before the VM
@@ -49,6 +54,7 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
     let mut as_root_exec = None;
     let mut debug = false;
     let mut no_flow_init = false;
+    let mut resolver_upstream = None;
     let mut exec = None;
 
     let value = |i: usize| -> anyhow::Result<&str> {
@@ -72,6 +78,7 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
             "--as-root-exec" => (as_root_exec, i) = (Some(value(i)?.to_string()), i + 2),
             "--debug" => (debug, i) = (true, i + 1),
             "--no-flow-init" => (no_flow_init, i) = (true, i + 1),
+            "--resolver-upstream" => (resolver_upstream, i) = (Some(value(i)?.to_string()), i + 2),
             "--exec" => {
                 exec = Some(argv[i + 1..].to_vec());
                 break;
@@ -94,6 +101,7 @@ pub fn parse(argv: Vec<String>) -> anyhow::Result<Args> {
         as_root_exec,
         debug,
         no_flow_init,
+        resolver_upstream,
         exec,
     };
 

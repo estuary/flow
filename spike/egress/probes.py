@@ -18,7 +18,8 @@ one as the other.
 
 Two probes need root (raw sockets): `icmp-blocked` and `spoofed-source`. With
 `--root-probes auto` they run only when euid is 0 and are otherwise left out
-of the output entirely.
+of the output entirely; with `only` they are the whole run, which is how WP07
+repeats them under a second helper configuration without repeating the set.
 """
 
 import argparse
@@ -245,6 +246,9 @@ def set_public(run, args):
     require(args, "helper_ip", "uplink_ip", "gateway", "public_name", "rfc1918_name",
             "short_ttl_name", "nginx_ip", "metadata_ip", "ipv6_ip", "spoof_source")
 
+    if args.root_probes == "only":
+        return set_public_root(run, args, args.nginx_ip)
+
     resolved = run.probe("dns-public", "dns-ok", lambda: resolve(args.public_name))
     address = resolved.split(":", 1)[1].split(",")[0] if resolved.startswith("ok:") else None
 
@@ -272,15 +276,19 @@ def set_public(run, args):
               lambda: await_inbound(args.inbound_port, args.inbound_wait))
 
     if args.root_probes != "skip" and os.geteuid() == 0:
-        run.probe("icmp-blocked", "blocked",
-                  lambda: icmp_echo(address or args.nginx_ip, args.timeout))
-        run.probe("spoofed-source", "sent",
-                  lambda: spoofed_udp(args.spoof_source, args.nginx_ip, 9))
+        set_public_root(run, args, address or args.nginx_ip)
 
     run.probe("dns-ttl-clamped", "in-range",
               lambda: ttl_in_range(args, args.short_ttl_name))
     if args.slow:
         ttl_expiry(run, args)
+
+
+def set_public_root(run, args, address):
+    """The two that need raw sockets, and so guest root."""
+    run.probe("icmp-blocked", "blocked", lambda: icmp_echo(address, args.timeout))
+    run.probe("spoofed-source", "sent",
+              lambda: spoofed_udp(args.spoof_source, args.nginx_ip, 9))
 
 
 def aaaa_empty(args):
@@ -490,7 +498,7 @@ def main():
     parser.add_argument("--inbound-port", type=int, default=34567)
     parser.add_argument("--inbound-wait", type=float, default=2.0)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
-    parser.add_argument("--root-probes", choices=("auto", "skip"), default="auto")
+    parser.add_argument("--root-probes", choices=("auto", "only", "skip"), default="auto")
     parser.add_argument("--slow", action="store_true",
                         help="also run the probes that wait out a TTL or a rate window")
     args = parser.parse_args()

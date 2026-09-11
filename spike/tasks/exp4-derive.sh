@@ -16,12 +16,10 @@
 # `diskMib`: production guests receive a prebuilt dependency image on /dev/vdb
 # (experiment 5b) and will not run uv at all.
 #
-# CAVEAT, to be removed when WP02 lands: this runs under the PLACEHOLDER egress
-# scripts, not WP02's ruleset. `spike/helper/stubs/flow-sandbox-egress` accepts
-# all forwarded traffic and masquerades; `flow-sandbox-resolver` forwards DNS
-# without checking answers. That is what `allowAll: true` reduces the real pair
-# to, so the result stands for THIS experiment, but experiment 4 should be rerun
-# under the real ruleset once WP02 exists.
+# `allowAll: true` is not an unenforced network: it adds one accept at the head of
+# egress_accept and leaves the anti-spoof, baseline, IPv6, non-TCP/UDP and tcp/25
+# drops in front of it, and the real resolver still gates every answer. What it
+# removes is the requirement that a destination be named. See report/exp4.md.
 #
 # Run under mise: mise exec -- spike/tasks/exp4-derive.sh
 set -euo pipefail

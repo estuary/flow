@@ -1,0 +1,4 @@
+set,probe,expect,result,pass,ms
+none,dns-any,dns-error,error:gai-3,True,10019
+none,connect-raw-ip,blocked,timeout,True,15016
+none,connect-metadata,blocked,timeout,True,15015

@@ -64,10 +64,13 @@ fn run() -> anyhow::Result<std::convert::Infallible> {
     net::load_egress(&args.policy)?;
     let _resolver = match egress.as_str() {
         "none" => None,
-        _ => Some(net::spawn_resolver(
-            &args.policy,
-            &net::upstream_nameserver()?,
-        )?),
+        _ => {
+            let upstream = match &args.resolver_upstream {
+                Some(upstream) => upstream.clone(),
+                None => net::upstream_nameserver()?,
+            };
+            Some(net::spawn_resolver(&args.policy, &upstream)?)
+        }
     };
 
     let scratch_fd = disk::create(Path::new(SCRATCH_BACKING), args.disk_mib)?;

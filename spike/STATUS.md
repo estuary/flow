@@ -1908,3 +1908,228 @@ any runtime work is spent.)
   as the TTL fixture with a spike-only `--resolver-upstream` shim flag, and
   the host-vs-helper note for `declared.json`.
 - Next: WP07 (experiments 6 to 8 from the guest, and the experiment 4 rerun).
+
+### 2026-09-11 WP07: the egress rules hold from inside a real guest; experiments 4, 6, 7 and 8 all pass. The anti-spoof rule turns out to be unreachable in production, for kernel reasons.
+
+- **experiment 4's provisional is closed.** `mise exec -- spike/tasks/exp4-derive.sh`
+  reran unchanged against WP02's real `flow-sandbox-egress` and
+  `flow-sandbox-resolver`: same four documents, byte-identical to the
+  unsandboxed arm, pandas 3.0.5 still fetched from PyPI inside the guest.
+  `report/exp4.md`'s gate line now reads "PASS, under WP02's real ruleset" and
+  its "What allow-all meant here, and what it did not" section is replaced by
+  what the policy actually loads. **PLAN line 201 can drop "provisional".**
+
+  Worth recording because it was not obvious: `allowAll: true` is *not* an
+  unenforced network. It adds one accept at the head of `egress_accept` and
+  leaves anti-spoof, the baseline denylist, the IPv6 drop, the non-TCP/UDP drop,
+  tcp/25, the input chain and the output chain all in front of it. What it
+  removes is the requirement that a destination be *named*. The real resolver
+  also ran, so the AAAA-stripping that WP06 flagged as untested is now tested:
+  pypi.org's four AAAA records are gone and it still resolved and still fetched.
+
+- shipped:
+  - `spike/tasks/exp6-common.sh` - the shared driver. Brings up the host
+    fixtures (testnet.py, a gateway listener, a sibling container, the
+    TEST-NET-3 /32s), builds the per-connector directory with `probes.py` under
+    the venv, launches the helper through the fake reactor with `--exec`, and
+    reads the counters, the capture and the knocker back on the host. exp7 and
+    exp8 source it.
+  - `spike/tasks/exp6-egress.sh`, `exp7-none.sh`, `exp8-limits.sh` - one button
+    per experiment, each ending in a pass/fail line and writing its CSV.
+  - `spike/report/exp6.md`, `exp7.md`, `exp8.md`, and
+    `report/data/exp{6,7,8}-probes.csv`.
+  - `spike/helper/shim/src/{cli,main}.rs`: `--resolver-upstream IP:PORT`, the one
+    shim change the brief allows.
+  - `spike/egress/probes.py`: `--root-probes only` (addition).
+
+- verification:
+  ```
+  $ mise exec -- spike/tasks/exp4-derive.sh
+    ok    the derivation produced 4 documents inside the guest
+    ok    sandboxed documents are byte-identical to unsandboxed
+    ok    uv fetched and imported pandas=3.0.5 from PyPI inside the guest
+    scratch-footprint: used=183164KiB total=4112096KiB
+    exp4-derive.sh: ok
+
+  $ spike/tasks/exp6-egress.sh                     -> exp6-egress.sh: ok
+    39 probes over four passes, 0 failures, every capture empty:
+      public-user  18 probes as uid 65534, --slow (the TTL probes)
+      public-root  16 probes as guest root; the set behaves identically
+      spoof-nft     2 probes with rp_filter relaxed (see below)
+      declared      3 probes
+    knocker: socat from inside the helper to 192.0.2.2:34567, 124 attempts,
+             0 connected, including the 5 s the guest was listening.
+
+  $ spike/tasks/exp7-none.sh                       -> exp7-none.sh: ok
+    dns-any          error:gai-3   10.0 s
+    connect-raw-ip   timeout       15.0 s   (the probe's cap, not the kernel's)
+    connect-metadata timeout       15.0 s
+    no IP packet at all left the helper's uplink; no resolver started.
+
+  $ spike/tasks/exp8-limits.sh                     -> exp8-limits.sh: ok
+    fan-out: 5 of 20 destinations reached, limit 5; the other 15 timed out and
+             nothing was sent to them. Recovers after the window.
+    rate:    limited:80-reached-0-blocked-60-per-minute in 79.9 s.
+             forward/rate-limit 79 - nearly every SYN dropped once, every
+             connection completed on its retransmission.
+  ```
+  Regressions, all unchanged:
+  ```
+  $ spike/tasks/helper-smoke.sh                    -> ok (all 10)
+  $ spike/tasks/flow-init-test.sh                  -> ok (all 43)
+  $ spike/tasks/egress-netns-test.sh               -> PASS, 49 probes, 0 failures
+  $ mise exec -- cargo nextest run -p runtime-next -> 219 passed, 0 skipped
+  $ spike/tasks/env-check.sh                       -> ok
+  $ cargo fmt --all --check; (shim, flow-init, egress) cargo fmt --check -> clean
+  $ (shim) cargo clippy --release --all-targets    -> clean
+  ```
+
+- **the finding that matters most: the nft anti-spoof rule cannot fire in the
+  topology we are shipping, and neither can the IPv6 drop.**
+
+  The brief said to spoof from `192.0.2.3`, inside the tap's /30, so that
+  rp_filter could not pre-empt the rule under test. That address does not exist
+  as a source. `192.0.2.0/30` holds exactly four addresses - `.0` the network,
+  `.1` the helper, `.2` the guest, `.3` the **broadcast** - so there is no spare
+  unicast address in a /30 to forge from at all, and Linux rejects a broadcast
+  address as a source in `fib_validate_source` whatever rp_filter says:
+  `ip route get 192.0.2.3 from 192.0.2.2 iif tap0` returns `broadcast`.
+  A source *outside* the /30 fails the strict `rp_filter` the helper inherits
+  from the host (`net.ipv4.conf.default.rp_filter=1` here), because its reverse
+  route is eth0.
+
+  Measured all four combinations - `{192.0.2.3, 198.51.100.99}` x
+  `{rp_filter inherited, rp_filter relaxed}`: `forward/anti-spoof` stays 0 in
+  every case with rp_filter at 1, and the capture is empty in every case. To
+  show the rule is real rather than merely unreached, `exp6-egress.sh` adds a
+  fourth pass that relaxes rp_filter at container creation and forges an
+  ordinary off-net source: `forward/anti-spoof = 1`, capture still empty.
+
+  So **the control that actually enforces anti-spoofing in production is
+  `rp_filter`, which the helper inherits rather than sets.** If a host's default
+  were ever 0, enforcement would move silently to the one nft rule this package
+  had to contrive a configuration to observe. Master already recorded "setting
+  it strictly on the tap in the shim is a phase-2 runtime item"; this makes it
+  the difference between two controls and one.
+
+  The same shape, less consequentially, for IPv6: `connect-ipv6` returns
+  `EADDRNOTAVAIL` in 0 ms because flow-init turns IPv6 off in the guest, so
+  `forward/no-ipv6` stays at 0 - the socket cannot be given a source address and
+  no packet is ever offered to the tap. My first draft asserted that counter
+  above zero and failed; the assertion was wrong, not the ruleset.
+
+- **deviations from CONTRACTS.md:**
+  - **`--resolver-upstream IP:PORT` on the helper CLI**, authorized by WP07's
+    brief as the one shim change. It overrides the `/etc/resolv.conf` nameserver
+    the shim otherwise passes to `flow-sandbox-resolver`, and does nothing else;
+    unset, the path is byte-identical. CONTRACTS "Helper CLI" wants the flag in
+    its usage line and a sentence saying it is spike-only.
+  - **`probes.py --root-probes only`**, a third choice beside `auto` and `skip`:
+    the two root probes are the whole run. It is what makes the rp_filter pass
+    two probes rather than a repeat of the set. CONTRACTS does not enumerate
+    probes.py's flags, so this may not be a contract change at all; recorded
+    because WP02 recorded `auto`/`skip`.
+  - Nothing else. The launch line, flow-init's sequence, the policy JSON and the
+    egress binaries are all as written, and the four `examples/*.json` policies
+    were used unmodified.
+
+- **departures from the brief's method**, each with the reason:
+  - **The capture is taken on the host side of the helper's veth, not inside the
+    helper.** The brief says `tcpdump -i eth0 -w` inside it. podman 4.x drops
+    CAP_NET_RAW from its default set - experiment 1's `CapEff 800405fb` has no
+    bit 13 - so tcpdump there fails with "You don't have permission to perform
+    this capture on that device". `--cap-add NET_RAW` would hand the helper a
+    capability production does not give it and that experiment 1 measured the
+    absence of. The bridge carrying `flow-connectors` sees every frame the
+    helper's veth puts on it, so it is the same claim, observed from outside the
+    thing under test. Filters are per-pass and restricted to
+    `src host <helper uplink>` plus `src net 192.0.2.0/30`, so replies and the
+    sibling container's traffic are not counted.
+  - **The two passes per policy set** are a full non-root `--slow` pass and a
+    full root pass without `--slow`, rather than a root pass of only the two
+    root probes. The extra evidence is worth the 40 seconds: the whole set
+    behaves identically whether the workload is the image's user or root, which
+    is what "the guest is confined by the helper, not by its own privilege"
+    means. `--root-probes only` is used for the third, rp_filter-relaxed pass.
+  - **`--as-root-exec` was not used for the spoofed datagram.** The brief offers
+    it; `--run-as-root` plus probes.py covers both root probes with WP02's
+    existing code and reports per-probe timing. It also has to be this way for
+    the rp_filter pass: `--as-root-exec` runs ~200 ms into the boot, long before
+    the host can reach in and change anything.
+  - **Experiment 8's fan-out uses 20 declared destinations, not 20 names**, for
+    the reason WP02 gave: 20 resolvable names pointing at hosts we may hammer do
+    not exist, and the limits sit in front of every accept path. Noted in
+    `exp8.md` as what a name-driven run would additionally cover.
+  - **`probes.py` reports `ms` from `time.monotonic()`, not `time.perf_counter()`**
+    as the brief says. On Linux both are `clock_gettime(CLOCK_MONOTONIC)`; it is
+    the guest's own clock at the same resolution, and leaving WP02's file alone
+    seemed better than churning it for a synonym.
+
+- **departures from the brief's paths:**
+  - **`spike/tasks/exp6-common.sh`** holds the driver all three experiments
+    share. Inside the `exp{6,7,8}-*.sh` glob but named for one of the three;
+    same shape as `exp5-common.sh`, and as WP06's use of `preview-common.sh`.
+  - **`spike/tasks/exp4-derive.sh`**, comment only: its header carried a
+    "CAVEAT, to be removed when WP02 lands" block saying the run is under
+    placeholder scripts. The brief has me rerun that experiment and rewrite its
+    report; leaving the script itself asserting the opposite would mislead the
+    next reader. No behaviour change.
+
+- findings other packages need:
+  - **`podman exec` cannot change a sysctl in the helper.** podman mounts
+    `/proc/sys` read-only; the only way in is `--sysctl` on the `podman run`,
+    and for a device that does not exist yet (`tap0`) that means setting
+    `conf.default.<knob>`, which the tap then inherits. The helper image also has
+    **no `sysctl` binary**. A first attempt wrote through `/proc` and silently
+    did nothing, which is exactly the kind of no-op a later package could build
+    a wrong conclusion on.
+  - **The podman bridge device, and every address on it, exists only while a
+    container is on the network.** `podman1` disappears when the last container
+    leaves, taking any `ip addr add` with it. So does aardvark-dns's bind on the
+    gateway address. Anything that needs the bridge must hold a container up
+    first - `exp6-common.sh` starts the sibling before it does anything else.
+  - **aardvark-dns answers queries that arrive from the host's own address**, so
+    a host-side stub can forward to it and resolve container names. That is what
+    lets one `--resolver-upstream` cover both the short-TTL fixture and the
+    sibling container's RFC1918 answer.
+  - **`egress: none` DNS failure is 10.0 s here, against WP02's 20.0 s in the
+    netns.** Same ruleset, same drop: the difference is glibc's budget under the
+    *image's* `resolv.conf` (2 queries here, 4 there). `input/input-drop` counts
+    the queries, so the number is checkable. Report it as a range, not a
+    constant.
+  - **The metadata server answers on this box.** `169.254.169.254:80` connects in
+    3 ms from a container on `flow-connectors` (it is GCP), so
+    `connect-metadata` is a test of the ruleset rather than of an absent
+    service. Same for nginx on 443 and for `203.0.113.5:443`, which RSTs in 2 ms
+    - each must-fail probe targets something that would otherwise answer.
+  - **Experiment 8 reproduced WP02's netns numbers exactly** - 79 SYNs dropped,
+    80 connections completed, 79.9 s - from inside a guest. The netns harness is
+    a faithful stand-in for this ruleset, which is worth knowing for whatever
+    comes next.
+  - Two pre-existing clippy warnings in WP02's crate, outside my paths and left
+    alone: `src/dns.rs:152` (`manual_saturating_arithmetic`) and
+    `src/bin/resolver.rs:88` (`needless_question_mark`).
+
+- questions for master:
+  - **Does `rp_filter` move up?** It is now the only anti-spoof control that runs
+    in production, and the helper inherits it from the host rather than setting
+    it. It was already a phase-2 runtime item; the question is whether "the
+    shim sets `net.ipv4.conf.tap0.rp_filter=1` explicitly" should be stated as a
+    requirement in the report rather than a suggestion, given that the nft rule
+    behind it is unreachable.
+  - **`egress: none` ergonomics.** A connector on a `none` policy does not fail,
+    it stalls: 10 s for a lookup and at least 15 s (really ~127 s) for a connect,
+    with nothing in its logs saying why. `reject` on the guest's DNS query
+    specifically would turn the first into an immediate SERVFAIL and costs
+    nothing else - but it changes the number PLAN asked me to measure, so it is
+    yours. `exp7.md` records it as an open question, not a recommendation.
+  - **The `spoof-nft` pass runs a configuration production will not have** (a
+    podman `--sysctl` relaxing rp_filter). I judged a deliberately non-production
+    pass to be the honest way to show a rule that is otherwise unobservable, and
+    labelled it as such in the script and the report. Say if you would rather it
+    were dropped and the rule left proven only by WP02's netns run.
+  - **`connectionsPerMinute` is invisible when it bites.** Confirming the framing
+    rather than reopening your WP02 ruling: a connector held at 60/minute sees
+    only reduced throughput, with no error and no log line. `exp8.md` says so;
+    worth a line in the report's open problems next to "whether the policy should
+    be named a rate".
