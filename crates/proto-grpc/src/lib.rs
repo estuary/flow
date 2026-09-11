@@ -12,8 +12,8 @@ pub mod shuffle;
 
 mod status;
 pub use status::{
-    MAX_STATUS_MESSAGE_LEN, Verify, anyhow_to_status, bound_status, bounded_unknown_status,
-    catch_panic, status_to_anyhow, verify,
+    MAX_STATUS_MESSAGE_LEN, StatusError, Verify, anyhow_to_status, bound_status,
+    bounded_unknown_status, catch_panic, status_to_anyhow, verify,
 };
 
 mod dial;
