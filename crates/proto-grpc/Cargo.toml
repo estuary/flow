@@ -25,6 +25,7 @@ tonic-prost = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+insta = { workspace = true }
 # `test-util` enables paused-time control for the `expiry_guard` test.
 tokio = { workspace = true, features = ["test-util"] }
 

@@ -6572,6 +6572,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "futures",
+ "insta",
  "labels",
  "proto-build",
  "proto-flow",
