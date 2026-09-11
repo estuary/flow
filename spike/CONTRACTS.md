@@ -33,6 +33,12 @@ deviation in STATUS.md for the master thread to propagate.
 - Guest MAC `02:f1:0f:00:00:02`. Tap name inside the helper: `tap0`.
 - Helper uplink interface: `eth0` (podman's veth). The helper masquerades
   guest traffic out of eth0.
+- Anti-spoof: the launch line sets `--sysctl net.ipv4.conf.default.rp_filter=1`
+  so the tap inherits strict reverse-path filtering regardless of the host's
+  default. `/proc/sys` is read-only inside the helper and the tap does not
+  exist at container creation, so `conf.default` on the launch line is the
+  only route. The nft anti-spoof rule remains as the second control; in this
+  topology it cannot be reached while rp_filter is strict (WP07).
 
 ## Helper CLI (WP03 provides, WP05 invokes)
 
@@ -40,8 +46,12 @@ deviation in STATUS.md for the master thread to propagate.
 flow-sandbox-helper --policy PATH --memory-mib N --vcpus N --disk-mib N \
     [--deps-image PATH [--deps-fstype ext4|erofs]] \
     [--venv-dax] [--thp-disable] [--run-as-root] [--debug] \
-    [--as-root-exec CMD] [--no-flow-init] [--exec ARGV...]
+    [--as-root-exec CMD] [--no-flow-init] [--resolver-upstream IP:PORT] \
+    [--exec ARGV...]
 ```
+`--resolver-upstream` is spike-only: it overrides the `/etc/resolv.conf`
+upstream the shim otherwise passes to the resolver, so probes can use a
+host-side DNS fixture. Unset, the path is unchanged.
 `PATH` is `/init/policy.json`; the runtime writes it next to connector-init.
 
 - Mounts it expects, all provided by the caller's `podman run`:

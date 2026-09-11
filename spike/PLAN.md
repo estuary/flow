@@ -104,7 +104,7 @@ podman run --rm --name=<name> --network=flow-connectors --log-driver=none \
   --cgroup-parent estuary-connectors.slice \
   --label=image=... --label=task-name=... --label=task-type=... \
   --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
-  --sysctl net.ipv4.ip_forward=1 \
+  --sysctl net.ipv4.ip_forward=1 --sysctl net.ipv4.conf.default.rp_filter=1 \
   --env=LOG_FORMAT=json --env=LOG_LEVEL=<level> \
   --memory <memoryMib + overhead>m --cpus <vcpus> \
   --mount type=image,source=<connector image>,destination=/rootfs,rw=true \
@@ -198,7 +198,12 @@ two devices, nothing needed the host shell). 2 PASS (WP06: p95 0.735 s
 against 5 s; sandbox adds ~275 ms over today, of which ~290 ms after
 flow-init is guest stderr reaching the host through libkrun's console).
 3 PASS (WP06: six diffs empty across a Go capture and materialization).
-4 PASS provisional (see experiment 4). 5 PASS by ruling at 2.12x (WP08b).
+4 PASS (WP06 under placeholder egress; WP07 reran it under the real
+`allowAll` ruleset, byte-identical). 5 PASS by ruling at 2.12x (WP08b).
+6 PASS (WP07: 39 probes from inside the guest, four passes, every uplink
+capture empty). 7 PASS (WP07: lookup and connect both fail with no packet
+leaving; DNS 10 s, connect bounded by the probe's cap). 8 PASS (WP07: fan-out
+5 of 20, rate held to 60/minute, identical to the netns numbers).
 
 ### 1. Launch through the podman API from the reactor's privilege level (gate)
 
@@ -230,11 +235,13 @@ log path work inside the guest.
 
 ### 4. derive-python end to end, permissive network (gate)
 
-Result (WP06, commit dff79afbc3e): PASS under WP03's placeholder egress
-extended with masquerade and a forwarding resolver, i.e. an unenforced
-network. Provisional until WP07 reruns it under WP02's real `allowAll`
-ruleset. Four documents byte-identical to the unsandboxed run; uv fetched
-pandas 3.0.5 inside the guest; `/scratch` footprint 183 MB.
+Result (WP06 dff79afbc3e, rerun WP07 d8c804722e2): PASS under WP02's real
+`allowAll` ruleset. Note `allowAll` is not an unenforced network: anti-spoof,
+the baseline denylist, the IPv6 and non-TCP/UDP drops, tcp/25 and the input
+and output chains all still apply; it only removes the requirement that a
+destination be named. Four documents byte-identical to the unsandboxed run;
+uv fetched pandas 3.0.5 inside the guest with AAAA stripped; `/scratch`
+footprint 183 MB.
 
 Preview a derivation with at least one non-trivial dependency (pandas) with
 the ruleset in allow-all mode, so `uv` fetches from PyPI inside the guest.
@@ -413,9 +420,20 @@ One document containing:
     original time; a connect in that moment is dropped. The runtime's netlink
     implementation should update in place (delete-then-add opens a window).
     Owner: runtime.
-  - The helper inherits the host's `rp_filter`. The nft anti-spoof rule is
-    the enforced control; `rp_filter` is defense in depth and the shim should
-    set it strictly on the tap rather than inherit. Owner: runtime.
+  - `rp_filter` is the anti-spoof control that actually runs in production,
+    not the nft rule (WP07). A /30 has no spare unicast source to forge from,
+    the kernel rejects the broadcast address as a source, and any off-net
+    source is dropped by strict `rp_filter` before nft sees it. So the
+    launch line MUST set `--sysctl net.ipv4.conf.default.rp_filter=1`
+    explicitly rather than inherit the host's default; the nft rule stays as
+    the second control. Owner: runtime (WP10 applies it in the spike).
+  - `egress: none` stalls rather than fails: ~10-20 s for a lookup, up to
+    ~127 s for a connect, with nothing in the connector's logs saying why.
+    A `reject` on the guest's DNS query alone would make lookups fail at once
+    at no other cost; deliberately not changed in the spike (deny is drop).
+    Owner: product, with runtime.
+  - `connectionsPerMinute` is invisible when it bites: throughput drops to
+    the rate with no error and no log line. Owner: product.
   - `connectionsPerMinute` behaves as pacing (connections slow to the rate)
     rather than refusal. Accepted for the spike; whether the policy should be
     named and documented as a rate rather than a limit is a phase-2 policy

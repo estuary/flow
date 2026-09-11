@@ -14,7 +14,7 @@ maintains the table. Newest log entries at the bottom.
 | 04 | flow-init                               | 03 (to test) | done   | daveg/libkrun-spike | ba94256e321; libkrun 1.19.4 + ENOTTY patch |
 | 05 | runtime-next spike switch               | 01 (real)    | done   | daveg/libkrun-spike | 8f745facd8c; unswitched args identical to master |
 | 06 | Integration: experiments 1-4            | 00-05        | done   | daveg/libkrun-spike | dff79afbc3e, 8d95d06724f; gates 1-3 pass, 4 provisional until WP07 |
-| 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | todo   | daveg/libkrun-spike |       |
+| 07 | Egress from the guest: experiments 6-8  | 02, 04, 06   | done   | daveg/libkrun-spike | d8c804722e2; exp 4 closed, 6-8 pass; rp_filter is the live anti-spoof control |
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
 | 04b| podman writable layer, no guest overlay | 04, 08b      | done   | daveg/libkrun-spike | 981c434e5fd; unpatched libkrun; exp 5c 2.13x |
@@ -2133,3 +2133,27 @@ any runtime work is spent.)
     only reduced throughput, with no error and no log line. `exp8.md` says so;
     worth a line in the report's open problems next to "whether the policy should
     be named a rate".
+
+### 2026-09-11 master: WP07 accepted; gates 4, 6, 7, 8 closed
+
+- rp_filter moves up to a requirement. The launch line gains
+  `--sysctl net.ipv4.conf.default.rp_filter=1` in PLAN and CONTRACTS; WP10
+  applies it in `spike.rs` and `helper-common.sh` and reruns exp 6 as its
+  first step. The nft rule stays as the second control. The report states
+  plainly that in a /30 topology the nft rule is unreachable while rp_filter
+  is strict, so the sysctl is the control that runs.
+- The `spoof-nft` pass stays, labelled non-production. A rule that exists but
+  cannot be observed in the shipping topology is worth one deliberately
+  contrived pass that shows it is real.
+- `egress: none` ergonomics: recorded in the report as an open problem with a
+  one-word remedy (reject the guest's DNS query in `none` mode), NOT applied.
+  The standing decision is "deny is drop"; the master thread recommends the
+  DNS-only reject and leaves the call to the user.
+- `connectionsPerMinute` invisibility: in the report's open problems beside
+  the naming question.
+- `--resolver-upstream` is in CONTRACTS as spike-only. `probes.py
+  --root-probes only` is not a contract change.
+- Capturing from the bridge rather than inside the helper is the right call:
+  the helper lacks CAP_NET_RAW by design, and adding it would have changed the
+  thing under test.
+- Next: WP11 (source read, no VM), then WP10, WP09, WP12.
