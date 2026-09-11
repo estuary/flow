@@ -101,6 +101,7 @@ impl Snapshot {
             &self.user_grants,
             user_id,
             object_role_or_name,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
         )
     }
 
@@ -118,6 +119,7 @@ impl Snapshot {
             user_id,
             object_role_or_name,
             capability,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
         )
     }
 
