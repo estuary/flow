@@ -1,0 +1,130 @@
+---
+source: crates/models/src/authz.rs
+expression: table
+---
+{
+  "Admin": [
+    "CatalogRead",
+    "JournalRead",
+    "JournalAppend",
+    "SpecEdit",
+    "CreateGrant",
+    "DeleteGrant",
+    "CreateInviteLink",
+    "ViewDataPlanePrivateNetworking",
+    "ModifyDataPlanePrivateNetworking",
+    "ViewBilling",
+    "EditBilling",
+    "QueryServiceAccounts",
+    "CreateServiceAccount",
+    "CreateApiKey",
+    "RevokeApiKey",
+    "ViewSecret",
+    "EditSecret",
+    "DecryptSecret",
+    "Delegate"
+  ],
+  "Assume": [
+    "Assume"
+  ],
+  "Billing": [
+    "ViewBilling",
+    "EditBilling"
+  ],
+  "CatalogRead": [
+    "CatalogRead"
+  ],
+  "CreateApiKey": [
+    "CreateApiKey"
+  ],
+  "CreateGrant": [
+    "CreateGrant"
+  ],
+  "CreateInviteLink": [
+    "CreateInviteLink"
+  ],
+  "CreateServiceAccount": [
+    "CreateServiceAccount"
+  ],
+  "DecryptSecret": [
+    "DecryptSecret"
+  ],
+  "Delegate": [
+    "Delegate"
+  ],
+  "DeleteGrant": [
+    "DeleteGrant"
+  ],
+  "EditBilling": [
+    "EditBilling"
+  ],
+  "EditSecret": [
+    "EditSecret"
+  ],
+  "Editor": [
+    "CatalogRead",
+    "JournalRead",
+    "SpecEdit",
+    "ViewSecret",
+    "EditSecret",
+    "DecryptSecret",
+    "Delegate"
+  ],
+  "JournalAppend": [
+    "JournalAppend"
+  ],
+  "JournalRead": [
+    "JournalRead"
+  ],
+  "ManageDataPlane": [
+    "ViewDataPlanePrivateNetworking",
+    "ModifyDataPlanePrivateNetworking"
+  ],
+  "ManageServiceAccounts": [
+    "QueryServiceAccounts",
+    "CreateServiceAccount",
+    "CreateApiKey",
+    "RevokeApiKey"
+  ],
+  "ModifyDataPlanePrivateNetworking": [
+    "ModifyDataPlanePrivateNetworking"
+  ],
+  "QueryServiceAccounts": [
+    "QueryServiceAccounts"
+  ],
+  "RevokeApiKey": [
+    "RevokeApiKey"
+  ],
+  "SpecEdit": [
+    "SpecEdit"
+  ],
+  "TeamAdmin": [
+    "CreateGrant",
+    "DeleteGrant",
+    "CreateInviteLink",
+    "QueryServiceAccounts",
+    "CreateServiceAccount",
+    "CreateApiKey",
+    "RevokeApiKey"
+  ],
+  "ViewBilling": [
+    "ViewBilling"
+  ],
+  "ViewDataPlanePrivateNetworking": [
+    "ViewDataPlanePrivateNetworking"
+  ],
+  "ViewSecret": [
+    "ViewSecret"
+  ],
+  "Viewer": [
+    "CatalogRead",
+    "JournalRead",
+    "ViewDataPlanePrivateNetworking"
+  ],
+  "Writer": [
+    "CatalogRead",
+    "JournalRead",
+    "JournalAppend",
+    "ViewDataPlanePrivateNetworking"
+  ]
+}
