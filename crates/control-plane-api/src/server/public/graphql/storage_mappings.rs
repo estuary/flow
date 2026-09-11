@@ -725,6 +725,7 @@ impl StorageMappingsQuery {
                     &snapshot.user_grants,
                     claims.sub,
                     &row.catalog_prefix,
+                    models::authz::CapabilityMask::ALL_CAPABILITIES,
                 )
                 .ok_or_else(|| {
                     async_graphql::Error::new(format!(

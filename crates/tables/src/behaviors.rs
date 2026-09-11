@@ -96,8 +96,17 @@ impl super::RoleGrant {
             capabilities: EnumSet::from(authz::Capability::Assume),
             legacy: models::Capability::None,
         };
+        // Role-to-role authorization answers questions where no user bearer
+        // participates (task authorizations, prefix-to-data-plane checks),
+        // so a capability mask never applies here.
         pathfinding::directed::bfs::bfs_reach(seed, move |f| {
-            next_neighbors(f.clone(), role_grants, &[], uuid::Uuid::nil())
+            next_neighbors(
+                f.clone(),
+                role_grants,
+                &[],
+                uuid::Uuid::nil(),
+                authz::CapabilityMask::ALL_CAPABILITIES,
+            )
         })
         .skip(1)
     }
@@ -125,10 +134,19 @@ impl super::RoleGrant {
 }
 
 impl super::UserGrant {
+    /// Walk the grant graph reachable from `user_id`, attenuated to `mask`.
+    ///
+    /// The mask is the ceiling carried by the user's bearer token: every
+    /// emitted node's capabilities are intersected with it, so a masked
+    /// walk can only ever see a subset of the unmasked walk's authority.
+    /// Callers authorizing a request must pass the bearer's actual mask;
+    /// `ALL_CAPABILITIES` is for unmasked tokens and for paths where no user
+    /// bearer participates.
     pub fn reachable_nodes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         user_id: uuid::Uuid,
+        mask: authz::CapabilityMask,
     ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
         let seed = super::NodeRef {
             object_role: "",
@@ -136,7 +154,7 @@ impl super::UserGrant {
             legacy: models::Capability::None,
         };
         pathfinding::directed::bfs::bfs_reach(seed, move |f| {
-            next_neighbors(f.clone(), role_grants, user_grants, user_id)
+            next_neighbors(f.clone(), role_grants, user_grants, user_id, mask)
         })
         .skip(1)
     }
@@ -149,17 +167,34 @@ impl super::UserGrant {
     /// Bits compose additively (multi-path union); the legacy column is
     /// a literal pass-through from storage, max'd across same-prefix
     /// arrivals. Applying a min-capability filter to the bit set agrees
-    /// with `is_authorized` on the same inputs.
+    /// with `is_authorized` on the same inputs and the same `mask`.
+    ///
+    /// Under `ALL_CAPABILITIES` every reached prefix surfaces, including
+    /// those the walk reaches with an empty bit set (a delegation whose
+    /// edge bits fall entirely outside the parent's). Under a narrower
+    /// mask, prefixes whose bits the mask attenuates to nothing are
+    /// omitted: a masked token learns neither the shape nor the legacy
+    /// metadata of grants it cannot exercise.
     pub fn reachable_prefixes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         user_id: uuid::Uuid,
+        mask: authz::CapabilityMask,
     ) -> std::collections::BTreeMap<&'a str, (authz::CapabilitySet, models::Capability)> {
         let mut out: std::collections::BTreeMap<
             &'a str,
             (authz::CapabilitySet, models::Capability),
         > = Default::default();
-        for node in Self::reachable_nodes(role_grants, user_grants, user_id) {
+        for node in Self::reachable_nodes(role_grants, user_grants, user_id, mask) {
+            // `has_all_capabilities()` asks whether the mask can hide
+            // anything, not whether the bearer is masked (that is the
+            // claim's presence, decided by the caller). The unmasked walk
+            // emits empty-bit nodes of its own through delegation
+            // intersections, and those surface with their legacy metadata,
+            // so an empty bit set alone is not evidence of attenuation.
+            if node.capabilities.is_empty() && !mask.has_all_capabilities() {
+                continue;
+            }
             let entry = out
                 .entry(node.object_role)
                 .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
@@ -171,28 +206,42 @@ impl super::UserGrant {
         out
     }
 
+    /// Returns the maximum legacy `capability` column value among reached
+    /// grants whose prefix covers `object_role_or_name`.
+    ///
+    /// `mask` gates reachability: traversal ends at a node the mask leaves
+    /// with neither Delegate nor Assume. The legacy value of a reached node
+    /// is reported un-attenuated. It is compatibility metadata, never an
+    /// authorization decision, and may read broader than the token's
+    /// effective bits at that prefix.
     pub fn get_user_capability<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         user_id: uuid::Uuid,
         object_role_or_name: &str,
+        mask: authz::CapabilityMask,
     ) -> Option<models::Capability> {
-        Self::reachable_nodes(role_grants, user_grants, user_id)
+        Self::reachable_nodes(role_grants, user_grants, user_id, mask)
             .filter(|n| object_role_or_name.starts_with(n.object_role))
             .map(|n| n.legacy)
             .filter(|c| *c != models::Capability::None)
             .max()
     }
 
+    /// True when the bits `subject_user_id` reaches at prefixes covering
+    /// `object_role_or_name`, attenuated to `mask`, jointly satisfy
+    /// `capability`. A bit the mask excludes can never be satisfied, no
+    /// matter what the underlying grants hold.
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         subject_user_id: uuid::Uuid,
         object_role_or_name: &'a str,
         capability: impl Into<authz::CapabilitySet>,
+        mask: authz::CapabilityMask,
     ) -> bool {
         any_path_satisfies(
-            Self::reachable_nodes(role_grants, user_grants, subject_user_id),
+            Self::reachable_nodes(role_grants, user_grants, subject_user_id, mask),
             object_role_or_name,
             capability,
         )
@@ -211,6 +260,8 @@ impl super::UserGrant {
 // unless it carries Delegate or Assume. Delegate passes only the node's own
 // capabilities through to neighbors (the child receives `edge_bits & parent_bits`);
 // Assume passes all capabilities through unfiltered, modeling identity takeover.
+// Every emitted neighbor is intersected with `mask` before it is fed back in
+// as `from`, so the Delegate/Assume terminal test in the body sees masked bits.
 //
 // Perf note: bfs_reach keys on the whole NodeRef, so the same object_role
 // reached with different capability subsets produces distinct BFS nodes —
@@ -222,6 +273,7 @@ fn next_neighbors<'a>(
     role_edges: &'a [super::RoleGrant],
     user_edges: &'a [super::UserGrant],
     user_id: uuid::Uuid,
+    mask: authz::CapabilityMask,
 ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
     let has_delegate = from.capabilities.contains(authz::Capability::Delegate);
     let has_assume = from.capabilities.contains(authz::Capability::Assume);
@@ -293,7 +345,17 @@ fn next_neighbors<'a>(
         .flatten()
         .map(move |g| g.to_node_ref(delegatable));
 
-    p1.chain(p2).chain(p3)
+    // The mask applies at every emission, not to the walk's result. This is
+    // what makes traversal itself subject to the mask: a node the mask leaves
+    // with neither Delegate nor Assume is terminal, so a mask holding neither
+    // bit confines the user to direct grants, and Assume — which passes ALL
+    // bits through `delegatable` — cannot re-widen a child beyond the mask.
+    // Because each parent is itself masked at emission, `edge & delegatable
+    // & mask` composes identically across any number of hops.
+    p1.chain(p2).chain(p3).map(move |mut node| {
+        node.capabilities = mask.apply(node.capabilities);
+        node
+    })
 }
 
 impl super::StorageMapping {
@@ -306,6 +368,7 @@ impl super::StorageMapping {
 mod test {
     use crate::{Import, Imports, RoleGrant, RoleGrants, UserGrant, UserGrants};
     use enumset::EnumSet;
+    use models::authz;
     use models::authz::{Capability, CapabilityBundle};
 
     #[test]
@@ -447,6 +510,7 @@ mod test {
             uuid::Uuid::nil(),
             "bobCo/thing",
             models::Capability::Read,
+            authz::CapabilityMask::ALL_CAPABILITIES,
         ));
         assert!(!UserGrant::is_authorized(
             &role_grants,
@@ -454,6 +518,7 @@ mod test {
             uuid::Uuid::nil(),
             "bobCo/thing",
             models::Capability::Write,
+            authz::CapabilityMask::ALL_CAPABILITIES,
         ));
         assert!(UserGrant::is_authorized(
             &role_grants,
@@ -461,6 +526,7 @@ mod test {
             uuid::Uuid::nil(),
             "carolCo/hidden/thing",
             models::Capability::Read,
+            authz::CapabilityMask::ALL_CAPABILITIES,
         ));
 
         // User max: admin on aliceCo/widgets/ (propagates to bobCo/burgers/).
@@ -470,6 +536,7 @@ mod test {
             uuid::Uuid::max(),
             "bobCo/burgers/thing",
             models::Capability::Admin,
+            authz::CapabilityMask::ALL_CAPABILITIES,
         ));
     }
 
@@ -582,7 +649,8 @@ mod test {
                 &role_grants,
                 &user_grants,
                 user1,
-                "ops/private/dp/acmeCo/foooo"
+                "ops/private/dp/acmeCo/foooo",
+                authz::CapabilityMask::ALL_CAPABILITIES
             )
         );
         assert_eq!(
@@ -591,7 +659,8 @@ mod test {
                 &role_grants,
                 &user_grants,
                 user2,
-                "ops/private/dp/acmeCo/foooo"
+                "ops/private/dp/acmeCo/foooo",
+                authz::CapabilityMask::ALL_CAPABILITIES
             )
         );
         assert_eq!(
@@ -600,7 +669,8 @@ mod test {
                 &role_grants,
                 &user_grants,
                 user1,
-                "different/co/altogether"
+                "different/co/altogether",
+                authz::CapabilityMask::ALL_CAPABILITIES
             )
         );
     }
@@ -643,6 +713,7 @@ mod test {
             uuid::Uuid::from_bytes([1; 16]),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
+            authz::CapabilityMask::ALL_CAPABILITIES,
         ));
         // User 2 has admin on acmeCo/nested/, which also picks up the
         // acmeCo/ role grants (parent prefix matching).
@@ -652,6 +723,7 @@ mod test {
             uuid::Uuid::from_bytes([2; 16]),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
+            authz::CapabilityMask::ALL_CAPABILITIES,
         ));
     }
 
@@ -683,7 +755,23 @@ mod test {
         user_id: uuid::Uuid,
         expected: Vec<(&str, EnumSet<Capability>)>,
     ) {
-        let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, user_id)
+        assert_reachable_masked(
+            role_grants,
+            user_grants,
+            user_id,
+            authz::CapabilityMask::ALL_CAPABILITIES,
+            expected,
+        )
+    }
+
+    fn assert_reachable_masked(
+        role_grants: &RoleGrants,
+        user_grants: &UserGrants,
+        user_id: uuid::Uuid,
+        mask: authz::CapabilityMask,
+        expected: Vec<(&str, EnumSet<Capability>)>,
+    ) {
+        let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, user_id, mask)
             .map(|n| (n.object_role.to_string(), n.capabilities))
             .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.as_u32().cmp(&b.1.as_u32())));
@@ -705,7 +793,14 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                user_id,
+                name,
+                required,
+                authz::CapabilityMask::ALL_CAPABILITIES
+            ),
             "expected {user_id} to have {required:?} on {name}",
         );
     }
@@ -718,7 +813,14 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            !UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            !UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                user_id,
+                name,
+                required,
+                authz::CapabilityMask::ALL_CAPABILITIES
+            ),
             "expected {user_id} NOT to have {required:?} on {name}",
         );
     }
@@ -1305,8 +1407,13 @@ mod test {
         }]);
         let role_grants = RoleGrants::new();
 
-        let nodes: Vec<_> =
-            UserGrant::reachable_nodes(&role_grants, &user_grants, user_id).collect();
+        let nodes: Vec<_> = UserGrant::reachable_nodes(
+            &role_grants,
+            &user_grants,
+            user_id,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
+        )
+        .collect();
 
         assert_eq!(nodes.len(), 1);
         let node = &nodes[0];
@@ -1505,6 +1612,331 @@ mod test {
                 ("bobCo/", CapabilityBundle::Viewer.capabilities() | Delegate),
                 ("carolCo/", CapabilityBundle::Viewer.capabilities()),
             ],
+        );
+    }
+
+    /// A scenario exercising every traversal mode at once: a direct grant
+    /// carrying Delegate, a multi-hop role chain beneath it, and a direct
+    /// grant carrying only Assume whose role edge is an identity takeover.
+    fn masked_walk_scenario() -> (RoleGrants, UserGrants, uuid::Uuid) {
+        build_scenario(
+            vec![
+                (
+                    "acmeCo/",
+                    vec![CapabilityBundle::Editor, CapabilityBundle::Writer],
+                ),
+                ("supportCo/", vec![CapabilityBundle::Assume]),
+            ],
+            vec![
+                ("acmeCo/", "bobCo/shared/", vec![CapabilityBundle::Editor]),
+                (
+                    "bobCo/shared/",
+                    "carolCo/upstream/",
+                    vec![CapabilityBundle::Viewer],
+                ),
+                ("supportCo/", "daveCo/", vec![CapabilityBundle::Admin]),
+            ],
+        )
+    }
+
+    #[test]
+    fn test_masked_walk_unmasked_parity() {
+        use Capability::*;
+
+        // A mask enabling every capability IS the unmasked mask — one value,
+        // by construction — and intersection with the full set is the
+        // identity, so the masked walk with it reproduces the walk every
+        // other test in this module pins by passing ALL_CAPABILITIES.
+        assert_eq!(
+            authz::CapabilityMask::new(EnumSet::all()),
+            authz::CapabilityMask::ALL_CAPABILITIES,
+        );
+
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+        assert_reachable(
+            &role_grants,
+            &user_grants,
+            user_id,
+            vec![
+                (
+                    "acmeCo/",
+                    CapabilityBundle::Editor.capabilities()
+                        | CapabilityBundle::Writer.capabilities(),
+                ),
+                ("bobCo/shared/", CapabilityBundle::Editor.capabilities()),
+                // Viewer bits clamped by the delegating Editor edge, which
+                // lacks ViewDataPlanePrivateNetworking.
+                ("carolCo/upstream/", CatalogRead | JournalRead),
+                ("daveCo/", CapabilityBundle::Admin.capabilities()),
+                ("supportCo/", EnumSet::from(Assume)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_masked_walk_empty_mask_denies_all() {
+        // An identity-only token: every node is emitted fully attenuated,
+        // so no authorization can succeed anywhere and no prefix surfaces.
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+        let mask = authz::CapabilityMask::new(EnumSet::empty());
+
+        for object in ["acmeCo/thing", "bobCo/shared/thing", "daveCo/thing"] {
+            assert!(!UserGrant::is_authorized(
+                &role_grants,
+                &user_grants,
+                user_id,
+                object,
+                Capability::CatalogRead,
+                mask,
+            ));
+        }
+        assert!(
+            UserGrant::reachable_prefixes(&role_grants, &user_grants, user_id, mask).is_empty()
+        );
+    }
+
+    #[test]
+    fn test_masked_walk_without_delegate_is_direct_only() {
+        use Capability::*;
+
+        // The mask strips Delegate from the direct Editor grant, so the
+        // walk terminates there: bobCo/ and carolCo/ are unreachable even
+        // though the underlying grants reach them. The supportCo/ grant's
+        // Assume bit is likewise stripped, so that node surfaces empty and
+        // daveCo/ is unreachable too.
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+        let mask = authz::CapabilityMask::new(CatalogRead | JournalRead | SpecEdit);
+
+        assert_reachable_masked(
+            &role_grants,
+            &user_grants,
+            user_id,
+            mask,
+            vec![
+                ("acmeCo/", CatalogRead | JournalRead | SpecEdit),
+                ("supportCo/", EnumSet::empty()),
+            ],
+        );
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "bobCo/shared/thing",
+            Capability::CatalogRead,
+            mask,
+        ));
+    }
+
+    #[test]
+    fn test_masked_walk_multi_hop_with_delegate() {
+        use Capability::*;
+
+        // With Delegate in the mask the chain traverses, and every hop is
+        // clamped: bobCo/ keeps only the Editor bits inside the mask
+        // (CatalogRead | Delegate), and carolCo/ receives Viewer bits
+        // clamped to CatalogRead alone.
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+
+        assert_reachable_masked(
+            &role_grants,
+            &user_grants,
+            user_id,
+            mask,
+            vec![
+                ("acmeCo/", CatalogRead | Delegate),
+                ("bobCo/shared/", CatalogRead | Delegate),
+                ("carolCo/upstream/", EnumSet::from(CatalogRead)),
+                ("supportCo/", EnumSet::empty()),
+            ],
+        );
+        assert!(UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "carolCo/upstream/thing",
+            Capability::CatalogRead,
+            mask,
+        ));
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "carolCo/upstream/thing",
+            Capability::JournalRead,
+            mask,
+        ));
+    }
+
+    #[test]
+    fn test_masked_walk_assume_containment() {
+        use Capability::*;
+
+        // Assume makes ALL of an edge's bits delegatable as it passes
+        // through — which must not restore capabilities outside the mask.
+        // With Assume in the mask, daveCo/ is reached through the takeover
+        // edge but its Admin bundle is still clamped to the mask.
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+        let mask = authz::CapabilityMask::new(CatalogRead | Assume);
+
+        assert_reachable_masked(
+            &role_grants,
+            &user_grants,
+            user_id,
+            mask,
+            vec![
+                ("acmeCo/", EnumSet::from(CatalogRead)),
+                ("daveCo/", EnumSet::from(CatalogRead)),
+                ("supportCo/", EnumSet::from(Assume)),
+            ],
+        );
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "daveCo/thing",
+            Capability::SpecEdit,
+            mask,
+        ));
+    }
+
+    #[test]
+    fn test_masked_walk_prefixes_omit_fully_attenuated() {
+        use Capability::*;
+
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+
+        // Masked: supportCo/ is walked (its Assume seed-edge is emitted,
+        // fully attenuated) but conveys nothing, so it must not surface —
+        // a masked token doesn't learn the shape of grants it can't use.
+        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+        let masked = UserGrant::reachable_prefixes(&role_grants, &user_grants, user_id, mask);
+        assert_eq!(
+            masked.keys().collect::<Vec<_>>(),
+            vec![&"acmeCo/", &"bobCo/shared/", &"carolCo/upstream/"],
+        );
+
+        // Unmasked: every reached prefix surfaces. supportCo/ emits its bare
+        // Assume bit, so it is non-empty and never a candidate for the skip;
+        // that Assume bit is what carries the walk on to daveCo/, which
+        // arrives with full Admin bits.
+        let unmasked = UserGrant::reachable_prefixes(
+            &role_grants,
+            &user_grants,
+            user_id,
+            authz::CapabilityMask::ALL_CAPABILITIES,
+        );
+        assert_eq!(
+            unmasked.keys().collect::<Vec<_>>(),
+            vec![
+                &"acmeCo/",
+                &"bobCo/shared/",
+                &"carolCo/upstream/",
+                &"daveCo/",
+                &"supportCo/"
+            ],
+        );
+    }
+
+    #[test]
+    fn test_masked_walk_parent_prefix_pickup() {
+        use Capability::*;
+
+        // The upward traversal mode: a grant on acmeCo/nested/ picks up
+        // role grants whose subject is the parent prefix acmeCo/. That
+        // edge stream is clamped by the mask and gated on the parent
+        // holding Delegate or Assume exactly like the downward one.
+        let (role_grants, user_grants, user_id) = build_scenario(
+            vec![("acmeCo/nested/", vec![CapabilityBundle::Editor])],
+            vec![("acmeCo/", "sharedCo/", vec![CapabilityBundle::Viewer])],
+        );
+
+        // With Delegate in the mask the parent-subject edge traverses,
+        // and sharedCo/'s Viewer bits are clamped to CatalogRead.
+        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+        assert_reachable_masked(
+            &role_grants,
+            &user_grants,
+            user_id,
+            mask,
+            vec![
+                ("acmeCo/nested/", CatalogRead | Delegate),
+                ("sharedCo/", EnumSet::from(CatalogRead)),
+            ],
+        );
+
+        // Without Delegate the direct grant is terminal, so the
+        // parent-prefix pickup never happens.
+        let mask = authz::CapabilityMask::new(CatalogRead | SpecEdit);
+        assert_reachable_masked(
+            &role_grants,
+            &user_grants,
+            user_id,
+            mask,
+            vec![("acmeCo/nested/", CatalogRead | SpecEdit)],
+        );
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "sharedCo/thing",
+            Capability::CatalogRead,
+            mask,
+        ));
+    }
+
+    #[test]
+    fn test_masked_walk_get_user_capability() {
+        use Capability::*;
+
+        // Legacy-capability grants, so nodes carry a legacy value the
+        // mask must NOT attenuate: it's compatibility metadata, not an
+        // authorization decision.
+        let user_id = uuid::Uuid::from_bytes([1; 16]);
+        let user_grants = UserGrants::from_iter([UserGrant {
+            user_id,
+            object_role: models::Prefix::new("acmeCo/"),
+            capability: models::Capability::Admin,
+            bundles: vec![],
+        }]);
+        let role_grants = RoleGrants::from_iter([RoleGrant {
+            subject_role: models::Prefix::new("acmeCo/"),
+            object_role: models::Prefix::new("sharedCo/"),
+            capability: models::Capability::Read,
+            bundles: vec![],
+        }]);
+
+        // A reached node's legacy value passes through un-attenuated:
+        // even an identity-only token reports the legacy metadata of its
+        // direct grants, while authorization under the same mask denies.
+        let mask = authz::CapabilityMask::new(EnumSet::empty());
+        assert_eq!(
+            UserGrant::get_user_capability(&role_grants, &user_grants, user_id, "acmeCo/", mask),
+            Some(models::Capability::Admin),
+        );
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "acmeCo/thing",
+            Capability::CatalogRead,
+            mask,
+        ));
+
+        // The mask still gates reachability: without Delegate the walk
+        // terminates at the direct grant, so sharedCo/ has no legacy
+        // value to report...
+        assert_eq!(
+            UserGrant::get_user_capability(&role_grants, &user_grants, user_id, "sharedCo/", mask),
+            None,
+        );
+        // ...and with Delegate it's reached, reporting its legacy value
+        // even though the mask attenuates its effective bits to nothing
+        // beyond CatalogRead.
+        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+        assert_eq!(
+            UserGrant::get_user_capability(&role_grants, &user_grants, user_id, "sharedCo/", mask),
+            Some(models::Capability::Read),
         );
     }
 

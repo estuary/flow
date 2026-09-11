@@ -115,6 +115,7 @@ where
                 &snapshot.user_grants,
                 claims.sub,
                 &prefix,
+                models::authz::CapabilityMask::ALL_CAPABILITIES,
             );
             attach(prefix, capability)
         })
