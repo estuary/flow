@@ -54,10 +54,9 @@ fn small_error_is_not_truncated() {
     let status = runtime_next::anyhow_to_status(err);
     let message = status.message();
 
-    // Under-budget messages pass through without a truncation marker. (We avoid
-    // asserting exact equality because anyhow's `{:?}` appends a backtrace when
-    // `RUST_BACKTRACE` is set.)
-    assert!(message.starts_with("causal hint resolution timed out: 1 hint(s) unresolved"));
-    assert!(!message.ends_with("… [truncated]"));
-    assert!(message.len() <= runtime_next::MAX_STATUS_MESSAGE_LEN);
+    // Under-budget messages pass through without a truncation marker.
+    assert_eq!(
+        message,
+        "causal hint resolution timed out: 1 hint(s) unresolved"
+    );
 }
