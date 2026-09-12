@@ -13,9 +13,6 @@ pub struct Test {
     /// Path or URL to a Flow specification file.
     #[clap(long)]
     source: String,
-    /// Docker network to run connector images (for image derivations).
-    #[clap(long, default_value = "bridge")]
-    network: String,
     /// Number of shards to activate for each derivation, to exercise
     /// multi-shard key routing.
     #[clap(long, default_value = "2")]
@@ -27,7 +24,7 @@ pub struct Test {
 }
 
 impl Test {
-    pub async fn run(&self, _ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let log_handler: fn(&::ops::Log) = if self.log_json {
             ::ops::stderr_log_handler
         } else {
@@ -38,7 +35,8 @@ impl Test {
         // control-plane round-trip. Derivation connectors are validated;
         // captures / materializations are not, as tests never run them.
         let source_url = build::arg_source_to_url(&self.source, false)?;
-        let built = build::for_catalog_test(&source_url, &self.network, log_handler)
+        let connector_router = ctx.local_connector_router();
+        let built = build::for_catalog_test(&source_url, &ctx.connector_network, log_handler)
             .await
             .into_result()
             .map_err(|errors| {
@@ -50,10 +48,7 @@ impl Test {
             .context("building catalog for testing")?;
 
         let options = catalog_tests::Options {
-            connector_router: runtime_local::local_router(
-                self.network.clone(),
-                service_kit::Registry::new(),
-            ),
+            connector_router,
             splits: self.splits,
             log_handler: std::sync::Arc::new(log_handler),
             timeouts: catalog_tests::Timeouts::default(),

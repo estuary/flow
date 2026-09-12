@@ -30,8 +30,11 @@ impl Discover {
 
 async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Result<()> {
     // Load, inline, and validate the source specifications.
-    let (mut draft_catalog, live, _validations) =
-        local_specs::load_and_validate(ctx, &args.source).await?;
+    let build::Output {
+        draft: mut draft_catalog,
+        live,
+        built: validations,
+    } = local_specs::load_and_validate(ctx, &args.source).await?;
 
     // Identify the capture to discover.
     let needle = if let Some(needle) = &args.capture {
@@ -59,7 +62,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     let data_plane_name = if let Some(data_plane) = &args.data_plane {
         data_plane.as_str()
     } else {
-        let data_plane_id = _validations
+        let data_plane_id = validations
             .built_captures
             .get_by_key(&models::Capture::new(needle))
             .expect("capture validated")
