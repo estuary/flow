@@ -262,9 +262,16 @@ With two stacks up, stopping one leaves the other's units, DB, etcd, fragments,
 and flowctl profile untouched. `systemctl --user restart
 flow-supabase@<stack>` wipes only that stack's DB (see below).
 
-Also note: `flow-plane-link@<dp>.service` has an `ExecStop=` that deletes
+`flow-plane-link@<dp>.service` has an `ExecStop=` that deletes
 `live_specs` + the data plane row from Postgres. That fires whenever the link
-service stops — even on a tidy `systemctl stop flow-plane@<dp>.target`.
+service stops — even `systemctl stop flow-plane@<dp>.target`.
+
+`flow-runtime-sidecar@<dp>.service` does not exit on SIGTERM while a V2 task
+holds a leader session open, so systemd SIGKILLs it at the 90s stop timeout.
+This is intended: flowctl-go controls lifecycle, and only it releases the sidecar.
+`flow-reactor@<dp>-<port>.service` and `flow-gazette@<dp>-<port>.service` *also*
+won't exit gracefully if they own shards or journals (respectively) that cannot
+be handed off to another instance. Delete tasks and collections to speed teardown.
 
 ### Release a stack by deleting its worktree
 

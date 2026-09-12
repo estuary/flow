@@ -30,6 +30,11 @@ materializations:
           address: db:5432
           database: postgres
           user: postgres
+          # Bindings and connector's internal `flow_checkpoint_v1` live in the
+          # `soak` schema. Were `flow_checkpoint_v1` instead in `public`, it may
+          # conflict on table ownership with the ops `stats-view` task which
+          # uses a separate `stats_loader` role.
+          schema: soak
           credentials:
             auth_type: UserPassword
             password: postgres
@@ -41,9 +46,7 @@ materializations:
       - source: test/soak/accounts
         resource:
           table: soak_accounts
-          schema: soak
       - source: test/soak/accounts
         resource:
           table: soak_accounts_delta
-          schema: soak
           delta_updates: true
