@@ -1,0 +1,5 @@
+arm,guests,stopped,avail_start_mib,avail_end_mib,avail_recovered_mib,host_mib_per_guest
+idle-thp-on,82,floor,10994,3184,10896,95.2
+idle-thp-off,82,floor,10905,3148,10887,94.6
+tls-thp-on,20,cap,10887,8876,10875,100.6
+tls-thp-off,20,cap,10875,8885,10881,99.5

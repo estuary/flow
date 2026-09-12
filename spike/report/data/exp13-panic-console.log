@@ -1,10 +1,10 @@
 --- helper stdout (kernel console and workload stdout)
 
 --- helper stderr (workload stderr, plus the console under --debug)
-flow-sandbox-helper: timing stage=start wall_us=1789225494661674
-flow-sandbox-helper: timing stage=krun_start_enter wall_us=1789225494686757
-204929
-211407
-[2026-09-12T15:04:58.837200Z ERROR init_or_kernel] [    3.862775] Kernel panic - not syncing: Out of memory: system-wide panic_on_oom is enabled
-[2026-09-12T15:04:58.837992Z ERROR init_or_kernel] [    3.863748] Kernel Offset: disabled
-[2026-09-12T15:04:58.838113Z INFO  krun_vmm] Vmm is stopping.
+flow-sandbox-helper: timing stage=start wall_us=1789234215794280
+flow-sandbox-helper: timing stage=krun_start_enter wall_us=1789234215812177
+212238
+
+[2026-09-12T17:30:20.031319Z ERROR init_or_kernel] [    3.914736] Kernel panic - not syncing: Out of memory: system-wide panic_on_oom is enabled
+[2026-09-12T17:30:20.031900Z ERROR init_or_kernel] [    3.915511] Kernel Offset: disabled
+[2026-09-12T17:30:20.032009Z INFO  krun_vmm] Vmm is stopping.

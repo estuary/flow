@@ -142,7 +142,7 @@ run_guest_sequence() {
     argv=(
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" --log-driver=none
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN
-        --sysctl net.ipv4.ip_forward=1
+        "${SPIKE_HELPER_SYSCTLS[@]}"
         "$(spike_image_mount "$image")"
         "--mount=type=bind,source=$SPIKE_REACTOR_DIR/$id/init,target=/init,ro"
         "--mount=type=bind,source=$venvdir,target=/venv,ro"

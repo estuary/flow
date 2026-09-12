@@ -75,7 +75,7 @@ helper_run_argv() {
     printf '%s\n' \
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" --log-driver=none \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
-        --sysctl net.ipv4.ip_forward=1 \
+        "${SPIKE_HELPER_SYSCTLS[@]}" \
         "$(spike_image_mount "$GUEST_IMAGE")" \
         "--mount=type=bind,source=$dir/init,target=/init,ro" \
         "--mount=type=bind,source=$dir/venv,target=/venv,ro" \
@@ -239,7 +239,17 @@ used_before="$(fs_used)"
 run_helper interior "$id" --no-flow-init --exec /bin/sh -c 'sleep 60' &
 helper_pid=$!
 if await_container "$id"; then
-    if sudo podman exec "$id" nft list ruleset 2>/dev/null | grep -q 'table inet flow_sandbox'; then
+    # Polled, not asserted once: await_container returns as soon as `podman exec`
+    # works, and the container is executable from the moment podman starts the
+    # shim - which is before the shim has exec'd flow-sandbox-egress. The window
+    # is the ~30 ms between the helper's `start` and `krun_start_enter` timing
+    # lines, and one exec in five lands inside it.
+    loaded=0
+    for _ in $(seq 50); do
+        sudo podman exec "$id" nft list ruleset 2>/dev/null | grep -q 'table inet flow_sandbox' && { loaded=1; break; }
+        sleep 0.2
+    done
+    if [ "$loaded" -eq 1 ]; then
         ok "helper: nft ruleset holds table inet flow_sandbox"
     else
         fail "helper: no 'table inet flow_sandbox' in nft list ruleset"

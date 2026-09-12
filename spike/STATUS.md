@@ -18,7 +18,7 @@ maintains the table. Newest log entries at the bottom.
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
 | 04b| podman writable layer, no guest overlay | 04, 08b      | done   | daveg/libkrun-spike | 981c434e5fd; unpatched libkrun; exp 5c 2.13x |
-| 09 | Churn and density: experiments 9-10     | 00, 06       | todo   | daveg/libkrun-spike |       |
+| 09 | Churn and density: experiments 9-10     | 00, 06       | done   | daveg/libkrun-spike | 50/s held exactly, 0 failures; 82 idle guests, linear; overhead ~25 MiB not 256 |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | done   | daveg/libkrun-spike | 527044b8e3f; 11 and 12 pass; 13 clean, panic exits 0 (gate reworded, open problem); rp_filter explicit; citation checker landed |
 | 11 | libkrun source read: experiment 12      | -            | done   | daveg/libkrun-spike | 36104b1ba89; gates hold; 3 T3 bugs; DAX not for production |
 | 12 | Report                                  | all          | todo   | daveg/libkrun-spike |       |
@@ -2612,3 +2612,200 @@ any runtime work is spent.)
   the spike.
 - Results for 11, 12 and 13 recorded in PLAN. Next: WP09 (side items first,
   then experiments 9 and 10), then WP12.
+
+### 2026-09-12 WP09: churn holds 50/s exactly for ten minutes; 82 idle guests fit and the overhead constant is ~25 MiB, not 256.
+
+- **side items first, as the brief scheduled.**
+  - `exp13-crash.sh` now matches PLAN's reworded gate: the prompt-exit check
+    stays an `ok`, the exit code is a `note` naming libkrun's
+    `FC_EXIT_CODE_OK` fallback on a reset, and the header comment says so. The
+    comment above the check said "PLAN's gate has two halves"; that is no longer
+    true of PLAN, so its first two sentences were reworded while the mechanism
+    paragraph (`src/vmm/src/lib.rs:405-430`) was left as WP10 wrote it.
+  - The four remaining inline `--sysctl net.ipv4.ip_forward=1` spellings are
+    folded onto `SPIKE_HELPER_SYSCTLS`: `helper-smoke.sh`, `flow-init-test.sh`,
+    `exp5-run.sh`, `exp5-diag.sh`. All four already sourced `helper-common.sh`
+    (the exp5 pair via `exp5-common.sh`), so nothing needed a new source line.
+    The launch line now agrees with the contract in all six places.
+
+- shipped:
+  - `spike/tasks/exp9-churn.sh` and `spike/report/exp9.md`, with
+    `data/exp9-churn.csv` (the guest's per-window rates) and
+    `data/exp9-cgroup.csv` (the host's cgroup samples).
+  - `spike/tasks/exp10-density.sh` and `spike/report/exp10.md`, with
+    `data/exp10-density.csv`, `data/exp10-arms.csv`, `data/exp10-reclaim.csv`,
+    `data/exp10-overhead.csv`.
+  - `spike/tasks/exp11-common.sh` gains what reuse needed: an `XP_POLICY_FILE`
+    hook (it hardcoded `egress: none`, and experiment 9 needs a declared CIDR),
+    and three host probes - `xp_synced_mem_available_kib`, `xp_threads`,
+    `xp_cpu_usec`. The sync is folded into the accessor rather than left to each
+    caller, because WP10's rule about dirty page cache is exactly the kind of
+    thing that gets forgotten once.
+
+- verification:
+  ```
+  $ mise exec -- spike/tasks/exp9-churn.sh
+    connections:  30000 ok, 0 failed, over 600.0s
+    rate:         50.0/s achieved against 50/s offered
+    latency:      p50 2.9 ms, p95 3.3 ms, max 26.5 ms
+    helper cpu:   90.9s over the run = 15.2% of one core (2 vcpu configured)
+    helper mem:   50552 KiB -> 97216 KiB memory.current
+    helper threads: 12 -> 14
+    ok    churn: all 30000 connections completed, none failed
+    ok    churn: the offered rate held (50.0/s of 50/s)
+    ok    churn: the helper survived the run and exited 0
+    exp9-churn.sh: ok
+
+  $ mise exec -- spike/tasks/exp10-density.sh
+    arm             guests  stopped  cgroup med  cgroup max   threads host/guest
+    idle-thp-on         82    floor       72.6M       90.9M        13     95.2M
+    idle-thp-off        82    floor       72.6M       75.5M        13     94.6M
+    tls-thp-on          20      cap       78.0M       82.4M        13    100.6M
+    tls-thp-off         20      cap       77.9M       79.1M        13     99.5M
+    reclaim: 1138 MiB -> 645 MiB memory.current; 493 of 512 MiB returned
+    overhead (MemTotal-MemFree): idle median 29.5 MiB, 80%-full median 23.1 MiB
+    exp10-density.sh: ok
+  ```
+  Regressions, all unchanged:
+  ```
+  $ spike/tasks/env-check.sh                        -> env-check.sh: ok
+  $ spike/tasks/helper-smoke.sh                     -> ok (3 consecutive runs)
+  $ spike/tasks/flow-init-test.sh                   -> flow-init-test.sh: ok
+  $ mise exec -- spike/tasks/exp11-storage.sh       -> exp11-storage.sh: ok
+  $ mise exec -- spike/tasks/exp12-exposure.sh      -> exp12-exposure.sh: ok
+  $ mise exec -- spike/tasks/exp13-crash.sh         -> exp13-crash.sh: ok (exit 0)
+  $ bash -n on every spike/tasks/*.sh               -> clean
+  ```
+  No Rust or Go file is touched by this package, so `cargo nextest` and
+  `cargo fmt` are unchanged by construction and were not rerun.
+
+- **the two measurements:**
+
+  - **Experiment 9: the tap carries 50 conn/s for ten minutes with nothing to
+    report.** 30,000 new TCP+TLS connections, **zero failures**, and every one
+    of the 60 ten-second windows came out at exactly 500 connections - min,
+    median and max all 50.00/s. Per-connection latency p50 2.9 ms, p95 3.3 ms.
+    The helper cost **15.2% of one core** (90.9 s of CPU for 600 s of wall
+    clock) and **95 MiB**, and memory was flat within a 2.0 MiB band from the
+    one-minute mark to the end: 30,000 connections leak nothing. Threads went 12
+    -> 14 and never moved again, so churn is not a thread-creating workload.
+    This also exercised the declared-CIDR path end to end - nginx as a `/32` on
+    443, the resolver never asked anything - and conntrack absorbed ~6,000
+    concurrent TIME_WAIT entries at default sizing without complaint.
+
+  - **Experiment 10: density is linear and the overhead constant is small.**
+    **82 idle 512 MiB guests** before `MemAvailable` crossed 20%, at **95.2 MiB
+    of host memory each**; the 82nd guest cost what the first did (94.8 vs 95.0
+    MiB) and its cgroup was the same size (72.5 vs 73.0 MiB). There is no
+    accumulating per-guest tax. **THP changes nothing** (95.2 vs 94.6 MiB per
+    guest; it widens the tail, 90.9 vs 75.5 MiB worst case, which is huge pages
+    rounding up). A guest holding a real TLS connection costs ~5 MiB more than
+    an idle one. **13 threads per helper in every arm at every count.**
+    **Free-page reporting works**: 493 of 512 MiB returned, flat through the
+    90-second hold and then gone within one 5-second sample of `drop_caches`.
+
+- **the overhead constant, and a caveat about how PLAN defines it.**
+  Measured at ~**20 to 32 MiB**, and it is genuinely a constant: the same at 512
+  and 1024 MiB of `memoryMib`, and no larger when the guest is actually using
+  its memory than when it is idle. **The number this package would propose for
+  `FLOW_SANDBOX_SPIKE_MEMORY_OVERHEAD_MIB` is 64** - twice the worst case
+  observed. 256 is about 8x the measurement.
+
+  The caveat is that **PLAN's formula gives the wrong answer.** `memory.current`
+  minus `MemTotal - MemAvailable` comes out at roughly zero and often negative,
+  because `MemAvailable` counts the guest's own page cache and reclaimable slab
+  as free while the host is still backing every one of those pages. Subtracting
+  it charges the guest's cache to "overhead" with the wrong sign. `MemTotal -
+  MemFree` is what the guest has actually touched, and the leftover is the
+  VMM's. Both are recorded in `data/exp10-overhead.csv` and both are in the
+  report; the ~25 MiB figure is the `MemFree` one.
+
+  Two things a decision should carry with it: the cgroup limit bounds not only
+  overhead but the **page cache the helper is charged for** (the `file` term,
+  which reached 535 MiB in the reclaim arm and which WP10's experiment 11 saw
+  pin a helper at its limit), so lowering 256 to 64 means helpers sit at their
+  limit more often - reclaimable, costing throughput rather than correctness.
+  And **host cost is ~22 MiB above the helper's cgroup** (95 vs 72.6 MiB per
+  guest), spent on the netns, podman's bookkeeping and host page tables; a
+  reactor sizing itself should use the 95.
+
+- **deviations from CONTRACTS.md: none.** The one contract-adjacent number, the
+  `FLOW_SANDBOX_SPIKE_MEMORY_OVERHEAD_MIB` default of "256 (until WP09 measures)",
+  is left at 256 in the table and in `spike.rs`: the table says WP09 measures it,
+  not that WP09 changes it, and every number in this package was taken at 256.
+  Changing it is the master thread's, and wants the caveat above.
+
+- **departures from the WP09 brief's paths**, each because the brief's own steps
+  required it:
+  - **`spike/tasks/helper-smoke.sh`, the nft assertion** (beyond the sysctl
+    line). It was **flaky at HEAD** - confirmed by reverting my change and
+    reproducing it on unmodified HEAD, roughly one run in five. `await_container`
+    returns as soon as `podman exec` succeeds, and the container is executable
+    from the moment podman starts the shim, which is *before* the shim execs
+    `flow-sandbox-egress`; the window is the ~30 ms between the helper's `start`
+    and `krun_start_enter` timing lines. The assertion now polls for the table
+    instead of reading once. Three consecutive green runs since. The brief's own
+    verification step is "rerun `helper-smoke.sh`", and a button that fails at
+    random cannot verify anything.
+  - **`spike/tasks/exp13-crash.sh`, `stop_writer`** (beyond the gate wording).
+    A second bug in the same file, found because the leak it causes showed up in
+    the end-of-session sweep: `stop_writer` is called explicitly by the SIGKILL
+    pass and again from the EXIT trap, and the second `kill` fails on the
+    already-dead writer. Under `set -e` a failing `kill` as the last command of
+    an `&&` list **aborts the trap**, so `xp_cleanup` never runs. Two
+    consequences, both live in WP10's session too: the panic pass's sandbox
+    directory was left behind every run (one was standing when I swept), and
+    **the script printed `exp13-crash.sh: ok` and exited 1**. Reduced to a
+    four-line repro to be sure of the mechanism before touching anything. Fixed
+    with `|| true`; the rerun is `ok` with **exit code 0** and no stale
+    directory.
+  - **`spike/tasks/exp11-common.sh`** gains the policy hook and three probes, as
+    above. The brief explicitly allows extending it.
+  - **An extra sub-arm in the overhead measurement.** The brief asks for idle
+    guests. Idle guests alone say the overhead is ~0, because a guest that has
+    not touched its memory has not cost the host anything to lend it - a number
+    that would be actively misleading to whoever sets the launcher default. A
+    `fill` mode holding 80% of the guest's own RAM was added so the constant is
+    measured in the regime it has to survive. It came out the same, which is the
+    result that makes the constant trustworthy rather than a coincidence.
+
+- findings other packages need:
+  - **`podman rm -f` costs ~8 seconds per container at density**, serially, and
+    tearing down 82 helpers took about 14 minutes. Against ~0 s for a single
+    helper (WP10's experiment 13). The contention is podman's, not libkrun's -
+    the shim dies immediately on SIGKILL. It affects no number in the report
+    (every measurement is taken while the helpers run), and the harness could
+    use the one-shot `podman rm -f id1 id2 ...` form. Recorded because a reactor
+    draining many sandboxes at once meets the same contention.
+  - **Report a paced driver's rate from completions, not submissions.** The
+    first version of `exp9-churn.sh` printed each window when its last job was
+    *enqueued*; the pacer runs a bounded queue ahead of real time, so 59 windows
+    read a flat 38.50/s and the last read 50.00/s. That is the queue depth, not
+    the network. Totals were right in both versions. The per-window table is now
+    written after the pool drains.
+  - **A guest's `MemTotal` is 99.6 - 100.8% of `memoryMib`**, so the guest
+    kernel's reservation is already inside the allocation and nothing needs to
+    be added for it.
+  - **`--thp-disable` is not worth carrying** on these numbers. WP11 already
+    said DAX should not ship; this says the same of THP, for the weaker reason
+    that it simply does not matter.
+
+- questions for the master thread:
+  - **Does the overhead default move, and to what?** 64 MiB is what the
+    measurement supports. I did not change it, for the reason in the deviations
+    note. The decision wants the page-cache caveat above, since it is the term
+    that actually makes a helper sit at its limit.
+  - **Is `MemTotal - MemFree` the definition the report should lead with?** PLAN
+    says `MemTotal - MemAvailable`, which produces a number near zero and
+    sometimes negative. `exp10.md` leads with `MemFree` and shows both, the way
+    experiment 13's exit code was handled - the measurement stands, PLAN's
+    wording is what looks wrong. Confirm, or tell me to lead with PLAN's.
+  - **Experiment 9 found no ceiling.** 50/s was PLAN's number and the path
+    carried it at 15% of one core, so nothing here says where the limit is. If
+    the report wants a ceiling it is a short rerun at increasing rates; if 50/s
+    was always the sanity check PLAN describes, it is already answered.
+  - **`helper-smoke.sh`'s nft race and `exp13-crash.sh`'s trap were both live
+    before this session.** Both are fixed and both are small. Flagging them
+    because they were passing-by-luck and exiting-1-by-accident respectively,
+    and a spike whose buttons are its evidence should probably have the rest of
+    them swept for the same two shapes in WP12.

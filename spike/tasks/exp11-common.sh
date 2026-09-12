@@ -15,9 +15,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helper-common.sh"
 
 # busybox, not a connector image: experiments 11 and 12 are about what libkrun
 # and podman do with bytes and devices, and busybox boots in a fraction of the
-# time with a shell, dd, lsblk and a `/usr` to write into. Experiment 13 needs a
-# real connector and overrides this.
+# time with a shell, dd, lsblk and a `/usr` to write into. Experiments 9, 10 and
+# 13 need a real connector and override this.
 XP_GUEST_IMAGE="${XP_GUEST_IMAGE:-docker.io/library/busybox:latest}"
+
+# A policy file to stage as `init/policy.json`. Unset means `egress: none`, which
+# is what experiments 11 to 13 want: they are not about the network, and no
+# resolver runs. Experiment 9 sets it to reach nginx over a declared CIDR.
+XP_POLICY_FILE="${XP_POLICY_FILE:-}"
 
 # PLAN "Helper launch" defaults, as the runtime's own switch sets them
 # (CONTRACTS "runtime-next spike switch"). The cgroup limit matters here in a
@@ -82,8 +87,12 @@ xp_new_sandbox() {
 
     sudo mkdir -p "$dir/init" "$dir/sock" "$dir/scratch" "$dir/venv/spike"
     sudo podman inspect "$XP_GUEST_IMAGE" | sudo tee "$dir/init/image-inspect.json" >/dev/null
-    printf '%s\n' '{"egress":"none","allowAll":false,"declaredCidrs":[],"connectionsPerMinute":null,"distinctDestinationsPerMinute":null,"ttlFloorSecs":90,"ttlCapSecs":3600}' \
-        | sudo tee "$dir/init/policy.json" >/dev/null
+    if [ -n "${XP_POLICY_FILE:-}" ]; then
+        sudo cp "$XP_POLICY_FILE" "$dir/init/policy.json"
+    else
+        printf '%s\n' '{"egress":"none","allowAll":false,"declaredCidrs":[],"connectionsPerMinute":null,"distinctDestinationsPerMinute":null,"ttlFloorSecs":90,"ttlCapSecs":3600}' \
+            | sudo tee "$dir/init/policy.json" >/dev/null
+    fi
 
     # The shim opens flow-connector-init even when --exec replaces the workload,
     # so a file has to be there; nothing execs it in these experiments.
@@ -218,5 +227,30 @@ xp_memory_stat() {
 xp_fs_used() { df -k --output=used "$SPIKE_REACTOR_DIR" | tail -1 | tr -d ' '; }
 
 xp_mem_available_kib() { awk '/^MemAvailable:/ {print $2}' /proc/meminfo; }
+
+# MemAvailable after a host `sync`. Dirty page cache counts against it until it
+# is written back, so a guest that has just written to its disk reports the disk
+# being behind as memory spent (WP10). Experiment 10 launches guests until this
+# number crosses a threshold, so it has to be the settled one.
+xp_synced_mem_available_kib() { sync; xp_mem_available_kib; }
+
+# The shim's pid is the helper container's main pid; everything libkrun runs -
+# vcpus, the virtiofs and virtio-net workers, the resolver's thread - is a thread
+# of it. PLAN's density table counts them per helper.
+xp_shim_pid() { sudo podman inspect "$1" --format '{{.State.Pid}}' 2>/dev/null || printf '0'; }
+
+xp_threads() {
+    local pid
+    pid="$(xp_shim_pid "$1")"
+    [ "$pid" != 0 ] || { printf '0'; return; }
+    sudo awk '/^Threads:/ {print $2}' "/proc/$pid/status" 2>/dev/null || printf '0'
+}
+
+# Cumulative CPU the helper's cgroup has been charged, in microseconds. Churn's
+# CPU cost is the difference between two of these over a known interval, not an
+# instantaneous rate.
+xp_cpu_usec() {
+    sudo awk '/^usage_usec/ {print $2}' "$(xp_cgroup "$1")/cpu.stat" 2>/dev/null || printf '0'
+}
 
 xp_kib() { printf '%s' "$(( $1 / 1024 ))"; }

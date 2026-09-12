@@ -112,7 +112,7 @@ helper_run_argv() {
     printf '%s\n' \
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" --log-driver=none \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
-        --sysctl net.ipv4.ip_forward=1 \
+        "${SPIKE_HELPER_SYSCTLS[@]}" \
         "$(spike_image_mount "$GUEST_IMAGE")" \
         "--mount=type=bind,source=$dir/init,target=/init,ro" \
         "--mount=type=bind,source=$dir/venv,target=/venv,ro" \
