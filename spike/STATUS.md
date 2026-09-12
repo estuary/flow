@@ -19,7 +19,7 @@ maintains the table. Newest log entries at the bottom.
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
 | 04b| podman writable layer, no guest overlay | 04, 08b      | done   | daveg/libkrun-spike | 981c434e5fd; unpatched libkrun; exp 5c 2.13x |
 | 09 | Churn and density: experiments 9-10     | 00, 06       | todo   | daveg/libkrun-spike |       |
-| 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | todo   | daveg/libkrun-spike |       |
+| 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | done   | daveg/libkrun-spike | 527044b8e3f; 11 and 12 pass; 13 clean, panic exits 0 (gate reworded, open problem); rp_filter explicit; citation checker landed |
 | 11 | libkrun source read: experiment 12      | -            | done   | daveg/libkrun-spike | 36104b1ba89; gates hold; 3 T3 bugs; DAX not for production |
 | 12 | Report                                  | all          | todo   | daveg/libkrun-spike |       |
 
@@ -2569,3 +2569,46 @@ any runtime work is spent.)
     preview) plus `env-common.sh` and `helper-common.sh`, each carrying a comment
     saying it should be folded in one day. If WP12 is doing a tidy-up pass, this
     is the shape to collapse.
+
+### 2026-09-12 master: WP10 accepted; the panic exit code is an open problem, not a gate failure
+
+- Experiments 11 and 12 pass as written. 13 passes on cleanup, and on the
+  panic half the ruling is that PLAN's wording was wrong, not libkrun's
+  behaviour. "Exits non-zero" was the master thread's assumption about what
+  libkrun does on a guest reset; the design never consumed the exit code (the
+  runtime fails the task off the socket close, measured here at under half a
+  second), so the gate now reads "exits promptly rather than hanging or
+  looping on reboot; record the exit code, do not gate on it". PLAN says in
+  place that the wording changed and why. The diagnosis cost ("connector
+  exited 0" recorded for a guest that ran out of memory) is an open problem
+  with a proposed fix: the shim tees the console already, so `Kernel panic`
+  on it should produce one structured line and a distinct exit code. Owner
+  runtime (shim). WP09 carries the one-block script change that makes
+  `exp13-crash.sh` agree with PLAN, so the button goes green for the right
+  reason.
+- WP11's exit-code claim is narrowed, in PLAN's experiment 12 and open
+  problems and as a correction block in `libkrun-exposure.md` pointing at
+  `exp12.md`: the ioctl is accepted (the `0x7601` control proves it) and then
+  overwritten by libkrun's own init, so the helper's exit code is the
+  workload's exit status, full stop. The conclusion survives unchanged:
+  nothing in the runtime branches on it. The final report states the fact
+  once in the gate table and once as an open problem; WP12's brief says so.
+- New open problem: root writes have no per-task bound (parity with a
+  container today; the one storage surface without a limit), and the writable
+  layer is not discoverable through `podman inspect`. Owner runtime,
+  provisional on appetite for a root quota.
+- The four launch-line builders still spelling the sysctl inline are folded
+  onto `SPIKE_HELPER_SYSCTLS` as WP09's second side item; a launch line that
+  exists in six places and agrees with the contract in two is the kind of
+  drift the shared array was for. No collapse of the `*-common.sh` files:
+  the scripts are evidence, phase 2 is Rust. WP09 reuses `exp11-common.sh`
+  rather than adding a fourth.
+- WP09's brief gains WP10's measurement facts that bear on density: sample
+  `MemAvailable` after a host `sync`; a guest touching its own RAM is the
+  dominant term; podman teardown is asynchronous, poll for quiescence; never
+  scrape guest stderr under `--debug`.
+- Noted, not acted on: `cargo clippy` is red at baseline in `crates/models`
+  under mise's `-D warnings`, in files nothing in the spike touches. Outside
+  the spike.
+- Results for 11, 12 and 13 recorded in PLAN. Next: WP09 (side items first,
+  then experiments 9 and 10), then WP12.

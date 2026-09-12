@@ -185,6 +185,18 @@ helper's exit code is a value the guest chooses, not a value the platform
 observes. Nothing upstream of the helper should treat it as a trustworthy
 signal about what happened inside.
 
+> **Corrected by experiment 12 (WP10, `exp12.md`).** The interception is real:
+> from guest root on a read-only share, `0x7602` returns 0 where the unclaimed
+> `0x7601` is refused. But the stored value does not survive. libkrun's own
+> init reports the workload's exit status through the same ioctl after
+> `waitpid`, so it writes the atomic last, and a workload that asks for 42 and
+> exits 7 gives a helper that exits 7. The sentence to carry forward is
+> narrower than the paragraph above: the helper's exit code is the workload's
+> exit status, and the ioctl grants nothing the workload did not already have.
+> The conclusion stands: nothing upstream should treat the exit code as a
+> signal about what happened inside. Experiment 13 adds the other half, a
+> guest kernel panic exits 0.
+
 Every other ioctl reaches `PassthroughFs::ioctl`, which handles only
 `VIRTIO_IOC_EXPORT_FD_REQ` and needs `cfg.export_table` to be `Some`
 (`linux/passthrough.rs:2162-2193`). We never configure one, so that arm returns

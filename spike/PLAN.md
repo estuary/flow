@@ -377,6 +377,19 @@ once off. No gate; the numbers inform `resources` defaults.
 - After `podman run --rm` exits, the scratch directory is empty and `df`
   shows the space returned.
 
+  Result (WP10, `spike/report/exp11.md`): PASS. Root writes land in
+  `overlay-containers/<container id>/userdata/overlay/<n>/upper` and go with
+  the container; a 1024 MiB guest wrote 1536 MiB to its root with the helper's
+  cgroup pinned at its 1280 MiB limit, so the bound is the disk, not memory.
+  `/scratch` stops with ENOSPC at `--disk-mib` (3999 of 4352 MiB at 4096) and
+  the space returns when the helper exits. Guest-root writes under `/usr`
+  never reach the image; `/venv` is EROFS even to guest root. Two facts for
+  phase 2: `podman inspect` does not report the image mount's writable layer
+  (its `.GraphDriver` is the helper's own root), so any per-task quota or
+  metric on root writes must know the path shape above; and the root has no
+  per-task bound at all, which is parity with a container today and the one
+  storage surface without a limit.
+
 ### 12. Control channel and device exposure (gate)
 
 - Connecting from the guest to the mapped port 49092 is reset (libkrun
@@ -387,9 +400,14 @@ once off. No gate; the numbers inform `resources` defaults.
 - From the guest, send a TSI proxy-create datagram to the vsock control
   port. The helper opens nothing (`ss -tunap` before and after). This
   confirms `krun_add_vsock(ctx, 0)` took.
-- As guest root, `ioctl(fd, 0x7602, 42)` on any share, then exit 0. The
-  helper exits 42: the helper's exit code is a value the guest chooses, not
-  one the platform observes (WP11). The runtime must not treat it as trusted.
+- As guest root, `ioctl(fd, 0x7602, 42)` on a file under the read-only
+  `/venv` share, with `ioctl(fd, 0x7601, 42)` on the same fd as the control,
+  then exit 7. Expected: the first is accepted and the second refused, which
+  proves the interception is real; then the helper exits 7, not 42, because
+  libkrun's own init reports the workload's status through the same ioctl
+  after `waitpid` and writes last (WP10 corrected WP11 here). The helper's
+  exit code is the workload's exit status and nothing more; the runtime must
+  not treat it as something the platform observed.
 - From the unprivileged workload, open a path with `..` and embedded `/`
   components (`/venv/../../etc/hostname`). It resolves inside the guest.
   The guest VFS never puts `..` on the FUSE wire, which is the confinement
@@ -421,6 +439,16 @@ once off. No gate; the numbers inform `resources` defaults.
   past guest RAM), and a DAX mapping offset overflow reachable only with
   `--venv-dax`.
 
+  Result (WP10, `spike/report/exp12.md`): PASS. Every probe above matched from
+  inside a real guest at T1 or T2: port 49092 resets at once, port 1234 gets
+  nothing until the probe's own 5 s clock, the TSI proxy-create datagram
+  opens nothing (`ss -tunap` inside the helper lists zero sockets before and
+  after), `/venv/../../etc/hostname` is the guest's own file, the device
+  inventory is exactly the list above (one more blk with `--deps-image`),
+  and a guest-root write to `/dev/vdb` fails EPERM against the host's
+  read-only fd. The exit-code ioctl is accepted and overwritten, per the
+  bullet above.
+
 ### 13. Helper crash and cleanup (gate)
 
 Kill the helper with SIGKILL mid-transaction. Pass: the fake reactor observes
@@ -428,8 +456,27 @@ the socket close, the guest is gone, the tap and nftables rules are gone with
 the netns, the scratch space is returned (O_TMPFILE, no cleanup code), and
 the reactor removes the socket file. Then, as guest root, set
 `vm.panic_on_oom=1` and run a memory hog (the guest kernel has no sysrq).
-Pass: the kernel panics, `panic=-1` reboots it, and the helper exits
-non-zero promptly rather than hanging.
+Pass: the kernel panics and the helper exits promptly rather than hanging or
+looping on reboot. Record the exit code; do not gate on it. (The gate first
+asked for a non-zero exit. That was the master thread's assumption about
+libkrun, and it is wrong: a panicking guest never reaches init's exit-code
+report, so libkrun falls back to the vcpu's `FC_EXIT_CODE_OK` and exits 0.
+The runtime learns of the death from the socket and never consulted the
+code, so the requirement is reworded to what the design consumes. The
+diagnosis cost is an open problem below.)
+
+Result (WP10, `spike/report/exp13.md`): PASS on both halves as reworded, with
+the exit code recorded. SIGKILL after 46 committed transactions: the runtime
+fails the task off the socket close in under half a second, no helper
+container remains, the netns and `tap0` are gone with it, the reactor
+filesystem is back below where it stood, and the runtime removes the
+per-connector directory. Panic under `vm.panic_on_oom`: the kernel panics at
+3.9 s of guest uptime, the VMM stops on the reset (no reboot loop), the helper
+is gone 5.0 s after the workload started, and it exits 0. Two method notes
+that cost a run each: one preview starts the connector twice, so wait for
+exactly one `fs_` helper and a committed transaction before killing; and
+podman tears down after its client exits, so "nothing remains" must poll for
+quiescence rather than measure at `flowctl`'s return.
 
 ## Report
 
@@ -457,9 +504,25 @@ One document containing:
     `pivot_root` or `openat2` with `RESOLVE_BENEATH`), and keep the helper's
     mount namespace minimal, since at T3 everything mounted into the helper
     is nameable. Owner: runtime.
-  - The helper's exit code is guest-chosen (the exit-code ioctl is ungated).
-    Harmless today; the runtime must never derive a security decision from
-    it. Owner: runtime.
+  - The helper's exit code is untrusted and uninformative, and the runtime
+    must not branch on it. Two measurements, one fact (WP10): the exit-code
+    ioctl is accepted from any share but libkrun's init overwrites it with
+    the workload's status, so the code is whatever the connector exits with;
+    and a guest kernel panic exits 0, because a panicking guest never reaches
+    init's report and libkrun falls back to `FC_EXIT_CODE_OK`. Detection is
+    unaffected (the socket is what tells the runtime). Diagnosis is not: the
+    reactor records "connector exited 0" for a guest that ran out of memory,
+    and the kernel's explanation went to the helper's stdout, unstructured.
+    Proposed fix, phase 2: the shim already tees the console, so a line
+    matching `Kernel panic` before `krun_start_enter` returns should produce
+    one structured stderr line and a distinct exit code. Owner: runtime
+    (shim).
+  - Root writes have no per-task bound. A guest filling its root is bounded
+    by the reactor's container storage filesystem and nothing else, exactly
+    as a container is today; parity, not a regression, but it is the one
+    storage surface without a limit, and `podman inspect` does not expose the
+    layer to meter it (WP10 recorded the path shape). Owner: runtime,
+    provisional on appetite for a per-task root quota.
   - The resolver's `nft add element` does not refresh an existing element's
     timeout, so a name re-resolved late in its window still expires at the
     original time; a connect in that moment is dropped. The runtime's netlink
