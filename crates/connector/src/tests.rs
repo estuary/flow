@@ -11,10 +11,14 @@ use proto_flow::{capture, derive, flow, materialize};
 use proto_grpc::connector::Router as _;
 use tokio::sync::mpsc;
 
-/// A local `Service` and the router which mints its bearers, for the many
-/// tests which need a working pair and nothing more.
+/// A local `Service` and its router which resolve no secrets, for the many
+/// tests which never reference one.
 fn local_service() -> (crate::Service, crate::ServiceRouter) {
-    crate::Service::new_local(String::new(), service_kit::Registry::new())
+    crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    )
 }
 
 // ---------------------------------------------------------------- identity --
@@ -267,6 +271,45 @@ fn task_identity_rejects_shapeless_requests() {
 
 // --------------------------------------------------------------------- authz --
 
+struct StubSecretResolver;
+
+#[tonic::async_trait]
+impl flow_client_next::SecretResolver for StubSecretResolver {
+    async fn decrypt(
+        &self,
+        task_type: ops::TaskType,
+        task_name: &str,
+        name: models::Secret,
+    ) -> anyhow::Result<models::authorizations::SecretDecryption> {
+        match task_type {
+            ops::TaskType::Capture => assert_eq!(task_name, "acmeCo/capture"),
+            ops::TaskType::Materialization => assert_eq!(task_name, "acmeCo/materialization"),
+            _ => panic!("unexpected task type"),
+        }
+        assert_eq!(name.as_str(), "acmeCo/password");
+
+        Ok(models::authorizations::SecretDecryption {
+            value: Some(models::RawValue::from_str(r#""resolved""#).unwrap()),
+            secret_id: Some(models::Id::new([1, 2, 3, 4, 5, 6, 7, 8])),
+            retry_millis: 0,
+        })
+    }
+}
+
+struct PanickingSecretResolver;
+
+#[tonic::async_trait]
+impl flow_client_next::SecretResolver for PanickingSecretResolver {
+    async fn decrypt(
+        &self,
+        _task_type: ops::TaskType,
+        _task_name: &str,
+        _name: models::Secret,
+    ) -> anyhow::Result<models::authorizations::SecretDecryption> {
+        panic!("mixed configurations must be rejected before resolution")
+    }
+}
+
 fn authorize(
     service: &crate::Service,
     metadata: &proto_grpc::Metadata,
@@ -340,6 +383,7 @@ fn authentication_requires_the_capability_and_the_issuer() {
         ),
         None,
         service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
     );
     let signer = |issuer: &str, key: &[u8]| {
         proto_grpc::Signer::new(
@@ -423,6 +467,7 @@ fn an_endpoint_router_mints_for_the_service_it_names() {
         ),
         None,
         service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
     );
     let router = proto_grpc::connector::EndpointRouter::new(
         "unix:/run/reactor.sock".to_string(),
@@ -628,6 +673,216 @@ fn start(sqlite_vfs_uri: &str) -> proto::request::Start {
         log_level: ops::LogLevel::Debug as i32,
         sqlite_vfs_uri: sqlite_vfs_uri.to_string(),
     }
+}
+
+/// Secret resolution happens after Spec, but before the connector receives its
+/// initial Open. The connector sees the resolved config while sealedConfig
+/// remains the as-published, non-secret baseline, and the lifecycle id is
+/// observable in the preceding INFO log.
+#[tokio::test]
+async fn resolves_secrets_and_preserves_the_published_open_config() {
+    let (_service, router) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(StubSecretResolver),
+    );
+
+    let script = r#"
+read spec_request
+echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
+read open_request
+case "$open_request" in
+  *'"config":{"actual":"resolved","base":"published"}'*) ;;
+  *) echo 'resolved configuration was not provided' >&2; exit 7 ;;
+esac
+case "$open_request" in
+  *'"sealedConfig":{"base":"published"}'*) ;;
+  *) echo 'published baseline was not preserved' >&2; exit 7 ;;
+esac
+echo '{"opened":{}}'
+"#;
+    let endpoint = serde_json::json!({
+        "command": ["/bin/sh", "-c", script],
+        "config": {"base": "published"},
+    });
+    let capture = flow::CaptureSpec {
+        name: "acmeCo/capture".to_string(),
+        connector_type: flow::capture_spec::ConnectorType::Local as i32,
+        config_json: endpoint.to_string().into(),
+        secrets: [("/actual".to_string(), "acmeCo/password".to_string())]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    };
+
+    let responses = drive_router(
+        &router,
+        ops::TaskType::Capture,
+        "acmeCo/capture",
+        vec![proto::Request {
+            start: Some(start("")),
+            kind: Some(proto::request::Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Open(Box::new(
+                    capture::request::Open {
+                        capture: Some(capture),
+                        ..Default::default()
+                    },
+                ))),
+                ..Default::default()
+            })),
+        }],
+    )
+    .await;
+
+    let log = responses
+        .iter()
+        .find_map(|response| match response.as_ref().ok()?.kind.as_ref()? {
+            proto::response::Kind::Log(log) if log.message == "resolved task secret" => Some(log),
+            _ => None,
+        })
+        .expect("resolution log is present");
+    let fields: std::collections::BTreeMap<&str, serde_json::Value> = log
+        .fields_json_map
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.as_str(),
+                serde_json::from_slice(value).expect("log field is JSON"),
+            )
+        })
+        .collect();
+    insta::assert_debug_snapshot!(fields, @r###"
+    {
+        "secret": String("acmeCo/password"),
+        "secretId": String("0102030405060708"),
+    }
+    "###);
+    insta::assert_debug_snapshot!(render(responses), @r###"
+    [
+        "Log(info): resolved task secret",
+        "Started(codec=Json, container=false, process=false, spec=capture)",
+        "Capture(opened)",
+    ]
+    "###);
+}
+
+#[tokio::test]
+async fn rejects_a_sops_key_together_with_a_secrets_stanza() {
+    let (_service, router) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(PanickingSecretResolver),
+    );
+    let endpoint = serde_json::json!({
+        "command": [
+            "/bin/sh",
+            "-c",
+            "read request; echo '{\"spec\":{\"configSchema\":true}}'; read forever",
+        ],
+        "config": {"sops": null},
+    });
+    let capture = flow::CaptureSpec {
+        name: "acmeCo/capture".to_string(),
+        connector_type: flow::capture_spec::ConnectorType::Local as i32,
+        config_json: endpoint.to_string().into(),
+        secrets: [("/actual".to_string(), "acmeCo/password".to_string())]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    };
+
+    let responses = drive_router(
+        &router,
+        ops::TaskType::Capture,
+        "acmeCo/capture",
+        vec![proto::Request {
+            start: Some(start("")),
+            kind: Some(proto::request::Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Open(Box::new(
+                    capture::request::Open {
+                        capture: Some(capture),
+                        ..Default::default()
+                    },
+                ))),
+                ..Default::default()
+            })),
+        }],
+    )
+    .await;
+
+    insta::assert_debug_snapshot!(render(responses), @r###"
+    [
+        "Status(InvalidArgument): endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza",
+    ]
+    "###);
+}
+
+// Dekaf's `{variant, config}` wrapper is split before startup, so the pipeline
+// resolves the *inner* configuration and Dekaf validates its token from the
+// request slot.
+#[tokio::test]
+async fn dekaf_resolves_inner_configuration() {
+    let (_service, router) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(StubSecretResolver),
+    );
+    let mut outcomes = Vec::new();
+    for (config, use_secrets) in [
+        (serde_json::json!({"token": "plaintext"}), false),
+        (serde_json::json!({}), true),
+        (serde_json::json!({"sops": null}), true),
+    ] {
+        let responses = drive_router(
+            &router,
+            ops::TaskType::Materialization,
+            "acmeCo/materialization",
+            vec![proto::Request {
+                start: Some(start("")),
+                kind: Some(proto::request::Kind::Materialize(materialize::Request {
+                    kind: Some(materialize::request::Kind::Validate(Box::new(
+                        materialize::request::Validate {
+                            name: "acmeCo/materialization".to_string(),
+                            connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
+                            config_json: serde_json::json!({
+                                "variant": "test",
+                                "config": config,
+                            })
+                            .to_string()
+                            .into(),
+                            secrets: if use_secrets {
+                                [("/token".to_string(), "acmeCo/password".to_string())]
+                                    .into_iter()
+                                    .collect()
+                            } else {
+                                Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    ))),
+                    ..Default::default()
+                })),
+            }],
+        )
+        .await;
+        outcomes.push(render(responses));
+    }
+    insta::assert_debug_snapshot!(outcomes, @r###"
+    [
+        [
+            "Started(codec=Proto, container=false, process=false, spec=materialize)",
+            "Materialize(validated)",
+        ],
+        [
+            "Log(info): resolved task secret",
+            "Started(codec=Proto, container=false, process=false, spec=materialize)",
+            "Materialize(validated)",
+        ],
+        [
+            "Status(InvalidArgument): endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza",
+        ],
+    ]
+    "###);
 }
 
 fn derive_request(request: derive::Request) -> proto::Request {

@@ -16,6 +16,8 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 
 ## Key Types and Entry Points
 
+- `resolve()` - The joint which tells the two forms apart and dispatches to the
+  routines below, rejecting a document which is somehow both.
 - `decrypt_sops()` - Decrypt a wrapped document, stripping any `encrypted_suffix`.
   A document with no `sops` stanza passes through unchanged.
 - `overlay::decrypt_with_overlay()` - As above, additionally applying a

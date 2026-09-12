@@ -69,7 +69,11 @@ async fn run_capture(
 
     let registry = service_kit::Registry::new();
     let run = runtime_local::services::Run::start_capture(
-        runtime_local::local_router(String::new(), registry.clone()),
+        runtime_local::local_router(
+            String::new(),
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        ),
         1,
         None,
         registry,

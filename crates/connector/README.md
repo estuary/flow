@@ -55,7 +55,7 @@ owns its container, image, and local-connector implementation independently.
 | `flow_runtime_protocol`         | Image inspection, for callers which only need an image's protocol         |
 | `protocol::start`               | The start pipeline every connector goes through                          |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
-| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process          |
+| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
 
 ## Layout
@@ -85,6 +85,12 @@ cancellation.
   client's initial request follows after its configuration is unsealed, then
   subsequent client requests pass directly to the transport.
   `Started` carries the `Spec` response so the client can use it as well.
+
+- **Endpoint configuration resolves through `unseal::resolve`.** That one joint
+  chooses between whole-document `sops` unsealing and a merge-patched `secrets`
+  stanza. `protocol::start` wraps it. A task-less Spec passes its configuration
+  through untouched, and IAM injection follows every other outcome.
+  Plaintext values are never cached by this crate.
 
 - **Invalid later requests close connector input and terminate the session.**
 The handler owns request validation, so malformed input cannot disappear as a

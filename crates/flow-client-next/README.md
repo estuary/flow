@@ -47,6 +47,12 @@ config-encryption rather than the control-plane, and must be driven by
 re-fetch plaintext. Both extract their response through the module's
 `extract_secret_decryption()`.
 
+The crate-root `secret_resolver` module wraps that pair behind one
+`SecretResolver` trait, which is what callers pair with `unseal::resolve` to
+turn a task's `secrets` stanza into plaintext. `Task` signs as a data plane,
+`User` as the current user, and `NoOp` fails every secret for local contexts
+holding no control-plane credentials.
+
 ## Building Gazette Clients
 
 Each user workflow module exports `new_journal_client()` and (where applicable)

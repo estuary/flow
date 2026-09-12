@@ -4,6 +4,55 @@ use zeroize::Zeroizing;
 pub mod overlay;
 pub mod secrets;
 
+/// Failure of [`resolve`].
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error(
+        "endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza"
+    )]
+    SopsWithSecrets,
+    #[error("decrypting `sops` configuration")]
+    Sops(#[source] anyhow::Error),
+    #[error("resolving `secrets` stanza")]
+    Secrets(#[source] anyhow::Error),
+}
+
+/// Resolve a task's endpoint configuration into connector-bound plaintext.
+///
+/// - A `secrets` stanza over a plaintext document resolves through
+///   [`secrets::resolve`], with `decrypt` supplying each named secret.
+/// - A `sops` envelope decrypts through [`overlay::decrypt_with_overlay`],
+///   validating any overlay against `config_schema`.
+/// - A document which is neither passes through as a copy.
+/// - A document which is *both* is rejected: `sops` seals the whole document,
+///   and a stanza can only merge into plaintext.
+pub async fn resolve<'a, S, Decrypt, Fut>(
+    sealed: &models::RawValue,
+    secrets: impl IntoIterator<Item = (&'a S, &'a S)>,
+    config_schema: &[u8],
+    decrypt: Decrypt,
+) -> Result<models::RawValue, Error>
+where
+    S: AsRef<str> + ?Sized + 'a,
+    Decrypt: Fn(&'a str) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<models::RawValue>>,
+{
+    // Peek rather than collect: a stanza's emptiness is all that's needed here,
+    // and `secrets::resolve` consumes the remainder.
+    let mut secrets = secrets.into_iter().peekable();
+
+    match (secrets.peek().is_some(), sealed.is_sops()) {
+        (true, true) => Err(Error::SopsWithSecrets),
+        (false, true) => overlay::decrypt_with_overlay(sealed, config_schema)
+            .await
+            .map_err(Error::Sops),
+        (true, false) => secrets::resolve(sealed, secrets, decrypt)
+            .await
+            .map_err(Error::Secrets),
+        (false, false) => Ok(sealed.to_owned()),
+    }
+}
+
 /// Decrypt a `sops`-protected document using `sops` and application default credentials.
 pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::RawValue> {
     // Only objects can be `sops` documents.
@@ -106,6 +155,95 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
     }
 
     Ok(serde_json::from_slice(&stdout).context("parsing stripped `jq` output")?)
+}
+
+#[cfg(test)]
+mod resolve_test {
+    use super::{Error, resolve};
+    use serde_json::json;
+
+    /// Config schema of the fixtures, which have no `sops.overlay` to validate.
+    const SCHEMA: &[u8] = b"{}";
+
+    fn sealed(fixture: &[u8]) -> Box<models::RawValue> {
+        serde_json::from_slice(fixture).unwrap()
+    }
+
+    fn stub(name: &str) -> std::future::Ready<anyhow::Result<models::RawValue>> {
+        std::future::ready(Ok(models::RawValue::from_value(&json!(format!(
+            "plaintext of {name}"
+        )))))
+    }
+
+    #[tokio::test]
+    async fn test_branches() {
+        let plaintext = models::RawValue::from_value(&json!({"host": "db.acmeCo.test"}));
+        let wrapped = sealed(include_bytes!("testdata/no-suffix.json"));
+        let stanza: [(&str, &str); 1] = [("/password", "acmeCo/password")];
+
+        // Plaintext with a stanza resolves each secret into the configuration.
+        let out = resolve(&plaintext, stanza, SCHEMA, stub).await.unwrap();
+        insta::assert_json_snapshot!(out.to_value(), @r###"
+        {
+          "host": "db.acmeCo.test",
+          "password": "plaintext of acmeCo/password"
+        }
+        "###);
+
+        // Plaintext without a stanza passes through.
+        let out = resolve::<str, _, _>(&plaintext, [], SCHEMA, stub)
+            .await
+            .unwrap();
+        insta::assert_json_snapshot!(out.to_value(), @r###"
+        {
+          "host": "db.acmeCo.test"
+        }
+        "###);
+
+        // A `sops` envelope without a stanza decrypts.
+        let out = resolve::<str, _, _>(&wrapped, [], SCHEMA, stub)
+            .await
+            .unwrap();
+        insta::assert_json_snapshot!(out.to_value(), @r###"
+        {
+          "false": null,
+          "foo": {
+            "bar": 42,
+            "some_sops": [
+              3,
+              "three"
+            ]
+          },
+          "tru": true
+        }
+        "###);
+
+        // A `sops` envelope with a stanza is rejected, and never decrypts.
+        let err = resolve(&wrapped, stanza, SCHEMA, stub).await.unwrap_err();
+        assert!(matches!(err, Error::SopsWithSecrets));
+        insta::assert_snapshot!(
+            err.to_string(),
+            @"endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failed_decrypt_is_attributed_to_the_stanza() {
+        let err = resolve(
+            &models::RawValue::from_value(&json!({})),
+            [("/password", "acmeCo/password")],
+            SCHEMA,
+            |_name| std::future::ready(Err(anyhow::anyhow!("service is down"))),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, Error::Secrets(_)));
+        insta::assert_snapshot!(
+            format!("{:#}", anyhow::Error::from(err)),
+            @"resolving `secrets` stanza: failed to resolve secret 'acmeCo/password', used at configuration location(s) /password: service is down"
+        );
+    }
 }
 
 #[cfg(test)]

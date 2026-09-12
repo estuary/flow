@@ -201,8 +201,6 @@ impl Cli {
         let pg = config.build_pg();
         let rest = config.build_rest();
         let router = gazette::Router::new("local");
-        let connector_router =
-            runtime_local::local_router(self.connector_network.clone(), registry.clone());
 
         // An ambient FLOW_AUTH_TOKEN, if present, overrides the profile's stored
         // tokens. It's used but never persisted (it may still rotate in memory).
@@ -278,6 +276,19 @@ impl Cli {
                 token_observer_stop.clone(),
             )))
         };
+
+        // Locally-run connectors decrypt secrets under the user's authority.
+        let connector_router = runtime_local::local_router(
+            self.connector_network.clone(),
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::User::new(
+                flow_client_next::rest::Client {
+                    base_url: config.get_config_encryption_url().clone(),
+                    http_client: rest.http_client.clone(),
+                },
+                user_tokens.clone(),
+            )),
+        );
 
         let mut context = CliContext {
             pg,

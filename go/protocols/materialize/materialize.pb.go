@@ -446,11 +446,9 @@ type Request_Open struct {
 	Range *flow.RangeSpec `protobuf:"bytes,3,opt,name=range,proto3" json:"range,omitempty"`
 	// Last-persisted connector checkpoint state from a previous session.
 	StateJson encoding_json.RawMessage `protobuf:"bytes,4,opt,name=state_json,json=state,proto3,casttype=encoding/json.RawMessage" json:"state_json,omitempty"`
-	// Sealed (encrypted) endpoint configuration of this materialization.
-	// This is the SOPS-encrypted document from which the runtime derived the
-	// decrypted `materialization.config_json`, including any `sops` metadata stanza.
-	// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-	// overlay fields without re-encrypting the configuration.
+	// Endpoint configuration of this materialization exactly as published,
+	// before whole-document unsealing or secrets-stanza injection. Connectors
+	// may reuse it as the non-secret baseline of a `configUpdate`.
 	SealedConfigJson     encoding_json.RawMessage `protobuf:"bytes,5,opt,name=sealed_config_json,json=sealedConfig,proto3,casttype=encoding/json.RawMessage" json:"sealed_config_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`

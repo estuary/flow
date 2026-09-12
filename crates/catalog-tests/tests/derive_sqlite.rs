@@ -150,7 +150,11 @@ async fn start_sessions(
         let session = DerivationSession::start(
             spec,
             n_shards,
-            runtime_local::local_router(String::new(), registry.clone()),
+            runtime_local::local_router(
+                String::new(),
+                registry.clone(),
+                std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+            ),
             registry.clone(),
             store.clone(),
             runtime_next::TracingLoggerFactory,

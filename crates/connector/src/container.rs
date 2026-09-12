@@ -823,6 +823,7 @@ mod test {
             log_sink: crate::LogSink::tracing(),
             plane: crate::Plane::Local,
             process: None,
+            secret_resolver: std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
             task_name: "a-task-name".to_string(),
         }
     }

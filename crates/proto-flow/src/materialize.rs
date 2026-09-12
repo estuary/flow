@@ -196,11 +196,9 @@ pub mod request {
         /// Last-persisted connector checkpoint state from a previous session.
         #[prost(bytes = "bytes", tag = "4")]
         pub state_json: ::prost::bytes::Bytes,
-        /// Sealed (encrypted) endpoint configuration of this materialization.
-        /// This is the SOPS-encrypted document from which the runtime derived the
-        /// decrypted `materialization.config_json`, including any `sops` metadata stanza.
-        /// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
-        /// overlay fields without re-encrypting the configuration.
+        /// Endpoint configuration of this materialization exactly as published,
+        /// before whole-document unsealing or secrets-stanza injection. Connectors
+        /// may reuse it as the non-secret baseline of a `configUpdate`.
         #[prost(bytes = "bytes", tag = "5")]
         pub sealed_config_json: ::prost::bytes::Bytes,
     }

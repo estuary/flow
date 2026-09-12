@@ -27,6 +27,8 @@ pub struct ServiceImpl {
     pub(crate) process: Option<proto_gazette::broker::ProcessSpec>,
     /// Registry of in-flight handlers, for the admin surface.
     pub(crate) registry: service_kit::Registry,
+    /// Resolves endpoint configuration secrets.
+    pub(crate) secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
 }
 
 impl std::ops::Deref for Service {
@@ -44,6 +46,7 @@ impl Service {
         authenticator: proto_grpc::Authenticator,
         process: Option<proto_gazette::broker::ProcessSpec>,
         registry: service_kit::Registry,
+        secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
     ) -> Self {
         Self(std::sync::Arc::new(ServiceImpl {
             plane,
@@ -51,6 +54,7 @@ impl Service {
             authenticator,
             process,
             registry,
+            secret_resolver,
         }))
     }
 
@@ -59,6 +63,7 @@ impl Service {
     pub fn new_local(
         container_network: String,
         registry: service_kit::Registry,
+        secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
     ) -> (Self, crate::ServiceRouter) {
         let key: [u8; 32] = rand::random();
 
@@ -71,6 +76,7 @@ impl Service {
             ),
             None, // No dial-able process in a local context.
             registry,
+            secret_resolver,
         );
         let signer = proto_grpc::Signer::new(
             crate::router::LOCAL_ISSUER.to_string(),

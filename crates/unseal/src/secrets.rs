@@ -8,50 +8,63 @@ const FETCH_CONCURRENCY: usize = 8;
 
 /// Resolve the `secrets` stanza of a task into its plaintext `config`.
 ///
-/// `secrets` maps a JSON pointer of `config` to the catalog name of the secret
-/// which supplies it. `decrypt` resolves a name into its plaintext value, and
-/// is called exactly once for each *distinct* name however many locations it
-/// serves. Fetches are concurrent, and this routine holds no plaintext beyond
-/// the configuration it returns.
+/// `secrets` pairs a JSON pointer of `config` with the catalog name of the
+/// secret which supplies it. `decrypt` resolves a name into its plaintext
+/// value, and is called exactly once for each *distinct* name however many
+/// locations it serves. Fetches are concurrent, and this routine holds no
+/// plaintext beyond the configuration it returns.
 ///
-/// Each entry is applied in lexicographic pointer order, by synthesizing a
-/// document from the pointer (`/a/b/c` with value `v` becomes
+/// Entries are sorted and applied in lexicographic pointer order, by
+/// synthesizing a document from the pointer (`/a/b/c` with value `v` becomes
 /// `{"a":{"b":{"c":v}}}`) and merging it into `config` as an RFC 7396 merge
 /// patch. Everything else follows from the RFC: missing parents are created,
 /// scalar parents are replaced, object values deep-merge, a `null` leaf deletes
 /// its property, and a deeper pointer wins wherever two entries overlap.
-pub async fn resolve<Decrypt, Fut>(
+pub async fn resolve<'a, S, Decrypt, Fut>(
     config: &models::RawValue,
-    secrets: &BTreeMap<String, String>,
+    secrets: impl IntoIterator<Item = (&'a S, &'a S)>,
     decrypt: Decrypt,
 ) -> anyhow::Result<models::RawValue>
 where
-    Decrypt: Fn(String) -> Fut,
+    S: AsRef<str> + ?Sized + 'a,
+    Decrypt: Fn(&'a str) -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<models::RawValue>>,
 {
+    let decrypt = &decrypt;
+
     // Parse pointers before fetching anything, so a malformed stanza fails
     // without having disclosed plaintext.
-    let entries: Vec<(&str, &str, Vec<String>)> = secrets
-        .iter()
-        .map(|(pointer, name)| Ok((pointer.as_str(), name.as_str(), parse_pointer(pointer)?)))
+    let mut entries: Vec<(&'a str, &'a str, Vec<String>)> = secrets
+        .into_iter()
+        .map(|(pointer, name)| {
+            let (pointer, name) = (pointer.as_ref(), name.as_ref());
+            Ok((pointer, name, parse_pointer(pointer)?))
+        })
         .collect::<anyhow::Result<_>>()?;
 
-    let mut distinct: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for (pointer, name, _tokens) in &entries {
+    entries.sort_by_key(|(pointer, _name, _tokens)| *pointer);
+
+    let mut distinct: BTreeMap<&'a str, Vec<&'a str>> = BTreeMap::new();
+    for &(pointer, name, _) in &entries {
         distinct.entry(name).or_default().push(pointer);
     }
 
-    let decrypt = &decrypt;
-    let values: BTreeMap<&str, serde_json::Value> =
-        futures::stream::iter(distinct.iter().map(|(name, pointers)| async move {
-            let value = decrypt(name.to_string()).await.with_context(|| {
+    // Materialize the futures so the borrowed iterator closure does not cross
+    // an await, allowing callers to spawn the resolution future as Send.
+    let fetches: Vec<_> = distinct
+        .into_iter()
+        .map(|(name, pointers)| async move {
+            let value = decrypt(name).await.with_context(|| {
                 format!(
                     "failed to resolve secret '{name}', used at configuration location(s) {}",
                     pointers.join(", ")
                 )
             })?;
-            anyhow::Ok((*name, value.to_value()))
-        }))
+            anyhow::Ok((name, value.to_value()))
+        })
+        .collect();
+
+    let values: BTreeMap<&'a str, serde_json::Value> = futures::stream::iter(fetches)
         .buffer_unordered(FETCH_CONCURRENCY)
         .try_collect()
         .await?;
@@ -133,18 +146,13 @@ mod test {
         let fixture = fixture();
         let calls = std::sync::Mutex::new(BTreeMap::new());
 
-        let secrets: BTreeMap<String, String> = secrets
-            .iter()
-            .map(|(pointer, name)| (pointer.to_string(), name.to_string()))
-            .collect();
-
         let resolved = resolve(
             &models::RawValue::from_value(&config),
-            &secrets,
-            |name: String| {
-                *calls.lock().unwrap().entry(name.clone()).or_default() += 1;
+            secrets.iter().copied(),
+            |name| {
+                *calls.lock().unwrap().entry(name.to_string()).or_default() += 1;
 
-                std::future::ready(match fixture.get(&name) {
+                std::future::ready(match fixture.get(name) {
                     Some(value) => Ok(models::RawValue::from_value(value)),
                     None => Err(anyhow::anyhow!("secret does not exist")),
                 })

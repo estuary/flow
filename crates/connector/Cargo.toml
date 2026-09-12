@@ -13,6 +13,7 @@ async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
 dekaf-connector = { path = "../dekaf-connector" }
 derive-sqlite = { path = "../derive-sqlite" }
+flow-client-next = { path = "../flow-client-next" }
 iam-auth = { path = "../iam-auth" }
 locate-bin = { path = "../locate-bin" }
 models = { path = "../models" }
