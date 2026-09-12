@@ -156,9 +156,6 @@ pub struct Build {
     /// Build ID of this build.
     #[clap(long)]
     build_id: models::Id,
-    /// Docker network to use for connectors.
-    #[clap(long, default_value = "")]
-    connector_network: String,
     /// File root which jails local file:// resources.
     #[clap(long, default_value = "/")]
     file_root: String,
@@ -318,7 +315,6 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         db_path,
         pub_id,
         build_id,
-        connector_network,
         file_root,
         source,
     } = build.clone();
@@ -335,7 +331,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let output = build::local(
         pub_id,
         build_id,
-        &connector_network,
+        &ctx.connector_network,
         ops::tracing_log_handler,
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
@@ -373,7 +369,7 @@ async fn do_combine(
     ctx: &mut crate::CliContext,
     Combine { source, collection }: &Combine,
 ) -> anyhow::Result<()> {
-    let (_sources, _live, validations) = local_specs::load_and_validate(ctx, source).await?;
+    let validations = local_specs::load_and_validate(ctx, source).await?.built;
 
     let collection = match validations
         .built_collections
