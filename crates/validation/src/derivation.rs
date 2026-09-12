@@ -95,6 +95,52 @@ pub async fn walk_all_derivations<C: Connectors>(
         .collect()
 }
 
+/// Map a derivation's `using` model into the connector Spec request used by
+/// validation and by local flowctl commands.
+pub fn derive_spec_request(
+    using: &models::DeriveUsing,
+    shards: &models::ShardTemplate,
+) -> derive::request::Spec {
+    let (connector_type, config_json) = match using {
+        models::DeriveUsing::Connector(config) => (
+            ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::DeriveUsing::Local(config) => (
+            ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::DeriveUsing::Sqlite(config) => (
+            ConnectorType::Sqlite as i32,
+            serde_json::to_string(config).unwrap().into(),
+        ),
+        models::DeriveUsing::Typescript(config) => (
+            ConnectorType::Image as i32,
+            serde_json::to_string(&builtin_derive_connector(
+                "ghcr.io/estuary/derive-typescript",
+                config,
+                shards,
+            ))
+            .unwrap()
+            .into(),
+        ),
+        models::DeriveUsing::Python(config) => (
+            ConnectorType::Image as i32,
+            serde_json::to_string(&builtin_derive_connector(
+                "ghcr.io/estuary/derive-python",
+                config,
+                shards,
+            ))
+            .unwrap()
+            .into(),
+        ),
+    };
+    derive::request::Spec {
+        connector_type,
+        config_json,
+    }
+}
+
 /// Resolve a built-in TypeScript / Python derivation into a concrete image
 /// connector. `repository` is the connector's image repository (without a tag);
 /// the tag is selected from the task's feature `flags`:
@@ -110,10 +156,10 @@ pub async fn walk_all_derivations<C: Connectors>(
 fn builtin_derive_connector<C: serde::Serialize>(
     repository: &str,
     config: &C,
-    flags: &BTreeMap<models::Token, models::Token>,
+    shards: &models::ShardTemplate,
 ) -> models::ConnectorConfig {
-    let tag = flag_value(flags, "derive-image-tag").unwrap_or(
-        if flag_value(flags, models::ENABLE_RUNTIME_V2) == Some("true") {
+    let tag = flag_value(&shards.flags, "derive-image-tag").unwrap_or(
+        if shards.uses_runtime_v2(models::CatalogType::Collection) {
             "stable"
         } else {
             "dev"
@@ -270,47 +316,10 @@ async fn walk_derivation<C: Connectors>(
         return None;
     }
 
-    // Unwrap `using` into a connector type and configuration.
-    let (connector_type, config_json): (i32, bytes::Bytes) = match &using {
-        models::DeriveUsing::Connector(config) => (
-            ConnectorType::Image as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::DeriveUsing::Local(config) => (
-            ConnectorType::Local as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        models::DeriveUsing::Sqlite(config) => (
-            ConnectorType::Sqlite as i32,
-            serde_json::to_string(config).unwrap().into(),
-        ),
-        // Built-in TypeScript / Python derivations are resolved at build time
-        // into a concrete image connector, keyed by the task's feature flags.
-        // The data-plane runtime then runs the resolved image directly rather
-        // than re-deriving a tag, which keeps Validate and the runtime — and the
-        // V1 and V2 runtimes — in agreement about which connector interface a
-        // module is compiled against.
-        models::DeriveUsing::Typescript(config) => (
-            ConnectorType::Image as i32,
-            serde_json::to_string(&builtin_derive_connector(
-                "ghcr.io/estuary/derive-typescript",
-                config,
-                &shards.flags,
-            ))
-            .unwrap()
-            .into(),
-        ),
-        models::DeriveUsing::Python(config) => (
-            ConnectorType::Image as i32,
-            serde_json::to_string(&builtin_derive_connector(
-                "ghcr.io/estuary/derive-python",
-                config,
-                &shards.flags,
-            ))
-            .unwrap()
-            .into(),
-        ),
-    };
+    let derive::request::Spec {
+        connector_type,
+        config_json,
+    } = derive_spec_request(&using, &shards);
     let secrets_spec = assemble::secrets(&secrets);
 
     // Resolve the data-plane for this task. We cannot continue without it.
@@ -1001,11 +1010,14 @@ fn walk_derive_transform<'a>(
 mod test {
     use super::builtin_derive_connector;
 
-    fn flags(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<models::Token, models::Token> {
-        pairs
-            .iter()
-            .map(|(k, v)| (models::Token::new(*k), models::Token::new(*v)))
-            .collect()
+    fn shards(pairs: &[(&str, &str)]) -> models::ShardTemplate {
+        models::ShardTemplate {
+            flags: pairs
+                .iter()
+                .map(|(k, v)| (models::Token::new(*k), models::Token::new(*v)))
+                .collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1018,7 +1030,7 @@ mod test {
 
         // Legacy V1 (no flags) maps to the frozen `:dev` image.
         assert_eq!(
-            builtin_derive_connector(repo, &config, &flags(&[])).image,
+            builtin_derive_connector(repo, &config, &shards(&[])).image,
             "ghcr.io/estuary/derive-typescript:dev"
         );
         // V2 tasks default to `:stable`.
@@ -1026,7 +1038,7 @@ mod test {
             builtin_derive_connector(
                 repo,
                 &config,
-                &flags(&[(models::ENABLE_RUNTIME_V2, "true")])
+                &shards(&[(models::ENABLE_RUNTIME_V2, "true")])
             )
             .image,
             "ghcr.io/estuary/derive-typescript:stable"
@@ -1036,7 +1048,7 @@ mod test {
             builtin_derive_connector(
                 repo,
                 &config,
-                &flags(&[
+                &shards(&[
                     (models::ENABLE_RUNTIME_V2, "true"),
                     ("derive-image-tag", "local")
                 ]),
