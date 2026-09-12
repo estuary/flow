@@ -8,34 +8,23 @@ use tables::CatalogResolver;
 pub(crate) async fn load_and_validate(
     ctx: &crate::CliContext,
     source: &str,
-) -> anyhow::Result<(
-    tables::DraftCatalog,
-    tables::LiveCatalog,
-    tables::Validations,
-)> {
+) -> anyhow::Result<build::Output> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) =
-        validate(ctx, true, false, true, draft, "", ops::tracing_log_handler).await;
-    Ok((draft, live, surface_errors(built.into_result())?))
+    let output = validate(ctx, true, false, true, draft, ops::tracing_log_handler).await;
+    surface_errors(output.into_result())
 }
 
 /// Load and validate sources and all connectors.
 pub(crate) async fn load_and_validate_full(
     ctx: &crate::CliContext,
     source: &str,
-    network: &str,
-    log_handler: impl runtime::LogHandler,
-) -> anyhow::Result<(
-    tables::DraftCatalog,
-    tables::LiveCatalog,
-    tables::Validations,
-)> {
+    log_handler: impl ops::LogHandler,
+) -> anyhow::Result<build::Output> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) =
-        validate(ctx, false, false, false, sources, network, log_handler).await;
-    Ok((draft, live, surface_errors(built.into_result())?))
+    let output = validate(ctx, false, false, false, sources, log_handler).await;
+    surface_errors(output.into_result())
 }
 
 /// Generate connector files by validating sources with derivation connectors.
@@ -43,16 +32,9 @@ pub(crate) async fn generate_files(
     ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut draft, _live, built) = validate(
-        ctx,
-        true,
-        false,
-        true,
-        sources,
-        "",
-        ops::tracing_log_handler,
-    )
-    .await;
+    let build::Output {
+        mut draft, built, ..
+    } = validate(ctx, true, false, true, sources, ops::tracing_log_handler).await;
 
     let project_root = build::project_root(&draft.fetches[0].resource);
     build::generate_files(&project_root, &built)?;
@@ -92,13 +74,8 @@ async fn validate(
     noop_derivations: bool,
     noop_materializations: bool,
     draft: tables::DraftCatalog,
-    network: &str,
-    log_handler: impl runtime::LogHandler,
-) -> (
-    tables::DraftCatalog,
-    tables::LiveCatalog,
-    tables::Validations,
-) {
+    log_handler: impl ops::LogHandler,
+) -> build::Output {
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
@@ -119,7 +96,7 @@ async fn validate(
         build::local(
             models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
             models::Id::new([0xff; 8]), // Must be larger than all real last_build_id's.
-            network,
+            &ctx.connector_network,
             log_handler,
             noop_captures,
             noop_derivations,
@@ -144,8 +121,7 @@ async fn validate(
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    let (draft, live, built) = output.into_parts();
-    (draft, live, built)
+    output
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {

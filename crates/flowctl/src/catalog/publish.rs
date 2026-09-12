@@ -32,8 +32,9 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
         "The publish command must be run interactively unless the `--auto-approve` flag is provided"
     );
 
-    let (mut draft_catalog, _live, _validations) =
-        local_specs::load_and_validate(ctx, &args.source).await?;
+    let mut draft_catalog = local_specs::load_and_validate(ctx, &args.source)
+        .await?
+        .draft;
 
     let draft = draft::create_draft(ctx).await?;
     println!("Created draft: {}", &draft.id);

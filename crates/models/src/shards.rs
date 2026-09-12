@@ -114,6 +114,24 @@ pub const ENABLE_RUNTIME_V2: &str = "enable-runtime-v2";
 pub const INDIRECT_SPECS: &str = "indirect-specs";
 
 impl ShardTemplate {
+    /// Reports whether this task selects the V2 runtime, mirroring the reactor's
+    /// per-type rule. Captures have ratcheted to V2 unless explicitly pinned
+    /// false; derivations and materializations remain explicit opt-ins.
+    pub fn uses_runtime_v2(&self, task_type: super::CatalogType) -> bool {
+        let flag = self
+            .flags
+            .get(&super::Token::new(ENABLE_RUNTIME_V2))
+            .map(super::Token::as_str);
+
+        match task_type {
+            super::CatalogType::Capture => flag != Some("false"),
+            super::CatalogType::Collection | super::CatalogType::Materialization => {
+                flag == Some("true")
+            }
+            super::CatalogType::Test => false,
+        }
+    }
+
     pub fn example() -> Self {
         Self {
             max_txn_duration: Some(Duration::from_secs(30)),
@@ -143,5 +161,41 @@ impl ShardTemplate {
             && o6.is_none()
             && o7.is_none()
             && flags.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{ENABLE_RUNTIME_V2, ShardTemplate};
+
+    fn shards(flag: Option<&str>) -> ShardTemplate {
+        ShardTemplate {
+            flags: flag
+                .map(|value| {
+                    [(
+                        crate::Token::new(ENABLE_RUNTIME_V2),
+                        crate::Token::new(value),
+                    )]
+                    .into_iter()
+                    .collect()
+                })
+                .unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn runtime_v2_selection_matches_reactor_defaults() {
+        use crate::CatalogType::{Capture, Collection, Materialization};
+
+        assert!(shards(None).uses_runtime_v2(Capture));
+        assert!(shards(Some("true")).uses_runtime_v2(Capture));
+        assert!(!shards(Some("false")).uses_runtime_v2(Capture));
+
+        for task_type in [Collection, Materialization] {
+            assert!(!shards(None).uses_runtime_v2(task_type));
+            assert!(shards(Some("true")).uses_runtime_v2(task_type));
+            assert!(!shards(Some("false")).uses_runtime_v2(task_type));
+        }
     }
 }

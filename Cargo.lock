@@ -3527,7 +3527,6 @@ dependencies = [
  "publisher",
  "rand 0.9.2",
  "reqwest 0.12.23",
- "runtime",
  "runtime-local",
  "runtime-next",
  "rusqlite",

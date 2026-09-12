@@ -50,9 +50,9 @@ func BuildCatalog(args BuildArgs) error {
 	var v = []string{
 		"raw",
 		"build",
+		"--network", args.ConnectorNetwork,
 		"--build-id", args.BuildId,
 		"--db-path", args.BuildDb,
-		"--connector-network", args.ConnectorNetwork,
 		"--file-root", args.FileRoot,
 		"--source", args.Source,
 	}

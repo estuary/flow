@@ -1,4 +1,4 @@
-use crate::local_specs;
+use crate::{local_connector, local_specs};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
@@ -19,12 +19,13 @@ impl Generate {
 
         let mut draft = local_specs::load(&source).await;
         sources::inline_draft_catalog(&mut draft);
+        let connector_router = ctx.local_connector_router();
 
         // Find config URLs we were unable to load and generate stubs for each.
         let (stubs, errors): (
             Vec<(url::Url, models::RawValue, doc::Shape)>,
             Vec<(url::Url, anyhow::Error)>,
-        ) = generate_missing_configs(&mut draft)
+        ) = generate_missing_configs(&mut draft, &*connector_router)
             .await
             .partition_result();
 
@@ -57,6 +58,7 @@ impl Generate {
 // Or, if generation fails, then return the error and its scope.
 async fn generate_missing_configs(
     draft: &tables::DraftCatalog,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> impl Iterator<Item = Result<(url::Url, models::RawValue, doc::Shape), (url::Url, anyhow::Error)>>
 {
     let tables::DraftCatalog {
@@ -68,7 +70,7 @@ async fn generate_missing_configs(
 
     let captures = captures.iter().map(|capture| {
         async move {
-            match generate_missing_capture_configs(capture).await {
+            match generate_missing_capture_configs(capture, connector_router).await {
                 Ok(ok) => Ok(ok),
                 Err(error) => Err((capture.scope.clone(), error)),
             }
@@ -77,7 +79,7 @@ async fn generate_missing_configs(
     });
     let collections = collections.iter().map(|collection| {
         async move {
-            match generate_missing_collection_configs(collection).await {
+            match generate_missing_collection_configs(collection, connector_router).await {
                 Ok(ok) => Ok(ok),
                 Err(error) => Err((collection.scope.clone(), error)),
             }
@@ -86,7 +88,8 @@ async fn generate_missing_configs(
     });
     let materializations = materializations.iter().map(|materialization| {
         async move {
-            match generate_missing_materialization_configs(materialization).await {
+            match generate_missing_materialization_configs(materialization, connector_router).await
+            {
                 Ok(ok) => Ok(ok),
                 Err(error) => Err((materialization.scope.clone(), error)),
             }
@@ -106,9 +109,9 @@ async fn generate_missing_configs(
 
 async fn generate_missing_capture_configs(
     capture: &tables::DraftCapture,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCapture {
-        capture,
         model: Some(models::CaptureDef {
             endpoint, bindings, ..
         }),
@@ -151,27 +154,12 @@ async fn generate_missing_capture_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        String::new(), // Default network.
-        ops::tracing_log_handler,
-        None,
-        format!("spec/{capture}"),
-    )
-    .unary_capture(capture::Request {
-        kind: Some(capture::request::Kind::Spec(spec)),
-        ..Default::default()
-    })
-    .await?;
-
-    let Some(capture::response::Kind::Spec(spec)) = response.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    let spec = local_connector::spec_capture(connector_router, None, spec).await?;
     let capture::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    } = *spec;
+    } = spec;
 
     stub_missing_configs(
         &config_schema_json,
@@ -183,9 +171,9 @@ async fn generate_missing_capture_configs(
 
 async fn generate_missing_collection_configs(
     collection: &tables::DraftCollection,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftCollection {
-        collection,
         model: Some(models::CollectionDef { derive, .. }),
         ..
     } = collection
@@ -194,27 +182,22 @@ async fn generate_missing_collection_configs(
     };
 
     let Some(models::Derivation {
-        using, transforms, ..
+        using,
+        transforms,
+        shards,
+        ..
     }) = derive
     else {
         return Ok(Vec::new()); // Not a derivation.
     };
 
-    let (spec, missing_config_url) = match using {
-        models::DeriveUsing::Connector(config) => (
-            derive::request::Spec {
-                connector_type: flow::collection_spec::derivation::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
-        models::DeriveUsing::Local(config) => (
-            derive::request::Spec {
-                connector_type: flow::collection_spec::derivation::ConnectorType::Local as i32,
-                config_json: serde_json::to_string(config).unwrap().into(),
-            },
-            serde_json::from_str::<url::Url>(config.config.get()).ok(),
-        ),
+    let missing_config_url = match using {
+        models::DeriveUsing::Connector(config) => {
+            serde_json::from_str::<url::Url>(config.config.get()).ok()
+        }
+        models::DeriveUsing::Local(config) => {
+            serde_json::from_str::<url::Url>(config.config.get()).ok()
+        }
         // TypeScript, Python, and SQLite always generate their own configs.
         // Other connectors may as well, and they'll override those generated here.
         models::DeriveUsing::Sqlite(_)
@@ -223,6 +206,7 @@ async fn generate_missing_collection_configs(
             return Ok(Vec::new());
         }
     };
+    let spec = validation::derive_spec_request(using, shards);
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = transforms
         .iter()
         .filter_map(|models::TransformDef { lambda, source, .. }| {
@@ -236,27 +220,12 @@ async fn generate_missing_collection_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        String::new(), // Default network.
-        ops::tracing_log_handler,
-        None,
-        format!("spec/{collection}"),
-    )
-    .unary_derive(derive::Request {
-        kind: Some(derive::request::Kind::Spec(spec)),
-        ..Default::default()
-    })
-    .await?;
-
-    let Some(derive::response::Kind::Spec(spec)) = response.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    let spec = local_connector::spec_derive(connector_router, None, spec).await?;
     let derive::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    } = *spec;
+    } = spec;
 
     stub_missing_configs(
         &config_schema_json,
@@ -268,9 +237,9 @@ async fn generate_missing_collection_configs(
 
 async fn generate_missing_materialization_configs(
     materialization: &tables::DraftMaterialization,
+    connector_router: &dyn proto_grpc::connector::Router,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftMaterialization {
-        materialization,
         model: Some(models::MaterializationDef {
             endpoint, bindings, ..
         }),
@@ -320,27 +289,12 @@ async fn generate_missing_materialization_configs(
         return Ok(Vec::new()); // No need to spec the connector.
     }
 
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        String::new(), // Default network.
-        ops::tracing_log_handler,
-        None,
-        format!("spec/{materialization}"),
-    )
-    .unary_materialize(materialize::Request {
-        kind: Some(materialize::request::Kind::Spec(spec)),
-        ..Default::default()
-    })
-    .await?;
-
-    let Some(materialize::response::Kind::Spec(spec)) = response.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    let spec = local_connector::spec_materialize(connector_router, None, spec).await?;
     let materialize::response::Spec {
         config_schema_json,
         resource_config_schema_json,
         ..
-    } = *spec;
+    } = spec;
 
     stub_missing_configs(
         &config_schema_json,
