@@ -16,6 +16,20 @@ pub use proto_flow::ops::{
 // Re-export proto_flow::ops as proto (use as ops::proto::Foo).
 pub use proto_flow::ops as proto;
 
+pub trait LogHandler: Send + Sync + Clone + 'static {
+    fn log(&self, log: &Log);
+
+    fn as_fn(self) -> impl Fn(&Log) + Send + Sync + 'static {
+        move |log| self.log(log)
+    }
+}
+
+impl<T: Fn(&Log) + Send + Sync + Clone + 'static> LogHandler for T {
+    fn log(&self, log: &Log) {
+        self(log)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Shard {
