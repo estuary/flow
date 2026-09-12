@@ -1,0 +1,11 @@
+set,probe,expect,result,pass
+user,vsock-mapped-port,error:ECONNRESET,error:ECONNRESET,True
+user,vsock-unmapped-port,timeout,timeout,True
+user,dotdot-file,same-file,same-file,True
+user,dotdot-root,same-file,same-file,True
+user,devices,balloon:1 blk:1 console:1 fs:2 net:1 rng:1 vsock:1,balloon:1 blk:1 console:1 fs:2 net:1 rng:1 vsock:1,True
+tsi,tsi-proxy-create,sent,sent,True
+deps,vdb-write,error:EBADF|EROFS|EACCES|EIO|EPERM,error:EPERM,True
+deps,devices-deps,balloon:1 blk:2 console:1 fs:2 net:1 rng:1 vsock:1,balloon:1 blk:2 console:1 fs:2 net:1 rng:1 vsock:1,True
+ioctl,exit-code-ioctl,accepted,accepted,True
+ioctl,unclaimed-ioctl,refused,refused,True

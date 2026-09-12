@@ -2338,3 +2338,234 @@ any runtime work is spent.)
   each even if we carry no patches.
 - Next: WP10 (rp_filter first, then experiments 11, 12, 13), then WP09,
   then WP12.
+
+### 2026-09-12 WP10: experiments 11 and 12 pass; 13 passes on cleanup and fails one half of the panic gate. The exit code is not a signal.
+
+- **housekeeping first, as the brief scheduled.** WP11's scratchpad was gone, so
+  `spike/tasks/check-exposure-citations.sh` is a rewrite from the report's own
+  citations rather than a recovery. It clones `v1.19.4`, checks the checkout is
+  at the commit the report names, and asserts 96 (file, line-range, substring)
+  triples. `--src DIR` checks against an existing checkout instead of cloning.
+
+  Two conventions in the report needed a human to read them, and the script is
+  where that reading is now recorded: a bare `` `:NNN` `` continues the previous
+  citation's *file*, except in "The README warning, concretely", where `mkdir`,
+  `create`, `unlink`, `rename`, `link` and `symlink` are `PassthroughFs` methods
+  (`linux/passthrough.rs`) and the nearest preceding full citation is
+  `server.rs`; and `` `1` ``, `` `620` ``, `` `1024` ``, `` `49091` ``,
+  `` `49093` `` in the probe list are vsock port numbers, not line numbers. A
+  naive parser gets both wrong. **No citation in the report is wrong** - all 96
+  resolve at v1.19.4.
+
+- **rp_filter is now explicit**, in the two places the brief named:
+  `crates/runtime-next/src/container/spike.rs` gains
+  `--sysctl net.ipv4.conf.default.rp_filter=1`, and `spike/tasks/helper-common.sh`
+  gains `SPIKE_HELPER_SYSCTLS`, an array holding it alongside `ip_forward=1`.
+
+- shipped:
+  - `spike/tasks/check-exposure-citations.sh` (above).
+  - `spike/tasks/exp11-common.sh`, the shared driver for 11, 12 and 13: the
+    sandbox directory, the launch line, the marker-and-idle protocol, and the
+    host probes (podman's per-container layer, the cgroup, `df`, `MemAvailable`).
+  - `spike/tasks/exp11-storage.sh`, `exp12-exposure.sh`, `exp13-crash.sh`.
+  - `spike/report/exp11.md`, `exp12.md`, `exp13.md`, and raw data:
+    `data/exp11-storage.csv`, `data/exp12-probes.csv`, `data/exp13-runtime.log`
+    (the runtime's log with a marker at the kill), `data/exp13-panic-console.log`.
+
+- verification:
+  ```
+  $ spike/tasks/check-exposure-citations.sh
+    ok    src/devices/src/virtio/queue.rs:264,266  !self.has_next() || ...
+    ---
+    ALL CITATIONS RESOLVE (96 checked)
+
+  $ mise exec -- spike/tasks/exp6-egress.sh          (the rp_filter rerun)
+    ok    public-user: every probe passed
+    ok    public-root: every probe passed
+          tap0 rp_filter inside the helper: 1
+    ok    public-root: forward/anti-spoof = 0 with rp_filter=1; the kernel dropped it first
+    ok    spoof-nft: every probe passed
+          tap0 rp_filter inside the helper: 0
+    ok    spoof-nft: counter forward/anti-spoof = 1
+    ok    declared: every probe passed
+    exp6-egress.sh: ok
+    (the rerun overwrote data/exp6-probes.csv, WP07's file: every `set, probe,
+     expect, result, pass` field is byte-identical, only `ms` moved)
+
+  $ mise exec -- spike/tasks/exp11-storage.sh
+          root-fill     layer 512 MiB;  cgroup current 1105 MiB anon 573  file 512 (limit 1280)
+          root-over-ram layer 1536 MiB; cgroup current 1279 MiB anon 1033 file 233 (limit 1280)
+          scratch       ENOSPC at 3999 of 4352 MiB; df +3995 MiB; MemAvailable -1022 MiB
+    exp11-storage.sh: ok        (17 checks)
+
+  $ mise exec -- spike/tasks/exp12-exposure.sh
+          vsock-mapped-port    error:ECONNRESET     vsock-unmapped-port  timeout
+          dotdot-file          same-file            dotdot-root          same-file
+          devices              balloon:1 blk:1 console:1 fs:2 net:1 rng:1 vsock:1
+          devices-deps         balloon:1 blk:2 console:1 fs:2 net:1 rng:1 vsock:1
+          tsi-proxy-create     sent; ss 0 sockets before and after; VMM fds 274 -> 265
+          vdb-write            error:EPERM
+          exit-code-ioctl      accepted             unclaimed-ioctl      refused
+    ok    ioctl: the helper exited 7, the workload's own status
+    exp12-exposure.sh: ok
+
+  $ mise exec -- spike/tasks/exp13-crash.sh
+    ok    sigkill: the helper was killed mid-transaction, with tap0 up (46 committed)
+    ok    sigkill: the runtime reported the connector's death: expected connector response
+    ok    sigkill: no helper container remains
+    ok    sigkill: the helper's netns is gone, and tap0 with it
+    ok    sigkill: the reactor filesystem is back to 93 MiB below where it stood
+    ok    sigkill: the runtime removed fs_64f7c3f913b00ac7/
+    ok    panic: the guest kernel panicked
+    ok    panic: the helper exited promptly, 5.0s after the workload started
+    FAIL  panic: the helper exited 0
+    exp13-crash.sh: 1 failure(s)
+  ```
+  Regressions, all unchanged:
+  ```
+  $ spike/tasks/env-check.sh                        -> env-check.sh: ok
+  $ spike/tasks/helper-smoke.sh                     -> helper-smoke.sh: ok
+  $ spike/tasks/flow-init-test.sh                   -> flow-init-test.sh: ok
+  $ mise exec -- cargo nextest run -p runtime-next  -> 219 passed, 0 skipped
+  $ mise exec -- cargo fmt --all --check            -> clean
+  ```
+
+- the three gates:
+  - **Experiment 11 PASS.** Guest writes to the root land in
+    `overlay-containers/<id>/userdata/overlay/<n>/upper` and go with the
+    container. The bound is the disk: a 1024 MiB guest wrote **1536 MiB** to its
+    root without failing, with the cgroup pinned at its 1280 MiB limit. `/scratch`
+    stopped at `ENOSPC` after 3999 of 4352 MiB. Guest-root writes under `/usr`
+    never reach the image; `/venv` is EROFS to guest root.
+  - **Experiment 12 PASS, with one correction to WP11.** Every probe on WP11's
+    list matched, including both added ones and master's third. `ss -tunap`
+    inside the helper lists **zero** sockets before and after the TSI datagram -
+    a stronger negative than "no new socket". The correction is below.
+  - **Experiment 13: cleanup PASS, panic gate HALF-FAIL.** SIGKILL
+    mid-transaction is clean in every respect PLAN asks for. The guest kernel
+    panic is prompt (5.0 s, no hang, no reboot loop) and **exits 0**.
+
+- **the two findings the master thread needs:**
+
+  - **WP11's exit-code ioctl claim needs narrowing.** The ioctl is accepted from
+    the read-only `/venv` share and returns 0, and the control proves the
+    interception is real: `0x7601` on the same fd of the same share comes back
+    refused (it reaches the passthrough's `EOPNOTSUPP`), while `0x7602` returns
+    0. But the stored value never survives: **libkrun's init reports the
+    workload's exit status through the same ioctl, on `/`, after `waitpid`**
+    (`src/init_blob/init/init.c:1141-1152`), so it writes the atomic last. A
+    workload that asks for 42 and exits 7 gives a helper that exits 7; under
+    `--debug` the VMM says `using vmm exit code: 0` for one that exits 0.
+    The sentence for the final report is therefore narrower and simpler than
+    WP11's: **the helper's exit code is the guest workload's exit status, and a
+    connector that wants to report any value can just exit with it.** The ioctl
+    grants nothing the workload did not have.
+
+  - **A guest kernel panic reports exit code 0**, which is the other half of the
+    same story and the one gate item that fails. The shim never regains control
+    (`krun_start_enter` does not return; libkrun `_exit`s), and libkrun prefers
+    init's stored code, falling back to the vcpu's `FC_EXIT_CODE_OK` when the
+    exit came from a reset (`src/vmm/src/lib.rs:405-430`). A panicking guest
+    never reaches init's report, so 0 is what comes out.
+
+    **It costs containment nothing and detection nothing** - experiment 13's
+    first half shows the runtime learning of the death from the socket in under
+    half a second, and that path never consults the exit code. It costs
+    *diagnosis*: "connector exited 0" is what the reactor records for a guest
+    that ran out of memory. `exp13.md` records two ways out (the shim watching
+    its own console for `Kernel panic`; the runtime treating any exit without a
+    graceful shutdown as a failure) as open questions, not proposals.
+
+    Taken together the two findings say the same thing: **the exit code is
+    untrusted and uninformative. Nothing in the runtime should branch on it.**
+
+- **deviations from CONTRACTS.md: none.** The launch line gains one sysctl, which
+  the brief authorised and CONTRACTS "Tap network" already describes ("the launch
+  line sets `--sysctl net.ipv4.conf.default.rp_filter=1`"); this makes the code
+  match the contract rather than changing it.
+
+- **departures from the WP10 brief's paths**, each because the brief's own steps
+  required it:
+  - **`spike/tasks/exp6-common.sh`**, one line: `--sysctl net.ipv4.ip_forward=1`
+    becomes `"${SPIKE_HELPER_SYSCTLS[@]}"`. The brief says to add the sysctl "in
+    both places it is built: `spike.rs` and `helper-common.sh`", but
+    `helper-common.sh` held no launch line - exp6-common.sh, helper-smoke.sh,
+    flow-init-test.sh and the two exp5 scripts each build their own. Without
+    this line the brief's own verification step (rerun exp6, confirm tap0
+    rp_filter is 1) could not have exercised the change. **The other four
+    builders are untouched**; they are benchmark and smoke harnesses, and
+    folding them onto the shared array is a job for whoever next touches them.
+  - **`spike/tasks/exp11-common.sh`** holds the shared driver for the three
+    experiments, matching exp6-common.sh and preview-common.sh. It is inside the
+    brief's `exp{11,12,13}-*.sh` glob.
+  - **Experiment 12's guest probes are a heredoc inside `exp12-exposure.sh`**,
+    written to the sandbox's `venv/spike/` at run time, rather than a
+    `exp12-probes.py` alongside it. The glob ends in `.sh`; this keeps the
+    package inside it.
+
+- findings other packages need:
+  - **`podman inspect` does not report the image mount's writable layer.**
+    `.GraphDriver` is the helper container's own root. The guest root's layer is
+    `overlay-containers/<container id>/userdata/overlay/<n>/upper`, confirmed
+    against the helper's `/proc/mounts` entry for `/rootfs`. Anything that wants
+    to meter or bound a connector's root writes needs that shape.
+  - **`--disk-mib 1024` cannot prove PLAN's memory claim.** At 1 GiB the host's
+    `MemAvailable` falls by about what was written, and the cause is the guest
+    touching its own 1 GiB of RAM, not memory backing the disk. The two are the
+    same size by coincidence. Experiment 11 uses 4096 (CONTRACTS' production
+    default), where they separate cleanly. Sample `MemAvailable` after a host
+    `sync`, or dirty page cache reports the disk being behind as memory spent.
+  - **`podman kill` on a container the client has already left behind is
+    asynchronous.** Container removal, netns teardown and layer reclaim all
+    happen after the CLI returns. Any "and afterwards nothing remains" assertion
+    has to poll for quiescence; taking the measurement when the client exits
+    reports leaks that are not there (9 s of settle in one arm here).
+  - **"One preview starts the connector twice" is a trap for kill-timing, not
+    just a counting detail** (WP06 recorded the fact; this is the consequence).
+    The shard validates, then opens, so two `fs_` helpers exist briefly and the
+    first is gone within seconds. Killing "the first one" kills a container that
+    was about to exit anyway: the run carries on, the preview never ends, and
+    every teardown assertion passes on the wrong subject. Wait for **exactly
+    one** `fs_` container *and* a committed transaction.
+  - **A regular-file fixture is useless for mid-transaction timing.** It is read
+    eagerly and its documents are committed before the helper finishes booting.
+    A FIFO fixture streams as one unbounded session, so the connector stays busy
+    for as long as the writer writes; experiment 13 killed its helper after 46
+    committed transactions this way.
+  - **Under `--debug`, guest stderr arrives fragmented.** flow-init's timing
+    lines lose their prefixes (bare `203970` where the undebugged run gives
+    `flow-init: timing stage=start boot_us=203970`): the console tee and the
+    workload's stderr share one host descriptor and interleave below line
+    granularity. Nothing scrapes those lines today; anything that does must not
+    run with `--debug`.
+  - **`materialize-sqlite:dev` moved digest again during this session**,
+    `7c89b59b...` -> `0f04fd0a...`, because `flowctl preview` pulls the image.
+    `derive-python:dev` and `busybox:latest` are unchanged. `exp13.md` names what
+    was measured.
+  - **`cargo clippy` is not clean at baseline under mise**, and it is not this
+    package's doing: `RUSTFLAGS=-D warnings` (mise.toml:28) applies to every
+    crate clippy builds, and `crates/models` has 40 findings
+    (`int_plus_one`, `redundant_static_lifetimes`, ...) in files nothing here
+    touches. `cargo fmt --all --check` and `cargo nextest run -p runtime-next`
+    are both clean. Flagged, not fixed.
+
+- questions for the master thread:
+  - **Is the panic exit code a gate failure or a recorded limitation?** I have
+    written it as PLAN wrote it: the gate says "exits non-zero promptly", the
+    result is "prompt, not non-zero", and `exp13.md` leads with that.
+    `exp13-crash.sh` exits 1 so the button tells the truth. If the decision is
+    that detection-by-socket is what the gate was really asking for, PLAN's
+    wording is what should change, not the script.
+  - **Does the final report want the exit-code finding stated once or twice?**
+    It lands in both `exp12.md` (the ioctl is real but overwritten) and
+    `exp13.md` (a panic reports 0), and they are one fact seen from two sides.
+    My inclination is one line in the report's gate table plus one paragraph in
+    open problems, owner "runtime".
+  - **The four other launch-line builders.** `helper-smoke.sh`,
+    `flow-init-test.sh`, `exp5-run.sh` and `exp5-diag.sh` still spell
+    `--sysctl net.ipv4.ip_forward=1` inline and so run without strict rp_filter.
+    Nothing they assert depends on it. Worth a sweep in WP12, or leave them?
+  - **`spike/tasks/` now has three `*-common.sh` files** (exp6, exp11,
+    preview) plus `env-common.sh` and `helper-common.sh`, each carrying a comment
+    saying it should be folded in one day. If WP12 is doing a tidy-up pass, this
+    is the shape to collapse.

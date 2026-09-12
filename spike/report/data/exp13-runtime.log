@@ -1,0 +1,62 @@
+2026-09-12T15:04:40.472680Z  INFO flowctl::config: no config file found at path, using default path=/root/.config/flowctl/default.json profile=default
+2026-09-12T15:04:41.391233Z  INFO runtime::container: started connector container image=ghcr.io/estuary/materialize-sqlite:dev init_address=http://127.0.0.1:44497 ip_addr=10.89.0.105 mapped_host_ports={"49092":"127.0.0.1:44497","8001":"127.0.0.1:40819"} name=fc_a0c2639afc975f10 image_inspection={"id":"f3f576238ed3b1f94307b491e9fc6981c9af4194fa424bc167d50166a349ab67","image_created_at":"2026-09-12T05:07:57.37740849Z","network_ports":[{"number":8001}],"runtime_protocol":"materialize","usage_rate":1.0,"usage_rate_source":"default for capture and materialize protocol"} task_name=build/ffffffffffffffff task_type=Materialization
+2026-09-12T15:04:42.223716Z  INFO runtime::container: started connector container image=ghcr.io/estuary/materialize-sqlite:dev init_address=http://127.0.0.1:40885 ip_addr=10.89.0.106 mapped_host_ports={"49092":"127.0.0.1:40885","8001":"127.0.0.1:37337"} name=fc_f7f03aec4c09b2b8 image_inspection={"id":"f3f576238ed3b1f94307b491e9fc6981c9af4194fa424bc167d50166a349ab67","image_created_at":"2026-09-12T05:07:57.37740849Z","network_ports":[{"number":8001}],"runtime_protocol":"materialize","usage_rate":1.0,"usage_rate_source":"default for capture and materialize protocol"} task_name=build/ffffffffffffffff task_type=Materialization
+2026-09-12T15:04:42.257915Z  INFO build: wrote build database db_path="/var/tmp/flow-spike/reactor/wp06/tmp/flowctl_1789225482.sqlite"
+2026-09-12T15:04:42.258201Z  INFO runtime_local::services: local leader + shuffle services started peer_endpoint=http://127.0.0.1:33745 shuffle_log_dir=/var/tmp/flow-spike/reactor/wp06/tmp/.tmpj7dG8D n_shards=1 debug_port=None
+2026-09-12T15:04:42.258600Z  INFO runtime_local::materialize_driver: starting preview session session=1 shard_index=0 target_txns=0 drain=false
+2026-09-12T15:04:42.276567Z  INFO handler{id=0 kind="shard.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::shard::materialize::handler: dialing leader and sending Join track="leader" shard_index=0 leader_endpoint=http://127.0.0.1:33745
+2026-09-12T15:04:42.322645Z  INFO handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::leader::materialize::handler: received Join from shard track="shard" shard_index=0 etcd_mod_revision=1
+2026-09-12T15:04:42.322678Z  INFO handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::leader::materialize::handler: consensus reached; starting session track="leader"
+2026-09-12T15:04:42.857825Z  WARN ops: flow-sandbox-helper: timing stage=start wall_us=1789225482856921 fields={}
+2026-09-12T15:04:42.884864Z  WARN ops: flow-sandbox-helper: timing stage=krun_start_enter wall_us=1789225482884730 fields={}
+2026-09-12T15:04:43.364269Z  WARN ops: flow-init: timing stage=start boot_us=197571 fields={}
+2026-09-12T15:04:43.369999Z  WARN ops: flow-init: timing stage=exec boot_us=203397 fields={}
+2026-09-12T15:04:43.393190Z  INFO handler{id=0 kind="shard.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: ops: started connector container fields={"container":{"ipAddr":"192.0.2.2","usageRate":1.0},"image":"ghcr.io/estuary/materialize-sqlite:dev"}
+2026-09-12T15:04:43.605277Z  INFO handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: ops: connector applied fields={"actionDescription":"\n  CREATE TABLE IF NOT EXISTS events (\n    ts TEXT NOT NULL,\n    flow_published_at TEXT NOT NULL,\n    message TEXT NOT NULL,\n    flow_document TEXT NOT NULL,\n    PRIMARY KEY (ts)\n  );\n  "}
+2026-09-12T15:04:43.605322Z  INFO handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::leader::materialize::startup: connector Apply completed track="leader" iteration=1 action_description=
+  CREATE TABLE IF NOT EXISTS events (
+    ts TEXT NOT NULL,
+    flow_published_at TEXT NOT NULL,
+    message TEXT NOT NULL,
+    flow_document TEXT NOT NULL,
+    PRIMARY KEY (ts)
+  );
+   patches=b""
+2026-09-12T15:04:44.169279Z  WARN ops: flow-sandbox-helper: timing stage=start wall_us=1789225484169104 fields={}
+2026-09-12T15:04:44.197224Z  WARN ops: flow-sandbox-helper: timing stage=krun_start_enter wall_us=1789225484197079 fields={}
+2026-09-12T15:04:44.685222Z  WARN ops: flow-init: timing stage=start boot_us=199683 fields={}
+2026-09-12T15:04:44.691658Z  WARN ops: flow-init: timing stage=exec boot_us=206478 fields={}
+2026-09-12T15:04:44.720298Z  INFO handler{id=0 kind="shard.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: ops: started connector container fields={"container":{"ipAddr":"192.0.2.2","usageRate":1.0},"image":"ghcr.io/estuary/materialize-sqlite:dev"}
+2026-09-12T15:04:44.943973Z  INFO handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::leader::materialize::actor: materialize Actor::serve started track="leader" n_shards=1
+2026-09-12T15:04:53.923070Z  WARN handler{id=0 kind="shard.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::shard::materialize::actor: error=Materialize error (expected connector response) from connector
+
+Caused by:
+    h2 protocol error: error reading a body from connection
+2026-09-12T15:04:53.923627Z  WARN handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::leader::materialize::actor: error=Materialize error (expected actor message) from materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000@local-000
+
+Caused by:
+    unexpected EOF
+Error: Materialize error (expected Joined, Opened, or Stopped) from shard
+
+Caused by:
+    Materialize error (expected connector response) from connector
+    
+    Caused by:
+        h2 protocol error: error reading a body from connection
+--- SIGKILL to the shim here ---
+2026-09-12T15:04:53.885133Z  INFO handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: flowctl::raw::preview_next::publish: transaction stats stats={"_meta":{},"materialize":{"acmeCo/events":{"lastSourcePublishedAt":"1970-01-02T23:00:02+00:00","left":{"bytesTotal":318,"docsTotal":3},"out":{"bytesTotal":318,"docsTotal":3},"right":{"bytesTotal":528,"docsTotal":3}}},"openSecondsTotal":0.0008076,"shard":{"build":"ffffffffffffffff","keyBegin":"00000000","kind":"materialization","name":"acmeCo/events-sqlite","rClockBegin":"00000000"},"ts":"2026-09-12T15:04:53.845964+00:00","txnCount":1}
+2026-09-12T15:04:53.923070Z  WARN handler{id=0 kind="shard.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::shard::materialize::actor: error=Materialize error (expected connector response) from connector
+
+Caused by:
+    h2 protocol error: error reading a body from connection
+2026-09-12T15:04:53.923627Z  WARN handler{id=1 kind="leader.materialize" label="materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000"}: runtime_next::leader::materialize::actor: error=Materialize error (expected actor message) from materialize/acmeCo/events-sqlite/0000000000000000/00000000-00000000@local-000
+
+Caused by:
+    unexpected EOF
+Error: Materialize error (expected Joined, Opened, or Stopped) from shard
+
+Caused by:
+    Materialize error (expected connector response) from connector
+    
+    Caused by:
+        h2 protocol error: error reading a body from connection

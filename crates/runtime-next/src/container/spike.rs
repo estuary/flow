@@ -159,6 +159,13 @@ pub async fn start<L: crate::Logger>(
         "NET_ADMIN".to_string(),
         "--sysctl".to_string(),
         "net.ipv4.ip_forward=1".to_string(),
+        // Strict reverse-path filtering on the tap, which does not exist yet at
+        // container creation and cannot be set afterwards (/proc/sys is
+        // read-only inside the container), so `conf.default` is the only route
+        // to it. It drops a forged guest source before nftables is reached; the
+        // anti-spoof rule stays as the second control (WP07).
+        "--sysctl".to_string(),
+        "net.ipv4.conf.default.rp_filter=1".to_string(),
         // Thread-through the logging configuration of the connector.
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={}", log_level.as_str_name()),

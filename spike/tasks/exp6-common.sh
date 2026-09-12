@@ -227,7 +227,7 @@ eg_helper_argv() {
         run --rm "--name=$id" "--network=$SPIKE_NET_CONNECTORS" "--ip=$EG_HELPER_UPLINK_IP" \
         --log-driver=none \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
-        --sysctl net.ipv4.ip_forward=1 \
+        "${SPIKE_HELPER_SYSCTLS[@]}" \
         "${EG_PODMAN_ARGS[@]}" \
         "$(spike_image_mount "$EG_GUEST_IMAGE")" \
         "--mount=type=bind,source=$dir/init,target=/init,ro" \
