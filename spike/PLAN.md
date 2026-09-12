@@ -379,11 +379,24 @@ once off. No gate; the numbers inform `resources` defaults.
 
 ### 12. Control channel and device exposure (gate)
 
-- Connecting from the guest to any vsock port other than the one we mapped
-  is refused.
+- Connecting from the guest to the mapped port 49092 is reset (libkrun
+  sends RST for a `listen=true` mapping); connecting to any other vsock
+  port gets no response at all (WP11: the muxer drops the request silently),
+  so the probe must impose its own timeout. Two mechanisms, two observable
+  results; the report says so rather than blurring them.
 - From the guest, send a TSI proxy-create datagram to the vsock control
   port. The helper opens nothing (`ss -tunap` before and after). This
   confirms `krun_add_vsock(ctx, 0)` took.
+- As guest root, `ioctl(fd, 0x7602, 42)` on any share, then exit 0. The
+  helper exits 42: the helper's exit code is a value the guest chooses, not
+  one the platform observes (WP11). The runtime must not treat it as trusted.
+- From the unprivileged workload, open a path with `..` and embedded `/`
+  components (`/venv/../../etc/hostname`). It resolves inside the guest.
+  The guest VFS never puts `..` on the FUSE wire, which is the confinement
+  WP11 found at T1/T2.
+- As guest root, write directly to `/dev/vdb` (the deps disk). It fails: the
+  host opened the image without write access, so the protection is the host
+  fd, not a flag the guest can negotiate away.
 - The guest sees exactly the devices we configured (`lsblk`,
   `ls /sys/bus/virtio/devices`: two fs, one blk, one net, vsock, console,
   balloon, rng) and no more.
@@ -392,6 +405,21 @@ once off. No gate; the numbers inform `resources` defaults.
   virtiofs ioctl handlers (the exit-code ioctl, and the "remove root dir"
   request a 1.18 release restricted). Record findings, including "none
   found."
+
+  Result (WP11, `spike/report/libkrun-exposure.md`, 83 citations checked
+  mechanically against v1.19.4): the two gates the design relies on hold.
+  `krun_add_vsock(ctx, 0)` disables TSI behind two independent checks while
+  the port map stays live; the mapped port is inbound-only. "Remove root
+  dir": none found. The README's escape warning is `..` and embedded `/` in
+  a single FUSE name argument, resolved with `openat` and no
+  `RESOLVE_BENEATH`; unreachable from guest userspace or guest root because
+  the guest VFS sends only single, already-resolved components, and bounded
+  at guest-kernel level (T3) by the helper container's mount namespace,
+  which is the boundary the design claims. Three guest-kernel-level (T3)
+  bugs recorded, none reachable from the workload: an unchecked console
+  port index (VMM panic), an unchecked balloon report length (`madvise`
+  past guest RAM), and a DAX mapping offset overflow reachable only with
+  `--venv-dax`.
 
 ### 13. Helper crash and cleanup (gate)
 
@@ -413,8 +441,25 @@ One document containing:
   sequence, and the mkfs options that passed, so phase 2 starts from them.
 - The measured cgroup overhead constant and the THP result.
 - Anything that only worked from a root shell on the host.
-- Open problems found along the way, each with a proposed owner. Known so
-  far:
+- Open problems found along the way, each with a proposed owner. Use
+  WP11's tiering when stating any exposure: T1 unprivileged guest
+  userspace, T2 guest root, T3 guest kernel control. Known so far:
+  - Three libkrun bugs at T3 (console index, balloon report length, DAX
+    offset overflow). None reachable from a connector; all are "the guest
+    kernel can crash its own VMM", and the balloon one can `madvise` into
+    the helper's own mappings. Owner: us, to decide whether to report
+    upstream or accept as within the boundary.
+  - DAX should not ship. WP08 measured no benefit and WP11 found it is the
+    only path to the one overflow. Drop `--venv-dax` from the production
+    design. Owner: runtime.
+  - Phase-2 hardening the source read points at: run the virtiofs server
+    with the share as its filesystem root (upstream's own remedy, a
+    `pivot_root` or `openat2` with `RESOLVE_BENEATH`), and keep the helper's
+    mount namespace minimal, since at T3 everything mounted into the helper
+    is nameable. Owner: runtime.
+  - The helper's exit code is guest-chosen (the exit-code ioctl is ungated).
+    Harmless today; the runtime must never derive a security decision from
+    it. Owner: runtime.
   - The resolver's `nft add element` does not refresh an existing element's
     timeout, so a name re-resolved late in its window still expires at the
     original time; a connect in that moment is dropped. The runtime's netlink

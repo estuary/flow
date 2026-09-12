@@ -82,7 +82,9 @@ host-side DNS fixture. Unset, the path is unchanged.
   `/bin/sh -c` as guest root after mounts and before the uid drop, then
   continues to the workload.
 - `--venv-dax` gives the `venv` virtiofs a DAX window (512 MiB) and tells
-  flow-init to mount it with `dax`.
+  flow-init to mount it with `dax`. Spike measurement only: WP08 found no
+  benefit and WP11 found DAX is the only reachable path to a libkrun mapping
+  overflow. Not for production.
 - `--thp-disable` calls `prctl(PR_SET_THP_DISABLE)` before starting the VM.
   Default is THP left alone.
 - `--debug` tees the guest kernel console to stderr with prefix `kernel: `

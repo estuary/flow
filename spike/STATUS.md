@@ -20,7 +20,7 @@ maintains the table. Newest log entries at the bottom.
 | 04b| podman writable layer, no guest overlay | 04, 08b      | done   | daveg/libkrun-spike | 981c434e5fd; unpatched libkrun; exp 5c 2.13x |
 | 09 | Churn and density: experiments 9-10     | 00, 06       | todo   | daveg/libkrun-spike |       |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | todo   | daveg/libkrun-spike |       |
-| 11 | libkrun source read: experiment 12      | -            | todo   | daveg/libkrun-spike |       |
+| 11 | libkrun source read: experiment 12      | -            | done   | daveg/libkrun-spike | 36104b1ba89; gates hold; 3 T3 bugs; DAX not for production |
 | 12 | Report                                  | all          | todo   | daveg/libkrun-spike |       |
 
 Sequential order, one session at a time, biggest unknowns first:
@@ -42,11 +42,12 @@ any runtime work is spent.)
   API service, and the per-container layer is removed on `--rm` - guest writes
   to `/etc` and `/usr` are absent from the image afterwards and
   `podman system df` returns to its pre-run Containers row.
-- What does the libkrun README's "does not provide any protection against the
-  guest attempting to access other directories in the same filesystem" mean
-  concretely, now that the root share is read-write and served by a root
-  process on the filesystem that also holds the reactor directory and
-  podman's storage? Can guest writes escape the shared directory? (WP11)
+- RESOLVED (WP11): the README warning is `..` and embedded `/` in a single
+  FUSE name, resolved with `openat` and no `RESOLVE_BENEATH`. Unreachable from
+  guest userspace or guest root (the guest VFS sends only single resolved
+  components); at guest-kernel level it is bounded by the helper container's
+  mount namespace, which is the design's stated boundary. Phase-2 hardening:
+  serve each share from its own root (`pivot_root`/`openat2`).
 
 ## Log
 
@@ -2314,3 +2315,26 @@ any runtime work is spent.)
   - **`--venv-dax` now has a second cost** beyond the one WP08 measured: it is
     the only thing that makes the setupmapping overflow reachable at all. Worth
     a line next to the performance number if DAX stays optional.
+
+### 2026-09-12 master: WP11 accepted
+
+- The citation checker lands in `spike/tasks/` via WP10's housekeeping; a
+  document that cites 83 line ranges is only honest while something checks
+  them.
+- Experiment 12's first bullet is reworded in PLAN: mapped port resets,
+  unmapped ports are silent, the probe imposes its own timeout.
+- Both added probes accepted (exit-code ioctl, `..` from T1), plus one more:
+  a raw write to `/dev/vdb` as guest root, to confirm the deps image's
+  protection is the host fd. The shim passes `read_only=true` per WP08b's
+  entry; the probe measures it. The extra TSI control ports are dropped to
+  one.
+- The T1/T2/T3 tiering is adopted for the report; PLAN's open-problems
+  section says so.
+- `--venv-dax` is marked spike-only in CONTRACTS and "do not ship" in PLAN.
+- The three T3 bugs and the phase-2 hardening items (serve shares from their
+  own root; minimal helper mount namespace; exit code untrusted) are in
+  PLAN's open problems with owners. Whether to report the bugs upstream is
+  the user's call; the master thread's view is that they are worth an issue
+  each even if we carry no patches.
+- Next: WP10 (rp_filter first, then experiments 11, 12, 13), then WP09,
+  then WP12.
