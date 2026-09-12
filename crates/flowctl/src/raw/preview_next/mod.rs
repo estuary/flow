@@ -83,9 +83,6 @@ pub struct Preview {
     /// fixed by the fixture's own commit markers).
     #[clap(long)]
     delay: Option<humantime::Duration>,
-    /// Docker network to run connector images.
-    #[clap(long, default_value = "bridge")]
-    network: String,
     /// Initial JSON connector state to seed the run with.
     /// When developing a connector, you may want to use --initial-state to pass
     /// in crafted state configurations you expect the connector to resume from.
@@ -140,7 +137,6 @@ impl Preview {
             sessions,
             fixture,
             delay,
-            network,
             initial_state,
             output_state,
             output_apply,
@@ -186,9 +182,10 @@ impl Preview {
             ),
         };
 
-        let (_sources, _live, validations) =
-            local_specs::load_and_validate_full(ctx, source_url.as_str(), network, log_handler)
-                .await?;
+        let validations =
+            local_specs::load_and_validate_full(ctx, source_url.as_str(), log_handler)
+                .await?
+                .built;
 
         let task = resolve_task(&validations, name.as_deref())?;
 
@@ -214,8 +211,6 @@ impl Preview {
         };
 
         let stop_token = tokio_util::sync::CancellationToken::new();
-        let connector_router = runtime_local::local_router(network.clone(), ctx.registry.clone());
-
         let result: anyhow::Result<()> = match task {
             TaskSpec::Capture(mut spec) => {
                 anyhow::ensure!(
@@ -226,7 +221,7 @@ impl Preview {
                     runtime_local::set_min_txn_duration(spec.shard_template.as_mut(), delay);
                 }
                 let run = services::Run::start_capture(
-                    connector_router.clone(),
+                    ctx.local_connector_router(),
                     *shards,
                     *debug_port,
                     ctx.registry.clone(),
@@ -247,7 +242,7 @@ impl Preview {
                 let mut frontier_tx = None;
                 let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    connector_router.clone(),
+                    ctx.local_connector_router(),
                     *shards,
                     *debug_port,
                     registry.clone(),
@@ -301,7 +296,7 @@ impl Preview {
                 let mut frontier_tx = None;
                 let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    connector_router.clone(),
+                    ctx.local_connector_router(),
                     *shards,
                     *debug_port,
                     registry.clone(),

@@ -17,6 +17,7 @@ mod schema;
 mod storage_mapping;
 mod test_step;
 
+pub use derivation::derive_spec_request;
 pub use errors::Error;
 pub use noop::NoOpConnectors;
 

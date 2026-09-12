@@ -19,8 +19,9 @@ pub struct TestArgs {
 /// and discoverable to users. There's also no need for any confirmation steps, since we're not
 /// actually modifying the published specs.
 pub async fn do_test(ctx: &mut CliContext, args: &TestArgs) -> anyhow::Result<()> {
-    let (mut draft_catalog, _live, _validations) =
-        local_specs::load_and_validate(ctx, &args.source).await?;
+    let mut draft_catalog = local_specs::load_and_validate(ctx, &args.source)
+        .await?
+        .draft;
 
     let draft = draft::create_draft(ctx).await?;
     println!("Created draft: {}", &draft.id);

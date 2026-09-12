@@ -1,4 +1,4 @@
-use crate::local_specs;
+use crate::{local_connector, local_specs};
 use anyhow::{Context, bail};
 use proto_flow::{capture, flow};
 use std::{
@@ -17,10 +17,6 @@ pub struct Oauth {
     /// Name of the task to test oauth for.
     #[clap(long)]
     task: Option<String>,
-    /// Docker network to run the connector, if one exists
-    #[clap(long, default_value = "bridge")]
-    network: String,
-
     /// Your OAuth application's client ID. This corresponds to the
     /// `connectors.oauth2_client_id` column in the database
     #[clap(long)]
@@ -46,7 +42,6 @@ pub async fn do_oauth(
     Oauth {
         source,
         task,
-        network,
         client_id,
         client_secret,
         endpoint_config,
@@ -97,30 +92,12 @@ pub async fn do_oauth(
             config_json: serde_json::to_string(config).unwrap().into(),
         },
     };
+
     // Get the task spec's oauth field
-    let spec_req = capture::Request {
-        kind: Some(capture::request::Kind::Spec(spec_req)),
-        ..Default::default()
-    }
-    .with_internal(|internal| {
-        if let Some(s) = &model.shards.log_level {
-            internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
-        }
-    });
-
-    let response = runtime::Runtime::new(
-        runtime::Plane::Local,
-        network.clone(),
-        ops::tracing_log_handler,
-        None,
-        format!("spec/{}", capture.capture),
-    )
-    .unary_capture(spec_req)
-    .await?;
-
-    let Some(capture::response::Kind::Spec(spec_response)) = response.kind else {
-        anyhow::bail!("connector didn't send expected Spec response");
-    };
+    let router = ctx.local_connector_router();
+    let spec_response =
+        local_connector::spec_capture(&*router, model.shards.log_level.as_deref(), spec_req)
+            .await?;
 
     let oauth_spec = spec_response
         .oauth2
