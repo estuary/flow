@@ -25,6 +25,9 @@ Use regular `cargo` and `go` tools to build crates. Run tests via the `mise`
 tasks below, which declare their own prerequisites (submodules, Supabase,
 gazette, BigTable).
 
+Stop a local stack before running `control-plane-api` crate tests (some tests
+race the stack over DB tables), and at the completion of a QA run.
+
 ```bash
 # Rust tests. NOT `cargo test`, which ignores the `serial-db-tests` group in
 # .config/nextest.toml and lets DB-backed tests truncate each other's rows.
