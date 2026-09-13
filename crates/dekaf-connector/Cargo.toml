@@ -11,10 +11,8 @@ license.workspace = true
 
 [dependencies]
 avro = { path = "../avro" }
-models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 coroutines = { path = "../coroutines" }
-unseal = { path = "../unseal" }
 
 anyhow = { workspace = true }
 futures = { workspace = true }
