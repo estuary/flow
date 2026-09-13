@@ -19,6 +19,8 @@ pub use read::extract_and_encode;
 
 pub mod utils;
 
+pub mod task;
+
 mod task_manager;
 pub use task_manager::{TaskManager, TaskState};
 
