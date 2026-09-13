@@ -31,3 +31,4 @@ url = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

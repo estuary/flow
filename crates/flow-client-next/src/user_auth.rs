@@ -101,7 +101,11 @@ impl tokens::Source for UserTokenSource {
             }
         };
 
-        Ok(Ok((self.tokens.clone(), valid_for, std::future::pending())))
+        Ok(Ok((
+            self.tokens.clone(),
+            tokens::refresh_before_expiry(valid_for),
+            std::future::pending(),
+        )))
     }
 }
 
@@ -196,10 +200,11 @@ mod tests {
             tokens: UserToken::default(),
             may_create: false,
         };
-        let (token, valid_for, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
+        let (token, refresh_after, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
         assert!(token.access_token.is_none());
         assert!(token.refresh_token.is_none());
-        assert_eq!(valid_for, TimeDelta::MAX);
+        // Nothing to expire, so nothing to refresh ahead of.
+        assert_eq!(refresh_after, TimeDelta::MAX - TimeDelta::minutes(2));
     }
 
     #[tokio::test]
@@ -216,10 +221,10 @@ mod tests {
             },
             may_create: false,
         };
-        let (token, valid_for, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
+        let (token, refresh_after, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
         assert_eq!(token.access_token.as_deref(), Some(jwt.as_str()));
         assert!(token.refresh_token.is_none());
-        assert!(valid_for > TimeDelta::minutes(30));
+        assert!(refresh_after > TimeDelta::minutes(30));
     }
 
     #[tokio::test]
@@ -255,9 +260,9 @@ mod tests {
             },
             may_create: false,
         };
-        let (token, valid_for, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
+        let (token, refresh_after, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
         assert_eq!(token.access_token.as_deref(), Some(jwt.as_str()));
         assert!(token.refresh_token.is_some());
-        assert!(valid_for > TimeDelta::minutes(30));
+        assert!(refresh_after > TimeDelta::minutes(30));
     }
 }

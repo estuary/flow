@@ -10,6 +10,9 @@ pub trait RestSource: Send + Sync {
     type Model: for<'de> serde::Deserialize<'de> + Send + Sync + 'static;
     /// Token type extracted from Model. Often the same type as Model.
     type Token: Send + Sync + 'static;
+    /// Future type that, when it resolves, signals early token revocation.
+    /// Use `std::future::Pending<()>` for sources that never revoke early.
+    type Revoke: std::future::Future<Output = ()> + Send;
 
     /// Build an API request whose 200 OK response is a JSON serialization of Model.
     /// A server-side (5XX) error or request timeout is logged and retried,
@@ -20,13 +23,15 @@ pub trait RestSource: Send + Sync {
         started: DateTime,
     ) -> impl std::future::Future<Output = Result<reqwest::RequestBuilder, tonic::Status>> + Send + 's;
 
-    /// Extract a Token from a response Model. Returns:
-    /// - Ok(Ok((token, valid_for))) if the token is ready for use and valid for the returned Duration.
+    /// Extract a Token from a response Model, mirroring [`Source::refresh`]:
+    /// - Ok(Ok((token, refresh_after, revoke))) if the token is ready for use.
+    ///   An expiring credential states its cadence through [`crate::refresh_before_expiry`].
     /// - Ok(Err(retry_after)) if the response model represents a server-directed client retry.
     /// - Err(status) if the response model is invalid.
     fn extract(
+        &self,
         response: Self::Model,
-    ) -> Result<Result<(Self::Token, TimeDelta), TimeDelta>, tonic::Status>;
+    ) -> tonic::Result<Result<(Self::Token, TimeDelta, Self::Revoke), TimeDelta>>;
 }
 
 impl<R> Source for R
@@ -34,7 +39,7 @@ where
     R: RestSource + 'static,
 {
     type Token = R::Token;
-    type Revoke = std::future::Pending<()>;
+    type Revoke = R::Revoke;
 
     async fn refresh(
         &mut self,
@@ -91,7 +96,7 @@ where
             ))
         })?;
 
-        Self::extract(response).map(|r| r.map(|(token, dur)| (token, dur, std::future::pending())))
+        self.extract(response)
     }
 }
 

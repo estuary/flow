@@ -243,7 +243,11 @@ where
         &mut self,
         _started: DateTime,
     ) -> tonic::Result<Result<(Self::Token, TimeDelta, Self::Revoke), TimeDelta>> {
-        Ok(Ok((self.sign()?, self.duration, std::future::pending())))
+        Ok(Ok((
+            self.sign()?,
+            crate::refresh_before_expiry(self.duration),
+            std::future::pending(),
+        )))
     }
 }
 
@@ -393,10 +397,12 @@ mod tests {
             key: EncodingKey::from_secret(b"secret"),
         };
 
-        let Ok(Ok((token, valid_for, _revoke))) = source.refresh(DateTime::UNIX_EPOCH).await else {
+        let Ok(Ok((token, refresh_after, _revoke))) = source.refresh(DateTime::UNIX_EPOCH).await
+        else {
             panic!("expected success");
         };
-        assert_eq!(valid_for, TimeDelta::hours(1));
+        // An hour-long token refreshes two minutes ahead of its expiry.
+        assert_eq!(refresh_after, TimeDelta::minutes(58));
 
         let dec = DecodingKey::from_secret(b"secret");
         let verified: Verified<TestClaims> = verify(token.as_bytes(), 0, &[dec]).unwrap();
