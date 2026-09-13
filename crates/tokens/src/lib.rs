@@ -37,11 +37,11 @@ pub trait Source: Send + Sized + 'static {
     /// and is held constant across retries.
     ///
     /// Refresh returns a future that resolves to:
-    /// - Ok(Ok((Token, valid_for, revoke))) if the refresh was successful,
-    ///   where `valid_for` is the remaining lifetime of the yielded Token,
-    ///   and `revoke` is a future that, when it resolves, signals that the
-    ///   Token should be refreshed immediately rather than waiting for
-    ///   `valid_for` to elapse. Sources that don't need early revocation
+    /// - Ok(Ok((Token, refresh_after, revoke))) if the refresh was successful,
+    ///   where `refresh_after` is the delay after which [`watch`] should refresh
+    ///   again, and `revoke` is a future that, when it resolves, signals that
+    ///   the Token should be refreshed immediately rather than waiting for
+    ///   `refresh_after` to elapse. Sources that don't need early revocation
     ///   should use `std::future::pending()`.
     /// - Ok(Err(retry_after)) if the refresh result was indeterminate
     ///   and should be retried after `retry_after`.
@@ -172,6 +172,15 @@ impl<Token> PendingWatch<Token> {
     pub fn into_parts(self) -> (Arc<dyn Watch<Token>>, CancellationToken) {
         (self.inner, self.signal)
     }
+}
+
+/// Refresh cadence of a Token which expires after `valid_for`: early enough
+/// that a refresh has room to retry, and never sooner than once a minute.
+///
+/// This policy is suited for Source implementations that bear credentials,
+/// as opposed to a Source whose delay represents a cache TTL.
+pub fn refresh_before_expiry(valid_for: TimeDelta) -> TimeDelta {
+    (valid_for - TimeDelta::minutes(2)).max(TimeDelta::minutes(1))
 }
 
 /// Return the current DateTime.

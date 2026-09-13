@@ -381,14 +381,15 @@ mod tests {
             tokens::jwt::EncodingKey::from_secret(b"secret"), // HMAC key (c2VjcmV0 decoded)
         );
 
-        let source = flow_client::workflows::TaskDekafAuth {
-            client: server.rest_client(),
+        let source = flow_client::workflows::TaskDekafAuth::new(
+            server.rest_client(),
             signed_source,
-        };
+            tokens::TimeDelta::minutes(5),
+        );
         let refresh = tokens::watch(source).ready_owned().await;
 
         insta::assert_json_snapshot!(
-            refresh.token().result().unwrap(),
+            &refresh.token().result().unwrap().response,
             {".token" => "<redacted>"},
             @r#"
         {
@@ -425,14 +426,15 @@ mod tests {
             jsonwebtoken::EncodingKey::from_secret(b"secret"),
         );
 
-        let source = flow_client::workflows::TaskDekafAuth {
-            client: server.rest_client(),
+        let source = flow_client::workflows::TaskDekafAuth::new(
+            server.rest_client(),
             signed_source,
-        };
+            tokens::TimeDelta::minutes(5),
+        );
         let refresh = tokens::watch(source).ready_owned().await;
 
         insta::assert_debug_snapshot!(
-            refresh.token().result().unwrap_err(),
+            refresh.token().result().err().unwrap(),
             @r#"
         Status {
             code: NotFound,

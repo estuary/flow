@@ -13,8 +13,8 @@ use crate::Source;
 /// asks. Bound it with a combinator such as [`tokio::time::timeout`], or
 /// cancel it by dropping the returned Future.
 ///
-/// The Token's `valid_for` and revocation signal are discarded: there is
-/// nothing to refresh ahead of, and nothing to revoke.
+/// The Token's `refresh_after` and revocation signal are discarded: there is
+/// nothing to refresh, and nothing to revoke.
 pub async fn fetch_once<S>(mut source: S) -> tonic::Result<S::Token>
 where
     S: Source,
@@ -23,7 +23,7 @@ where
 
     loop {
         let retry_after = match source.refresh(started).await? {
-            Ok((token, _valid_for, _revoke)) => return Ok(token),
+            Ok((token, _refresh_after, _revoke)) => return Ok(token),
             Err(retry_after) => retry_after,
         };
         tokio::time::sleep(retry_after.to_std().unwrap_or_default()).await;

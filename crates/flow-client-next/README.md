@@ -41,6 +41,12 @@ Each workflow handles token refresh automatically. For task-based workflows,
 use the `new_signed_source()` helper to construct the JWT claims with the
 appropriate data-plane signing key.
 
+`TaskDekafAuth` is the one workflow whose Token is not its response model:
+its `DekafAuth` pairs the response with a revocation handle, because a Dekaf
+session which observes a potentially-stale spec must be able to trigger a
+refresh (lower-bounded by a 20-second cool-off inside `build_request`).
+`max_refresh` upper-bounds the refresh cadence.
+
 The two `SecretDecrypt` workflows are the exception: they address
 config-encryption rather than the control-plane, and must be driven by
 `tokens::fetch_once` rather than a Watch, which would retain and periodically

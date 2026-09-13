@@ -7,7 +7,7 @@ pub mod user_secret_decrypt;
 pub mod user_task_auth;
 
 pub use task_collection_auth::TaskCollectionAuth;
-pub use task_dekaf_auth::TaskDekafAuth;
+pub use task_dekaf_auth::{DekafAuth, TaskDekafAuth};
 pub use task_secret_decrypt::TaskSecretDecrypt;
 pub use user_collection_auth::UserCollectionAuth;
 pub use user_prefix_auth::UserPrefixAuth;
@@ -17,12 +17,20 @@ pub use user_task_auth::UserTaskAuth;
 /// Extract a decryption, as used by both [`TaskSecretDecrypt`] and
 /// [`UserSecretDecrypt`].
 ///
-/// A decryption is one-shot, so it has no meaningful validity period: a Token
-/// is either the plaintext, or a server-directed retry of the operation.
+/// A decryption is one-shot, so it has no meaningful validity period, and
+/// neither a refresh cadence nor a revocation: both are discarded by the
+/// [`tokens::fetch_once`] which must drive these Sources.
 pub fn extract_secret_decryption(
     model: models::authorizations::SecretDecryption,
 ) -> tonic::Result<
-    Result<(models::authorizations::SecretDecryption, tokens::TimeDelta), tokens::TimeDelta>,
+    Result<
+        (
+            models::authorizations::SecretDecryption,
+            tokens::TimeDelta,
+            std::future::Pending<()>,
+        ),
+        tokens::TimeDelta,
+    >,
 > {
     if model.retry_millis != 0 {
         return Ok(Err(tokens::TimeDelta::milliseconds(
@@ -35,7 +43,11 @@ pub fn extract_secret_decryption(
         ));
     }
 
-    Ok(Ok((model, tokens::TimeDelta::zero())))
+    Ok(Ok((
+        model,
+        tokens::TimeDelta::zero(),
+        std::future::pending(),
+    )))
 }
 
 #[cfg(test)]
@@ -55,7 +67,7 @@ mod tests {
             secret_id: Some(models::Id::new([1, 2, 3, 4, 5, 6, 7, 8])),
             retry_millis: 0,
         });
-        let (model, _valid_for) = ok.unwrap().unwrap();
+        let (model, _refresh_after, _revoke) = ok.unwrap().unwrap();
         assert_eq!(model.value.as_ref().unwrap().get(), r#""p4ssw0rd""#);
         assert_eq!(model.secret_id.unwrap().to_string(), "0102030405060708");
 

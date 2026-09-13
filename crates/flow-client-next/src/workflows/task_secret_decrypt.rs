@@ -69,6 +69,7 @@ pub fn new_signed_source(
 impl tokens::RestSource for TaskSecretDecrypt {
     type Model = models::authorizations::SecretDecryption;
     type Token = models::authorizations::SecretDecryption;
+    type Revoke = std::future::Pending<()>;
 
     async fn build_request(&mut self, started: DateTime) -> tonic::Result<reqwest::RequestBuilder> {
         self.signed_source.claims.iat = started.timestamp() as u64;
@@ -89,7 +90,10 @@ impl tokens::RestSource for TaskSecretDecrypt {
             .bearer_auth(self.signed_source.sign()?))
     }
 
-    fn extract(model: Self::Model) -> tonic::Result<Result<(Self::Token, TimeDelta), TimeDelta>> {
+    fn extract(
+        &self,
+        model: Self::Model,
+    ) -> tonic::Result<Result<(Self::Token, TimeDelta, Self::Revoke), TimeDelta>> {
         super::extract_secret_decryption(model)
     }
 }
