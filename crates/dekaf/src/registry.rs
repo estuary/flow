@@ -1,7 +1,7 @@
 use super::App;
 use crate::{
     CollectionUnavailable, DekafError, SessionAuthentication, from_downstream_topic_name,
-    to_downstream_topic_name,
+    task::TaskToken, to_downstream_topic_name,
 };
 use anyhow::Context;
 use axum::extract::Request;
@@ -37,16 +37,12 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
 // List all collections as "subjects", which are generally Kafka topics in the ecosystem.
 #[tracing::instrument(skip_all)]
 async fn all_subjects(
-    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
+    axum::extract::Extension(auth): axum::extract::Extension<SessionAuthentication>,
 ) -> Response {
     wrap(async move {
-        let strict_topic_names = match &auth {
-            SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
-            SessionAuthentication::Redirect { config, .. } => config.strict_topic_names,
-        };
+        let strict_topic_names = auth.strict_topic_names()?;
 
         auth.fetch_all_collection_names()
-            .await
             .context("failed to list collections from the control plane")
             .map(|collections| {
                 collections
@@ -69,9 +65,10 @@ async fn all_subjects(
 }
 
 // Fetch the "latest" schema for a subject (collection).
-#[tracing::instrument(skip(auth))]
+#[tracing::instrument(skip(app, auth))]
 async fn get_subject_latest(
-    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::extract::Extension(auth): axum::extract::Extension<SessionAuthentication>,
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
@@ -82,8 +79,6 @@ async fn get_subject_latest(
         } else {
             anyhow::bail!("expected subject to end with -key or -value")
         };
-
-        let client = &auth.flow_client().await?.pg_client();
 
         let collection = match super::Collection::new(
             &auth,
@@ -105,7 +100,7 @@ async fn get_subject_latest(
         };
 
         let (key_id, value_id) = collection
-            .registered_schema_ids(&client)
+            .registered_schema_ids(&auth, &app.pg_client)
             .await
             .context("failed to resolve registered Avro schemas")?;
 
@@ -131,14 +126,13 @@ async fn get_subject_latest(
 
 // Fetch the schema with the given ID.
 // Schemas are content-addressed and immutable, so an ID uniquely identifies a Avro schema.
-#[tracing::instrument(skip(auth))]
+#[tracing::instrument(skip(app, auth))]
 async fn get_schema_by_id(
-    axum::extract::Extension(mut auth): axum::extract::Extension<SessionAuthentication>,
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::extract::Extension(auth): axum::extract::Extension<SessionAuthentication>,
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let client = &auth.flow_client().await?.pg_client();
-
         #[derive(serde::Deserialize)]
         struct Row {
             avro_schema: serde_json::Value,
@@ -149,18 +143,16 @@ async fn get_schema_by_id(
             .format(&time::format_description::well_known::Rfc3339)
             .unwrap();
 
-        let response = client
-            .from("registered_avro_schemas")
-            .eq("registry_id", format!("{id}"))
-            .update(serde_json::json!({"updated_at": now}).to_string())
-            .select("avro_schema")
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("querying for an already-registered schema")?;
-
-        let bytes = response.bytes().await?;
-        let mut rows: Vec<Row> = serde_json::from_slice(&bytes)?;
+        let mut rows: Vec<Row> = crate::exec_postgrest(
+            &auth,
+            app.pg_client
+                .from("registered_avro_schemas")
+                .eq("registry_id", format!("{id}"))
+                .update(serde_json::json!({"updated_at": now}).to_string())
+                .select("avro_schema"),
+        )
+        .await
+        .context("querying for an already-registered schema")?;
 
         let Some(Row { avro_schema }) = rows.pop() else {
             anyhow::bail!("could not find schema with registry id {id}");
@@ -257,25 +249,38 @@ async fn authenticate_and_proxy(
     next: Next,
 ) -> Response {
     match app.authenticate(auth.username(), auth.password()).await {
-        Ok(SessionAuthentication::Redirect {
-            target_dekaf_registry_address,
-            target_dataplane_fqdn,
-            ..
-        }) => match target_dekaf_registry_address {
-            Some(addr) => proxy_request_to_target(&addr, uri, auth).await,
-            None => {
-                let err = format!(
-                    "Cannot redirect to dataplane {}: it has no Dekaf schema registry configured",
-                    target_dataplane_fqdn
-                );
-                tracing::error!(err, "proxy request failed");
-                (axum::http::StatusCode::BAD_GATEWAY, err).into_response()
+        Ok(session) => {
+            // A migrated task's schemas are served by its new data-plane, and
+            // this request is proxied there rather than reaching a handler.
+            let redirect = match session.task_token() {
+                Ok(token) => match &*token {
+                    TaskToken::Redirect { redirect, .. } => Some(redirect.clone()),
+                    TaskToken::Authorized { .. } => None,
+                },
+                Err(err) => {
+                    let err = format!("{err:#?}");
+                    tracing::error!(err, "task authorization is unavailable");
+                    return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, err).into_response();
+                }
+            };
+
+            let Some(redirect) = redirect else {
+                // Insert the authentication into request extensions so handlers can access it
+                req.extensions_mut().insert(session);
+                return next.run(req).await;
+            };
+
+            match &redirect.dekaf_registry_address {
+                Some(addr) => proxy_request_to_target(addr, uri, auth).await,
+                None => {
+                    let err = format!(
+                        "Cannot redirect to dataplane {}: it has no Dekaf schema registry configured",
+                        redirect.data_plane_fqdn,
+                    );
+                    tracing::error!(err, "proxy request failed");
+                    (axum::http::StatusCode::BAD_GATEWAY, err).into_response()
+                }
             }
-        },
-        Ok(auth) => {
-            // Insert the authentication into request extensions so handlers can access it
-            req.extensions_mut().insert(auth);
-            next.run(req).await
         }
         Err(DekafError::Authentication(auth_err)) => {
             let err = format!("{auth_err:#?}");

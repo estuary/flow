@@ -1,4 +1,4 @@
-use crate::{TaskManager, task_manager::TaskStateListener};
+use crate::task::{self, OpsAppender};
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{
@@ -6,7 +6,7 @@ use futures::{
     future::{FusedFuture, MaybeDone},
 };
 use gazette::{
-    RetryError, journal,
+    RetryError,
     uuid::{self, Producer},
 };
 use proto_gazette::message_flags;
@@ -95,7 +95,7 @@ pub trait TaskWriter: Send + Sync {
 
 #[derive(Clone)]
 pub struct GazetteWriter {
-    task_manager: Arc<TaskManager>,
+    tasks: Arc<task::Registry>,
     logs_appender: Option<GazetteAppender>,
     stats_appender: Option<GazetteAppender>,
 }
@@ -137,9 +137,9 @@ impl TaskWriter for GazetteWriter {
 }
 
 impl GazetteWriter {
-    pub fn new(task_manager: Arc<TaskManager>) -> Self {
+    pub fn new(tasks: Arc<task::Registry>) -> Self {
         Self {
-            task_manager,
+            tasks,
             logs_appender: None,
             stats_appender: None,
         }
@@ -149,47 +149,24 @@ impl GazetteWriter {
         &self,
         task_name: &str,
     ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
-        let task_listener = self.task_manager.get_listener(task_name);
+        let task = self.tasks.get(task_name);
+        () = task.ready().await;
 
-        let initial_state = task_listener.get().await?;
-
-        let (ops_logs_journal, ops_stats_journal) = match initial_state.as_ref() {
-            crate::task_manager::TaskState::Authorized {
-                ops_logs_journal,
-                ops_stats_journal,
-                ..
-            } => (ops_logs_journal, ops_stats_journal),
-            crate::task_manager::TaskState::Redirect {
-                target_dataplane_fqdn,
-                ..
-            } => {
-                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
-            }
-        };
+        // Both appenders re-read their journal and client at each append, so
+        // that a task which is re-published into new ops journals is followed.
+        _ = task.ops_appenders()?;
 
         Ok((
-            GazetteAppender::OpsLogs(GazetteAppenderState {
-                task_listener: task_listener.clone(),
-                journal_name: ops_logs_journal.clone(),
-            }),
-            GazetteAppender::OpsStats(GazetteAppenderState {
-                task_listener: task_listener.clone(),
-                journal_name: ops_stats_journal.clone(),
-            }),
+            GazetteAppender::OpsLogs(task.clone()),
+            GazetteAppender::OpsStats(task),
         ))
     }
 }
 
 #[derive(Clone)]
-struct GazetteAppenderState {
-    task_listener: TaskStateListener,
-    journal_name: String,
-}
-
-#[derive(Clone)]
 enum GazetteAppender {
-    OpsStats(GazetteAppenderState),
-    OpsLogs(GazetteAppenderState),
+    OpsStats(Arc<task::Task>),
+    OpsLogs(Arc<task::Task>),
 }
 
 impl GazetteAppender {
@@ -197,10 +174,11 @@ impl GazetteAppender {
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
     {
-        let client = self.get_client().await?;
+        let OpsAppender { client, journal } = self.appender()?;
+
         let resp = client.append(
             gazette::broker::AppendRequest {
-                journal: self.get_journal_name().to_string(),
+                journal,
                 ..Default::default()
             },
             data,
@@ -226,44 +204,16 @@ impl GazetteAppender {
         }
     }
 
-    async fn get_client(&self) -> anyhow::Result<journal::Client> {
-        match self {
-            GazetteAppender::OpsStats(state) => match state.task_listener.get().await?.as_ref() {
-                crate::task_manager::TaskState::Authorized {
-                    ops_stats_client, ..
-                } => ops_stats_client
-                    .clone()
-                    .map(|(client, _claims)| client)
-                    .map_err(|err| err.into()),
-                crate::task_manager::TaskState::Redirect {
-                    target_dataplane_fqdn,
-                    ..
-                } => {
-                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
-                }
-            },
-            GazetteAppender::OpsLogs(state) => match state.task_listener.get().await?.as_ref() {
-                crate::task_manager::TaskState::Authorized {
-                    ops_logs_client, ..
-                } => ops_logs_client
-                    .clone()
-                    .map(|(client, _claims)| client)
-                    .map_err(|err| err.into()),
-                crate::task_manager::TaskState::Redirect {
-                    target_dataplane_fqdn,
-                    ..
-                } => {
-                    anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
-                }
-            },
-        }
-    }
-
-    fn get_journal_name(&self) -> &str {
-        match self {
-            GazetteAppender::OpsStats(state) => state.journal_name.as_ref(),
-            GazetteAppender::OpsLogs(state) => state.journal_name.as_ref(),
-        }
+    /// Current appender of this journal. A task re-published into new ops
+    /// journals, or whose authorization has refreshed, is followed here.
+    fn appender(&self) -> anyhow::Result<OpsAppender> {
+        let (logs, stats) = match self {
+            Self::OpsLogs(task) | Self::OpsStats(task) => task.ops_appenders()?,
+        };
+        Ok(match self {
+            Self::OpsLogs(_) => logs,
+            Self::OpsStats(_) => stats,
+        })
     }
 }
 

@@ -7,9 +7,9 @@ use std::time::Duration;
 
 const FIXTURE: &str = include_str!("fixtures/schema_cooldown.flow.yaml");
 
-// The task_manager caches the MaterializationSpec and refreshes every `spec_ttl` (2m by default).
-// We may need to wait this long after updating the schema for it to get picked up for use in a
-// fetch.
+// A task's MaterializationSpec is re-fetched at most every `--spec-ttl`
+// (20s under the local systemd unit, 5m by default). We may need to wait that
+// long after updating the schema for it to get picked up for use in a fetch.
 const SCHEMA_PROPAGATION_TIMEOUT: Duration = Duration::from_secs(150);
 
 fn widened_value_read_schema() -> serde_json::Value {

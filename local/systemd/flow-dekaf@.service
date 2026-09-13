@@ -23,8 +23,7 @@ ExecStart=sh -c 'exec ${CARGO_TARGET_DIR}/debug/dekaf \
     --encryption-secret ${DEKAF_ENCRYPTION_SECRET} \
     --data-plane-fqdn ${DATA_PLANE_FQDN} \
     --data-plane-access-key ${DATA_PLANE_ACCESS_KEY} \
-    --task-refresh-interval 10s \
-    --spec-ttl 10s \
+    --spec-ttl 20s \
     --idle-session-timeout 60s'
 
 Restart=on-failure
