@@ -15,7 +15,6 @@ dekaf-connector = { path = "../dekaf-connector" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
-flow-client = { path = "../flow-client" }
 flow-client-next = { path = "../flow-client-next" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -46,7 +45,6 @@ hex = { workspace = true }
 hexdump = { workspace = true }
 humantime = { workspace = true }
 itertools = { workspace = true }
-jsonwebtoken = { workspace = true }
 kafka-protocol = { workspace = true }
 lazy_static = { workspace = true }
 lz4_flex = { workspace = true }

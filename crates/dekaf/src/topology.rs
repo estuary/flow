@@ -1,50 +1,11 @@
-use crate::{SessionAuthentication, TaskState, connector, utils};
-use anyhow::{Context, anyhow, bail};
+use crate::{SessionAuthentication, utils};
+use anyhow::{Context, anyhow};
 use futures::StreamExt;
 use gazette::{
     broker::{self, ReadResponse, journal_spec},
     journal, uuid,
 };
-use models::RawValue;
 use proto_flow::flow;
-
-impl SessionAuthentication {
-    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
-        match self {
-            SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
-            SessionAuthentication::Redirect { spec, .. } => utils::fetch_all_collection_names(spec),
-        }
-    }
-
-    pub async fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
-        match self {
-            SessionAuthentication::Task(auth) => {
-                let binding = auth
-                    .get_binding_for_topic(topic_name)
-                    .await?
-                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
-
-                Ok(binding
-                    .collection
-                    .as_ref()
-                    .context("missing collection in materialization binding")?
-                    .name
-                    .clone())
-            }
-            SessionAuthentication::Redirect { spec, .. } => {
-                let binding = utils::get_binding_for_topic(spec, topic_name)?
-                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
-
-                Ok(binding
-                    .collection
-                    .as_ref()
-                    .context("missing collection in materialization binding")?
-                    .name
-                    .clone())
-            }
-        }
-    }
-}
 
 /// Collection is the assembled metadata of a collection being accessed as a Kafka topic.
 pub struct Collection {
@@ -138,29 +99,23 @@ const OFFSET_REQUEST_EARLIEST: i64 = -2;
 const OFFSET_REQUEST_LATEST: i64 = -1;
 
 impl Collection {
-    /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
+    /// Build a Collection from its binding, and from the journals which the
+    /// task's listing of the binding's partition template currently holds.
     pub async fn new(
         auth: &SessionAuthentication,
         topic_name: &str,
     ) -> anyhow::Result<CollectionStatus> {
-        let binding = match auth {
-            SessionAuthentication::Task(task_auth) => {
-                if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
-                    binding
-                } else {
-                    tracing::debug!("{topic_name} is not a binding of {}", task_auth.task_name);
-                    return Ok(CollectionStatus::not_found());
-                }
-            }
-            SessionAuthentication::Redirect { spec, .. } => {
-                let Some(binding) = utils::get_binding_for_topic(spec, topic_name)
-                    .context("failed to get binding for topic in redirected session")?
-                else {
-                    tracing::debug!("{topic_name} is not a binding of {}", spec.name);
-                    return Ok(CollectionStatus::not_found());
-                };
-                binding
-            }
+        // A redirected task has no journals to serve, and errors here.
+        let token = auth.authorized()?;
+
+        let Some(binding) = auth.get_binding_for_topic(topic_name)? else {
+            // The client is asking for a topic our spec doesn't have, which a
+            // publication adding the binding would explain. Ask for a
+            // re-fetch; the cool-off bounds what a polling client can cost.
+            token.revoke();
+
+            tracing::debug!("{topic_name} is not a binding of {}", auth.task_name);
+            return Ok(CollectionStatus::not_found());
         };
 
         let collection_spec = binding
@@ -169,7 +124,7 @@ impl Collection {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("missing collection in materialization binding"))?;
 
-        let collection_name = &auth.get_collection_for_topic(topic_name).await?;
+        let collection_name = &auth.get_collection_for_topic(topic_name)?;
 
         let partition_template_name = collection_spec
             .partition_template
@@ -177,57 +132,28 @@ impl Collection {
             .map(|spec| spec.name.to_owned())
             .ok_or(anyhow!("missing partition template"))?;
 
-        let (journal_client, partitions) = match auth {
-            SessionAuthentication::Task(task_auth) => {
-                let state = task_auth.task_state_listener.get().await?;
+        // A binding which the task watch knows but whose listing we don't is
+        // a spec we've since replaced. Treat it as we treat an unknown topic.
+        let Some(listing) = auth.task.listing(&partition_template_name)? else {
+            token.revoke();
 
-                let partitions = match state.as_ref() {
-                    TaskState::Authorized { partitions, .. } => partitions,
-                    TaskState::Redirect {
-                        target_dataplane_fqdn,
-                        target_dekaf_address,
-                        target_dekaf_registry_address,
-                        spec,
-                    } => {
-                        return Err(crate::DekafError::from_redirect(
-                            target_dataplane_fqdn.to_owned(),
-                            target_dekaf_address.to_owned(),
-                            target_dekaf_registry_address.to_owned(),
-                            spec.clone(),
-                        )
-                        .await?
-                        .into());
-                    }
-                };
-
-                let (_, parts) = partitions
-                    .into_iter()
-                    .find(|(name, _)| name == &partition_template_name)
-                    .context("missing partition template")?;
-
-                parts
-                    .clone()
-                    .map(|(client, _, parts)| (client, parts))
-                    .map_err(|e| anyhow::Error::from(e))?
-            }
-            SessionAuthentication::Redirect {
-                target_dataplane_fqdn,
-                target_dekaf_address,
-                target_dekaf_registry_address,
-                spec,
-                config,
-                ..
-            } => {
-                return Err(crate::DekafError::TaskRedirected {
-                    target_dataplane_fqdn: target_dataplane_fqdn.clone(),
-                    target_dekaf_address: target_dekaf_address.clone(),
-                    target_dekaf_registry_address: target_dekaf_registry_address.clone(),
-                    spec: spec.clone(),
-                    config: config.clone(),
-                }
-                .into());
-            }
+            tracing::debug!(
+                partition_template_name,
+                "binding has no journal listing in the task"
+            );
+            return Ok(CollectionStatus::not_found());
         };
+
+        // Only a topic which is actually asked for blocks on its first listing.
+        let journal_client = listing.client;
+        let partitions = listing
+            .partitions
+            .ready()
+            .await
+            .token()
+            .result()
+            .map_err(proto_grpc::status_to_anyhow)?
+            .clone();
 
         tracing::debug!(?partitions, "Got partitions");
 
@@ -258,7 +184,7 @@ impl Collection {
             collection_schema_shape.clone(),
             selection,
             collection_spec.projections.clone(),
-            auth.deletions(),
+            auth.deletions()?,
         )?;
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
@@ -347,11 +273,12 @@ impl Collection {
     /// or will register a new schema if not.
     pub async fn registered_schema_ids(
         &self,
+        auth: &SessionAuthentication,
         client: &postgrest::Postgrest,
     ) -> anyhow::Result<(u32, u32)> {
         let (key_id, value_id) = futures::try_join!(
-            Self::registered_schema_id(client, &self.spec.name, &self.key_schema),
-            Self::registered_schema_id(client, &self.spec.name, &self.value_schema),
+            Self::registered_schema_id(auth, client, &self.spec.name, &self.key_schema),
+            Self::registered_schema_id(auth, client, &self.spec.name, &self.value_schema),
         )?;
         Ok((key_id, value_id))
     }
@@ -563,6 +490,7 @@ impl Collection {
     }
 
     async fn registered_schema_id(
+        auth: &SessionAuthentication,
         client: &postgrest::Postgrest,
         catalog_name: &str,
         schema: &avro::Schema,
@@ -576,7 +504,8 @@ impl Collection {
         let schema: serde_json::Value = serde_json::to_value(&schema).unwrap();
         let schema_md5 = format!("{:x}", md5::compute(&schema.to_string()));
 
-        let mut rows: Vec<Row> = handle_postgrest_response(
+        let mut rows: Vec<Row> = crate::exec_postgrest(
+            auth,
             client
                 .from("registered_avro_schemas")
                 .eq("avro_schema_md5", &schema_md5)
@@ -589,7 +518,8 @@ impl Collection {
             return Ok(registry_id);
         }
 
-        let mut rows: Vec<Row> = handle_postgrest_response(
+        let mut rows: Vec<Row> = crate::exec_postgrest(
+            auth,
             client.from("registered_avro_schemas").insert(
                 serde_json::json!([{
                     "avro_schema": schema,
@@ -606,58 +536,4 @@ impl Collection {
 
         Ok(registry_id)
     }
-}
-
-async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
-    builder: postgrest::Builder,
-) -> anyhow::Result<T> {
-    let resp = builder.execute().await?;
-    let status = resp.status();
-
-    if status.is_client_error() || status.is_server_error() {
-        bail!(
-            "{}: {}",
-            status.canonical_reason().unwrap_or(status.as_str()),
-            resp.text().await?
-        )
-    } else {
-        let bytes = resp.bytes().await?;
-        Ok(serde_json::from_slice(&bytes)?)
-    }
-}
-
-pub async fn extract_dekaf_config(
-    spec: &proto_flow::flow::MaterializationSpec,
-) -> anyhow::Result<connector::DekafConfig> {
-    if spec.connector_type != proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32 {
-        anyhow::bail!("Not a Dekaf materialization")
-    }
-    let config = serde_json::from_slice::<models::DekafConfig>(&spec.config_json)?;
-
-    let raw_config = RawValue::from_str(&config.config.to_string())?;
-
-    // SOPS decryption calls out to GCP KMS, which can transiently fail.
-    // Retry with backoff to handle these transient failures.
-    let mut last_err = None;
-    for attempt in 0..5u32 {
-        if attempt > 0 {
-            let base_ms = 1000 * 2u64.pow(attempt - 1);
-            let jitter_ms = rand::random_range(0..=base_ms / 2);
-            tokio::time::sleep(std::time::Duration::from_millis(base_ms + jitter_ms)).await;
-        }
-        match unseal::decrypt_sops(&raw_config).await {
-            Ok(decrypted) => {
-                let dekaf_config = serde_json::from_str::<connector::DekafConfig>(decrypted.get())?;
-                return Ok(dekaf_config);
-            }
-            Err(err) => {
-                tracing::warn!(attempt, error = ?err, "sops decryption failed, retrying");
-                last_err = Some(err);
-            }
-        }
-    }
-
-    // Unwrap is safe: the loop always executes at least once, and we only
-    // reach here via the Err arm which sets last_err = Some.
-    Err(last_err.unwrap())
 }

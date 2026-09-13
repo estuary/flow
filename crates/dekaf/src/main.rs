@@ -5,12 +5,10 @@ extern crate allocator;
 use anyhow::{Context, bail};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
-use dekaf::{
-    KafkaApiClient, KafkaClientAuth, Session, TaskManager, log_appender::GazetteWriter, logging,
-};
-use flow_client::{
-    DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
-    LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
+use dekaf::{KafkaApiClient, KafkaClientAuth, Session, log_appender::GazetteWriter, logging};
+use flow_client_next::{
+    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_DATA_PLANE_FQDN,
+    LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
 };
 use futures::TryStreamExt;
 use rustls::pki_types::CertificateDer;
@@ -103,16 +101,13 @@ pub struct Cli {
     #[arg(long, env = "STALE_READ_TIMEOUT", value_parser = humantime::parse_duration, default_value = "1m")]
     stale_read_timeout: std::time::Duration,
 
-    /// How long to cache materialization specs and other task metadata for before refreshing
-    #[arg(long, env = "TASK_REFRESH_INTERVAL", value_parser = humantime::parse_duration, default_value = "30s")]
-    task_refresh_interval: std::time::Duration,
-
-    /// How long before a request for materialization specs and other task metadata times out
-    #[arg(long, env = "TASK_REQUEST_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
-    task_request_timeout: std::time::Duration,
-
-    /// How long to cache a MaterializationSpec before re-fetching it, even if the token is still valid
-    #[arg(long, env = "SPEC_TTL", value_parser = humantime::parse_duration, default_value = "2m")]
+    /// Upper bound on how long a MaterializationSpec is used before it's
+    /// re-fetched, even though its token remains valid.
+    ///
+    /// A session which observes that its spec is stale -- an unknown topic, a
+    /// rejected password, a vanished journal -- asks for a re-fetch directly,
+    /// so this bound exists only for changes which produce no such error.
+    #[arg(long, env = "SPEC_TTL", value_parser = humantime::parse_duration, default_value = "5m")]
     spec_ttl: std::time::Duration,
 
     /// How long a connection will keep returning LeaderNotAvailable for a partition
@@ -128,8 +123,10 @@ pub struct Cli {
     #[arg(
         long,
         env = "DATA_PLANE_FQDN",
-        default_value=DEFAULT_DATA_PLANE_FQDN,
         default_value_if("local", "true", Some(LOCAL_DATA_PLANE_FQDN)),
+        // As `data_plane_access_key` below: `default_value_if` alone doesn't
+        // clear clap's `required`, so without this `--local` cannot supply one.
+        required(false)
     )]
     data_plane_fqdn: String,
     /// An HMAC key recognized by the data plane that Dekaf is running inside of. Used to
@@ -293,33 +290,41 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     let (api_endpoint, api_key) = (cli.api_endpoint, cli.api_key);
 
     let user_agent = format!("dekaf-{}", env!("CARGO_PKG_VERSION"));
-    let client_base = flow_client::Client::new(
-        user_agent,
-        cli.agent_endpoint,
-        api_key,
-        api_endpoint,
-        None,
-        ::flow_client::DEFAULT_CONFIG_ENCRYPTION_URL.clone(),
-    );
-    let signing_token = jsonwebtoken::EncodingKey::from_base64_secret(&cli.data_plane_access_key)?;
+    let agent_client = flow_client_next::rest::Client::new(&cli.agent_endpoint, &user_agent);
+    let signing_token = tokens::jwt::EncodingKey::from_base64_secret(&cli.data_plane_access_key)?;
 
-    let task_manager = Arc::new(TaskManager::new(
-        cli.task_refresh_interval,
-        cli.task_request_timeout,
-        cli.spec_ttl,
-        client_base.clone(),
-        cli.data_plane_fqdn.clone(),
-        signing_token.clone(),
-    ));
+    // Dekaf is not a member of a broker zone, so it expresses no preference.
+    let router = gazette::Router::new("local");
+
+    use proto_gazette::capability::{APPEND, LIST, READ};
+    let tasks = dekaf::task::Registry::new(dekaf::task::Env {
+        api_client: agent_client.clone(),
+        data_plane_fqdn: cli.data_plane_fqdn.clone(),
+        data_plane_signer: signing_token.clone(),
+        ops_clients: flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
+            agent_client.clone(),
+            APPEND,
+            router.clone(),
+            cli.data_plane_fqdn.clone(),
+            signing_token.clone(),
+        ),
+        partition_clients:
+            flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
+                agent_client,
+                LIST | READ,
+                router,
+                cli.data_plane_fqdn.clone(),
+                signing_token.clone(),
+            ),
+        max_refresh: tokens::TimeDelta::from_std(cli.spec_ttl)?,
+    });
 
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
         secret: cli.encryption_secret.to_owned(),
-        data_plane_signer: signing_token,
-        data_plane_fqdn: cli.data_plane_fqdn,
-        client_base,
-        task_manager: task_manager.clone(),
+        pg_client: flow_client_next::postgrest::new_client(&api_endpoint, &api_key),
+        tasks,
     });
 
     let cancel_token = tokio_util::sync::CancellationToken::new();
@@ -428,7 +433,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
                 tokio::spawn(
                     logging::forward_logs(
                         GazetteWriter::new(
-                            app.task_manager.clone(),
+                            app.tasks.clone(),
                         ),
                         task_cancellation.clone(),
                         serve(
