@@ -115,31 +115,7 @@ impl Protocol for Materialize {
 
             Endpoint::InProcess {
                 connector: Box::new(move |requests| {
-                    // `dekaf_connector` still parses the `{variant, config}`
-                    // wrapper, because the V1 runtime also calls it with one.
-                    // Startup sends its internal Spec before the resolved
-                    // initial request, so restore the wrapper for that request
-                    // only; subsequent requests already have their wire
-                    // configuration. Both go away with the V1 runtime.
-                    let requests =
-                        requests
-                            .enumerate()
-                            .map(move |(index, mut request): (_, Request)| {
-                                if let (1, Some(request::Kind::Validate(validate))) =
-                                    (index, &mut request.kind)
-                                {
-                                    validate.config_json =
-                                        serde_json::to_vec(&models::DekafConfig {
-                                            variant: variant.clone(),
-                                            config: serde_json::from_slice(&validate.config_json)
-                                                .expect("resolved configuration is valid JSON"),
-                                        })
-                                        .expect("Dekaf configuration is serializable")
-                                        .into();
-                                }
-                                request
-                            });
-                    dekaf_connector::connector(requests)
+                    dekaf_connector::connector(variant, requests)
                         .map_err(proto_grpc::anyhow_to_status)
                         .boxed()
                 }),

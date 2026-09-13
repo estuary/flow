@@ -73,7 +73,14 @@ fn token_secret(_gen: &mut schemars::generate::SchemaGenerator) -> schemars::Sch
     })
 }
 
+/// Serve the Dekaf materialization protocol.
+///
+/// `variant` names the Dekaf flavor of the task (`dekaf`, `dekaf-confluent`,
+/// ...). It carries no behavior and appears only in error context: the caller
+/// has already resolved this task's endpoint configuration, which the requests
+/// of `request_rx` carry as plaintext.
 pub fn connector<R>(
+    variant: String,
     mut request_rx: R,
 ) -> impl futures::Stream<Item = anyhow::Result<materialize::Response>> + Send
 where
@@ -111,23 +118,10 @@ where
                         other => bail!("invalid connector type: {}", other.as_str_name()),
                     };
 
-                    let parsed_outer_config =
-                        serde_json::from_slice::<models::DekafConfig>(&validate.config_json)
-                            .context("validating dekaf config")?;
-
-                    let parsed_inner_config = serde_json::from_value::<DekafConfig>(
-                        unseal::decrypt_sops(&parsed_outer_config.config)
-                            .await
-                            .context(format!(
-                                "decrypting dekaf endpoint config for variant {}",
-                                parsed_outer_config.variant
-                            ))?
-                            .to_value(),
-                    )
-                    .context(format!(
-                        "validating dekaf endpoint config for variant {}",
-                        parsed_outer_config.variant
-                    ))?;
+                    let parsed_config =
+                        serde_json::from_slice::<DekafConfig>(&validate.config_json).context(
+                            format!("validating dekaf endpoint config for variant {variant}"),
+                        )?;
 
                     // Resolve collections while `validate` is whole: the bindings
                     // are taken below, after which they can no longer index the
@@ -151,8 +145,7 @@ where
                                         &binding.resource_config_json,
                                     )
                                     .context(format!(
-                                        "validating dekaf resource config for variant {}",
-                                        parsed_outer_config.variant.clone()
+                                        "validating dekaf resource config for variant {variant}"
                                     ))?;
 
                                 let projection_constraints = collection
@@ -162,7 +155,7 @@ where
                                         field: projection.field.clone(),
                                         constraint: Some(constraint_for_projection(
                                             &projection,
-                                            &parsed_inner_config,
+                                            &parsed_config,
                                         )),
                                     })
                                     .collect::<Vec<_>>();

@@ -108,15 +108,8 @@ pub async fn start<L: LogHandler>(
             (rx, String::new())
         }
         models::MaterializationEndpoint::Dekaf(_) => {
-            // Dekaf is in-process Rust and consumes prost requests directly. It
-            // decrypts its own (nested) endpoint config, so there's nothing to
-            // decrypt or overlay here.
-            sealed_config = None;
-
-            (
-                dekaf_connector::connector(connector_rx).boxed(),
-                String::new(),
-            )
+            // `extract_endpoint` rejected this connector type above.
+            unreachable!("Dekaf materializations are served by the connector crate");
         }
     };
 
@@ -299,15 +292,7 @@ fn extract_endpoint<'r>(
             sealed_config_json,
         ))
     } else if connector_type == ConnectorType::Dekaf as i32 {
-        Ok((
-            models::MaterializationEndpoint::Dekaf(
-                serde_json::from_slice(config_json).context("parsing local config")?,
-            ),
-            config_json,
-            connector_type,
-            catalog_name,
-            sealed_config_json,
-        ))
+        anyhow::bail!("Dekaf materializations are served by the connector crate");
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
     }
