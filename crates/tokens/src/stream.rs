@@ -62,9 +62,9 @@ where
             }
         }
 
-        // Return the latest result (Ok or Err) with infinite validity and an
-        // immediate revocation, which causes watch() to call refresh() again,
-        // driving the stream forward.
+        // Return the latest result (Ok or Err) with an unbounded refresh delay
+        // and an immediate revocation, which causes watch() to call refresh()
+        // again, driving the stream forward.
         Ok(Ok((latest?, TimeDelta::MAX, std::future::ready(()))))
     }
 }

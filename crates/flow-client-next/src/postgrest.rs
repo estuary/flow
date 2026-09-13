@@ -37,7 +37,8 @@ where
             ))
         })
     } else {
-        Err(tonic::Status::unknown(
+        Err(tonic::Status::new(
+            tokens::rest::http_status_code_to_grpc(status.as_u16()),
             response.text().await.map_err(map_err)?,
         ))
     }

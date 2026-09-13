@@ -84,6 +84,7 @@ pub fn new_journal_client_factory(
 impl tokens::RestSource for UserCollectionAuth {
     type Model = models::authorizations::UserCollectionAuthorization;
     type Token = models::authorizations::UserCollectionAuthorization;
+    type Revoke = std::future::Pending<()>;
 
     async fn build_request(
         &mut self,
@@ -103,7 +104,10 @@ impl tokens::RestSource for UserCollectionAuth {
         ))
     }
 
-    fn extract(model: Self::Model) -> tonic::Result<Result<(Self::Token, TimeDelta), TimeDelta>> {
+    fn extract(
+        &self,
+        model: Self::Model,
+    ) -> tonic::Result<Result<(Self::Token, TimeDelta, Self::Revoke), TimeDelta>> {
         if model.retry_millis != 0 {
             return Ok(Err(TimeDelta::milliseconds(model.retry_millis as i64)));
         }
@@ -111,6 +115,10 @@ impl tokens::RestSource for UserCollectionAuth {
         let unverified =
             tokens::jwt::parse_unverified::<serde::de::IgnoredAny>(model.broker_token.as_bytes())?;
 
-        Ok(Ok((model, unverified.valid_for())))
+        Ok(Ok((
+            model,
+            tokens::refresh_before_expiry(unverified.valid_for()),
+            std::future::pending(),
+        )))
     }
 }

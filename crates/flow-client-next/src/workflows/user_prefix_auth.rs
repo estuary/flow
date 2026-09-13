@@ -53,6 +53,7 @@ pub fn new_shard_client(
 impl tokens::RestSource for UserPrefixAuth {
     type Model = models::authorizations::UserPrefixAuthorization;
     type Token = models::authorizations::UserPrefixAuthorization;
+    type Revoke = std::future::Pending<()>;
 
     async fn build_request(
         &mut self,
@@ -73,7 +74,10 @@ impl tokens::RestSource for UserPrefixAuth {
         ))
     }
 
-    fn extract(model: Self::Model) -> tonic::Result<Result<(Self::Token, TimeDelta), TimeDelta>> {
+    fn extract(
+        &self,
+        model: Self::Model,
+    ) -> tonic::Result<Result<(Self::Token, TimeDelta, Self::Revoke), TimeDelta>> {
         if model.retry_millis != 0 {
             return Ok(Err(TimeDelta::milliseconds(model.retry_millis as i64)));
         }
@@ -87,6 +91,10 @@ impl tokens::RestSource for UserPrefixAuth {
             reactor_unverified.valid_for(),
         );
 
-        Ok(Ok((model, valid_for)))
+        Ok(Ok((
+            model,
+            tokens::refresh_before_expiry(valid_for),
+            std::future::pending(),
+        )))
     }
 }

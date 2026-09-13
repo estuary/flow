@@ -16,6 +16,7 @@ pub struct UserSecretDecrypt {
 impl tokens::RestSource for UserSecretDecrypt {
     type Model = models::authorizations::SecretDecryption;
     type Token = models::authorizations::SecretDecryption;
+    type Revoke = std::future::Pending<()>;
 
     async fn build_request(&mut self, started: DateTime) -> tonic::Result<reqwest::RequestBuilder> {
         let user_token = self.user_tokens.ready().await.token();
@@ -38,7 +39,10 @@ impl tokens::RestSource for UserSecretDecrypt {
         })
     }
 
-    fn extract(model: Self::Model) -> tonic::Result<Result<(Self::Token, TimeDelta), TimeDelta>> {
+    fn extract(
+        &self,
+        model: Self::Model,
+    ) -> tonic::Result<Result<(Self::Token, TimeDelta, Self::Revoke), TimeDelta>> {
         super::extract_secret_decryption(model)
     }
 }
