@@ -8,9 +8,22 @@ This crate provides abstractions for tokens that need periodic refreshing (JWTs,
 
 ## Key Types
 
-- **`Source`** - Trait for producing tokens on demand. Implementations define how to obtain a token and how long it remains valid.
+- **`Source`** - Trait for producing tokens on demand. Implementations define how to obtain a token, and when they should next be refreshed.
 - **`Watch`** / **`PendingWatch`** - Shared access to a periodically-refreshed token. The background refresh loop runs until all `Watch` clones are dropped.
 - **`Refresh`** - A single refresh result containing the token (or error), version, and expiry signal.
+
+## Refresh cadence
+
+A successful `Source::refresh` states the delay after which it should be
+refreshed again, and `watch()` sleeps for exactly that. The Source decides
+because only it knows what the delay means:
+
+- A credential with a hard expiry passes its remaining lifetime through
+  `refresh_before_expiry()`, refreshing two minutes early (never more often
+  than once a minute) so that a failed refresh still has runway. `RestSource`
+  and `jwt::SignedSource` do this for their implementors.
+- A cache with a TTL simply returns the TTL: there is nothing to be early for,
+  and subtracting a lead would just re-fetch sooner than asked.
 
 ## Token Sources
 
@@ -55,3 +68,4 @@ The `jwt` module provides signing, verification, and parsing:
 - `fixed()` - Create an immediately-ready watch with a static result.
 - `manual()` - Create a watch with a closure for manual updates.
 - `map()` - Transform a watch's token type via a closure.
+- `refresh_before_expiry()` - The lead-and-floor cadence of an expiring credential.

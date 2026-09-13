@@ -16,7 +16,9 @@ pub trait RestSource: Send + Sync {
     ) -> impl std::future::Future<Output = Result<reqwest::RequestBuilder, tonic::Status>> + Send + 's;
 
     /// Extract a Token from a response Model. Returns:
-    /// - Ok(Ok((token, valid_for))) if the token is ready for use and valid for the returned Duration.
+    /// - Ok(Ok((token, valid_for))) if the token is ready for use and valid for
+    ///   the returned Duration. The blanket [`Source`] impl turns that lifetime
+    ///   into a refresh cadence through [`crate::refresh_before_expiry`].
     /// - Ok(Err(retry_after)) if the response model represents a server-directed client retry.
     /// - Err(status) if the response model is invalid.
     fn extract(
@@ -86,7 +88,15 @@ where
             ))
         })?;
 
-        Self::extract(response).map(|r| r.map(|(token, dur)| (token, dur, std::future::pending())))
+        Self::extract(response).map(|r| {
+            r.map(|(token, valid_for)| {
+                (
+                    token,
+                    crate::refresh_before_expiry(valid_for),
+                    std::future::pending(),
+                )
+            })
+        })
     }
 }
 

@@ -103,9 +103,9 @@ where
     pending
 }
 
-/// Watch a Source via a spawned tokio task, periodically refreshing ahead of
-/// Token expiry. Returns a PendingWatch that's ready after its first refresh.
-/// The spawned task stops when all clones of the returned Watch are dropped.
+/// Watch a Source via a spawned tokio task, refreshing on the cadence which
+/// each refresh states. Returns a PendingWatch that's ready after its first
+/// refresh. The spawned task stops when all clones of the Watch are dropped.
 pub fn watch<S>(mut source: S) -> PendingWatch<S::Token>
 where
     S: Source,
@@ -149,8 +149,8 @@ where
                     return; // All clones dropped during refresh.
                 }
                 result = source.refresh(started) => match result {
-                    Ok(Ok((token, valid_for, new_revoke))) => {
-                        backoff = (valid_for - TimeDelta::minutes(2)).max(TimeDelta::minutes(1));
+                    Ok(Ok((token, refresh_after, new_revoke))) => {
+                        backoff = refresh_after;
                         maybe_started = None;
                         maybe_revoke = Some(new_revoke);
 
@@ -455,6 +455,8 @@ mod tests {
         assert_eq!(*mapped.token().result.as_ref().unwrap(), 5); // No prior.
     }
 
+    /// Scripted outcomes of `(result, refresh_after, revoke)`. An
+    /// `Aborted` status scripts an `Ok(Err(retry_after))` instead.
     struct MockSource(Vec<(Result<String, tonic::Status>, TimeDelta, CancellationToken)>);
 
     impl Source for MockSource {
@@ -503,6 +505,28 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn test_watch_refreshes_on_the_stated_cadence() {
+        // A Source whose delay is a cache TTL rather than a credential expiry
+        // is refreshed exactly when it asks, with no lead time subtracted.
+        let ttl = TimeDelta::minutes(2);
+        let source = MockSource(vec![
+            (Ok("first".into()), ttl, Default::default()),
+            (Ok("second".into()), ttl, Default::default()),
+        ]);
+
+        let entered = tokio::time::Instant::now();
+        let watch = watch(source).ready_owned().await;
+
+        let first = watch.token();
+        assert_eq!(first.result.as_ref().unwrap(), "first");
+
+        first.expired().await;
+        assert_eq!(watch.token().result.as_ref().unwrap(), "second");
+
+        assert_eq!(tokio::time::Instant::now() - entered, ttl.to_std().unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn test_watch_error_recovery_refresh_and_revoke() {
         // Token that will be used to trigger early revocation.
         let revoke = CancellationToken::new();
@@ -546,7 +570,7 @@ mod tests {
         assert_eq!(second.result.as_ref().unwrap(), "recovered");
         assert_eq!(second.version, 2);
 
-        // Auto-advance to next refresh (1 min), expect next token.
+        // Auto-advance to the next refresh the Source asked for (1 min).
         second.expired().await;
 
         let third = watch.token();
