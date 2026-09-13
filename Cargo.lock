@@ -2854,12 +2854,10 @@ dependencies = [
  "avro",
  "coroutines",
  "futures",
- "models",
  "proto-flow",
  "schemars",
  "serde",
  "serde_json",
- "unseal",
 ]
 
 [[package]]
@@ -7539,7 +7537,6 @@ dependencies = [
  "clap",
  "connector-init",
  "coroutines",
- "dekaf-connector",
  "derive-sqlite",
  "doc",
  "extractors",
