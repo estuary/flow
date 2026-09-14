@@ -21,7 +21,7 @@ maintains the table. Newest log entries at the bottom.
 | 09 | Churn and density: experiments 9-10     | 00, 06       | done   | daveg/libkrun-spike | 05f02935ac5; 50/s held exactly, 0 failures; 82 idle guests, linear, 95 MiB each; overhead 20-32 MiB, default stays 256 pending exp 5 rerun at +64 |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | done   | daveg/libkrun-spike | 527044b8e3f; 11 and 12 pass; 13 clean, panic exits 0 (gate reworded, open problem); rp_filter explicit; citation checker landed |
 | 11 | libkrun source read: experiment 12      | -            | done   | daveg/libkrun-spike | 36104b1ba89; gates hold; 3 T3 bugs; DAX not for production |
-| 12 | Report                                  | all          | todo   | daveg/libkrun-spike |       |
+| 12 | Report                                  | all          | done   | daveg/libkrun-spike | REPORT.md: go, every gate passes; script sweep found nothing left to fix |
 
 Sequential order, one session at a time, biggest unknowns first:
 00, 03, 04, 08, 08b, 04b, 01, 05, 06, 02, 07, 11, 10, 09, 12. (03 answers "does it
@@ -2837,3 +2837,122 @@ any runtime work is spent.)
 - Sizing number for the report and for anyone reading it: 95 MiB of host
   memory per idle 512 MiB guest, of which 72.6 is the cgroup; size on 95.
 - Next: WP12, the report. Last package.
+
+### 2026-09-14 WP12: the report. Go: every gate passes. The script sweep found nothing left to fix.
+
+- shipped:
+  - `spike/report/REPORT.md`. Decision, a line per gate, the tables from
+    experiments 2, 5, 9 and 10 copied rather than summarized, what phase 2
+    starts from (the `podman run` line, the nft ruleset, the libkrun call
+    sequence, the mkfs options, sizing, the layer-vs-share implication), what
+    needed host root, the accepted costs, and 17 open problems each with a
+    proposed owner.
+  - A condensed copy handed back in chat for the reader who will not open
+    `spike/`: decision, gate table, headline numbers, accepted costs, open
+    problems by owner. Nothing new in it.
+  - `spike/tasks/*.sh`: **no changes**. See the sweep below.
+
+- the side item, in full, because "nothing to fix" is only useful with the
+  reasoning attached. Both shapes were swept across all 34 scripts.
+
+  **Shape 1 - a command that may fail as the last step of an `&&` list or as a
+  bare statement, inside anything a trap calls.** There are 19 traps. They call
+  five functions between them (`teardown`, `cleanup` in four scripts,
+  `xp_cleanup`, `eg_fixtures_down`, `stop_writer`) plus six inline bodies that
+  are a bare `rm -rf` on a temp dir. Every one of those functions now ends in a command
+  that cannot fail (`rm -rf` on a path, or `return 0`), and every command inside
+  them that can fail already carries `|| true`. The `while read ... done <FILE`
+  redirect in three of them is safe because the file is created with `: >` at
+  source time, before the trap is installed.
+
+  Confirmed the bash semantics rather than assuming them, because the two
+  directions differ and the difference is the whole bug: `set -e; false && B`
+  does **not** exit (the failing command is not the last in the AND-OR list),
+  but `set -e; true && false` **does**, and a function whose last statement is
+  `[ cond ] && action` returns 1 when the test fails and takes its caller down.
+  Eleven `[ test ] && <action>` lines exist across the scripts; none is the
+  last statement of a function, so none can fire.
+
+  **Shape 2 - a single-shot assertion on state the shim or podman sets
+  asynchronously after the container becomes executable.** Every host-side
+  assertion that follows a container coming up was traced to what gates it:
+
+  - `helper-smoke.sh:257`, the `tap0 is 192.0.2.1/30` check, is the closest
+    match in the tree and is **safe, but only transitively**. It sits after the
+    nft poll WP09 added, and the shim's order is `net::create_tap()` (which does
+    `ip tuntap add`, `ip addr add 192.0.2.1/30`, `ip link set up`) and only then
+    `net::load_egress()`. So `table inet flow_sandbox` appearing implies the tap
+    and its address already exist. Left alone rather than given a poll of its
+    own: the dependency is real, not a coincidence. It is an ordering dependency
+    across two files that nothing writes down, which is worth a sentence here
+    even though it is not worth a change.
+  - `exp1-launch.sh` waits for a non-empty `docs.ndjson` before inspecting caps,
+    devices and `ip_forward`, so the connector is already serving.
+  - `exp11-storage.sh`, `exp12-exposure.sh` and `exp6-common.sh` assert after
+    their guest's done-marker, which is long past shim setup. The one exception,
+    exp12's `ss -tunap` snapshot, polls for the guest's own `tsi-armed` line
+    first.
+  - `exp13-crash.sh` reads `tap0` after a committed transaction, and polls for
+    quiescence on every post-kill check (WP10).
+  - `exp9-churn.sh` and `exp10-density.sh` resolve the cgroup path and shim pid
+    after the container is executable; both are podman state set at start, and
+    `exp10`'s `launch_guest` additionally waits for the guest to report ready.
+
+  Two adjacent finds, deliberately **not** changed, because the brief bounds the
+  sweep to the two shapes above and both of these are a third:
+
+  - `egress-netns-test.sh:239` uses a fixed `sleep 0.5` where its own successor
+    polls: "tcpdump must be attached before the first probe packet". If it were
+    ever short, "no packet left the helper" would be trivially true - a false
+    PASS, which is the worse direction. It is WP02's pre-guest netns harness and
+    no gate rests on it: experiment 6 re-proved every claim it made from inside a
+    real guest, and `exp6-common.sh:278` does poll (`grep -q 'listening on'`).
+    One-line fix available if master wants it.
+  - `flow-init-test.sh:264` compares `podman system df` Containers before and
+    after a `--rm` run. podman removes asynchronously after its client returns
+    (WP10), so this races in principle. In practice three `matches` calls and a
+    `podman image mount`/`umount` sit between the run and the read. Same shape
+    as above: a teardown race, not a setup race.
+
+  One piece of pre-existing dead code noticed and left: `EG_PRE_EXEC`
+  (`exp6-common.sh:356-359`) is never set by any caller.
+
+- verification:
+  ```
+  $ spike/tasks/check-exposure-citations.sh
+    ...
+    ALL CITATIONS RESOLVE (96 checked)
+
+  $ grep -c '^| [0-9]' <the gate table>        -> 13
+    (11 gates + experiments 9 and 10 as measures; every PLAN experiment has a line)
+
+  $ grep -cP '[^\x00-\x7F]' spike/report/REPORT.md   -> 0
+    (keyboard-typeable throughout, as the chat copy requires)
+
+  $ <tenant-prefix sweep over REPORT.md>       -> nothing but acmeCo/
+  ```
+  No button was touched, so no button was rerun. The nft ruleset quoted in
+  section 4.2 is fresh output, produced at `bf8355ecd68` by running
+  `flow-sandbox-egress --print` inside a helper on `flow-connectors` with `tap0`
+  up - on the host it renders the host's subnets into the baseline instead of the
+  helper's, which is the inversion exp6.md recorded.
+
+  `env-check.sh` reports 4 failures, all `spike-nginx` being stopped. Nothing in
+  this package needs it.
+
+- deviations from CONTRACTS.md: none. Nothing in this package changes the
+  overhead default in `spike.rs` or anything in CONTRACTS; section 4.5 of the
+  report records the 256 and the condition for moving it, as PLAN says.
+
+- questions for master:
+  1. The two adjacent script finds above. Both are a third shape (a teardown
+     race, and a fixed sleep in a superseded harness) and both were left alone
+     per the bound. Do you want either fixed, or recorded and closed?
+  2. Open problem 17, AWS, is the only one in the report with no owner. It is
+     out of scope by PLAN's own "What the spike is not", but it is the one thing
+     between this result and shipping anywhere but GCP. Worth naming an owner
+     before the report leaves.
+  3. `helper-smoke.sh`'s tap0 assertion depends on the shim doing `create_tap()`
+     before `load_egress()`, and nothing says so in either file. It is correct
+     today and cheap to keep correct; say the word if you want the one-line
+     comment, since it means rerunning that button.
