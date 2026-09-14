@@ -194,8 +194,8 @@ impl DataPlane {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Vec<DataPlanePrivateLink>> {
-        if !super::may_access(
-            ctx,
+        let env = ctx.data::<crate::Envelope>()?;
+        if !env.may_access(
             &self.name,
             models::authz::Capability::ViewDataPlanePrivateNetworking,
         )? {
@@ -215,8 +215,8 @@ impl DataPlane {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Vec<async_graphql::Json<serde_json::Value>>> {
-        if !super::may_access(
-            ctx,
+        let env = ctx.data::<crate::Envelope>()?;
+        if !env.may_access(
             &self.name,
             models::authz::Capability::ViewDataPlanePrivateNetworking,
         )? {
@@ -236,8 +236,8 @@ impl DataPlane {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Vec<async_graphql::Json<serde_json::Value>>> {
-        if !super::may_access(
-            ctx,
+        let env = ctx.data::<crate::Envelope>()?;
+        if !env.may_access(
             &self.name,
             models::authz::Capability::ViewDataPlanePrivateNetworking,
         )? {
@@ -257,8 +257,8 @@ impl DataPlane {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Vec<async_graphql::Json<serde_json::Value>>> {
-        if !super::may_access(
-            ctx,
+        let env = ctx.data::<crate::Envelope>()?;
+        if !env.may_access(
             &self.name,
             models::authz::Capability::ViewDataPlanePrivateNetworking,
         )? {
@@ -731,7 +731,7 @@ fn map_link_db_error(err: sqlx::Error) -> async_graphql::Error {
 /// and returns the owning data-plane name. A link that does not exist and a link
 /// the caller may not modify both return the same "not found" error, so an
 /// unauthorized caller cannot probe which link ids exist. This deliberately uses
-/// the visibility gate ([`super::may_access`]) rather than the hard gate
+/// the visibility gate ([`crate::Envelope::may_access`]) rather than the hard gate
 /// ([`crate::Envelope::verify_authorization`]) so a denial is hidden as not-found instead
 /// of surfacing as a distinguishable permission-denied that names the data plane.
 async fn resolve_modifiable_link(
@@ -756,8 +756,7 @@ async fn resolve_modifiable_link(
         return Err(not_found());
     };
 
-    if !super::may_access(
-        ctx,
+    if !env.may_access(
         &row.data_plane_name,
         models::authz::Capability::ModifyDataPlanePrivateNetworking,
     )? {

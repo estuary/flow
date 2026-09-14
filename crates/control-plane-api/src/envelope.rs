@@ -175,6 +175,35 @@ impl Envelope {
         }))
     }
 
+    /// Whether the current user holds `capability` on `name`, as a pure check
+    /// against the request's authorization Snapshot.
+    ///
+    /// This is the visibility gate: use it to hide a field or filter a list,
+    /// failing closed to an empty or default value when it returns `false`.
+    /// Unlike [`Self::verify_authorization`] it neither errors nor refreshes
+    /// the Snapshot on a negative result, because momentarily hiding a field
+    /// against a slightly-stale Snapshot is the correct, low-cost behavior.
+    /// It does still error when the request carries no verified bearer, since
+    /// an anonymous caller failing the gate must not be mistaken for a quiet
+    /// "not visible".
+    ///
+    /// `capability` accepts a legacy `models::Capability`, an orthogonal
+    /// `models::authz::Capability` bit, or a `models::authz::CapabilitySet`.
+    pub fn may_access(
+        &self,
+        name: &str,
+        capability: impl Into<models::authz::CapabilitySet>,
+    ) -> tonic::Result<bool> {
+        let snapshot = self.snapshot();
+        Ok(tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            self.claims()?.sub,
+            name,
+            capability,
+        ))
+    }
+
     /// Errors unless the current user holds `capability` on `prefix`.
     ///
     /// This is the hard gate for mutations and access-controlled queries: a denial
