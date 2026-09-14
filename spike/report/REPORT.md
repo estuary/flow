@@ -347,7 +347,9 @@ about 1,070 threads on the host.
 ### 4.1 The `podman run` line
 
 As `runtime-next`'s spike switch emits it today
-(`crates/runtime-next/src/container/spike.rs`), with `<id>` folded:
+(`crates/runtime-next/src/container/spike.rs`; PR 3490 re-homes that launcher
+in `crates/connector`, and `HANDOFF.md` R2 says where the switch goes), with
+`<id>` folded:
 
 ```
 run --rm --name=fs_<id> --network=flow-connectors --log-driver=none
@@ -796,7 +798,8 @@ number appears here first.
   customer's dependencies are fetched and built (sdist build backends execute)
   and the module type-checked on the reactor's network before anything is
   sandboxed. Listed here because the spike accepted it to stay in scope; it is
-  an open problem, not a permanent cost (section 7).
+  an open problem, not a permanent cost (section 7), and PR 3490 supplies the
+  path that closes it.
 - **A guest that attacks the tap itself** - ARP, a second address, a route of
   its own - is out of reach of a probe suite that runs as a process inside the
   guest, and was not tested.
@@ -845,11 +848,18 @@ guest root, **T3** guest kernel control.
    implementation should update in place; delete-then-add opens a window. Owner:
    runtime.
 
-5. **Sandboxing Spec and Validate** needs the legacy `runtime` crate's container
-   launcher to move to runtime-next first. This is the "connector proxy moves to
-   runtime-next" prerequisite and the builder VM phase, both already in the
-   design; it is listed because until it lands, a customer's Python runs
-   unsandboxed during validation. Owner: runtime.
+5. **Sandboxing Spec and Validate.** Today they go through the legacy
+   `runtime` crate via the agent's V1 connector proxy, so a customer's Python
+   runs unsandboxed during validation. PR 3490 supplies the mechanism: the
+   connector launcher moves to `crates/connector`, and the reactor serves a
+   `connector.Connector` protocol in-process, on each task's Unix socket, and
+   through a Go proxy on its public address. The PR keeps the V1 proxy and
+   defers control-plane adoption to a follow-up. Once adopted, Spec and
+   Validate reach the same `container::start` as tasks, so a sandbox switch
+   there covers them. Left to decide: a default policy for the task-less Spec,
+   and what network a Validate gets before the builder has produced a
+   dependency image. Owner: control plane (agent) for adoption, runtime for
+   the policy; `HANDOFF.md` R1 and R3.
 
 6. **Root writes have no per-task bound, and the layer is not discoverable
    through `podman inspect`.** `.GraphDriver` reports the helper container's own

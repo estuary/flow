@@ -242,6 +242,16 @@ The unmodified code path must be byte-identical when the variable is unset.
 `runtime::Container.ip_addr` is set to `192.0.2.2` and `network_ports` to
 empty; nothing in the spike exercises connector network ports.
 
+Phase-2 note (PR 3490): the launcher this switch hooks,
+`crates/runtime-next/src/container.rs`, moves to
+`crates/connector/src/container.rs`, whose `start` takes a `StartContext`
+(container network, log level, `LogSink`, plane, process, task name) in place
+of the runtime's logger. What this section binds survives the move: the
+launch line of PLAN "Helper launch", the per-connector directory of "Paths
+and names", the dial of `<id>/sock/init.sock`, and the cleanup guard. The
+environment variables above are the spike's trigger and do not survive;
+`report/HANDOFF.md` R1 and R2 replace them with the built spec.
+
 ## Fake reactor (WP00 provides)
 
 `spike/tasks/fake-reactor.sh CMD ARGS...` runs CMD inside the production

@@ -3001,3 +3001,18 @@ any runtime work is spent.)
   policy and appetite-dependent items marked provisional; the four decisions
   waiting on the user; how to reproduce anything. The design issue link is a
   placeholder the user fills in. README names the three-file handoff.
+
+### 2026-09-14 master: amended for PR 3490
+
+- PR 3490 (open, assumed to land as it stands) moves the connector launcher
+  from `crates/runtime-next/src/container.rs` to
+  `crates/connector/src/container.rs` with a `StartContext`, and has the
+  reactor serve `connector.Connector` in-process, per task socket, and via a
+  Go proxy on its public address. Two effects on the plan: the spike switch
+  ports into `crates/connector` (a rebase hits a modify/delete conflict on
+  the old file); and the Spec/Validate prerequisite is now the PR plus its
+  control-plane adoption follow-up rather than a migration of ours, leaving
+  us the policy for the task-less Spec and the pre-builder Validate.
+- Amended: HANDOFF (assumption note, switch row, R1, R2, R3), REPORT (4.1
+  pointer, the accepted cost, open problem 5), CONTRACTS (phase-2 note on the
+  switch section). PLAN keeps its historical wording.

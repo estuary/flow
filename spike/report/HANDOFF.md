@@ -12,6 +12,13 @@ what exists, what carries forward, and what phase 2 has to build.
 
 Design issue: (link to be added by the author).
 
+This document assumes PR 3490 ("connector: a V2 connector service, served
+in-process and over the network") lands much as it stands. It moves the
+connector launcher out of `runtime-next` into a new `crates/connector` crate
+and has the reactor serve a `connector.Connector` protocol. The carry-forward
+row for the spike switch and items R1, R2 and R3 are written against that
+shape; if the PR changes materially, revisit those four.
+
 ---
 
 ## 1. What was built, in one paragraph
@@ -58,7 +65,7 @@ Five things the spike changed in the design, all measured (`REPORT.md` 4.6, 4.1,
 | flow-init | `spike/flow-init/src/*.rs` | ~550 lines Rust, static musl | **keep, move into `crates/`** | Network, `/etc`, mounts, chown, uid drop, exec. It does no `pivot_root` and must not (CONTRACTS "flow-init"). |
 | egress ruleset generator | `spike/egress/src/{ruleset,policy,cidr,ifaddrs}.rs`, `src/bin/egress.rs` | ~550 lines Rust | **keep** | Policy JSON in, `inet flow_sandbox` out, applied once with `nft -f` before the VM boots. The rendered ruleset in `REPORT.md` 4.2 is the spec. |
 | egress resolver | `spike/egress/src/dns.rs`, `src/bin/resolver.rs` | ~450 lines Rust | **keep the DNS half, rewrite the nft half** | It forks one `nft` process per answered query, and `nft add element` does not refresh an existing element's timeout (open problem 4). Phase 2 drives the set over netlink and updates in place. |
-| runtime-next spike switch | `crates/runtime-next/src/container/spike.rs`, the hook in `container.rs` | ~330 lines Rust | **productionize** | The launch line, the per-connector directory, the socket dial and the cleanup guard are right. The trigger is wrong: an env var, a policy file path, and sizes from more env vars. Section 3 items R1 and R2 replace them. |
+| runtime-next spike switch | `crates/runtime-next/src/container/spike.rs`, the hook in `container.rs` | ~330 lines Rust | **port into `crates/connector`, then productionize** | The launch line, the per-connector directory, the socket dial and the cleanup guard are right. PR 3490 deletes the `runtime-next` file the hook lives in and re-homes the launcher as `crates/connector/src/container.rs`, whose `start` takes a `StartContext` (container network, log level, `LogSink`, plane, process, task name) in place of the generic logger the spike threads through. The port is mechanical; a rebase hits a modify/delete conflict on `container.rs`. The trigger is wrong either way: an env var, a policy file path, and sizes from more env vars. Items R1 and R2 replace them. |
 | helper image build | `spike/helper/Dockerfile` | | **replace** | Builds libkrun v1.19.4 from source on Fedora 43 with libkrunfw 5.5.0 from Fedora, tagged `localhost/...:spike`. Phase 2 needs a CI build, a registry image, and pinned versions of both (item H1). |
 | deps image build | `spike/tasks/exp5-build.sh`, the mkfs line in `REPORT.md` 4.4 | | **seed of the builder** | The command is right; the venv it packaged was created at `/venv` and mounted at `/opt/venv`. The builder creates it at its final path (item B1). |
 | stub helper | `spike/stub-helper/` | 70 lines | **keep as a test double** | Satisfies the runtime switch with no VM: same mounts, same socket, `socat` to a chroot'd connector-init. It is how the runtime side can be tested on a machine without KVM. |
@@ -87,22 +94,43 @@ product owns and the mechanism must be able to carry either way. Items marked
   rate limits, the TTL floor and cap). It needs a model type, a place in the
   built task spec, and validation that a declared CIDR does not overlap the
   baseline (the egress binary already refuses that at load; the control plane
-  should refuse it at publish). **Policy:** which tasks are sandboxed, and what
-  a task may declare, is product's and security's to set; the mechanism carries
-  any answer.
-- **R2. The per-task launch decision.** Replace `FLOW_SANDBOX_SPIKE_POLICY` and
-  the other env vars (CONTRACTS "runtime-next spike switch") with a decision
-  made from the built spec: sandbox or not, the policy from R1, and
-  `memoryMib`, `vcpus`, `diskMib` from the spec with defaults. The per-connector
-  directory moves from `/var/tmp/flow-spike/reactor` to the reactor's own
-  ephemeral directory, which is removed on restart and matches the contract
-  that `<id>` is never reused (`REPORT.md` 4.1).
-- **R3. Spec and Validate onto runtime-next** (open problem 5). Today they run
-  through the legacy `runtime` crate and are unsandboxed; for derive-python
-  that is where the customer's dependencies are fetched and built and the
-  module type-checked. This is the "connector proxy moves to runtime-next"
-  prerequisite. Until it lands, customer Python runs unsandboxed during
-  validation, and the report says so in accepted costs.
+  should refuse it at publish). Two cases the spike never met, both from PR
+  3490's protocol: `Spec` is task-less there (`SPEC_TASK_NAME`), so it needs a
+  default policy rather than one read from a spec; and `Validate` for
+  derive-python runs before any dependency image exists, so either it gets a
+  policy that reaches the package index or the builder (B1) runs first and
+  Validate consumes its image. Plan R1 and B1 together. **Policy:** which
+  tasks are sandboxed, and what a task may declare, is product's and
+  security's to set; the mechanism carries any answer.
+- **R2. The per-task launch decision, in `crates/connector`.** Port the spike
+  switch into `crates/connector/src/container.rs` once PR 3490 lands, and
+  replace `FLOW_SANDBOX_SPIKE_POLICY` and the other env vars (CONTRACTS
+  "runtime-next spike switch") with a decision made from the built spec:
+  sandbox or not, the policy from R1, and `memoryMib`, `vcpus`, `diskMib`
+  from the spec with defaults. `StartContext.plane` already gates local
+  connectors and non-Estuary images and is the natural place for "sandbox
+  this launch" to be decided as well. Every caller reaches `container::start`
+  through the connector service (runtime-next, flowctl, the catalog tests,
+  and the control plane once it adopts the protocol), so a switch there
+  covers all of them at once. The per-connector directory moves from
+  `/var/tmp/flow-spike/reactor` to the reactor's own ephemeral directory,
+  which is removed on restart and matches the contract that `<id>` is never
+  reused (`REPORT.md` 4.1).
+- **R3. Spec and Validate through `connector.Connector`** (open problem 5).
+  Today they run through the legacy `runtime` crate via the agent's V1
+  connector proxy and are unsandboxed; for derive-python that is where the
+  customer's dependencies are fetched and built and the module type-checked.
+  PR 3490 supplies the mechanism: the reactor serves `connector.Connector`
+  in-process, on each task's Unix socket, and through a Go proxy on its
+  public address, authorized by reactor-issued bearer tokens. The PR keeps the
+  V1 proxy unchanged and defers control-plane adoption to a follow-up after
+  the reactor rollout. Once the control plane adopts it, Spec and Validate go
+  through the same `container::start` as tasks and the switch of R2 covers
+  them with no further runtime work. What stays ours is the policy for the
+  task-less Spec and the pre-builder Validate (R1). Until adoption lands,
+  customer Python runs unsandboxed during validation, and the report says so
+  in accepted costs. Owner: control plane (agent) for adoption, runtime for
+  the policy.
 - **R4. Resolver over netlink** (open problem 4). Keep the DNS handling (A
   records, TTL clamp `max(90 s, ttl)` capped at 1 h, AAAA emptied, RFC1918
   and helper-subnet answers refused); replace the per-query `nft` process with
