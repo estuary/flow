@@ -616,6 +616,116 @@ impl StorageMappingsBy {
     }
 }
 
+/// Cloud storage provider of a store. These are the `provider` discriminants
+/// that `spec.stores` entries carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum StoreProvider {
+    /// Amazon Simple Storage Service.
+    #[graphql(name = "S3")]
+    S3,
+    /// Google Cloud Storage.
+    #[graphql(name = "GCS")]
+    Gcs,
+    /// Azure object storage service.
+    #[graphql(name = "AZURE")]
+    Azure,
+    /// An S3-compatible endpoint, such as Minio or R2.
+    #[graphql(name = "CUSTOM")]
+    Custom,
+}
+
+impl StoreProvider {
+    /// The `provider` tag that the matching `models::Store` variant carries in
+    /// a persisted `spec.stores` entry. `store_provider_tags_match_the_model`
+    /// pins these against the model's own serialization.
+    fn spec_tag(self) -> &'static str {
+        match self {
+            Self::S3 => "S3",
+            Self::Gcs => "GCS",
+            Self::Azure => "AZURE",
+            Self::Custom => "CUSTOM",
+        }
+    }
+}
+
+/// Matches a single store within a storage mapping's `spec.stores`. Every
+/// field is optional; the fields that are set must all hold on one store, and
+/// a mapping matches when at least one of its stores satisfies them.
+///
+/// Each field belongs to the providers that carry it, so pairing one with a
+/// `provider` that does not carry it matches nothing.
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct StoreFilter {
+    /// Match the store's provider.
+    pub provider: Option<StoreProvider>,
+    /// Match the bucket of an `S3`, `GCS`, or `CUSTOM` store. An `AZURE`
+    /// store addresses a container instead; see `containerName`.
+    pub bucket: Option<String>,
+    /// Match the AWS region of an `S3` store, such as `us-east-1`.
+    pub region: Option<String>,
+    /// Match the S3-compatible endpoint of a `CUSTOM` store.
+    pub endpoint: Option<String>,
+    /// Match the tenant that owns an `AZURE` store's storage account.
+    pub account_tenant_id: Option<String>,
+    /// Match the storage account name of an `AZURE` store, which is that
+    /// provider's equivalent of a bucket.
+    pub storage_account_name: Option<String>,
+    /// Match the container name within an `AZURE` store's storage account.
+    pub container_name: Option<String>,
+}
+
+impl StoreFilter {
+    /// Renders this filter as the right-hand operand of a jsonb containment
+    /// test against `spec -> 'stores'`, returning `None` when no field is set
+    /// so that an empty filter narrows nothing.
+    ///
+    /// The operand is a one-element array. Postgres' `@>` over two arrays
+    /// holds when every element on the right is contained by some element on
+    /// the left, and containment between two objects means a subset of
+    /// key/value pairs — together, exactly "at least one store carries all of
+    /// these fields".
+    ///
+    /// Keys are the field names that `models::Store` serializes, so the
+    /// operand compares against stored specs verbatim.
+    fn into_stores_pattern(self) -> Option<String> {
+        let Self {
+            provider,
+            bucket,
+            region,
+            endpoint,
+            account_tenant_id,
+            storage_account_name,
+            container_name,
+        } = self;
+
+        let mut store = serde_json::Map::new();
+
+        if let Some(provider) = provider {
+            store.insert(
+                "provider".to_string(),
+                serde_json::Value::from(provider.spec_tag()),
+            );
+        }
+        for (key, value) in [
+            ("bucket", bucket),
+            ("region", region),
+            ("endpoint", endpoint),
+            ("account_tenant_id", account_tenant_id),
+            ("storage_account_name", storage_account_name),
+            ("container_name", container_name),
+        ] {
+            if let Some(value) = value {
+                store.insert(key.to_string(), serde_json::Value::from(value));
+            }
+        }
+
+        if store.is_empty() {
+            return None;
+        }
+        Some(serde_json::Value::Array(vec![serde_json::Value::Object(store)]).to_string())
+    }
+}
+
 /// Composable filter for the `storageMappings` query. Every field is optional
 /// and only narrows the result set; the caller's catalog-read scope is enforced
 /// independently, so a filter can never widen what a caller may see.
@@ -628,10 +738,15 @@ pub struct StorageMappingsFilter {
     /// mutually exclusive. Either way, results compose with (never widen past)
     /// the caller's authorized read prefixes.
     pub catalog_prefix: Option<filters::PrefixFilter>,
+    /// Narrow to mappings that write to a matching store: at least one entry
+    /// of `spec.stores` must carry every field set here. This answers "which
+    /// prefixes land in this bucket", within the caller's read scope.
+    pub store: Option<StoreFilter>,
 }
 
 /// A storage mapping that defines where collection data is stored.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct StorageMapping {
     /// The catalog prefix this storage mapping applies to.
     pub catalog_prefix: models::Prefix,
@@ -641,6 +756,23 @@ pub struct StorageMapping {
     pub spec: async_graphql::Json<models::StorageDef>,
     /// The current user's capability to this storage mapping's prefix.
     pub user_capability: models::Capability,
+}
+
+#[async_graphql::ComplexObject]
+impl StorageMapping {
+    /// The data planes named by `spec.data_planes`, resolved to nodes. Order
+    /// follows the spec, so the first entry is the plane used by default for
+    /// tasks and collections under this prefix.
+    ///
+    /// A name is omitted when no data plane carries it or when the caller
+    /// lacks read capability on it, so this list can be shorter than
+    /// `spec.data_planes`.
+    async fn data_planes(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<super::data_planes::DataPlane>> {
+        super::data_planes::data_planes_by_name(ctx, &self.spec.0.data_planes).await
+    }
 }
 
 pub type PaginatedStorageMappings = Connection<
@@ -663,8 +795,9 @@ impl StorageMappingsQuery {
     /// Returns storage mappings accessible to the current user.
     ///
     /// Returns mappings under every prefix where the caller has catalog-read
-    /// capability. The optional `filter` narrows those authorized results.
-    /// Results are paginated and sorted by catalog_prefix.
+    /// capability. The optional `filter` narrows those authorized results by
+    /// catalog prefix, by store, or by both. Results are paginated and sorted
+    /// by catalog_prefix.
     pub async fn storage_mappings(
         &self,
         ctx: &Context<'_>,
@@ -682,12 +815,25 @@ impl StorageMappingsQuery {
     ) -> async_graphql::Result<PaginatedStorageMappings> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        // `filter` is the going-forward replacement for `by`. Map the
-        // deprecated `by` onto the same `PrefixFilter` shape — `underPrefix` is
-        // a `startsWith` subtree, `exactPrefixes` is an `in` exact set — so both
-        // resolve through the shared `filtered_authorized_prefixes`. `by` and
-        // `filter` are mutually exclusive.
-        let prefix_filter = match (by, filter.and_then(|f| f.catalog_prefix)) {
+        let (filter_catalog_prefix, store_filter) = match filter {
+            Some(StorageMappingsFilter {
+                catalog_prefix,
+                store,
+            }) => (catalog_prefix, store),
+            None => (None, None),
+        };
+
+        // A store filter is an independent predicate over `spec.stores`: it
+        // narrows within the caller's prefix scope and never interacts with it,
+        // so it composes with either prefix-scoping argument.
+        let stores_pattern = store_filter.and_then(StoreFilter::into_stores_pattern);
+
+        // `filter.catalogPrefix` is the going-forward replacement for `by`. Map
+        // the deprecated `by` onto the same `PrefixFilter` shape — `underPrefix`
+        // is a `startsWith` subtree, `exactPrefixes` is an `in` exact set — so
+        // both resolve through the shared `filtered_authorized_prefixes`. The
+        // two prefix-scoping modes are mutually exclusive.
+        let prefix_filter = match (by, filter_catalog_prefix) {
             (Some(by), filter_catalog_prefix) => {
                 if filter_catalog_prefix
                     .is_some_and(|cp| cp.starts_with.is_some() || cp.r#in.is_some())
@@ -742,6 +888,7 @@ impl StorageMappingsQuery {
                             &read_prefixes,
                             &exact_prefixes,
                             under_prefix.as_deref(),
+                            stores_pattern.as_deref(),
                             before.as_deref(),
                             limit as i64,
                         )
@@ -755,6 +902,7 @@ impl StorageMappingsQuery {
                             &read_prefixes,
                             &exact_prefixes,
                             under_prefix.as_deref(),
+                            stores_pattern.as_deref(),
                             after.as_deref(),
                             limit as i64,
                         )
@@ -816,6 +964,7 @@ async fn fetch_storage_mappings_after(
     read_prefixes: &[String],
     exact_prefixes: &[String],
     under_prefix: Option<&str>,
+    stores_pattern: Option<&str>,
     after: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<StorageMappingRow>> {
@@ -837,14 +986,19 @@ async fn fetch_storage_mappings_after(
             OR catalog_prefix::text = any($3::text[])
             OR ($4::text IS NOT NULL AND catalog_prefix ^@ $4::text)
         )
-        AND ($5::text IS NULL OR catalog_prefix > $5::text)
+        AND (
+            $5::text IS NULL
+            OR (spec::jsonb -> 'stores') @> $5::text::jsonb
+        )
+        AND ($6::text IS NULL OR catalog_prefix > $6::text)
         ORDER BY catalog_prefix ASC
-        LIMIT $6
+        LIMIT $7
         "#,
         read_prefixes,
         filter_all,
         exact_prefixes,
         under_prefix,
+        stores_pattern,
         after,
         limit,
     )
@@ -866,6 +1020,7 @@ async fn fetch_storage_mappings_before(
     read_prefixes: &[String],
     exact_prefixes: &[String],
     under_prefix: Option<&str>,
+    stores_pattern: Option<&str>,
     before: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<StorageMappingRow>> {
@@ -887,14 +1042,19 @@ async fn fetch_storage_mappings_before(
             OR catalog_prefix::text = any($3::text[])
             OR ($4::text IS NOT NULL AND catalog_prefix ^@ $4::text)
         )
-        AND ($5::text IS NULL OR catalog_prefix < $5::text)
+        AND (
+            $5::text IS NULL
+            OR (spec::jsonb -> 'stores') @> $5::text::jsonb
+        )
+        AND ($6::text IS NULL OR catalog_prefix < $6::text)
         ORDER BY catalog_prefix DESC
-        LIMIT $6
+        LIMIT $7
         "#,
         read_prefixes,
         filter_all,
         exact_prefixes,
         under_prefix,
+        stores_pattern,
         before,
         limit,
     )
@@ -976,6 +1136,83 @@ mod test {
             err.message,
             "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely"
         );
+    }
+
+    // `StoreProvider` exists so callers name a provider by enum rather than by
+    // the string a spec happens to carry. Pin each tag against the model's own
+    // serialization: a rename in `models::Store` must fail here rather than
+    // silently reduce the filter to matching nothing.
+    #[test]
+    fn store_provider_tags_match_the_model() {
+        let cases = [
+            (
+                super::StoreProvider::S3,
+                models::Store::S3(models::S3StorageConfig::example()),
+            ),
+            (
+                super::StoreProvider::Gcs,
+                models::Store::Gcs(models::GcsBucketAndPrefix::example()),
+            ),
+            (
+                super::StoreProvider::Azure,
+                models::Store::Azure(models::AzureStorageConfig::example()),
+            ),
+            (
+                super::StoreProvider::Custom,
+                models::Store::Custom(models::CustomStore::example()),
+            ),
+        ];
+
+        for (provider, store) in cases {
+            let serialized = serde_json::to_value(&store).unwrap();
+            assert_eq!(
+                serialized["provider"].as_str(),
+                Some(provider.spec_tag()),
+                "provider tag for {provider:?}",
+            );
+        }
+    }
+
+    // The rendered operand is a one-element array of the set fields, under the
+    // key names a spec carries. The `filter_by_store` test exercises what
+    // Postgres does with it.
+    #[test]
+    fn store_filter_renders_a_containment_operand() {
+        let pattern = super::StoreFilter {
+            provider: Some(super::StoreProvider::S3),
+            bucket: Some("acme-data".to_string()),
+            ..Default::default()
+        }
+        .into_stores_pattern()
+        .unwrap();
+        assert_eq!(pattern, r#"[{"bucket":"acme-data","provider":"S3"}]"#);
+
+        // Azure's fields keep their spec key names, which are snake_case.
+        let pattern = super::StoreFilter {
+            provider: Some(super::StoreProvider::Azure),
+            storage_account_name: Some("acmestorage".to_string()),
+            container_name: Some("acme-container".to_string()),
+            ..Default::default()
+        }
+        .into_stores_pattern()
+        .unwrap();
+        assert_eq!(
+            pattern,
+            r#"[{"container_name":"acme-container","provider":"AZURE","storage_account_name":"acmestorage"}]"#
+        );
+
+        // A field may be given without a provider.
+        let pattern = super::StoreFilter {
+            bucket: Some("acme-data".to_string()),
+            ..Default::default()
+        }
+        .into_stores_pattern()
+        .unwrap();
+        assert_eq!(pattern, r#"[{"bucket":"acme-data"}]"#);
+
+        // An empty filter narrows nothing, so it renders no operand at all
+        // rather than an always-true or always-false one.
+        assert_eq!(super::StoreFilter::default().into_stores_pattern(), None);
     }
 
     #[sqlx::test(
@@ -1297,5 +1534,324 @@ mod test {
             None,
         )
         .await;
+    }
+
+    // `filter.store` narrows to mappings that write to a matching store. The
+    // fields set on the filter must all hold on one store of the mapping, and
+    // the filter composes with (never widens past) the caller's read scope.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mappings_filter_by_store(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        fn s3(bucket: &str, region: &str) -> models::Store {
+            models::Store::S3(models::S3StorageConfig {
+                bucket: bucket.to_string(),
+                prefix: None,
+                region: Some(region.to_string()),
+            })
+        }
+        fn gcs(bucket: &str) -> models::Store {
+            models::Store::Gcs(models::GcsBucketAndPrefix {
+                bucket: bucket.to_string(),
+                prefix: None,
+            })
+        }
+
+        // `aliceCo/team/` writes to two stores, so it is the case that tells
+        // "one store carries every field" apart from "the fields are spread
+        // across two stores": no single store is GCS in `us-west-2`.
+        let mappings: [(&str, Vec<models::Store>); 3] = [
+            ("aliceCo/", vec![s3("acme-data", "us-east-1")]),
+            (
+                "aliceCo/team/",
+                vec![gcs("acme-archive"), s3("team-data", "us-west-2")],
+            ),
+            ("otherCo/", vec![s3("acme-data", "us-east-1")]),
+        ];
+        for (prefix, stores) in mappings {
+            let spec = crate::TextJson(models::StorageDef {
+                data_planes: Vec::new(),
+                stores,
+            });
+            sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+                .bind(prefix)
+                .bind(&spec)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        async fn prefixes(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Vec<String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                            query($filter: StorageMappingsFilter) {
+                                storageMappings(filter: $filter) {
+                                    edges { node { catalogPrefix } }
+                                }
+                            }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response.get("errors").is_none(),
+                "unexpected errors: {response}"
+            );
+            response["data"]["storageMappings"]["edges"]
+                .as_array()
+                .expect("edges array")
+                .iter()
+                .map(|edge| edge["node"]["catalogPrefix"].as_str().unwrap().to_string())
+                .collect()
+        }
+
+        // Provider plus bucket is the motivating query: which of my prefixes
+        // land in this bucket. `otherCo/` also uses it but is out of scope.
+        let by_bucket = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "store": { "provider": "S3", "bucket": "acme-data" } }),
+        )
+        .await;
+        assert_eq!(by_bucket, vec!["aliceCo/"]);
+
+        // A bucket alone matches without naming a provider.
+        let bucket_only = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "store": { "bucket": "acme-archive" } }),
+        )
+        .await;
+        assert_eq!(bucket_only, vec!["aliceCo/team/"]);
+
+        // A provider alone matches every mapping holding a store of it, which
+        // for GCS is only the mapping whose second store is GCS.
+        let by_provider = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "store": { "provider": "GCS" } }),
+        )
+        .await;
+        assert_eq!(by_provider, vec!["aliceCo/team/"]);
+        let s3_provider = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "store": { "provider": "S3" } }),
+        )
+        .await;
+        assert_eq!(s3_provider, vec!["aliceCo/", "aliceCo/team/"]);
+
+        // Region is an S3 field and narrows within the provider.
+        let by_region = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "store": { "provider": "S3", "region": "us-west-2" } }),
+        )
+        .await;
+        assert_eq!(by_region, vec!["aliceCo/team/"]);
+
+        // Every field must hold on the SAME store. `aliceCo/team/` holds a GCS
+        // store and a `us-west-2` store, but no GCS store in `us-west-2`.
+        let cross_store = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "store": { "provider": "GCS", "region": "us-west-2" } }),
+        )
+        .await;
+        assert!(
+            cross_store.is_empty(),
+            "matched across stores: {cross_store:?}"
+        );
+
+        // A field paired with a provider that does not carry it matches
+        // nothing, rather than being ignored.
+        let mismatched_field = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "store": { "provider": "S3", "storageAccountName": "acmestorage" }
+            }),
+        )
+        .await;
+        assert!(mismatched_field.is_empty());
+
+        // An unknown bucket matches nothing.
+        let unknown = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "store": { "bucket": "ghost-bucket" } }),
+        )
+        .await;
+        assert!(unknown.is_empty());
+
+        // A store filter composes with a catalog-prefix filter.
+        let composed = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "catalogPrefix": { "startsWith": "aliceCo/team/" },
+                "store": { "provider": "S3" },
+            }),
+        )
+        .await;
+        assert_eq!(composed, vec!["aliceCo/team/"]);
+
+        // An empty store filter behaves like omitting it: it narrows nothing.
+        let all = prefixes(&server, &alice_token, serde_json::json!({})).await;
+        assert_eq!(all, vec!["aliceCo/", "aliceCo/team/"]);
+        let empty_store = prefixes(&server, &alice_token, serde_json::json!({ "store": {} })).await;
+        assert_eq!(empty_store, all);
+    }
+
+    // `StorageMapping.dataPlanes` expands the names in `spec.data_planes` into
+    // `DataPlane` nodes, in spec order, dropping names the caller cannot see.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mapping_data_planes_resolve_spec_names(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // A private plane alice cannot read. Non-empty `hmac_keys` is what puts
+        // a plane in the authorization snapshot at all, so without it this row
+        // would be absent for a reason other than the one under test.
+        sqlx::query(
+            r#"
+            INSERT INTO data_planes (
+                id, data_plane_name, data_plane_fqdn, hmac_keys,
+                broker_address, reactor_address,
+                ops_logs_name, ops_stats_name,
+                ops_l1_events_name, ops_l1_inferred_name, ops_l1_stats_name,
+                ops_l2_events_transform, ops_l2_inferred_transform, ops_l2_stats_transform,
+                enable_l2
+            ) VALUES (
+                '444444444444', 'ops/dp/private/otherCo/aws-us-east-1-c1', 'dp.other', '{c2VjcmV0}',
+                'broker.dp.other', 'reactor.dp.other',
+                'ops/tasks/private/other/logs', 'ops/tasks/private/other/stats',
+                'ops/rollups/L1/private/other/events',
+                'ops/rollups/L1/private/other/inferred',
+                'ops/rollups/L1/private/other/stats',
+                'from.dp.other', 'from.dp.other', 'from.dp.other',
+                true
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // The spec lists the second public plane first, so the assertion below
+        // shows the resolver preserves spec order rather than sorting by name.
+        // It also names a plane alice cannot read and one that does not exist.
+        let spec = crate::TextJson(models::StorageDef {
+            data_planes: vec![
+                "ops/dp/public/gcp-us-central1-c2".to_string(),
+                "ops/dp/public/aws-us-west-2-c1".to_string(),
+                "ops/dp/private/otherCo/aws-us-east-1-c1".to_string(),
+                "ops/dp/public/aws-eu-west-1-c9".to_string(),
+            ],
+            stores: vec![models::Store::example()],
+        });
+        sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+            .bind("aliceCo/")
+            .bind(&spec)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                        query {
+                            storageMappings {
+                                edges {
+                                    node {
+                                        catalogPrefix
+                                        spec
+                                        dataPlanes {
+                                            name
+                                            cloudProvider
+                                            region
+                                            isPublic
+                                            userCapability
+                                            cidrBlocks
+                                            awsIamUserArn
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    "#,
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            response.get("errors").is_none(),
+            "unexpected errors: {response}"
+        );
+
+        // The two readable public planes resolve, in spec order, with detail
+        // fields loaded from the database. The unreadable and unknown names are
+        // dropped, so `dataPlanes` is shorter than `spec.data_planes`. Keys
+        // within each node are alphabetical because the snapshot renders a
+        // `serde_json::Value`; `name` is what carries the spec's ordering.
+        insta::assert_json_snapshot!(response["data"]["storageMappings"]["edges"][0]["node"]["dataPlanes"], @r###"
+        [
+          {
+            "awsIamUserArn": "arn:aws:iam::987654321:user/test",
+            "cidrBlocks": [
+              "172.16.0.0/12"
+            ],
+            "cloudProvider": "GCP",
+            "isPublic": true,
+            "name": "ops/dp/public/gcp-us-central1-c2",
+            "region": "us-central1",
+            "userCapability": "read"
+          },
+          {
+            "awsIamUserArn": "arn:aws:iam::123456789:user/test",
+            "cidrBlocks": [
+              "10.0.0.0/16",
+              "192.168.1.0/24"
+            ],
+            "cloudProvider": "AWS",
+            "isPublic": true,
+            "name": "ops/dp/public/aws-us-west-2-c1",
+            "region": "us-west-2",
+            "userCapability": "read"
+          }
+        ]
+        "###);
+
+        // `spec.data_planes` still reports every configured name, including the
+        // ones `dataPlanes` withholds.
+        let spec_names =
+            &response["data"]["storageMappings"]["edges"][0]["node"]["spec"]["data_planes"];
+        assert_eq!(
+            spec_names.as_array().map(Vec::len),
+            Some(4),
+            "spec should be unfiltered: {spec_names}"
+        );
     }
 }
