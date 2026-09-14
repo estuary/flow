@@ -2990,3 +2990,14 @@ any runtime work is spent.)
   pass, two on recorded rulings. libkrun v1.19.4 unpatched. Every button in
   `spike/tasks/` is green as of its last run; `env-check.sh` needs
   `spike-nginx` started to be fully green.
+
+### 2026-09-14 master: HANDOFF.md added
+
+- `spike/report/HANDOFF.md` bridges the report and CONTRACTS for a reader who
+  has not seen the spike: the architecture in a paragraph and the five design
+  changes the spike made; a keep/harden/productionize/rewrite/drop table for
+  every spike tree; the phase-2 work list by owner, each item pointing at the
+  report section or open problem it rests on, with mechanism separated from
+  policy and appetite-dependent items marked provisional; the four decisions
+  waiting on the user; how to reproduce anything. The design issue link is a
+  placeholder the user fills in. README names the three-file handoff.

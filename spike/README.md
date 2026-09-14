@@ -3,8 +3,10 @@
 Throwaway working directory for the libkrun sandbox spike. Nothing under
 `spike/` merges to master. See `PLAN.md` for what we are proving and why.
 
-**Status: complete (2026-09-14). Decision: go.** The report is
-`report/REPORT.md`; the ledger that got there is `STATUS.md`.
+**Status: complete (2026-09-14). Decision: go.** The handoff is three files:
+`report/HANDOFF.md` (read first), `report/REPORT.md` (the evidence and the
+configuration that passed), and `CONTRACTS.md` (the interfaces phase 2
+inherits). The ledger that got there is `STATUS.md`.
 
 ## Layout
 
