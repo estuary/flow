@@ -364,7 +364,7 @@ impl Envelope {
                 *user_id,
                 prefix.into(),
                 capability.into(),
-                models::authz::CapabilityMask::ALL_CAPABILITIES,
+                self.capability_mask,
             ),
             *user_id,
             user_email.to_string(),
@@ -387,7 +387,7 @@ impl Envelope {
                 user_id,
                 "estuary_support/",
                 models::Capability::Admin,
-                models::authz::CapabilityMask::ALL_CAPABILITIES,
+                self.capability_mask,
             );
 
             if !has_support_access {
