@@ -421,6 +421,37 @@ pub struct NodeRef<'a> {
     pub legacy: models::Capability,
 }
 
+/// AuthScope is a ceiling placed on a subject's authority.
+///
+/// Every authorization answer derived with a scope intersects the subject's own
+/// capabilities at a name with the capabilities the scope confers there, so a
+/// scope can only remove authority and never add it. This makes a scope safe to
+/// carry in a bearer token: a stale scope cannot over-authorize, and the grant
+/// tables remain the sole source of what the subject may do.
+///
+/// A scope's reach follows the grant graph rather than the literal prefix. It
+/// covers the prefix itself at full capabilities, plus every prefix that prefix
+/// reaches through `role_grants` — so a role grant `acmeCo/ -> sharedCo/` puts
+/// `sharedCo/` inside a scope of `acmeCo/`, at whatever capabilities that edge
+/// carries. Two tenants with no role grant between them can never appear in one
+/// another's scope.
+///
+/// [`AuthScope::resolve`] and [`AuthScope::unscoped`] are the only
+/// constructors, which makes every deliberately unscoped authorization visible
+/// at its call site.
+pub struct AuthScope<'a> {
+    /// Maps each prefix the scope reaches to the capabilities it confers there.
+    /// `None` is the unscoped case and confers everything everywhere.
+    ///
+    /// Set together with `prefix` by the two constructors: both are `None` when
+    /// unscoped and both are `Some` when scoped.
+    reach: Option<
+        std::collections::BTreeMap<&'a str, (models::authz::CapabilitySet, models::Capability)>,
+    >,
+    /// The prefix this scope was resolved from, for error messages.
+    prefix: Option<&'a str>,
+}
+
 /// Attempts to parse a catalog type and name from a URL in the form of:
 /// `flow://<catalog-type>/<catalog-name>`. Returns None if the URL doesn't
 /// have a valid `CatalogType`, or if the scheme doesn't match.
