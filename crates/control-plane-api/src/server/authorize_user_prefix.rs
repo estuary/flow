@@ -19,13 +19,7 @@ pub async fn authorize_user_prefix(
             tokens::DateTime::from_timestamp_secs(1 + started_unix as i64).unwrap_or_default();
     }
 
-    let policy_result = evaluate_authorization(
-        env.snapshot(),
-        env.claims()?,
-        &prefix,
-        &data_plane,
-        capability,
-    );
+    let policy_result = evaluate_authorization(&env, &prefix, &data_plane, capability);
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
     let (
@@ -60,8 +54,7 @@ pub async fn authorize_user_prefix(
 }
 
 fn evaluate_authorization(
-    snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
+    env: &crate::Envelope,
     prefix: &models::Prefix,
     data_plane_name: &models::Name,
     capability: models::Capability,
@@ -75,46 +68,26 @@ fn evaluate_authorization(
         String,                // Reactor address.
     ),
 )> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        *user_id,
-        prefix,
-        capability,
-    ) {
+    let (is_authorized, user_id, user_email) =
+        env.user_is_authorized_for(prefix.as_str(), capability)?;
+    if !is_authorized {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {prefix} for {capability:?}",
         )));
     }
 
-    // For admin capability, require that the user has a transitive role grant to estuary_support/
-    if capability == models::Capability::Admin {
-        let has_support_access = tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            *user_id,
-            "estuary_support/",
-            models::Capability::Admin,
-        );
-
-        if !has_support_access {
-            return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to {prefix} for Admin capability (requires estuary_support/ grant)",
-            )));
-        }
+    if !env.verify_estuary_support(user_id, capability) {
+        return Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not authorized to {prefix} for Admin capability (requires estuary_support/ grant)",
+        )));
     }
+
+    let snapshot = env.snapshot();
 
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        *user_id,
+        user_id,
         data_plane_name,
         models::Capability::Read,
     ) {
@@ -185,15 +158,16 @@ fn evaluate_authorization(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_success_one() {
+    #[tokio::test]
+    async fn test_success_one() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -266,15 +240,16 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_success_two() {
+    #[tokio::test]
+    async fn test_success_two() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -347,15 +322,16 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_not_authorized_to_prefix() {
+    #[tokio::test]
+    async fn test_not_authorized_to_prefix() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/whoosh/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Write,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -367,15 +343,16 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_not_authorized_to_data_plane() {
+    #[tokio::test]
+    async fn test_not_authorized_to_data_plane() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/private/something"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -387,15 +364,16 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_data_plane_not_found() {
+    #[tokio::test]
+    async fn test_data_plane_not_found() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-missing"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -407,15 +385,16 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_capability_too_high() {
+    #[tokio::test]
+    async fn test_capability_too_high() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Write,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -427,8 +406,8 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_bob_cannot_get_admin_even_with_admin_grant() {
+    #[tokio::test]
+    async fn test_bob_cannot_get_admin_even_with_admin_grant() {
         // bob@bob has admin capability on bobCo/tires/ but lacks estuary_support/
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
@@ -436,7 +415,8 @@ mod tests {
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Admin,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -448,8 +428,8 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_admin_with_estuary_support_grant() {
+    #[tokio::test]
+    async fn test_admin_with_estuary_support_grant() {
         // alice@alice has estuary_support/ grant and can get admin capability
         let outcome = run(
             uuid::Uuid::from_bytes([64; 16]),
@@ -457,7 +437,8 @@ mod tests {
             models::Prefix::new("aliceCo/"),
             models::Name::new("ops/dp/public/plane-two"),
             models::Capability::Admin,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -536,24 +517,23 @@ mod tests {
         Err { status: u16, error: String },
     }
 
-    fn run(
+    async fn run(
         user_id: uuid::Uuid,
         email: Option<String>,
         prefix: models::Prefix,
         data_plane: models::Name,
         capability: models::Capability,
     ) -> Outcome {
-        let snapshot = crate::Snapshot::build_fixture(None);
-        let claims = models::authorizations::ControlClaims {
-            aud: "authenticated".to_string(),
-            iat: 0,
-            exp: 0,
-            sub: user_id,
-            role: "authenticated".to_string(),
-            email,
-        };
+        // The policy is pure over the Snapshot and claims, so `started` is
+        // irrelevant here: no outcome handling runs against it.
+        let env = test_server::envelope(
+            crate::Snapshot::build_fixture(None),
+            test_server::verified_control_claims(user_id, email),
+            tokens::DateTime::UNIX_EPOCH,
+        )
+        .await;
 
-        match evaluate_authorization(&snapshot, &claims, &prefix, &data_plane, capability) {
+        match evaluate_authorization(&env, &prefix, &data_plane, capability) {
             Ok((
                 _cordon_at,
                 (_key, mut broker_claims, broker_address, mut reactor_claims, reactor_address),

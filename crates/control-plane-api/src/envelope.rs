@@ -319,6 +319,58 @@ impl Envelope {
         self.user_authorization_outcome(policy_result).await
     }
 
+    /// checks if a user is authorized for a given prefix and returns enough
+    /// info to compose an error message if they aren't.
+    pub fn user_is_authorized_for<'a>(
+        &self,
+        prefix: impl Into<&'a str>,
+        capability: impl Into<models::authz::CapabilitySet>,
+    ) -> tonic::Result<(bool, uuid::Uuid, String)> {
+        let models::authorizations::ControlClaims {
+            sub: user_id,
+            email: user_email,
+            ..
+        } = self.claims()?;
+        let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+        let snapshot = self.snapshot();
+        Ok((
+            tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                *user_id,
+                prefix.into(),
+                capability.into(),
+            ),
+            *user_id,
+            user_email.to_string(),
+        ))
+    }
+
+    /// This returns false in the event that we are unable to verify if the user
+    /// has estuary support required based on the required capability.
+    pub fn verify_estuary_support(
+        &self,
+        user_id: uuid::Uuid,
+        capability: models::Capability,
+    ) -> bool {
+        let snapshot = self.snapshot();
+        // For admin capability, require that the user has a transitive role grant to estuary_support/
+        if capability == models::Capability::Admin {
+            let has_support_access = tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                "estuary_support/",
+                models::Capability::Admin,
+            );
+
+            if !has_support_access {
+                return false;
+            }
+        }
+        true
+    }
+
     /// The pure policy half of [`Self::verify_storage_mapping_authorization`].
     /// Returns a policy result shaped for [`Self::authorization_outcome`].
     fn evaluate_storage_mapping_authorization(
@@ -487,62 +539,19 @@ mod tests {
 
     const USER: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
-    /// Verified claims for `USER`. `Verified` can only come out of
-    /// `tokens::jwt::verify`, so the claims take a sign-then-verify round trip
-    /// through a throwaway secret.
+    /// Verified claims for `USER`.
     fn verified_claims() -> MaybeControlClaims {
-        // The verifier skims claims as i64, so `exp` must stay within range.
-        let now = tokens::now();
-        let claims = models::authorizations::ControlClaims {
-            iat: now.timestamp() as u64,
-            exp: (now + chrono::TimeDelta::hours(1)).timestamp() as u64,
-            sub: USER,
-            role: "authenticated".to_string(),
-            aud: "authenticated".to_string(),
-            email: Some("user@example.test".to_string()),
-        };
-        let secret = b"envelope-test-secret";
-        let token = jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &jsonwebtoken::EncodingKey::from_secret(secret),
-        )
-        .unwrap();
-        let verified = tokens::jwt::verify::<crate::ControlClaims>(
-            token.as_bytes(),
-            0,
-            &[jsonwebtoken::DecodingKey::from_secret(secret)],
-        )
-        .unwrap();
-        MaybeControlClaims::with_verified(verified)
+        crate::test_server::verified_control_claims(USER, Some("user@example.test".to_string()))
     }
 
-    /// Build an Envelope over `snapshot` as a request would carry it.
-    ///
-    /// The Snapshot is stamped as taken now. Whether a denial is terminal or
-    /// provisional then hinges on `started`: a request started before `taken`
-    /// sees a terminal denial, while one started after it takes the provisional
-    /// refresh-and-retry path. `retry_after` is left at the epoch so that path
-    /// returns `AuthZRetry` immediately instead of awaiting a refresh which the
-    /// fixed watch never delivers.
+    /// Build an Envelope over `snapshot`. See `test_server::envelope` for how
+    /// `started` selects between terminal and provisional denials.
     async fn envelope_for_test(
-        mut snapshot: crate::Snapshot,
+        snapshot: crate::Snapshot,
         maybe_claims: MaybeControlClaims,
         started: tokens::DateTime,
     ) -> Envelope {
-        snapshot.taken = tokens::now();
-        let refresh = tokens::fixed(Ok(snapshot)).ready_owned().await.token();
-
-        Envelope {
-            original_uri: axum::http::Uri::from_static("/test"),
-            maybe_claims,
-            retry_after: tokens::DateTime::UNIX_EPOCH,
-            refresh,
-            started,
-            started_set: false,
-            pg_pool: sqlx::PgPool::connect_lazy("postgres://unused.invalid/unused").unwrap(),
-            locale: Locale::EnUS,
-        }
+        crate::test_server::envelope(snapshot, maybe_claims, started).await
     }
 
     /// An authenticated Envelope whose denials are terminal.

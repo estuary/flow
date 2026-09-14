@@ -18,7 +18,7 @@ pub async fn authorize_user_task(
             tokens::DateTime::from_timestamp_secs(1 + started_unix as i64).unwrap_or_default();
     }
 
-    let policy_result = evaluate_authorization(env.snapshot(), env.claims()?, &task, capability);
+    let policy_result = evaluate_authorization(&env, &task, capability);
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
     let (
@@ -65,8 +65,7 @@ pub async fn authorize_user_task(
 }
 
 fn evaluate_authorization(
-    snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
+    env: &crate::Envelope,
     task_name: &models::Name,
     capability: models::Capability,
 ) -> tonic::Result<(
@@ -82,41 +81,21 @@ fn evaluate_authorization(
         String,                // Shard ID prefix.
     ),
 )> {
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        *user_id,
-        task_name,
-        capability,
-    ) {
+    let (is_authorized, user_id, user_email) =
+        env.user_is_authorized_for(task_name.as_str(), capability)?;
+    if !is_authorized {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {task_name} for {capability:?}",
         )));
     }
 
-    // For admin capability, require that the user has a transitive role grant to estuary_support/
-    if capability == models::Capability::Admin {
-        let has_support_access = tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            *user_id,
-            "estuary_support/",
-            models::Capability::Admin,
-        );
-
-        if !has_support_access {
-            return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
-            )));
-        }
+    if !env.verify_estuary_support(user_id, capability) {
+        return Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
+        )));
     }
+
+    let snapshot = env.snapshot();
 
     let Some(task) = snapshot.task_by_catalog_name(task_name) else {
         return Err(tonic::Status::not_found(format!(
@@ -201,14 +180,15 @@ fn evaluate_authorization(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_success() {
+    #[tokio::test]
+    async fn test_success() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -262,14 +242,15 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_not_authorized() {
+    #[tokio::test]
+    async fn test_not_authorized() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("acmeCo/other/thing"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -281,14 +262,15 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_capability_too_high() {
+    #[tokio::test]
+    async fn test_capability_too_high() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
             models::Capability::Admin,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -300,14 +282,15 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_not_found() {
+    #[tokio::test]
+    async fn test_not_found() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/not/found"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -319,14 +302,15 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_cordon() {
+    #[tokio::test]
+    async fn test_cordon() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/materialize-mango"),
             models::Capability::Read,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -380,8 +364,8 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_bob_cannot_get_admin_even_with_admin_grant() {
+    #[tokio::test]
+    async fn test_bob_cannot_get_admin_even_with_admin_grant() {
         // bob@bob has admin capability on bobCo/tires/ but lacks estuary_support/
         // We need to add a task under bobCo/tires/ to the fixture for this test
         let outcome = run(
@@ -389,7 +373,8 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/tires/materialize-wheels"),
             models::Capability::Admin,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -401,15 +386,16 @@ mod tests {
         "###);
     }
 
-    #[test]
-    fn test_admin_with_estuary_support_grant() {
+    #[tokio::test]
+    async fn test_admin_with_estuary_support_grant() {
         // alice@alice has estuary_support/ grant in the fixture, so admin should succeed
         let outcome = run(
             uuid::Uuid::from_bytes([64; 16]),
             Some("alice@alice".to_string()),
             models::Name::new("aliceCo/wonderland/materialize-tea"),
             models::Capability::Admin,
-        );
+        )
+        .await;
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
@@ -484,23 +470,22 @@ mod tests {
         },
     }
 
-    fn run(
+    async fn run(
         user_id: uuid::Uuid,
         email: Option<String>,
         task: models::Name,
         capability: models::Capability,
     ) -> Outcome {
-        let snapshot = crate::Snapshot::build_fixture(None);
-        let claims = models::authorizations::ControlClaims {
-            aud: "authenticated".to_string(),
-            iat: 0,
-            exp: 0,
-            sub: user_id,
-            role: "authenticated".to_string(),
-            email,
-        };
+        // The policy is pure over the Snapshot and claims, so `started` is
+        // irrelevant here: no outcome handling runs against it.
+        let env = test_server::envelope(
+            crate::Snapshot::build_fixture(None),
+            test_server::verified_control_claims(user_id, email),
+            tokens::DateTime::UNIX_EPOCH,
+        )
+        .await;
 
-        match evaluate_authorization(&snapshot, &claims, &task, capability) {
+        match evaluate_authorization(&env, &task, capability) {
             Ok((
                 cordon_at,
                 (
