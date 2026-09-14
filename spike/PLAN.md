@@ -632,3 +632,12 @@ redesign it forces rather than declaring a no-go:
 - Experiment 3 or 4 fails: something about connector-init, the codec, or
   Python inside the guest is wrong. Fix and rerun; if the fix requires a
   libkrun change, that is a no-go on libkrun and the report says so.
+
+Decision taken (WP12, `spike/report/REPORT.md`, written at `bf8355ecd68`):
+**go**. Every gate passes; two closed on a recorded ruling (experiment 5 at
+2.12x on the block image, experiment 13's panic half reworded to prompt exit
+with the exit code recorded, not gated). No libkrun change is on the critical
+path and libkrun is unpatched. The one redesign the spike forced, dependency
+sets as per-tag read-only block images, is measured and folded into the
+design. Seventeen open problems with owners; the only one without a
+resolution path inside this repo is AWS, which PLAN put out of scope.

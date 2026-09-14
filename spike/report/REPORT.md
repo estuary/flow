@@ -666,8 +666,8 @@ host RAM divided by the per-guest cost.
 medians within 0.1 MiB), and every `-nothp` cell in experiment 5 is within noise
 of its pair (`f6498560dea`). THP on does widen the tail - one helper reached
 90.9 MiB against 75.5 MiB with THP off - which is huge pages rounding up, not a
-leak. Nothing
-argues for setting `PR_SET_THP_DISABLE` and nothing argues against it, so
+leak. Nothing argues for setting `PR_SET_THP_DISABLE` and nothing argues
+against it, so
 **`--thp-disable` does not ship**. It stays in the spike shim as a
 measurement-only flag.
 
@@ -817,8 +817,8 @@ guest root, **T3** guest kernel control.
    the runtime learns of the death from the socket, measured at under half a
    second (`0c68f442cf1`) - but the reactor records "connector exited 0" for a
    guest that ran out of memory, and the kernel's explanation went to the
-   helper's stdout,
-   unstructured. The runtime must not branch on the helper's exit code at all:
+   helper's stdout, unstructured. The runtime must not branch on the helper's
+   exit code at all:
    it is the guest workload's exit status and nothing more. **Proposed fix:** the
    shim already tees the console, so a line matching `Kernel panic` seen before
    `krun_start_enter` returns should produce one structured stderr line and a
@@ -961,8 +961,9 @@ follows is what the read did turn up.
 17. **AWS.** The current AWS reactor instance family exposes no `/dev/kvm`
     (Nitro non-metal), so none of this was or could be validated there. The whole
     spike is GCP. AWS gets validated separately once this works on GCP, and the
-    instance-family question is unanswered. Owner: unassigned; it needs deciding
-    before this ships anywhere but GCP.
+    instance-family question is unanswered. Owner: runtime to drive, with ops
+    for the instance family and images; it needs deciding before this ships
+    anywhere but GCP.
 
 ### Levers identified and deliberately not pulled
 

@@ -254,6 +254,10 @@ if await_container "$id"; then
     else
         fail "helper: no 'table inet flow_sandbox' in nft list ruleset"
     fi
+    # Asserted once, safely, only because the shim runs net::create_tap() before
+    # net::load_egress() (shim/src/main.rs): the table above appearing implies
+    # the tap and its address already exist. Reorder the shim and this needs a
+    # poll of its own.
     if sudo podman exec "$id" ip -4 addr show tap0 2>/dev/null | grep -q 'inet 192.0.2.1/30'; then
         ok "helper: tap0 is 192.0.2.1/30"
     else

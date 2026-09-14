@@ -3,6 +3,9 @@
 Throwaway working directory for the libkrun sandbox spike. Nothing under
 `spike/` merges to master. See `PLAN.md` for what we are proving and why.
 
+**Status: complete (2026-09-14). Decision: go.** The report is
+`report/REPORT.md`; the ledger that got there is `STATUS.md`.
+
 ## Layout
 
 - `PLAN.md`        the agreed plan: environment, thing under test, experiments,
