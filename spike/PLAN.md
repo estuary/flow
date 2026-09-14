@@ -350,6 +350,14 @@ time, helper CPU and RSS at start and end, and the vCPU count used. No
 userspace proxy is in this path, so this is a sanity check on the tap and
 virtio-net, not a go/no-go.
 
+Result (WP09, `spike/report/exp9.md`): 30,000 new TCP+TLS connections at
+50/s for ten minutes, zero failures, every ten-second window at exactly
+50.00/s; p50 2.9 ms per connection on the guest's clock. The helper cost
+15.2% of one core (2 vcpus configured) and 95 MiB, flat within 2 MiB after
+the first minute; threads 12 to 14 and never more. Not a ceiling: 50/s was
+the sanity check and the path carried it without strain. conntrack held
+~6,000 TIME_WAIT entries at default sizing.
+
 ### 10. Density (measure)
 
 Boot idle derive-python guests with `memoryMib: 512` until host memory
@@ -359,9 +367,29 @@ host memory delta, and whether free-page reporting reclaims after the guest
 drops its page cache. Note that virtiofs page cache is charged to the
 helper's cgroup and is reclaimable, so read `memory.current` accordingly.
 Derive the cgroup overhead constant (helper `memory.current` minus guest
-touched RAM) that the launcher adds to `memoryMib`. Repeat with guests each
-holding one long-lived TLS connection to nginx. Run once with THP on and
-once off. No gate; the numbers inform `resources` defaults.
+touched RAM, where touched is `MemTotal - MemFree`: `MemAvailable` counts the
+guest's own page cache as free while the host still backs it, and gives a
+constant near zero or negative) that the launcher adds to `memoryMib`. Repeat
+with guests each holding one long-lived TLS connection to nginx. Run once
+with THP on and once off. No gate; the numbers inform `resources` defaults.
+
+Result (WP09, `spike/report/exp10.md`): 82 idle 512 MiB guests before
+`MemAvailable` crossed 20% on a box with ~2.9 GiB already taken by an editor;
+95 MiB of host memory per guest, of which 72.6 MiB is inside the helper's
+cgroup and ~22 MiB is the netns, podman's bookkeeping and host page tables.
+The 82nd guest cost what the first did: density is linear. 13 threads per
+helper in every arm. A held TLS connection adds ~5 MiB. THP: no difference
+(95.2 vs 94.6 MiB); `--thp-disable` is not worth carrying. Free-page
+reporting returns memory promptly: 493 of 512 MiB back within one 5 s sample
+of `drop_caches`. The overhead constant is 20 to 32 MiB, the same at 512 and
+1024 MiB and no larger when the guest is 80% full, so it is a constant. The
+launcher's 256 is ~8x that; 64 (twice the worst case) is what the
+measurement supports. The default stays 256 in the spike: the cgroup limit
+also bounds the host page cache the helper is charged for (the reclaimable
+`file` term, 535 MiB in the reclaim arm), so a tighter limit trades
+throughput, and experiment 5's import numbers were all taken at 256.
+Adopting 64 is a phase-2 item that starts with rerunning experiment 5 at
+`memoryMib + 64`.
 
 ### 11. Storage behavior (gate)
 
@@ -486,7 +514,11 @@ One document containing:
 - A pass/fail line per gate with a one-sentence note where it matters.
 - The exact `podman run` flags, the nftables ruleset, the libkrun call
   sequence, and the mkfs options that passed, so phase 2 starts from them.
-- The measured cgroup overhead constant and the THP result.
+- The measured cgroup overhead constant and the THP result: 20 to 32 MiB,
+  a constant; the launcher default stays 256 until experiment 5 is rerun at
+  `memoryMib + 64`; THP makes no difference and `--thp-disable` does not
+  ship. Host cost per idle 512 MiB guest is 95 MiB, and that is the number
+  a reactor sizes with, not the cgroup's 72.6.
 - Anything that only worked from a root shell on the host.
 - Open problems found along the way, each with a proposed owner. Use
   WP11's tiering when stating any exposure: T1 unprivileged guest
@@ -561,6 +593,18 @@ One document containing:
   - A derivation module that prints to stdout kills its session, since
     stdout is the protocol channel. Owner: derive-python (redirect or
     document).
+  - The memory overhead default. Measured at 20 to 32 MiB (WP09); the
+    spike's 256 is ~8x that. Lowering it to 64 also squeezes the host page
+    cache charged to the helper, which is reclaimable and so costs
+    throughput rather than correctness, but experiment 5's import times
+    were measured at 256. Rerun experiment 5 at `memoryMib + 64` before
+    adopting it. Owner: runtime.
+  - Draining many sandboxes is slow in podman, not libkrun: `podman rm -f`
+    took ~8 s per helper, serially, with 82 running (14 minutes for the
+    lot) against ~0 s for one. The shim dies at once on SIGKILL. A reactor
+    shutdown that removes connector containers one at a time meets the same
+    contention; confirm whether it does, and batch the removals if so.
+    Owner: runtime, low priority.
   - Levers not pulled: the ~290 ms guest-stderr console latency in libkrun
     (42% of sandboxed launch time, under a gate passed with 4.3 s to spare);
     guest memory first-touch (~200 ms on first import).

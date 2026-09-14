@@ -18,7 +18,7 @@ maintains the table. Newest log entries at the bottom.
 | 08 | virtiofs import matrix: experiment 5    | 03, 04       | done   | daveg/libkrun-spike | FAIL 2.88x on virtiofs; block device 0.89x; redesign -> 08b |
 | 08b| deps as read-only block image: exp 5 rerun | 08        | done   | daveg/libkrun-spike | 2146b6ba34e; 2.12x first import, 1.15x steady state; gate accepted |
 | 04b| podman writable layer, no guest overlay | 04, 08b      | done   | daveg/libkrun-spike | 981c434e5fd; unpatched libkrun; exp 5c 2.13x |
-| 09 | Churn and density: experiments 9-10     | 00, 06       | done   | daveg/libkrun-spike | 50/s held exactly, 0 failures; 82 idle guests, linear; overhead ~25 MiB not 256 |
+| 09 | Churn and density: experiments 9-10     | 00, 06       | done   | daveg/libkrun-spike | 05f02935ac5; 50/s held exactly, 0 failures; 82 idle guests, linear, 95 MiB each; overhead 20-32 MiB, default stays 256 pending exp 5 rerun at +64 |
 | 10 | Storage, exposure, crash: exp 11-13     | 06, 11       | done   | daveg/libkrun-spike | 527044b8e3f; 11 and 12 pass; 13 clean, panic exits 0 (gate reworded, open problem); rp_filter explicit; citation checker landed |
 | 11 | libkrun source read: experiment 12      | -            | done   | daveg/libkrun-spike | 36104b1ba89; gates hold; 3 T3 bugs; DAX not for production |
 | 12 | Report                                  | all          | todo   | daveg/libkrun-spike |       |
@@ -2809,3 +2809,31 @@ any runtime work is spent.)
     because they were passing-by-luck and exiting-1-by-accident respectively,
     and a spike whose buttons are its evidence should probably have the rest of
     them swept for the same two shapes in WP12.
+
+### 2026-09-14 master: WP09 accepted; the overhead default stays 256 for now
+
+- Both measurements recorded in PLAN. Experiment 9 was the sanity check PLAN
+  describes and it is answered; no ceiling run. Experiment 10's overhead
+  definition is corrected in PLAN to `MemTotal - MemFree`, with the reason
+  WP09 gave (`MemAvailable` counts the guest's page cache as free while the
+  host still backs it); the report leads with that figure and shows both.
+- The overhead default does not move in the spike. The constant is 20 to 32
+  MiB and 64 is the value the measurement supports, but the cgroup limit is
+  also the bound on the host page cache the helper is charged for, and every
+  experiment 5 import number was taken at 256. A default that trades import
+  throughput for headroom nobody measured is not "measured overhead", it is
+  a different guess. Phase-2 item with owner runtime: rerun experiment 5 at
+  `memoryMib + 64`, then adopt. CONTRACTS says so in the table.
+- `--thp-disable` is marked spike-only in CONTRACTS; PLAN's report line
+  says THP makes no difference and the flag does not ship.
+- New open problem, low priority: podman removes helpers serially at ~8 s
+  each with 82 running; a reactor drain that removes connector containers
+  one at a time meets the same contention.
+- The two button bugs WP09 found and fixed were both the kind that lie: a
+  race that was green four runs in five, and a trap abort that printed `ok`
+  and exited 1. WP12 gets a bounded sweep of `spike/tasks/*.sh` for exactly
+  those two shapes as its side item, before the report. Nothing else in the
+  scripts changes.
+- Sizing number for the report and for anyone reading it: 95 MiB of host
+  memory per idle 512 MiB guest, of which 72.6 is the cgroup; size on 95.
+- Next: WP12, the report. Last package.

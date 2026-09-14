@@ -86,7 +86,8 @@ host-side DNS fixture. Unset, the path is unchanged.
   benefit and WP11 found DAX is the only reachable path to a libkrun mapping
   overflow. Not for production.
 - `--thp-disable` calls `prctl(PR_SET_THP_DISABLE)` before starting the VM.
-  Default is THP left alone.
+  Default is THP left alone. Spike-only: WP09 measured no difference with
+  it, so it is not in the production design.
 - `--debug` tees the guest kernel console to stderr with prefix `kernel: `
   and raises libkrun's log level. Without it, kernel console goes to the
   helper's stdout only.
@@ -229,7 +230,7 @@ of TCP. Other variables, all with defaults:
 | FLOW_SANDBOX_SPIKE_HELPER_IMAGE   | localhost/flow-sandbox-helper:spike |
 | FLOW_SANDBOX_SPIKE_REACTOR_DIR    | /var/tmp/flow-spike/reactor        |
 | FLOW_SANDBOX_SPIKE_MEMORY_MIB     | 1024                               |
-| FLOW_SANDBOX_SPIKE_MEMORY_OVERHEAD_MIB | 256 (until WP09 measures)     |
+| FLOW_SANDBOX_SPIKE_MEMORY_OVERHEAD_MIB | 256. WP09 measured the constant at 20-32 MiB; 64 is the supported value, adopted only after experiment 5 is rerun at the tighter limit (PLAN experiment 10) |
 | FLOW_SANDBOX_SPIKE_VCPUS          | 2                                  |
 | FLOW_SANDBOX_SPIKE_DISK_MIB       | 4096                               |
 | FLOW_SANDBOX_SPIKE_VENV_DIR       | (empty dir under `<id>/`)          |
