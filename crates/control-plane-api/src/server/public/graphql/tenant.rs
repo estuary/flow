@@ -74,13 +74,20 @@ mod tests {
           "data": null,
           "errors": [
             {
+              "extensions": {
+                "error": "missing_capabilities",
+                "missing_capabilities": [
+                  "CatalogRead",
+                  "ViewDataPlanePrivateNetworking"
+                ]
+              },
               "locations": [
                 {
                   "column": 9,
                   "line": 1
                 }
               ],
-              "message": "PermissionDenied: token does not enable capabilities [CatalogRead, ViewDataPlanePrivateNetworking] required to access prefix or name 'aliceCo/'",
+              "message": "token does not enable capabilities [CatalogRead, ViewDataPlanePrivateNetworking] required to access prefix or name 'aliceCo/'",
               "path": [
                 "tenant"
               ]

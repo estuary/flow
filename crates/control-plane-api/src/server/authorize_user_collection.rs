@@ -61,32 +61,35 @@ fn evaluate_authorization(
     if !is_authorized {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {collection_name} for {capability:?}",
-        )));
+        ))
+        .into());
     }
 
     if !env.verify_estuary_support(user_id, capability) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {collection_name} for Admin capability (requires estuary_support/ grant)",
-        )));
+        )).into());
     }
 
     let snapshot = env.snapshot();
     let Some(collection) = snapshot.collection_by_catalog_name(collection_name) else {
-        return Err(tonic::Status::not_found(format!(
-            "collection {collection_name} is not known"
-        )));
+        return Err(
+            tonic::Status::not_found(format!("collection {collection_name} is not known")).into(),
+        );
     };
     let Some(data_plane) = snapshot.data_planes.get_by_key(&collection.data_plane_id) else {
         return Err(tonic::Status::internal(format!(
             "collection data-plane {} not found",
             collection.data_plane_id
-        )));
+        ))
+        .into());
     };
     let Some(encoding_key) = data_plane.hmac_keys.first() else {
         return Err(tonic::Status::internal(format!(
             "collection data-plane {} has no configured HMAC keys",
             data_plane.data_plane_name
-        )));
+        ))
+        .into());
     };
     let encoding_key =
         tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
@@ -368,10 +371,10 @@ mod tests {
                     Outcome::Ok((broker_address, journal_name_prefix, data_claims))
                 }
             }
-            Err(status) => Outcome::Err {
-                status: tokens::rest::grpc_status_code_to_http(status.code()),
-                error: status.message().to_string(),
-            },
+            Err(err) => {
+                let (status, error) = err.into_status_message();
+                Outcome::Err { status, error }
+            }
         }
     }
 

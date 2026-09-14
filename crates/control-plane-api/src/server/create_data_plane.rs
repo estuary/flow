@@ -370,5 +370,26 @@ mod test {
             ),
             "unexpected denial body: {text}"
         );
+
+        // A masked bearer is refused by the same gate before the walk, with
+        // the structured body, however the user's grants stand: the `ops/`
+        // admin gate needs no unmasked-only guard of its own.
+        let token = server.make_masked_access_token(alice, Some("alice@example.com"), &["Viewer"]);
+        let response = server
+            .rest_client()
+            .post("/admin/create-data-plane", &body, Some(&token))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["error"], "missing_capabilities");
+        assert!(
+            body["missing_capabilities"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("SpecEdit")),
+            "{body}"
+        );
     }
 }

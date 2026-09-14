@@ -83,6 +83,135 @@ impl AuthZRetry {
     }
 }
 
+/// Forbidden is the structured body of a definitive capability-mask denial:
+/// a `403` whose outcome is a pure function of the bearer's verified claims,
+/// so no Snapshot refresh or client retry can change it. The body is
+/// machine-readable so a client (such as an agent broker) can parse the
+/// missing capability names and mint a token which enables them.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Forbidden {
+    /// Stable machine-readable code: `missing_capabilities` when the
+    /// bearer's mask does not enable required capabilities, or
+    /// `unmasked_token_required` when the operation refuses masked bearers
+    /// outright (which no re-mint can remedy).
+    pub error: &'static str,
+    /// Human-readable description of the refusal.
+    pub message: String,
+    /// PascalCase names of capabilities which are required but not enabled
+    /// by the bearer's mask, in `Capability` declaration order. Empty for
+    /// `unmasked_token_required`.
+    pub missing_capabilities: Vec<String>,
+}
+
+impl Forbidden {
+    /// The denial for a mask which withholds `missing` bits required to
+    /// access `prefix_or_name`. The message names the withheld bits in claim
+    /// vocabulary and the target, and nothing else: it must never disclose
+    /// whether the user holds a grant there.
+    pub fn missing_capabilities(
+        missing: models::authz::CapabilitySet,
+        prefix_or_name: &str,
+    ) -> Self {
+        let missing = missing
+            .iter()
+            .map(|bit| bit.to_string())
+            .collect::<Vec<_>>();
+        Self {
+            error: "missing_capabilities",
+            message: format!(
+                "token does not enable capabilities [{}] required to access prefix or name '{prefix_or_name}'",
+                missing.join(", "),
+            ),
+            missing_capabilities: missing,
+        }
+    }
+
+    /// The mask-shortfall pre-check shared by every authorization policy
+    /// function. A non-empty shortfall is a property of the token alone: no
+    /// grant could authorize the request under this mask, so it's evaluated
+    /// before the grant walk and never consults it. An empty shortfall
+    /// defers to the walk, whose denial reads as it does for an unmasked
+    /// bearer.
+    pub fn required_covered(
+        mask: models::authz::CapabilityMask,
+        required: impl Into<models::authz::CapabilitySet>,
+        prefix_or_name: &str,
+    ) -> Result<(), Self> {
+        let required: models::authz::CapabilitySet = required.into();
+        let missing = required - mask.apply(required);
+        if missing.is_empty() {
+            return Ok(());
+        }
+        Err(Self::missing_capabilities(missing, prefix_or_name))
+    }
+
+    /// The masked-bearer refusal shared by every surface which demands a
+    /// full-authority credential, keyed on the *presence* of the
+    /// `capability_mask` claim and never its value: a mask which happens to
+    /// enable everything is still a deliberately-reduced credential.
+    pub fn require_unmasked(claims: &crate::ControlClaims) -> Result<(), Self> {
+        if claims.capability_mask.is_some() {
+            return Err(Self::unmasked_token_required());
+        }
+        Ok(())
+    }
+
+    pub fn unmasked_token_required() -> Self {
+        Self {
+            error: "unmasked_token_required",
+            message: "this operation requires a full-authority token, but the bearer token carries a capability mask".to_string(),
+            missing_capabilities: Vec::new(),
+        }
+    }
+}
+
+impl axum::response::IntoResponse for Forbidden {
+    fn into_response(self) -> axum::response::Response {
+        (axum::http::StatusCode::FORBIDDEN, axum::Json(self)).into_response()
+    }
+}
+
+/// AuthZError is the error of an authorization policy evaluation. The
+/// distinction between its variants is load-bearing for
+/// [`crate::Envelope::authorization_outcome`]: a `Retriable` denial may be
+/// provisional — the Snapshot may simply not yet reflect a recently-committed
+/// grant — and enters the refresh-and-retry machinery, while a `Definitive`
+/// denial is a pure function of the bearer's verified claims (its capability
+/// mask), which no future Snapshot can change, and fails immediately with the
+/// structured `403` body.
+#[derive(Debug)]
+pub enum AuthZError {
+    Retriable(tonic::Status),
+    Definitive(Forbidden),
+}
+
+impl From<tonic::Status> for AuthZError {
+    fn from(status: tonic::Status) -> Self {
+        Self::Retriable(status)
+    }
+}
+
+impl From<Forbidden> for AuthZError {
+    fn from(forbidden: Forbidden) -> Self {
+        Self::Definitive(forbidden)
+    }
+}
+
+#[cfg(test)]
+impl AuthZError {
+    /// Map to the (HTTP status, message) pair which handler test harnesses
+    /// snapshot as their error shape.
+    pub(crate) fn into_status_message(self) -> (u16, String) {
+        match self {
+            Self::Retriable(status) => (
+                tokens::rest::grpc_status_code_to_http(status.code()),
+                status.message().to_string(),
+            ),
+            Self::Definitive(forbidden) => (403, forbidden.message),
+        }
+    }
+}
+
 /// ApiError is the fundamental error type returned by the API.
 /// It distinguishes between a terminal Status error vs a provisional
 /// authorization failure that the client may retry.
@@ -90,6 +219,22 @@ impl AuthZRetry {
 pub enum ApiError {
     Status(tonic::Status),
     AuthZRetry(AuthZRetry),
+    /// A definitive capability-mask denial, carrying the structured `403`
+    /// body. Unlike Status denials it is never provisional: it's a pure
+    /// function of the bearer's verified claims, so no Snapshot refresh or
+    /// client retry can change the outcome.
+    Forbidden(Forbidden),
+}
+
+/// A policy error which escaped [`crate::Envelope::authorization_outcome`]
+/// is terminal as-is: a Retriable status is a plain Status response.
+impl From<AuthZError> for ApiError {
+    fn from(error: AuthZError) -> Self {
+        match error {
+            AuthZError::Retriable(status) => Self::Status(status),
+            AuthZError::Definitive(forbidden) => Self::Forbidden(forbidden),
+        }
+    }
 }
 
 impl From<sqlx::Error> for ApiError {
@@ -130,19 +275,37 @@ impl axum::response::IntoResponse for ApiError {
         match self {
             Self::Status(status) => crate::status_into_response(status),
             Self::AuthZRetry(retry) => retry.to_response(),
+            Self::Forbidden(forbidden) => forbidden.into_response(),
         }
     }
 }
 
 impl From<ApiError> for async_graphql::Error {
     fn from(api_error: ApiError) -> Self {
-        let status = match &api_error {
-            ApiError::Status(status) => status,
-            ApiError::AuthZRetry(retry) => &retry.status,
+        let mut err = match &api_error {
+            ApiError::Status(status) => {
+                Self::new(format!("{:?}: {}", status.code(), status.message()))
+            }
+            ApiError::AuthZRetry(retry) => Self::new(format!(
+                "{:?}: {}",
+                retry.status.code(),
+                retry.status.message()
+            )),
+            // Carry the structured 403 body in error extensions, so that
+            // "you need capability X" is machine-readable identically on the
+            // REST and GraphQL surfaces.
+            ApiError::Forbidden(forbidden) => {
+                let mut err = Self::new(forbidden.message.clone());
+                let mut extensions = async_graphql::ErrorExtensionValues::default();
+                extensions.set("error", forbidden.error);
+                extensions.set(
+                    "missing_capabilities",
+                    forbidden.missing_capabilities.clone(),
+                );
+                err.extensions = Some(extensions);
+                err
+            }
         };
-        let message = format!("{:?}: {}", status.code(), status.message());
-
-        let mut err = Self::new(message);
         err.source = Some(std::sync::Arc::new(api_error));
 
         err
@@ -159,6 +322,86 @@ impl aide::operation::OperationOutput for ApiError {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    /// The structured 403 body, exactly as REST clients receive it: the
+    /// machine-readable code, the message, and the withheld bits in claim
+    /// vocabulary and `Capability` declaration order.
+    #[tokio::test]
+    async fn test_forbidden_response_body() {
+        use models::authz::Capability::{CatalogRead, SpecEdit};
+
+        let forbidden = Forbidden::missing_capabilities(SpecEdit | CatalogRead, "acmeCo/thing");
+        let response = axum::response::IntoResponse::into_response(forbidden);
+        let (parts, body) = response.into_parts();
+        let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        insta::assert_snapshot!(
+            format!(
+                "{:?} {}\n{}",
+                parts.status,
+                parts.headers[axum::http::header::CONTENT_TYPE].to_str().unwrap(),
+                String::from_utf8_lossy(&body)
+            ),
+            @r#"
+        403 application/json
+        {"error":"missing_capabilities","message":"token does not enable capabilities [CatalogRead, SpecEdit] required to access prefix or name 'acmeCo/thing'","missing_capabilities":["CatalogRead","SpecEdit"]}
+        "#
+        );
+
+        insta::assert_json_snapshot!(Forbidden::unmasked_token_required(), @r#"
+        {
+          "error": "unmasked_token_required",
+          "message": "this operation requires a full-authority token, but the bearer token carries a capability mask",
+          "missing_capabilities": []
+        }
+        "#);
+    }
+
+    /// `required_covered` is a function of the mask alone, and "masked" is
+    /// the claim's presence: an empty mask and an all-enabling mask are both
+    /// refused by `require_unmasked`, while only the empty one fails coverage.
+    #[test]
+    fn test_forbidden_predicates() {
+        use models::authz::{Capability, CapabilityBundle, CapabilityMask};
+
+        let viewer = CapabilityMask::new(CapabilityBundle::Viewer.capabilities());
+        assert_eq!(
+            Forbidden::required_covered(viewer, Capability::CatalogRead, "acmeCo/"),
+            Ok(())
+        );
+        let forbidden =
+            Forbidden::required_covered(viewer, models::Capability::Admin, "acmeCo/").unwrap_err();
+        assert_eq!(forbidden.error, "missing_capabilities");
+        assert!(
+            forbidden
+                .missing_capabilities
+                .contains(&"SpecEdit".to_string())
+        );
+        assert!(
+            !forbidden
+                .missing_capabilities
+                .contains(&"CatalogRead".to_string())
+        );
+        assert_eq!(
+            Forbidden::required_covered(
+                CapabilityMask::ALL_CAPABILITIES,
+                models::Capability::Admin,
+                "acmeCo/"
+            ),
+            Ok(())
+        );
+
+        let claims =
+            |mask| crate::test_server::control_claims(crate::test_server::ALICE, None, mask);
+        assert_eq!(Forbidden::require_unmasked(&claims(None)), Ok(()));
+        assert_eq!(
+            Forbidden::require_unmasked(&claims(Some(vec![]))),
+            Err(Forbidden::unmasked_token_required())
+        );
+        assert_eq!(
+            Forbidden::require_unmasked(&claims(Some(vec!["Admin".to_string()]))),
+            Err(Forbidden::unmasked_token_required())
+        );
+    }
 
     #[tokio::test]
     async fn test_authz_retry_to_response() {
