@@ -1,5 +1,12 @@
 use itertools::{EitherOrBoth, Itertools};
 
+/// Status is persisted inside `internal.tasks.inner_state`, which makes it a
+/// wire format between the two data-plane-controller deployments: a plane moved
+/// from the dev deployment back to the primary one is resumed from state the
+/// dev build wrote. A deployment which cannot deserialize a status errors every
+/// poll and the task makes no further progress, so a plane should only be moved
+/// between deployments while `Idle`, and a newly-added variant needs to reach
+/// the primary deployment before any plane using it moves back to it.
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Status {
     Idle,
