@@ -100,6 +100,7 @@ pub(crate) async fn wake_tenant_controller(
 pub fn attach_user_capabilities<I, F, T>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
+    mask: models::authz::CapabilityMask,
     prefixes_or_names: I,
     mut attach: F,
 ) -> Vec<T>
@@ -115,7 +116,7 @@ where
                 &snapshot.user_grants,
                 claims.sub,
                 &prefix,
-                models::authz::CapabilityMask::ALL_CAPABILITIES,
+                mask,
             );
             attach(prefix, capability)
         })
@@ -364,5 +365,51 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
                 | proto_gazette::capability::APPEND
                 | proto_gazette::capability::APPLY
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::attach_user_capabilities;
+    use crate::test_server::{ALICE, control_claims, snapshot_of_grants, viewer_mask};
+    use models::Capability::{Admin, Read};
+    use models::authz::CapabilityMask;
+
+    fn claims() -> crate::ControlClaims {
+        control_claims(ALICE, None, None)
+    }
+
+    // The mask governs which names are reached at all. A name reached only
+    // through a role-grant edge drops out under a mask without `Delegate`,
+    // while a name under the direct grant keeps its literal legacy column.
+    #[test]
+    fn mask_gates_reachability_but_keeps_literal_legacy() {
+        let snapshot = snapshot_of_grants(
+            &[(ALICE, "acmeCo/", Admin)],
+            &[("acmeCo/", "sharedCo/", Read)],
+        );
+        let names = || ["acmeCo/x".to_string(), "sharedCo/y".to_string()];
+        let attach = |name, capability| Some((name, capability));
+
+        assert_eq!(
+            attach_user_capabilities(
+                &snapshot,
+                &claims(),
+                CapabilityMask::ALL_CAPABILITIES,
+                names(),
+                attach
+            ),
+            vec![
+                ("acmeCo/x".to_string(), Some(Admin)),
+                ("sharedCo/y".to_string(), Some(Read)),
+            ]
+        );
+        assert_eq!(
+            attach_user_capabilities(&snapshot, &claims(), viewer_mask(), names(), attach),
+            vec![
+                ("acmeCo/x".to_string(), Some(Admin)),
+                ("sharedCo/y".to_string(), None),
+            ]
+        );
     }
 }
