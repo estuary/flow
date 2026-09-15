@@ -102,6 +102,8 @@ impl runtime_next::ShuffleSession for FixtureFrontiers {
         // No request protocol: `recv_checkpoint` pops the next queued frontier.
     }
 
+    fn notify_caught_up(&self) {}
+
     async fn recv_checkpoint(&mut self) -> anyhow::Result<shuffle::Frontier> {
         match self.frontier_rx.recv().await {
             Some(frontier) => Ok(frontier),

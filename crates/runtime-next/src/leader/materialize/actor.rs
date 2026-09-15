@@ -124,6 +124,8 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let mut binding_bytes_behind = vec![0; self.task.binding_collection_names.len()];
         // We keep exactly one NextCheckpoint request in flight while idle.
         let mut checkpoint_requested = false;
+        // When true, CaughtUp was sent for the outstanding NextCheckpoint.
+        let mut caught_up_notified = false;
         // When true, Head should close its current open transaction ASAP.
         let mut close_requested = false;
         // Highest `CloseNow.seq` received, echoed in Synced so that a
@@ -272,6 +274,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 checkpoint_requested = true;
             }
 
+            if !caught_up_notified
+                && checkpoint_requested
+                && ready_frontier.is_none()
+                && matches!(head, fsm::Head::Idle(_))
+            {
+                session.notify_caught_up();
+                caught_up_notified = true;
+            }
+
             tokio::select! {
                 biased;
 
@@ -337,6 +348,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
                     ready_frontier = Some(frontier);
                     checkpoint_requested = false;
+                    caught_up_notified = false;
 
                     service_kit::event!(
                         tracing::Level::DEBUG,
