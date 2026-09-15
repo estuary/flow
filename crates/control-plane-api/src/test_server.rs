@@ -270,6 +270,69 @@ pub fn make_grants(
     (user_grants, role_grants)
 }
 
+/// Verified control-plane claims for `user_id`, as a request bearer would
+/// carry them. `Verified` can only come out of `tokens::jwt::verify`, so the
+/// claims take a sign-then-verify round trip through a throwaway secret.
+pub fn verified_control_claims(
+    user_id: uuid::Uuid,
+    email: Option<String>,
+) -> crate::MaybeControlClaims {
+    // The verifier checks `exp` and skims claims as i64, so it must be a
+    // future timestamp which stays within range.
+    let now = tokens::now();
+    let claims = models::authorizations::ControlClaims {
+        iat: now.timestamp() as u64,
+        exp: (now + chrono::TimeDelta::hours(1)).timestamp() as u64,
+        sub: user_id,
+        role: "authenticated".to_string(),
+        aud: "authenticated".to_string(),
+        email,
+    };
+    let secret = b"test-envelope-secret";
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(secret),
+    )
+    .unwrap();
+    let verified = tokens::jwt::verify::<crate::ControlClaims>(
+        token.as_bytes(),
+        0,
+        &[jsonwebtoken::DecodingKey::from_secret(secret)],
+    )
+    .unwrap();
+    crate::MaybeControlClaims::with_verified(verified)
+}
+
+/// Build an Envelope over `snapshot` as a request would carry it, for tests
+/// which exercise policy or outcome logic without an HTTP server.
+///
+/// The Snapshot is stamped as taken now. Whether a denial is terminal or
+/// provisional then hinges on `started`: a request started before `taken`
+/// sees a terminal denial, while one started after it takes the provisional
+/// refresh-and-retry path. `retry_after` is left at the epoch so that path
+/// returns `AuthZRetry` immediately instead of awaiting a refresh which the
+/// fixed watch never delivers.
+pub async fn envelope(
+    mut snapshot: Snapshot,
+    maybe_claims: crate::MaybeControlClaims,
+    started: tokens::DateTime,
+) -> crate::Envelope {
+    snapshot.taken = tokens::now();
+    let refresh = tokens::fixed(Ok(snapshot)).ready_owned().await.token();
+
+    crate::Envelope {
+        original_uri: axum::http::Uri::from_static("/test"),
+        maybe_claims,
+        retry_after: tokens::DateTime::UNIX_EPOCH,
+        refresh,
+        started,
+        started_set: false,
+        pg_pool: sqlx::PgPool::connect_lazy("postgres://unused.invalid/unused").unwrap(),
+        locale: crate::Locale::EnUS,
+    }
+}
+
 /// Build a Snapshot holding only the given user and role grants.
 pub fn snapshot_of_grants(
     user_grants: &[(uuid::Uuid, &str, models::Capability)],

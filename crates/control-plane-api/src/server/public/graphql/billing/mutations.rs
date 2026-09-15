@@ -1,5 +1,4 @@
 use super::super::tenant::validate_tenant_name;
-use super::super::verify_authorization;
 use super::billing_provider;
 use super::contact::{self, BillingAddress, BillingAddressInput, BillingContact};
 use super::payment_methods::PaymentMethod;
@@ -39,7 +38,8 @@ impl BillingMutation {
     ) -> Result<CreateBillingSetupIntentPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        env.verify_authorization(tenant.as_str(), models::authz::Capability::EditBilling)
+            .await?;
 
         let claims = env.claims()?;
         let user_email = claims
@@ -95,7 +95,8 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        env.verify_authorization(tenant.as_str(), models::authz::Capability::EditBilling)
+            .await?;
 
         let provider = billing_provider(ctx)?;
         let customer = provider
@@ -131,7 +132,8 @@ impl BillingMutation {
     ) -> Result<SetBillingContactPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        env.verify_authorization(tenant.as_str(), models::authz::Capability::EditBilling)
+            .await?;
 
         if !email.contains('@') || email.len() > 512 {
             return Err(async_graphql::Error::new(
@@ -167,7 +169,8 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        env.verify_authorization(tenant.as_str(), models::authz::Capability::EditBilling)
+            .await?;
 
         let provider = billing_provider(ctx)?;
         let customer = provider

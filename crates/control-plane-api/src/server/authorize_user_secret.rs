@@ -24,15 +24,11 @@ pub async fn authorize_user_secret(
         return Err(tonic::Status::invalid_argument("`started` is a required parameter").into());
     }
 
-    let policy_result = super::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        models::authz::Capability::DecryptSecret,
-        [name.as_str()],
-    );
-
-    match env.authorization_outcome(policy_result).await {
-        Ok((_expiry, ())) => (),
+    match env
+        .verify_authorization(name.as_str(), models::authz::Capability::DecryptSecret)
+        .await
+    {
+        Ok(_) => (),
         Err(crate::ApiError::AuthZRetry(retry)) => {
             return Ok(axum::Json(Response {
                 retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,

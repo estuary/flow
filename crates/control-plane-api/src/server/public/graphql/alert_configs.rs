@@ -215,7 +215,6 @@ impl AlertConfigsQuery {
         catalog_prefix_or_name: String,
     ) -> async_graphql::Result<EffectiveAlertConfig> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
 
         validate_prefix_or_name(&catalog_prefix_or_name)?;
 
@@ -223,13 +222,11 @@ impl AlertConfigsQuery {
         // that scope. Ancestor layers merged into the result are visible to
         // anyone who can read the scope, matching the `effective` field on
         // AlertConfigEntry and `effectiveAlertConfig` on liveSpec.
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            claims,
+        env.verify_authorization(
+            catalog_prefix_or_name.as_str(),
             models::authz::Capability::CatalogRead,
-            [catalog_prefix_or_name.as_str()],
-        );
-        env.authorization_outcome(policy_result).await?;
+        )
+        .await?;
 
         resolve_effective_alert_config(ctx, &catalog_prefix_or_name).await
     }
@@ -267,13 +264,8 @@ impl AlertConfigsMutation {
         validate_prefix_or_name(&catalog_prefix_or_name)?;
 
         let gov = governing_prefix(&catalog_prefix_or_name)?;
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            claims,
-            models::Capability::Admin,
-            [gov.as_str()],
-        );
-        env.authorization_outcome(policy_result).await?;
+        env.verify_authorization(gov.as_str(), models::Capability::Admin)
+            .await?;
 
         if !catalog_prefix_or_name.ends_with('/') {
             let exists: bool = sqlx::query_scalar(

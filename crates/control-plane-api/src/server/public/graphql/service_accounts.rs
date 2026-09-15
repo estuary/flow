@@ -216,8 +216,7 @@ impl ServiceAccountsMutation {
         // Creating the account (here, under this anchor) requires
         // CreateServiceAccount on the catalog name. This is deliberately
         // narrower than full Admin.
-        super::verify_authorization(
-            env,
+        env.verify_authorization(
             catalog_name.as_str(),
             models::authz::Capability::CreateServiceAccount,
         )
@@ -246,8 +245,7 @@ impl ServiceAccountsMutation {
         // when it migrates to GraphQL it should gate on this same CreateGrant
         // capability.)
         for grant in &grants {
-            super::verify_authorization(
-                env,
+            env.verify_authorization(
                 grant.prefix.as_str(),
                 models::authz::Capability::CreateGrant,
             )
@@ -349,8 +347,7 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::verify_authorization(
-            env,
+        env.verify_authorization(
             catalog_name.as_str(),
             models::authz::Capability::CreateGrant,
         )
@@ -370,7 +367,7 @@ impl ServiceAccountsMutation {
             ));
         }
 
-        super::verify_authorization(env, prefix.as_str(), models::authz::Capability::CreateGrant)
+        env.verify_authorization(prefix.as_str(), models::authz::Capability::CreateGrant)
             .await?;
 
         let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
@@ -421,8 +418,7 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::verify_authorization(
-            env,
+        env.verify_authorization(
             catalog_name.as_str(),
             models::authz::Capability::CreateServiceAccount,
         )
@@ -466,8 +462,7 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::verify_authorization(
-            env,
+        env.verify_authorization(
             catalog_name.as_str(),
             models::authz::Capability::CreateServiceAccount,
         )
@@ -511,8 +506,7 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::verify_authorization(
-            env,
+        env.verify_authorization(
             catalog_name.as_str(),
             models::authz::Capability::CreateApiKey,
         )
@@ -662,13 +656,10 @@ impl ServiceAccountsMutation {
         // authorized for learn which account owns it. Collapse denial into the
         // same "not found" error the unknown-id branch returns, so existence
         // and denial are indistinguishable.
-        super::verify_authorization(
-            env,
-            &owner.catalog_name,
-            models::authz::Capability::RevokeApiKey,
-        )
-        .await
-        .map_err(hide_denial_as_not_found)?;
+        env.verify_authorization(&owner.catalog_name, models::authz::Capability::RevokeApiKey)
+            .await
+            .map_err(|err| async_graphql::Error::from(err))
+            .map_err(hide_denial_as_not_found)?;
 
         sqlx::query!(
             "UPDATE public.refresh_tokens SET valid_for = interval '0' \
@@ -705,8 +696,7 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::verify_authorization(
-            env,
+        env.verify_authorization(
             catalog_name.as_str(),
             models::authz::Capability::RevokeApiKey,
         )

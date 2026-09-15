@@ -1,4 +1,3 @@
-use crate::AuthZResult;
 use anyhow::Context;
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::Arc;
@@ -93,47 +92,6 @@ pub(crate) async fn wake_tenant_controller(
     .execute(pool)
     .await?;
     Ok(res.rows_affected() > 0u64)
-}
-
-/// Evaluate whether the user identified by `claims` is authorized to access all
-/// of the enumerated `prefixes_or_names` with at least `min_capability`.
-/// Return a policy_result shape which fits Envelope::authorization_outcome.
-///
-/// `min_capability` accepts any value that converts into a `CapabilitySet`:
-/// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
-/// `models::authz::Capability` bit, or an explicit `CapabilitySet`.
-pub fn evaluate_names_authorization<'r, Iter, S, C>(
-    snapshot: &Snapshot,
-    claims: &crate::ControlClaims,
-    min_capability: C,
-    prefixes_or_names: Iter,
-) -> AuthZResult<()>
-where
-    Iter: IntoIterator<Item = S>,
-    S: AsRef<str> + std::fmt::Display,
-    C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
-{
-    let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-
-    for prefix_or_name in prefixes_or_names.into_iter() {
-        if !tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            *user_id,
-            prefix_or_name.as_ref(),
-            min_capability,
-        ) {
-            return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
-            )));
-        }
-    }
-    Ok((None, ()))
 }
 
 /// Looks up the user's authorization grants for each item in
@@ -405,50 +363,5 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
                 | proto_gazette::capability::APPEND
                 | proto_gazette::capability::APPLY
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_server::snapshot_of_grants;
-
-    fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
-        models::authorizations::ControlClaims {
-            iat: 0,
-            exp: u64::MAX,
-            sub: user_id,
-            role: "authenticated".to_string(),
-            aud: "authenticated".to_string(),
-            email: Some("user@example.test".to_string()),
-        }
-    }
-
-    /// The `ops/` admin gate of the /admin/* endpoints, expressed as
-    /// evaluate_names_authorization over the Snapshot's grant walk.
-    #[test]
-    fn test_evaluate_ops_admin_gate() {
-        use models::Capability::{Admin, Read};
-        let user = uuid::Uuid::from_bytes([0x11; 16]);
-        let evaluate = |snapshot: &Snapshot| {
-            evaluate_names_authorization(snapshot, &claims(user), Admin, ["ops/"])
-        };
-
-        // A direct admin grant to `ops/` is authorized.
-        let snapshot = snapshot_of_grants(&[(user, "ops/", Admin)], &[]);
-        assert!(evaluate(&snapshot).is_ok());
-
-        // Admin of an unrelated tenant is denied.
-        let snapshot = snapshot_of_grants(&[(user, "acmeCo/", Admin)], &[]);
-        let status = evaluate(&snapshot).unwrap_err();
-        assert_eq!(status.code(), tonic::Code::PermissionDenied);
-        assert_eq!(
-            status.message(),
-            "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
-        );
-
-        // A read grant to `ops/` is not admin.
-        let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
-        assert!(evaluate(&snapshot).is_err());
     }
 }
