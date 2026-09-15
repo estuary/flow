@@ -126,6 +126,11 @@ impl FlushState {
 
         Ok(Some(std::mem::take(&mut self.flushing)))
     }
+
+    /// Whether this Log still owes a Flushed response for the current cycle.
+    pub fn awaiting_flushed(&self, shard_index: usize) -> bool {
+        self.in_flight.get(shard_index).copied().unwrap_or(false)
+    }
 }
 
 /// Progress reporting state, tracking the Session's outstanding progress
@@ -184,6 +189,26 @@ impl ProgressState {
     pub fn take_progressed(&mut self) -> crate::Frontier {
         self.requested = false;
         std::mem::take(&mut self.flushed)
+    }
+
+    /// Whether flushed progress is available, regardless of a pending request.
+    pub fn has_flushed(&self) -> bool {
+        !self.flushed.journals.is_empty()
+    }
+
+    /// Whether disk back-pressure prevents this Slice from reporting more progress.
+    pub fn is_blocked(
+        &self,
+        engaged: &[bool],
+        waiting_on_log: Option<usize>,
+        flush: &FlushState,
+    ) -> bool {
+        if self.has_flushed() {
+            return false;
+        }
+        engaged.iter().enumerate().any(|(shard_index, engaged)| {
+            *engaged && (waiting_on_log == Some(shard_index) || flush.awaiting_flushed(shard_index))
+        })
     }
 }
 
@@ -1255,6 +1280,118 @@ mod test {
         s.progress.on_flush_completed(completed);
 
         insta::assert_debug_snapshot!("flush_state_machine", &s.progress.flushed);
+    }
+
+    fn flushed_progress() -> ProgressState {
+        let mut progress = ProgressState::new();
+        progress.flushed = crate::Frontier {
+            journals: vec![crate::JournalFrontier {
+                journal: "acmeCo/events/pivot=00".into(),
+                binding: 0,
+                producers: vec![crate::ProducerFrontier {
+                    producer: producer(0x01),
+                    last_commit: Clock::from_unix(100, 0),
+                    hinted_commit: Clock::from_u64(0),
+                    offset: -500,
+                }],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            }],
+            ..Default::default()
+        };
+        progress
+    }
+
+    fn flush_cycle(shard_count: usize, answered: &[usize]) -> FlushState {
+        let mut flush = FlushState::new();
+        flush.set_ready();
+        flush.start(
+            shard_count,
+            crate::Frontier {
+                flushed_lsn: vec![log::Lsn::ZERO; shard_count],
+                ..Default::default()
+            },
+        );
+        for &shard_index in answered {
+            flush
+                .on_flushed(shard_index, log::Lsn::new(1, 0))
+                .expect("Flushed of an in-flight cycle");
+        }
+        flush
+    }
+
+    #[test]
+    fn test_slice_blocked() {
+        let idle = ProgressState::new();
+        let engaged = [false, true, false];
+
+        let cases: [(&str, &[bool], Option<usize>, FlushState, &ProgressState); 8] = [
+            (
+                "no Log is engaged",
+                &[false, false, false],
+                Some(1),
+                flush_cycle(3, &[]),
+                &idle,
+            ),
+            (
+                "engaged Log, but we await a permit of another",
+                &engaged,
+                Some(0),
+                FlushState::new(),
+                &idle,
+            ),
+            (
+                "engaged Log, and we await its permit",
+                &engaged,
+                Some(1),
+                FlushState::new(),
+                &idle,
+            ),
+            (
+                "engaged Log has not answered Flushed",
+                &engaged,
+                None,
+                flush_cycle(3, &[0]),
+                &idle,
+            ),
+            (
+                "engaged Log answered Flushed; another has not",
+                &engaged,
+                None,
+                flush_cycle(3, &[1]),
+                &idle,
+            ),
+            (
+                "engaged Log, but no cycle and no permit wait",
+                &engaged,
+                None,
+                FlushState::new(),
+                &idle,
+            ),
+            (
+                "engaged Log awaits a permit, but there is flushed progress to report",
+                &engaged,
+                Some(1),
+                FlushState::new(),
+                &flushed_progress(),
+            ),
+            (
+                "engaged Log owes a Flushed, but there is flushed progress to report",
+                &engaged,
+                None,
+                flush_cycle(3, &[0]),
+                &flushed_progress(),
+            ),
+        ];
+
+        let out: Vec<(&str, bool)> = cases
+            .iter()
+            .map(|(name, engaged, waiting_on_log, flush, progress)| {
+                (*name, progress.is_blocked(engaged, *waiting_on_log, flush))
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!("slice_blocked", out);
     }
 
     #[test]

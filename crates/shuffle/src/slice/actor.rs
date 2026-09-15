@@ -58,6 +58,8 @@ pub struct SliceActor {
     pub initial_reads_started: bool,
     /// Last disk back-pressure flag reported by each Log.
     pub log_engaged: Vec<bool>,
+    /// Last Blocked value sent to the Session.
+    pub session_blocked: bool,
     /// Shard parser for transcoding documents from LinesBatch.
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
@@ -169,8 +171,9 @@ impl SliceActor {
                 "SliceActor::serve iteration"
             );
             // First, attempt non-blocking sends.
-            let wake_log_request_tx = self.try_log_request_tx(&mut buffers, &mut now)?;
-            let wake_slice_response_tx = self.try_slice_response_tx()?;
+            let (waiting_on_log, wake_log_request_tx) =
+                self.try_log_request_tx(&mut buffers, &mut now)?;
+            let wake_slice_response_tx = self.try_slice_response_tx(waiting_on_log)?;
 
             // Then, wait for a blocking future to resolve.
             tokio::select! {
@@ -737,11 +740,12 @@ impl SliceActor {
         }
     }
 
+    /// Returns the Log shard awaiting send capacity, if any, and a wake future.
     fn try_log_request_tx(
         &mut self,
         buffers: &mut Buffers,
         now: &mut uuid::Clock,
-    ) -> anyhow::Result<impl Future<Output = bool> + 'static> {
+    ) -> anyhow::Result<(Option<usize>, impl Future<Output = bool> + 'static)> {
         // Closure for mapping an OwnedPermit Result to Ok (our "poll again" signal).
         // On Err (channel closed), we don't wake and rely on rx of a causal error / fail-fast teardown.
         let ok = |result: Result<_, _>| result.is_ok();
@@ -752,8 +756,11 @@ impl SliceActor {
             // A flush cycle takes priority over sending Append requests.
             // We'll await capacity for Flushes even if the next Append shard has capacity.
             if self.flush.should_flush() {
-                if let Err(tx) = self.try_log_request_flush_tx(buffers) {
-                    return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
+                if let Err((shard_index, tx)) = self.try_log_request_flush_tx(buffers) {
+                    return Ok((
+                        Some(shard_index),
+                        future::Either::Left(tx.reserve_owned().map(ok)),
+                    ));
                 }
             }
 
@@ -763,9 +770,12 @@ impl SliceActor {
             if let Some(replay) = self.replay.take() {
                 return match self.try_drain_replay(replay, buffers) {
                     // We require a permit to send further Appends.
-                    Ok(Some(tx)) => Ok(future::Either::Left(tx.reserve_owned().map(ok))),
+                    Ok(Some((shard_index, tx))) => Ok((
+                        Some(shard_index),
+                        future::Either::Left(tx.reserve_owned().map(ok)),
+                    )),
                     // We're awaiting further replay I/O.
-                    Ok(None) => Ok(idle),
+                    Ok(None) => Ok((None, idle)),
                     Err(err) => {
                         self.metrics.replays_stopped.increment(1);
                         Err(err)
@@ -782,7 +792,7 @@ impl SliceActor {
                 || self.tailing_reads != self.pending_reads.len()
                 || !self.pending_probes.is_empty()
             {
-                return Ok(idle);
+                return Ok((None, idle));
             }
 
             // Do we have a document ready for append?
@@ -792,7 +802,7 @@ impl SliceActor {
                 ..
             }) = self.ready_read_heap.peek()
             else {
-                return Ok(idle);
+                return Ok((None, idle));
             };
             let ready_read = ready_read.as_deref().unwrap();
 
@@ -806,9 +816,12 @@ impl SliceActor {
 
             // Gate on the adjusted clock: sleep until wall-clock time catches up.
             if let Some(wait) = state::clock_delay(adjusted_clock, now, crate::now_clock) {
-                return Ok(future::Either::Right(future::Either::Left(
-                    tokio::time::sleep(wait).map(|()| true),
-                )));
+                return Ok((
+                    None,
+                    future::Either::Right(future::Either::Left(
+                        tokio::time::sleep(wait).map(|()| true),
+                    )),
+                ));
             }
 
             let producer_state = read_state.producer_state(meta.producer);
@@ -830,7 +843,7 @@ impl SliceActor {
 
             // If this is an Append, attempt to send it to the appropriate shard(s).
             if sequenced.is_append {
-                if let Err(tx) = Self::try_log_request_append_tx(
+                if let Err((shard_index, tx)) = Self::try_log_request_append_tx(
                     binding,
                     buffers,
                     &read_state.journal,
@@ -839,7 +852,10 @@ impl SliceActor {
                     &self.log_request_tx,
                     ready_read,
                 ) {
-                    return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
+                    return Ok((
+                        Some(shard_index),
+                        future::Either::Left(tx.reserve_owned().map(ok)),
+                    ));
                 }
             }
 
@@ -959,11 +975,10 @@ impl SliceActor {
     }
 
     /// Try to send Flush requests to all log channels (all-or-nothing).
-    /// Returns `Err(tx)` with the sender that lacked capacity.
     fn try_log_request_flush_tx(
         &mut self,
         buffers: &mut Buffers,
-    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
+    ) -> Result<(), (usize, mpsc::Sender<shuffle::LogRequest>)> {
         let Buffers { permits, .. } = buffers;
 
         // Safety: `permits` is always empty on return (retaining only capacity).
@@ -971,10 +986,10 @@ impl SliceActor {
             unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
 
         // Collect permits to send to all log channels (all-or-nothing).
-        for tx in &self.log_request_tx {
+        for (shard_index, tx) in self.log_request_tx.iter().enumerate() {
             let Ok(permit) = tx.try_reserve() else {
                 permits.clear();
-                return Err(tx.clone());
+                return Err((shard_index, tx.clone()));
             };
             permits.push(permit);
         }
@@ -1007,7 +1022,6 @@ impl SliceActor {
     }
 
     /// Try to send Append requests to target log channels (all-or-nothing).
-    /// Returns `Err(tx)` with the sender that lacked capacity.
     pub(super) fn try_log_request_append_tx(
         binding: &crate::Binding,
         buffers: &mut Buffers,
@@ -1016,7 +1030,7 @@ impl SliceActor {
         log_prev_journal: &mut [String],
         log_request_tx: &[mpsc::Sender<shuffle::LogRequest>],
         ready_read: &ReadyRead,
-    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
+    ) -> Result<(), (usize, mpsc::Sender<shuffle::LogRequest>)> {
         let Buffers {
             packed_key,
             permits,
@@ -1079,7 +1093,7 @@ impl SliceActor {
         for &target in targets.iter() {
             let Ok(permit) = log_request_tx[target].try_reserve() else {
                 permits.clear();
-                return Err(log_request_tx[target].clone());
+                return Err((target, log_request_tx[target].clone()));
             };
             permits.push(permit);
         }
@@ -1122,42 +1136,66 @@ impl SliceActor {
         Ok(())
     }
 
-    fn try_slice_response_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {
+    fn try_slice_response_tx(
+        &mut self,
+        waiting_on_log: Option<usize>,
+    ) -> anyhow::Result<impl Future<Output = bool> + 'static> {
         // Future which represent an absence of an awake signal.
         let idle = future::Either::Right(std::future::ready(false));
+        let ok = |result: Result<_, _>| result.is_ok();
 
-        if !self.progress.has_progressed() {
+        if self.progress.has_progressed() {
+            // Reserve capacity *before* taking the Frontier — otherwise an absent
+            // permit would discard progress that hasn't been emitted yet.
+            let Ok(permit) = self.slice_response_tx.try_reserve() else {
+                return Ok(future::Either::Left(
+                    self.slice_response_tx.clone().reserve_owned().map(ok),
+                ));
+            };
+
+            let frontier = self.progress.take_progressed();
+            let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
+                frontier.measures();
+
+            permit.send(Ok(shuffle::SliceResponse {
+                progressed: Some(frontier.encode()),
+                ..Default::default()
+            }));
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "session",
+                bytes_behind_delta,
+                bytes_read_delta,
+                journal_producers,
+                journals,
+                "sent Progressed",
+            );
+            self.metrics
+                .bytes_read
+                .increment(bytes_read_delta.max(0) as u64);
+        }
+
+        // Recompute after sending Progressed, which may exhaust flushed progress.
+        let blocked = self
+            .progress
+            .is_blocked(&self.log_engaged, waiting_on_log, &self.flush);
+        if blocked == self.session_blocked {
             return Ok(idle);
         }
-        // Reserve capacity *before* taking the Frontier — otherwise an absent
-        // permit would discard progress that hasn't been emitted yet.
         let Ok(permit) = self.slice_response_tx.try_reserve() else {
             return Ok(future::Either::Left(
-                self.slice_response_tx.clone().reserve_owned().map(|_| true),
+                self.slice_response_tx.clone().reserve_owned().map(ok),
             ));
         };
-
-        let frontier = self.progress.take_progressed();
-        let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
-            frontier.measures();
+        self.session_blocked = blocked;
 
         permit.send(Ok(shuffle::SliceResponse {
-            progressed: Some(frontier.encode()),
+            blocked: Some(shuffle::slice_response::Blocked { blocked }),
             ..Default::default()
         }));
 
-        service_kit::event!(
-            tracing::Level::DEBUG,
-            "session",
-            bytes_behind_delta,
-            bytes_read_delta,
-            journal_producers,
-            journals,
-            "sent Progressed",
-        );
-        self.metrics
-            .bytes_read
-            .increment(bytes_read_delta.max(0) as u64);
+        service_kit::event!(tracing::Level::DEBUG, "session", blocked, "sent Blocked",);
 
         Ok(idle)
     }

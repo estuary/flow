@@ -182,7 +182,7 @@ impl SliceActor {
         &mut self,
         mut replay: Replay,
         buffers: &mut Buffers,
-    ) -> anyhow::Result<Option<mpsc::Sender<shuffle::LogRequest>>> {
+    ) -> anyhow::Result<Option<(usize, mpsc::Sender<shuffle::LogRequest>)>> {
         let read_state = &mut self.reads[replay.read_id];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
         let mut producer_state = read_state.producer_state(replay.target);
@@ -218,7 +218,7 @@ impl SliceActor {
                     );
                 }
                 if sequenced.is_append {
-                    if let Err(tx) = Self::try_log_request_append_tx(
+                    if let Err(waiting) = Self::try_log_request_append_tx(
                         binding,
                         buffers,
                         &read_state.journal,
@@ -229,7 +229,7 @@ impl SliceActor {
                     ) {
                         // Put back, await capacity, and retry.
                         replay.io = ReplayIo::Draining(ready_read);
-                        break Some(tx);
+                        break Some(waiting);
                     }
                 }
 

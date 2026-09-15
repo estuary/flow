@@ -171,6 +171,7 @@ where
         tailing_reads: 0,
         stalled_reads: Default::default(),
         initial_reads_started: false,
+        session_blocked: false,
         metrics,
     }
     .serve(slice_request_rx, log_response_rx)

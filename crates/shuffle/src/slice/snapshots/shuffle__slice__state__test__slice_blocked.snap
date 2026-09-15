@@ -1,0 +1,38 @@
+---
+source: crates/shuffle/src/slice/state.rs
+expression: out
+---
+[
+    (
+        "no Log is engaged",
+        false,
+    ),
+    (
+        "engaged Log, but we await a permit of another",
+        false,
+    ),
+    (
+        "engaged Log, and we await its permit",
+        true,
+    ),
+    (
+        "engaged Log has not answered Flushed",
+        true,
+    ),
+    (
+        "engaged Log answered Flushed; another has not",
+        false,
+    ),
+    (
+        "engaged Log, but no cycle and no permit wait",
+        false,
+    ),
+    (
+        "engaged Log awaits a permit, but there is flushed progress to report",
+        false,
+    ),
+    (
+        "engaged Log owes a Flushed, but there is flushed progress to report",
+        false,
+    ),
+]
