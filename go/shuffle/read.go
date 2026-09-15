@@ -168,7 +168,7 @@ type read struct {
 	spec      pb.JournalSpec
 
 	// Fields used to order across *read instances.
-	priority  uint32
+	priority  int32
 	readDelay message.Clock
 
 	// Fields filled when a read is start()'d.

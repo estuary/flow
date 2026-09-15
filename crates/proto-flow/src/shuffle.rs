@@ -443,9 +443,10 @@ pub mod log_request {
         /// Binding index for this document.
         #[prost(uint32, tag = "3")]
         pub binding: u32,
-        /// Priority of this binding.
-        #[prost(uint32, tag = "4")]
-        pub priority: u32,
+        /// Priority of this binding. Higher values imply higher priority,
+        /// and negative values are allowed.
+        #[prost(int32, tag = "4")]
+        pub priority: i32,
         /// Read delay of the binding, as a uuid::Clock duration.
         /// The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
         /// Zero (the common case) means no delay.

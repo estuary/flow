@@ -100,7 +100,9 @@ materializations:
         # then *all* ready documents are processed through the binding
         # before *any* documents of other bindings are processed.
         #
-        # Optional. Default: 0, integer >= 0
+        # Optional. Default: 0, integer.
+        # Negative values de-prioritize a binding relative to bindings
+        # which use the default priority of zero.
         priority: 40
 
     # A sourceCapture allows bindings to be managed automatically based on the
@@ -125,6 +127,12 @@ Set a binding's `priority` (see [Specification](#specification) above) to expres
 its relative processing order. When priorities are unequal, _all_ available
 documents of the higher-priority binding are processed before _any_ documents of
 a lower-priority binding.
+
+Priority may be negative. Since the default priority is zero, a negative
+priority de-prioritizes a single binding without having to raise the priority
+of every other binding. This is the usual way to add a binding with a large
+historical backlog: give it `priority: -1` so that it back-fills only when the
+other bindings have no ready documents.
 
 ## How continuous materialization works
 

@@ -942,10 +942,9 @@ expression: "&schema"
         },
         "priority": {
           "title": "Priority applied to documents processed by this binding.",
-          "description": "When all bindings are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one binding has a higher priority than others,\nthen *all* ready documents are processed through the binding\nbefore *any* documents of other bindings are processed.",
+          "description": "When all bindings are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one binding has a higher priority than others,\nthen *all* ready documents are processed through the binding\nbefore *any* documents of other bindings are processed.\n\nPriority may be negative, which de-prioritizes a binding with\nrespect to bindings having the default priority of zero.",
           "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+          "format": "int32"
         },
         "resource": {
           "title": "Endpoint resource to materialize into.",
@@ -1890,10 +1889,9 @@ expression: "&schema"
         },
         "priority": {
           "title": "Priority applied to documents processed by this transform.",
-          "description": "When all transforms are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one transform has a higher priority than others,\nthen *all* ready documents are processed through the transform\nbefore *any* documents of other transforms are processed.",
+          "description": "When all transforms are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one transform has a higher priority than others,\nthen *all* ready documents are processed through the transform\nbefore *any* documents of other transforms are processed.\n\nPriority may be negative, which de-prioritizes a transform with\nrespect to transforms having the default priority of zero.",
           "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+          "format": "int32"
         },
         "readDelay": {
           "title": "Delay applied to documents processed by this transform.",

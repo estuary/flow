@@ -249,8 +249,9 @@ func TestReadHeaping(t *testing.T) {
 			{Clock: 2003},
 			{Clock: 1004},
 			{Clock: 1005},
-			{Clock: 1},
 			{Clock: 2},
+			{Clock: 3},
+			{Clock: 1},
 		},
 	}
 	var h readHeap
@@ -258,11 +259,14 @@ func TestReadHeaping(t *testing.T) {
 	// priority: 1 reads have earlier clocks, which would ordinarily be preferred,
 	// but are withheld due to their lower priority.
 	// priority: 2 reads have later clocks but are read first due to their higher priority.
+	// The priority: -1 read has the earliest clock of all, but is withheld until
+	// every read of a default or greater priority is drained.
 
 	// Push reads in a mixed order.
 	for _, r := range []*read{
 		{resp: pr.IndexedShuffleResponse{Index: 3, ShuffleResponse: resp}, priority: 2, readDelay: 1000},
 		{resp: pr.IndexedShuffleResponse{Index: 7, ShuffleResponse: resp}, priority: 1, readDelay: 0},
+		{resp: pr.IndexedShuffleResponse{Index: 8, ShuffleResponse: resp}, priority: -1, readDelay: 0},
 		{resp: pr.IndexedShuffleResponse{Index: 1, ShuffleResponse: resp}, priority: 2, readDelay: 2000},
 		{resp: pr.IndexedShuffleResponse{Index: 0, ShuffleResponse: resp}, priority: 2, readDelay: 1000},
 		{resp: pr.IndexedShuffleResponse{Index: 6, ShuffleResponse: resp}, priority: 1, readDelay: 0},
@@ -274,7 +278,7 @@ func TestReadHeaping(t *testing.T) {
 	}
 
 	// Expect to pop reads in Index order, after adjusting for priority & readDelay.
-	for ind := 0; ind != 8; ind++ {
+	for ind := 0; ind != 9; ind++ {
 		require.Equal(t, ind, heap.Pop(&h).(*read).resp.Index)
 	}
 	require.Empty(t, h)

@@ -442,9 +442,11 @@ pub mod collection_spec {
             #[prost(message, optional, tag = "3")]
             pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
             /// Priority of this transform, with respect to other transforms of the derivation.
-            /// Higher values imply higher priority.
-            #[prost(uint32, tag = "4")]
-            pub priority: u32,
+            /// Higher values imply higher priority, and negative values are allowed.
+            /// `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+            /// encoding used before negative priorities were allowed.
+            #[prost(int32, tag = "4")]
+            pub priority: i32,
             /// Number of seconds for which documents of this transformed are delayed
             /// while reading, relative to other documents (when back-filling) and the
             /// present wall-clock time (when tailing).
@@ -815,9 +817,11 @@ pub mod materialization_spec {
         #[prost(message, optional, tag = "7")]
         pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
         /// Priority of this binding, with respect to other bindings of the materialization.
-        /// Higher values imply higher priority.
-        #[prost(uint32, tag = "9")]
-        pub priority: u32,
+        /// Higher values imply higher priority, and negative values are allowed.
+        /// `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+        /// encoding used before negative priorities were allowed.
+        #[prost(int32, tag = "9")]
+        pub priority: i32,
         /// Resolved fields selected for materialization.
         #[prost(message, optional, tag = "4")]
         pub field_selection: ::core::option::Option<super::FieldSelection>,
