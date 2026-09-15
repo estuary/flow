@@ -15,6 +15,7 @@ mod tokio_context;
 mod unary;
 pub mod uuid;
 
+pub use ::ops::LogHandler;
 pub use ::proto_flow::runtime::Plane; // Re-export.
 pub use container::flow_runtime_protocol;
 pub use task_service::TaskService;
@@ -108,20 +109,6 @@ fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
     s: S,
 ) -> impl futures::Stream<Item = anyhow::Result<T>> {
     s.map_err(status_to_anyhow)
-}
-
-pub trait LogHandler: Send + Sync + Clone + 'static {
-    fn log(&self, log: &ops::Log);
-
-    fn as_fn(self) -> impl Fn(&ops::Log) + Send + Sync + 'static {
-        move |log| self.log(log)
-    }
-}
-//pub trait LogHandler: Fn(&ops::Log) + Send + Sync + Clone + 'static {}
-impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
-    fn log(&self, log: &ops::Log) {
-        self(log)
-    }
 }
 
 /// Runtime implements the various services that constitute the Flow Runtime.

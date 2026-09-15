@@ -27,8 +27,7 @@ use tokio_stream::wrappers;
 /// service trait, hosting one shard's transaction loop.
 #[derive(Clone)]
 pub struct Service<P: crate::PublisherFactory, L: crate::LoggerFactory> {
-    pub plane: crate::Plane,
-    pub container_network: String,
+    pub connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
     pub set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
     pub task_name: String,
     pub publisher_factory: P,
@@ -39,17 +38,17 @@ pub struct Service<P: crate::PublisherFactory, L: crate::LoggerFactory> {
 
 impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
     /// Build a new Shard Service.
-    /// - `plane`: the type of data plane in which this Service is operating.
-    /// - `container_network`: the Docker container network used for connector containers.
+    /// - `connector_router`: routes each connector start, and mints its bearer.
     /// - `set_log_level`: callback for adjusting the log level implied by runtime requests.
-    /// - `task_name`: name which is used to label any started connector containers.
+    /// - `task_name`: this Service's task identity, used to name the session
+    ///   Logger and to route connectors started by unary (Spec / Validate /
+    ///   Apply) requests, which are not part of a labeled session.
     /// - `publisher_factory`: opens publishers for appending to collection partitions.
     /// - `logger_factory`: opens a Logger per session, which sinks connector
     ///   logs and reports runtime events.
     /// - `registry`: in-flight handler registry, shared with any co-hosted admin surface.
     pub fn new(
-        plane: crate::Plane,
-        container_network: String,
+        connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
         set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
         task_name: String,
         publisher_factory: P,
@@ -58,8 +57,7 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
         data_plane_signer: Option<proto_grpc::Signer>,
     ) -> Self {
         Self {
-            plane,
-            container_network,
+            connector_router,
             set_log_level,
             task_name,
             publisher_factory,

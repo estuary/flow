@@ -11,6 +11,7 @@ mod discover;
 mod draft;
 mod generate;
 mod graphql;
+mod local_connector;
 mod local_specs;
 mod ops;
 mod output;
@@ -34,6 +35,9 @@ pub struct Cli {
     /// or development endpoints.
     #[clap(long, default_value = "default", env = "FLOWCTL_PROFILE")]
     profile: String,
+    /// Docker network used by locally-run connector images.
+    #[clap(long = "network", global = true, default_value = "bridge")]
+    connector_network: String,
 
     #[clap(subcommand)]
     cmd: Command,
@@ -125,11 +129,22 @@ pub struct CliContext {
     config: config::Config,
     /// Selected output format (table / JSON / YAML) for command results.
     output: output::Output,
-    /// Tracks in-flight work units; cloned into preview-next connector drivers.
+    /// Tracks in-flight work units across local connector services and runtimes.
     registry: service_kit::Registry,
+    /// Shared router for all locally-run connectors in this invocation.
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
+    /// Docker network of locally-run connector images, for build paths which
+    /// still start their own connectors through the V1 runtime.
+    connector_network: String,
 }
 
 impl CliContext {
+    pub(crate) fn local_connector_router(
+        &self,
+    ) -> std::sync::Arc<dyn proto_grpc::connector::Router> {
+        self.connector_router.clone()
+    }
+
     fn write_all<I, T>(&mut self, items: I, table_alt: T::TableAlt) -> anyhow::Result<()>
     where
         T: output::CliOutput,
@@ -189,6 +204,8 @@ impl Cli {
         let pg = config.build_pg();
         let rest = config.build_rest();
         let router = gazette::Router::new("local");
+        let connector_router =
+            runtime_local::local_router(self.connector_network.clone(), registry.clone());
 
         // An ambient FLOW_AUTH_TOKEN, if present, overrides the profile's stored
         // tokens. It's used but never persisted (it may still rotate in memory).
@@ -273,6 +290,8 @@ impl Cli {
             config,
             output,
             registry,
+            connector_router,
+            connector_network: self.connector_network.clone(),
         };
 
         // Version check runs concurrently with the command
@@ -494,6 +513,25 @@ fn filter_default_prefixes(
 mod test {
     use super::*;
     use crate::auth::list::AuthorizedPrefix;
+
+    #[test]
+    fn connector_network_is_global() {
+        let default = Cli::try_parse_from(["flowctl", "raw", "spec", "--source", "flow.yaml"])
+            .expect("default connector network parses");
+        assert_eq!(default.connector_network, "bridge");
+
+        let configured = Cli::try_parse_from([
+            "flowctl",
+            "raw",
+            "spec",
+            "--source",
+            "flow.yaml",
+            "--network",
+            "host",
+        ])
+        .expect("global network option parses after a nested command");
+        assert_eq!(configured.connector_network, "host");
+    }
 
     #[test]
     fn test_filter_default_prefixes() {

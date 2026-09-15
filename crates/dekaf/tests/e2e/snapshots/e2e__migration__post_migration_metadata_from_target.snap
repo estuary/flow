@@ -1,6 +1,6 @@
 ---
 source: crates/dekaf/tests/e2e/migration.rs
-expression: target_metadata
+expression: "redact_dekaf_ports(&target_metadata, &src_info, &tgt_info)"
 ---
 MetadataResponse {
     throttle_time_ms: 0,
@@ -8,7 +8,7 @@ MetadataResponse {
         MetadataResponseBroker {
             node_id: 1,
             host: "127.0.0.1",
-            port: 8250,
+            port: [TARGET_DEKAF_PORT],
             rack: None,
             unknown_tagged_fields: {},
         },

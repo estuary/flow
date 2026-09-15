@@ -150,7 +150,7 @@ pub async fn do_author(
     Author { source }: &Author,
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
-    let (mut draft, _live, _built) = local_specs::load_and_validate(ctx, &source).await?;
+    let mut draft = local_specs::load_and_validate(ctx, &source).await?.draft;
 
     clear_draft(ctx, draft_id).await?;
     let rows = author(ctx, draft_id, &mut draft).await?;
