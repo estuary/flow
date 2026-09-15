@@ -109,9 +109,13 @@ pub(crate) async fn wake_tenant_controller(
     Ok(res.rows_affected() > 0u64)
 }
 
-/// Looks up the user's authorization grants for each item in
+/// Looks up the user's `tables::UserAuthorization` for each item in
 /// `prefixes_or_names`, and calls the provided `attach` function with each
-/// item and its capability. The `Some` results are returned in a vec.
+/// item and its authorization. The `Some` results are returned in a vec.
+///
+/// Both halves are evaluated under the bearer's capability `mask`: the bits
+/// are attenuated, while the legacy label of a reached grant passes through
+/// un-attenuated (see `tables::UserGrant::get_user_authorization`).
 pub fn attach_user_capabilities<I, F, T>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
@@ -121,19 +125,19 @@ pub fn attach_user_capabilities<I, F, T>(
 ) -> Vec<T>
 where
     I: IntoIterator<Item = String>,
-    F: FnMut(String, Option<models::Capability>) -> Option<T>,
+    F: FnMut(String, tables::UserAuthorization) -> Option<T>,
 {
     prefixes_or_names
         .into_iter()
         .flat_map(|prefix| {
-            let capability = tables::UserGrant::get_user_capability(
+            let authorization = tables::UserGrant::get_user_authorization(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 claims.sub,
                 &prefix,
                 mask,
             );
-            attach(prefix, capability)
+            attach(prefix, authorization)
         })
         .collect()
 }
@@ -394,9 +398,11 @@ mod tests {
         control_claims(ALICE, None, None)
     }
 
-    // The mask governs which names are reached at all. A name reached only
-    // through a role-grant edge drops out under a mask without `Delegate`,
-    // while a name under the direct grant keeps its literal legacy column.
+    // The mask governs which names are reached at all and attenuates the
+    // bits of those which are. A name reached only through a role-grant
+    // edge drops out under a mask without `Delegate`, while a name under
+    // the direct grant keeps its literal legacy column beside its
+    // attenuated bits.
     #[test]
     fn mask_gates_reachability_but_keeps_literal_legacy() {
         let snapshot = snapshot_of_grants(
@@ -404,7 +410,12 @@ mod tests {
             &[("acmeCo/", "sharedCo/", Read)],
         );
         let names = || ["acmeCo/x".to_string(), "sharedCo/y".to_string()];
-        let attach = |name, capability| Some((name, capability));
+        let attach = |name, authorization| Some((name, authorization));
+        let authorization =
+            |bits: models::authz::CapabilityBundle, legacy| tables::UserAuthorization {
+                bits: bits.capabilities(),
+                legacy,
+            };
 
         assert_eq!(
             attach_user_capabilities(
@@ -415,15 +426,30 @@ mod tests {
                 attach
             ),
             vec![
-                ("acmeCo/x".to_string(), Some(Admin)),
-                ("sharedCo/y".to_string(), Some(Read)),
+                (
+                    "acmeCo/x".to_string(),
+                    authorization(models::authz::CapabilityBundle::Admin, Some(Admin)),
+                ),
+                (
+                    "sharedCo/y".to_string(),
+                    authorization(models::authz::CapabilityBundle::Viewer, Some(Read)),
+                ),
             ]
         );
         assert_eq!(
             attach_user_capabilities(&snapshot, &claims(), viewer_mask(), names(), attach),
             vec![
-                ("acmeCo/x".to_string(), Some(Admin)),
-                ("sharedCo/y".to_string(), None),
+                (
+                    "acmeCo/x".to_string(),
+                    authorization(models::authz::CapabilityBundle::Viewer, Some(Admin)),
+                ),
+                (
+                    "sharedCo/y".to_string(),
+                    tables::UserAuthorization {
+                        bits: models::authz::CapabilitySet::empty(),
+                        legacy: None,
+                    },
+                ),
             ]
         );
     }
