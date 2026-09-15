@@ -101,6 +101,7 @@ pub fn build_app(
         publisher,
         snapshot,
         Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
+        crate::DEFAULT_CAPABILITY_TOKEN_VALIDITY,
     ))
 }
 
@@ -241,6 +242,55 @@ impl TestServer {
             .json::<Response>()
             .await
             .unwrap()
+    }
+}
+
+/// A snapshot watch the test refreshes by hand: each `refresh` re-fetches
+/// the database's current state and swaps it into the live watch, so a
+/// single running server observes grant mutations the way production
+/// observes a periodic snapshot refresh, with no restart and no token
+/// invalidation. This is the operational meaning of "a grant change takes
+/// effect immediately": at the next snapshot refresh.
+pub struct RefreshableSnapshot {
+    pg_pool: sqlx::PgPool,
+    decrypted_hmac_keys: std::collections::HashMap<String, (models::RawValue, Vec<String>)>,
+    replace: Box<dyn Fn(tonic::Result<Snapshot>) -> Option<tokens::WaitForCancellationFutureOwned>>,
+    watch: Arc<dyn tokens::Watch<Snapshot>>,
+}
+
+impl RefreshableSnapshot {
+    pub async fn start(pg_pool: sqlx::PgPool) -> Self {
+        let (pending, replace) = tokens::manual();
+        let (watch, _ready) = pending.into_parts();
+
+        let mut this = Self {
+            pg_pool,
+            decrypted_hmac_keys: Default::default(),
+            replace: Box::new(replace),
+            watch,
+        };
+        this.refresh().await;
+        this
+    }
+
+    pub fn watch(&self) -> Arc<dyn tokens::Watch<Snapshot>> {
+        Arc::clone(&self.watch)
+    }
+
+    /// Fetch the database's current state and swap it into the watch.
+    /// Fetches directly rather than through `PgSnapshotSource`, whose
+    /// MIN_REFRESH_INTERVAL cool-off would stall back-to-back test
+    /// refreshes.
+    pub async fn refresh(&mut self) {
+        let data = crate::server::snapshot::try_fetch(&self.pg_pool, &mut self.decrypted_hmac_keys)
+            .await
+            .expect("failed to fetch snapshot");
+        let mut snapshot = Snapshot::new(tokens::now(), data);
+
+        // Shift `taken` past the test's wall-clock runtime so that denials
+        // are terminal; see `snapshot` above.
+        snapshot.taken += chrono::TimeDelta::hours(1);
+        (self.replace)(Ok(snapshot));
     }
 }
 

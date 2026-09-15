@@ -2182,6 +2182,7 @@ dependencies = [
  "sha2",
  "sources",
  "sqlx",
+ "strum 0.26.3",
  "tables",
  "tempfile",
  "thiserror 2.0.17",

@@ -11,6 +11,8 @@ mod authorize_user_secret;
 mod authorize_user_task;
 mod create_data_plane;
 mod error;
+#[cfg(test)]
+mod masked_token_suite;
 pub mod public;
 pub mod snapshot;
 mod update_l2_reporting;
@@ -32,10 +34,21 @@ pub enum Rejection {
     JsonError(#[from] axum::extract::rejection::JsonRejection),
 }
 
+/// Default validity of access tokens minted by the `capability_token`
+/// grant, matching the one-hour access tokens of the SQL
+/// `generate_access_token` mint. The agent's `--capability-token-validity`
+/// setting defaults to this value; a test there welds its default string to
+/// this constant.
+pub const DEFAULT_CAPABILITY_TOKEN_VALIDITY: std::time::Duration =
+    std::time::Duration::from_secs(3600);
+
 /// App is the wired application state of the control-plane API.
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+    /// Validity window of access tokens minted by the `capability_token`
+    /// grant. See [`DEFAULT_CAPABILITY_TOKEN_VALIDITY`].
+    pub capability_token_validity: std::time::Duration,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -56,10 +69,12 @@ impl App {
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         stripe_webhook_secret: Option<String>,
+        capability_token_validity: std::time::Duration,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
+            capability_token_validity,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,

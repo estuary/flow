@@ -57,7 +57,8 @@ pub use models::authz::CapabilityMask;
 // TODO(johnny): These types are all fundamental to this crate, and should be
 // hoisted from the `server` module. For now, just re-export to minimize churn.
 pub use server::{
-    ApiError, App, AuthZError, AuthZRetry, Forbidden, build_router,
+    ApiError, App, AuthZError, AuthZRetry, DEFAULT_CAPABILITY_TOKEN_VALIDITY, Forbidden,
+    build_router,
     snapshot::{self, Snapshot},
 };
 
