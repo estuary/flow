@@ -217,6 +217,7 @@ impl Envelope {
             self.claims()?.sub,
             name,
             capability,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
         ))
     }
 
@@ -310,6 +311,7 @@ impl Envelope {
                 *user_id,
                 prefix_or_name.as_ref(),
                 min_capability,
+                models::authz::CapabilityMask::ALL_CAPABILITIES,
             ) {
                 return Err(tonic::Status::permission_denied(format!(
                     "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
@@ -356,6 +358,7 @@ impl Envelope {
                 *user_id,
                 prefix.into(),
                 capability.into(),
+                models::authz::CapabilityMask::ALL_CAPABILITIES,
             ),
             *user_id,
             user_email.to_string(),
@@ -378,6 +381,7 @@ impl Envelope {
                 user_id,
                 "estuary_support/",
                 models::Capability::Admin,
+                models::authz::CapabilityMask::ALL_CAPABILITIES,
             );
 
             if !has_support_access {
@@ -408,6 +412,7 @@ impl Envelope {
             *user_id,
             catalog_prefix,
             models::Capability::Admin,
+            models::authz::CapabilityMask::ALL_CAPABILITIES,
         ) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",

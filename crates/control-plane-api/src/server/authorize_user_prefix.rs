@@ -90,6 +90,7 @@ fn evaluate_authorization(
         user_id,
         data_plane_name,
         models::Capability::Read,
+        models::authz::CapabilityMask::ALL_CAPABILITIES,
     ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {data_plane_name}",
