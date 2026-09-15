@@ -1,0 +1,14 @@
+query DataPlanesQuery($after: String) {
+    dataPlanes(after: $after) {
+        edges {
+            node {
+                id
+                name
+            }
+        }
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+    }
+}

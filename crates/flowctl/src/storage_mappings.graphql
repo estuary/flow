@@ -1,0 +1,10 @@
+query StorageMappingsQuery($filter: StorageMappingsFilter, $first: Int) {
+    storageMappings(filter: $filter, first: $first) {
+        edges {
+            node {
+                catalogPrefix
+                spec
+            }
+        }
+    }
+}

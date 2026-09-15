@@ -3,6 +3,24 @@ use futures::{FutureExt, TryStreamExt};
 use proto_flow::flow;
 use tables::CatalogResolver;
 
+// Brings the GraphQL scalar types (notably `Prefix` and `JSON`) into module
+// scope so the `graphql_client` derive below can resolve them by name.
+use crate::graphql::*;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/storage_mappings.graphql"
+)]
+struct StorageMappingsQuery;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/data_planes.graphql"
+)]
+struct DataPlanesQuery;
+
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
@@ -104,6 +122,7 @@ async fn validate(
 
     let mut live = Resolver {
         pg: ctx.pg.clone(),
+        rest: ctx.rest.clone(),
         access_token: ctx.access_token(),
     }
     .resolve(draft.all_catalog_names())
@@ -221,6 +240,7 @@ pub(crate) fn pick_policy(
 
 pub(crate) struct Resolver {
     pub pg: postgrest::Postgrest,
+    pub rest: flow_client_next::rest::Client,
     pub access_token: Option<String>,
 }
 
@@ -266,14 +286,6 @@ impl Resolver {
             return Ok(live);
         }
 
-        // Query storage mappings from the tenants of `catalog_names`.
-        #[derive(serde::Deserialize)]
-        struct StorageMappingRow {
-            catalog_prefix: models::Prefix,
-            id: models::Id,
-            spec: models::StorageDef,
-        }
-
         // Extract all unique slash-terminated prefixes from catalog names.
         // For example, "acmeCo/team-A/anvils/orders" produces:
         // ["acmeCo/", "acmeCo/team-A/", "acmeCo/team-A/anvils/"]
@@ -288,68 +300,44 @@ impl Resolver {
         prefixes.sort();
         prefixes.dedup();
 
-        let storage_mappings = chunk_names(&prefixes)
-            .into_iter()
+        let storage_mappings = prefixes
+            .chunks(STORAGE_MAPPINGS_BATCH_SIZE)
             .map(|prefixes| {
-                let builder = self
-                    .pg
-                    .from("storage_mappings")
-                    .select("catalog_prefix,id,spec")
-                    .in_("catalog_prefix", prefixes);
+                let rest = self.rest.clone();
                 let access_token = self.access_token.clone();
+                let prefixes = prefixes.iter().map(|p| p.to_string()).collect();
 
-                async move {
-                    flow_client_next::postgrest::exec::<Vec<StorageMappingRow>>(
-                        builder,
-                        access_token.as_deref(),
-                    )
-                    .await
-                }
+                async move { fetch_storage_mappings(&rest, access_token.as_deref(), prefixes).await }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
-            .try_collect::<Vec<Vec<StorageMappingRow>>>()
-            .await
-            .context("failed to fetch storage mappings")?;
+            .try_collect::<Vec<Vec<(models::Prefix, models::StorageDef)>>>()
+            .await?;
 
-        for row in storage_mappings.into_iter().flatten() {
-            // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
-            // Work around for now, by synthesizing them. This should switch to GraphQL.
-            if row.catalog_prefix.starts_with("recovery/") {
-                continue; // Does not actually happen in practice.
-            }
-
+        for (catalog_prefix, spec) in storage_mappings.into_iter().flatten() {
+            // Validation expects each collection-data mapping to have a matching
+            // `recovery/` mapping. The API returns only the collection-data mapping,
+            // so synthesize its empty recovery mapping.
+            // `control_id` is not consulted by validation, so pass a zero Id.
             live.storage_mappings.insert_row(
-                &row.catalog_prefix,
-                row.id,
-                &row.spec.stores,
-                &row.spec.data_planes,
+                &catalog_prefix,
+                models::Id::zero(),
+                &spec.stores,
+                &spec.data_planes,
             );
             live.storage_mappings.insert_row(
-                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
+                models::Prefix::new(format!("recovery/{catalog_prefix}")),
                 models::Id::zero(),
                 Vec::new(),
                 Vec::new(),
             );
         }
 
-        // Query all data planes.
-        #[derive(serde::Deserialize)]
-        struct DataPlaneRow {
-            id: models::Id,
-            data_plane_name: String,
-        }
+        let data_planes = fetch_data_planes(&self.rest, self.access_token.as_deref()).await?;
 
-        let data_planes = flow_client_next::postgrest::exec::<Vec<DataPlaneRow>>(
-            self.pg.from("data_planes").select("id,data_plane_name"),
-            self.access_token.as_deref(),
-        )
-        .await
-        .context("failed to fetch data planes")?;
-
-        for row in data_planes {
+        for (id, name) in data_planes {
             live.data_planes.insert_row(
-                row.id,
-                row.data_plane_name,
+                id,
+                name,
                 String::new(),                 // data_plane_fqdn
                 false,                         // closed
                 Vec::new(),                    // hmac_keys
@@ -508,6 +496,77 @@ impl Resolver {
 
         Ok(inferred)
     }
+}
+
+/// The maximum number of entries accepted by `PrefixFilter.in`. Exact prefixes
+/// map to at most one storage mapping, so this is also the query's result limit.
+const STORAGE_MAPPINGS_BATCH_SIZE: usize = 100;
+
+async fn fetch_data_planes(
+    rest: &flow_client_next::rest::Client,
+    access_token: Option<&str>,
+) -> anyhow::Result<Vec<(models::Id, String)>> {
+    let mut after = None;
+    let mut data_planes = Vec::new();
+
+    loop {
+        let connection = crate::graphql::post_graphql::<DataPlanesQuery>(
+            rest,
+            access_token,
+            data_planes_query::Variables { after },
+        )
+        .await
+        .context("failed to fetch data planes")?
+        .data_planes;
+
+        data_planes.extend(
+            connection
+                .edges
+                .into_iter()
+                .map(|edge| (edge.node.id, edge.node.name)),
+        );
+
+        if !connection.page_info.has_next_page {
+            return Ok(data_planes);
+        }
+        after = Some(
+            connection
+                .page_info
+                .end_cursor
+                .context("data planes response has another page but no end cursor")?,
+        );
+    }
+}
+
+async fn fetch_storage_mappings(
+    rest: &flow_client_next::rest::Client,
+    access_token: Option<&str>,
+    prefixes: Vec<String>,
+) -> anyhow::Result<Vec<(models::Prefix, models::StorageDef)>> {
+    let variables = storage_mappings_query::Variables {
+        filter: Some(storage_mappings_query::StorageMappingsFilter {
+            catalog_prefix: Some(storage_mappings_query::PrefixFilter {
+                starts_with: None,
+                in_: Some(prefixes),
+            }),
+        }),
+        first: Some(STORAGE_MAPPINGS_BATCH_SIZE as i64),
+    };
+    let connection =
+        crate::graphql::post_graphql::<StorageMappingsQuery>(rest, access_token, variables)
+            .await
+            .context("failed to fetch storage mappings")?
+            .storage_mappings;
+
+    connection
+        .edges
+        .into_iter()
+        .map(|edge| {
+            let spec = serde_json::from_str::<models::StorageDef>(edge.node.spec.get())
+                .context("failed to parse storage mapping spec")?;
+            Ok((edge.node.catalog_prefix, spec))
+        })
+        .collect::<anyhow::Result<_>>()
 }
 
 // PostgREST passes query predicates (like `column=in.(a,b,c)`) as URL query
