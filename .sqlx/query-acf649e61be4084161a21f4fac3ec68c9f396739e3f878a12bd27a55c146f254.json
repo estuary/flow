@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select data_plane_name as \"data_plane_name!\"\n        from data_planes\n        where starts_with(data_plane_name, $1::text)\n          and not closed\n        order by id desc",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data_plane_name!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "acf649e61be4084161a21f4fac3ec68c9f396739e3f878a12bd27a55c146f254"
+}

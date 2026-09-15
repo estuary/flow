@@ -50,6 +50,7 @@ colored_json = { workspace = true }
 derivative = { workspace = true }
 enumset = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
@@ -62,6 +63,7 @@ rustls = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -82,11 +84,9 @@ zeroize = { workspace = true }
 [dev-dependencies]
 flow-client-next = { path = "../flow-client-next" }
 
-hex = { workspace = true }
 hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
-sha2 = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 
