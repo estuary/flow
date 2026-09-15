@@ -196,6 +196,11 @@ message SessionRequest {
   // See SessionResponse.next_checkpoint for the contract.
   message NextCheckpoint {}
   NextCheckpoint next_checkpoint = 3;
+
+  // Sent once per outstanding NextCheckpoint, when the coordinator holds no
+  // frontier and is idle between transactions.
+  message CaughtUp {}
+  CaughtUp caught_up = 4;
 }
 
 // SessionResponse is sent by the Session to the Coordinator.
@@ -323,6 +328,12 @@ message SliceResponse {
     uint32 binding = 1;
   }
   ListingSnapshotComplete listing_snapshot_complete = 4;
+
+  // Sent on transitions; true means disk back-pressure blocks further Progressed.
+  message Blocked {
+    bool blocked = 1;
+  }
+  Blocked blocked = 5;
 }
 
 // LogRequest is sent by Slices to each shard's Log.
@@ -406,6 +417,12 @@ message LogResponse {
     uint64 flushed_lsn = 2;
   }
   Flushed flushed = 2;
+
+  // Sent when the Log's back-pressure flag differs from the Slice's last notification.
+  message DiskBackPressure {
+    bool engaged = 1;
+  }
+  DiskBackPressure disk_back_pressure = 3;
 }
 
 // Shuffle service provides coordinated, disk-backed shuffled reads.

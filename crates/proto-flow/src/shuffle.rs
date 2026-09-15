@@ -209,6 +209,8 @@ pub struct SessionRequest {
     pub resume_checkpoint: ::core::option::Option<Frontier>,
     #[prost(message, optional, tag = "3")]
     pub next_checkpoint: ::core::option::Option<session_request::NextCheckpoint>,
+    #[prost(message, optional, tag = "4")]
+    pub caught_up: ::core::option::Option<session_request::CaughtUp>,
 }
 /// Nested message and enum types in `SessionRequest`.
 pub mod session_request {
@@ -233,6 +235,10 @@ pub mod session_request {
     /// See SessionResponse.next_checkpoint for the contract.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct NextCheckpoint {}
+    /// Sent once per outstanding NextCheckpoint, when the coordinator holds no
+    /// frontier and is idle between transactions.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CaughtUp {}
 }
 /// SessionResponse is sent by the Session to the Coordinator.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -362,6 +368,8 @@ pub struct SliceResponse {
     pub progressed: ::core::option::Option<Frontier>,
     #[prost(message, optional, tag = "4")]
     pub listing_snapshot_complete: ::core::option::Option<slice_response::ListingSnapshotComplete>,
+    #[prost(message, optional, tag = "5")]
+    pub blocked: ::core::option::Option<slice_response::Blocked>,
 }
 /// Nested message and enum types in `SliceResponse`.
 pub mod slice_response {
@@ -396,6 +404,12 @@ pub mod slice_response {
         /// Binding index of the listing.
         #[prost(uint32, tag = "1")]
         pub binding: u32,
+    }
+    /// Sent on transitions; true means disk back-pressure blocks further Progressed.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Blocked {
+        #[prost(bool, tag = "1")]
+        pub blocked: bool,
     }
 }
 /// LogRequest is sent by Slices to each shard's Log.
@@ -490,6 +504,8 @@ pub struct LogResponse {
     pub opened: ::core::option::Option<log_response::Opened>,
     #[prost(message, optional, tag = "2")]
     pub flushed: ::core::option::Option<log_response::Flushed>,
+    #[prost(message, optional, tag = "3")]
+    pub disk_back_pressure: ::core::option::Option<log_response::DiskBackPressure>,
 }
 /// Nested message and enum types in `LogResponse`.
 pub mod log_response {
@@ -510,5 +526,11 @@ pub mod log_response {
         /// documents appended before this flush.
         #[prost(uint64, tag = "2")]
         pub flushed_lsn: u64,
+    }
+    /// Sent when the Log's back-pressure flag differs from the Slice's last notification.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct DiskBackPressure {
+        #[prost(bool, tag = "1")]
+        pub engaged: bool,
     }
 }
