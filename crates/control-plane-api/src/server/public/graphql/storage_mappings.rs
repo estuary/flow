@@ -721,13 +721,14 @@ impl StorageMappingsQuery {
         let edges = rows
             .into_iter()
             .map(|row| {
-                let user_capability = tables::UserGrant::get_user_capability(
+                let user_capability = tables::UserGrant::get_user_authorization(
                     &snapshot.role_grants,
                     &snapshot.user_grants,
                     claims.sub,
                     &row.catalog_prefix,
                     env.capability_mask(),
                 )
+                .legacy
                 .ok_or_else(|| {
                     async_graphql::Error::new(format!(
                         "missing capability for catalog prefix '{}'",

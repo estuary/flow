@@ -126,13 +126,14 @@ where
     prefixes_or_names
         .into_iter()
         .flat_map(|prefix| {
-            let capability = tables::UserGrant::get_user_capability(
+            let capability = tables::UserGrant::get_user_authorization(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 claims.sub,
                 &prefix,
                 mask,
-            );
+            )
+            .legacy;
             attach(prefix, capability)
         })
         .collect()

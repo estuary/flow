@@ -203,7 +203,7 @@ async fn test_unheld_bits_are_inert(pool: sqlx::PgPool) {
 /// together, exactly as an unmasked user sees a ref they can't access. The
 /// reached danaCo ref still reports its literal legacy label, which is
 /// compatibility metadata and may read broader than the token's effective
-/// bits there; see `tables::UserGrant::get_user_capability`.
+/// bits there; see `tables::UserGrant::get_user_authorization`.
 #[sqlx::test(
     migrations = "../../supabase/migrations",
     fixtures(path = "../../fixtures", scripts("data_planes", "masked_suite"))

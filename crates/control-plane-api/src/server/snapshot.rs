@@ -89,8 +89,10 @@ pub struct SnapshotMigration {
 }
 
 impl Snapshot {
-    /// Returns the user's maximum capability to `object_role_or_name`,
-    /// evaluated against this Snapshot's grants.
+    /// Returns the user's maximum legacy capability to `object_role_or_name`,
+    /// evaluated against this Snapshot's grants: the legacy half of
+    /// `tables::UserGrant::get_user_authorization`, so a bundles-only grant
+    /// reports `None` here.
     ///
     /// Evaluates unmasked, for executor paths (publications, discovers) which
     /// act for a user without a bearer token.
@@ -99,13 +101,14 @@ impl Snapshot {
         user_id: uuid::Uuid,
         object_role_or_name: &str,
     ) -> Option<models::Capability> {
-        tables::UserGrant::get_user_capability(
+        tables::UserGrant::get_user_authorization(
             &self.role_grants,
             &self.user_grants,
             user_id,
             object_role_or_name,
             models::authz::CapabilityMask::ALL_CAPABILITIES,
         )
+        .legacy
     }
 
     /// Returns whether the user holds `capability` to `object_role_or_name`,
