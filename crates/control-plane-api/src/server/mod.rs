@@ -11,6 +11,8 @@ mod authorize_user_secret;
 mod authorize_user_task;
 mod create_data_plane;
 mod error;
+#[cfg(test)]
+mod masked_token_suite;
 pub mod public;
 pub mod snapshot;
 mod update_l2_reporting;

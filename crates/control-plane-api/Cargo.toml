@@ -87,6 +87,7 @@ hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
 sha2 = { workspace = true }
+strum = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 
