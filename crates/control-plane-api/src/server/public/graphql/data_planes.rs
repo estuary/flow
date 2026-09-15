@@ -592,7 +592,7 @@ impl DataPlanesQuery {
             env.claims()?,
             env.capability_mask(),
             names.into_iter(),
-            |data_plane_name, user_capability| {
+            |data_plane_name, authorization| {
                 let dp = row_data.get(&data_plane_name)?;
                 let details = details_map.get(&data_plane_name);
                 let (cloud_provider, region, tag, is_public) =
@@ -602,7 +602,9 @@ impl DataPlanesQuery {
                     name: data_plane_name.clone(),
                     fqdn: dp.data_plane_fqdn.clone(),
                     reactor_address: dp.reactor_address.clone(),
-                    user_capability: user_capability.expect("capability guaranteed by pre-filter"),
+                    // The row is authorized by the effective-bits pre-filter;
+                    // the label is reporting metadata and may be `none`.
+                    user_capability: authorization.legacy_label(),
                     cloud_provider,
                     region,
                     tag,
@@ -902,6 +904,82 @@ impl DataPlanesMutation {
 mod tests {
     use super::*;
     use crate::test_server;
+
+    /// A bundles-only grant admits the public data planes through the
+    /// listing's effective-bits pre-filter, and each row's `userCapability`
+    /// reports the literal legacy column, `none`. The absent label must not
+    /// trip the resolver.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_data_planes_bundles_only_grant(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let carol_uid = uuid::Uuid::from_bytes([0x33; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'carol@example.test')")
+            .bind(carol_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'ops/dp/public/', 'none', ARRAY['viewer']::capability_bundle[])",
+        )
+        .bind(carol_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let carol = server.make_access_token(carol_uid, Some("carol@example.test"));
+
+        let response = server
+            .rest_client()
+            .post(
+                "/api/graphql",
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        dataPlanes {
+                            edges { node { name userCapability } }
+                        }
+                    }
+                "#
+                }),
+                Some(&carol),
+            )
+            .send()
+            .await
+            .expect("the listing must answer rather than drop the connection");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let response: serde_json::Value = response.json().await.unwrap();
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "dataPlanes": {
+              "edges": [
+                {
+                  "node": {
+                    "name": "ops/dp/public/aws-us-west-2-c1",
+                    "userCapability": "none"
+                  }
+                },
+                {
+                  "node": {
+                    "name": "ops/dp/public/gcp-us-central1-c2",
+                    "userCapability": "none"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
 
     // Alice reaches `ops/dp/public/` only through a role grant, so a mask
     // without `Delegate` hides every public plane, and adding it back

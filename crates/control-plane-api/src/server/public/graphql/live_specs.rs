@@ -101,10 +101,10 @@ impl LiveSpec {
             env.claims()?,
             env.capability_mask(),
             [source_capture_name.clone()],
-            |name, user_capability| {
+            |name, authorization| {
                 Some(LiveSpecRef {
                     catalog_name: models::Name::new(name),
-                    user_capability,
+                    user_capability: super::live_spec_refs::user_capability_field(authorization),
                 })
             },
         );
@@ -136,7 +136,7 @@ impl LiveSpec {
         }
         let conn = paginate_live_specs_refs(
             ctx,
-            Some(models::Capability::Read),
+            Some(models::authz::CapabilityBundle::Viewer.capabilities()),
             self.written_by.clone(),
             after,
             before,
@@ -162,7 +162,7 @@ impl LiveSpec {
         }
         let conn = paginate_live_specs_refs(
             ctx,
-            Some(models::Capability::Read),
+            Some(models::authz::CapabilityBundle::Viewer.capabilities()),
             self.read_by.clone(),
             after,
             before,
@@ -361,6 +361,372 @@ mod tests {
                       "dataPlaneId": "111111fffe111111"
                     },
                     "userCapability": "admin"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
+
+    /// A mask below the Viewer threshold is refused at the `liveSpecs` root:
+    /// every explicit prefix and name is verified against the mask before
+    /// any ref is constructed, and the shortfall is the structured
+    /// `missing_capabilities` body naming the withheld bits and the target.
+    /// Reached grants' legacy labels are never a side channel around the
+    /// mask: aliceCo/'s `admin` label is reachable through `Delegate`, and
+    /// surfaces nowhere.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_live_specs_mask_below_viewer_is_refused(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+
+        // Delegate alone traverses aliceCo/'s admin grant but enables no
+        // read bit, so the reached grant's `admin` label must not surface.
+        let masked = server.make_masked_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            None,
+            &["Delegate"],
+        );
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { prefix: "aliceCo/" }) {
+                            edges { node { catalogName userCapability } }
+                        }
+                    }
+                "#
+                }),
+                Some(&masked),
+            )
+            .await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": null,
+          "errors": [
+            {
+              "extensions": {
+                "error": "missing_capabilities",
+                "missing_capabilities": [
+                  "CatalogRead",
+                  "JournalRead",
+                  "ViewDataPlanePrivateNetworking"
+                ]
+              },
+              "locations": [
+                {
+                  "column": 25,
+                  "line": 3
+                }
+              ],
+              "message": "token does not enable capabilities [CatalogRead, JournalRead, ViewDataPlanePrivateNetworking] required to access prefix or name 'aliceCo/'",
+              "path": [
+                "liveSpecs"
+              ]
+            }
+          ]
+        }
+        "#);
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/data/foo"] }) {
+                            edges { node { catalogName userCapability liveSpec { catalogType } } }
+                        }
+                    }
+                "#
+                }),
+                Some(&masked),
+            )
+            .await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": null,
+          "errors": [
+            {
+              "extensions": {
+                "error": "missing_capabilities",
+                "missing_capabilities": [
+                  "CatalogRead",
+                  "JournalRead",
+                  "ViewDataPlanePrivateNetworking"
+                ]
+              },
+              "locations": [
+                {
+                  "column": 25,
+                  "line": 3
+                }
+              ],
+              "message": "token does not enable capabilities [CatalogRead, JournalRead, ViewDataPlanePrivateNetworking] required to access prefix or name 'aliceCo/data/foo'",
+              "path": [
+                "liveSpecs"
+              ]
+            }
+          ]
+        }
+        "#);
+    }
+
+    /// writtenBy and readBy admit names the caller's effective bits cover,
+    /// labeled `none` under bundles-only coverage, and withhold unauthorized
+    /// names entirely. writesTo refs are un-filtered, so the same query shows
+    /// an accessible bundles-only referent serving its gated fields beside an
+    /// inaccessible referent presenting as a null ref.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_written_by_read_by_filter_on_effective_bits(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // capture-foo writes to data/foo, which materialize-bar reads.
+        sqlx::query(
+            "INSERT INTO public.live_spec_flows (source_id, target_id, flow_type) VALUES
+             ('000000000005'::flowid, '000000000001'::flowid, 'capture'),
+             ('000000000001'::flowid, '000000000006'::flowid, 'materialization')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // The capture's model also names a collection outside carol's
+        // grants, exercising the writesTo path where an inaccessible
+        // referent presents as a null ref.
+        sqlx::query(
+            "UPDATE public.live_specs
+             SET writes_to = ARRAY['aliceCo/data/foo', 'aliceCo/out/forbidden']::catalog_name[]
+             WHERE catalog_name = 'aliceCo/in/capture-foo'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Carol can read aliceCo/data/ and aliceCo/in/, both entirely from
+        // the bundles column, but not aliceCo/out/.
+        let carol_uid = uuid::Uuid::from_bytes([0x33; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'carol@example.test')")
+            .bind(carol_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles) VALUES
+             ($1, 'aliceCo/data/', 'none', ARRAY['viewer']::capability_bundle[]),
+             ($1, 'aliceCo/in/', 'none', ARRAY['viewer']::capability_bundle[])",
+        )
+        .bind(carol_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let carol = server.make_access_token(carol_uid, Some("carol@example.test"));
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/data/foo"] }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    liveSpec {
+                                        writtenBy { edges { node { catalogName userCapability } } }
+                                        readBy { edges { node { catalogName userCapability } } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                "#
+                }),
+                Some(&carol),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "liveSpecs": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogName": "aliceCo/data/foo",
+                    "liveSpec": {
+                      "readBy": {
+                        "edges": []
+                      },
+                      "writtenBy": {
+                        "edges": [
+                          {
+                            "node": {
+                              "catalogName": "aliceCo/in/capture-foo",
+                              "userCapability": "none"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/in/capture-foo"] }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    liveSpec {
+                                        writesTo {
+                                            edges {
+                                                node {
+                                                    catalogName
+                                                    userCapability
+                                                    activeAlerts { alertType }
+                                                    liveSpec { catalogType }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                "#
+                }),
+                Some(&carol),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "liveSpecs": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogName": "aliceCo/in/capture-foo",
+                    "liveSpec": {
+                      "writesTo": {
+                        "edges": [
+                          {
+                            "node": {
+                              "activeAlerts": [],
+                              "catalogName": "aliceCo/data/foo",
+                              "liveSpec": {
+                                "catalogType": "collection"
+                              },
+                              "userCapability": "none"
+                            }
+                          },
+                          {
+                            "node": {
+                              "activeAlerts": null,
+                              "catalogName": "aliceCo/out/forbidden",
+                              "liveSpec": null,
+                              "userCapability": null
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
+    }
+
+    /// A bundles-only grant lists and reads specs exactly like a legacy
+    /// `read` grant, since effective bits are the decision input everywhere,
+    /// while `userCapability` reports the literal legacy column: `none`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_live_specs_bundles_only_grant(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let carol_uid = uuid::Uuid::from_bytes([0x33; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'carol@example.test')")
+            .bind(carol_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'aliceCo/', 'none', ARRAY['viewer']::capability_bundle[])",
+        )
+        .bind(carol_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let token = server.make_access_token(carol_uid, Some("carol@example.test"));
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { prefix: "aliceCo/data/" }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    userCapability
+                                    liveSpec {
+                                        catalogType
+                                    }
+                                }
+                            }
+                        }
+                    }
+                "#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "liveSpecs": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogName": "aliceCo/data/foo",
+                    "liveSpec": {
+                      "catalogType": "collection"
+                    },
+                    "userCapability": "none"
                   }
                 }
               ]

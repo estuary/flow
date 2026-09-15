@@ -721,32 +721,27 @@ impl StorageMappingsQuery {
         let edges = rows
             .into_iter()
             .map(|row| {
-                let user_capability = tables::UserGrant::get_user_authorization(
+                // The row is already authorized by the effective-bits prefix
+                // pre-filter; the label is reporting metadata and may be
+                // `none` under bundles-only coverage.
+                let authorization = tables::UserGrant::get_user_authorization(
                     &snapshot.role_grants,
                     &snapshot.user_grants,
                     claims.sub,
                     &row.catalog_prefix,
                     env.capability_mask(),
-                )
-                .legacy
-                .ok_or_else(|| {
-                    async_graphql::Error::new(format!(
-                        "missing capability for catalog prefix '{}'",
-                        row.catalog_prefix
-                    ))
-                })?;
-
-                Ok(connection::Edge::new(
+                );
+                connection::Edge::new(
                     row.catalog_prefix.clone(),
                     StorageMapping {
                         catalog_prefix: models::Prefix::new(row.catalog_prefix),
                         detail: row.detail,
                         spec: async_graphql::Json(row.spec),
-                        user_capability,
+                        user_capability: authorization.legacy_label(),
                     },
-                ))
+                )
             })
-            .collect::<Result<Vec<_>, async_graphql::Error>>()?;
+            .collect();
 
         let mut conn = PaginatedStorageMappings::new(has_prev, has_next);
         conn.edges = edges;
@@ -1324,5 +1319,80 @@ mod test {
             None,
         )
         .await;
+    }
+
+    /// A bundles-only grant authorizes the listing's rows through the
+    /// effective-bits prefix pre-filter, yet the rows carry no legacy label:
+    /// the listing must serve them with `userCapability: none` rather than
+    /// failing the whole query on the absent label (#3232).
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mappings_list_under_a_bundles_only_grant(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let mut store = models::Store::example();
+        *store.prefix_mut() = models::Prefix::new("tenant/collection-data/");
+        let spec = crate::TextJson(models::StorageDef {
+            data_planes: Vec::new(),
+            stores: vec![store],
+        });
+        sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+            .bind("aliceCo/")
+            .bind(&spec)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let carol_uid = uuid::Uuid::from_bytes([0x33; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'carol@example.test')")
+            .bind(carol_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'aliceCo/', 'none', ARRAY['viewer']::capability_bundle[])",
+        )
+        .bind(carol_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let carol = server.make_access_token(carol_uid, Some("carol@example.test"));
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                        query {
+                            storageMappings {
+                                edges { node { catalogPrefix userCapability } }
+                            }
+                        }
+                    "#,
+                }),
+                Some(&carol),
+            )
+            .await;
+        insta::assert_json_snapshot!(response, @r#"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/",
+                    "userCapability": "none"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "#);
     }
 }
