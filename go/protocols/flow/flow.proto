@@ -281,8 +281,10 @@ message CollectionSpec {
       // Selector of collection partitions which this materialization reads.
       protocol.LabelSelector partition_selector = 3 [ (gogoproto.nullable) = false ];
       // Priority of this transform, with respect to other transforms of the derivation.
-      // Higher values imply higher priority.
-      uint32 priority = 4;
+      // Higher values imply higher priority, and negative values are allowed.
+      // `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+      // encoding used before negative priorities were allowed.
+      int32 priority = 4;
       // Number of seconds for which documents of this transformed are delayed
       // while reading, relative to other documents (when back-filling) and the
       // present wall-clock time (when tailing).
@@ -515,8 +517,10 @@ message MaterializationSpec {
     // Selector of collection partitions which this materialization reads.
     protocol.LabelSelector partition_selector = 7 [ (gogoproto.nullable) = false ];
     // Priority of this binding, with respect to other bindings of the materialization.
-    // Higher values imply higher priority.
-    uint32 priority = 9;
+    // Higher values imply higher priority, and negative values are allowed.
+    // `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+    // encoding used before negative priorities were allowed.
+    int32 priority = 9;
     // Resolved fields selected for materialization.
     FieldSelection field_selection = 4 [ (gogoproto.nullable) = false ];
     // Materialize delta updates of documents rather than full reductions.

@@ -240,6 +240,8 @@ test://example/int-halve:
               # Shuffle key is fully covered by logical partition fields.
               key: [/len, /partitionString]
             backfill: 4
+            # Negative priorities are allowed, and read after the default of zero.
+            priority: -1
 
 test://example/int-halve.ts: |
   another typescript placeholder

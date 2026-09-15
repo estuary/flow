@@ -1397,6 +1397,40 @@ fn test_materialization_spec_proto() {
     insta::assert_snapshot!(proto_test(msg));
 }
 
+// `priority` was widened from `uint32` to `int32` so that a binding or
+// transform can be de-prioritized with respect to the default priority of
+// zero. `int32` (not `sint32`) leaves the encoding of non-negative values
+// byte-identical to the prior `uint32` encoding, so a new reader understands
+// an old writer's built spec and vice versa.
+#[test]
+fn test_negative_priority_round_trips() {
+    let binding = |priority| flow::materialization_spec::Binding {
+        priority,
+        ..Default::default()
+    };
+    let transform = |priority| flow::collection_spec::derivation::Transform {
+        priority,
+        ..Default::default()
+    };
+
+    for priority in [i32::MIN, -100, -1, 0, 1, 40, i32::MAX] {
+        _ = json_test(binding(priority));
+        _ = proto_test(binding(priority));
+        _ = json_test(transform(priority));
+        _ = proto_test(transform(priority));
+    }
+
+    // Tag 9 as a varint (0x48), then the plain varint 40.
+    assert_eq!(binding(40).encode_to_vec(), [0x48, 40]);
+    // Negative values are the ten-byte, sign-extended varint of `int32`.
+    assert_eq!(
+        binding(-1).encode_to_vec(),
+        [
+            0x48, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+        ]
+    );
+}
+
 #[test]
 fn test_test_spec_json() {
     let msg = ex_test_spec();

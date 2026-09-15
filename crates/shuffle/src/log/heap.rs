@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 /// We keep this struct small to optimize heap sift operations.
 pub struct AppendEntry {
     /// Binding priority (higher = more urgent).
-    pub priority: u32,
+    pub priority: i32,
     /// Adjusted clock of the document (publication + read_delay).
     pub adjusted_clock: uuid::Clock,
     /// Index of the Slice shard that sent this Append.
@@ -72,7 +72,7 @@ mod test {
     use std::cmp::Ordering;
     use std::collections::BinaryHeap;
 
-    fn test_entry(priority: u32, clock: u64, shard_index: usize) -> AppendEntry {
+    fn test_entry(priority: i32, clock: u64, shard_index: usize) -> AppendEntry {
         AppendEntry {
             priority,
             adjusted_clock: uuid::Clock::from_u64(clock),
@@ -106,6 +106,11 @@ mod test {
             Ordering::Less,
             "priority takes precedence over clock"
         );
+        assert_eq!(
+            test_entry(0, 100, 0).cmp(&test_entry(-1, 50, 0)),
+            Ordering::Greater,
+            "default priority beats a negative priority"
+        );
     }
 
     #[test]
@@ -116,6 +121,7 @@ mod test {
         heap.push(test_entry(1, 50, 2));
         heap.push(test_entry(2, 300, 3));
         heap.push(test_entry(1, 50, 4)); // same priority+clock as shard 2
+        heap.push(test_entry(-1, 10, 5)); // earliest clock, but de-prioritized
 
         let pops: Vec<_> = std::iter::from_fn(|| heap.pop())
             .map(|e| (e.priority, e.adjusted_clock.as_u64(), e.shard_index))
@@ -129,6 +135,7 @@ mod test {
                 (1, 50, 2),  // low priority, early clock (either shard 2 or 4)
                 (1, 50, 4),  // low priority, early clock (the other)
                 (1, 200, 0), // low priority, late clock
+                (-1, 10, 5), // negative priority is drained last
             ]
         );
     }

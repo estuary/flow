@@ -134,7 +134,9 @@ collections:
             key: [/shuffle/key/one, /shuffle/key/two]
           # Priority applied to documents of this transformation
           # relative to other transformations of the derivation.
-          # Default: 0, integer >= 0
+          # Negative values de-prioritize a transformation relative to
+          # transformations which use the default priority of zero.
+          # Default: 0, integer.
           priority: 0
 ```
 
@@ -761,6 +763,12 @@ When priorities are not equal, _all_ available source documents
 of a higher-priority transformation
 are processed before _any_ source documents
 of a lower-priority transformation.
+
+Priority may be negative. Since the default priority is zero, a negative
+priority de-prioritizes a single transformation without having to raise the
+priority of every other transformation. This is the usual way to add a
+transformation with a large historical backlog: give it `priority: -1` so that
+it back-fills only when the other transformations have no ready documents.
 
 ## Internal State
 

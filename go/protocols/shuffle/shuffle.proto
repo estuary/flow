@@ -353,8 +353,9 @@ message LogRequest {
     string journal_name_suffix = 2;
     // Binding index for this document.
     uint32 binding = 3;
-    // Priority of this binding.
-    uint32 priority = 4;
+    // Priority of this binding. Higher values imply higher priority,
+    // and negative values are allowed.
+    int32 priority = 4;
     // Read delay of the binding, as a uuid::Clock duration.
     // The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
     // Zero (the common case) means no delay.
