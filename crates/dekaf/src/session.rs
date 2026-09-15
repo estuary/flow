@@ -1197,6 +1197,13 @@ impl Session {
                             "partition failed schema validation, entering cooldown"
                         );
 
+                        // A document which fails validation against the schema
+                        // we hold is most often explained by a spec we haven't
+                        // seen yet.
+                        if let Some(auth) = self.auth.as_ref() {
+                            auth.task_token()?.revoke();
+                        }
+
                         self.cooldown.entry(key.clone()).or_insert(CooldownEntry {
                             first_failed_at: std::time::Instant::now(),
                             schema_hash: pending.schema_hash.clone(),

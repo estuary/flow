@@ -847,11 +847,9 @@ mod tests {
     ) {
         let (auth, replace) = tokens::manual::<DekafAuth>();
 
-        let stream = resolve_stream(
-            "acmeCo/dekaf".to_string(),
-            auth.map(parse),
-            move |sealed| resolve.clone().resolve(sealed),
-        );
+        let stream = resolve_stream("acmeCo/dekaf".to_string(), auth.map(parse), move |sealed| {
+            resolve.clone().resolve(sealed)
+        });
         (tokens::watch(tokens::StreamSource::new(stream)), replace)
     }
 
@@ -1023,5 +1021,4 @@ mod tests {
         assert_eq!(status.code(), tonic::Code::InvalidArgument);
         insta::assert_snapshot!(status.message(), @"`strict_topic_names` of the Dekaf endpoint configuration must be plaintext: invalid type: string \"ENC[AES256_GCM,data:def]\", expected a boolean at line 1 column 26");
     }
-
 }

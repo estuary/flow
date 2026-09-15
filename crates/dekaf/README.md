@@ -53,10 +53,11 @@ never exposed to a transient failure of `sops`.
 
 **A session which sees something stale asks for a re-fetch.** An unknown
 topic, a rejected password, a journal that has vanished, a rejected
-control-plane token -- each of these is explained by a spec we haven't seen
-yet, so the session cancels the authorization's revocation handle and the
-watch re-fetches. A 20-second cool-off inside `TaskDekafAuth` bounds what
-many sessions can ask for. `--spec-ttl` upper-bounds the cadence for changes
+control-plane token, a document which fails schema validation -- each of
+these is explained by a spec we haven't seen yet, so the session cancels the
+authorization's revocation handle and the watch re-fetches.
+A 20-second cool-off inside `TaskDekafAuth` bounds what many sessions can ask for.
+`--spec-ttl` upper-bounds the cadence for changes
 which produce no error at all, such as a removed binding.
 
 ## Non-obvious details

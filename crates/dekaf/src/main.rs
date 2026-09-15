@@ -104,8 +104,7 @@ pub struct Cli {
     /// Upper bound on how long a MaterializationSpec is used before it's
     /// re-fetched, even though its token remains valid.
     ///
-    /// A session which observes that its spec is stale -- an unknown topic, a
-    /// rejected password, a vanished journal -- asks for a re-fetch directly,
+    /// A session which observes that its spec is stale asks for a re-fetch,
     /// so this bound exists only for changes which produce no such error.
     #[arg(long, env = "SPEC_TTL", value_parser = humantime::parse_duration, default_value = "5m")]
     spec_ttl: std::time::Duration,
