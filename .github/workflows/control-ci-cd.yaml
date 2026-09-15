@@ -13,6 +13,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The deploy authenticates to Supabase with its own access token, so GITHUB_TOKEN
+# is needed only for the checkout. Without this block it would inherit the
+# org-wide write-all default.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-24.04
