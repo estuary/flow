@@ -106,7 +106,10 @@ impl Envelope {
     ///
     /// This method handles the complexity of Snapshot refresh, retry logic,
     /// and cordoning. Call it with a AuthZResult from your authorization
-    /// evaluation policy function.
+    /// evaluation policy function. Only [`crate::AuthZError::Retriable`]
+    /// denials enter that machinery: a [`crate::AuthZError::Definitive`]
+    /// denial is a pure function of the bearer's claims which no Snapshot
+    /// can change, and is returned immediately as [`crate::ApiError::Forbidden`].
     pub async fn authorization_outcome<Ok>(
         &self,
         policy_result: crate::AuthZResult<Ok>,
@@ -130,9 +133,12 @@ impl Envelope {
             Ok((Some(cordon_at), ok)) if cordon_at > self.started => {
                 return Ok((std::cmp::min(exp, cordon_at), ok));
             }
+            Err(crate::AuthZError::Definitive(forbidden)) => {
+                return Err(crate::ApiError::Forbidden(forbidden));
+            }
             // Authorization is invalid and the Snapshot was taken after the
             // start of the authorization request. Terminal failure.
-            Err(status) if snapshot.taken_after(self.started) => {
+            Err(crate::AuthZError::Retriable(status)) if snapshot.taken_after(self.started) => {
                 return Err(status.into());
             }
             // Authorization is valid but is currently cordoned, and we must
@@ -144,7 +150,7 @@ impl Envelope {
             // Authorization is invalid but the Snapshot is older than the start
             // of the authorization request. It's possible that the requestor has
             // more-recent knowledge that the authorization is valid.
-            Err(status) => status,
+            Err(crate::AuthZError::Retriable(status)) => status,
         };
 
         // We must await a future Snapshot to determine the definitive outcome.
@@ -272,7 +278,11 @@ impl Envelope {
         policy_result: AuthZResult<()>,
     ) -> Result<(), crate::ApiError> {
         match policy_result {
-            Err(status) if status.code() == tonic::Code::Unauthenticated => Err(status.into()),
+            Err(crate::AuthZError::Retriable(status))
+                if status.code() == tonic::Code::Unauthenticated =>
+            {
+                Err(status.into())
+            }
             policy_result => {
                 let (_expiry, ()) = self.authorization_outcome(policy_result).await?;
                 Ok(())
@@ -308,7 +318,11 @@ impl Envelope {
         let mut prefixes_or_names = prefixes_or_names.into_iter().peekable();
 
         if let Some(first) = prefixes_or_names.peek() {
-            masked_shortfall(self.capability_mask, min_capability.into(), first.as_ref())?;
+            crate::Forbidden::required_covered(
+                self.capability_mask,
+                min_capability,
+                first.as_ref(),
+            )?;
         }
         for prefix_or_name in prefixes_or_names {
             if !tables::UserGrant::is_authorized(
@@ -321,7 +335,8 @@ impl Envelope {
             ) {
                 return Err(tonic::Status::permission_denied(format!(
                     "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
-                )));
+                ))
+                .into());
             }
         }
         Ok((None, ()))
@@ -349,21 +364,24 @@ impl Envelope {
         &self,
         prefix: impl Into<&'a str>,
         capability: impl Into<models::authz::CapabilitySet>,
-    ) -> tonic::Result<(bool, uuid::Uuid, String)> {
+    ) -> Result<(bool, uuid::Uuid, String), crate::AuthZError> {
         let models::authorizations::ControlClaims {
             sub: user_id,
             email: user_email,
             ..
         } = self.claims()?;
         let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+        let (prefix, capability) = (prefix.into(), capability.into());
+        crate::Forbidden::required_covered(self.capability_mask, capability, prefix)?;
+
         let snapshot = self.snapshot();
         Ok((
             tables::UserGrant::is_authorized(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 *user_id,
-                prefix.into(),
-                capability.into(),
+                prefix,
+                capability,
                 self.capability_mask,
             ),
             *user_id,
@@ -411,9 +429,9 @@ impl Envelope {
         } = self.claims()?;
         let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
         let snapshot = self.snapshot();
-        masked_shortfall(
+        crate::Forbidden::required_covered(
             self.capability_mask,
-            models::Capability::Admin.into(),
+            models::Capability::Admin,
             catalog_prefix,
         )?;
         // Verify the User admins `catalog_prefix`.
@@ -427,7 +445,7 @@ impl Envelope {
         ) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
-            )));
+            )).into());
         }
 
         for data_plane_name in data_plane_names {
@@ -440,7 +458,7 @@ impl Envelope {
             ) {
                 return Err(tonic::Status::permission_denied(format!(
                     "'{catalog_prefix}' is not authorized to data plane '{data_plane_name}' for Read",
-                )));
+                )).into());
             }
         }
 
@@ -455,31 +473,6 @@ impl Envelope {
         };
         CapabilityMask::from_claim(claims.capability_mask.as_deref())
     }
-}
-
-/// Errors if `mask` withholds any of `required`. A non-empty shortfall is a
-/// property of the token alone: no grant could authorize the request under
-/// this mask, so the denial names the withheld bits in claim vocabulary and
-/// never consults the grant walk, disclosing nothing about the bearer's
-/// grants to `prefix_or_name`. An empty shortfall defers to the walk, whose
-/// denial reads as it does for an unmasked bearer.
-fn masked_shortfall(
-    mask: CapabilityMask,
-    required: models::authz::CapabilitySet,
-    prefix_or_name: &str,
-) -> tonic::Result<()> {
-    let missing = required - mask.apply(required);
-    if missing.is_empty() {
-        return Ok(());
-    }
-    let missing = missing
-        .iter()
-        .map(|bit| bit.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    Err(tonic::Status::permission_denied(format!(
-        "token does not enable capabilities [{missing}] required to access prefix or name '{prefix_or_name}'",
-    )))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -698,10 +691,27 @@ mod tests {
                 assert_eq!(status.code(), tonic::Code::PermissionDenied);
                 status.message().to_string()
             }
-            crate::ApiError::AuthZRetry(retry) => {
-                panic!("expected a terminal denial, got provisional retry {retry:?}")
-            }
+            other => panic!("expected a terminal walk denial, got {other:?}"),
         }
+    }
+
+    /// A policy denial which the grant walk produced, and which a fresher
+    /// Snapshot might therefore overturn.
+    fn retriable(err: crate::AuthZError) -> tonic::Status {
+        let crate::AuthZError::Retriable(status) = err else {
+            panic!("expected a retriable walk denial, got {err:?}");
+        };
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+        status
+    }
+
+    /// A policy denial which is a function of the token alone.
+    fn definitive(err: crate::AuthZError) -> crate::Forbidden {
+        let crate::AuthZError::Definitive(forbidden) = err else {
+            panic!("expected a definitive mask denial, got {err:?}");
+        };
+        assert_eq!(forbidden.error, "missing_capabilities");
+        forbidden
     }
 
     /// The `ops/` admin gate of the /admin/* endpoints, evaluated as a bare
@@ -722,10 +732,10 @@ mod tests {
             CapabilityMask::ALL_CAPABILITIES,
         )
         .await;
-        let status = env
-            .evaluate_names_authorization(["ops/"], Admin)
-            .unwrap_err();
-        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+        let status = retriable(
+            env.evaluate_names_authorization(["ops/"], Admin)
+                .unwrap_err(),
+        );
         assert_eq!(
             status.message(),
             "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
@@ -813,9 +823,7 @@ mod tests {
             crate::ApiError::Status(status) => {
                 assert_eq!(status.code(), tonic::Code::Unauthenticated)
             }
-            crate::ApiError::AuthZRetry(retry) => {
-                panic!("unauthenticated request must not be told to retry: {retry:?}")
-            }
+            other => panic!("unauthenticated request must fail terminally, got {other:?}"),
         }
         // The dispatch must not have revoked the Snapshot: nothing about it
         // could cure a missing bearer.
@@ -838,9 +846,7 @@ mod tests {
             crate::ApiError::AuthZRetry(retry) => {
                 assert_eq!(retry.status.code(), tonic::Code::PermissionDenied)
             }
-            crate::ApiError::Status(status) => {
-                panic!("expected a provisional retry, got terminal {status:?}")
-            }
+            other => panic!("expected a provisional retry, got terminal {other:?}"),
         }
         assert!(env.snapshot().revoke.is_cancelled());
     }
@@ -855,51 +861,80 @@ mod tests {
 
         // Bits the mask withholds are named in claim vocabulary, in
         // `Capability` declaration order, without reference to the grant walk.
-        let status = env
-            .evaluate_names_authorization(["acmeCo/"], Admin)
-            .unwrap_err();
-        assert_eq!(status.code(), tonic::Code::PermissionDenied);
-        insta::assert_snapshot!(status.message(), @"token does not enable capabilities [JournalAppend, SpecEdit, CreateGrant, DeleteGrant, CreateInviteLink, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey, ViewSecret, EditSecret, DecryptSecret, Delegate] required to access prefix or name 'acmeCo/'");
+        // The shortfall is definitive: a structured 403, never a retry.
+        let forbidden = definitive(
+            env.evaluate_names_authorization(["acmeCo/"], Admin)
+                .unwrap_err(),
+        );
+        insta::assert_json_snapshot!(forbidden, @r#"
+        {
+          "error": "missing_capabilities",
+          "message": "token does not enable capabilities [JournalAppend, SpecEdit, CreateGrant, DeleteGrant, CreateInviteLink, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey, ViewSecret, EditSecret, DecryptSecret, Delegate] required to access prefix or name 'acmeCo/'",
+          "missing_capabilities": [
+            "JournalAppend",
+            "SpecEdit",
+            "CreateGrant",
+            "DeleteGrant",
+            "CreateInviteLink",
+            "ModifyDataPlanePrivateNetworking",
+            "ViewBilling",
+            "EditBilling",
+            "QueryServiceAccounts",
+            "CreateServiceAccount",
+            "CreateApiKey",
+            "RevokeApiKey",
+            "ViewSecret",
+            "EditSecret",
+            "DecryptSecret",
+            "Delegate"
+          ]
+        }
+        "#);
 
-        let status = env
-            .evaluate_names_authorization(["acmeCo/"], models::authz::Capability::SpecEdit)
-            .unwrap_err();
+        let forbidden = definitive(
+            env.evaluate_names_authorization(["acmeCo/"], models::authz::Capability::SpecEdit)
+                .unwrap_err(),
+        );
         assert_eq!(
-            status.message(),
+            forbidden.message,
             "token does not enable capabilities [SpecEdit] required to access prefix or name 'acmeCo/'"
         );
+        assert_eq!(forbidden.missing_capabilities, vec!["SpecEdit"]);
 
         // The shortfall is a function of the token alone: a name the bearer
         // holds no grant to reports the same message, disclosing nothing
         // about grants.
-        let status = env
-            .evaluate_names_authorization(["bobCo/"], models::authz::Capability::SpecEdit)
-            .unwrap_err();
+        let forbidden = definitive(
+            env.evaluate_names_authorization(["bobCo/"], models::authz::Capability::SpecEdit)
+                .unwrap_err(),
+        );
         assert_eq!(
-            status.message(),
+            forbidden.message,
             "token does not enable capabilities [SpecEdit] required to access prefix or name 'bobCo/'"
         );
 
         // When the mask enables everything required, denial is the walk's and
         // reads exactly as it does for an unmasked bearer.
-        let status = env
-            .evaluate_names_authorization(["bobCo/"], Read)
-            .unwrap_err();
+        let status = retriable(
+            env.evaluate_names_authorization(["bobCo/"], Read)
+                .unwrap_err(),
+        );
         assert_eq!(
             status.message(),
             "user@example.test is not authorized to access prefix or name 'bobCo/' with required capability read"
         );
 
         // Over several names, the shortfall is reported against the first.
-        let status = env
-            .evaluate_names_authorization(["acmeCo/", "bobCo/"], Admin)
-            .unwrap_err();
+        let forbidden = definitive(
+            env.evaluate_names_authorization(["acmeCo/", "bobCo/"], Admin)
+                .unwrap_err(),
+        );
         assert!(
-            status
-                .message()
+            forbidden
+                .message
                 .ends_with("required to access prefix or name 'acmeCo/'"),
             "{}",
-            status.message()
+            forbidden.message
         );
 
         // The same grants unmasked authorize admin.
@@ -961,11 +996,11 @@ mod tests {
         );
 
         let env = authenticated_envelope(grants(), viewer_mask()).await;
-        let status = env
-            .evaluate_storage_mapping_authorization(&prefix, &planes)
-            .unwrap_err();
-        assert_eq!(status.code(), tonic::Code::PermissionDenied);
-        insta::assert_snapshot!(status.message(), @"token does not enable capabilities [JournalAppend, SpecEdit, CreateGrant, DeleteGrant, CreateInviteLink, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey, ViewSecret, EditSecret, DecryptSecret, Delegate] required to access prefix or name 'acmeCo/'");
+        let forbidden = definitive(
+            env.evaluate_storage_mapping_authorization(&prefix, &planes)
+                .unwrap_err(),
+        );
+        insta::assert_snapshot!(forbidden.message, @"token does not enable capabilities [JournalAppend, SpecEdit, CreateGrant, DeleteGrant, CreateInviteLink, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey, ViewSecret, EditSecret, DecryptSecret, Delegate] required to access prefix or name 'acmeCo/'");
 
         // An `Editor` mask reaches the prefix but lacks the admin-only bits;
         // the walk's own denial is not consulted because the token can never
@@ -975,10 +1010,11 @@ mod tests {
             CapabilityMask::new(models::authz::CapabilityBundle::Editor.capabilities()),
         )
         .await;
-        let status = env
-            .evaluate_storage_mapping_authorization(&prefix, &planes)
-            .unwrap_err();
-        insta::assert_snapshot!(status.message(), @"token does not enable capabilities [JournalAppend, CreateGrant, DeleteGrant, CreateInviteLink, ViewDataPlanePrivateNetworking, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey] required to access prefix or name 'acmeCo/'");
+        let forbidden = definitive(
+            env.evaluate_storage_mapping_authorization(&prefix, &planes)
+                .unwrap_err(),
+        );
+        insta::assert_snapshot!(forbidden.message, @"token does not enable capabilities [JournalAppend, CreateGrant, DeleteGrant, CreateInviteLink, ViewDataPlanePrivateNetworking, ModifyDataPlanePrivateNetworking, ViewBilling, EditBilling, QueryServiceAccounts, CreateServiceAccount, CreateApiKey, RevokeApiKey] required to access prefix or name 'acmeCo/'");
 
         let env = authenticated_envelope(
             grants(),
@@ -991,11 +1027,12 @@ mod tests {
         );
     }
 
-    // A mask shortfall is a terminal denial only against a current Snapshot.
-    // Started after the Snapshot, the request takes the same provisional
-    // retry as any other denial, and the shortfall message rides along in it.
+    // A mask shortfall is a function of the token alone, so it is definitive
+    // even in the geometry where a walk denial would be provisional: started
+    // after the Snapshot, the request gets the structured 403 immediately and
+    // the Snapshot is left alone, because no refresh could change the answer.
     #[tokio::test]
-    async fn test_mask_shortfall_after_snapshot_stays_provisional() {
+    async fn test_mask_shortfall_after_snapshot_is_definitive() {
         let env = envelope_for_test(
             snapshot_of_grants(&[(USER, "acmeCo/", Admin)], &[]),
             verified_claims(),
@@ -1009,21 +1046,90 @@ mod tests {
             .await
             .unwrap_err()
         {
-            crate::ApiError::AuthZRetry(retry) => {
-                assert_eq!(retry.status.code(), tonic::Code::PermissionDenied);
+            crate::ApiError::Forbidden(forbidden) => {
+                assert_eq!(forbidden.error, "missing_capabilities");
                 assert!(
-                    retry
-                        .status
-                        .message()
+                    forbidden
+                        .message
                         .starts_with("token does not enable capabilities ["),
                     "{}",
-                    retry.status.message()
+                    forbidden.message
                 );
             }
-            crate::ApiError::Status(status) => {
-                panic!("expected a provisional retry, got terminal {status:?}")
-            }
+            other => panic!("expected a definitive Forbidden, got {other:?}"),
         }
+        assert!(!env.snapshot().revoke.is_cancelled());
+
+        // The same mask over `/authorize/user/*`'s shared policy helper is
+        // refused identically, ahead of the walk.
+        let err = env.user_is_authorized_for("acmeCo/", Admin).unwrap_err();
+        assert!(matches!(err, crate::AuthZError::Definitive(_)), "{err:?}");
+        // ...and a covered requirement reaches the walk, which the mask
+        // attenuates to the enabled bits.
+        let (authorized, _user, _email) = env.user_is_authorized_for("acmeCo/", Read).unwrap();
+        assert!(authorized);
+    }
+
+    /// `authorization_outcome` routes the two error variants differently,
+    /// pinned in both Snapshot geometries: a Definitive denial is Forbidden
+    /// regardless of Snapshot ordering, while a Retriable denial is terminal
+    /// only against a Snapshot taken after the request started.
+    #[tokio::test]
+    async fn test_outcome_routes_definitive_and_retriable_denials() {
+        let forbidden = || {
+            crate::Forbidden::missing_capabilities(
+                models::authz::Capability::SpecEdit.into(),
+                "acmeCo/",
+            )
+        };
+        let denied = || tonic::Status::permission_denied("not authorized");
+
+        // Started after the Snapshot: a walk denial is held for retry, a
+        // mask denial is not.
+        let stale = envelope_for_test(
+            snapshot_of_grants(&[], &[]),
+            verified_claims(),
+            started_after_snapshot(),
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
+        let result: Result<(tokens::DateTime, ()), _> =
+            stale.authorization_outcome(Err(forbidden().into())).await;
+        let Err(crate::ApiError::Forbidden(got)) = result else {
+            panic!("expected an immediate ApiError::Forbidden, got {result:?}");
+        };
+        assert_eq!(got, forbidden());
+        assert_eq!(got.missing_capabilities, vec!["SpecEdit"]);
+        assert!(!stale.snapshot().revoke.is_cancelled());
+
+        let result: Result<(tokens::DateTime, ()), _> =
+            stale.authorization_outcome(Err(denied().into())).await;
+        let Err(crate::ApiError::AuthZRetry(retry)) = result else {
+            panic!("expected ApiError::AuthZRetry, got {result:?}");
+        };
+        assert_eq!(retry.status.code(), tonic::Code::PermissionDenied);
+        assert!(stale.snapshot().revoke.is_cancelled());
+
+        // Started before the Snapshot: both are terminal, each in its own shape.
+        let fresh = envelope_for_test(
+            snapshot_of_grants(&[], &[]),
+            verified_claims(),
+            tokens::DateTime::UNIX_EPOCH,
+            CapabilityMask::ALL_CAPABILITIES,
+        )
+        .await;
+        let result: Result<(tokens::DateTime, ()), _> =
+            fresh.authorization_outcome(Err(forbidden().into())).await;
+        assert!(
+            matches!(result, Err(crate::ApiError::Forbidden(_))),
+            "expected ApiError::Forbidden, got {result:?}"
+        );
+        let result: Result<(tokens::DateTime, ()), _> =
+            fresh.authorization_outcome(Err(denied().into())).await;
+        let Err(crate::ApiError::Status(status)) = result else {
+            panic!("expected terminal ApiError::Status, got {result:?}");
+        };
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
     }
 
     #[tokio::test]

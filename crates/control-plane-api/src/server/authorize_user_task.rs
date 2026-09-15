@@ -68,51 +68,49 @@ fn evaluate_authorization(
     env: &crate::Envelope,
     task_name: &models::Name,
     capability: models::Capability,
-) -> tonic::Result<(
-    Option<chrono::DateTime<chrono::Utc>>,
-    (
-        tokens::jwt::EncodingKey,
-        proto_gazette::Claims, // Broker claims.
-        String,                // Broker address.
-        String,                // ops logs journal
-        String,                // opts stats journal
-        proto_gazette::Claims, // Reactor claims.
-        String,                // Reactor address.
-        String,                // Shard ID prefix.
-    ),
+) -> crate::AuthZResult<(
+    tokens::jwt::EncodingKey,
+    proto_gazette::Claims, // Broker claims.
+    String,                // Broker address.
+    String,                // ops logs journal
+    String,                // opts stats journal
+    proto_gazette::Claims, // Reactor claims.
+    String,                // Reactor address.
+    String,                // Shard ID prefix.
 )> {
     let (is_authorized, user_id, user_email) =
         env.user_is_authorized_for(task_name.as_str(), capability)?;
     if !is_authorized {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {task_name} for {capability:?}",
-        )));
+        ))
+        .into());
     }
 
     if !env.verify_estuary_support(user_id, capability) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
-        )));
+        )).into());
     }
 
     let snapshot = env.snapshot();
 
     let Some(task) = snapshot.task_by_catalog_name(task_name) else {
-        return Err(tonic::Status::not_found(format!(
-            "task {task_name} is not known"
-        )));
+        return Err(tonic::Status::not_found(format!("task {task_name} is not known")).into());
     };
     let Some(data_plane) = snapshot.data_planes.get_by_key(&task.data_plane_id) else {
         return Err(tonic::Status::internal(format!(
             "task data-plane {} not found",
             task.data_plane_id
-        )));
+        ))
+        .into());
     };
     let Some(encoding_key) = data_plane.hmac_keys.first() else {
         return Err(tonic::Status::internal(format!(
             "task data-plane {} has no configured HMAC keys",
             data_plane.data_plane_name
-        )));
+        ))
+        .into());
     };
     let encoding_key =
         tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
@@ -124,7 +122,8 @@ fn evaluate_authorization(
         return Err(tonic::Status::internal(format!(
             "couldn't resolve data-plane {} ops collections",
             task.data_plane_id
-        )));
+        ))
+        .into());
     };
 
     let ops_suffix = super::ops_suffix(task);
@@ -521,10 +520,10 @@ mod tests {
                     Outcome::Ok(output)
                 }
             }
-            Err(status) => Outcome::Err {
-                status: tokens::rest::grpc_status_code_to_http(status.code()),
-                error: status.message().to_string(),
-            },
+            Err(err) => {
+                let (status, error) = err.into_status_message();
+                Outcome::Err { status, error }
+            }
         }
     }
 

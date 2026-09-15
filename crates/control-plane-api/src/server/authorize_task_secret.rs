@@ -85,7 +85,7 @@ pub async fn authorize_task_secret(
                 ..Default::default()
             }));
         }
-        Err(err @ crate::ApiError::Status(_)) => return Err(err),
+        Err(err) => return Err(err),
     };
 
     let Some(fallback_check_data_plane) = fallback_check_data_plane else {
@@ -169,7 +169,8 @@ fn evaluate_authorization<'s>(
     else {
         return Err(tonic::Status::unauthenticated(
             "no data-plane keys validated against the token signature",
-        ));
+        )
+        .into());
     };
 
     // Map `claims.sub`, a real or synthetic Shard ID, into its live task.
@@ -180,7 +181,8 @@ fn evaluate_authorization<'s>(
     } else {
         return Err(tonic::Status::failed_precondition(format!(
             "task shard {shard_id} within data-plane {task_data_plane_fqdn} is not known"
-        )));
+        ))
+        .into());
     };
 
     let (Some(task_parent), Some(secret_parent)) =
@@ -188,13 +190,14 @@ fn evaluate_authorization<'s>(
     else {
         return Err(tonic::Status::permission_denied(format!(
             "task '{task_name}' and secret '{secret_name}' are not both catalog names"
-        )));
+        ))
+        .into());
     };
 
     if task_parent != secret_parent {
         return Err(tonic::Status::permission_denied(format!(
             "task '{task_name}' may only use secrets under '{task_parent}', and '{secret_name}' is not one"
-        )));
+        )).into());
     }
 
     let mapping_fallback = if let Some(task) = task {
@@ -202,7 +205,8 @@ fn evaluate_authorization<'s>(
         if task.data_plane_id != task_data_plane.control_id {
             return Err(tonic::Status::permission_denied(format!(
                 "task '{task_name}' does not run in data-plane {task_data_plane_fqdn}"
-            )));
+            ))
+            .into());
         }
         None
     } else {
@@ -477,11 +481,10 @@ mod tests {
                 }
                 out
             }
-            Err(status) => format!(
-                "{} {}",
-                tokens::rest::grpc_status_code_to_http(status.code()),
-                status.message()
-            ),
+            Err(err) => {
+                let (status, message) = err.into_status_message();
+                format!("{status} {message}")
+            }
         }
     }
 

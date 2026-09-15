@@ -65,7 +65,7 @@ pub async fn authorize_dekaf(
                 ..Default::default()
             }));
         }
-        Err(err @ crate::ApiError::Status(_)) => return Err(err),
+        Err(err) => return Err(err),
     };
 
     let (spec_type, built_spec) = sqlx::query!(
@@ -136,7 +136,8 @@ fn evaluate_authorization(
     else {
         return Err(tonic::Status::unauthenticated(
             "no data-plane keys validated against the token signature",
-        ));
+        )
+        .into());
     };
 
     // First, try to find task in the requesting dataplane by mapping
@@ -149,7 +150,8 @@ fn evaluate_authorization(
             return Err(tonic::Status::failed_precondition(format!(
                 "task {task_name} must be a materialization, but is {:?} instead",
                 task.spec_type
-            )));
+            ))
+            .into());
         }
 
         let (Some(ops_logs), Some(ops_stats)) = (
@@ -159,7 +161,8 @@ fn evaluate_authorization(
             return Err(tonic::Status::internal(format!(
                 "couldn't resolve data-plane {} ops collections",
                 task.data_plane_id
-            )));
+            ))
+            .into());
         };
 
         let ops_suffix = super::ops_suffix(task);
@@ -184,7 +187,8 @@ fn evaluate_authorization(
             return Err(tonic::Status::failed_precondition(format!(
                 "task {task_name} must be a materialization, but is {:?} instead",
                 task.spec_type
-            )));
+            ))
+            .into());
         }
 
         let Some(target_dataplane) = snapshot
@@ -194,7 +198,8 @@ fn evaluate_authorization(
         else {
             return Err(tonic::Status::internal(format!(
                 "target dataplane for task {task_name} not found"
-            )));
+            ))
+            .into());
         };
 
         return Ok((
@@ -209,9 +214,7 @@ fn evaluate_authorization(
         ));
     }
 
-    Err(tonic::Status::not_found(format!(
-        "task {task_name} not found"
-    )))
+    Err(tonic::Status::not_found(format!("task {task_name} not found")).into())
 }
 
 const DEKAF_ROLE: &str = "dekaf";
@@ -350,10 +353,10 @@ mod tests {
                     Outcome::Ok(authz_result)
                 }
             }
-            Err(status) => Outcome::Err {
-                status: tokens::rest::grpc_status_code_to_http(status.code()),
-                error: status.message().to_string(),
-            },
+            Err(err) => {
+                let (status, error) = err.into_status_message();
+                Outcome::Err { status, error }
+            }
         }
     }
 

@@ -15,7 +15,7 @@ pub mod public;
 pub mod snapshot;
 mod update_l2_reporting;
 
-pub use error::{ApiError, AuthZRetry};
+pub use error::{ApiError, AuthZError, AuthZRetry, Forbidden};
 pub use snapshot::Snapshot;
 
 /// Request wraps a JSON-deserialized request type T which
