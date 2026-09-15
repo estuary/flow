@@ -541,7 +541,7 @@ impl DataPlanesQuery {
                         &snapshot.user_grants,
                         claims.sub,
                         &dp.data_plane_name,
-                        models::Capability::Read,
+                        models::authz::CapabilityBundle::Viewer,
                         env.capability_mask(),
                     )
             })

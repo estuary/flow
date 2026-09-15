@@ -316,6 +316,9 @@ impl StorageMappingsMutation {
                 catalog_prefix,
                 detail,
                 spec: async_graphql::Json(collection_spec),
+                // Informational metadata, not a grant-row readback: this
+                // mutation requires admin-level effective bits on the
+                // prefix, which is what the label reports.
                 user_capability: models::Capability::Admin,
             },
         })
@@ -464,6 +467,9 @@ impl StorageMappingsMutation {
                 catalog_prefix,
                 detail,
                 spec: async_graphql::Json(collection_spec),
+                // Informational metadata, not a grant-row readback: this
+                // mutation requires admin-level effective bits on the
+                // prefix, which is what the label reports.
                 user_capability: models::Capability::Admin,
             },
             republish,
