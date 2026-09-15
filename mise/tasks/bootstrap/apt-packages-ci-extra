@@ -12,7 +12,9 @@ set -euo pipefail
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   age \
   g++-14 \
+  g++-x86-64-linux-gnu \
   gcc-14 \
+  gcc-x86-64-linux-gnu \
   libjemalloc-dev \
   libsnappy-dev \
   musl-tools \

@@ -1,10 +1,53 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-#MISE description="Build musl binaries (debug)"
+#MISE description="Build flow-connector-init for the connector container platform (linux/amd64)"
 #MISE depends=["bootstrap:apt-packages-ci-extra"]
 
-rustup target add $(uname -m)-unknown-linux-musl
+# `flow-connector-init` is bind-mounted into every connector container and is that
+# container's entrypoint, and connector containers always run linux/amd64 (see the
+# hard-coded `--platform=linux/amd64` in crates/runtime/src/container.rs). So it must
+# be an x86_64 binary even when the host is aarch64: otherwise the entrypoint cannot
+# exec and *every* connector container dies before starting, which surfaces only as
+# "failed to inspect a started docker container (did it crash?)".
+TARGET=x86_64-unknown-linux-musl
+
+rustup target add "${TARGET}"
+
+if [[ "$(uname -m)" != "x86_64" ]]; then
+    # Cross-compiling. `ring` and `aws-lc-sys` build C, and their objects have to be
+    # compiled against musl headers — a glibc cross-gcc leaves glibc-only symbols
+    # (`__isoc23_sscanf`, `__fprintf_chk`) that the musl link cannot resolve. `zig cc`
+    # ships headers and libc for every target, so use it as the C compiler and let
+    # rustc's bundled lld link against the target's musl.
+    #
+    # Two wrapper quirks: cc-rs passes an LLVM triple via `--target=`, which zig does
+    # not accept (it gets `-target` below), and `zig cc` enables UBSan by default
+    # while we do not link its runtime.
+    WRAPPER_DIR="${CARGO_TARGET_DIR:-target}/cross"
+    mkdir -p "${WRAPPER_DIR}"
+
+    for KIND in cc c++; do
+        SUFFIX="${KIND/c++/cxx}"
+        cat > "${WRAPPER_DIR}/zig-${SUFFIX}" <<EOF
+#!/usr/bin/env bash
+args=()
+for a in "\$@"; do
+  case "\$a" in --target=*) continue ;; esac
+  args+=("\$a")
+done
+exec zig ${KIND} -target x86_64-linux-musl -fno-sanitize=undefined "\${args[@]}"
+EOF
+        chmod +x "${WRAPPER_DIR}/zig-${SUFFIX}"
+    done
+
+    export CC_x86_64_unknown_linux_musl="${WRAPPER_DIR}/zig-cc"
+    export CXX_x86_64_unknown_linux_musl="${WRAPPER_DIR}/zig-cxx"
+    export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
+    # Drop the host's mold linker from RUSTFLAGS: it only emits host-arch objects.
+    export RUSTFLAGS="-D warnings"
+fi
 
 cargo build \
-    --target $(uname -m)-unknown-linux-musl \
+    --target "${TARGET}" \
     -p connector-init

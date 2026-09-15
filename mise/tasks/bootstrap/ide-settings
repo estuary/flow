@@ -15,7 +15,7 @@ cat > ${VSCODE_SETTINGS} << EOF
         "CGO_CFLAGS": "${CGO_CFLAGS}",
         "CGO_CPPFLAGS": "${CGO_CPPFLAGS}",
         "GOBIN": "${GOBIN}",
-        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
     },
     "rust-analyzer.cargo.extraEnv": {
         "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
@@ -37,7 +37,7 @@ cat > ${VSCODE_SETTINGS} << EOF
         "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
         "GOBIN": "${GOBIN}",
         "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
-        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
         "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
         "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
         "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
@@ -58,7 +58,7 @@ cat > ${VSCODE_SETTINGS} << EOF
         "FLOW_STACK_NAME": "${FLOW_STACK_NAME}",
         "FLOW_PORT_BIGTABLE": "${FLOW_PORT_BIGTABLE}",
         "GOBIN": "${GOBIN}",
-        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
         "SOPS_AGE_KEY": "AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU"
     },
 
@@ -90,7 +90,7 @@ cat > ${ZED_SETTINGS} << EOF
                     "CGO_CFLAGS": "${CGO_CFLAGS}",
                     "CGO_CPPFLAGS": "${CGO_CPPFLAGS}",
                     "GOBIN": "${GOBIN}",
-                    "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}"
+                    "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}"
                 }
             }
         },
@@ -115,7 +115,7 @@ cat > ${ZED_SETTINGS} << EOF
                         "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
                         "GOBIN": "${GOBIN}",
                         "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
-                        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
+                        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
                         "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
                         "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
                         "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
