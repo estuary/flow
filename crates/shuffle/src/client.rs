@@ -81,6 +81,16 @@ impl SessionClient {
         });
     }
 
+    /// Send CaughtUp once per pending checkpoint, with no frontier or scan in flight.
+    pub fn notify_caught_up(&self) {
+        tracing::debug!("notifying CaughtUp");
+
+        let _: Result<(), _> = self.request_tx.try_send(shuffle::SessionRequest {
+            caught_up: Some(shuffle::session_request::CaughtUp {}),
+            ..Default::default()
+        });
+    }
+
     /// Await the frontier response to a previously-issued
     /// [`Self::request_checkpoint`].
     ///

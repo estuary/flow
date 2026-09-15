@@ -48,6 +48,13 @@ impl ShuffleSession for PreviewShuffleSession {
         }
     }
 
+    fn notify_caught_up(&self) {
+        match self {
+            Self::Fixture(s) => s.notify_caught_up(),
+            Self::Live(s) => s.notify_caught_up(),
+        }
+    }
+
     async fn recv_checkpoint(&mut self) -> anyhow::Result<shuffle::Frontier> {
         match self {
             Self::Fixture(s) => s.recv_checkpoint().await,

@@ -186,3 +186,7 @@ const ACTOR_TICKER_INTERVAL: std::time::Duration = std::time::Duration::from_sec
 /// decoupled from [`ACTOR_TICKER_INTERVAL`] (the tracing cadence) and enforced
 /// via mark-and-sweep over that many ticks. See `session::state::CheckpointPipeline`.
 const CAUSAL_HINT_RESOLUTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Allow time for the Log's reclaim poll, which can take up to sixty seconds.
+const DISK_BACK_PRESSURE_DEADLOCK_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(5 * 60);

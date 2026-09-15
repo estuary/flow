@@ -20,6 +20,9 @@ pub trait ShuffleSession: Send + 'static {
     /// outstanding at a time; pair with [`Self::recv_checkpoint`].
     fn request_checkpoint(&self);
 
+    /// Notify the session that progress depends on its outstanding checkpoint.
+    fn notify_caught_up(&self);
+
     /// Await the Frontier responding to a prior [`Self::request_checkpoint`].
     ///
     /// Cancel-safe: dropping the returned future before it resolves loses no
@@ -74,6 +77,9 @@ impl ShuffleSessionFactory for ShuffleServiceFactory {
 impl ShuffleSession for shuffle::SessionClient {
     fn request_checkpoint(&self) {
         shuffle::SessionClient::request_checkpoint(self)
+    }
+    fn notify_caught_up(&self) {
+        shuffle::SessionClient::notify_caught_up(self)
     }
     fn recv_checkpoint(
         &mut self,

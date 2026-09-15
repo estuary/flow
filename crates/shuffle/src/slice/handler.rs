@@ -161,6 +161,7 @@ where
         progress: state::ProgressState::new(),
         slice_response_tx,
         log_prev_journal: vec![String::new(); log_request_tx.len()],
+        log_engaged: vec![false; log_request_tx.len()],
         log_request_tx,
         pending_probes: stream::FuturesUnordered::new(),
         pending_reads: stream::FuturesUnordered::new(),
@@ -170,6 +171,7 @@ where
         tailing_reads: 0,
         stalled_reads: Default::default(),
         initial_reads_started: false,
+        session_blocked: false,
         metrics,
     }
     .serve(slice_request_rx, log_response_rx)

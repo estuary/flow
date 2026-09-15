@@ -1,6 +1,6 @@
 use super::Lsn;
 use super::heap::{self, AppendHeap};
-use super::state::{BlockState, FlushState};
+use super::state::{BackPressureState, BlockState, FlushState};
 use super::writer::{SealedSegment, Writer};
 use futures::{FutureExt, StreamExt, future, stream::BoxStream};
 use proto_flow::shuffle;
@@ -30,7 +30,7 @@ type SliceRx = BoxStream<'static, tonic::Result<shuffle::LogRequest>>;
 pub struct LogActor {
     /// Immutable session topology: identity and shard configuration.
     pub topology: super::state::Topology,
-    /// Per-Slice response channel for sending Opened and Flushed responses.
+    /// Per-Slice response channel for sending Opened, Flushed, and DiskBackPressure responses.
     pub log_response_tx: Vec<mpsc::Sender<tonic::Result<shuffle::LogResponse>>>,
     /// Ready Append and receive stream for each Slice, set when an Append is
     /// received and consumed when the corresponding heap entry is popped.
@@ -47,6 +47,8 @@ pub struct LogActor {
     pub block: BlockState,
     /// Flush lifecycle state: pending requests, in-flight tracking, completed responses.
     pub flush: FlushState,
+    /// Disk back-pressure state: backlog measure, engaged flag, per-Slice notifications.
+    pub back_pressure: BackPressureState,
     /// Per-task metrics counters and gauges.
     pub metrics: super::Metrics,
 }
@@ -83,13 +85,6 @@ impl LogActor {
         // Each stream yields negative size deltas as disk space is freed.
         let mut sealed_segments = futures::stream::SelectAll::new();
 
-        // Threshold at which we'll stop draining Append requests.
-        let shuffle_disk_limit_bytes = self.topology.shuffle_disk_limit_bytes;
-        // Aggregate on-disk bytes across all living sealed segments.
-        let mut disk_backlog_bytes: u64 = 0;
-        // Hysteresis flag: engaged at shuffle_disk_limit_bytes, released at 50%.
-        let mut disk_back_pressure = false;
-
         let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -99,8 +94,9 @@ impl LogActor {
 
             // We may buffer a min-heap Append into the next block if we're
             // under cap and disk backlog back-pressure is not active.
-            let may_buffer =
-                !self.append_heap.is_empty() && !self.block.is_full() && !disk_back_pressure;
+            let may_buffer = !self.append_heap.is_empty()
+                && !self.block.is_full()
+                && !self.back_pressure.engaged();
 
             // We may begin a non-empty block flush if one isn't underway, and either:
             // - We've been asked to flush by a slice, OR
@@ -116,7 +112,7 @@ impl LogActor {
                 append_heap = self.append_heap.len(),
                 block = ?self.block,
                 connected,
-                disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
+                disk_backlog_mib = self.back_pressure.backlog_bytes() / (1024 * 1024),
                 flush = ?self.flush,
                 flushing = flush_handle.is_some(),
                 may_buffer,
@@ -125,7 +121,7 @@ impl LogActor {
                 "LogActor::serve iteration"
             );
 
-            // First, attempt non-blocking sends of pending Flushed responses.
+            // First, attempt non-blocking sends of pending responses.
             let wake_log_response_tx = self.try_log_response_tx()?;
 
             tokio::select! {
@@ -162,14 +158,7 @@ impl LogActor {
                         Err(err) => std::panic::resume_unwind(err.into_panic()),
                     };
 
-                    self.on_flushed(
-                        writer,
-                        flushed_lsn,
-                        sealed.as_ref(),
-                        &mut disk_backlog_bytes,
-                        shuffle_disk_limit_bytes,
-                        &mut disk_back_pressure,
-                    );
+                    self.on_flushed(writer, flushed_lsn, sealed.as_ref());
                     if let Some(sealed) = sealed {
                         sealed_segments.push(Box::pin(sealed.serve()));
                     }
@@ -179,12 +168,7 @@ impl LogActor {
                 // This arm is deactivated if no `connected` shards remain,
                 // to allow the `else` arm below to fire and exit.
                 Some(reclaimed) = sealed_segments.next(), if connected != 0 => {
-                    self.on_reclaimed(
-                        reclaimed?,
-                        &mut disk_backlog_bytes,
-                        shuffle_disk_limit_bytes,
-                        &mut disk_back_pressure,
-                    );
+                    self.on_reclaimed(reclaimed?);
                 }
 
                 // Wake when a blocked log_response_tx has capacity.
@@ -208,7 +192,7 @@ impl LogActor {
                     // The exporter evicts metrics idle for 10m, and a Log wedged
                     // by back-pressure neither seals nor reclaims, so without
                     // this the series vanishes on a stalled task.
-                    self.metrics.disk_backlog_bytes.set(disk_backlog_bytes as f64);
+                    self.metrics.disk_backlog_bytes.set(self.back_pressure.backlog_bytes() as f64);
                 }
 
                 // All slices EOF'd, heap drained, IO complete, and flushes sent.
@@ -222,7 +206,7 @@ impl LogActor {
         Ok(())
     }
 
-    /// Try to send completed Flushed responses. If a channel is full, return
+    /// Try to send pending responses. If a channel is full, return
     /// a wake future that resolves when capacity is available.
     fn try_log_response_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {
         // Closure for mapping an OwnedPermit Result to Ok (our "poll again" signal).
@@ -231,8 +215,29 @@ impl LogActor {
         // Future which represent an absence of an awake signal.
         let idle = future::Either::Right(std::future::ready(false));
 
-        // This loop may head-of-line block if we're unable to send a LIFO Flushed.
-        // We accept this property for implementation simplicity.
+        // Either loop may head-of-line block on a full channel.
+        while let Some(shard_index) = self.back_pressure.pending_slice() {
+            let tx = &self.log_response_tx[shard_index];
+
+            let Ok(permit) = tx.try_reserve() else {
+                return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
+            };
+            let engaged = self.back_pressure.on_sent(shard_index);
+
+            permit.send(Ok(shuffle::LogResponse {
+                disk_back_pressure: Some(shuffle::log_response::DiskBackPressure { engaged }),
+                ..Default::default()
+            }));
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "slice",
+                shard_index,
+                engaged,
+                "sent DiskBackPressure response to Slice",
+            );
+        }
+
         while let Some(&(shard_index, cycle, flushed_lsn)) = self.flush.peek_pending_response() {
             let tx = &self.log_response_tx[shard_index];
 
@@ -420,15 +425,7 @@ impl LogActor {
     /// Handle the completion of a background block flush: restore the writer,
     /// advance flush state, and bookkeep the disk-backlog measure (engaging
     /// back-pressure if a new segment was sealed).
-    fn on_flushed(
-        &mut self,
-        writer: Writer,
-        flushed_lsn: Lsn,
-        sealed: Option<&SealedSegment>,
-        disk_backlog_bytes: &mut u64,
-        shuffle_disk_limit_bytes: u64,
-        disk_back_pressure: &mut bool,
-    ) {
+    fn on_flushed(&mut self, writer: Writer, flushed_lsn: Lsn, sealed: Option<&SealedSegment>) {
         self.writer = Some(writer);
         self.flush.on_flushed(flushed_lsn);
 
@@ -437,25 +434,22 @@ impl LogActor {
             service_kit::event!(
                 tracing::Level::TRACE,
                 "writer",
-                disk_back_pressure = *disk_back_pressure,
-                disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
+                disk_back_pressure = self.back_pressure.engaged(),
+                disk_backlog_mib = self.back_pressure.backlog_bytes() / (1024 * 1024),
                 next_pending = self.flush.has_pending_request(),
                 "log segment flushed (partial segment)"
             );
             return;
         };
 
-        *disk_backlog_bytes += sealed.size;
-
-        if *disk_backlog_bytes >= shuffle_disk_limit_bytes {
-            *disk_back_pressure = true;
-        };
+        self.back_pressure
+            .on_sealed(sealed.size, self.topology.shuffle_disk_limit_bytes);
 
         service_kit::event!(
             tracing::Level::DEBUG,
             "writer",
-            disk_back_pressure = *disk_back_pressure,
-            disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
+            disk_back_pressure = self.back_pressure.engaged(),
+            disk_backlog_mib = self.back_pressure.backlog_bytes() / (1024 * 1024),
             last_segment = service_kit::event::debug(sealed.path.to_owned()),
             next_pending = self.flush.has_pending_request(),
             sealed_mib = sealed.size / (1024 * 1024),
@@ -464,38 +458,159 @@ impl LogActor {
         self.metrics.segments_sealed.increment(1);
         self.metrics
             .disk_backlog_bytes
-            .set(*disk_backlog_bytes as f64);
+            .set(self.back_pressure.backlog_bytes() as f64);
     }
 
     /// Handle a disk-space reclaim from a sealed segment's compress / unlink
     /// stream: subtract from the backlog measure and release back-pressure
     /// at the hysteresis threshold (half of `shuffle_disk_limit_bytes`).
-    fn on_reclaimed(
-        &mut self,
-        reclaimed: u64,
-        disk_backlog_bytes: &mut u64,
-        shuffle_disk_limit_bytes: u64,
-        disk_back_pressure: &mut bool,
-    ) {
-        *disk_backlog_bytes = disk_backlog_bytes
-            .checked_sub(reclaimed)
-            .expect("disk_backlog_bytes underflow");
-
-        if *disk_back_pressure && *disk_backlog_bytes < shuffle_disk_limit_bytes / 2 {
-            *disk_back_pressure = false;
-        }
+    fn on_reclaimed(&mut self, reclaimed: u64) {
+        self.back_pressure
+            .on_reclaimed(reclaimed, self.topology.shuffle_disk_limit_bytes);
 
         service_kit::event!(
             tracing::Level::DEBUG,
             "writer",
-            disk_back_pressure = *disk_back_pressure,
-            disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
+            disk_back_pressure = self.back_pressure.engaged(),
+            disk_backlog_mib = self.back_pressure.backlog_bytes() / (1024 * 1024),
             reclaimed_mib = reclaimed / (1024 * 1024),
             "log segment reclaimed",
         );
         self.metrics
             .disk_backlog_bytes
-            .set(*disk_backlog_bytes as f64);
+            .set(self.back_pressure.backlog_bytes() as f64);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const LIMIT: u64 = 1024;
+
+    fn test_actor(
+        dir: &std::path::Path,
+    ) -> (
+        LogActor,
+        Vec<mpsc::Receiver<tonic::Result<shuffle::LogResponse>>>,
+    ) {
+        let shards = crate::testing::test_shards_3();
+        let shard_count = shards.len();
+
+        let (log_response_tx, log_response_rx): (Vec<_>, Vec<_>) = (0..shard_count)
+            .map(|_| crate::new_channel::<tonic::Result<shuffle::LogResponse>>())
+            .unzip();
+
+        let metrics = super::super::Metrics::new(&shards[0].id);
+
+        let actor = LogActor {
+            topology: super::super::state::Topology {
+                session_id: 1,
+                shards,
+                log_shard_index: 0,
+                shuffle_disk_limit_bytes: LIMIT,
+            },
+            append_heap: super::super::heap::AppendHeap::new(),
+            slice_prev_journal: vec![String::new(); shard_count],
+            slice_appends: std::iter::repeat_with(|| None).take(shard_count).collect(),
+            writer: Some(Writer::new(dir, 0).unwrap()),
+            block: BlockState::new(),
+            flush: FlushState::new(),
+            back_pressure: BackPressureState::new(shard_count),
+            log_response_tx,
+            metrics,
+        };
+        (actor, log_response_rx)
+    }
+
+    fn seal(actor: &mut LogActor, dir: &std::path::Path, size: u64) {
+        let writer = actor.writer.take().unwrap();
+        actor.flush.start_flush();
+
+        actor.on_flushed(
+            writer,
+            Lsn::new(1, 0),
+            Some(&SealedSegment::new(dir.join("sealed-segment"), size)),
+        );
+    }
+
+    fn drain(
+        actor: &mut LogActor,
+        rx: &mut [mpsc::Receiver<tonic::Result<shuffle::LogResponse>>],
+    ) -> Vec<(usize, bool)> {
+        _ = actor.try_log_response_tx().unwrap();
+
+        let mut out = Vec::new();
+        for (shard_index, rx) in rx.iter_mut().enumerate() {
+            while let Ok(response) = rx.try_recv() {
+                match response.unwrap() {
+                    shuffle::LogResponse {
+                        disk_back_pressure:
+                            Some(shuffle::log_response::DiskBackPressure { engaged }),
+                        ..
+                    } => out.push((shard_index, engaged)),
+                    response => panic!("unexpected LogResponse: {response:?}"),
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn test_disk_back_pressure_broadcast() {
+        enum Step {
+            Seal(u64),
+            Reclaim(u64),
+        }
+        use Step::*;
+
+        let cases: &[(&str, &[Step])] = &[
+            ("sealed under the limit", &[Seal(LIMIT / 2)]),
+            ("sealed at the limit", &[Seal(LIMIT / 2)]),
+            ("sealed while engaged", &[Seal(LIMIT)]),
+            ("reclaimed to the limit", &[Reclaim(LIMIT)]),
+            ("reclaimed to the hysteresis floor", &[Reclaim(LIMIT / 2)]),
+            (
+                "reclaimed below the hysteresis floor",
+                &[Reclaim(LIMIT / 2)],
+            ),
+            ("reclaimed while released", &[Reclaim(0)]),
+            ("sealed at the limit anew", &[Seal(LIMIT)]),
+            (
+                "released and re-engaged before a drain",
+                &[Reclaim(LIMIT), Seal(LIMIT)],
+            ),
+            (
+                "reclaimed below the hysteresis floor anew",
+                &[Reclaim(LIMIT)],
+            ),
+            (
+                "engaged and released before a drain",
+                &[Seal(LIMIT), Reclaim(LIMIT)],
+            ),
+        ];
+
+        let dir = tempfile::tempdir().unwrap();
+        let (mut actor, mut rx) = test_actor(dir.path());
+
+        let phases: Vec<_> = cases
+            .iter()
+            .map(|(label, steps)| {
+                for step in *steps {
+                    match step {
+                        Seal(size) => seal(&mut actor, dir.path(), *size),
+                        Reclaim(size) => actor.on_reclaimed(*size),
+                    }
+                }
+                (
+                    *label,
+                    actor.back_pressure.engaged(),
+                    drain(&mut actor, &mut rx),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!("disk_back_pressure_flips", phases);
     }
 }
 

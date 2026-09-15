@@ -1,0 +1,113 @@
+---
+source: crates/shuffle/src/log/actor.rs
+expression: phases
+---
+[
+    (
+        "sealed under the limit",
+        false,
+        [],
+    ),
+    (
+        "sealed at the limit",
+        true,
+        [
+            (
+                0,
+                true,
+            ),
+            (
+                1,
+                true,
+            ),
+            (
+                2,
+                true,
+            ),
+        ],
+    ),
+    (
+        "sealed while engaged",
+        true,
+        [],
+    ),
+    (
+        "reclaimed to the limit",
+        true,
+        [],
+    ),
+    (
+        "reclaimed to the hysteresis floor",
+        true,
+        [],
+    ),
+    (
+        "reclaimed below the hysteresis floor",
+        false,
+        [
+            (
+                0,
+                false,
+            ),
+            (
+                1,
+                false,
+            ),
+            (
+                2,
+                false,
+            ),
+        ],
+    ),
+    (
+        "reclaimed while released",
+        false,
+        [],
+    ),
+    (
+        "sealed at the limit anew",
+        true,
+        [
+            (
+                0,
+                true,
+            ),
+            (
+                1,
+                true,
+            ),
+            (
+                2,
+                true,
+            ),
+        ],
+    ),
+    (
+        "released and re-engaged before a drain",
+        true,
+        [],
+    ),
+    (
+        "reclaimed below the hysteresis floor anew",
+        false,
+        [
+            (
+                0,
+                false,
+            ),
+            (
+                1,
+                false,
+            ),
+            (
+                2,
+                false,
+            ),
+        ],
+    ),
+    (
+        "engaged and released before a drain",
+        false,
+        [],
+    ),
+]

@@ -8,6 +8,8 @@ pub struct SessionActor {
     pub topology: super::state::Topology,
     /// Four-stage checkpoint pipeline state machine.
     pub checkpoint: super::state::CheckpointPipeline,
+    /// Watchdog for a Session wedged on disk back-pressure.
+    pub deadlock: super::state::DeadlockDetector,
     /// Bits by-shard indicating whether to send a ProgressRequest.
     pub progress_ready: Vec<bool>,
     /// Channel for sending SessionResponse messages back to the coordinator.
@@ -90,10 +92,13 @@ impl SessionActor {
                 // Next priority is draining ready-to-send messages.
                 true = wake_slice_request_tx => {}
 
-                // Periodic tick ensures tracing fires even when idle,
-                // and detects stalled causal hint resolution.
+                // Periodic tick ensures tracing fires even when idle.
                 _ = ticker.tick() => {
                     self.checkpoint.on_tick()?;
+                    self.deadlock.on_tick(
+                        self.checkpoint.requested(),
+                        self.checkpoint.would_emit(),
+                    )?;
                 }
             }
         }
@@ -219,13 +224,18 @@ impl SessionActor {
             "sent NextCheckpoint response",
         );
         self.metrics.checkpoints.increment(1);
+        self.deadlock.on_emitted();
     }
 
     fn on_session_request(
         &mut self,
         session_request: tonic::Result<shuffle::SessionRequest>,
     ) -> anyhow::Result<()> {
-        let verify = proto_grpc::verify("SessionRequest", "NextCheckpoint", "coordinator");
+        let verify = proto_grpc::verify(
+            "SessionRequest",
+            "NextCheckpoint or CaughtUp",
+            "coordinator",
+        );
 
         match verify.ok(session_request)? {
             shuffle::SessionRequest {
@@ -239,6 +249,15 @@ impl SessionActor {
                 );
                 self.checkpoint.request()
             }
+
+            shuffle::SessionRequest {
+                caught_up: Some(shuffle::session_request::CaughtUp {}),
+                ..
+            } => {
+                self.deadlock.on_caught_up(self.checkpoint.requested());
+                Ok(())
+            }
+
             request => Err(verify.fail_msg(request)),
         }
     }
@@ -250,7 +269,7 @@ impl SessionActor {
     ) -> anyhow::Result<()> {
         let verify = proto_grpc::verify(
             "SliceResponse",
-            "ListingAdded, ListingSnapshotComplete, or ProgressDelta",
+            "Blocked, ListingAdded, ListingSnapshotComplete, or ProgressDelta",
             &self.topology.shards[shard_index].endpoint,
         );
         let slice_response = verify.not_eof(slice_response)?;
@@ -308,6 +327,14 @@ impl SessionActor {
             } => {
                 self.checkpoint.on_progressed(shard_index, proto)?; // Handles event! diagnostic.
                 self.progress_ready[shard_index] = true;
+                Ok(())
+            }
+
+            shuffle::SliceResponse {
+                blocked: Some(shuffle::slice_response::Blocked { blocked }),
+                ..
+            } => {
+                self.deadlock.on_blocked(shard_index, blocked);
                 Ok(())
             }
 
@@ -375,6 +402,7 @@ mod test {
         let actor = SessionActor {
             topology,
             checkpoint,
+            deadlock: super::super::state::DeadlockDetector::new(shard_count),
             progress_ready: vec![true; shard_count],
             session_response_tx,
             slice_request_tx,
@@ -457,6 +485,63 @@ mod test {
                 "test/collection/B".to_string(),
                 "test/collection/C".to_string(),
             ],
+        );
+    }
+
+    async fn drive_deadlock(blocked: &[bool], wait: std::time::Duration) -> Option<anyhow::Error> {
+        let shards = test_shards_3();
+        assert_eq!(blocked.len(), shards.len());
+
+        let (actor, _slice_request_rx) =
+            test_actor_with_topology(crate::Frontier::default(), vec![], shards);
+
+        let session_request_rx = futures::stream::iter([
+            Ok(shuffle::SessionRequest {
+                next_checkpoint: Some(shuffle::session_request::NextCheckpoint {}),
+                ..Default::default()
+            }),
+            Ok(shuffle::SessionRequest {
+                caught_up: Some(shuffle::session_request::CaughtUp {}),
+                ..Default::default()
+            }),
+        ])
+        .chain(futures::stream::pending());
+
+        let slice_response_rx = blocked
+            .iter()
+            .map(|blocked| {
+                futures::stream::iter([Ok(shuffle::SliceResponse {
+                    blocked: Some(shuffle::slice_response::Blocked { blocked: *blocked }),
+                    ..Default::default()
+                })])
+                .chain(futures::stream::pending())
+                .boxed()
+            })
+            .collect();
+
+        let handle = tokio::spawn(actor.serve(session_request_rx, slice_response_rx));
+
+        match tokio::time::timeout(wait, handle).await {
+            Ok(joined) => joined.unwrap().err(),
+            Err(_elapsed) => None,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_serve_bails_once_every_slice_reports_blocked() {
+        let wait = 5 * crate::DISK_BACK_PRESSURE_DEADLOCK_TIMEOUT;
+
+        let err = drive_deadlock(&[true, true, true], wait)
+            .await
+            .expect("Session tears down a deadlocked topology");
+        assert!(
+            format!("{err}").contains("deadlocked on disk back-pressure"),
+            "{err}"
+        );
+
+        assert!(
+            drive_deadlock(&[true, true, false], wait).await.is_none(),
+            "a Slice which can still progress masks the deadlock",
         );
     }
 

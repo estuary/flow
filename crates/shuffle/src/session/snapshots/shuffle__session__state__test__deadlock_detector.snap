@@ -1,0 +1,90 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: out
+---
+[
+    (
+        "nothing observed",
+        Ok(
+            0,
+        ),
+    ),
+    (
+        "blocked but not caught up",
+        Ok(
+            0,
+        ),
+    ),
+    (
+        "stale CaughtUp is dropped",
+        Ok(
+            0,
+        ),
+    ),
+    (
+        "every conjunct holds",
+        Ok(
+            1,
+        ),
+    ),
+    (
+        "no checkpoint requested",
+        Ok(
+            0,
+        ),
+    ),
+    (
+        "counting resumes",
+        Ok(
+            1,
+        ),
+    ),
+    (
+        "a frontier would be emitted",
+        Ok(
+            0,
+        ),
+    ),
+    (
+        "counting resumes",
+        Ok(
+            1,
+        ),
+    ),
+    (
+        "one Slice unblocked",
+        Ok(
+            0,
+        ),
+    ),
+    (
+        "re-blocked",
+        Ok(
+            1,
+        ),
+    ),
+    (
+        "unblocked and re-blocked between ticks",
+        Ok(
+            1,
+        ),
+    ),
+    (
+        "emitted: count and CaughtUp cleared",
+        Ok(
+            0,
+        ),
+    ),
+    (
+        "one tick short of the timeout",
+        Ok(
+            4,
+        ),
+    ),
+    (
+        "at the timeout",
+        Err(
+            "shuffle deadlocked on disk back-pressure: every Slice blocked for 300s with a checkpoint outstanding",
+        ),
+    ),
+]

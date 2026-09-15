@@ -353,6 +353,16 @@ impl CheckpointPipeline {
         }
     }
 
+    /// Whether a NextCheckpoint request is outstanding.
+    pub fn requested(&self) -> bool {
+        self.requested
+    }
+
+    /// Must match the emission conditions of `take_ready`.
+    pub fn would_emit(&self) -> bool {
+        self.requested && (!self.ready.journals.is_empty() || self.unresolved_peek_progress)
+    }
+
     /// Record a NextCheckpoint request from the client.
     pub fn request(&mut self) -> anyhow::Result<()> {
         if self.requested {
@@ -738,6 +748,92 @@ impl CheckpointPipeline {
                 "promoted `progressed` to `unresolved`"
             );
         }
+    }
+}
+
+/// Detects a shuffle topology deadlocked on disk back-pressure.
+#[derive(Debug)]
+pub struct DeadlockDetector {
+    caught_up: bool,
+    /// Last Blocked value reported by each Slice.
+    blocked: Vec<bool>,
+    blocked_ticks: u32,
+}
+
+impl DeadlockDetector {
+    /// Initialize the detector with all Slices unblocked.
+    pub fn new(shard_count: usize) -> Self {
+        Self {
+            caught_up: false,
+            blocked: vec![false; shard_count],
+            blocked_ticks: 0,
+        }
+    }
+
+    /// Record CaughtUp for an outstanding checkpoint request.
+    pub fn on_caught_up(&mut self, requested: bool) {
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "coordinator",
+            requested,
+            "received CaughtUp request",
+        );
+
+        // CaughtUp can race with its checkpoint response.
+        if !requested {
+            return;
+        }
+        self.caught_up = true;
+    }
+
+    /// Update a Slice's blocked status, resetting the timer if unblocked.
+    pub fn on_blocked(&mut self, shard_index: usize, blocked: bool) {
+        self.blocked[shard_index] = blocked;
+
+        if !blocked {
+            self.blocked_ticks = 0;
+        }
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "slice",
+            shard_index,
+            blocked,
+            "received Blocked response",
+        );
+    }
+
+    /// Reset detection after emitting a checkpoint frontier.
+    pub fn on_emitted(&mut self) {
+        self.caught_up = false;
+        self.blocked_ticks = 0;
+    }
+
+    /// Count a blocked tick or reset the timer, failing at the timeout.
+    pub fn on_tick(&mut self, requested: bool, would_emit: bool) -> anyhow::Result<()> {
+        if !requested || !self.caught_up || would_emit || !self.blocked.iter().all(|b| *b) {
+            self.blocked_ticks = 0;
+            return Ok(());
+        }
+
+        self.blocked_ticks += 1;
+        let deadlocked = crate::ACTOR_TICKER_INTERVAL * self.blocked_ticks;
+
+        if deadlocked < crate::DISK_BACK_PRESSURE_DEADLOCK_TIMEOUT {
+            service_kit::event!(
+                tracing::Level::WARN,
+                "pipeline",
+                blocked_ticks = self.blocked_ticks,
+                slices = self.blocked.len(),
+                "every Slice is blocked on disk back-pressure while a checkpoint is outstanding"
+            );
+            return Ok(());
+        }
+
+        anyhow::bail!(
+            "shuffle deadlocked on disk back-pressure: every Slice blocked for {deadlocked:?} \
+             with a checkpoint outstanding"
+        );
     }
 }
 
@@ -1324,6 +1420,66 @@ mod test {
         pipeline.request().unwrap();
         let err = pipeline.request().unwrap_err();
         assert!(format!("{err}").contains("already pending"), "{err}");
+    }
+
+    fn ticks_to_deadlock() -> u32 {
+        (crate::DISK_BACK_PRESSURE_DEADLOCK_TIMEOUT.as_secs()
+            / crate::ACTOR_TICKER_INTERVAL.as_secs()) as u32
+    }
+
+    #[test]
+    fn test_deadlock_detector() {
+        let mut out: Vec<(&str, Result<u32, String>)> = Vec::new();
+        let mut tick = |label, deadlock: &mut DeadlockDetector, requested, would_emit| {
+            let outcome = deadlock.on_tick(requested, would_emit);
+            out.push((
+                label,
+                outcome
+                    .map(|()| deadlock.blocked_ticks)
+                    .map_err(|err| err.to_string()),
+            ));
+        };
+        let mut deadlock = DeadlockDetector::new(2);
+
+        tick("nothing observed", &mut deadlock, true, false);
+        deadlock.on_blocked(0, true);
+        deadlock.on_blocked(1, true);
+        tick("blocked but not caught up", &mut deadlock, true, false);
+        deadlock.on_caught_up(false);
+        tick("stale CaughtUp is dropped", &mut deadlock, true, false);
+        deadlock.on_caught_up(true);
+        tick("every conjunct holds", &mut deadlock, true, false);
+        tick("no checkpoint requested", &mut deadlock, false, false);
+        tick("counting resumes", &mut deadlock, true, false);
+        tick("a frontier would be emitted", &mut deadlock, true, true);
+        tick("counting resumes", &mut deadlock, true, false);
+        deadlock.on_blocked(1, false);
+        tick("one Slice unblocked", &mut deadlock, true, false);
+        deadlock.on_blocked(1, true);
+        tick("re-blocked", &mut deadlock, true, false);
+        deadlock.on_blocked(1, false);
+        deadlock.on_blocked(1, true);
+        tick(
+            "unblocked and re-blocked between ticks",
+            &mut deadlock,
+            true,
+            false,
+        );
+        deadlock.on_emitted();
+        tick(
+            "emitted: count and CaughtUp cleared",
+            &mut deadlock,
+            true,
+            false,
+        );
+        deadlock.on_caught_up(true);
+        for _ in 1..ticks_to_deadlock() - 1 {
+            deadlock.on_tick(true, false).unwrap();
+        }
+        tick("one tick short of the timeout", &mut deadlock, true, false);
+        tick("at the timeout", &mut deadlock, true, false);
+
+        insta::assert_debug_snapshot!("deadlock_detector", out);
     }
 
     #[test]

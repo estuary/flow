@@ -1565,12 +1565,18 @@ impl serde::Serialize for LogResponse {
         if self.flushed.is_some() {
             len += 1;
         }
+        if self.disk_back_pressure.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.LogResponse", len)?;
         if let Some(v) = self.opened.as_ref() {
             struct_ser.serialize_field("opened", v)?;
         }
         if let Some(v) = self.flushed.as_ref() {
             struct_ser.serialize_field("flushed", v)?;
+        }
+        if let Some(v) = self.disk_back_pressure.as_ref() {
+            struct_ser.serialize_field("diskBackPressure", v)?;
         }
         struct_ser.end()
     }
@@ -1584,12 +1590,15 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
         const FIELDS: &[&str] = &[
             "opened",
             "flushed",
+            "disk_back_pressure",
+            "diskBackPressure",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Opened,
             Flushed,
+            DiskBackPressure,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1614,6 +1623,7 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                         match value {
                             "opened" => Ok(GeneratedField::Opened),
                             "flushed" => Ok(GeneratedField::Flushed),
+                            "diskBackPressure" | "disk_back_pressure" => Ok(GeneratedField::DiskBackPressure),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1635,6 +1645,7 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
             {
                 let mut opened__ = None;
                 let mut flushed__ = None;
+                let mut disk_back_pressure__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Opened => {
@@ -1649,6 +1660,12 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                             }
                             flushed__ = map_.next_value()?;
                         }
+                        GeneratedField::DiskBackPressure => {
+                            if disk_back_pressure__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskBackPressure"));
+                            }
+                            disk_back_pressure__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1657,10 +1674,106 @@ impl<'de> serde::Deserialize<'de> for LogResponse {
                 Ok(LogResponse {
                     opened: opened__,
                     flushed: flushed__,
+                    disk_back_pressure: disk_back_pressure__,
                 })
             }
         }
         deserializer.deserialize_struct("shuffle.LogResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for log_response::DiskBackPressure {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.engaged {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.LogResponse.DiskBackPressure", len)?;
+        if self.engaged {
+            struct_ser.serialize_field("engaged", &self.engaged)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for log_response::DiskBackPressure {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "engaged",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Engaged,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "engaged" => Ok(GeneratedField::Engaged),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = log_response::DiskBackPressure;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.LogResponse.DiskBackPressure")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<log_response::DiskBackPressure, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut engaged__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Engaged => {
+                            if engaged__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("engaged"));
+                            }
+                            engaged__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(log_response::DiskBackPressure {
+                    engaged: engaged__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.LogResponse.DiskBackPressure", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for log_response::Flushed {
@@ -2037,6 +2150,9 @@ impl serde::Serialize for SessionRequest {
         if self.next_checkpoint.is_some() {
             len += 1;
         }
+        if self.caught_up.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.SessionRequest", len)?;
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
@@ -2046,6 +2162,9 @@ impl serde::Serialize for SessionRequest {
         }
         if let Some(v) = self.next_checkpoint.as_ref() {
             struct_ser.serialize_field("nextCheckpoint", v)?;
+        }
+        if let Some(v) = self.caught_up.as_ref() {
+            struct_ser.serialize_field("caughtUp", v)?;
         }
         struct_ser.end()
     }
@@ -2062,6 +2181,8 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
             "resumeCheckpoint",
             "next_checkpoint",
             "nextCheckpoint",
+            "caught_up",
+            "caughtUp",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2069,6 +2190,7 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
             Open,
             ResumeCheckpoint,
             NextCheckpoint,
+            CaughtUp,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2094,6 +2216,7 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                             "open" => Ok(GeneratedField::Open),
                             "resumeCheckpoint" | "resume_checkpoint" => Ok(GeneratedField::ResumeCheckpoint),
                             "nextCheckpoint" | "next_checkpoint" => Ok(GeneratedField::NextCheckpoint),
+                            "caughtUp" | "caught_up" => Ok(GeneratedField::CaughtUp),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2116,6 +2239,7 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                 let mut open__ = None;
                 let mut resume_checkpoint__ = None;
                 let mut next_checkpoint__ = None;
+                let mut caught_up__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Open => {
@@ -2136,6 +2260,12 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                             }
                             next_checkpoint__ = map_.next_value()?;
                         }
+                        GeneratedField::CaughtUp => {
+                            if caught_up__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("caughtUp"));
+                            }
+                            caught_up__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2145,10 +2275,83 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                     open: open__,
                     resume_checkpoint: resume_checkpoint__,
                     next_checkpoint: next_checkpoint__,
+                    caught_up: caught_up__,
                 })
             }
         }
         deserializer.deserialize_struct("shuffle.SessionRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for session_request::CaughtUp {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("shuffle.SessionRequest.CaughtUp", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for session_request::CaughtUp {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = session_request::CaughtUp;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.SessionRequest.CaughtUp")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<session_request::CaughtUp, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(session_request::CaughtUp {
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.SessionRequest.CaughtUp", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for session_request::NextCheckpoint {
@@ -3433,6 +3636,9 @@ impl serde::Serialize for SliceResponse {
         if self.listing_snapshot_complete.is_some() {
             len += 1;
         }
+        if self.blocked.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.SliceResponse", len)?;
         if let Some(v) = self.opened.as_ref() {
             struct_ser.serialize_field("opened", v)?;
@@ -3445,6 +3651,9 @@ impl serde::Serialize for SliceResponse {
         }
         if let Some(v) = self.listing_snapshot_complete.as_ref() {
             struct_ser.serialize_field("listingSnapshotComplete", v)?;
+        }
+        if let Some(v) = self.blocked.as_ref() {
+            struct_ser.serialize_field("blocked", v)?;
         }
         struct_ser.end()
     }
@@ -3462,6 +3671,7 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
             "progressed",
             "listing_snapshot_complete",
             "listingSnapshotComplete",
+            "blocked",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3470,6 +3680,7 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
             ListingAdded,
             Progressed,
             ListingSnapshotComplete,
+            Blocked,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3496,6 +3707,7 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                             "listingAdded" | "listing_added" => Ok(GeneratedField::ListingAdded),
                             "progressed" => Ok(GeneratedField::Progressed),
                             "listingSnapshotComplete" | "listing_snapshot_complete" => Ok(GeneratedField::ListingSnapshotComplete),
+                            "blocked" => Ok(GeneratedField::Blocked),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3519,6 +3731,7 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                 let mut listing_added__ = None;
                 let mut progressed__ = None;
                 let mut listing_snapshot_complete__ = None;
+                let mut blocked__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Opened => {
@@ -3545,6 +3758,12 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                             }
                             listing_snapshot_complete__ = map_.next_value()?;
                         }
+                        GeneratedField::Blocked => {
+                            if blocked__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blocked"));
+                            }
+                            blocked__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3555,10 +3774,106 @@ impl<'de> serde::Deserialize<'de> for SliceResponse {
                     listing_added: listing_added__,
                     progressed: progressed__,
                     listing_snapshot_complete: listing_snapshot_complete__,
+                    blocked: blocked__,
                 })
             }
         }
         deserializer.deserialize_struct("shuffle.SliceResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for slice_response::Blocked {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.blocked {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.SliceResponse.Blocked", len)?;
+        if self.blocked {
+            struct_ser.serialize_field("blocked", &self.blocked)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for slice_response::Blocked {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "blocked",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Blocked,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "blocked" => Ok(GeneratedField::Blocked),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = slice_response::Blocked;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.SliceResponse.Blocked")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<slice_response::Blocked, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut blocked__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Blocked => {
+                            if blocked__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blocked"));
+                            }
+                            blocked__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(slice_response::Blocked {
+                    blocked: blocked__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.SliceResponse.Blocked", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for slice_response::ListingAdded {
