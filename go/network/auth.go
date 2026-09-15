@@ -87,6 +87,19 @@ func completeAuthRedirect(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// `startAuthRedirect` builds `orig_url` from `req.Host`, but it round-trips
+	// through the dashboard and arrives back here as ordinary request input that
+	// nothing signs. This handler is also dispatched ahead of
+	// `verifyAuthorization`, so any client which can resolve a task hostname may
+	// call it directly. Pin the redirect to this same host, rather than bouncing
+	// the browser (and the cookie set just below) to an origin of the caller's
+	// choosing.
+	var parsed, err = url.Parse(origUrl)
+	if err != nil || parsed.Host != req.Host {
+		http.Error(w, "invalid `orig_url` parameter", http.StatusBadRequest)
+		return
+	}
+
 	var cookie = &http.Cookie{
 		Name:     AuthCookieName,
 		Value:    token,
