@@ -233,6 +233,72 @@ impl FlushState {
     }
 }
 
+/// Tracks Log disk back-pressure and pending Slice notifications.
+#[derive(Debug)]
+pub struct BackPressureState {
+    /// Aggregate on-disk bytes across all living sealed segments.
+    backlog_bytes: u64,
+    /// Whether disk back-pressure is pausing Append draining.
+    engaged: bool,
+    /// Last back-pressure flag sent to each Slice.
+    slice_engaged: Vec<bool>,
+}
+
+impl BackPressureState {
+    /// Start with an empty backlog and back-pressure released.
+    pub fn new(shard_count: usize) -> Self {
+        Self {
+            backlog_bytes: 0,
+            engaged: false,
+            slice_engaged: vec![false; shard_count],
+        }
+    }
+
+    /// Whether disk back-pressure is engaged.
+    pub fn engaged(&self) -> bool {
+        self.engaged
+    }
+
+    /// Current on-disk bytes of sealed segments.
+    pub fn backlog_bytes(&self) -> u64 {
+        self.backlog_bytes
+    }
+
+    /// Account for a sealed segment, engaging back-pressure at the disk limit.
+    pub fn on_sealed(&mut self, size: u64, limit_bytes: u64) {
+        self.backlog_bytes += size;
+
+        if self.backlog_bytes >= limit_bytes {
+            self.engaged = true;
+        }
+    }
+
+    /// Account for reclaimed bytes, releasing back-pressure below half the limit.
+    pub fn on_reclaimed(&mut self, reclaimed: u64, limit_bytes: u64) {
+        self.backlog_bytes = self
+            .backlog_bytes
+            .checked_sub(reclaimed)
+            .expect("disk_backlog_bytes underflow");
+
+        if self.backlog_bytes < limit_bytes / 2 {
+            self.engaged = false;
+        }
+    }
+
+    /// Index of a Slice owed the current back-pressure flag.
+    pub fn pending_slice(&self) -> Option<usize> {
+        self.slice_engaged
+            .iter()
+            .position(|sent| *sent != self.engaged)
+    }
+
+    /// Record and return the back-pressure flag sent to a Slice.
+    pub fn on_sent(&mut self, shard_index: usize) -> bool {
+        self.slice_engaged[shard_index] = self.engaged;
+        self.engaged
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

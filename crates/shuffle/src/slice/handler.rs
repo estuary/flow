@@ -161,6 +161,7 @@ where
         progress: state::ProgressState::new(),
         slice_response_tx,
         log_prev_journal: vec![String::new(); log_request_tx.len()],
+        log_engaged: vec![false; log_request_tx.len()],
         log_request_tx,
         pending_probes: stream::FuturesUnordered::new(),
         pending_reads: stream::FuturesUnordered::new(),

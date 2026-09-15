@@ -247,6 +247,7 @@ where
         writer: Some(writer),
         block: state::BlockState::new(),
         flush: state::FlushState::new(),
+        back_pressure: state::BackPressureState::new(shard_count),
         log_response_tx,
         metrics,
     }

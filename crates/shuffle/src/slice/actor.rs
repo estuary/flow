@@ -56,6 +56,8 @@ pub struct SliceActor {
     /// Set by the Session's InitialReadsStarted request, which trails every
     /// initial StartRead on our request stream. Heap draining waits for it.
     pub initial_reads_started: bool,
+    /// Last disk back-pressure flag reported by each Log.
+    pub log_engaged: Vec<bool>,
     /// Shard parser for transcoding documents from LinesBatch.
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
@@ -697,7 +699,7 @@ impl SliceActor {
     ) -> anyhow::Result<()> {
         let verify = proto_grpc::verify(
             "LogResponse",
-            "Flushed",
+            "Flushed or DiskBackPressure",
             &self.topology.shards[shard_index].endpoint,
         );
         let log_response = verify.not_eof(log_response)?;
@@ -712,6 +714,22 @@ impl SliceActor {
                 if let Some(completed) = self.flush.on_flushed(shard_index, flushed_lsn)? {
                     self.progress.on_flush_completed(completed);
                 }
+                Ok(())
+            }
+
+            shuffle::LogResponse {
+                disk_back_pressure: Some(shuffle::log_response::DiskBackPressure { engaged }),
+                ..
+            } => {
+                self.log_engaged[shard_index] = engaged;
+
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "log",
+                    shard_index,
+                    engaged,
+                    "received DiskBackPressure response",
+                );
                 Ok(())
             }
 
