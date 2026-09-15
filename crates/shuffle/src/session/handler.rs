@@ -149,6 +149,7 @@ where
     let result = super::actor::SessionActor {
         topology,
         checkpoint,
+        deadlock: super::state::DeadlockDetector::new(shard_count),
         progress_ready: vec![true; shard_count],
         session_response_tx: session_response_tx.clone(),
         slice_request_tx,

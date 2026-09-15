@@ -554,6 +554,32 @@ next one. A fully-resolved frontier leaves every hint of every preceding peek
 resolved or discharged, and `reduce` alone keeps the discharged ones, so the
 coordinator follows it with `Frontier::clear_discharged_hints`.
 
+### 13. Disk Back-Pressure Deadlock Detection
+
+Disk back-pressure can deadlock the steady state: `Load` scans reclaim Log
+segments, but need a checkpoint built from completed flush cycles. A
+back-pressured Log can park the Slice's request stream before its `Flush`,
+preventing the checkpoint needed to reclaim space.
+
+Three messages report the state:
+
+- `LogResponse.DiskBackPressure { engaged }`: a Log sends it to a Slice
+  whenever its back-pressure flag differs from the value that Slice was last
+  sent.
+- `SliceResponse.Blocked { blocked }`: a Slice sends it to the Session each
+  time `blocked` changes. A Slice is blocked when it has no flushed progress
+  left to report, and an engaged Log has parked its request stream or owes it
+  a `Flushed`.
+- `SessionRequest.CaughtUp {}`: the coordinator sends it once per outstanding
+  `NextCheckpoint`, when it holds no frontier and its head FSM is idle between
+  transactions — every other head state is driving IO of its own. No shard
+  will scan until the Session answers.
+
+`DeadlockDetector` (`session/state.rs`) fails the Session when these conditions hold
+on consecutive actor ticks for `DISK_BACK_PRESSURE_DEADLOCK_TIMEOUT`: a checkpoint
+is requested, the coordinator is caught up, no frontier can be emitted, and every
+Slice is blocked.
+
 ## Key Types
 
 - `Binding` / `Source` (`binding.rs`): Shuffle configuration extracted from
