@@ -979,6 +979,14 @@ type DraftSpecEdge {
 	cursor: String!
 }
 
+input DraftSpecInput {
+	catalogName: Name!
+	specType: CatalogType
+	spec: JSON
+	expectPubId: Id
+	detail: String
+}
+
 type EffectiveAlertConfig {
 	config: JSON!
 	provenance: [FieldProvenance!]!
@@ -1632,6 +1640,14 @@ type MutationRoot {
 	Create an empty draft owned by the authenticated user.
 	"""
 	createDraft(detail: String): Draft!
+	"""
+	Insert or replace catalog specifications in an owned draft.
+	"""
+	upsertDraftSpecs(draftId: Id!, specs: [DraftSpecInput!]!): [DraftSpec!]!
+	"""
+	Remove catalog specifications from an owned draft.
+	"""
+	deleteDraftSpecs(draftId: Id!, catalogNames: [Name!]!): [Name!]!
 	"""
 	Delete a draft owned by the authenticated user.
 	"""

@@ -53,6 +53,73 @@ pub async fn delete_specs(
     Ok(())
 }
 
+pub async fn delete_specs_returning(
+    draft_id: Id,
+    catalog_names: &[&str],
+    txn: &mut sqlx::PgConnection,
+) -> sqlx::Result<Vec<models::Name>> {
+    let mut deleted = sqlx::query!(
+        r#"
+        delete from draft_specs
+        where draft_id = $1 and catalog_name::text = any($2)
+        returning catalog_name as "catalog_name!: models::Name"
+        "#,
+        draft_id as Id,
+        catalog_names as &[&str],
+    )
+    .fetch_all(txn)
+    .await?
+    .into_iter()
+    .map(|row| row.catalog_name)
+    .collect::<Vec<_>>();
+    deleted.sort();
+    Ok(deleted)
+}
+
+/// Replaces all client-editable columns of one draft specification.
+///
+/// This is intentionally separate from [`upsert_spec`], whose conflict path
+/// preserves `expect_pub_id` for existing discovery and publication callers.
+#[tracing::instrument(err, level = "debug", skip(spec, txn))]
+pub async fn replace_spec(
+    draft_id: Id,
+    catalog_name: &str,
+    spec: Option<&RawValue>,
+    spec_type: Option<CatalogType>,
+    expect_pub_id: Option<Id>,
+    detail: Option<&str>,
+    txn: &mut sqlx::PgConnection,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        insert into draft_specs(
+            draft_id,
+            catalog_name,
+            spec,
+            spec_type,
+            expect_pub_id,
+            detail
+        ) values ($1, $2, $3, $4, $5, $6)
+        on conflict (draft_id, catalog_name) do update set
+            spec = excluded.spec,
+            spec_type = excluded.spec_type,
+            expect_pub_id = excluded.expect_pub_id,
+            detail = excluded.detail,
+            updated_at = clock_timestamp()
+        returning 1 as "must_exist";
+        "#,
+        draft_id as Id,
+        catalog_name as &str,
+        spec.map(TextJson) as Option<TextJson<&RawValue>>,
+        spec_type as Option<CatalogType>,
+        expect_pub_id as Option<Id>,
+        detail as Option<&str>,
+    )
+    .fetch_one(txn)
+    .await?;
+    Ok(())
+}
+
 #[tracing::instrument(err, level = "debug", skip(spec, txn))]
 pub async fn upsert_spec<S>(
     draft_id: Id,

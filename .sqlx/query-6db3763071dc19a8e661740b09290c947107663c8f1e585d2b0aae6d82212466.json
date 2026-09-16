@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        insert into draft_specs(\n            draft_id,\n            catalog_name,\n            spec,\n            spec_type,\n            expect_pub_id,\n            detail\n        ) values ($1, $2, $3, $4, $5, $6)\n        on conflict (draft_id, catalog_name) do update set\n            spec = excluded.spec,\n            spec_type = excluded.spec_type,\n            expect_pub_id = excluded.expect_pub_id,\n            detail = excluded.detail,\n            updated_at = clock_timestamp()\n        returning 1 as \"must_exist\";\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "must_exist",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "catalog_name",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Json",
+        {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6db3763071dc19a8e661740b09290c947107663c8f1e585d2b0aae6d82212466"
+}

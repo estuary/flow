@@ -28,6 +28,82 @@ pub struct DraftSpec {
     pub is_unchanged: bool,
 }
 
+/// JSON input that retains object key order for encrypted catalog models.
+///
+/// Sops verifies its MAC by traversing a document in order. GraphQL values use
+/// ordered maps, so serialize that representation directly into raw JSON
+/// rather than routing through `serde_json::Value`, whose maps sort keys.
+#[derive(Debug, Clone)]
+pub struct DraftSpecJson(pub models::RawValue);
+
+#[async_graphql::Scalar(name = "JSON")]
+impl async_graphql::ScalarType for DraftSpecJson {
+    fn parse(value: async_graphql::Value) -> async_graphql::InputValueResult<Self> {
+        let text = serde_json::to_string(&value)?;
+        Ok(Self(models::RawValue::from_string(text)?))
+    }
+
+    fn to_value(&self) -> async_graphql::Value {
+        serde_json::from_str(self.0.get()).expect("draft spec is valid JSON")
+    }
+}
+
+#[derive(Debug, Clone, async_graphql::InputObject)]
+pub struct DraftSpecInput {
+    pub catalog_name: models::Name,
+    pub spec_type: MaybeUndefined<models::CatalogType>,
+    pub spec: MaybeUndefined<DraftSpecJson>,
+    pub expect_pub_id: Option<models::Id>,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug)]
+struct ValidatedDraftSpecInput {
+    catalog_name: models::Name,
+    spec_type: Option<models::CatalogType>,
+    spec: Option<DraftSpecJson>,
+    expect_pub_id: Option<models::Id>,
+    detail: Option<String>,
+}
+
+impl TryFrom<DraftSpecInput> for ValidatedDraftSpecInput {
+    type Error = async_graphql::Error;
+
+    fn try_from(input: DraftSpecInput) -> Result<Self, Self::Error> {
+        let spec_type = match input.spec_type {
+            MaybeUndefined::Undefined => {
+                return Err(async_graphql::Error::new(
+                    "specType must be provided (use null for a catalog deletion)",
+                ));
+            }
+            MaybeUndefined::Null => None,
+            MaybeUndefined::Value(spec_type) => Some(spec_type),
+        };
+        let spec = match input.spec {
+            MaybeUndefined::Undefined => {
+                return Err(async_graphql::Error::new(
+                    "spec must be provided (use null for a catalog deletion)",
+                ));
+            }
+            MaybeUndefined::Null => None,
+            MaybeUndefined::Value(spec) => Some(spec),
+        };
+        if spec.is_some() != spec_type.is_some() {
+            return Err(async_graphql::Error::new(
+                "spec and specType must both be null or both be non-null",
+            ));
+        }
+
+        Ok(Self {
+            catalog_name: input.catalog_name,
+            spec_type,
+            spec,
+            expect_pub_id: input.expect_pub_id,
+            detail: input.detail,
+        })
+    }
+}
+
 /// The stable identity and creation time of a deleted draft.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct DeletedDraft {
@@ -89,6 +165,76 @@ impl DraftSpecRow {
             is_unchanged: self.is_unchanged,
         }
     }
+}
+
+async fn fetch_draft_specs_by_names(
+    draft_id: models::Id,
+    catalog_names: &[&str],
+    db: &mut sqlx::PgConnection,
+) -> sqlx::Result<Vec<DraftSpecRow>> {
+    sqlx::query_as!(
+        DraftSpecRow,
+        r#"
+        SELECT
+            ds.catalog_name AS "catalog_name!: models::Name",
+            ds.spec_type AS "spec_type?: models::CatalogType",
+            ds.spec AS "spec?: crate::TextJson<Box<serde_json::value::RawValue>>",
+            ds.expect_pub_id AS "expect_pub_id?: models::Id",
+            ls.last_pub_id AS "last_pub_id?: models::Id",
+            ds.detail,
+            ds.updated_at,
+            (uds.catalog_name IS NOT NULL) AS "is_unchanged!"
+        FROM draft_specs ds
+        LEFT JOIN live_specs ls ON ls.catalog_name = ds.catalog_name
+        LEFT JOIN unchanged_draft_specs uds
+          ON uds.draft_id = ds.draft_id
+         AND uds.catalog_name = ds.catalog_name
+        WHERE ds.draft_id = $1
+          AND ds.catalog_name::text = ANY($2)
+        ORDER BY ds.catalog_name ASC
+        "#,
+        draft_id as models::Id,
+        catalog_names as &[&str],
+    )
+    .fetch_all(db)
+    .await
+}
+
+async fn lock_owned_draft(
+    draft_id: models::Id,
+    user_id: uuid::Uuid,
+    db: &mut sqlx::PgConnection,
+) -> sqlx::Result<bool> {
+    Ok(sqlx::query_scalar!(
+        r#"
+        SELECT true AS "locked!"
+        FROM drafts
+        WHERE id = $1 AND user_id = $2
+        FOR UPDATE
+        "#,
+        draft_id as models::Id,
+        user_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
+}
+
+async fn verify_spec_edits(
+    env: &crate::Envelope,
+    catalog_names: &[&str],
+) -> async_graphql::Result<()> {
+    if catalog_names.is_empty() {
+        return Ok(());
+    }
+    let policy_result = crate::server::evaluate_names_authorization(
+        env.snapshot(),
+        env.claims()?,
+        models::authz::Capability::SpecEdit,
+        catalog_names.iter().copied(),
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
+    Ok(())
 }
 
 impl DraftMetadataRow {
@@ -391,6 +537,89 @@ impl DraftsMutation {
         })
     }
 
+    /// Insert or replace catalog specifications in an owned draft.
+    async fn upsert_draft_specs(
+        &self,
+        ctx: &Context<'_>,
+        draft_id: models::Id,
+        specs: Vec<DraftSpecInput>,
+    ) -> async_graphql::Result<Vec<DraftSpec>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let user_id = env.claims()?.subject().user_id;
+        let mut txn = env.pg_pool.begin().await?;
+
+        if !lock_owned_draft(draft_id, user_id, &mut txn).await? {
+            return Err(async_graphql::Error::new("draft not found"));
+        }
+
+        let specs = specs
+            .into_iter()
+            .map(ValidatedDraftSpecInput::try_from)
+            .collect::<async_graphql::Result<Vec<_>>>()?;
+        let catalog_names = specs
+            .iter()
+            .map(|spec| spec.catalog_name.as_str())
+            .collect::<Vec<_>>();
+        verify_spec_edits(env, &catalog_names).await?;
+
+        for spec in &specs {
+            crate::draft::replace_spec(
+                draft_id,
+                spec.catalog_name.as_str(),
+                spec.spec.as_ref().map(|spec| &*spec.0),
+                spec.spec_type,
+                spec.expect_pub_id,
+                spec.detail.as_deref(),
+                &mut txn,
+            )
+            .await?;
+        }
+        if !specs.is_empty() {
+            crate::draft::touch(draft_id, &mut txn).await?;
+        }
+
+        let rows = if catalog_names.is_empty() {
+            Vec::new()
+        } else {
+            fetch_draft_specs_by_names(draft_id, &catalog_names, &mut txn).await?
+        };
+        txn.commit().await?;
+        Ok(rows.into_iter().map(DraftSpecRow::into_graphql).collect())
+    }
+
+    /// Remove catalog specifications from an owned draft.
+    async fn delete_draft_specs(
+        &self,
+        ctx: &Context<'_>,
+        draft_id: models::Id,
+        catalog_names: Vec<models::Name>,
+    ) -> async_graphql::Result<Vec<models::Name>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let user_id = env.claims()?.subject().user_id;
+        let mut txn = env.pg_pool.begin().await?;
+
+        if !lock_owned_draft(draft_id, user_id, &mut txn).await? {
+            return Err(async_graphql::Error::new("draft not found"));
+        }
+
+        let catalog_name_refs = catalog_names
+            .iter()
+            .map(models::Name::as_str)
+            .collect::<Vec<_>>();
+        verify_spec_edits(env, &catalog_name_refs).await?;
+
+        let deleted = if catalog_name_refs.is_empty() {
+            Vec::new()
+        } else {
+            crate::draft::delete_specs_returning(draft_id, &catalog_name_refs, &mut txn).await?
+        };
+        if !deleted.is_empty() {
+            crate::draft::touch(draft_id, &mut txn).await?;
+        }
+        txn.commit().await?;
+        Ok(deleted)
+    }
+
     /// Delete a draft owned by the authenticated user.
     async fn delete_draft(
         &self,
@@ -539,6 +768,15 @@ mod test {
                 "first must be between 1 and 1000"
             );
         }
+    }
+
+    #[test]
+    fn draft_spec_json_preserves_object_key_order() {
+        let original = r#"{"z-last":{"b":2,"a":1},"a-first":0}"#;
+        let value: async_graphql::Value = serde_json::from_str(original).unwrap();
+        let parsed =
+            <DraftSpecJson as async_graphql::ScalarType>::parse(value).expect("valid JSON");
+        assert_eq!(parsed.0.get(), original);
     }
 
     #[sqlx::test(
@@ -1262,5 +1500,508 @@ mod test {
             remaining_specs, 5,
             "reading isUnchanged must not prune draft specs"
         );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_draft_edits(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, $2)")
+            .bind(BOB)
+            .bind("bob@example.test")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let draft_id = id(0x80);
+        let foreign_draft_id = id(0x81);
+        let created_at = "2024-03-01T00:00:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        insert_draft(&pool, draft_id, ALICE, "edits", created_at).await;
+        insert_draft(&pool, foreign_draft_id, BOB, "foreign", created_at).await;
+
+        let original_expect_pub_id = id(0x810);
+        insert_draft_spec(
+            &pool,
+            id(0x801),
+            draft_id,
+            "aliceCo/existing",
+            Some(models::CatalogType::Collection),
+            Some(serde_json::json!({ "schema": { "type": "string" } })),
+            Some(original_expect_pub_id),
+            Some("original detail"),
+            created_at,
+        )
+        .await;
+        insert_draft_spec(
+            &pool,
+            id(0x802),
+            draft_id,
+            "aliceCo/explicit-null",
+            Some(models::CatalogType::Test),
+            Some(serde_json::json!({ "steps": [{ "old": true }] })),
+            Some(original_expect_pub_id),
+            Some("must be cleared"),
+            created_at,
+        )
+        .await;
+        insert_draft_spec(
+            &pool,
+            id(0x803),
+            draft_id,
+            "otherCo/hidden",
+            Some(models::CatalogType::Capture),
+            Some(serde_json::json!({ "original": "hidden" })),
+            None,
+            None,
+            created_at,
+        )
+        .await;
+
+        let auth_snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), auth_snapshot).await;
+        let alice_token = server.make_access_token(ALICE, Some("alice@example.test"));
+
+        let upsert_mutation = r#"
+            mutation Upsert($draftId: Id!, $specs: [DraftSpecInput!]!) {
+              upsertDraftSpecs(draftId: $draftId, specs: $specs) {
+                catalogName specType spec expectPubId lastPubId detail
+                updatedAt isUnchanged
+              }
+            }
+        "#;
+        let delete_mutation = r#"
+            mutation Delete($draftId: Id!, $catalogNames: [Name!]!) {
+              deleteDraftSpecs(
+                draftId: $draftId,
+                catalogNames: $catalogNames
+              )
+            }
+        "#;
+
+        let encrypted_model = serde_json::json!({
+            "endpoint": {
+                "connector": {
+                    "image": "example/source:test",
+                    "config": {
+                        "password": "ENC[AES256_GCM,data:invented,tag:invented,type:str]"
+                    }
+                }
+            },
+            "bindings": []
+        });
+        let inserted: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "specs": [
+                            {
+                                "catalogName": "aliceCo/delete-me",
+                                "specType": null,
+                                "spec": null,
+                                "expectPubId": models::Id::zero().to_string(),
+                                "detail": "catalog deletion"
+                            },
+                            {
+                                "catalogName": "aliceCo/existing",
+                                "specType": "capture",
+                                "spec": encrypted_model,
+                                "expectPubId": models::Id::zero().to_string(),
+                                "detail": "replacement detail"
+                            },
+                            {
+                                "catalogName": "aliceCo/explicit-null",
+                                "specType": "test",
+                                "spec": { "steps": [] },
+                                "expectPubId": null,
+                                "detail": null
+                            },
+                            {
+                                "catalogName": "aliceCo/new",
+                                "specType": "test",
+                                "spec": { "steps": [] },
+                                "expectPubId": null,
+                                "detail": null
+                            }
+                        ]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(inserted.get("errors").is_none(), "{inserted:#}");
+        let inserted_specs = inserted["data"]["upsertDraftSpecs"].as_array().unwrap();
+        assert_eq!(
+            inserted_specs
+                .iter()
+                .map(|spec| spec["catalogName"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "aliceCo/delete-me",
+                "aliceCo/existing",
+                "aliceCo/explicit-null",
+                "aliceCo/new"
+            ]
+        );
+        assert_eq!(inserted_specs[0]["specType"], serde_json::Value::Null);
+        assert_eq!(inserted_specs[0]["spec"], serde_json::Value::Null);
+        assert_eq!(
+            inserted_specs[0]["expectPubId"],
+            models::Id::zero().to_string()
+        );
+        assert_eq!(inserted_specs[0]["detail"], "catalog deletion");
+        assert_eq!(inserted_specs[0]["isUnchanged"], false);
+        assert_eq!(inserted_specs[1]["specType"], "capture");
+        assert_eq!(inserted_specs[1]["spec"], encrypted_model);
+        assert_eq!(
+            inserted_specs[1]["expectPubId"],
+            models::Id::zero().to_string()
+        );
+        assert_eq!(inserted_specs[1]["detail"], "replacement detail");
+        assert_eq!(inserted_specs[1]["lastPubId"], serde_json::Value::Null);
+        assert_eq!(inserted_specs[2]["expectPubId"], serde_json::Value::Null);
+        assert_eq!(inserted_specs[2]["detail"], serde_json::Value::Null);
+        assert_eq!(inserted_specs[3]["expectPubId"], serde_json::Value::Null);
+        assert_eq!(inserted_specs[3]["detail"], serde_json::Value::Null);
+
+        let existing_created_at: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+            "SELECT created_at FROM draft_specs WHERE draft_id = $1 AND catalog_name = $2",
+        )
+        .bind(draft_id)
+        .bind("aliceCo/existing")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(existing_created_at, created_at);
+        let draft_updated_at: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT updated_at FROM drafts WHERE id = $1")
+                .bind(draft_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(draft_updated_at > created_at);
+
+        // Omitting nullable client-editable values replaces them with null,
+        // just as explicitly passing null does.
+        let omitted_nullable_values: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "specs": [{
+                            "catalogName": "aliceCo/existing",
+                            "specType": "capture",
+                            "spec": encrypted_model
+                        }]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            omitted_nullable_values.get("errors").is_none(),
+            "{omitted_nullable_values:#}"
+        );
+        assert_eq!(
+            omitted_nullable_values["data"]["upsertDraftSpecs"][0]["expectPubId"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            omitted_nullable_values["data"]["upsertDraftSpecs"][0]["detail"],
+            serde_json::Value::Null
+        );
+
+        // The two nullable model fields are nevertheless required to be
+        // present, and all inputs are validated before any row is written.
+        let omitted_type: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "specs": [
+                            {
+                                "catalogName": "aliceCo/should-not-insert",
+                                "specType": "collection",
+                                "spec": {}
+                            },
+                            {
+                                "catalogName": "aliceCo/missing-type",
+                                "spec": {}
+                            }
+                        ]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            error_message(&omitted_type),
+            "specType must be provided (use null for a catalog deletion)"
+        );
+        let invalid_rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM draft_specs WHERE draft_id = $1 AND catalog_name::text LIKE 'aliceCo/%insert%'",
+        )
+        .bind(draft_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(invalid_rows, 0);
+
+        let omitted_spec: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "specs": [{
+                            "catalogName": "aliceCo/missing-spec",
+                            "specType": "collection"
+                        }]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            error_message(&omitted_spec),
+            "spec must be provided (use null for a catalog deletion)"
+        );
+
+        let inconsistent_nulls: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "specs": [{
+                            "catalogName": "aliceCo/inconsistent",
+                            "specType": null,
+                            "spec": {}
+                        }]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            error_message(&inconsistent_nulls),
+            "spec and specType must both be null or both be non-null"
+        );
+
+        // Authorization is evaluated for the complete batch before either an
+        // upsert or a removal can affect an authorized row.
+        let existing_before: serde_json::Value = sqlx::query_scalar(
+            "SELECT spec FROM draft_specs WHERE draft_id = $1 AND catalog_name = $2",
+        )
+        .bind(draft_id)
+        .bind("aliceCo/existing")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let hidden_before: serde_json::Value = sqlx::query_scalar(
+            "SELECT spec FROM draft_specs WHERE draft_id = $1 AND catalog_name = $2",
+        )
+        .bind(draft_id)
+        .bind("otherCo/hidden")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let unauthorized_upsert: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "specs": [
+                            {
+                                "catalogName": "aliceCo/existing",
+                                "specType": "collection",
+                                "spec": { "unauthorized": "batch" }
+                            },
+                            {
+                                "catalogName": "otherCo/hidden",
+                                "specType": "capture",
+                                "spec": { "unauthorized": "batch" }
+                            }
+                        ]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(unauthorized_upsert.get("errors").is_some());
+        let existing_after: serde_json::Value = sqlx::query_scalar(
+            "SELECT spec FROM draft_specs WHERE draft_id = $1 AND catalog_name = $2",
+        )
+        .bind(draft_id)
+        .bind("aliceCo/existing")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let hidden_after: serde_json::Value = sqlx::query_scalar(
+            "SELECT spec FROM draft_specs WHERE draft_id = $1 AND catalog_name = $2",
+        )
+        .bind(draft_id)
+        .bind("otherCo/hidden")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(existing_after, existing_before);
+        assert_eq!(hidden_after, hidden_before);
+
+        let unauthorized_delete: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": delete_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "catalogNames": ["aliceCo/existing", "otherCo/hidden"]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(unauthorized_delete.get("errors").is_some());
+        let rows_after_unauthorized_delete: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM draft_specs WHERE draft_id = $1 AND catalog_name::text = ANY($2)",
+        )
+        .bind(draft_id)
+        .bind(["aliceCo/existing", "otherCo/hidden"])
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows_after_unauthorized_delete, 2);
+
+        let deleted: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": delete_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "catalogNames": [
+                            "aliceCo/new",
+                            "aliceCo/not-present",
+                            "aliceCo/delete-me"
+                        ]
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(deleted.get("errors").is_none(), "{deleted:#}");
+        assert_eq!(
+            deleted["data"]["deleteDraftSpecs"],
+            serde_json::json!(["aliceCo/delete-me", "aliceCo/new"])
+        );
+
+        let before_empty: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT updated_at FROM drafts WHERE id = $1")
+                .bind(draft_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let empty_delete: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": delete_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "catalogNames": []
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            empty_delete["data"]["deleteDraftSpecs"],
+            serde_json::json!([])
+        );
+        let empty_upsert: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": {
+                        "draftId": draft_id.to_string(),
+                        "specs": []
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            empty_upsert["data"]["upsertDraftSpecs"],
+            serde_json::json!([])
+        );
+        let after_empty: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT updated_at FROM drafts WHERE id = $1")
+                .bind(draft_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(after_empty, before_empty);
+
+        let missing: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": upsert_mutation,
+                    "variables": { "draftId": id(0xffff).to_string(), "specs": [] }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        let foreign: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": delete_mutation,
+                    "variables": {
+                        "draftId": foreign_draft_id.to_string(),
+                        "catalogNames": []
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(error_message(&missing), "draft not found");
+        assert_eq!(error_message(&foreign), "draft not found");
+
+        let unauthenticated: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": delete_mutation,
+                    "variables": { "draftId": draft_id.to_string(), "catalogNames": [] }
+                }),
+                None,
+            )
+            .await;
+        assert!(unauthenticated.get("errors").is_some());
+
+        let published: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM publications WHERE draft_id = $1")
+                .bind(draft_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(published, 0);
+        let created_live_specs: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM live_specs WHERE catalog_name::text = ANY($1)",
+        )
+        .bind([
+            "aliceCo/delete-me",
+            "aliceCo/existing",
+            "aliceCo/explicit-null",
+            "aliceCo/new",
+        ])
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(created_live_specs, 0);
     }
 }
