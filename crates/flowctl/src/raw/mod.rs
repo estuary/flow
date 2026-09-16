@@ -9,7 +9,6 @@ use std::{
     io::{self, Read, Write},
     path::PathBuf,
 };
-use tables::CatalogResolver;
 
 mod alerts;
 mod discover;
