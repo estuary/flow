@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        ds.catalog_name AS \"catalog_name!: models::Name\",\n                        ds.spec_type AS \"spec_type?: models::CatalogType\",\n                        ds.spec AS \"spec?: crate::TextJson<Box<serde_json::value::RawValue>>\",\n                        ds.expect_pub_id AS \"expect_pub_id?: models::Id\",\n                        ls.last_pub_id AS \"last_pub_id?: models::Id\",\n                        ds.detail,\n                        ds.updated_at,\n                        (uds.catalog_name IS NOT NULL) AS \"is_unchanged!\"\n                    FROM draft_specs ds\n                    JOIN drafts d ON d.id = ds.draft_id\n                    LEFT JOIN live_specs ls ON ls.catalog_name = ds.catalog_name\n                    LEFT JOIN unchanged_draft_specs uds\n                      ON uds.draft_id = ds.draft_id\n                     AND uds.catalog_name = ds.catalog_name\n                    WHERE ds.draft_id = $1\n                      AND d.user_id = $2\n                      AND ds.catalog_name::text ^@ ANY($3)\n                      AND ($4::text IS NULL OR ds.catalog_name::text > $4)\n                    ORDER BY ds.catalog_name ASC\n                    LIMIT $5\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: models::Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "spec_type?: models::CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "spec?: crate::TextJson<Box<serde_json::value::RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 3,
+        "name": "expect_pub_id?: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_pub_id?: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 5,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_unchanged!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid",
+        "TextArray",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "88a34623f0655a53bd27356a562c36d023fcb775fcaf0415c4abe9392e5a0eef"
+}

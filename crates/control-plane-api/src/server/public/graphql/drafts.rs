@@ -5,6 +5,7 @@ const MAX_PAGE_SIZE: i32 = 1000;
 
 /// An authenticated user's private workspace for staging catalog changes.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct Draft {
     pub id: models::Id,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -12,6 +13,19 @@ pub struct Draft {
     pub detail: Option<String>,
     /// Number of staged specifications the caller is currently allowed to read.
     pub num_specs: i32,
+}
+
+/// A catalog specification staged within a draft.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct DraftSpec {
+    pub catalog_name: models::Name,
+    pub spec_type: Option<models::CatalogType>,
+    pub spec: Option<super::JsonObject>,
+    pub expect_pub_id: Option<models::Id>,
+    pub last_pub_id: Option<models::Id>,
+    pub detail: Option<String>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub is_unchanged: bool,
 }
 
 /// The stable identity and creation time of a deleted draft.
@@ -31,6 +45,16 @@ pub type DraftConnection = connection::Connection<
     connection::DisableNodesField,
 >;
 
+pub type DraftSpecConnection = connection::Connection<
+    String,
+    DraftSpec,
+    connection::EmptyFields,
+    connection::EmptyFields,
+    connection::DefaultConnectionName,
+    connection::DefaultEdgeName,
+    connection::DisableNodesField,
+>;
+
 #[derive(Debug)]
 struct DraftMetadataRow {
     id: models::Id,
@@ -38,6 +62,33 @@ struct DraftMetadataRow {
     updated_at: chrono::DateTime<chrono::Utc>,
     detail: Option<String>,
     num_specs: i64,
+}
+
+#[derive(Debug)]
+struct DraftSpecRow {
+    catalog_name: models::Name,
+    spec_type: Option<models::CatalogType>,
+    spec: Option<crate::TextJson<Box<serde_json::value::RawValue>>>,
+    expect_pub_id: Option<models::Id>,
+    last_pub_id: Option<models::Id>,
+    detail: Option<String>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    is_unchanged: bool,
+}
+
+impl DraftSpecRow {
+    fn into_graphql(self) -> DraftSpec {
+        DraftSpec {
+            catalog_name: self.catalog_name,
+            spec_type: self.spec_type,
+            spec: self.spec.map(|spec| async_graphql::Json(spec.0)),
+            expect_pub_id: self.expect_pub_id,
+            last_pub_id: self.last_pub_id,
+            detail: self.detail,
+            updated_at: self.updated_at,
+            is_unchanged: self.is_unchanged,
+        }
+    }
 }
 
 impl DraftMetadataRow {
@@ -60,6 +111,127 @@ fn page_size(first: MaybeUndefined<i32>) -> async_graphql::Result<i32> {
         MaybeUndefined::Value(_) => Err(async_graphql::Error::new(format!(
             "first must be between 1 and {MAX_PAGE_SIZE}"
         ))),
+    }
+}
+
+#[async_graphql::ComplexObject]
+impl Draft {
+    /// List readable specifications in this draft, in catalog-name order.
+    async fn specs(
+        &self,
+        ctx: &Context<'_>,
+        after: Option<String>,
+        first: MaybeUndefined<i32>,
+    ) -> async_graphql::Result<DraftSpecConnection> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let subject = env.claims()?.subject();
+        let user_id = subject.user_id;
+        let limit = page_size(first)?;
+        let snapshot = env.snapshot();
+        let readable_prefixes = super::authorized_prefixes::authorized_prefixes(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            &subject,
+            models::authz::Capability::CatalogRead,
+            None,
+        );
+
+        connection::query_with::<String, _, _, _, async_graphql::Error>(
+            after,
+            None,
+            Some(limit),
+            None,
+            |after, _, first, _| async move {
+                let limit = first.expect("validated first is always present");
+                let rows = sqlx::query_as!(
+                    DraftSpecRow,
+                    r#"
+                    SELECT
+                        ds.catalog_name AS "catalog_name!: models::Name",
+                        ds.spec_type AS "spec_type?: models::CatalogType",
+                        ds.spec AS "spec?: crate::TextJson<Box<serde_json::value::RawValue>>",
+                        ds.expect_pub_id AS "expect_pub_id?: models::Id",
+                        ls.last_pub_id AS "last_pub_id?: models::Id",
+                        ds.detail,
+                        ds.updated_at,
+                        (uds.catalog_name IS NOT NULL) AS "is_unchanged!"
+                    FROM draft_specs ds
+                    JOIN drafts d ON d.id = ds.draft_id
+                    LEFT JOIN live_specs ls ON ls.catalog_name = ds.catalog_name
+                    LEFT JOIN unchanged_draft_specs uds
+                      ON uds.draft_id = ds.draft_id
+                     AND uds.catalog_name = ds.catalog_name
+                    WHERE ds.draft_id = $1
+                      AND d.user_id = $2
+                      AND ds.catalog_name::text ^@ ANY($3)
+                      AND ($4::text IS NULL OR ds.catalog_name::text > $4)
+                    ORDER BY ds.catalog_name ASC
+                    LIMIT $5
+                    "#,
+                    self.id as models::Id,
+                    user_id,
+                    &readable_prefixes,
+                    after.as_deref(),
+                    i64::try_from(limit + 1).expect("page limit fits i64"),
+                )
+                .fetch_all(&env.pg_pool)
+                .await?;
+
+                let has_next = rows.len() > limit;
+                let mut result = DraftSpecConnection::new(after.is_some(), has_next);
+                result.edges.extend(rows.into_iter().take(limit).map(|row| {
+                    let cursor = row.catalog_name.to_string();
+                    connection::Edge::new(cursor, row.into_graphql())
+                }));
+                Ok(result)
+            },
+        )
+        .await
+    }
+
+    /// Return the draft's current diagnostics without exposing errors scoped
+    /// to catalog names the caller cannot read.
+    async fn errors(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<models::draft_error::Error>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let user_id = env.claims()?.subject().user_id;
+        let rows = sqlx::query!(
+            r#"
+            SELECT de.scope, de.detail
+            FROM draft_errors de
+            JOIN drafts d ON d.id = de.draft_id
+            WHERE de.draft_id = $1 AND d.user_id = $2
+            ORDER BY de.scope, de.detail
+            "#,
+            self.id as models::Id,
+            user_id,
+        )
+        .fetch_all(&env.pg_pool)
+        .await?;
+
+        let mut errors = Vec::with_capacity(rows.len());
+        for row in rows {
+            let catalog_name = url::Url::parse(&row.scope)
+                .ok()
+                .as_ref()
+                .and_then(tables::parse_synthetic_scope)
+                .map(|(_, catalog_name)| catalog_name)
+                .unwrap_or_default();
+
+            if !catalog_name.is_empty()
+                && !super::may_access(ctx, &catalog_name, models::authz::Capability::CatalogRead)?
+            {
+                continue;
+            }
+            errors.push(models::draft_error::Error {
+                catalog_name,
+                scope: Some(row.scope),
+                detail: row.detail,
+            });
+        }
+        Ok(errors)
     }
 }
 
@@ -304,6 +476,40 @@ mod test {
         .bind(id)
         .bind(draft_id)
         .bind(catalog_name)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn insert_draft_spec(
+        pool: &sqlx::PgPool,
+        id: models::Id,
+        draft_id: models::Id,
+        catalog_name: &str,
+        spec_type: Option<models::CatalogType>,
+        spec: Option<serde_json::Value>,
+        expect_pub_id: Option<models::Id>,
+        detail: Option<&str>,
+        updated_at: chrono::DateTime<chrono::Utc>,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO draft_specs (
+                id, draft_id, catalog_name, spec_type, spec, expect_pub_id,
+                detail, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            "#,
+        )
+        .bind(id)
+        .bind(draft_id)
+        .bind(catalog_name)
+        .bind(spec_type)
+        .bind(spec.map(sqlx::types::Json))
+        .bind(expect_pub_id)
+        .bind(detail)
+        .bind(updated_at)
         .execute(pool)
         .await
         .unwrap();
@@ -746,5 +952,315 @@ mod test {
         .await
         .unwrap();
         assert_eq!(deleted_rows, 0);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_draft_contents_and_diagnostics(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let draft_id = id(0x60);
+        let created_at = "2024-02-01T00:00:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        insert_draft(&pool, draft_id, ALICE, "contents", created_at).await;
+
+        // The current unchanged-spec comparison deliberately ignores the
+        // legacy inferred-schema MD5 columns: inferred schema changes are now
+        // represented in the stored catalog model itself.
+        sqlx::query(
+            r#"
+            INSERT INTO inferred_schemas (collection_name, schema, flow_document)
+            VALUES ('aliceCo/data/foo', '{"type":"object"}', '{}')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            UPDATE live_specs
+            SET inferred_schema_md5 = 'the previously published inferred schema'
+            WHERE catalog_name = 'aliceCo/data/foo'
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let unchanged_updated_at = "2024-02-02T01:00:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        let deletion_updated_at = "2024-02-02T02:00:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        let changed_updated_at = "2024-02-02T03:00:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        let new_updated_at = "2024-02-02T04:00:00Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        let expected_pub_id = id(0x700);
+
+        insert_draft_spec(
+            &pool,
+            id(0x601),
+            draft_id,
+            "aliceCo/data/foo",
+            Some(models::CatalogType::Collection),
+            Some(serde_json::json!({})),
+            Some(expected_pub_id),
+            Some("same as live"),
+            unchanged_updated_at,
+        )
+        .await;
+        insert_draft_spec(
+            &pool,
+            id(0x602),
+            draft_id,
+            "aliceCo/in/capture-foo",
+            None,
+            None,
+            Some(models::Id::zero()),
+            None,
+            deletion_updated_at,
+        )
+        .await;
+        let encrypted_model = serde_json::json!({
+            "endpoint": {
+                "connector": {
+                    "image": "example/materialize:test",
+                    "config": {
+                        "token": "ENC[AES256_GCM,data:invented,tag:invented,type:str]"
+                    }
+                }
+            },
+            "bindings": []
+        });
+        insert_draft_spec(
+            &pool,
+            id(0x603),
+            draft_id,
+            "aliceCo/out/materialize-bar",
+            Some(models::CatalogType::Materialization),
+            Some(encrypted_model.clone()),
+            None,
+            Some("changed model"),
+            changed_updated_at,
+        )
+        .await;
+        let new_model = serde_json::json!({ "schema": { "type": "object" } });
+        insert_draft_spec(
+            &pool,
+            id(0x604),
+            draft_id,
+            "aliceCo/z-new",
+            Some(models::CatalogType::Collection),
+            Some(new_model.clone()),
+            None,
+            None,
+            new_updated_at,
+        )
+        .await;
+        insert_draft_spec(
+            &pool,
+            id(0x605),
+            draft_id,
+            "otherCo/hidden",
+            Some(models::CatalogType::Capture),
+            Some(serde_json::json!({ "secret": "must not leak" })),
+            None,
+            Some("must not leak"),
+            new_updated_at,
+        )
+        .await;
+
+        sqlx::query(
+            r#"
+            INSERT INTO draft_errors (draft_id, scope, detail) VALUES
+              ($1, 'flow://collection/aliceCo/data/foo#/schema', 'readable diagnostic'),
+              ($1, 'file:///tmp/catalog.yaml', 'global diagnostic'),
+              ($1, 'flow://capture/otherCo/hidden', 'hidden diagnostic')
+            "#,
+        )
+        .bind(draft_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let live_pub_id: models::Id = sqlx::query_scalar(
+            "SELECT last_pub_id FROM live_specs WHERE catalog_name = 'aliceCo/data/foo'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let auth_snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), auth_snapshot).await;
+        let alice_token = server.make_access_token(ALICE, Some("alice@example.test"));
+
+        let page_query = r#"
+            query DraftContents($id: Id!, $after: String, $first: Int) {
+              draft(id: $id) {
+                numSpecs
+                specs(after: $after, first: $first) {
+                  edges {
+                    cursor
+                    node {
+                      catalogName specType spec expectPubId lastPubId detail
+                      updatedAt isUnchanged
+                    }
+                  }
+                  pageInfo {
+                    hasPreviousPage hasNextPage startCursor endCursor
+                  }
+                }
+                errors { catalogName scope detail }
+              }
+            }
+        "#;
+        let first_page: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": page_query,
+                    "variables": {
+                        "id": draft_id.to_string(),
+                        "first": 2
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(first_page.get("errors").is_none(), "{first_page:#}");
+        assert_eq!(first_page["data"]["draft"]["numSpecs"], 4);
+
+        let first_edges = first_page["data"]["draft"]["specs"]["edges"]
+            .as_array()
+            .unwrap();
+        assert_eq!(first_edges.len(), 2);
+        assert_eq!(first_edges[0]["cursor"], "aliceCo/data/foo");
+        assert_eq!(first_edges[0]["node"]["catalogName"], "aliceCo/data/foo");
+        assert_eq!(first_edges[0]["node"]["specType"], "collection");
+        assert_eq!(first_edges[0]["node"]["spec"], serde_json::json!({}));
+        assert_eq!(
+            first_edges[0]["node"]["expectPubId"],
+            expected_pub_id.to_string()
+        );
+        assert_eq!(first_edges[0]["node"]["lastPubId"], live_pub_id.to_string());
+        assert_eq!(first_edges[0]["node"]["detail"], "same as live");
+        assert_eq!(first_edges[0]["node"]["isUnchanged"], true);
+        assert_eq!(
+            first_edges[0]["node"]["updatedAt"]
+                .as_str()
+                .unwrap()
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .unwrap(),
+            unchanged_updated_at
+        );
+
+        assert_eq!(first_edges[1]["cursor"], "aliceCo/in/capture-foo");
+        assert_eq!(first_edges[1]["node"]["specType"], serde_json::Value::Null);
+        assert_eq!(first_edges[1]["node"]["spec"], serde_json::Value::Null);
+        assert_eq!(
+            first_edges[1]["node"]["expectPubId"],
+            models::Id::zero().to_string()
+        );
+        assert_eq!(first_edges[1]["node"]["lastPubId"], live_pub_id.to_string());
+        assert_eq!(first_edges[1]["node"]["detail"], serde_json::Value::Null);
+        assert_eq!(first_edges[1]["node"]["isUnchanged"], false);
+        assert_eq!(
+            first_page["data"]["draft"]["specs"]["pageInfo"],
+            serde_json::json!({
+                "hasPreviousPage": false,
+                "hasNextPage": true,
+                "startCursor": "aliceCo/data/foo",
+                "endCursor": "aliceCo/in/capture-foo"
+            })
+        );
+
+        // The recognized unauthorized diagnostic is omitted, while a global
+        // diagnostic remains visible with an empty derived catalog name.
+        assert_eq!(
+            first_page["data"]["draft"]["errors"],
+            serde_json::json!([
+                {
+                    "catalogName": "",
+                    "scope": "file:///tmp/catalog.yaml",
+                    "detail": "global diagnostic"
+                },
+                {
+                    "catalogName": "aliceCo/data/foo",
+                    "scope": "flow://collection/aliceCo/data/foo#/schema",
+                    "detail": "readable diagnostic"
+                }
+            ])
+        );
+
+        let after = first_page["data"]["draft"]["specs"]["pageInfo"]["endCursor"]
+            .as_str()
+            .unwrap();
+        let second_page: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": page_query,
+                    "variables": {
+                        "id": draft_id.to_string(),
+                        "after": after,
+                        "first": 2
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(second_page.get("errors").is_none(), "{second_page:#}");
+        let second_edges = second_page["data"]["draft"]["specs"]["edges"]
+            .as_array()
+            .unwrap();
+        assert_eq!(second_edges.len(), 2);
+        assert_eq!(
+            second_edges[0]["node"]["catalogName"],
+            "aliceCo/out/materialize-bar"
+        );
+        assert_eq!(second_edges[0]["node"]["spec"], encrypted_model);
+        assert_eq!(second_edges[0]["node"]["isUnchanged"], false);
+        assert_eq!(second_edges[1]["node"]["catalogName"], "aliceCo/z-new");
+        assert_eq!(second_edges[1]["node"]["spec"], new_model);
+        assert_eq!(
+            second_edges[1]["node"]["lastPubId"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            second_page["data"]["draft"]["specs"]["pageInfo"],
+            serde_json::json!({
+                "hasPreviousPage": true,
+                "hasNextPage": false,
+                "startCursor": "aliceCo/out/materialize-bar",
+                "endCursor": "aliceCo/z-new"
+            })
+        );
+
+        let null_first: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": page_query,
+                    "variables": { "id": draft_id.to_string(), "first": null }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(error_message(&null_first), "first must not be null");
+
+        let remaining_specs: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM draft_specs WHERE draft_id = $1")
+                .bind(draft_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            remaining_specs, 5,
+            "reading isUnchanged must not prune draft specs"
+        );
     }
 }

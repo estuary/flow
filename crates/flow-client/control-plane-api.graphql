@@ -904,6 +904,15 @@ type Draft {
 	Number of staged specifications the caller is currently allowed to read.
 	"""
 	numSpecs: Int!
+	"""
+	List readable specifications in this draft, in catalog-name order.
+	"""
+	specs(after: String, first: Int): DraftSpecConnection!
+	"""
+	Return the draft's current diagnostics without exposing errors scoped
+	to catalog names the caller cannot read.
+	"""
+	errors: [Error!]!
 }
 
 type DraftConnection {
@@ -925,6 +934,45 @@ type DraftEdge {
 	The item at the end of the edge
 	"""
 	node: Draft!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+A catalog specification staged within a draft.
+"""
+type DraftSpec {
+	catalogName: Name!
+	specType: CatalogType
+	spec: JSON
+	expectPubId: Id
+	lastPubId: Id
+	detail: String
+	updatedAt: DateTime!
+	isUnchanged: Boolean!
+}
+
+type DraftSpecConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [DraftSpecEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type DraftSpecEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: DraftSpec!
 	"""
 	A cursor for use in pagination
 	"""
