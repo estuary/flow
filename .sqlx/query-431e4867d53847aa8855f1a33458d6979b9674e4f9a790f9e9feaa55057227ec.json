@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id AS \"id!: models::Id\", created_at\n            FROM drafts\n            WHERE id = $1 AND user_id = $2\n            FOR UPDATE\n            ",
+  "query": "\n            DELETE FROM drafts\n            WHERE id = $1 AND user_id = $2\n            RETURNING id AS \"id!: models::Id\", created_at\n            ",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       false
     ]
   },
-  "hash": "96e90f3c468eb7a4126c68a576abf8cf510aae32ddbb7f785bf67e531983f849"
+  "hash": "431e4867d53847aa8855f1a33458d6979b9674e4f9a790f9e9feaa55057227ec"
 }

@@ -219,7 +219,7 @@ impl DraftsMutation {
         })
     }
 
-    /// Delete a draft after authorizing every catalog name it contains.
+    /// Delete a draft owned by the authenticated user.
     async fn delete_draft(
         &self,
         ctx: &Context<'_>,
@@ -227,61 +227,30 @@ impl DraftsMutation {
     ) -> async_graphql::Result<DeletedDraft> {
         let env = ctx.data::<crate::Envelope>()?;
         let user_id = env.claims()?.subject().user_id;
-        let mut txn = env.pg_pool.begin().await?;
 
-        // Lock the parent before its children: the FK makes concurrent inserts
-        // wait on this row, while the child locks below block catalog-name
-        // edits. Together they keep the authorized name set stable through the
-        // cascading delete.
-        let row = sqlx::query!(
+        // Discarding a private workspace has no catalog-side effect, so draft
+        // ownership — rather than current catalog grants — is sufficient. A
+        // single DELETE also makes concurrent attempts atomic, while the FK
+        // cascade removes all contained specs and diagnostics.
+        let deleted = sqlx::query!(
             r#"
-            SELECT id AS "id!: models::Id", created_at
-            FROM drafts
+            DELETE FROM drafts
             WHERE id = $1 AND user_id = $2
-            FOR UPDATE
+            RETURNING id AS "id!: models::Id", created_at
             "#,
             id as models::Id,
             user_id,
         )
-        .fetch_optional(&mut *txn)
+        .fetch_optional(&env.pg_pool)
         .await?;
-        let Some(row) = row else {
+        let Some(deleted) = deleted else {
             return Err(async_graphql::Error::new("draft not found"));
         };
-        let id = row.id;
-        let created_at = row.created_at;
 
-        let catalog_names = sqlx::query_scalar!(
-            r#"
-            SELECT catalog_name::text AS "catalog_name!"
-            FROM draft_specs
-            WHERE draft_id = $1
-            ORDER BY catalog_name
-            FOR UPDATE
-            "#,
-            id as models::Id,
-        )
-        .fetch_all(&mut *txn)
-        .await?;
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            env.claims()?,
-            models::authz::Capability::SpecEdit,
-            catalog_names.iter(),
-        );
-        env.authorization_outcome(policy_result).await?;
-
-        let deleted = sqlx::query!(
-            "DELETE FROM drafts WHERE id = $1 AND user_id = $2",
-            id as models::Id,
-            user_id,
-        )
-        .execute(&mut *txn)
-        .await?;
-        assert_eq!(deleted.rows_affected(), 1, "locked draft still exists");
-        txn.commit().await?;
-
-        Ok(DeletedDraft { id, created_at })
+        Ok(DeletedDraft {
+            id: deleted.id,
+            created_at: deleted.created_at,
+        })
     }
 }
 
@@ -629,8 +598,8 @@ mod test {
                 .unwrap();
         assert_eq!(bob_draft_count_after, bob_draft_count_before + 1);
 
-        // With no affected catalog names, ownership is sufficient to delete
-        // the empty draft that a Viewer was allowed to create.
+        // Ownership is sufficient to delete the empty draft that a Viewer was
+        // allowed to create.
         let viewer_deleted_empty: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
@@ -656,7 +625,29 @@ mod test {
             .await;
         assert_eq!(viewer_draft["data"]["draft"]["numSpecs"], 1);
 
-        let viewer_denied_delete: serde_json::Value = server
+        let delete_missing = |delete_id: models::Id| {
+            serde_json::json!({
+                "query": "mutation Delete($id: Id!) { deleteDraft(id: $id) { id } }",
+                "variables": { "id": delete_id.to_string() }
+            })
+        };
+        let foreign_delete: serde_json::Value = server
+            .graphql(&delete_missing(foreign_id), Some(&alice_token))
+            .await;
+        let missing_delete: serde_json::Value = server
+            .graphql(&delete_missing(id(0xffff)), Some(&alice_token))
+            .await;
+        assert_eq!(error_message(&foreign_delete), "draft not found");
+        assert_eq!(
+            error_message(&foreign_delete),
+            error_message(&missing_delete),
+            "foreign and missing drafts must not be distinguishable"
+        );
+
+        // Catalog capabilities govern access to draft contents, but ownership
+        // governs discarding the private workspace. Bob has only CatalogRead
+        // and can still delete his nonempty draft and its specs.
+        let viewer_deleted_nonempty: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": "mutation Delete($id: Id!) { deleteDraft(id: $id) { id } }",
@@ -665,18 +656,21 @@ mod test {
                 Some(&bob_token),
             )
             .await;
-        assert!(error_message(&viewer_denied_delete).contains("bobCo/view-only"));
-        assert!(error_message(&viewer_denied_delete).contains("SpecEdit"));
+        assert_eq!(
+            viewer_deleted_nonempty["data"]["deleteDraft"]["id"],
+            foreign_id.to_string()
+        );
         let viewer_draft_specs: i64 =
             sqlx::query_scalar("SELECT count(*) FROM draft_specs WHERE draft_id = $1")
                 .bind(foreign_id)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(viewer_draft_specs, 1);
+        assert_eq!(viewer_draft_specs, 0);
 
         // The Editor bundle, without legacy Admin, supplies the individual
-        // CatalogRead and SpecEdit bits used by these resolvers.
+        // CatalogRead bit used to count readable specs. Deletion itself is
+        // owner-authorized.
         let editor_draft: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
@@ -701,7 +695,9 @@ mod test {
             editor_id.to_string()
         );
 
-        let denied_delete: serde_json::Value = server
+        // Alice can discard her own draft even though one contained name is
+        // hidden by CatalogRead filtering. The cascade removes both specs.
+        let deleted_hidden: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": "mutation Delete($id: Id!) { deleteDraft(id: $id) { id } }",
@@ -710,33 +706,17 @@ mod test {
                 Some(&alice_token),
             )
             .await;
-        assert!(error_message(&denied_delete).contains("otherCo/not-readable"));
+        assert_eq!(
+            deleted_hidden["data"]["deleteDraft"]["id"],
+            first_id.to_string()
+        );
         let remaining_specs: i64 =
             sqlx::query_scalar("SELECT count(*) FROM draft_specs WHERE draft_id = $1")
                 .bind(first_id)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(remaining_specs, 2, "a denied batch deletion is atomic");
-
-        let delete_missing = |delete_id: models::Id| {
-            serde_json::json!({
-                "query": "mutation Delete($id: Id!) { deleteDraft(id: $id) { id } }",
-                "variables": { "id": delete_id.to_string() }
-            })
-        };
-        let foreign_delete: serde_json::Value = server
-            .graphql(&delete_missing(foreign_id), Some(&alice_token))
-            .await;
-        let missing_delete: serde_json::Value = server
-            .graphql(&delete_missing(id(0xffff)), Some(&alice_token))
-            .await;
-        assert_eq!(error_message(&foreign_delete), "draft not found");
-        assert_eq!(
-            error_message(&foreign_delete),
-            error_message(&missing_delete),
-            "foreign and missing drafts must not be distinguishable"
-        );
+        assert_eq!(remaining_specs, 0);
 
         let deleted: serde_json::Value = server
             .graphql(

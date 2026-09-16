@@ -1585,7 +1585,7 @@ type MutationRoot {
 	"""
 	createDraft(detail: String): Draft!
 	"""
-	Delete a draft after authorizing every catalog name it contains.
+	Delete a draft owned by the authenticated user.
 	"""
 	deleteDraft(id: Id!): DeletedDraft!
 }
