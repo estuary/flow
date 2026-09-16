@@ -42,7 +42,7 @@ pub(crate) async fn handle_get_status(
 
         let filtered = unfiltered_names
             .into_iter()
-            .filter(|name| env.is_authorized(claims.sub, name, models::Capability::Read))
+            .filter(|name| env.user_is_authorized(claims.sub, name, models::Capability::Read))
             .collect::<Vec<_>>();
 
         fetch_status(&env.pg_pool, &filtered, short).await?

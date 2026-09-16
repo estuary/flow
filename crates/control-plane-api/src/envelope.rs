@@ -85,7 +85,7 @@ impl Envelope {
 
     /// Determine if a user is authorized with a capability on a specific
     /// prefix.
-    pub fn is_authorized(
+    pub fn user_is_authorized(
         &self,
         user_id: uuid::Uuid,
         object_role_or_name: &str,

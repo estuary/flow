@@ -121,7 +121,7 @@ where
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
     for prefix_or_name in prefixes_or_names.into_iter() {
-        if !env.is_authorized(*user_id, prefix_or_name.as_ref(), min_capability) {
+        if !env.user_is_authorized(*user_id, prefix_or_name.as_ref(), min_capability) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
             )));

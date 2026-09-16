@@ -536,7 +536,7 @@ impl DataPlanesQuery {
                         return false;
                     }
                 }
-                env.is_authorized(
+                env.user_is_authorized(
                     claims.sub,
                     &dp.data_plane_name,
                     models::Capability::Read,

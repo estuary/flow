@@ -65,7 +65,7 @@ fn may_access(
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
     // let snapshot = env.snapshot();
-    Ok(env.is_authorized(env.claims()?.sub, name, capability))
+    Ok(env.user_is_authorized(env.claims()?.sub, name, capability))
 }
 
 /// Errors unless the current user holds `capability` on `prefix`.

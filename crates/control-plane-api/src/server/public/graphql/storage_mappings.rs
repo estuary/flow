@@ -530,7 +530,7 @@ fn check_authorization(
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
     // Verify the User admins `catalog_prefix`.
-    if !env.is_authorized(*user_id, catalog_prefix, models::Capability::Admin) {
+    if !env.user_is_authorized(*user_id, catalog_prefix, models::Capability::Admin) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
         )));
