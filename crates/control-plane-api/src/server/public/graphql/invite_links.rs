@@ -1,4 +1,8 @@
-use super::{TimestampCursor, filters};
+use super::{
+    TimestampCursor,
+    authorization::{AuthorizationScope, RequiredCapabilities, effective_catalog_prefixes},
+    filters,
+};
 use async_graphql::{Context, types::connection};
 
 /// An invite link that grants access to a catalog prefix.
@@ -31,10 +35,16 @@ pub struct RedeemInviteLinkResult {
     pub capability: models::Capability,
 }
 
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct InviteLinksConnectionFields {
+    /// The authorization requirement and effective prefixes used to filter this result.
+    authorization_scope: AuthorizationScope,
+}
+
 pub type PaginatedInviteLinks = connection::Connection<
     TimestampCursor,
     InviteLink,
-    connection::EmptyFields,
+    InviteLinksConnectionFields,
     connection::EmptyFields,
     connection::DefaultConnectionName,
     connection::DefaultEdgeName,
@@ -42,7 +52,7 @@ pub type PaginatedInviteLinks = connection::Connection<
 >;
 
 /// Composable filter for the `inviteLinks` query. Every field is optional and
-/// only narrows the result set; the caller's admin scope is enforced
+/// only narrows the result set; the caller's authorization scope is enforced
 /// independently, so a filter can never widen what a caller may see.
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct InviteLinksFilter {
@@ -58,10 +68,10 @@ const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl InviteLinksQuery {
-    /// List invite links the caller has admin access to.
+    /// List invite links the caller is authorized to query.
     ///
-    /// Returns invite links under all prefixes where the caller has admin
-    /// capability, optionally narrowed by a prefix filter — a subtree
+    /// Returns invite links under all authorized prefixes, optionally narrowed
+    /// by a prefix filter — a subtree
     /// (`startsWith`) or an exact set (`in`), not both.
     async fn invite_links(
         &self,
@@ -76,23 +86,38 @@ impl InviteLinksQuery {
             .as_ref()
             .and_then(|f| f.single_use.as_ref())
             .and_then(|f| f.eq);
+        let required = RequiredCapabilities::new(models::authz::Capability::QueryInviteLinks);
         let snapshot = env.snapshot();
-        let (admin_prefixes, prefix_starts_with, prefix_in) =
+        let (authorized_prefixes, prefix_starts_with, prefix_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
-                models::Capability::Admin,
+                required.capabilities(),
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
             )?;
+        let effective_prefixes = effective_catalog_prefixes(
+            authorized_prefixes,
+            prefix_starts_with.as_deref(),
+            prefix_in.as_deref(),
+        );
+        // Bind only the authorized intersection for exact filters.
+        let prefix_in = prefix_in.map(|_| effective_prefixes.clone());
+        let connection_fields = InviteLinksConnectionFields {
+            authorization_scope: AuthorizationScope::new(required, &effective_prefixes),
+        };
 
-        if admin_prefixes.is_empty() {
-            return Ok(PaginatedInviteLinks::new(false, false));
+        if effective_prefixes.is_empty() {
+            return Ok(PaginatedInviteLinks::with_additional_fields(
+                false,
+                false,
+                connection_fields,
+            ));
         }
-        if admin_prefixes.len() > MAX_PREFIXES {
+        if effective_prefixes.len() > MAX_PREFIXES {
             return Err(async_graphql::Error::new(
-                "Too many admin prefixes; narrow results with a prefix filter",
+                "Too many authorized prefixes; narrow results with a prefix filter",
             ));
         }
 
@@ -125,7 +150,7 @@ impl InviteLinksQuery {
                 ORDER BY il.created_at DESC
                 LIMIT $3 + 1
                 "#,
-                    &admin_prefixes,
+                    &effective_prefixes,
                     after_created_at,
                     limit as i64,
                     single_use_eq,
@@ -156,7 +181,11 @@ impl InviteLinksQuery {
                     })
                     .collect();
 
-                let mut conn = connection::Connection::new(after_created_at.is_some(), has_next);
+                let mut conn = connection::Connection::with_additional_fields(
+                    after_created_at.is_some(),
+                    has_next,
+                    connection_fields,
+                );
                 conn.edges = edges;
                 Ok(conn)
             },
@@ -172,7 +201,7 @@ pub struct InviteLinksMutation;
 impl InviteLinksMutation {
     /// Create an invite link that grants access to a catalog prefix.
     ///
-    /// The caller must have admin capability on the catalog prefix.
+    /// The caller must be authorized to create invite links on the catalog prefix.
     /// Share the returned token with the intended recipient out-of-band.
     pub async fn create_invite_link(
         &self,
@@ -197,7 +226,12 @@ impl InviteLinksMutation {
             )));
         }
 
-        super::verify_authorization(env, &catalog_prefix, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &catalog_prefix,
+            models::authz::Capability::CreateInviteLink,
+        )
+        .await?;
 
         let row = sqlx::query!(
             r#"
@@ -357,7 +391,7 @@ impl InviteLinksMutation {
 
     /// Delete an invite link, revoking it so it can no longer be redeemed.
     ///
-    /// The caller must have admin capability on the invite link's catalog prefix.
+    /// The caller must be authorized to delete invite links on the catalog prefix.
     pub async fn delete_invite_link(
         &self,
         ctx: &Context<'_>,
@@ -386,7 +420,12 @@ impl InviteLinksMutation {
             None => return Err(async_graphql::Error::new("Invalid invite link")),
         };
 
-        super::verify_authorization(env, &invite.catalog_prefix, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &invite.catalog_prefix,
+            models::authz::Capability::DeleteInviteLink,
+        )
+        .await?;
 
         sqlx::query!("DELETE FROM internal.invite_links WHERE token = $1", token,)
             .execute(&mut *txn)
