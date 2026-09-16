@@ -8,8 +8,14 @@ use std::collections::BTreeMap;
 /// tag is present. Otherwise, the tag will be an empty string.
 pub fn split_image_tag(image_full: &str) -> (String, String) {
     let mut image = image_full.to_string();
+    let image_name_start = image.rfind('/').map_or(0, |pivot| pivot + 1);
+    let tag_pivot = image[image_name_start..]
+        .find(':')
+        .map(|pivot| image_name_start + pivot);
 
-    if let Some(pivot) = image.find("@sha256:").or_else(|| image.find(":")) {
+    // A registry may include a port, so only a colon in the final path component
+    // can delimit an image tag. Digests use `@sha256:` as their delimiter.
+    if let Some(pivot) = image.find("@sha256:").or(tag_pivot) {
         let tag = image.split_off(pivot);
         (image, tag)
     } else {
@@ -90,6 +96,36 @@ impl LocalConfig {
                 .unwrap(),
             env: BTreeMap::new(),
             protobuf: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn split_image_tag_handles_registry_ports_and_digests() {
+        for (image, expected) in [
+            (
+                "ghcr.io/estuary/source-example:v1",
+                ("ghcr.io/estuary/source-example", ":v1"),
+            ),
+            (
+                "registry.example:5000/source-example:v1",
+                ("registry.example:5000/source-example", ":v1"),
+            ),
+            (
+                "registry.example:5000/source-example@sha256:abcdef",
+                ("registry.example:5000/source-example", "@sha256:abcdef"),
+            ),
+            (
+                "registry.example:5000/source-example",
+                ("registry.example:5000/source-example", ""),
+            ),
+            ("source-example:v1", ("source-example", ":v1")),
+            ("source-example", ("source-example", "")),
+        ] {
+            let actual = super::split_image_tag(image);
+            assert_eq!((actual.0.as_str(), actual.1.as_str()), expected, "{image}");
         }
     }
 }
