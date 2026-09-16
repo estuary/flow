@@ -113,10 +113,9 @@ where
     S: AsRef<str> + std::fmt::Display,
     C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
+    let subject = claims.subject();
     let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
+        email: user_email, ..
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
@@ -124,7 +123,7 @@ where
         if !tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            *user_id,
+            &subject,
             prefix_or_name.as_ref(),
             min_capability,
         ) {
@@ -149,13 +148,14 @@ where
     I: IntoIterator<Item = String>,
     F: FnMut(String, Option<models::Capability>) -> Option<T>,
 {
+    let subject = claims.subject();
     prefixes_or_names
         .into_iter()
         .flat_map(|prefix| {
             let capability = tables::UserGrant::get_user_capability(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                claims.sub,
+                &subject,
                 &prefix,
             );
             attach(prefix, capability)

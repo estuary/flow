@@ -168,6 +168,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
+        let subject = models::authz::Subject::unrestricted(row.user_id);
         // A discover validates and edits the capture's spec, so the user must
         // hold SpecEdit to the capture's name -- without it they could never
         // publish the result. The check is deliberately unconditional: a pure
@@ -177,7 +178,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         if !tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            row.user_id,
+            &subject,
             &row.capture_name,
             models::authz::Capability::SpecEdit,
         ) {
@@ -206,7 +207,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         let Some(data_plane) = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            row.user_id,
+            &subject,
             &row.data_plane_name,
             models::Capability::Read,
         )
@@ -223,7 +224,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
         let prepared = prepare_discover(
-            row.user_id,
+            subject,
             row.draft_id,
             models::Capture::new(&row.capture_name),
             row.endpoint_config.0.clone().into(),
@@ -281,7 +282,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 /// other specs in the given draft will be loaded as they are and used as the
 /// base for the merge after the discover completes.
 async fn prepare_discover<'a>(
-    user_id: uuid::Uuid,
+    subject: models::authz::Subject,
     draft_id: Id,
     capture_name: models::Capture,
     endpoint_config: models::RawValue,
@@ -314,7 +315,7 @@ async fn prepare_discover<'a>(
     // grant the discover proceeds with the live capture treated as absent.
     let name = &[capture_name.to_string()];
     let live = live_specs::get_live_specs_filtered(
-        user_id,
+        &subject,
         name,
         models::authz::Capability::CatalogRead,
         snapshot,
@@ -383,7 +384,7 @@ async fn prepare_discover<'a>(
         .map(|auto| auto.evolve_incompatible_collections)
         .unwrap_or_default();
     Ok(Discover {
-        user_id,
+        subject,
         filter_user_authz: true,
         capture_name,
         data_plane,
@@ -489,7 +490,7 @@ mod test {
         let snapshot = harness.snapshot_watch.token();
 
         let result = super::prepare_discover(
-            user_id,
+            models::authz::Subject::unrestricted(user_id),
             draft_id,
             capture_name.clone(),
             endpoint_config,
@@ -514,7 +515,7 @@ mod test {
         assert_eq!("reactor.test", &result.data_plane.reactor_address);
 
         assert_eq!(logs_token, result.logs_token);
-        assert_eq!(user_id, result.user_id);
+        assert_eq!(user_id, result.subject.user_id);
         assert!(!result.update_only);
 
         // The draft should contain everything that was already drafted

@@ -728,7 +728,7 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
 }
 
 pub async fn resolve_live_specs(
-    user_id: Uuid,
+    subject: &models::authz::Subject,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
@@ -791,7 +791,7 @@ pub async fn resolve_live_specs(
             // If the spec is included in the draft, then the user must have admin capability to it.
             if verify_user_authz
                 && !matches!(
-                    snapshot.user_capability(user_id, catalog_name),
+                    snapshot.user_capability(subject, catalog_name),
                     Some(Capability::Admin)
                 )
             {
@@ -860,7 +860,7 @@ pub async fn resolve_live_specs(
             // know it exists.
             if verify_user_authz
                 && !snapshot
-                    .user_capability(user_id, &spec_row.catalog_name)
+                    .user_capability(subject, &spec_row.catalog_name)
                     .is_some_and(|c| c >= Capability::Read)
             {
                 snapshot.request_refresh();
@@ -957,7 +957,7 @@ pub async fn resolve_live_specs(
     // `verify_user_authz: false`).
     let (authorized_names, denied_names): (Vec<&str>, Vec<&str>) = data_plane_names
         .into_iter()
-        .partition(|name| snapshot.is_user_authorized(user_id, name, Capability::Read));
+        .partition(|name| snapshot.is_user_authorized(subject, name, Capability::Read));
     if !denied_names.is_empty() {
         snapshot.request_refresh();
         tracing::warn!(?denied_names, "excluding unauthorized data-plane names");

@@ -426,7 +426,7 @@ async fn test_source_capture_no_annotations() {
     let built = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             pub_id,
             None,
             draft,

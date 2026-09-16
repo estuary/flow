@@ -47,7 +47,7 @@ async fn test_forbidden_connector() {
     let built = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             pub_id,
             None,
             draft,

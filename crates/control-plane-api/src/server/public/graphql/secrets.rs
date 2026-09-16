@@ -102,7 +102,7 @@ impl SecretsQuery {
             super::authorized_prefixes::filtered_authorized_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                env.claims()?.sub,
+                &env.claims()?.subject(),
                 models::authz::Capability::ViewSecret,
                 filter.and_then(|f| f.catalog_name),
                 "filter.catalogName",

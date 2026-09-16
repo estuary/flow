@@ -64,7 +64,6 @@ pub async fn create_data_plane(
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
     let claims = env.claims()?;
-    let user_id = claims.sub;
 
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
@@ -229,7 +228,7 @@ pub async fn create_data_plane(
         .into();
 
     let publication = DraftPublication {
-        user_id,
+        subject: claims.subject(),
         logs_token: insert.logs_token,
         draft,
         dry_run: false,
