@@ -115,7 +115,7 @@ async fn check_store_health(
 /// Run storage health checks for each data plane + store combination.
 async fn run_all_health_checks(
     catalog_prefix: &models::Prefix,
-    data_planes: &[&tables::DataPlane],
+    data_planes: &[&crate::snapshot::DataPlane],
     fragment_stores: &[models::Store],
 ) -> Vec<StorageHealthItem> {
     let mut results = Vec::new();
@@ -562,7 +562,7 @@ fn check_authorization(
 fn resolve_data_planes<'s>(
     snapshot: &'s crate::Snapshot,
     data_plane_names: &[String],
-) -> Result<Vec<&'s tables::DataPlane>, async_graphql::Error> {
+) -> Result<Vec<&'s crate::snapshot::DataPlane>, async_graphql::Error> {
     data_plane_names
         .iter()
         .map(|name| {

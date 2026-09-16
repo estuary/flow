@@ -17,10 +17,10 @@ pub use db::{Row, fetch_discover, resolve};
 pub struct Discover<'a> {
     /// The name of the capture, which _must_ exist within the `draft`.
     pub capture_name: models::Capture,
-    /// The data plane to use for the discover. For an existing capture, this
-    /// _should_ be the data plane that the capture is currently running in. But
-    /// that is not required.
-    pub data_plane: tables::DataPlane,
+    /// The data plane to use for the discover. Existing captures should use
+    /// their current data plane.
+    pub data_plane_id: models::Id,
+    /// Destination token for discover operation logs.
     pub logs_token: Uuid,
     /// Authorization subject used when evaluating this discover.
     pub subject: models::authz::Subject,
@@ -159,7 +159,7 @@ impl DiscoverHandler {
 
     #[tracing::instrument(skip_all, fields(
         capture_name = %req.capture_name,
-        data_plane_name = %req.data_plane.data_plane_name,
+        data_plane_id = %req.data_plane_id,
         user_id = %req.subject.user_id,
         update_only = %req.update_only,
         image
@@ -167,7 +167,7 @@ impl DiscoverHandler {
     pub async fn discover(&self, db: &PgPool, req: Discover<'_>) -> anyhow::Result<DiscoverOutput> {
         let Discover {
             capture_name,
-            data_plane,
+            data_plane_id,
             logs_token,
             subject,
             filter_user_authz,
@@ -213,7 +213,7 @@ impl DiscoverHandler {
 
         let connectors = self
             .connector_factory
-            .make_connectors("discover", logs_token);
+            .make_connectors(snapshot, "discover", logs_token);
 
         let request = connector::Request {
             start: Some(connector::request::Start {
@@ -234,7 +234,7 @@ impl DiscoverHandler {
             })),
         };
         let result = async {
-            let (started, response) = connectors(&data_plane, request).await?;
+            let (started, response) = connectors(data_plane_id, request).await?;
             // `proto_grpc::connector::unary` verified that Started and the
             // response are of the capture protocol, so only Discovered can fail.
             match (started.spec, response) {
