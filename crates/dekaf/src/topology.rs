@@ -1,66 +1,24 @@
-use crate::{SessionAuthentication, TaskState, connector, utils};
-use anyhow::{Context, anyhow, bail};
+use crate::{
+    SessionAuthentication,
+    task::{Binding, Source, Topic},
+};
+use anyhow::Context;
 use futures::StreamExt;
 use gazette::{
     broker::{self, ReadResponse, journal_spec},
     journal, uuid,
 };
-use models::RawValue;
-use proto_flow::flow;
 
-impl SessionAuthentication {
-    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
-        match self {
-            SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
-            SessionAuthentication::Redirect { spec, .. } => utils::fetch_all_collection_names(spec),
-        }
-    }
-
-    pub async fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
-        match self {
-            SessionAuthentication::Task(auth) => {
-                let binding = auth
-                    .get_binding_for_topic(topic_name)
-                    .await?
-                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
-
-                Ok(binding
-                    .collection
-                    .as_ref()
-                    .context("missing collection in materialization binding")?
-                    .name
-                    .clone())
-            }
-            SessionAuthentication::Redirect { spec, .. } => {
-                let binding = utils::get_binding_for_topic(spec, topic_name)?
-                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
-
-                Ok(binding
-                    .collection
-                    .as_ref()
-                    .context("missing collection in materialization binding")?
-                    .name
-                    .clone())
-            }
-        }
-    }
-}
-
-/// Collection is the assembled metadata of a collection being accessed as a Kafka topic.
+/// Collection is a Topic as of one request: the Topic, the partitions its
+/// listing currently holds, and the `not_before` those partitions impose.
 pub struct Collection {
-    pub name: String,
-    pub journal_client: journal::Client,
-    pub key_ptr: Vec<json::Pointer>,
-    pub key_schema: avro::Schema,
-    pub not_before: Option<uuid::Clock>,
-    pub not_after: Option<uuid::Clock>,
+    pub topic: Topic,
+    /// Journals of the binding, in stable Kafka partition order.
     pub partitions: Vec<Partition>,
-    pub spec: flow::CollectionSpec,
-    pub uuid_ptr: json::Pointer,
-    pub value_schema: avro::Schema,
-    pub schema_hash: String,
-    pub extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>,
-    pub binding_backfill_counter: u32,
+    /// The binding's `not_before`, raised to the greatest `truncated-at`
+    /// label among its partitions: a truncated journal has no documents
+    /// before that clock to serve.
+    pub not_before: Option<uuid::Clock>,
 }
 
 /// Represents why a collection is unavailable.
@@ -138,154 +96,51 @@ const OFFSET_REQUEST_EARLIEST: i64 = -2;
 const OFFSET_REQUEST_LATEST: i64 = -1;
 
 impl Collection {
-    /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
+    pub fn binding(&self) -> &Binding {
+        self.topic.binding()
+    }
+
+    pub fn source(&self) -> &Source {
+        self.topic.source()
+    }
+
+    /// Client authorized to list and read the source's journals.
+    pub fn client(&self) -> &journal::Client {
+        self.topic.client()
+    }
+
+    /// Assemble the Topic named `topic_name` with the partitions which its
+    /// listing currently holds.
     pub async fn new(
         auth: &SessionAuthentication,
         topic_name: &str,
     ) -> anyhow::Result<CollectionStatus> {
-        let binding = match auth {
-            SessionAuthentication::Task(task_auth) => {
-                if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
-                    binding
-                } else {
-                    tracing::debug!("{topic_name} is not a binding of {}", task_auth.task_name);
-                    return Ok(CollectionStatus::not_found());
-                }
-            }
-            SessionAuthentication::Redirect { spec, .. } => {
-                let Some(binding) = utils::get_binding_for_topic(spec, topic_name)
-                    .context("failed to get binding for topic in redirected session")?
-                else {
-                    tracing::debug!("{topic_name} is not a binding of {}", spec.name);
-                    return Ok(CollectionStatus::not_found());
-                };
-                binding
-            }
+        // A redirected task has no journals to serve, and errors here.
+        let authorized = auth.authorized()?;
+
+        let Some(topic) = authorized.topic(topic_name) else {
+            // The client is asking for a topic our Task doesn't have, which a
+            // publication adding the binding would explain. Ask for a
+            // re-fetch; the cool-off bounds what a polling client can cost.
+            authorized.revoke.cancel();
+
+            tracing::debug!("{topic_name} is not a binding of {}", auth.task_name);
+            return Ok(CollectionStatus::not_found());
         };
 
-        let collection_spec = binding
-            .collection
-            .as_deref()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("missing collection in materialization binding"))?;
-
-        let collection_name = &auth.get_collection_for_topic(topic_name).await?;
-
-        let partition_template_name = collection_spec
-            .partition_template
-            .as_ref()
-            .map(|spec| spec.name.to_owned())
-            .ok_or(anyhow!("missing partition template"))?;
-
-        let (journal_client, partitions) = match auth {
-            SessionAuthentication::Task(task_auth) => {
-                let state = task_auth.task_state_listener.get().await?;
-
-                let partitions = match state.as_ref() {
-                    TaskState::Authorized { partitions, .. } => partitions,
-                    TaskState::Redirect {
-                        target_dataplane_fqdn,
-                        target_dekaf_address,
-                        target_dekaf_registry_address,
-                        spec,
-                    } => {
-                        return Err(crate::DekafError::from_redirect(
-                            target_dataplane_fqdn.to_owned(),
-                            target_dekaf_address.to_owned(),
-                            target_dekaf_registry_address.to_owned(),
-                            spec.clone(),
-                        )
-                        .await?
-                        .into());
-                    }
-                };
-
-                let (_, parts) = partitions
-                    .into_iter()
-                    .find(|(name, _)| name == &partition_template_name)
-                    .context("missing partition template")?;
-
-                parts
-                    .clone()
-                    .map(|(client, _, parts)| (client, parts))
-                    .map_err(|e| anyhow::Error::from(e))?
-            }
-            SessionAuthentication::Redirect {
-                target_dataplane_fqdn,
-                target_dekaf_address,
-                target_dekaf_registry_address,
-                spec,
-                config,
-                ..
-            } => {
-                return Err(crate::DekafError::TaskRedirected {
-                    target_dataplane_fqdn: target_dataplane_fqdn.clone(),
-                    target_dekaf_address: target_dekaf_address.clone(),
-                    target_dekaf_registry_address: target_dekaf_registry_address.clone(),
-                    spec: spec.clone(),
-                    config: config.clone(),
-                }
-                .into());
-            }
-        };
-
-        tracing::debug!(?partitions, "Got partitions");
-
-        let key_ptr: Vec<json::Pointer> = collection_spec
-            .key
-            .iter()
-            .map(|p| json::Pointer::from_str(p))
-            .collect();
-        let uuid_ptr = json::Pointer::from_str(&collection_spec.uuid_ptr);
-
-        let json_schema = if collection_spec.read_schema_json.is_empty() {
-            &collection_spec.write_schema_json
-        } else {
-            &collection_spec.read_schema_json
-        };
-
-        let json_schema = doc::validation::build_bundle(json_schema)?;
-        let validator = doc::Validator::new(json_schema)?;
-        let collection_schema_shape =
-            doc::Shape::infer(validator.schema(), validator.schema_index());
-
-        let selection = binding
-            .field_selection
-            .clone()
-            .context("missing field selection in materialization binding")?;
-
-        let (value_schema, extractors) = utils::build_field_extractors(
-            collection_schema_shape.clone(),
-            selection,
-            collection_spec.projections.clone(),
-            auth.deletions(),
-        )?;
-
-        let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
-
-        // Content-addresses the derived key/value schemas so callers can
-        // cheaply detect when a binding's effective schema has changed,
-        // without a network round trip (unlike `registered_schema_id`'s
-        // `avro_schema_md5`, which addresses the same schemas against the
-        // control plane's schema registry table).
-        let schema_hash = {
-            let key_json = serde_json::to_value(&key_schema).unwrap().to_string();
-            let value_json = serde_json::to_value(&value_schema).unwrap().to_string();
-            format!("{:x}", md5::compute(format!("{key_json}{value_json}")))
-        };
-
-        let (mut not_before, not_after) = (
-            binding.not_before.map(|b| {
-                uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
-            }),
-            binding.not_after.map(|b| {
-                uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
-            }),
-        );
+        // Only a topic which is actually asked for starts its listing, and
+        // then blocks on that listing's first response.
+        let partitions = topic
+            .partitions()
+            .await
+            .result()
+            .map_err(proto_grpc::status_to_anyhow)?
+            .clone();
 
         // Honor truncated-at journal labels: if any partition carries a
         // truncated-at label, use the max across all partitions and the
         // binding's not_before as the effective not_before.
+        let mut not_before = topic.binding().not_before;
         for partition in &partitions {
             if let Some(truncated_at_str) = partition
                 .spec
@@ -301,7 +156,7 @@ impl Collection {
         }
 
         tracing::debug!(
-            collection_name,
+            collection = topic.source().collection_name,
             partitions = partitions.len(),
             "built collection"
         );
@@ -311,34 +166,16 @@ impl Collection {
         // or when a collection exists but no data has ever been written.
         if partitions.is_empty() {
             tracing::debug!(
-                collection_name,
+                collection = topic.source().collection_name,
                 "Collection binding exists but has no journals available"
             );
             return Ok(CollectionStatus::not_ready());
         }
 
         Ok(CollectionStatus::Ready(Self {
-            name: collection_name.to_string(),
-            journal_client,
-            key_ptr,
-            key_schema,
-            not_before,
-            not_after,
+            topic,
             partitions,
-            spec: collection_spec,
-            uuid_ptr,
-            value_schema,
-            schema_hash,
-            extractors,
-            // Start the backfill counter (which will map to the topic leader epoch) at 1, not 0.
-            // Kafka consumers don't seem to handle going from epoch 0 to epoch 1 gracefully. Specifically,
-            // they don't seem to execute their log truncation detection logic in this case, resulting in the
-            // first backfill (going from unset, 0) to 1 not causing the consumer to restart as it does for all
-            // subsequent backfill counter increments.
-            //
-            // TODO(jshearer): While this is a simple fix, it's not clear why exactly consumers behaves this way.
-            // It would be good to understand this better and see if there's a more principled fix.
-            binding_backfill_counter: binding.backfill + 1,
+            not_before,
         }))
     }
 
@@ -347,11 +184,13 @@ impl Collection {
     /// or will register a new schema if not.
     pub async fn registered_schema_ids(
         &self,
+        auth: &SessionAuthentication,
         client: &postgrest::Postgrest,
     ) -> anyhow::Result<(u32, u32)> {
+        let catalog_name = &self.source().collection_name;
         let (key_id, value_id) = futures::try_join!(
-            Self::registered_schema_id(client, &self.spec.name, &self.key_schema),
-            Self::registered_schema_id(client, &self.spec.name, &self.value_schema),
+            Self::registered_schema_id(auth, client, catalog_name, &self.source().key_schema),
+            Self::registered_schema_id(auth, client, catalog_name, &self.binding().value_schema),
         )?;
         Ok((key_id, value_id))
     }
@@ -437,7 +276,7 @@ impl Collection {
                     page_limit: 1,
                     ..Default::default()
                 };
-                let response = self.journal_client.list_fragments(request).await?;
+                let response = self.client().list_fragments(request).await?;
 
                 match response.fragments.get(0) {
                     // We found a fragment covering the requested timestamp, or we found the currently open fragment.
@@ -470,7 +309,7 @@ impl Collection {
         };
 
         tracing::debug!(
-            collection = self.spec.name,
+            collection = self.source().collection_name,
             ?offset_data,
             partition_index,
             timestamp_millis,
@@ -496,7 +335,7 @@ impl Collection {
             ..Default::default()
         };
         let response = self
-            .journal_client
+            .client()
             .list_fragments(request)
             .await
             .context("listing fragments to fetch earliest offset")?;
@@ -529,7 +368,7 @@ impl Collection {
             metadata_only: true,
             ..Default::default()
         };
-        let response_stream = self.journal_client.clone().read(request);
+        let response_stream = self.client().clone().read(request);
         tokio::pin!(response_stream);
 
         // Continue polling the stream until we get Ok or a non-transient error
@@ -563,6 +402,7 @@ impl Collection {
     }
 
     async fn registered_schema_id(
+        auth: &SessionAuthentication,
         client: &postgrest::Postgrest,
         catalog_name: &str,
         schema: &avro::Schema,
@@ -576,7 +416,8 @@ impl Collection {
         let schema: serde_json::Value = serde_json::to_value(&schema).unwrap();
         let schema_md5 = format!("{:x}", md5::compute(&schema.to_string()));
 
-        let mut rows: Vec<Row> = handle_postgrest_response(
+        let mut rows: Vec<Row> = crate::exec_postgrest(
+            auth,
             client
                 .from("registered_avro_schemas")
                 .eq("avro_schema_md5", &schema_md5)
@@ -589,7 +430,8 @@ impl Collection {
             return Ok(registry_id);
         }
 
-        let mut rows: Vec<Row> = handle_postgrest_response(
+        let mut rows: Vec<Row> = crate::exec_postgrest(
+            auth,
             client.from("registered_avro_schemas").insert(
                 serde_json::json!([{
                     "avro_schema": schema,
@@ -606,58 +448,4 @@ impl Collection {
 
         Ok(registry_id)
     }
-}
-
-async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
-    builder: postgrest::Builder,
-) -> anyhow::Result<T> {
-    let resp = builder.execute().await?;
-    let status = resp.status();
-
-    if status.is_client_error() || status.is_server_error() {
-        bail!(
-            "{}: {}",
-            status.canonical_reason().unwrap_or(status.as_str()),
-            resp.text().await?
-        )
-    } else {
-        let bytes = resp.bytes().await?;
-        Ok(serde_json::from_slice(&bytes)?)
-    }
-}
-
-pub async fn extract_dekaf_config(
-    spec: &proto_flow::flow::MaterializationSpec,
-) -> anyhow::Result<connector::DekafConfig> {
-    if spec.connector_type != proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32 {
-        anyhow::bail!("Not a Dekaf materialization")
-    }
-    let config = serde_json::from_slice::<models::DekafConfig>(&spec.config_json)?;
-
-    let raw_config = RawValue::from_str(&config.config.to_string())?;
-
-    // SOPS decryption calls out to GCP KMS, which can transiently fail.
-    // Retry with backoff to handle these transient failures.
-    let mut last_err = None;
-    for attempt in 0..5u32 {
-        if attempt > 0 {
-            let base_ms = 1000 * 2u64.pow(attempt - 1);
-            let jitter_ms = rand::random_range(0..=base_ms / 2);
-            tokio::time::sleep(std::time::Duration::from_millis(base_ms + jitter_ms)).await;
-        }
-        match unseal::decrypt_sops(&raw_config).await {
-            Ok(decrypted) => {
-                let dekaf_config = serde_json::from_str::<connector::DekafConfig>(decrypted.get())?;
-                return Ok(dekaf_config);
-            }
-            Err(err) => {
-                tracing::warn!(attempt, error = ?err, "sops decryption failed, retrying");
-                last_err = Some(err);
-            }
-        }
-    }
-
-    // Unwrap is safe: the loop always executes at least once, and we only
-    // reach here via the Err arm which sets last_err = Some.
-    Err(last_err.unwrap())
 }

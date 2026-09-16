@@ -1,8 +1,8 @@
 use super::{App, Collection, CollectionStatus, CollectionUnavailable, Read};
 use crate::{
-    DekafError, KafkaApiClient, KafkaClientAuth, SessionAuthentication, TaskState,
-    from_downstream_topic_name, from_upstream_topic_name, logging::propagate_task_forwarder,
-    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset,
+    DekafError, KafkaApiClient, KafkaClientAuth, SessionAuthentication, from_downstream_topic_name,
+    from_upstream_topic_name, logging::propagate_task_forwarder, read::BatchResult,
+    task::TaskToken, to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset,
 };
 use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -32,7 +32,7 @@ struct PendingRead {
     // Last time this read was included in a Fetch request. Used to reap reads for
     // partitions the client has stopped fetching.
     last_accessed: std::time::Instant,
-    // The Collection::schema_hash this read was started against, used to
+    // The Binding::schema_hash this read was started against, used to
     // detect if the read is still current.
     schema_hash: String,
     // None while the partition is cooling down after a schema error.
@@ -45,7 +45,7 @@ struct PendingRead {
 struct CooldownEntry {
     // When this journal first started failing schema validation.
     first_failed_at: std::time::Instant,
-    // The Collection::schema_hash in effect when the failure occurred.
+    // The Binding::schema_hash in effect when the failure occurred.
     schema_hash: String,
 }
 
@@ -74,7 +74,7 @@ async fn resolve_high_watermark(
         ),
     };
     anyhow::ensure!(
-        collection.binding_backfill_counter as i32 == expected_leader_epoch,
+        collection.binding().leader_epoch as i32 == expected_leader_epoch,
         "leader epoch changed while refreshing Fetch high watermark"
     );
 
@@ -155,54 +155,44 @@ impl Session {
         }
     }
 
+    /// True if this session's task has migrated to another data-plane, which
+    /// the group-management APIs answer with NotCoordinator.
+    fn is_redirected(&self) -> anyhow::Result<bool> {
+        let Some(auth) = self.auth.as_ref() else {
+            return Ok(false);
+        };
+        Ok(matches!(&*auth.task_token()?, TaskToken::Redirect { .. }))
+    }
+
     /// Helper function to check if an error is a TaskRedirected error
     fn is_redirect_error(err: &anyhow::Error) -> bool {
         err.downcast_ref::<crate::DekafError>().map_or(false, |e| {
-            matches!(e, crate::DekafError::TaskRedirected { .. })
+            matches!(e, crate::DekafError::TaskRedirected(..))
         })
     }
 
     /// For redirected tasks, this returns the target dataplane's Dekaf broker address.
     /// - Ok(None): do not redirect.
     /// - Ok(Some(...)): redirect with a valid destination address.
-    async fn get_redirect_address(&self) -> anyhow::Result<Option<(String, i32)>> {
-        let (is_redirect, addr) = match self.auth.as_ref() {
-            Some(SessionAuthentication::Task(auth)) => {
-                match auth.task_state_listener.get().await?.as_ref() {
-                    TaskState::Redirect {
-                        target_dekaf_address,
-                        target_dataplane_fqdn,
-                        ..
-                    } => (
-                        Some(target_dataplane_fqdn.clone()),
-                        target_dekaf_address.clone(),
-                    ),
-                    _ => (None, None),
-                }
-            }
-            Some(SessionAuthentication::Redirect {
-                target_dekaf_address,
-                target_dataplane_fqdn,
-                ..
-            }) => (
-                Some(target_dataplane_fqdn.clone()),
-                target_dekaf_address.clone(),
-            ),
-            _ => (None, None),
-        };
-
-        let Some(target_fqdn) = is_redirect else {
+    fn get_redirect_address(&self) -> anyhow::Result<Option<(String, i32)>> {
+        let Some(auth) = self.auth.as_ref() else {
             return Ok(None);
         };
+        let token = auth.task_token()?;
 
-        let Some(addr) = addr else {
+        let TaskToken::Redirect { redirect, .. } = &*token else {
+            return Ok(None);
+        };
+        let target_fqdn = &redirect.data_plane_fqdn;
+
+        let Some(addr) = &redirect.dekaf_address else {
             anyhow::bail!(
                 "Cannot redirect to dataplane {target_fqdn}: it has no Dekaf instance configured"
             );
         };
 
         // Parse as URL. Format must be tcp://host:port or tls://host:port
-        let url = url::Url::parse(&addr)
+        let url = url::Url::parse(addr)
             .with_context(|| format!("invalid redirect dekaf_address: {addr}"))?;
         let host = url
             .host_str()
@@ -262,7 +252,7 @@ impl Session {
         let password = it.next().context("expected SASL password")??;
 
         match &self.auth {
-            Some(SessionAuthentication::Task(auth)) if auth.task_name != username => {
+            Some(auth) if auth.task_name != username => {
                 return Ok(messages::SaslAuthenticateResponse::default()
                     .with_error_code(ResponseError::SaslAuthenticationFailed.code())
                     .with_error_message(Some(StrBytes::from_string(
@@ -272,46 +262,40 @@ impl Session {
             _ => {}
         };
 
-        let mut attempts = 0;
-        loop {
-            let response = match self.app.authenticate(username, password).await {
-                Ok(auth) => {
-                    let mut response = messages::SaslAuthenticateResponse::default();
+        let response = match self.app.authenticate(username, password).await {
+            Ok(auth) => {
+                let mut response = messages::SaslAuthenticateResponse::default();
 
-                    response.session_lifetime_ms = (auth
-                        .valid_until()
-                        .duration_since(SystemTime::now())?
-                        .as_secs()
-                        * 1000)
-                        .try_into()?;
+                response.session_lifetime_ms = (auth
+                    .valid_until()?
+                    .duration_since(SystemTime::now())?
+                    .as_secs()
+                    * 1000)
+                    .try_into()?;
 
-                    self.auth.replace(auth);
-                    response
-                }
-                Err(DekafError::Authentication(e)) => messages::SaslAuthenticateResponse::default()
-                    .with_error_code(ResponseError::SaslAuthenticationFailed.code())
-                    .with_error_message(Some(StrBytes::from_string(format!("{e}")))),
-                Err(DekafError::TaskRedirected { .. }) => {
-                    unreachable!("This error should not be returned here.")
-                }
-                Err(DekafError::Unknown(e)) => {
-                    tracing::warn!(
-                        ?attempts,
-                        "unknown error during session authentication: {:?}",
-                        e
-                    );
-                    if attempts < 4 {
-                        attempts += 1;
-                        tokio::time::sleep(std::time::Duration::from_secs(3 * attempts)).await;
-                        continue;
-                    }
-                    messages::SaslAuthenticateResponse::default()
-                        .with_error_code(ResponseError::UnknownServerError.code())
-                }
-            };
+                self.auth.replace(auth);
+                response
+            }
+            Err(DekafError::Authentication(e)) => messages::SaslAuthenticateResponse::default()
+                .with_error_code(ResponseError::SaslAuthenticationFailed.code())
+                .with_error_message(Some(StrBytes::from_string(format!("{e}")))),
+            Err(DekafError::TaskRedirected(_)) => {
+                unreachable!("This error should not be returned here.")
+            }
+            Err(DekafError::Unknown(e)) => {
+                // Transient failures never reach here: `authenticate` waits
+                // out a cold task's first fetch, and an established task keeps
+                // its last authorization through them. What does reach here is
+                // sticky for at least a watch backoff, so a retry would only
+                // delay the client. The message is withheld: it describes our
+                // failure, not the client's.
+                tracing::warn!("unknown error during session authentication: {:?}", e);
+                messages::SaslAuthenticateResponse::default()
+                    .with_error_code(ResponseError::UnknownServerError.code())
+            }
+        };
 
-            return Ok(response);
-        }
+        Ok(response)
     }
 
     /// Serve metadata of topics and their partitions.
@@ -330,7 +314,7 @@ impl Session {
         // If the session needs to be redirected, this causes the consumer to
         // connect to the correct Dekaf instance by advertising it as the
         // only broker in the response. Otherwise advertise ourselves as the broker.
-        let broker = if let Some((broker_host, broker_port)) = self.get_redirect_address().await? {
+        let broker = if let Some((broker_host, broker_port)) = self.get_redirect_address()? {
             MetadataResponseBroker::default()
                 .with_node_id(messages::BrokerId(1))
                 .with_host(StrBytes::from_string(broker_host))
@@ -353,10 +337,9 @@ impl Session {
     async fn metadata_all_topics(&mut self) -> anyhow::Result<Vec<MetadataResponseTopic>> {
         let collection_names = self
             .auth
-            .as_mut()
+            .as_ref()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .fetch_all_collection_names()
-            .await?;
+            .topics()?;
         tracing::debug!(collections=?ops::DebugJson(&collection_names), "fetched all collections");
 
         let names_for_redirect = collection_names.clone();
@@ -385,7 +368,7 @@ impl Session {
                 match status.ready() {
                     Ok(coll) => self.build_topic_metadata(encoded_name, &coll),
                     Err(CollectionUnavailable::NotFound) => {
-                        // Bail here because `fetch_all_collection_names` should only return accessible collections.
+                        // Bail here because `topics` should only return accessible collections.
                         anyhow::bail!("Collection '{}' not found or not accessible", name)
                     }
                     Err(CollectionUnavailable::NotReady) => {
@@ -455,7 +438,7 @@ impl Session {
         &mut self,
         request: messages::FindCoordinatorRequest,
     ) -> anyhow::Result<messages::FindCoordinatorResponse> {
-        let (broker_host, broker_port) = match self.get_redirect_address().await? {
+        let (broker_host, broker_port) = match self.get_redirect_address()? {
             Some((host, port)) => (host, port),
             None => (
                 self.app.advertise_host.clone(),
@@ -543,7 +526,7 @@ impl Session {
             }
         };
 
-        let current_epoch = collection.binding_backfill_counter as i32;
+        let current_epoch = collection.binding().leader_epoch as i32;
 
         let partition_results =
             futures::future::try_join_all(topic.partitions.iter().cloned().map(|partition| {
@@ -663,7 +646,7 @@ impl Session {
     ) -> anyhow::Result<messages::FetchResponse> {
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
 
-        if self.get_redirect_address().await?.is_some() {
+        if self.get_redirect_address()?.is_some() {
             let responses = request
                 .topics
                 .iter()
@@ -686,10 +669,7 @@ impl Session {
         }
 
         let task_name = match &self.auth {
-            Some(SessionAuthentication::Task(auth)) => auth.task_name.clone(),
-            Some(SessionAuthentication::Redirect { .. }) => {
-                bail!("Redirected sessions cannot fetch data")
-            }
+            Some(auth) => auth.task_name.clone(),
             None => bail!("Not authenticated"),
         };
 
@@ -790,7 +770,7 @@ impl Session {
                             .await?
                             .ready()
                             .ok()
-                            .map(|c| c.binding_backfill_counter as i32);
+                            .map(|c| c.binding().leader_epoch as i32);
 
                         // If NotReady or NotFound, remove the pending read
                         match current_epoch {
@@ -832,10 +812,11 @@ impl Session {
                     _ => {}
                 }
 
-                let auth = self.auth.as_mut().unwrap();
-                let pg_client = match auth.flow_client().await {
-                    Ok(client) => client.pg_client(),
-                    Err(crate::DekafError::TaskRedirected { .. }) => {
+                let auth = self.auth.as_ref().unwrap();
+
+                match auth.authorized() {
+                    Ok(_) => {}
+                    Err(crate::DekafError::TaskRedirected(_)) => {
                         // Task was redirected mid-fetch, stop processing and return redirect response
                         let responses = request
                             .topics
@@ -861,6 +842,7 @@ impl Session {
                     }
                     Err(e) => return Err(e.into()),
                 };
+
                 let collection = match Collection::new(&auth, &key.0).await?.ready() {
                     Ok(c) => c,
                     Err(CollectionUnavailable::NotFound) => {
@@ -894,7 +876,7 @@ impl Session {
                 // Validate consumer's leader epoch against current collection epoch
                 if partition_request.current_leader_epoch >= 0 {
                     if partition_request.current_leader_epoch
-                        < collection.binding_backfill_counter as i32
+                        < collection.binding().leader_epoch as i32
                     {
                         metrics::counter!(
                             "dekaf_fetch_requests",
@@ -908,14 +890,14 @@ impl Session {
                             collection = ?&key.0,
                             partition = partition_request.partition,
                             consumer_epoch = partition_request.current_leader_epoch,
-                            current_epoch = collection.binding_backfill_counter,
+                            current_epoch = collection.binding().leader_epoch,
                             "Consumer epoch is stale, skipping read start"
                         );
                         // Remove stale pending read if it exists. Error will be returned during poll phase
                         self.reads.remove(&key);
                         continue;
                     } else if partition_request.current_leader_epoch
-                        > collection.binding_backfill_counter as i32
+                        > collection.binding().leader_epoch as i32
                     {
                         metrics::counter!(
                             "dekaf_fetch_requests",
@@ -929,7 +911,7 @@ impl Session {
                             collection = ?&key.0,
                             partition = partition_request.partition,
                             consumer_epoch = partition_request.current_leader_epoch,
-                            current_epoch = collection.binding_backfill_counter,
+                            current_epoch = collection.binding().leader_epoch,
                             "Consumer epoch is ahead of broker epoch, skipping read start"
                         );
                         self.reads.remove(&key);
@@ -957,15 +939,15 @@ impl Session {
 
                 if let Some(cooled) = self.cooldown.get(&key) {
                     // If the schema hasn't changed, no need to retry this partition.
-                    if cooled.schema_hash == collection.schema_hash {
+                    if cooled.schema_hash == collection.binding().schema_hash {
                         self.reads.insert(
                             key.clone(),
                             PendingRead {
                                 offset: fetch_offset,
                                 last_write_head: fetch_offset,
-                                leader_epoch: collection.binding_backfill_counter as i32,
+                                leader_epoch: collection.binding().leader_epoch as i32,
                                 last_accessed: std::time::Instant::now(),
-                                schema_hash: collection.schema_hash.clone(),
+                                schema_hash: collection.binding().schema_hash.clone(),
                                 handle: None,
                             },
                         );
@@ -980,14 +962,15 @@ impl Session {
                     self.cooldown.remove(&key);
                 }
 
-                let (key_schema_id, value_schema_id) =
-                    collection.registered_schema_ids(&pg_client).await?;
+                let (key_schema_id, value_schema_id) = collection
+                    .registered_schema_ids(auth, &self.app.pg_client)
+                    .await?;
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
-                    leader_epoch: collection.binding_backfill_counter as i32,
+                    leader_epoch: collection.binding().leader_epoch as i32,
                     last_accessed: std::time::Instant::now(),
-                    schema_hash: collection.schema_hash.clone(),
+                    schema_hash: collection.binding().schema_hash.clone(),
                     handle: Some(tokio_util::task::AbortOnDropHandle::new(
                         match data_preview_params {
                             // Startree: 0, Tinybird: 12
@@ -1007,14 +990,12 @@ impl Session {
                                 .increment(1);
                                 tokio::spawn(propagate_task_forwarder(
                                     Read::new(
-                                        self.app.task_manager.get_listener(task_name.as_str()),
                                         &collection,
                                         partition,
                                         fragment_start,
                                         key_schema_id,
                                         value_schema_id,
                                         Some(partition_request.fetch_offset - 1),
-                                        &auth,
                                         self.read_buffer_size,
                                     )
                                     .await?
@@ -1038,14 +1019,12 @@ impl Session {
                                 .increment(1);
                                 tokio::spawn(propagate_task_forwarder(
                                     Read::new(
-                                        self.app.task_manager.get_listener(task_name.as_str()),
                                         &collection,
                                         partition,
                                         fetch_offset,
                                         key_schema_id,
                                         value_schema_id,
                                         None,
-                                        &auth,
                                         self.read_buffer_size,
                                     )
                                     .await?
@@ -1102,7 +1081,7 @@ impl Session {
                         Ok(CollectionStatus::Ready(collection)) => {
                             if partition_request.current_leader_epoch >= 0 {
                                 if partition_request.current_leader_epoch
-                                    < collection.binding_backfill_counter as i32
+                                    < collection.binding().leader_epoch as i32
                                 {
                                     // Epoch validation failed. Return FENCED_LEADER_EPOCH
                                     partition_responses.push(
@@ -1113,13 +1092,13 @@ impl Session {
                                                 messages::fetch_response::LeaderIdAndEpoch::default()
                                                     .with_leader_id(messages::BrokerId(1))
                                                     .with_leader_epoch(
-                                                        collection.binding_backfill_counter as i32,
+                                                        collection.binding().leader_epoch as i32,
                                                     ),
                                             ),
                                     );
                                     continue;
                                 } else if partition_request.current_leader_epoch
-                                    > collection.binding_backfill_counter as i32
+                                    > collection.binding().leader_epoch as i32
                                 {
                                     partition_responses.push(
                                         PartitionData::default()
@@ -1129,7 +1108,7 @@ impl Session {
                                                 messages::fetch_response::LeaderIdAndEpoch::default()
                                                     .with_leader_id(messages::BrokerId(1))
                                                     .with_leader_epoch(
-                                                        collection.binding_backfill_counter as i32,
+                                                        collection.binding().leader_epoch as i32,
                                                     ),
                                             ),
                                     );
@@ -1214,6 +1193,13 @@ impl Session {
                             "partition failed schema validation, entering cooldown"
                         );
 
+                        // A document which fails validation against the schema
+                        // we hold is most often explained by a spec we haven't
+                        // seen yet.
+                        if let Some(auth) = self.auth.as_ref() {
+                            auth.task_token()?.revoke();
+                        }
+
                         self.cooldown.entry(key.clone()).or_insert(CooldownEntry {
                             first_failed_at: std::time::Instant::now(),
                             schema_hash: pending.schema_hash.clone(),
@@ -1233,6 +1219,12 @@ impl Session {
                     BatchResult::TimeoutExceededBeforeTarget(b) => Some(b),
                     BatchResult::TimeoutNoData | BatchResult::Suspended => None,
                     BatchResult::JournalNotFound => {
+                        // The journal we were reading is gone -- a collection
+                        // reset, most likely -- and only a newer spec says
+                        // which journals replace it.
+                        if let Some(auth) = self.auth.as_ref() {
+                            auth.task_token()?.revoke();
+                        }
                         partition_responses.push(
                             PartitionData::default()
                                 .with_partition_index(partition_request.partition)
@@ -1428,7 +1420,7 @@ impl Session {
         req: messages::JoinGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
-        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        if self.is_redirected()? {
             return Ok(messages::JoinGroupResponse::default()
                 .with_error_code(ResponseError::NotCoordinator.code()));
         }
@@ -1486,7 +1478,7 @@ impl Session {
                     .find(|(name, _)| name.as_str() == topic.as_str())
                     .map(|(_, status)| status)
                 {
-                    Some(CollectionStatus::Ready(c)) => c.binding_backfill_counter,
+                    Some(CollectionStatus::Ready(c)) => c.binding().leader_epoch,
                     other => {
                         let error_code = other
                             .and_then(|s| s.error_code())
@@ -1583,7 +1575,7 @@ impl Session {
         req: messages::LeaveGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::LeaveGroupResponse> {
-        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        if self.is_redirected()? {
             return Ok(messages::LeaveGroupResponse::default()
                 .with_error_code(ResponseError::NotCoordinator.code()));
         }
@@ -1654,7 +1646,7 @@ impl Session {
         req: messages::SyncGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::SyncGroupResponse> {
-        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        if self.is_redirected()? {
             return Ok(messages::SyncGroupResponse::default()
                 .with_error_code(ResponseError::NotCoordinator.code()));
         }
@@ -1716,7 +1708,7 @@ impl Session {
                         .iter()
                         .find(|(name, _)| name.as_str() == part.topic.as_str())
                         .and_then(|(_, status)| match status {
-                            CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
+                            CollectionStatus::Ready(c) => Some(c.binding().leader_epoch),
                             _ => None,
                         })
                         .context("collection status missing after validation")?;
@@ -1799,7 +1791,7 @@ impl Session {
         req: messages::DeleteGroupsRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::DeleteGroupsResponse> {
-        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        if self.is_redirected()? {
             anyhow::bail!("Redirected sessions cannot delete groups");
         }
 
@@ -1828,7 +1820,7 @@ impl Session {
         let redirect_response = messages::HeartbeatResponse::default()
             .with_error_code(ResponseError::NotCoordinator.code());
 
-        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        if self.is_redirected()? {
             return Ok(redirect_response);
         }
 
@@ -1871,7 +1863,7 @@ impl Session {
                 .collect(),
         );
 
-        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        if self.is_redirected()? {
             return Ok(redirect_response);
         }
 
@@ -1916,7 +1908,7 @@ impl Session {
                     CollectionStatus::Ready(collection) => Some(
                         self.encrypt_topic_name(
                             topic_name.clone(),
-                            Some(collection.binding_backfill_counter),
+                            Some(collection.binding().leader_epoch),
                         )
                         .map(|encrypted_name| (encrypted_name, collection.partitions.len())),
                     ),
@@ -1926,17 +1918,20 @@ impl Session {
 
             let original_topics = req.topics.clone();
             let secret = self.secret.clone();
-            let token = match self.auth.as_ref().context("Must be authenticated")? {
-                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
-                SessionAuthentication::Redirect { config, .. } => config.token.to_string(),
-            };
+            let token = self
+                .auth
+                .as_ref()
+                .context("Must be authenticated")?
+                .authorized()?
+                .token
+                .clone();
 
             for topic in &mut req.topics {
                 let backfill_counter = collection_statuses
                     .iter()
                     .find(|(name, _)| name == &topic.name)
                     .and_then(|(_, status)| match status {
-                        CollectionStatus::Ready(c) => Some(c.binding_backfill_counter),
+                        CollectionStatus::Ready(c) => Some(c.binding().leader_epoch),
                         CollectionStatus::Unavailable(_) => None,
                     })
                     .context(format!("Collection not found for topic {:?}", topic.name))?;
@@ -2161,7 +2156,7 @@ impl Session {
                 .collect(),
         );
 
-        if matches!(self.auth, Some(SessionAuthentication::Redirect { .. })) {
+        if self.is_redirected()? {
             return Ok(redirect_response);
         }
 
@@ -2230,7 +2225,7 @@ impl Session {
                         let backfill_counter = ready_collections
                             .iter()
                             .find(|(name, _)| name == &topic.name)
-                            .map(|(_, c)| c.binding_backfill_counter)
+                            .map(|(_, c)| c.binding().leader_epoch)
                             .context(format!("Collection not found for topic {:?}", topic.name))?;
                         topic.name =
                             self.encrypt_topic_name(topic.name.clone(), Some(backfill_counter))?;
@@ -2316,7 +2311,7 @@ impl Session {
                 let maybe_backfill_counter = ready_collections
                     .iter()
                     .find(|(topic_name, _)| topic_name == &topic_response.name)
-                    .map(|(_, c)| c.binding_backfill_counter);
+                    .map(|(_, c)| c.binding().leader_epoch);
 
                 if let Some(backfill_counter) = maybe_backfill_counter {
                     for partition in topic_response.partitions.iter_mut() {
@@ -2400,7 +2395,7 @@ impl Session {
             }
         };
 
-        let current_epoch = collection.binding_backfill_counter as i32;
+        let current_epoch = collection.binding().leader_epoch as i32;
 
         let partitions =
             futures::future::try_join_all(topic.partitions.into_iter().map(|partition| {
@@ -2567,16 +2562,12 @@ impl Session {
     }
 
     fn get_topic_name_nonce(&self, use_task_name: bool) -> anyhow::Result<String> {
-        match self.auth.as_ref().context("Must be authenticated")? {
-            SessionAuthentication::Task(auth) => Ok(if use_task_name {
-                auth.task_name.to_string()
-            } else {
-                auth.config.token.to_string()
-            }),
-            SessionAuthentication::Redirect { .. } => {
-                anyhow::bail!("Redirect sessions should not encrypt/decrypt topic names")
-            }
+        let auth = self.auth.as_ref().context("Must be authenticated")?;
+
+        if use_task_name {
+            return Ok(auth.task_name.to_string());
         }
+        Ok(auth.authorized()?.token.clone())
     }
 
     fn encrypt_topic_name(
@@ -2605,10 +2596,12 @@ impl Session {
     }
 
     fn encode_topic_name(&self, name: String) -> anyhow::Result<TopicName> {
-        if match self.auth.as_ref().context("Must be authenticated")? {
-            SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
-            SessionAuthentication::Redirect { config, .. } => config.strict_topic_names,
-        } {
+        if self
+            .auth
+            .as_ref()
+            .context("Must be authenticated")?
+            .strict_topic_names()?
+        {
             Ok(to_downstream_topic_name(TopicName(StrBytes::from_string(
                 name,
             ))))
@@ -2737,7 +2730,7 @@ impl Session {
         name: TopicName,
         collection: &Collection,
     ) -> anyhow::Result<MetadataResponseTopic> {
-        let leader_epoch = collection.binding_backfill_counter as i32;
+        let leader_epoch = collection.binding().leader_epoch as i32;
 
         // Collections with empty partitions should be handled as NotReady before
         // reaching this function, so we can safely iterate over partitions here

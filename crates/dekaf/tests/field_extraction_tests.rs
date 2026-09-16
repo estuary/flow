@@ -64,10 +64,12 @@ async fn get_extraction_components(
     };
     let shape = json_schema_to_shape(schema)?;
 
-    let endpoint_config =
-        dekaf::extract_dekaf_config(&materialization.spec.clone().expect("missing spec"))
-            .await
-            .expect("Failed to extract DekafConfig");
+    // Fixture configs are plaintext and hold no `secrets`, so the sealed
+    // config is already the plaintext one.
+    let sealed = dekaf::task::sealed_config(materialization.spec.as_ref().expect("missing spec"))
+        .expect("not a Dekaf materialization");
+    let endpoint_config: DekafConfig =
+        serde_json::from_str(sealed.get()).expect("Failed to extract DekafConfig");
 
     Ok((
         shape,
@@ -97,9 +99,9 @@ async fn roundtrip(
         get_extraction_components(fixture_path).await?;
 
     let (avro_schema, extractors) = dekaf::utils::build_field_extractors(
-        shape,
-        field_selection,
-        projections,
+        &shape,
+        &field_selection,
+        &projections,
         endpoint_config.deletions,
     )?;
 

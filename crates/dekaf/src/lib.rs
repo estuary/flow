@@ -10,7 +10,6 @@ pub mod log_appender;
 pub mod logging;
 
 mod topology;
-pub use topology::extract_dekaf_config;
 use topology::{Collection, CollectionStatus, CollectionUnavailable, Partition};
 
 mod read;
@@ -19,8 +18,8 @@ pub use read::extract_and_encode;
 
 pub mod utils;
 
-mod task_manager;
-pub use task_manager::{TaskManager, TaskState};
+pub mod task;
+use task::{Authorized, Handle, TaskToken};
 
 mod session;
 pub use session::Session;
@@ -37,7 +36,6 @@ pub use dekaf_connector as connector;
 use aes_siv::{Aes256SivAead, KeyInit, KeySizeUser, aead::Aead};
 use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
-use proto_flow::flow::MaterializationSpec;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
@@ -51,160 +49,101 @@ pub struct App {
     pub advertise_kafka_port: u16,
     /// Secret used to secure Prometheus endpoint
     pub secret: String,
-    /// Share a single base client in order to re-use connection pools
-    pub client_base: flow_client::Client,
-    /// The domain name of the data-plane that we're running inside of
-    pub data_plane_fqdn: String,
-    /// The key used to sign data-plane access token requests
-    pub data_plane_signer: jsonwebtoken::EncodingKey,
-    /// The manager responsible for maintaining fresh task metadata
-    pub task_manager: Arc<TaskManager>,
+    /// PostgREST client of the control-plane, which holds the registry of
+    /// Avro schemas that Dekaf serves. Each query bears the requesting task's
+    /// own control-plane token.
+    pub pg_client: postgrest::Postgrest,
+    /// Tasks which this process is currently serving.
+    pub tasks: Arc<task::Registry>,
 }
 
+/// SessionAuthentication is a session's established identity: the Dekaf task
+/// whose password it presented. Everything else -- the compiled Task, the
+/// resolved config, the control-plane token, the journals of each binding --
+/// is read from the Handle at each access, because each refreshes on its own.
 #[derive(Clone)]
-pub struct TaskAuth {
-    client: flow_client::Client,
-    task_name: String,
-    config: connector::DekafConfig,
-    task_state_listener: task_manager::TaskStateListener,
-
-    // When access token expires
-    exp: time::OffsetDateTime,
+pub struct SessionAuthentication {
+    pub task: Arc<Handle>,
+    pub task_name: String,
 }
 
-#[derive(Clone)]
-pub enum SessionAuthentication {
-    Task(TaskAuth),
-    Redirect {
-        target_dataplane_fqdn: String,
-        target_dekaf_address: Option<String>,
-        target_dekaf_registry_address: Option<String>,
-        spec: MaterializationSpec,
-        config: connector::DekafConfig,
-        task_state_listener: task_manager::TaskStateListener,
-    },
+/// TaskGuard holds a session's current authorization while it's read.
+pub struct TaskGuard(Arc<tokens::Refresh<TaskToken>>);
+
+impl std::ops::Deref for TaskGuard {
+    type Target = TaskToken;
+
+    fn deref(&self) -> &TaskToken {
+        self.0
+            .result()
+            .expect("a TaskGuard is only built from an Ok refresh")
+    }
 }
 
 impl SessionAuthentication {
-    pub fn valid_until(&self) -> SystemTime {
-        match self {
-            SessionAuthentication::Task(task) => task.exp.into(),
-            SessionAuthentication::Redirect { .. } => {
-                // Redirects are valid for a short duration
-                SystemTime::now() + std::time::Duration::from_secs(60 * 5)
+    /// Current authorization of this session's task.
+    ///
+    /// An Err means the task's own refresh is failing. It's logged here --
+    /// within the request which observed it, and thus within the session's
+    /// log forwarder -- so that users see the failure in their ops logs.
+    pub fn task_token(&self) -> anyhow::Result<TaskGuard> {
+        let refresh = self.task.token();
+
+        if let Err(status) = refresh.result() {
+            tracing::error!(
+                task_name = self.task_name,
+                %status,
+                "task authorization is unavailable",
+            );
+            return Err(proto_grpc::status_to_anyhow(status));
+        }
+        Ok(TaskGuard(refresh))
+    }
+
+    /// As [`Self::task_token`], but a task which has migrated to another
+    /// data-plane is a redirect error rather than a value.
+    pub fn authorized(&self) -> Result<Arc<Authorized>, DekafError> {
+        match &*self.task_token()? {
+            TaskToken::Authorized(authorized) => Ok(authorized.clone()),
+            TaskToken::Redirect { redirect, .. } => {
+                Err(DekafError::TaskRedirected(redirect.data_plane_fqdn.clone()))
             }
         }
     }
 
-    pub async fn flow_client(&mut self) -> Result<&flow_client::Client, DekafError> {
-        match self {
-            SessionAuthentication::Task(auth) => auth.authenticated_client().await,
-            SessionAuthentication::Redirect {
-                target_dataplane_fqdn,
-                target_dekaf_address,
-                target_dekaf_registry_address,
-                spec,
-                config,
-                ..
-            } => Err(DekafError::TaskRedirected {
-                target_dataplane_fqdn: target_dataplane_fqdn.clone(),
-                target_dekaf_address: target_dekaf_address.clone(),
-                target_dekaf_registry_address: target_dekaf_registry_address.clone(),
-                spec: spec.clone(),
-                config: config.clone(),
-            }),
-        }
-    }
-
-    pub fn deletions(&self) -> connector::DeletionMode {
-        match self {
-            SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
-            SessionAuthentication::Redirect { config, .. } => config.deletions,
-        }
-    }
-}
-
-impl TaskAuth {
-    pub fn new(
-        client: flow_client::Client,
-        task_name: String,
-        config: connector::DekafConfig,
-        task_state_listener: task_manager::TaskStateListener,
-        exp: time::OffsetDateTime,
-    ) -> Self {
-        Self {
-            client,
-            task_name,
-            config,
-            task_state_listener,
-            exp,
-        }
-    }
-    pub async fn authenticated_client(&mut self) -> Result<&flow_client::Client, DekafError> {
-        // Check if the task has been redirected
-        match self.task_state_listener.get().await?.as_ref() {
-            TaskState::Authorized {
-                access_token: token,
-                access_token_claims: claims,
-                ..
-            } => {
-                // Update token if it's about to expire
-                if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
-                    self.client = self
-                        .client
-                        .clone()
-                        .with_user_access_token(Some(token.to_owned()));
-                    self.exp = time::OffsetDateTime::UNIX_EPOCH
-                        + time::Duration::seconds(claims.exp as i64);
-                }
-                Ok(&self.client)
-            }
-            TaskState::Redirect {
-                target_dataplane_fqdn,
-                target_dekaf_address,
-                target_dekaf_registry_address,
-                spec,
-            } => Err(DekafError::from_redirect(
-                target_dataplane_fqdn.to_owned(),
-                target_dekaf_address.to_owned(),
-                target_dekaf_registry_address.to_owned(),
-                spec.to_owned(),
-            )
-            .await?),
-        }
-    }
-
-    pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
-        let task_state = self
-            .task_state_listener
-            .get()
-            .await
-            .context("failed to fetch task spec")?;
-
-        let spec = match task_state.as_ref() {
-            TaskState::Authorized { spec, .. } => spec,
-            TaskState::Redirect { spec, .. } => spec,
+    /// How long a Kafka client may use this session before re-authenticating.
+    pub fn valid_until(&self) -> anyhow::Result<SystemTime> {
+        let valid_for = match &*self.task_token()? {
+            // A redirect holds no token, and is re-fetched on a fixed cadence.
+            TaskToken::Redirect { .. } => Duration::from_secs(5 * 60),
+            TaskToken::Authorized(authorized) => tokens::jwt::parse_unverified::<
+                serde::de::IgnoredAny,
+            >(authorized.access_token.as_bytes())
+            .map_err(proto_grpc::status_to_anyhow)?
+            .valid_for()
+            .to_std()
+            .unwrap_or_default(),
         };
-
-        utils::fetch_all_collection_names(spec)
+        Ok(SystemTime::now() + valid_for)
     }
 
-    pub async fn get_binding_for_topic(
-        &self,
-        topic_name: &str,
-    ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
-        let task_state = self
-            .task_state_listener
-            .get()
-            .await
-            .context("failed to fetch task spec")?;
+    pub fn deletions(&self) -> anyhow::Result<connector::DeletionMode> {
+        Ok(self.task_token()?.public().deletions)
+    }
 
-        let spec = match task_state.as_ref() {
-            TaskState::Authorized { spec, .. } => spec,
-            TaskState::Redirect { spec, .. } => spec,
-        };
+    pub fn strict_topic_names(&self) -> anyhow::Result<bool> {
+        Ok(self.task_token()?.public().strict_topic_names)
+    }
 
-        utils::get_binding_for_topic(spec, topic_name)
+    /// Topics served by this session's task, in sorted order.
+    pub fn topics(&self) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .task_token()?
+            .task()
+            .bindings
+            .iter()
+            .map(|binding| binding.topic.clone())
+            .collect())
     }
 }
 
@@ -212,14 +151,8 @@ impl TaskAuth {
 pub enum DekafError {
     #[error("Authentication failed: {0}")]
     Authentication(String),
-    #[error("Task redirected to {target_dataplane_fqdn}")]
-    TaskRedirected {
-        target_dataplane_fqdn: String,
-        target_dekaf_address: Option<String>,
-        target_dekaf_registry_address: Option<String>,
-        spec: MaterializationSpec,
-        config: connector::DekafConfig,
-    },
+    #[error("Task redirected to {0}")]
+    TaskRedirected(String),
     #[error("{0}")]
     Unknown(
         #[from]
@@ -228,23 +161,28 @@ pub enum DekafError {
     ),
 }
 
-impl DekafError {
-    pub async fn from_redirect(
-        target_dataplane_fqdn: String,
-        target_dekaf_address: Option<String>,
-        target_dekaf_registry_address: Option<String>,
-        spec: MaterializationSpec,
-    ) -> anyhow::Result<Self> {
-        let config = topology::extract_dekaf_config(&spec)
-            .await
-            .context("Failed to extract Dekaf config from spec")?;
-        Ok(DekafError::TaskRedirected {
-            target_dataplane_fqdn,
-            target_dekaf_address,
-            target_dekaf_registry_address,
-            spec,
-            config,
-        })
+/// Execute a PostgREST query bearing `auth`'s control-plane token.
+///
+/// A 401 means the control-plane no longer accepts the token we hold, which
+/// only a newer authorization can fix: revoke, so that one is fetched
+/// promptly rather than on the refresh cadence.
+pub async fn exec_postgrest<T>(
+    auth: &SessionAuthentication,
+    builder: postgrest::Builder,
+) -> anyhow::Result<T>
+where
+    for<'de> T: serde::Deserialize<'de>,
+{
+    let authorized = auth.authorized()?;
+
+    match flow_client_next::postgrest::exec(builder, Some(&authorized.access_token)).await {
+        Ok(parsed) => Ok(parsed),
+        Err(status) => {
+            if status.code() == tonic::Code::Unauthenticated {
+                authorized.revoke.cancel();
+            }
+            Err(proto_grpc::status_to_anyhow(status))
+        }
     }
 }
 
@@ -255,91 +193,61 @@ impl App {
         username: &str,
         password: &str,
     ) -> Result<SessionAuthentication, DekafError> {
-        if models::Materialization::regex().is_match(username) && !username.starts_with("{") {
-            let username = username.to_string();
-            let listener = self.task_manager.get_listener(&username);
-            // Ask the agent for information about this task, as well as a short-lived
-            // control-plane access token authorized to interact with the avro schemas table
-            match listener.get().await?.as_ref() {
-                TaskState::Authorized {
-                    access_token: token,
-                    access_token_claims: claims,
-                    spec,
-                    ..
-                } => {
-                    // Decrypt this materialization's endpoint config
-                    let config = topology::extract_dekaf_config(&spec).await?;
-
-                    let labels = spec
-                        .shard_template
-                        .as_ref()
-                        .context("missing shard template")?
-                        .labels
-                        .as_ref()
-                        .context("missing shard labels")?;
-                    let labels =
-                        labels::shard::decode_labeling(labels).context("parsing shard labeling")?;
-
-                    // This marks this Session as being associated with the task name contained in `username`.
-                    // We only set this after successfully validating that this task exists and is a Dekaf
-                    // materialization. Otherwise we will either log auth errors attempting to append to
-                    // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
-                    logging::get_log_forwarder()
-                        .map(|f| f.set_task_name(username.clone(), labels.build.clone()));
-
-                    // 3. Validate that the provided password matches the task's bearer token
-                    if password != config.token {
-                        return Err(DekafError::Authentication(
-                            "Invalid username or password".into(),
-                        ));
-                    }
-
-                    logging::set_log_level(labels.log_level());
-
-                    Ok(SessionAuthentication::Task(TaskAuth::new(
-                        self.client_base
-                            .clone()
-                            .with_user_access_token(Some(token.to_owned())),
-                        username,
-                        config,
-                        listener,
-                        time::OffsetDateTime::UNIX_EPOCH
-                            + time::Duration::seconds(claims.exp as i64),
-                    )))
-                }
-                TaskState::Redirect {
-                    target_dataplane_fqdn,
-                    target_dekaf_address,
-                    target_dekaf_registry_address,
-                    spec,
-                } => {
-                    // We don't have a dataplane access token when redirecting,
-                    // so we cannot write out any logs. Shutting down the log forwarder
-                    // prevents it from shutting down the session prematurely because
-                    // it can't append any logs.
-                    logging::get_log_forwarder().map(|f| f.shutdown());
-
-                    // Decrypt this materialization's endpoint config
-                    let config = topology::extract_dekaf_config(&spec).await?;
-
-                    // Task has been migrated to a different dataplane.
-                    // Return a redirect authentication that will taint
-                    // the session to cause it to redirected its consumer.
-                    Ok(SessionAuthentication::Redirect {
-                        target_dataplane_fqdn: target_dataplane_fqdn.to_owned(),
-                        target_dekaf_address: target_dekaf_address.to_owned(),
-                        target_dekaf_registry_address: target_dekaf_registry_address.to_owned(),
-                        spec: spec.to_owned(),
-                        config,
-                        task_state_listener: listener,
-                    })
-                }
-            }
-        } else {
+        if !models::Materialization::regex().is_match(username) || username.starts_with("{") {
             return Err(DekafError::Authentication(
                 "Invalid username or password".into(),
             ));
         }
+        let task = self.tasks.get(username);
+        () = task.ready().await;
+
+        // A task the control-plane doesn't know is, to the client, the same
+        // thing as a wrong password: neither confirms that the other exists.
+        // It's also not an error of ours, so it bypasses `task_token()`'s log.
+        if let Err(status) = task.token().result()
+            && status.code() == tonic::Code::NotFound
+        {
+            return Err(DekafError::Authentication(
+                "Invalid username or password".into(),
+            ));
+        }
+
+        let auth = SessionAuthentication {
+            task,
+            task_name: username.to_string(),
+        };
+        let token = auth.task_token()?;
+
+        // A redirected task is steered to its new plane without its password
+        // being checked: a redirected task's config is never resolved here,
+        // so there's nothing to compare against. See README.md.
+        let TaskToken::Authorized(authorized) = &*token else {
+            // A redirected task holds no data-plane token, so we cannot write
+            // its ops logs. Shutting the forwarder down prevents it from
+            // ending the session because it can't append.
+            logging::get_log_forwarder().map(|f| f.shutdown());
+            return Ok(auth);
+        };
+
+        // This marks this Session as being associated with the task name contained in `username`.
+        // We only set this after successfully validating that this task exists and is a Dekaf
+        // materialization. Otherwise we will either log auth errors attempting to append to
+        // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
+        logging::get_log_forwarder()
+            .map(|f| f.set_task_name(username.to_string(), authorized.task.build.clone()));
+
+        if password != authorized.token {
+            // The password we're holding may simply be stale: a publication
+            // which rotates it is exactly what a refresh would pick up.
+            token.revoke();
+
+            return Err(DekafError::Authentication(
+                "Invalid username or password".into(),
+            ));
+        }
+        logging::set_log_level(authorized.task.log_level);
+
+        Ok(auth)
     }
 }
 
