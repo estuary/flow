@@ -49,7 +49,10 @@ func verifyAuthorization(req *http.Request, verifier pb.Verifier, shardIDPrefix 
 	if !claims.Selector.Matches(pb.MustLabelSet(
 		"id", shardIDPrefix+suffix,
 	)) {
-		return fmt.Errorf("invalid authorization for task prefix %s (%s)", shardIDPrefix, bearer)
+		// Never include `bearer` here: this error is surfaced to the client and
+		// is forwarded into the dashboard redirect URL, where a token would
+		// persist in browser history and access logs.
+		return fmt.Errorf("invalid authorization for task prefix %s", shardIDPrefix)
 	}
 
 	return nil
