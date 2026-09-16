@@ -1,11 +1,5 @@
 use super::{Collection, Partition};
-use crate::{
-    SessionAuthentication,
-    connector::DeletionMode,
-    logging,
-    task_manager::{self, TaskStateListener},
-    utils,
-};
+use crate::{connector::DeletionMode, logging, utils};
 use anyhow::{Context, bail};
 use bytes::{Buf, BufMut, BytesMut};
 use futures::StreamExt;
@@ -25,23 +19,19 @@ pub struct Read {
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
 
-    key_ptr: Vec<json::Pointer>,       // Pointers to the document key.
-    key_schema: avro::Schema,          // Avro schema when encoding keys.
-    key_schema_id: u32,                // Registry ID of the key's schema.
-    meta_op_ptr: json::Pointer,        // Location of document op (currently always `/_meta/op`).
-    not_before: Option<uuid::Clock>,   // Not before this clock.
-    not_after: Option<uuid::Clock>,    // Not after this clock.
-    stream: ReadJsonLines,             // Underlying document stream.
-    stream_exp: std::time::SystemTime, // When the stream's authorization expires.
-    listener: task_manager::TaskStateListener, // Provides up-to-date journal clients
-    buffer_size: usize,                // How many read chunks to buffer
-    uuid_ptr: json::Pointer,           // Location of document UUID.
-    value_schema_id: u32,              // Registry ID of the value's schema.
+    key_ptr: Vec<json::Pointer>,     // Pointers to the document key.
+    key_schema: avro::Schema,        // Avro schema when encoding keys.
+    key_schema_id: u32,              // Registry ID of the key's schema.
+    meta_op_ptr: json::Pointer,      // Location of document op (currently always `/_meta/op`).
+    not_before: Option<uuid::Clock>, // Not before this clock.
+    not_after: Option<uuid::Clock>,  // Not after this clock.
+    stream: ReadJsonLines,           // Underlying document stream.
+    uuid_ptr: json::Pointer,         // Location of document UUID.
+    value_schema_id: u32,            // Registry ID of the value's schema.
     extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>, // Projections to apply
 
-    // Keep these details around so we can create a new ReadRequest if we need to skip forward
+    // Keep this around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
-    partition_template_name: String,
     // Stats are aggregated per collection
     collection_name: String,
 
@@ -106,121 +96,71 @@ fn readback_offset(offset: i64) -> i64 {
 
 impl Read {
     pub async fn new(
-        task_state_listener: task_manager::TaskStateListener,
         collection: &Collection,
         partition: &Partition,
         offset: i64,
         key_schema_id: u32,
         value_schema_id: u32,
         rewrite_offsets_from: Option<i64>,
-        auth: &SessionAuthentication,
         buffer_size: usize,
     ) -> anyhow::Result<Self> {
-        let partition_template_name = collection
-            .spec
-            .partition_template
-            .as_ref()
-            .context("missing partition template")?
-            .name
-            .as_str();
-
-        let task_name = match auth {
-            SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
-            SessionAuthentication::Redirect { .. } => {
-                bail!("Redirected sessions cannot read data")
-            }
-        };
+        let (task, binding, source) = (
+            collection.topic.task(),
+            collection.binding(),
+            collection.source(),
+        );
+        let client = collection.client().clone();
+        let task_name = task.name.clone();
 
         // Data-preview reads pass a fragment-start offset, which is always a
         // document boundary, and don't require boundary verification.
         let stream_offset = if rewrite_offsets_from.is_none() {
-            Self::stream_start_offset(
-                &task_state_listener,
-                partition_template_name,
-                &partition.spec.name,
-                &task_name,
-                offset,
-            )
-            .await?
+            Self::stream_start_offset(&client, &partition.spec.name, &task_name, offset).await?
         } else {
             offset
         };
 
-        let (stream, stream_exp) = Self::new_stream(
-            collection.not_before,
-            task_state_listener.clone(),
-            partition_template_name.to_owned(),
-            partition.spec.name.clone(),
+        let (not_before_sec, _) = collection
+            .not_before
+            .map(|c: Clock| Clock::to_unix(&c))
+            .unwrap_or((0, 0));
+
+        let stream = client.read_json_lines(
+            broker::ReadRequest {
+                offset: stream_offset,
+                block: true,
+                journal: partition.spec.name.clone(),
+                begin_mod_time: not_before_sec as i64,
+                ..Default::default()
+            },
+            // Each ReadResponse can be up to 130K. Buffer up to ~4MB so that
+            // `dekaf` can do lots of useful transcoding work while waiting for
+            // network delay of the next fetch request.
             buffer_size,
-            stream_offset,
-        )
-        .await?;
+        );
 
         Ok(Self {
             offset,
             last_write_head: offset,
 
-            key_ptr: collection.key_ptr.clone(),
-            key_schema: collection.key_schema.clone(),
+            key_ptr: source.key_ptr.clone(),
+            key_schema: source.key_schema.clone(),
             key_schema_id,
             meta_op_ptr: json::Pointer::from_str("/_meta/op"),
             not_before: collection.not_before,
-            not_after: collection.not_after,
-            listener: task_state_listener,
-            stream: stream,
-            stream_exp: stream_exp,
-            buffer_size,
-            uuid_ptr: collection.uuid_ptr.clone(),
+            not_after: binding.not_after,
+            stream,
+            uuid_ptr: source.uuid_ptr.clone(),
             value_schema_id,
-            extractors: collection.extractors.clone(),
+            extractors: binding.extractors.clone(),
 
-            partition_template_name: partition_template_name.to_owned(),
             journal_name: partition.spec.name.clone(),
-            collection_name: collection.name.to_owned(),
+            collection_name: source.collection_name.clone(),
             task_name,
             rewrite_offsets_from,
-            deletes: auth.deletions(),
-            partition_leader_epoch: collection.binding_backfill_counter as i32,
+            deletes: task.deletions,
+            partition_leader_epoch: binding.leader_epoch as i32,
         })
-    }
-
-    /// Fetch the current journal client and authorization expiry for this
-    /// partition's template from the task state.
-    async fn journal_client(
-        listener: &TaskStateListener,
-        partition_template_name: &str,
-    ) -> anyhow::Result<(gazette::journal::Client, std::time::SystemTime)> {
-        let task_state = listener.get().await?;
-
-        let partitions = match task_state.as_ref() {
-            crate::task_manager::TaskState::Authorized { partitions, .. } => partitions,
-            crate::task_manager::TaskState::Redirect {
-                target_dataplane_fqdn,
-                ..
-            } => {
-                anyhow::bail!("Task has been redirected to {}", target_dataplane_fqdn);
-            }
-        };
-
-        let (client, claims, _) = partitions
-            .to_owned()
-            .into_iter()
-            .find_map(|(k, v)| {
-                if k == partition_template_name {
-                    Some(v)
-                } else {
-                    None
-                }
-            })
-            .context(format!(
-                "Collection {} not found in task state listener.",
-                partition_template_name,
-            ))??;
-
-        Ok((
-            client,
-            std::time::UNIX_EPOCH + std::time::Duration::from_secs(claims.exp),
-        ))
     }
 
     /// Resolve the journal offset at which a stream serving `offset` begins.
@@ -243,8 +183,7 @@ impl Read {
     /// deleted — then no containing document can be served regardless, and
     /// the stream begins at `offset`.
     async fn stream_start_offset(
-        listener: &TaskStateListener,
-        partition_template_name: &str,
+        client: &gazette::journal::Client,
         journal_name: &str,
         task_name: &str,
         offset: i64,
@@ -253,9 +192,7 @@ impl Read {
             return Ok(offset);
         }
 
-        let (client, _exp) = Self::journal_client(listener, partition_template_name).await?;
-
-        let stream = client.read(broker::ReadRequest {
+        let stream = client.clone().read(broker::ReadRequest {
             journal: journal_name.to_string(),
             offset: offset - 1,
             end_offset: offset,
@@ -323,38 +260,6 @@ impl Read {
         }
     }
 
-    async fn new_stream(
-        not_before: Option<Clock>,
-        listener: TaskStateListener,
-        partition_template_name: String,
-        journal_name: String,
-        buffer_size: usize,
-        offset: i64,
-    ) -> anyhow::Result<(ReadJsonLines, std::time::SystemTime)> {
-        let (not_before_sec, _) = not_before
-            .map(|c: Clock| Clock::to_unix(&c))
-            .unwrap_or((0, 0));
-
-        let (client, exp) = Self::journal_client(&listener, &partition_template_name).await?;
-
-        Ok((
-            client.read_json_lines(
-                broker::ReadRequest {
-                    offset,
-                    block: true,
-                    journal: journal_name.clone(),
-                    begin_mod_time: not_before_sec as i64,
-                    ..Default::default()
-                },
-                // Each ReadResponse can be up to 130K. Buffer up to ~4MB so that
-                // `dekaf` can do lots of useful transcoding work while waiting for
-                // network delay of the next fetch request.
-                buffer_size,
-            ),
-            exp,
-        ))
-    }
-
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
     pub async fn next_batch(
         mut self,
@@ -364,38 +269,6 @@ impl Read {
         use kafka_protocol::records::{
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions,
         };
-
-        let now = std::time::SystemTime::now();
-
-        if (now + timeout + std::time::Duration::from_secs(30)) > self.stream_exp {
-            tracing::debug!("stream auth expired, fetching new token");
-            // Once this read has served a document, self.offset is that
-            // document's end — a boundary — and the probe resolves to it
-            // without readback. A refresh during an in-progress readback
-            // instead re-probes the original mid-document offset and resumes
-            // the readback.
-            let stream_offset = if self.rewrite_offsets_from.is_none() {
-                Self::stream_start_offset(
-                    &self.listener,
-                    &self.partition_template_name,
-                    &self.journal_name,
-                    &self.task_name,
-                    self.offset,
-                )
-                .await?
-            } else {
-                self.offset
-            };
-            (self.stream, self.stream_exp) = Self::new_stream(
-                self.not_before,
-                self.listener.clone(),
-                self.partition_template_name.clone(),
-                self.journal_name.clone(),
-                self.buffer_size,
-                stream_offset,
-            )
-            .await?;
-        }
 
         let mut records: Vec<Record> = Vec::new();
         let mut stats_bytes: u64 = 0;
@@ -407,22 +280,7 @@ impl Read {
         let mut tmp = Vec::new();
         let mut buf = bytes::BytesMut::new();
 
-        // If we happen to get a very long timeout, we want to make sure that
-        // we don't exceed the token expiration time
-        let capped_timeout = {
-            let mut timeout_at = now + timeout;
-            if timeout_at > self.stream_exp {
-                timeout_at = self.stream_exp;
-            }
-            if timeout_at < now {
-                anyhow::bail!(
-                    "Encountered a read stream with token expiring in the past. This should not happen, cancelling the read."
-                );
-            }
-            tokio::time::Instant::now() + timeout_at.duration_since(now)?
-        };
-
-        let timeout = tokio::time::sleep_until(capped_timeout);
+        let timeout = tokio::time::sleep(timeout);
         tokio::pin!(timeout);
 
         let mut did_timeout = false;

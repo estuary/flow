@@ -3,7 +3,7 @@ use avro::{located_shape_to_avro, shape_to_avro};
 use doc::shape::location;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use proto_flow::flow::{self, MaterializationSpec};
+use proto_flow::flow;
 use std::{borrow::Cow, iter};
 
 lazy_static! {
@@ -69,20 +69,22 @@ impl From<doc::Extractor> for CustomizableExtractor {
     }
 }
 
+/// Build the Avro schema and extractors of `fields`, as selected from a
+/// collection of `source_shape` and `projections`, and served under `deletions`.
 pub fn build_field_extractors(
-    source_shape: doc::Shape,
-    fields: flow::FieldSelection,
-    projections: Vec<flow::Projection>,
+    source_shape: &doc::Shape,
+    fields: &flow::FieldSelection,
+    projections: &[flow::Projection],
     deletions: DeletionMode,
 ) -> anyhow::Result<(avro::Schema, Vec<(avro::Schema, CustomizableExtractor)>)> {
     let policy = doc::SerPolicy::noop();
 
     let mut extractor_schemas = fields
         .keys
-        .into_iter()
-        .chain(fields.values.into_iter())
-        .chain(iter::once(fields.document))
-        .filter(|f| f.len() > 0)
+        .iter()
+        .chain(fields.values.iter())
+        .chain(iter::once(&fields.document))
+        .filter(|f| !f.is_empty())
         .enumerate()
         .map(|(idx, field)| {
             let projection = projections.iter().find(|proj| proj.field == *field);
@@ -162,41 +164,4 @@ pub fn build_field_extractors(
             .map(|(field, extractor)| (field.schema, extractor))
             .collect_vec(),
     ))
-}
-
-pub fn fetch_all_collection_names(spec: &MaterializationSpec) -> anyhow::Result<Vec<String>> {
-    spec.bindings
-        .iter()
-        .map(|b| {
-            b.resource_path
-                .first()
-                .cloned()
-                .ok_or(anyhow::anyhow!("missing resource path"))
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
-
-/// Find the binding of `spec` which serves `topic_name`.
-///
-/// The returned binding is detached from `spec`, so its collection is inlined
-/// even when `spec` is in indirect form and the binding indexes a shared table.
-pub fn get_binding_for_topic(
-    spec: &MaterializationSpec,
-    topic_name: &str,
-) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
-    Ok(spec
-        .resolved_bindings()
-        .find(|(binding, _resolved)| {
-            binding
-                .resource_path
-                .first()
-                .is_some_and(|path| path == topic_name)
-        })
-        .map(
-            |(binding, resolved)| proto_flow::flow::materialization_spec::Binding {
-                collection: resolved.map(|(collection, _identity)| Box::new(collection.clone())),
-                collection_index: 0,
-                ..binding.clone()
-            },
-        ))
 }

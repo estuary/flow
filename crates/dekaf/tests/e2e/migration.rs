@@ -206,8 +206,14 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
     )
     .await?;
 
-    // A redirected session reveals the task's bindings and the target plane's
-    // address, so the source plane must still check the password.
+    // A redirect is served WITHOUT checking the password, so this connects.
+    //
+    // This deliberately reverses the check added in #3591. A redirected task's
+    // config is never resolved on the source plane -- that's what keeps a
+    // redirect off `sops` -- so there is no token here to compare against.
+    // The exposure is a client learning where an existing task moved to, and
+    // its collection names; the data stays behind the target plane's own
+    // authentication. See `crates/dekaf/README.md`.
     let wrong_password = TestKafkaClient::connect(&src_info.broker, username, "not-the-token")
         .await
         .err()
