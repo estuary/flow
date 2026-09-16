@@ -2,7 +2,7 @@ do $$
 declare
   data_plane_one_id flowid := '111111111111';
   data_plane_two_id flowid := '222222222222';
-  defunct_data_plane_id flowid := '333333333333';
+  keyless_data_plane_id flowid := '333333333333';
 
   -- SOPS-encrypted HMAC keys (see .cargo/config.toml for key & secret)
   -- Decrypts to: {"hmac_keys": ["c2VjcmV0", "b3RoZXI="]} (base64 for "secret" and "other")
@@ -94,27 +94,30 @@ begin
       'estuary-test-app-two',
       '22222222-2222-2222-2222-222222222222'
     ), (
-    -- Here so we can assert that this gets filtered out during Snapshot refreshes
-      defunct_data_plane_id,
-      'ops/dp/private/defunct/az-westeurope-c1',
-      'dp.defunct',
+    -- A keyless plane, as `create_data_plane` inserts a Managed plane before
+    -- its controller provisions HMAC keys. It is carried by the Snapshot so
+    -- that it resolves by name, but cannot sign. It is public so that the
+    -- data-plane listings, which would otherwise offer it, prove they don't.
+      keyless_data_plane_id,
+      'ops/dp/public/az-westeurope-c3',
+      'dp.keyless',
       '{}',
       '{}',
-      'broker.dp.defunct',
-      'reactor.dp.defunct',
-      'ops/tasks/private/defunct/logs',
-      'ops/tasks/private/defunct/stats',
-      'ops/rollups/L1/private/defunct/events',
-      'ops/rollups/L1/private/defunct/inferred',
-      'ops/rollups/L1/private/defunct/stats',
-      'from.dp.defunct',
-      'from.dp.defunct',
-      'from.dp.defunct',
+      'broker.dp.keyless',
+      'reactor.dp.keyless',
+      'ops/tasks/public/keyless/logs',
+      'ops/tasks/public/keyless/stats',
+      'ops/rollups/L1/public/keyless/events',
+      'ops/rollups/L1/public/keyless/inferred',
+      'ops/rollups/L1/public/keyless/stats',
+      'from.dp.keyless',
+      'from.dp.keyless',
+      'from.dp.keyless',
       false,
       '{192.168.0.0/16}',
       'arn:aws:iam::111222333:user/test',
-      'test-gcp-defunct@estuary-test.iam.gserviceaccount.com',
-      'estuary-test-app-defunct',
+      'test-gcp-keyless@estuary-test.iam.gserviceaccount.com',
+      'estuary-test-app-keyless',
       '33333333-3333-3333-3333-333333333333'
     );
 

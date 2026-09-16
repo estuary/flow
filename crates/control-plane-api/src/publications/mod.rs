@@ -414,7 +414,10 @@ impl Publisher {
             });
         }
 
-        let live_catalog = specs::resolve_live_specs(
+        let specs::ResolvedLiveCatalog {
+            live: live_catalog,
+            default_data_plane,
+        } = specs::resolve_live_specs(
             subject,
             &draft,
             &self.db,
@@ -454,6 +457,7 @@ impl Publisher {
         let built = self
             .builder
             .build(
+                snapshot,
                 &self.builds_root,
                 draft,
                 live_catalog,
@@ -462,7 +466,7 @@ impl Publisher {
                 tmpdir,
                 self.logs_tx.clone(),
                 logs_token,
-                explicit_plane_name,
+                default_data_plane.as_ref(),
             )
             .await?;
 
@@ -474,8 +478,11 @@ impl Publisher {
             tracing::info!(%build_id, %publication_id, "running tests");
 
             let router = std::sync::Arc::new(
-                catalog_test_router::CatalogTestConnectorRouter::new(&built)
-                    .context("routing derivation connectors to their data planes")?,
+                catalog_test_router::CatalogTestConnectorRouter::new(
+                    snapshot,
+                    &built.built.built_collections,
+                )
+                .context("routing derivation connectors to their data planes")?,
             );
             let errors = builds::test_catalog(logs_token, &self.logs_tx, &built, router).await?;
 

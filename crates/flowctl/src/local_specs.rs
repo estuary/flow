@@ -277,28 +277,8 @@ impl Resolver {
             .await
             .context("failed to fetch storage mappings")?;
 
-        for row in storage_mappings.into_iter().flatten() {
-            // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
-            // Work around for now, by synthesizing them. This should switch to GraphQL.
-            if row.catalog_prefix.starts_with("recovery/") {
-                continue; // Does not actually happen in practice.
-            }
-
-            live.storage_mappings.insert_row(
-                &row.catalog_prefix,
-                row.id,
-                &row.spec.stores,
-                &row.spec.data_planes,
-            );
-            live.storage_mappings.insert_row(
-                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
-                models::Id::zero(),
-                Vec::new(),
-                Vec::new(),
-            );
-        }
-
-        // Query all data planes.
+        // Storage mappings name data planes in their user-facing model.
+        // Resolve those names into IDs before constructing `tables` instances.
         #[derive(serde::Deserialize)]
         struct DataPlaneRow {
             id: models::Id,
@@ -312,20 +292,43 @@ impl Resolver {
         .await
         .context("failed to fetch data planes")?;
 
-        for row in data_planes {
-            live.data_planes.insert_row(
+        let data_plane_ids = data_planes
+            .into_iter()
+            .map(|row| (row.data_plane_name, row.id))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        for row in storage_mappings.into_iter().flatten() {
+            if row.catalog_prefix.starts_with("recovery/") {
+                continue; // Does not actually happen in practice.
+            }
+            let scope = tables::synthetic_scope("storageMapping", &row.catalog_prefix);
+
+            let mut resolved_ids = Vec::with_capacity(row.spec.data_planes.len());
+            for name in &row.spec.data_planes {
+                if let Some(id) = data_plane_ids.get(name) {
+                    resolved_ids.push(*id);
+                } else {
+                    live.errors.push(tables::Error {
+                        scope: scope.clone(),
+                        error: anyhow::anyhow!("data plane '{name}' was not found"),
+                    });
+                }
+            }
+            if resolved_ids.len() != row.spec.data_planes.len() {
+                continue;
+            }
+
+            live.storage_mappings.insert_row(
+                &row.catalog_prefix,
                 row.id,
-                row.data_plane_name,
-                String::new(),                 // data_plane_fqdn
-                false,                         // closed
-                Vec::new(),                    // hmac_keys
-                models::RawValue::default(),   // encrypted_hmac_keys
-                models::Collection::default(), // ops_logs_name
-                models::Collection::default(), // ops_stats_name
-                String::new(),                 // broker_address
-                String::new(),                 // reactor_address
-                None,                          // dekaf_address
-                None,                          // dekaf_registry_address
+                &row.spec.stores,
+                resolved_ids,
+            );
+            live.storage_mappings.insert_row(
+                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
+                models::Id::zero(),
+                Vec::new(),
+                Vec::new(),
             );
         }
 
@@ -423,6 +426,28 @@ impl Resolver {
         }
 
         Ok(live)
+    }
+
+    pub async fn data_plane_name(&self, id: models::Id) -> anyhow::Result<String> {
+        #[derive(serde::Deserialize)]
+        struct Row {
+            data_plane_name: String,
+        }
+
+        let rows = flow_client_next::postgrest::exec::<Vec<Row>>(
+            self.pg
+                .from("data_planes")
+                .select("data_plane_name")
+                .eq("id", id.to_string()),
+            self.access_token.as_deref(),
+        )
+        .await
+        .context("failed to resolve data plane")?;
+
+        rows.into_iter()
+            .next()
+            .map(|row| row.data_plane_name)
+            .with_context(|| format!("couldn't resolve data-plane {id}; you may not have access"))
     }
 
     async fn resolve_inferred_schemas(

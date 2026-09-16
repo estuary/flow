@@ -27,7 +27,6 @@ pub async fn walk_all_derivations(
     live_collections: &tables::LiveCollections,
     built_collections: &tables::BuiltCollections,
     connectors: &Connectors<'_>,
-    data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
@@ -63,7 +62,6 @@ pub async fn walk_all_derivations(
                 eob,
                 built_collections,
                 connectors,
-                data_planes,
                 dependencies,
                 imports,
                 noop_derivations,
@@ -172,7 +170,6 @@ async fn walk_derivation(
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
     built_collections: &tables::BuiltCollections,
     connectors: &Connectors<'_>,
-    data_planes: &tables::DataPlanes,
     dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
     noop_derivations: bool,
@@ -324,9 +321,7 @@ async fn walk_derivation(
     };
     let built_collection = &built_collections[built_index];
 
-    let data_plane = data_planes
-        .get_by_key(&built_collection.data_plane_id)
-        .expect("collection was built and has a known-valid data-plane");
+    let data_plane_id = built_collection.data_plane_id;
 
     let scope_transforms = scope.push_prop("transforms");
 
@@ -368,7 +363,7 @@ async fn walk_derivation(
                 transform,
                 collection,
                 built_collections,
-                data_plane.control_id,
+                data_plane_id,
                 noop_derivations || shards.disable,
                 &live_transforms_model,
                 &live_transforms_spec,
@@ -515,7 +510,7 @@ async fn walk_derivation(
         scope,
         connectors,
         noop_derivations || shards.disable,
-        data_plane,
+        data_plane_id,
         shards.log_level.as_deref(),
         connector::request::Kind::Derive(derive::Request {
             kind: Some(derive::request::Kind::Validate(Box::new(validate_request))),

@@ -110,8 +110,7 @@ pub async fn local(
 
     // Build a validation::Connectors against the local connector service.
     // As we're local (user can ctrl-C), apply no timeout.
-    let connectors = move |_data_plane: &tables::DataPlane,
-                           request: proto_flow::connector::Request| {
+    let connectors = move |_data_plane_id: models::Id, request: proto_flow::connector::Request| {
         let router = connector_router.clone();
         let log_handler = log_handler.clone();
 
@@ -443,22 +442,7 @@ pub fn no_op_live_catalog() -> tables::LiveCatalog {
             bucket: "example-bucket".to_string(),
             prefix: None,
         })],
-        vec!["ops/dp/public/noop".to_string()],
-    );
-
-    live.data_planes.insert_row(
-        models::Id::zero(),
-        "ops/dp/public/noop".to_string(),
-        "noop.dp.estuary-data.com".to_string(),
-        false, // closed
-        vec!["hmac-key".to_string()],
-        models::RawValue::from_string("{}".to_string()).unwrap(),
-        models::Collection::new("ops/logs"),
-        models::Collection::new("ops/stats"),
-        "broker:address".to_string(),
-        "reactor:address".to_string(),
-        Some("tls://dekaf.noop.dp.estuary-data.com:9092".to_string()),
-        Some("https://dekaf.noop.dp.estuary-data.com:443".to_string()),
+        vec![models::Id::zero()],
     );
 
     live
