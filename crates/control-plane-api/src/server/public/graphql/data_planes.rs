@@ -509,9 +509,8 @@ impl DataPlanesQuery {
 
         // Keep data planes that match the filter, that the user can read, and
         // that have valid names. Sort by name for stable pagination.
-        let mut accessible_data_planes: Vec<&tables::DataPlane> = snapshot
-            .data_planes
-            .iter()
+        let mut accessible_data_planes: Vec<&crate::snapshot::DataPlane> = snapshot
+            .data_planes()
             .filter(|dp| {
                 // `public` isn't a column: it's implied by the name prefix,
                 // so it comes from the same parse that validates the name.
@@ -519,6 +518,10 @@ impl DataPlanesQuery {
                     tracing::warn!(data_plane_name = %dp.data_plane_name, "skipping data plane with unparseable name");
                     return false;
                 };
+                // A plane which cannot sign claims cannot be used.
+                if !dp.can_sign() {
+                    return false;
+                }
                 // Filter to public/private planes, if requested.
                 if public_eq.is_some_and(|want| want != public) {
                     return false;
@@ -578,7 +581,7 @@ impl DataPlanesQuery {
         let names: Vec<String> = rows.iter().map(|dp| dp.data_plane_name.clone()).collect();
 
         // Build row data map for attach_user_capabilities.
-        let row_data: HashMap<String, &tables::DataPlane> = rows
+        let row_data: HashMap<String, &crate::snapshot::DataPlane> = rows
             .into_iter()
             .map(|dp| (dp.data_plane_name.clone(), dp))
             .collect();
@@ -653,12 +656,13 @@ impl DataPlanesQuery {
 
         let mut planes: Vec<PublicDataPlane> = env
             .snapshot()
-            .data_planes
-            .iter()
+            .data_planes()
             .filter_map(|dp| {
                 let (cloud_provider, region, _tag, is_public) =
                     parse_data_plane_name(&dp.data_plane_name)?;
-                (is_public && !dp.closed).then(|| PublicDataPlane {
+
+                // Surface public planes which are ready for use.
+                (is_public && !dp.closed && dp.can_sign()).then(|| PublicDataPlane {
                     name: dp.data_plane_name.clone(),
                     cloud_provider,
                     region,

@@ -5,14 +5,15 @@ use crate::storage_mappings::{fetch_storage_mappings, upsert_storage_mapping};
 use anyhow::Context;
 use validator::Validate;
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Category {
     Managed,
     Manual(Manual),
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema, Validate)]
+// No `Debug`: Manual (though used only in local stacks) carries HMAC keys.
+#[derive(serde::Deserialize, schemars::JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct Manual {
     /// Address of brokers in this data-plane.
@@ -31,7 +32,7 @@ pub struct Manual {
     dekaf_registry_address: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema, Validate)]
+#[derive(serde::Deserialize, schemars::JsonSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
     /// Base name of this data-plane, such as "gcp-us-central1-c1".
@@ -53,7 +54,7 @@ pub struct Request {
 pub struct Response {}
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
-#[tracing::instrument(skip(app, env), ret, err(Debug, level = tracing::Level::WARN))]
+#[tracing::instrument(skip(app, env, category), ret, err(Debug, level = tracing::Level::WARN))]
 pub async fn create_data_plane(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     env: crate::Envelope,
@@ -219,8 +220,38 @@ pub async fn create_data_plane(
     .fetch_one(&env.pg_pool)
     .await?;
 
+    // We made changes to `data_planes` that must be visible to the
+    // DraftPublication we're about to attempt, which resolves
+    // `default_data_plane_name` through its threaded Snapshot.
+    //
+    // Re-sample the App's Watch to observe a newer Snapshot.
+    let horizon = tokens::now();
+    let refresh = loop {
+        let refresh = app.snapshot.token();
+        let snapshot = refresh.result().expect("Snapshot refresh never fails");
+
+        if snapshot.taken > horizon {
+            break refresh;
+        }
+        snapshot.request_refresh();
+        tracing::info!(?horizon, taken = ?snapshot.taken, "awaiting a future Snapshot");
+        () = refresh.expired().await;
+    };
+
     // Install ops logs and stats collections, as well as L1 roll-ups.
-    // These may fail to activate if the data-plane is still being provisioned.
+    //
+    // Three of the L1 roll-ups are derivations, and validating a derivation
+    // issues a Validate RPC to its connector, routed *through this very plane*.
+    // The plane must therefore already sign claims and answer on the wire:
+    //
+    //  * A Manual plane passes its HMAC keys in the request and is registered
+    //    only once it serves (the local stack's plane-link unit), so this
+    //    publication and its subsequent activations succeed.
+    //
+    //  * A Managed plane is created keyless and un-provisioned, so this
+    //    publication fails on "no usable HMAC key". After data-plane-controller
+    //    brings the plane up, the client calls us again to upsert keys
+    //    and that attempt succeeds.
     let draft_str = include_str!("../../../../ops-catalog/data-plane-template.bundle.json")
         .replace("BASE_NAME", &base_name);
     let draft: tables::DraftCatalog = serde_json::from_str::<models::Catalog>(&draft_str)
@@ -236,7 +267,7 @@ pub async fn create_data_plane(
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,
-        snapshot: env.snapshot(),
+        snapshot: refresh.result().unwrap(),
         default_data_plane_name: Some(data_plane_name.clone()),
         initialize: NoopInitialize,
         finalize: PruneUnboundCollections,

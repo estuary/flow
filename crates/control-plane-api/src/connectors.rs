@@ -10,6 +10,7 @@ pub use validation::Connectors;
 pub trait ConnectorFactory: std::fmt::Debug + Sync + Send + 'static {
     fn make_connectors<'a>(
         &'a self,
+        snapshot: &'a crate::Snapshot,
         log_task: &'static str,
         logs_token: Uuid,
     ) -> Box<Connectors<'a>>;
@@ -28,20 +29,34 @@ impl ControlPlaneConnectorFactory {
 
     fn connect(
         &self,
+        snapshot: &crate::Snapshot,
         log_task: &'static str,
         logs_token: Uuid,
-        data_plane: &tables::DataPlane,
+        data_plane_id: models::Id,
         request: connector::Request,
     ) -> futures::future::BoxFuture<
         'static,
         anyhow::Result<(connector::response::Started, connector::response::Kind)>,
     > {
-        let route = crate::data_plane::build_connector_route(data_plane);
-        let data_plane_name = data_plane.data_plane_name.clone();
         let log_handler = logs::ops_handler(self.logs_tx.clone(), log_task.to_string(), logs_token);
 
+        // Resolve eagerly, against the borrowed Snapshot, but surface any
+        // failure from within the returned future.
+        let resolved = snapshot
+            .data_plane_by_id(data_plane_id)
+            .ok_or_else(|| {
+                snapshot.request_refresh();
+                anyhow::anyhow!("data-plane {data_plane_id} not found")
+            })
+            .and_then(|data_plane| {
+                let route = data_plane
+                    .connector_route()
+                    .map_err(proto_grpc::status_to_anyhow)?;
+                Ok((data_plane.data_plane_name.clone(), route))
+            });
+
         async move {
-            let route = route?;
+            let (data_plane_name, route) = resolved?;
             let logger = move |log: &proto_flow::ops::Log| log_handler.log(log);
 
             proto_grpc::connector::unary(
@@ -68,10 +83,13 @@ impl ControlPlaneConnectorFactory {
 impl ConnectorFactory for ControlPlaneConnectorFactory {
     fn make_connectors<'a>(
         &'a self,
+        snapshot: &'a crate::Snapshot,
         log_task: &'static str,
         logs_token: Uuid,
     ) -> Box<Connectors<'a>> {
-        Box::new(move |data_plane, request| self.connect(log_task, logs_token, data_plane, request))
+        Box::new(move |data_plane_id, request| {
+            self.connect(snapshot, log_task, logs_token, data_plane_id, request)
+        })
     }
 }
 

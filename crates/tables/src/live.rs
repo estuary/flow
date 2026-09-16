@@ -2,9 +2,8 @@ use anyhow::Context;
 use serde_json::value::RawValue;
 
 use crate::{
-    DataPlanes, Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection,
-    LiveCollections, LiveMaterialization, LiveMaterializations, LiveTest, LiveTests,
-    StorageMappings,
+    Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection, LiveCollections,
+    LiveMaterialization, LiveMaterializations, LiveTest, LiveTests, StorageMappings,
 };
 
 /// LiveRow is a common trait of rows reflecting live specifications.
@@ -185,7 +184,6 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -196,7 +194,6 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -210,7 +207,6 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -221,7 +217,6 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
-            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -236,7 +231,6 @@ impl LiveCatalog {
 pub struct LiveCatalog {
     pub captures: LiveCaptures,
     pub collections: LiveCollections,
-    pub data_planes: DataPlanes,
     pub errors: Errors,
     pub inferred_schemas: InferredSchemas,
     pub materializations: LiveMaterializations,
