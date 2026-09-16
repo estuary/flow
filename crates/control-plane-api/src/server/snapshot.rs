@@ -89,33 +89,35 @@ pub struct SnapshotMigration {
 }
 
 impl Snapshot {
-    /// Returns the user's maximum capability to `object_role_or_name`,
+    /// Returns the maximum capability available to `subject` for
+    /// `object_role_or_name`,
     /// evaluated against this Snapshot's grants.
     pub fn user_capability(
         &self,
-        user_id: uuid::Uuid,
+        subject: &models::authz::Subject,
         object_role_or_name: &str,
     ) -> Option<models::Capability> {
         tables::UserGrant::get_user_capability(
             &self.role_grants,
             &self.user_grants,
-            user_id,
+            subject,
             object_role_or_name,
         )
     }
 
-    /// Returns whether the user holds `capability` to `object_role_or_name`,
+    /// Returns whether `subject` is authorized for `capability` on
+    /// `object_role_or_name`,
     /// evaluated against this Snapshot's grants.
     pub fn is_user_authorized(
         &self,
-        user_id: uuid::Uuid,
+        subject: &models::authz::Subject,
         object_role_or_name: &str,
         capability: impl Into<models::authz::CapabilitySet>,
     ) -> bool {
         tables::UserGrant::is_authorized(
             &self.role_grants,
             &self.user_grants,
-            user_id,
+            subject,
             object_role_or_name,
             capability,
         )

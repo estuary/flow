@@ -33,7 +33,6 @@ pub async fn update_l2_reporting(
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let claims = env.claims()?;
-    let user_id = claims.sub;
 
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
@@ -297,7 +296,7 @@ export class Derivation extends Types.IDerivation {"#
 
     let logs_token = uuid::Uuid::new_v4();
     let publication = DraftPublication {
-        user_id,
+        subject: claims.subject(),
         logs_token,
         draft,
         dry_run,

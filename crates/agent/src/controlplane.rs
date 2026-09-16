@@ -640,7 +640,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             .with_context(|| format!("data-plane {data_plane_id} not in snapshot"))?;
 
         let req = Discover {
-            user_id: *system_user_id,
+            subject: models::authz::Subject::unrestricted(*system_user_id),
             filter_user_authz: false,
             capture_name,
             draft,
@@ -664,7 +664,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         let refresh = self.snapshot_watch.token();
 
         let publication = DraftPublication {
-            user_id: self.system_user_id,
+            subject: models::authz::Subject::unrestricted(self.system_user_id),
             logs_token,
             draft,
             detail,

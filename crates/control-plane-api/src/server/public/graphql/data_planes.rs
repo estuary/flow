@@ -539,7 +539,7 @@ impl DataPlanesQuery {
                 tables::UserGrant::is_authorized(
                         &snapshot.role_grants,
                         &snapshot.user_grants,
-                        claims.sub,
+                        &claims.subject(),
                         &dp.data_plane_name,
                         models::Capability::Read,
                     )

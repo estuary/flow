@@ -2,14 +2,13 @@ use anyhow::Context;
 use itertools::Itertools;
 use models::Capability;
 use std::future::Future;
-use uuid::Uuid;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
 pub trait Initialize: Send + Sync {
     fn initialize(
         &self,
         db: &sqlx::PgPool,
-        user_id: Uuid,
+        subject: &models::authz::Subject,
         draft: &mut tables::DraftCatalog,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
@@ -20,7 +19,7 @@ impl Initialize for NoopInitialize {
     async fn initialize(
         &self,
         _db: &sqlx::PgPool,
-        _user_id: Uuid,
+        _subject: &models::authz::Subject,
         _draft: &mut tables::DraftCatalog,
     ) -> anyhow::Result<()> {
         Ok(())
@@ -35,11 +34,11 @@ where
     async fn initialize(
         &self,
         db: &sqlx::PgPool,
-        user_id: Uuid,
+        subject: &models::authz::Subject,
         draft: &mut tables::DraftCatalog,
     ) -> anyhow::Result<()> {
-        self.0.initialize(db, user_id, draft).await?;
-        self.1.initialize(db, user_id, draft).await?;
+        self.0.initialize(db, subject, draft).await?;
+        self.1.initialize(db, subject, draft).await?;
         Ok(())
     }
 }
@@ -68,7 +67,7 @@ impl Initialize for ExpandDraft<'_> {
     async fn initialize(
         &self,
         db: &sqlx::PgPool,
-        user_id: Uuid,
+        subject: &models::authz::Subject,
         draft: &mut tables::DraftCatalog,
     ) -> anyhow::Result<()> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
@@ -87,7 +86,7 @@ impl Initialize for ExpandDraft<'_> {
             None
         };
         let expanded_catalog = crate::live_specs::get_connected_live_specs(
-            user_id,
+            subject,
             &drafted_collections,
             &all_drafted_specs,
             capability_filter,
@@ -120,7 +119,7 @@ impl Initialize for RuntimeV2Rollout {
     async fn initialize(
         &self,
         db: &sqlx::PgPool,
-        _user_id: Uuid,
+        _subject: &models::authz::Subject,
         draft: &mut tables::DraftCatalog,
     ) -> anyhow::Result<()> {
         let flag = models::Token::new(models::ENABLE_RUNTIME_V2);

@@ -2302,7 +2302,7 @@ impl ControlPlane for TestControlPlane {
         let refresh = self.inner.snapshot_watch.token();
 
         let publication = DraftPublication {
-            user_id: self.inner.system_user_id,
+            subject: models::authz::Subject::unrestricted(self.inner.system_user_id),
             detail,
             draft,
             logs_token,

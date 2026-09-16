@@ -3,7 +3,6 @@ mod db;
 use anyhow::Context;
 use models::Capability;
 use std::ops::Deref;
-use uuid::Uuid;
 
 pub use db::{
     InferredSchemaRow, LiveSpec, fetch_expanded_live_specs, fetch_inferred_schemas,
@@ -15,7 +14,7 @@ pub use db::{
 /// `(authorized, denied)` as references into `names`, each sorted and
 /// deduplicated.
 fn partition_by_authorization<'n>(
-    user_id: Uuid,
+    subject: &models::authz::Subject,
     names: &'n [String],
     capability: models::authz::CapabilitySet,
     snapshot: &crate::Snapshot,
@@ -25,7 +24,7 @@ fn partition_by_authorization<'n>(
             tables::UserGrant::is_authorized(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                user_id,
+                subject,
                 name,
                 capability,
             )
@@ -47,17 +46,17 @@ fn partition_by_authorization<'n>(
 /// The `snapshot` is trusted as-is: a grant committed after it was taken is
 /// invisible until the watch's own background refresh cadence picks it up.
 pub async fn get_live_specs_filtered(
-    user_id: Uuid,
+    subject: &models::authz::Subject,
     names: &[String],
     capability: impl Into<models::authz::CapabilitySet>,
     snapshot: &crate::Snapshot,
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let (authorized, denied) =
-        partition_by_authorization(user_id, names, capability.into(), snapshot);
+        partition_by_authorization(subject, names, capability.into(), snapshot);
 
     if !denied.is_empty() {
-        tracing::debug!(?denied, %user_id, "filtered unauthorized specs from fetch");
+        tracing::debug!(?denied, user_id = %subject.user_id, "filtered unauthorized specs from fetch");
     }
     get_live_specs_unfiltered(&authorized, db).await
 }
@@ -116,7 +115,7 @@ pub async fn get_live_specs_unfiltered(
 /// snapshot's revoke token: filtering merely narrows expansion, and the worst
 /// case of a not-yet-observed grant is only a narrower validation.
 pub async fn get_connected_live_specs(
-    user_id: Uuid,
+    subject: &models::authz::Subject,
     collection_names: &[&str],
     exclude_names: &[&str],
     filter_capability: Option<Capability>,
@@ -128,7 +127,7 @@ pub async fn get_connected_live_specs(
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
             if !snapshot
-                .user_capability(user_id, &exp.catalog_name)
+                .user_capability(subject, &exp.catalog_name)
                 .is_some_and(|c| c >= minimum_capability)
             {
                 continue;
@@ -172,7 +171,9 @@ mod test {
         let snapshot = crate::Snapshot::build_fixture(None);
         // Bob (from the fixture): `write` on bobCo/, plus `read` to
         // acmeCo/shared/ via an admin grant to bobCo/tires/.
-        let bob: Uuid = "20202020-2020-2020-2020-202020202020".parse().unwrap();
+        let bob = models::authz::Subject::unrestricted(
+            "20202020-2020-2020-2020-202020202020".parse().unwrap(),
+        );
         let capability = models::authz::Capability::CatalogRead.into();
 
         // Names the user is authorized to produce no denials.
@@ -180,7 +181,7 @@ mod test {
             "acmeCo/shared/collection".to_string(),
             "bobCo/tires/capture".to_string(),
         ];
-        let (authorized, denied) = partition_by_authorization(bob, &names, capability, &snapshot);
+        let (authorized, denied) = partition_by_authorization(&bob, &names, capability, &snapshot);
         assert_eq!(authorized, names);
         assert!(denied.is_empty());
 
@@ -193,7 +194,7 @@ mod test {
             "acmeCo/private/collection".to_string(),
             "aliceCo/anvils/pings".to_string(),
         ];
-        let (authorized, denied) = partition_by_authorization(bob, &names, capability, &snapshot);
+        let (authorized, denied) = partition_by_authorization(&bob, &names, capability, &snapshot);
         assert_eq!(authorized, vec!["bobCo/tires/capture"]);
         assert_eq!(
             denied,

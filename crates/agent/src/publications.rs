@@ -192,7 +192,7 @@ impl PublicationsExecutor {
         }
 
         let publication_op = DraftPublication {
-            user_id: row.user_id,
+            subject: models::authz::Subject::unrestricted(row.user_id),
             logs_token: row.logs_token,
             dry_run: row.dry_run,
             detail: row.detail.clone(),

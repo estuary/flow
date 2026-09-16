@@ -68,7 +68,7 @@ fn may_access(
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        env.claims()?.sub,
+        &env.claims()?.subject(),
         name,
         capability,
     ))
