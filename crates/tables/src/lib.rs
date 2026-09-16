@@ -23,7 +23,7 @@ pub mod utils;
 pub use built::{BuiltRow, Validations};
 pub use dependencies::Dependencies;
 pub use draft::{DraftCatalog, DraftRow};
-pub use live::{CatalogResolver, LiveCatalog, LiveRow};
+pub use live::{LiveCatalog, LiveRow};
 
 tables!(
     table Fetches (row Fetch, sql "fetches") {
