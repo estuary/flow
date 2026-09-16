@@ -272,8 +272,8 @@ expression: json_test(msg)
     ],
     "redactSalt": "dGVzdC1kZXJpdmF0aW9uLXNhbHQ=",
     "secrets": {
-      "": "acmeCo/whole-config",
-      "/credentials/password": "acmeCo/password"
+      "acmeCo/password": "/credentials/password",
+      "acmeCo/whole-config": ""
     }
   }
 }

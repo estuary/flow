@@ -153,7 +153,7 @@ expression: json_test(msg)
   "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ=",
   "createdAt": "2025-07-09",
   "secrets": {
-    "": "acmeCo/whole-config",
-    "/credentials/password": "acmeCo/password"
+    "acmeCo/password": "/credentials/password",
+    "acmeCo/whole-config": ""
   }
 }

@@ -18,8 +18,8 @@ expression: json_catalogue(ex_capture_requests())
     "config": {"discover":"config"},
     "createdAt": "2025-07-09",
     "secrets": {
-      "": "acmeCo/whole-config",
-      "/credentials/password": "acmeCo/password"
+      "acmeCo/password": "/credentials/password",
+      "acmeCo/whole-config": ""
     }
   }
 }
@@ -126,8 +126,8 @@ expression: json_catalogue(ex_capture_requests())
     ],
     "lastVersion": "11:22:33:44",
     "secrets": {
-      "": "acmeCo/whole-config",
-      "/credentials/password": "acmeCo/password"
+      "acmeCo/password": "/credentials/password",
+      "acmeCo/whole-config": ""
     }
   }
 }
@@ -286,8 +286,8 @@ expression: json_catalogue(ex_capture_requests())
       "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ=",
       "createdAt": "2025-07-09",
       "secrets": {
-        "": "acmeCo/whole-config",
-        "/credentials/password": "acmeCo/password"
+        "acmeCo/password": "/credentials/password",
+        "acmeCo/whole-config": ""
       }
     },
     "version": "11:22:33:44",
@@ -450,8 +450,8 @@ expression: json_catalogue(ex_capture_requests())
       "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ=",
       "createdAt": "2025-07-09",
       "secrets": {
-        "": "acmeCo/whole-config",
-        "/credentials/password": "acmeCo/password"
+        "acmeCo/password": "/credentials/password",
+        "acmeCo/whole-config": ""
       }
     },
     "version": "11:22:33:44",

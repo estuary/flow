@@ -115,10 +115,10 @@ fn ex_label_selector() -> broker::LabelSelector {
 
 fn ex_secrets() -> std::collections::BTreeMap<String, String> {
     [
-        ("".to_string(), "acmeCo/whole-config".to_string()),
+        ("acmeCo/whole-config".to_string(), "".to_string()),
         (
-            "/credentials/password".to_string(),
             "acmeCo/password".to_string(),
+            "/credentials/password".to_string(),
         ),
     ]
     .into()

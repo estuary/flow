@@ -119,8 +119,8 @@ expression: json_catalogue(ex_materialize_requests())
     ],
     "lastVersion": "00:11:22:33",
     "secrets": {
-      "": "acmeCo/whole-config",
-      "/credentials/password": "acmeCo/password"
+      "acmeCo/password": "/credentials/password",
+      "acmeCo/whole-config": ""
     }
   }
 }
@@ -324,8 +324,8 @@ expression: json_catalogue(ex_materialize_requests())
       "createdAt": "2025-07-09",
       "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]},
       "secrets": {
-        "": "acmeCo/whole-config",
-        "/credentials/password": "acmeCo/password"
+        "acmeCo/password": "/credentials/password",
+        "acmeCo/whole-config": ""
       }
     },
     "version": "11:22:33:44",
@@ -533,8 +533,8 @@ expression: json_catalogue(ex_materialize_requests())
       "createdAt": "2025-07-09",
       "syncSchedule": {"baseInterval":"4h","timezone":"America/New_York","windows":[{"end":"17:00","interval":"30m","start":"09:00"}]},
       "secrets": {
-        "": "acmeCo/whole-config",
-        "/credentials/password": "acmeCo/password"
+        "acmeCo/password": "/credentials/password",
+        "acmeCo/whole-config": ""
       }
     },
     "version": "11:22:33:44",
