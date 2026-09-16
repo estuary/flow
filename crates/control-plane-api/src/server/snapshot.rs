@@ -606,7 +606,7 @@ pub async fn try_fetch(
 
         // Start a decryption of this data-plane's encrypted keys.
         decrypt_jobs.push(async {
-            let decrypted = crate::decrypt_hmac_keys(&dp.encrypted_hmac_keys).await?;
+            let decrypted = decrypt_hmac_keys(&dp.encrypted_hmac_keys).await?;
             Result::Ok::<(&mut tables::DataPlane, Vec<String>), anyhow::Error>((dp, decrypted))
         });
     }
@@ -629,6 +629,45 @@ pub async fn try_fetch(
         user_grants,
         tasks,
     })
+}
+
+async fn decrypt_hmac_keys(encrypted_hmac_keys: &models::RawValue) -> anyhow::Result<Vec<String>> {
+    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+
+    #[derive(serde::Deserialize)]
+    struct HmacKeys {
+        hmac_keys: Vec<String>,
+    }
+
+    let async_process::Output {
+        stderr,
+        stdout,
+        status,
+    } = async_process::input_output(
+        async_process::Command::new(sops).args([
+            "--decrypt",
+            "--input-type",
+            "json",
+            "--output-type",
+            "json",
+            "/dev/stdin",
+        ]),
+        encrypted_hmac_keys.get().as_bytes(),
+    )
+    .await
+    .context("failed to run sops")?;
+
+    let stdout = zeroize::Zeroizing::from(stdout);
+    if !status.success() {
+        anyhow::bail!(
+            "decrypting hmac sops document failed: {}",
+            String::from_utf8_lossy(&stderr),
+        );
+    }
+
+    Ok(serde_json::from_slice::<HmacKeys>(&stdout)
+        .context("parsing decrypted sops document")?
+        .hmac_keys)
 }
 
 #[cfg(test)]
