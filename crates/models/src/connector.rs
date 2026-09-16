@@ -4,17 +4,28 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Splits a full connector image name into separate image and tag components.
-/// The resulting tag will always begin with either a `@sha256:` or `:` if a
-/// tag is present. Otherwise, the tag will be an empty string.
+/// The resulting tag begins with `:` or with a digest's `@` if either is
+/// present, and a tag followed by a digest stays whole (`:v1@sha256:...`),
+/// so the components always concatenate back into `image_full`. Otherwise,
+/// the tag will be an empty string.
 pub fn split_image_tag(image_full: &str) -> (String, String) {
     let mut image = image_full.to_string();
 
-    if let Some(pivot) = image.find("@sha256:").or_else(|| image.find(":")) {
-        let tag = image.split_off(pivot);
-        (image, tag)
-    } else {
-        (image, String::new())
-    }
+    // A digest follows the only `@` a reference may contain, and may itself
+    // be preceded by a tag, as in `repo:v1@sha256:...`.
+    let digest_pivot = image.find('@').unwrap_or(image.len());
+
+    // A registry may include a port, so only a colon in the final path component
+    // can delimit an image tag.
+    let image_name_start = image[..digest_pivot]
+        .rfind('/')
+        .map_or(0, |pivot| pivot + 1);
+    let tag_pivot = image[image_name_start..digest_pivot]
+        .find(':')
+        .map_or(digest_pivot, |pivot| image_name_start + pivot);
+
+    let tag = image.split_off(tag_pivot);
+    (image, tag)
 }
 
 /// Connectors with an image name starting with this value are Dekaf-type materializations. No image with this
@@ -90,6 +101,51 @@ impl LocalConfig {
                 .unwrap(),
             env: BTreeMap::new(),
             protobuf: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn split_image_tag_handles_registry_ports_and_digests() {
+        for (image, expected) in [
+            (
+                "ghcr.io/estuary/source-example:v1",
+                ("ghcr.io/estuary/source-example", ":v1"),
+            ),
+            (
+                "registry.example:5000/source-example:v1",
+                ("registry.example:5000/source-example", ":v1"),
+            ),
+            (
+                "registry.example:5000/source-example@sha256:abcdef",
+                ("registry.example:5000/source-example", "@sha256:abcdef"),
+            ),
+            (
+                "registry.example:5000/source-example",
+                ("registry.example:5000/source-example", ""),
+            ),
+            ("source-example:v1", ("source-example", ":v1")),
+            ("source-example", ("source-example", "")),
+            // A tag and a digest together: the repository excludes both, and
+            // the tag half carries both so that the pin is never dropped.
+            (
+                "ghcr.io/estuary/derive-python:v1@sha256:abcdef",
+                ("ghcr.io/estuary/derive-python", ":v1@sha256:abcdef"),
+            ),
+            (
+                "registry.example:5000/source-example:v1@sha256:abcdef",
+                ("registry.example:5000/source-example", ":v1@sha256:abcdef"),
+            ),
+            // Digests of algorithms other than sha256.
+            (
+                "ghcr.io/estuary/source-example@sha512:abcdef",
+                ("ghcr.io/estuary/source-example", "@sha512:abcdef"),
+            ),
+        ] {
+            let actual = super::split_image_tag(image);
+            assert_eq!((actual.0.as_str(), actual.1.as_str()), expected, "{image}");
         }
     }
 }
