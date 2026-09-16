@@ -103,7 +103,7 @@ pub(crate) async fn wake_tenant_controller(
 /// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
 /// `models::authz::Capability` bit, or an explicit `CapabilitySet`.
 pub fn evaluate_names_authorization<'r, Iter, S, C>(
-    snapshot: &Snapshot,
+    env: &crate::Envelope,
     claims: &crate::ControlClaims,
     min_capability: C,
     prefixes_or_names: Iter,
@@ -121,13 +121,7 @@ where
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
     for prefix_or_name in prefixes_or_names.into_iter() {
-        if !tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            *user_id,
-            prefix_or_name.as_ref(),
-            min_capability,
-        ) {
+        if !env.is_authorized(*user_id, prefix_or_name.as_ref(), min_capability) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
             )));
@@ -411,36 +405,25 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_server::snapshot_of_grants;
-
-    fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
-        models::authorizations::ControlClaims {
-            iat: 0,
-            exp: u64::MAX,
-            sub: user_id,
-            role: "authenticated".to_string(),
-            aud: "authenticated".to_string(),
-            email: Some("user@example.test".to_string()),
-        }
-    }
+    use crate::test_server::envelope_of_grants;
 
     /// The `ops/` admin gate of the /admin/* endpoints, expressed as
-    /// evaluate_names_authorization over the Snapshot's grant walk.
-    #[test]
-    fn test_evaluate_ops_admin_gate() {
+    /// evaluate_names_authorization over the Envelope's Snapshot and claims.
+    #[tokio::test]
+    async fn test_evaluate_ops_admin_gate() {
         use models::Capability::{Admin, Read};
         let user = uuid::Uuid::from_bytes([0x11; 16]);
-        let evaluate = |snapshot: &Snapshot| {
-            evaluate_names_authorization(snapshot, &claims(user), Admin, ["ops/"])
+        let evaluate = |env: &crate::Envelope| {
+            evaluate_names_authorization(env, env.claims().unwrap(), Admin, ["ops/"])
         };
 
         // A direct admin grant to `ops/` is authorized.
-        let snapshot = snapshot_of_grants(&[(user, "ops/", Admin)], &[]);
-        assert!(evaluate(&snapshot).is_ok());
+        let env = envelope_of_grants(user, &[(user, "ops/", Admin)], &[]);
+        assert!(evaluate(&env).is_ok());
 
         // Admin of an unrelated tenant is denied.
-        let snapshot = snapshot_of_grants(&[(user, "acmeCo/", Admin)], &[]);
-        let status = evaluate(&snapshot).unwrap_err();
+        let env = envelope_of_grants(user, &[(user, "acmeCo/", Admin)], &[]);
+        let status = evaluate(&env).unwrap_err();
         assert_eq!(status.code(), tonic::Code::PermissionDenied);
         assert_eq!(
             status.message(),
@@ -448,7 +431,7 @@ mod tests {
         );
 
         // A read grant to `ops/` is not admin.
-        let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
-        assert!(evaluate(&snapshot).is_err());
+        let env = envelope_of_grants(user, &[(user, "ops/", Read)], &[]);
+        assert!(evaluate(&env).is_err());
     }
 }

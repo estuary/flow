@@ -140,7 +140,7 @@ async fn fetch_alert_history_by_prefix(
 
     // Verify user authorization to read alerts for the given prefix.
     let policy_result = crate::server::evaluate_names_authorization(
-        env.snapshot(),
+        env,
         env.claims()?,
         models::Capability::Read,
         [&by.prefix],

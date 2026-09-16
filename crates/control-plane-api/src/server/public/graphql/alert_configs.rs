@@ -224,7 +224,7 @@ impl AlertConfigsQuery {
         // anyone who can read the scope, matching the `effective` field on
         // AlertConfigEntry and `effectiveAlertConfig` on liveSpec.
         let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
+            env,
             claims,
             models::authz::Capability::CatalogRead,
             [catalog_prefix_or_name.as_str()],
@@ -268,7 +268,7 @@ impl AlertConfigsMutation {
 
         let gov = governing_prefix(&catalog_prefix_or_name)?;
         let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
+            env,
             claims,
             models::Capability::Admin,
             [gov.as_str()],

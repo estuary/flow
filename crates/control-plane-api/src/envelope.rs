@@ -83,6 +83,24 @@ impl Envelope {
         self.refresh.result().expect("Snapshot refresh never fails")
     }
 
+    /// Determine if a user is authorized with a capability on a specific
+    /// prefix.
+    pub fn is_authorized(
+        &self,
+        user_id: uuid::Uuid,
+        object_role_or_name: &str,
+        capability: impl Into<models::authz::CapabilitySet>,
+    ) -> bool {
+        let snapshot = self.snapshot();
+        tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            user_id,
+            object_role_or_name,
+            capability,
+        )
+    }
+
     /// Evaluate an authorization policy result and return its outcome.
     ///
     /// This method handles the complexity of Snapshot refresh, retry logic,

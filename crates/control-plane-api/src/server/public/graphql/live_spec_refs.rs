@@ -289,7 +289,7 @@ impl LiveSpecsQuery {
 
         // Fail the entire request if it passed a name or prefix that the user is unauthorized to.
         let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
+            env,
             env.claims()?,
             models::Capability::Read,
             names

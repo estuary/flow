@@ -64,14 +64,8 @@ fn may_access(
     capability: impl Into<models::authz::CapabilitySet>,
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
-    let snapshot = env.snapshot();
-    Ok(tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        env.claims()?.sub,
-        name,
-        capability,
-    ))
+    // let snapshot = env.snapshot();
+    Ok(env.is_authorized(env.claims()?.sub, name, capability))
 }
 
 /// Errors unless the current user holds `capability` on `prefix`.
@@ -88,12 +82,8 @@ async fn verify_authorization(
     prefix: &str,
     capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 ) -> async_graphql::Result<()> {
-    let policy_result = crate::server::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        capability,
-        [prefix],
-    );
+    let policy_result =
+        crate::server::evaluate_names_authorization(env, env.claims()?, capability, [prefix]);
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
     Ok(())
 }

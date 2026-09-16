@@ -511,14 +511,13 @@ async fn evaluate_authorization(
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> Result<(), crate::ApiError> {
-    let policy_result =
-        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
+    let policy_result = check_authorization(&env, claims, catalog_prefix, data_plane_names);
     env.authorization_outcome(policy_result).await?;
     Ok(())
 }
 
 fn check_authorization(
-    snapshot: &crate::Snapshot,
+    env: &crate::Envelope,
     claims: &crate::ControlClaims,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
@@ -531,18 +530,12 @@ fn check_authorization(
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
     // Verify the User admins `catalog_prefix`.
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        *user_id,
-        catalog_prefix,
-        models::Capability::Admin,
-    ) {
+    if !env.is_authorized(*user_id, catalog_prefix, models::Capability::Admin) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
         )));
     }
-
+    let snapshot = env.snapshot();
     for data_plane_name in data_plane_names {
         // Verify `catalog_prefix` is authorized to access the data-plane for Read.
         if !tables::RoleGrant::is_authorized(

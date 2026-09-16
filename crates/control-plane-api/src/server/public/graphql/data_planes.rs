@@ -536,13 +536,11 @@ impl DataPlanesQuery {
                         return false;
                     }
                 }
-                tables::UserGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        claims.sub,
-                        &dp.data_plane_name,
-                        models::Capability::Read,
-                    )
+                env.is_authorized(
+                    claims.sub,
+                    &dp.data_plane_name,
+                    models::Capability::Read,
+                )
             })
             .collect();
         accessible_data_planes.sort_by(|a, b| a.data_plane_name.cmp(&b.data_plane_name));

@@ -281,3 +281,53 @@ pub fn snapshot_of_grants(
     snapshot.role_grants = role_grants;
     snapshot
 }
+
+/// Build an authenticated Envelope for `user_id` over a Snapshot holding only
+/// the given grants. The Snapshot's `taken` is shifted an hour ahead for the
+/// same reason as in `snapshot()` above: so that denials evaluated through
+/// `authorization_outcome` are terminal rather than awaiting a refresh which
+/// the fixed watch never delivers.
+///
+/// Requires a Tokio runtime: the (never-connected) lazy pool spawns its reaper
+/// task on construction.
+pub fn envelope_of_grants(
+    user_id: uuid::Uuid,
+    user_grants: &[(uuid::Uuid, &str, models::Capability)],
+    role_grants: &[(&str, &str, models::Capability)],
+) -> crate::Envelope {
+    let mut snapshot = snapshot_of_grants(user_grants, role_grants);
+    snapshot.taken = tokens::now() + chrono::TimeDelta::hours(1);
+
+    // `Verified` is only constructible through `verify()`, so round-trip a
+    // signed token through a throwaway secret.
+    let secret = b"test-jwt-secret";
+    let now = tokens::now();
+    let claims = models::authorizations::ControlClaims {
+        iat: now.timestamp() as u64,
+        exp: (now + chrono::TimeDelta::hours(1)).timestamp() as u64,
+        sub: user_id,
+        role: "authenticated".to_string(),
+        aud: "authenticated".to_string(),
+        email: Some("user@example.test".to_string()),
+    };
+    let token = tokens::jwt::sign(&claims, &tokens::jwt::EncodingKey::from_secret(secret))
+        .expect("failed to sign test JWT");
+    let verified = tokens::jwt::verify::<crate::ControlClaims>(
+        token.as_bytes(),
+        0,
+        &[tokens::jwt::DecodingKey::from_secret(secret)],
+    )
+    .expect("failed to verify test JWT");
+
+    crate::Envelope {
+        original_uri: axum::http::Uri::from_static("/api/graphql"),
+        maybe_claims: crate::MaybeControlClaims::with_verified(verified),
+        retry_after: tokens::DateTime::UNIX_EPOCH,
+        refresh: tokens::fixed(Ok(snapshot)).watch().token(),
+        started: tokens::now(),
+        started_set: false,
+        // Never connected: the authorization path reads only the Snapshot.
+        pg_pool: sqlx::PgPool::connect_lazy("postgres://unused").expect("lazy pool"),
+        locale: crate::Locale::EnUS,
+    }
+}

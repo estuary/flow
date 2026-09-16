@@ -26,12 +26,8 @@ pub(crate) async fn handle_get_status(
         connected,
     }): axum_extra::extract::Query<StatusQuery>,
 ) -> Result<axum::Json<Vec<StatusResponse>>, crate::ApiError> {
-    let policy_result = crate::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        models::Capability::Read,
-        &name,
-    );
+    let policy_result =
+        crate::evaluate_names_authorization(&env, env.claims()?, models::Capability::Read, &name);
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let mut require_names = name.iter().map(|s| s.as_str()).collect::<BTreeSet<_>>();
@@ -42,19 +38,11 @@ pub(crate) async fn handle_get_status(
     let status = if connected {
         // Filter out any names that the user cannot read before fetching the statuses
         let unfiltered_names = add_connected_names(&name, &env.pg_pool).await?;
-        let (snapshot, claims) = (env.snapshot(), env.claims()?);
+        let claims = env.claims()?;
 
         let filtered = unfiltered_names
             .into_iter()
-            .filter(|name| {
-                tables::UserGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    claims.sub,
-                    name,
-                    models::Capability::Read,
-                )
-            })
+            .filter(|name| env.is_authorized(claims.sub, name, models::Capability::Read))
             .collect::<Vec<_>>();
 
         fetch_status(&env.pg_pool, &filtered, short).await?
