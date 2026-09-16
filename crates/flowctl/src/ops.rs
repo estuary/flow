@@ -133,7 +133,7 @@ async fn ops_collection_spec(collection: OpsCollection, ops_journal: &str) -> fl
 
 /// Build the embedded ops bundle into its `logs` and `stats` CollectionSpecs,
 /// keyed by trailing path segment ("logs" / "stats"). The build is offline:
-/// the collections carry no connectors and `build::no_op_live_catalog` supplies
+/// the collections carry no connectors and an offline live catalog supplies
 /// a catch-all storage mapping, so no control-plane or runtime IO occurs.
 async fn build_ops_specs() -> BTreeMap<String, flow::CollectionSpec> {
     let catalog: models::Catalog =

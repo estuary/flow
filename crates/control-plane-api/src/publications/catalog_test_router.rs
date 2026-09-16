@@ -9,11 +9,12 @@ pub(super) struct CatalogTestConnectorRouter {
 }
 
 impl CatalogTestConnectorRouter {
-    pub(super) fn new(output: &build::Output) -> anyhow::Result<Self> {
+    pub(super) fn new(
+        snapshot: &crate::Snapshot,
+        built_collections: &tables::BuiltCollections,
+    ) -> anyhow::Result<Self> {
         // Extract all enabled derivations and each one's data-plane ID.
-        let mut catalog_names = output
-            .built
-            .built_collections
+        let mut catalog_names = built_collections
             .iter()
             .filter_map(|row| {
                 let derivation = row.spec.as_ref()?.derivation.as_ref()?;
@@ -37,25 +38,15 @@ impl CatalogTestConnectorRouter {
         let data_planes = data_plane_ids
             .into_iter()
             .map(|data_plane_id| {
-                let data_plane = output
-                    .live
-                    .data_planes
-                    .get_key(&data_plane_id)
-                    .ok_or_else(|| {
-                        let (collection, _) = catalog_names
-                            .iter()
-                            .find(|(_, id)| *id == data_plane_id)
-                            .expect("every ID was taken from a derivation");
+                let data_plane = snapshot.data_plane_by_id(data_plane_id).ok_or_else(|| {
+                    snapshot.request_refresh();
+                    anyhow::anyhow!("data-plane {data_plane_id} not found")
+                })?;
+                let route = data_plane
+                    .connector_route()
+                    .map_err(proto_grpc::status_to_anyhow)?;
 
-                        anyhow::anyhow!(
-                            "derivation {collection} is assigned to data-plane {data_plane_id}, which isn't in the build",
-                        )
-                    })?;
-
-                Ok((
-                    data_plane_id,
-                    crate::data_plane::build_connector_route(data_plane)?,
-                ))
+                Ok((data_plane_id, route))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -152,43 +143,14 @@ mod tests {
         );
     }
 
-    fn insert_data_plane(output: &mut build::Output, control_id: models::Id, suffix: &str) {
-        use base64::Engine;
-
-        output.live.data_planes.insert_row(
-            control_id,
-            format!("ops/dp/public/{suffix}"),
-            format!("{suffix}.dp.estuary-data.com"),
-            false, // closed
-            vec![base64::engine::general_purpose::STANDARD.encode(b"an HMAC key")],
-            models::RawValue::from_string("{}".to_string()).unwrap(),
-            models::Collection::new("ops/logs"),
-            models::Collection::new("ops/stats"),
-            format!("broker.{suffix}:8080"),
-            format!("https://reactor.{suffix}:8080"),
-            None,
-            None,
-        );
-    }
-
     #[test]
     fn routes_enabled_derivations_only() {
-        let mut output = build::Output::default();
-        insert_data_plane(&mut output, models::Id::new([1; 8]), "acme");
-        insert_derivation(
-            &mut output.built.built_collections,
-            "acmeCo/enabled",
-            models::Id::new([1; 8]),
-            false,
-        );
-        insert_derivation(
-            &mut output.built.built_collections,
-            "acmeCo/disabled",
-            models::Id::new([9; 8]), // Absent from `live`, and never routed.
-            true,
-        );
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let mut built = tables::BuiltCollections::new();
+        insert_derivation(&mut built, "acmeCo/enabled", models::Id::new([1; 8]), false);
+        insert_derivation(&mut built, "acmeCo/disabled", models::Id::new([9; 8]), true);
 
-        let router = CatalogTestConnectorRouter::new(&output).unwrap();
+        let router = CatalogTestConnectorRouter::new(&snapshot, &built).unwrap();
         assert_eq!(router.data_planes.len(), 1);
         assert_eq!(router.catalog_names.len(), 1);
         assert_eq!(
@@ -196,36 +158,13 @@ mod tests {
                 .route_for(ops::TaskType::Derivation, "acmeCo/enabled")
                 .unwrap()
                 .endpoint(),
-            "https://reactor.acme:8080"
+            "reactor.1"
         );
         let status = match router.route_for(ops::TaskType::Derivation, "acmeCo/disabled") {
             Ok(_) => panic!("disabled derivation unexpectedly has a route"),
             Err(status) => status,
         };
         assert_eq!(status.code(), tonic::Code::NotFound);
-    }
-
-    /// An enabled derivation whose plane isn't in the build fails `new`, naming
-    /// the derivation — before any reactor is contacted.
-    #[test]
-    fn a_missing_data_plane_fails_the_router() {
-        let mut output = build::Output::default();
-        insert_derivation(
-            &mut output.built.built_collections,
-            "acmeCo/derivation",
-            models::Id::new([9; 8]), // Absent from `live`.
-            false,
-        );
-
-        // `Self` isn't `Debug`, so `unwrap_err` is unavailable.
-        let err = match CatalogTestConnectorRouter::new(&output) {
-            Ok(_) => panic!("expected a missing data plane to fail the router"),
-            Err(err) => format!("{err:#}"),
-        };
-        assert!(
-            err.contains("acmeCo/derivation") && err.contains("isn't in the build"),
-            "got: {err}",
-        );
     }
 
     /// `open` has no way to refuse a session other than the response channel,
@@ -235,7 +174,9 @@ mod tests {
     fn open_surfaces_routing_failures_on_the_response_channel() {
         use proto_grpc::connector::Router;
 
-        let router = CatalogTestConnectorRouter::new(&build::Output::default()).unwrap();
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let built = tables::BuiltCollections::new();
+        let router = CatalogTestConnectorRouter::new(&snapshot, &built).unwrap();
 
         for (task_type, task_name, expect) in [
             (
