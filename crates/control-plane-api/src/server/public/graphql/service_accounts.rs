@@ -84,13 +84,10 @@ impl ServiceAccountsQuery {
     ) -> async_graphql::Result<PaginatedServiceAccounts> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let snapshot = env.snapshot();
         // Service accounts are visible to callers holding QueryServiceAccounts
         // on a prefix covering the account's catalog_name.
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            env.claims()?.sub,
+            &env.authority()?,
             models::authz::Capability::QueryServiceAccounts,
             None,
         );
@@ -532,6 +529,15 @@ impl ServiceAccountsMutation {
             ));
         }
 
+        // A scoped caller mints a scope-confined key. The check above only
+        // establishes authority over the account's `catalog_name`, which is a
+        // management anchor: the account's own user_grants may reach prefixes
+        // outside the caller's scope, and without this the key would carry that
+        // reach and become an escape hatch. Stamping the caller's scope onto the
+        // key intersects the account's grants with the same ceiling the caller
+        // is under.
+        let scope_prefix = env.authority()?.scope().prefix().map(String::from);
+
         // Mint the credential as a multi_use refresh token owned by the service
         // account. The lifetime is bounded to at most one year and required to
         // be positive; Postgres does the calendar-aware interval math (the WHERE
@@ -543,14 +549,15 @@ impl ServiceAccountsMutation {
                 SELECT gen_random_uuid()::text AS secret
             )
             INSERT INTO public.refresh_tokens
-                (user_id, multi_use, valid_for, hash, detail, created_by)
+                (user_id, multi_use, valid_for, hash, detail, created_by, scope_prefix)
             SELECT
                 $1,
                 true,
                 v.valid_for,
                 crypt(nt.secret, gen_salt('bf')),
                 $3,
-                $4
+                $4,
+                $5::text::catalog_prefix
             FROM new_token nt, (SELECT $2::text::interval AS valid_for) v
             WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'
             RETURNING
@@ -561,6 +568,7 @@ impl ServiceAccountsMutation {
             valid_for,
             detail,
             claims.sub,
+            scope_prefix.as_deref(),
         )
         .fetch_optional(&env.pg_pool)
         .await

@@ -64,20 +64,119 @@ fn effective_bits(
     bits
 }
 
+impl<'a> super::AuthScope<'a> {
+    /// A scope that narrows nothing: answers reflect the subject's full
+    /// authority.
+    pub fn unscoped() -> Self {
+        Self {
+            reach: None,
+            prefix: None,
+        }
+    }
+
+    /// Resolve the scope of `prefix` against `role_grants`.
+    ///
+    /// `prefix` confers all capabilities at and under itself, because scoping to
+    /// a prefix is not meant to attenuate the subject's own grants there — the
+    /// intersection against those grants is what narrows them. Prefixes reached
+    /// through role grants confer only the capabilities their edges carry.
+    pub fn resolve(role_grants: &'a [super::RoleGrant], prefix: &'a str) -> Self {
+        let mut reach: std::collections::BTreeMap<
+            &'a str,
+            (authz::CapabilitySet, models::Capability),
+        > = Default::default();
+
+        reach.insert(
+            prefix,
+            (authz::CapabilitySet::all(), models::Capability::Admin),
+        );
+
+        // Seeded with Assume, so edges out of `prefix` are unattenuated: the
+        // ceiling is the full authority footprint of that role, which is what a
+        // name under `prefix` would itself be able to reach.
+        for node in super::RoleGrant::reachable_nodes(role_grants, prefix) {
+            // A role edge can be visited yet confer nothing when delegation
+            // attenuation removes all of its capabilities. Such a destination
+            // is not in scope.
+            if node.capabilities.is_empty() {
+                continue;
+            }
+            let entry = reach
+                .entry(node.object_role)
+                .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
+            entry.0 |= node.capabilities;
+            entry.1 = std::cmp::max(entry.1, node.legacy);
+        }
+
+        Self {
+            reach: Some(reach),
+            prefix: Some(prefix),
+        }
+    }
+
+    /// The prefix this scope was resolved from, or `None` when unscoped.
+    pub fn prefix(&self) -> Option<&'a str> {
+        self.prefix
+    }
+
+    /// The ceiling this scope places at `object_role_or_name`: the union of
+    /// capabilities over reach entries whose prefix covers the name, paired with
+    /// the max legacy capability among them.
+    ///
+    /// Bits union (and legacy maxes) across covering entries for the same reason
+    /// grant paths compose additively in [`any_path_satisfies`] — two role-grant
+    /// paths into the same subtree each contribute their own capabilities. The
+    /// unscoped ceiling is everything, making it the identity of both the
+    /// intersection applied to bits and the `min` applied to legacy.
+    fn ceiling_at(&self, object_role_or_name: &str) -> (authz::CapabilitySet, models::Capability) {
+        let Some(reach) = &self.reach else {
+            return (authz::CapabilitySet::all(), models::Capability::Admin);
+        };
+
+        let mut bits = authz::CapabilitySet::empty();
+        let mut legacy = models::Capability::None;
+        for (prefix, (prefix_bits, prefix_legacy)) in reach {
+            if object_role_or_name.starts_with(prefix) {
+                bits |= *prefix_bits;
+                legacy = std::cmp::max(legacy, *prefix_legacy);
+            }
+        }
+        (bits, legacy)
+    }
+
+    /// Iterate the scope's reach, or `None` when unscoped.
+    fn reach(
+        &self,
+    ) -> Option<impl Iterator<Item = (&'a str, (authz::CapabilitySet, models::Capability))> + '_>
+    {
+        self.reach
+            .as_ref()
+            .map(|reach| reach.iter().map(|(prefix, value)| (*prefix, *value)))
+    }
+}
+
 /// True when bits accumulated across `nodes` at prefixes covering
 /// `object_role_or_name` satisfy `required`. Bits compose additively
 /// across paths: distinct grant paths that each contribute partial bits
 /// at covering prefixes can jointly authorize a request that no single
 /// path would on its own.
+///
+/// Each path's contribution is first intersected with `scope`'s ceiling at the
+/// name. Intersection distributes over the union of paths, so masking per node
+/// gives the same answer as masking their union, and a name the scope does not
+/// reach at all has an empty ceiling and can satisfy nothing.
 fn any_path_satisfies<'a>(
     nodes: impl IntoIterator<Item = super::NodeRef<'a>>,
     object_role_or_name: &str,
     required: impl Into<authz::CapabilitySet>,
+    scope: &super::AuthScope<'_>,
 ) -> bool {
+    let (ceiling, _legacy) = scope.ceiling_at(object_role_or_name);
+
     let mut remaining = required.into();
     for node in nodes {
         if object_role_or_name.starts_with(node.object_role) {
-            remaining -= node.capabilities;
+            remaining -= node.capabilities & ceiling;
             if remaining.is_empty() {
                 return true;
             }
@@ -102,6 +201,13 @@ impl super::RoleGrant {
         .skip(1)
     }
 
+    /// Whether the role `subject_role_or_name` may act on
+    /// `object_role_or_name`.
+    ///
+    /// Takes no [`super::AuthScope`]: this asks what one catalog role may do to
+    /// another, which is a property of the grant graph alone. Scopes narrow the
+    /// authority of a *subject holding a token*, and no token is involved here —
+    /// task authorization and role-to-role checks are the callers.
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         subject_role_or_name: &'a str,
@@ -112,6 +218,7 @@ impl super::RoleGrant {
             Self::reachable_nodes(role_grants, subject_role_or_name),
             object_role_or_name,
             capability,
+            &super::AuthScope::unscoped(),
         )
     }
 
@@ -150,10 +257,19 @@ impl super::UserGrant {
     /// a literal pass-through from storage, max'd across same-prefix
     /// arrivals. Applying a min-capability filter to the bit set agrees
     /// with `is_authorized` on the same inputs.
+    ///
+    /// Under a scope the result is the intersection of the user's prefixes with
+    /// the scope's reach, which requires splitting rather than filtering: where
+    /// one prefix covers the other, the *narrower* of the pair is the
+    /// intersection of the two subtrees and is what gets emitted. A user holding
+    /// `acmeCo/` within a scope reaching only `acmeCo/team/` is therefore
+    /// authorized at `acmeCo/team/`, not at `acmeCo/`. Pairs that don't overlap,
+    /// and pairs whose capabilities intersect to nothing, are dropped.
     pub fn reachable_prefixes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         user_id: uuid::Uuid,
+        scope: &super::AuthScope<'a>,
     ) -> std::collections::BTreeMap<&'a str, (authz::CapabilitySet, models::Capability)> {
         let mut out: std::collections::BTreeMap<
             &'a str,
@@ -168,18 +284,61 @@ impl super::UserGrant {
                 entry.1 = node.legacy;
             }
         }
-        out
+
+        let Some(reach) = scope.reach() else {
+            return out;
+        };
+        let reach: Vec<_> = reach.collect();
+
+        let mut scoped: std::collections::BTreeMap<
+            &'a str,
+            (authz::CapabilitySet, models::Capability),
+        > = Default::default();
+        for (user_prefix, (user_bits, user_legacy)) in out {
+            for (scope_prefix, (scope_bits, scope_legacy)) in reach.iter().copied() {
+                let narrower = if user_prefix.starts_with(scope_prefix) {
+                    user_prefix
+                } else if scope_prefix.starts_with(user_prefix) {
+                    scope_prefix
+                } else {
+                    continue; // Disjoint subtrees.
+                };
+
+                let bits = user_bits & scope_bits;
+                if bits.is_empty() {
+                    continue; // The scope removes everything the user holds here.
+                }
+
+                let entry = scoped
+                    .entry(narrower)
+                    .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
+                entry.0 |= bits;
+                entry.1 = std::cmp::max(entry.1, std::cmp::min(user_legacy, scope_legacy));
+            }
+        }
+        scoped
     }
 
+    /// The max legacy `capability` column value the user holds at
+    /// `object_role_or_name`, or None if they hold none.
+    ///
+    /// Under a scope, each node's legacy value is clamped by the scope's own
+    /// legacy ceiling at the name, and nodes whose capabilities the scope removes
+    /// entirely are skipped: a node that confers no capabilities must not report
+    /// a capability level either.
     pub fn get_user_capability<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         user_id: uuid::Uuid,
         object_role_or_name: &str,
+        scope: &super::AuthScope<'_>,
     ) -> Option<models::Capability> {
+        let (ceiling, ceiling_legacy) = scope.ceiling_at(object_role_or_name);
+
         Self::reachable_nodes(role_grants, user_grants, user_id)
             .filter(|n| object_role_or_name.starts_with(n.object_role))
-            .map(|n| n.legacy)
+            .filter(|n| !(n.capabilities & ceiling).is_empty())
+            .map(|n| std::cmp::min(n.legacy, ceiling_legacy))
             .filter(|c| *c != models::Capability::None)
             .max()
     }
@@ -190,11 +349,13 @@ impl super::UserGrant {
         subject_user_id: uuid::Uuid,
         object_role_or_name: &'a str,
         capability: impl Into<authz::CapabilitySet>,
+        scope: &super::AuthScope<'_>,
     ) -> bool {
         any_path_satisfies(
             Self::reachable_nodes(role_grants, user_grants, subject_user_id),
             object_role_or_name,
             capability,
+            scope,
         )
     }
 
@@ -447,6 +608,7 @@ mod test {
             uuid::Uuid::nil(),
             "bobCo/thing",
             models::Capability::Read,
+            &crate::AuthScope::unscoped(),
         ));
         assert!(!UserGrant::is_authorized(
             &role_grants,
@@ -454,6 +616,7 @@ mod test {
             uuid::Uuid::nil(),
             "bobCo/thing",
             models::Capability::Write,
+            &crate::AuthScope::unscoped(),
         ));
         assert!(UserGrant::is_authorized(
             &role_grants,
@@ -461,6 +624,7 @@ mod test {
             uuid::Uuid::nil(),
             "carolCo/hidden/thing",
             models::Capability::Read,
+            &crate::AuthScope::unscoped(),
         ));
 
         // User max: admin on aliceCo/widgets/ (propagates to bobCo/burgers/).
@@ -470,6 +634,7 @@ mod test {
             uuid::Uuid::max(),
             "bobCo/burgers/thing",
             models::Capability::Admin,
+            &crate::AuthScope::unscoped(),
         ));
     }
 
@@ -582,7 +747,8 @@ mod test {
                 &role_grants,
                 &user_grants,
                 user1,
-                "ops/private/dp/acmeCo/foooo"
+                "ops/private/dp/acmeCo/foooo",
+                &crate::AuthScope::unscoped(),
             )
         );
         assert_eq!(
@@ -591,7 +757,8 @@ mod test {
                 &role_grants,
                 &user_grants,
                 user2,
-                "ops/private/dp/acmeCo/foooo"
+                "ops/private/dp/acmeCo/foooo",
+                &crate::AuthScope::unscoped(),
             )
         );
         assert_eq!(
@@ -600,7 +767,8 @@ mod test {
                 &role_grants,
                 &user_grants,
                 user1,
-                "different/co/altogether"
+                "different/co/altogether",
+                &crate::AuthScope::unscoped(),
             )
         );
     }
@@ -643,6 +811,7 @@ mod test {
             uuid::Uuid::from_bytes([1; 16]),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
+            &crate::AuthScope::unscoped(),
         ));
         // User 2 has admin on acmeCo/nested/, which also picks up the
         // acmeCo/ role grants (parent prefix matching).
@@ -652,6 +821,7 @@ mod test {
             uuid::Uuid::from_bytes([2; 16]),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
+            &crate::AuthScope::unscoped(),
         ));
     }
 
@@ -705,7 +875,14 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                user_id,
+                name,
+                required,
+                &crate::AuthScope::unscoped()
+            ),
             "expected {user_id} to have {required:?} on {name}",
         );
     }
@@ -718,7 +895,14 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            !UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            !UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                user_id,
+                name,
+                required,
+                &crate::AuthScope::unscoped()
+            ),
             "expected {user_id} NOT to have {required:?} on {name}",
         );
     }
@@ -1698,6 +1882,199 @@ mod test {
             "acmeCo/",
             "unknown/thing",
             CapabilityBundle::Viewer.capabilities(),
+        );
+    }
+
+    #[test]
+    fn test_scope_drops_prefixes_the_scope_does_not_reach() {
+        // Alice administers two tenants with no role grant between them. A scope
+        // of one confines her to it entirely — this is the containment the scope
+        // exists to provide.
+        let (role_grants, user_grants, user_id) = build_scenario(
+            vec![
+                ("acmeCo/", vec![CapabilityBundle::Admin]),
+                ("otherCo/", vec![CapabilityBundle::Admin]),
+            ],
+            vec![],
+        );
+        let scope = crate::AuthScope::resolve(&role_grants, "acmeCo/");
+
+        let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, user_id, &scope);
+        assert_eq!(
+            reachable.keys().copied().collect::<Vec<_>>(),
+            vec!["acmeCo/"]
+        );
+
+        assert!(UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "acmeCo/thing",
+            CapabilityBundle::Admin.capabilities(),
+            &scope,
+        ));
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "otherCo/thing",
+            Capability::CatalogRead,
+            &scope,
+        ));
+        // Unscoped, the very same grants reach both tenants.
+        assert!(UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "otherCo/thing",
+            CapabilityBundle::Admin.capabilities(),
+            &crate::AuthScope::unscoped(),
+        ));
+    }
+
+    #[test]
+    fn test_scope_follows_role_grants_and_clamps_to_the_edge() {
+        // acmeCo/ reaches sharedCo/ as a Viewer. Alice independently administers
+        // sharedCo/, but a scope of acmeCo/ confines her there to what the edge
+        // carries: a scope reaches through the grant graph, and only as far as
+        // the graph's own capabilities go.
+        let (role_grants, user_grants, user_id) = build_scenario(
+            vec![
+                ("acmeCo/", vec![CapabilityBundle::Admin]),
+                ("sharedCo/", vec![CapabilityBundle::Admin]),
+            ],
+            vec![("acmeCo/", "sharedCo/", vec![CapabilityBundle::Viewer])],
+        );
+        let scope = crate::AuthScope::resolve(&role_grants, "acmeCo/");
+
+        let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, user_id, &scope);
+        assert_eq!(
+            reachable.keys().copied().collect::<Vec<_>>(),
+            vec!["acmeCo/", "sharedCo/"]
+        );
+        assert_eq!(
+            reachable["acmeCo/"].0,
+            CapabilityBundle::Admin.capabilities()
+        );
+        assert_eq!(
+            reachable["sharedCo/"].0,
+            CapabilityBundle::Viewer.capabilities()
+        );
+
+        // Her admin authority at sharedCo/ does not survive the scope.
+        assert!(UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "sharedCo/thing",
+            CapabilityBundle::Viewer.capabilities(),
+            &scope,
+        ));
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "sharedCo/thing",
+            Capability::SpecEdit,
+            &scope,
+        ));
+    }
+
+    #[test]
+    fn test_scope_narrower_than_a_grant_splits_the_prefix() {
+        // Alice administers acmeCo/, but the scope reaches only acmeCo/team/.
+        // The intersection of the two subtrees is the narrower prefix, so that
+        // is what she is authorized at — filtering alone would have dropped her
+        // grant entirely and denied access she legitimately holds.
+        let (role_grants, user_grants, user_id) =
+            build_scenario(vec![("acmeCo/", vec![CapabilityBundle::Admin])], vec![]);
+        let scope = crate::AuthScope::resolve(&role_grants, "acmeCo/team/");
+
+        let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, user_id, &scope);
+        assert_eq!(
+            reachable.keys().copied().collect::<Vec<_>>(),
+            vec!["acmeCo/team/"]
+        );
+        assert_eq!(
+            reachable["acmeCo/team/"].0,
+            CapabilityBundle::Admin.capabilities()
+        );
+
+        assert!(UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "acmeCo/team/thing",
+            CapabilityBundle::Admin.capabilities(),
+            &scope,
+        ));
+        assert!(!UserGrant::is_authorized(
+            &role_grants,
+            &user_grants,
+            user_id,
+            "acmeCo/other/thing",
+            Capability::CatalogRead,
+            &scope,
+        ));
+    }
+
+    #[test]
+    fn test_scope_clamps_the_legacy_capability() {
+        // The legacy `capability` column drives dashboard affordances, so it has
+        // to narrow with the bits. Alice is an admin of sharedCo/ directly, but
+        // acmeCo/ only reaches it with legacy `read`.
+        let user_id = uuid::Uuid::from_bytes([1; 16]);
+        let user_grants = UserGrants::from_iter(
+            [
+                ("acmeCo/", models::Capability::Admin),
+                ("sharedCo/", models::Capability::Admin),
+            ]
+            .into_iter()
+            .map(|(obj, capability)| UserGrant {
+                user_id,
+                object_role: models::Prefix::new(obj),
+                capability,
+                bundles: vec![],
+            }),
+        );
+        let role_grants = RoleGrants::from_iter([RoleGrant {
+            subject_role: models::Prefix::new("acmeCo/"),
+            object_role: models::Prefix::new("sharedCo/"),
+            capability: models::Capability::Read,
+            bundles: vec![],
+        }]);
+        let scope = crate::AuthScope::resolve(&role_grants, "acmeCo/");
+
+        assert_eq!(
+            Some(models::Capability::Read),
+            UserGrant::get_user_capability(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "sharedCo/thing",
+                &scope,
+            )
+        );
+        assert_eq!(
+            Some(models::Capability::Admin),
+            UserGrant::get_user_capability(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "sharedCo/thing",
+                &crate::AuthScope::unscoped(),
+            )
+        );
+        // At and under the scope prefix the user's own grant is untouched.
+        assert_eq!(
+            Some(models::Capability::Admin),
+            UserGrant::get_user_capability(
+                &role_grants,
+                &user_grants,
+                user_id,
+                "acmeCo/thing",
+                &scope,
+            )
         );
     }
 }

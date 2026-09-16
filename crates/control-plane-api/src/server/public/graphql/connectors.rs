@@ -231,6 +231,11 @@ impl ConnectorsQuery {
         // Require an authenticated user, just to avoid getting spammed by
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
+        //
+        // A token's scope therefore has no effect here: the connector catalog is
+        // global reference data with no catalog prefix to intersect against. This
+        // is one of the surfaces a scope deliberately does not narrow, along with
+        // `alertTypes` and `publicDataPlanes`.
         let env = ctx.data::<Envelope>()?;
         let _claims = env.claims()?;
         let locale: &str = env.locale.as_ref();
@@ -288,6 +293,11 @@ impl ConnectorsQuery {
         // Require an authenticated user, just to avoid getting spammed by
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
+        //
+        // A token's scope therefore has no effect here: the connector catalog is
+        // global reference data with no catalog prefix to intersect against. This
+        // is one of the surfaces a scope deliberately does not narrow, along with
+        // `alertTypes` and `publicDataPlanes`.
         let env = ctx.data::<Envelope>()?;
         let _claims = env.claims()?;
         let locale = env.locale;

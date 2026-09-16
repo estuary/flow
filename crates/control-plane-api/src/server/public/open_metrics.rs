@@ -16,12 +16,9 @@ pub async fn handle_get_metrics(
         .into());
     }
 
-    let policy_result = crate::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        models::Capability::Read,
-        [&prefix],
-    );
+    let policy_result = env
+        .authority()?
+        .evaluate(models::Capability::Read, [&prefix]);
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     // Map `started` to midnight at the open of the current month.

@@ -94,6 +94,10 @@ pub async fn authorize_dekaf(
         sub: uuid::Uuid::nil(),
         role: DEKAF_ROLE.to_string(),
         email: None,
+        // Dekaf's token authenticates as the nil user and derives its authority
+        // from the `dekaf` Postgres role rather than from catalog grants, so a
+        // catalog-prefix scope has nothing to narrow.
+        scope_prefix: None,
     };
 
     // Only return a token if we are not redirecting
