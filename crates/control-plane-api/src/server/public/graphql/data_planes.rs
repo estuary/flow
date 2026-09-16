@@ -542,6 +542,7 @@ impl DataPlanesQuery {
                         claims.sub,
                         &dp.data_plane_name,
                         models::Capability::Read,
+                        models::authz::CapabilityMask::ALL_CAPABILITIES,
                     )
             })
             .collect();

@@ -28,6 +28,7 @@ fn partition_by_authorization<'n>(
                 user_id,
                 name,
                 capability,
+                models::authz::CapabilityMask::ALL_CAPABILITIES,
             )
         });
 
