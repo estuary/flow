@@ -867,6 +867,14 @@ The input/output is a string in RFC3339 format.
 scalar DateTime
 
 """
+The stable identity and creation time of a deleted draft.
+"""
+type DeletedDraft {
+	id: Id!
+	createdAt: DateTime!
+}
+
+"""
 A capture binding that has changed as a result of a discover
 """
 type DiscoverChange {
@@ -882,6 +890,45 @@ type DiscoverChange {
 	Whether the capture binding is disabled.
 	"""
 	disable: Boolean!
+}
+
+"""
+An authenticated user's private workspace for staging catalog changes.
+"""
+type Draft {
+	id: Id!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	detail: String
+	"""
+	Number of staged specifications the caller is currently allowed to read.
+	"""
+	numSpecs: Int!
+}
+
+type DraftConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [DraftEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type DraftEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Draft!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
 }
 
 type EffectiveAlertConfig {
@@ -1533,6 +1580,14 @@ type MutationRoot {
 	or publication rather than here.
 	"""
 	deleteSecret(catalogName: Name, prefix: Prefix): [Name!]!
+	"""
+	Create an empty draft owned by the authenticated user.
+	"""
+	createDraft(detail: String): Draft!
+	"""
+	Delete a draft after authorizing every catalog name it contains.
+	"""
+	deleteDraft(id: Id!): DeletedDraft!
 }
 
 """
@@ -1989,6 +2044,14 @@ type QueryRoot {
 	Requires `ViewSecret` on a prefix covering each returned name.
 	"""
 	secrets(filter: SecretsFilter, after: String, first: Int): SecretConnection!
+	"""
+	Look up a draft owned by the authenticated user.
+	"""
+	draft(id: Id!): Draft
+	"""
+	List drafts owned by the authenticated user in stable ID order.
+	"""
+	drafts(after: String, first: Int): DraftConnection!
 }
 
 """
