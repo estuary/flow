@@ -1,7 +1,6 @@
 use anyhow::Context;
-use futures::{FutureExt, TryStreamExt};
+use futures::TryStreamExt;
 use proto_flow::flow;
-use tables::CatalogResolver;
 
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
@@ -200,42 +199,33 @@ pub(crate) struct Resolver {
     pub access_token: Option<String>,
 }
 
-impl tables::CatalogResolver for Resolver {
-    fn resolve<'a>(
-        &'a self,
-        catalog_names: Vec<&'a str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tables::LiveCatalog> + Send + 'a>> {
-        async move {
-            let result = futures::try_join!(
-                self.resolve_specs(&catalog_names),
-                self.resolve_inferred_schemas(&catalog_names),
-            );
+impl Resolver {
+    pub async fn resolve(&self, catalog_names: Vec<&str>) -> tables::LiveCatalog {
+        let result = futures::try_join!(
+            self.resolve_specs(&catalog_names),
+            self.resolve_inferred_schemas(&catalog_names),
+        );
 
-            match result {
-                Ok((mut live, inferred_schemas)) => {
-                    live.inferred_schemas = inferred_schemas;
-                    live
-                }
-                Err(err) => {
-                    let mut live = tables::LiveCatalog::default();
-                    live.errors.push(tables::Error {
-                        scope: url::Url::parse("flow://control").unwrap(),
-                        error: err,
-                    });
-                    live
-                }
+        match result {
+            Ok((mut live, inferred_schemas)) => {
+                live.inferred_schemas = inferred_schemas;
+                live
+            }
+            Err(err) => {
+                let mut live = tables::LiveCatalog::default();
+                live.errors.push(tables::Error {
+                    scope: url::Url::parse("flow://control").unwrap(),
+                    error: err,
+                });
+                live
             }
         }
-        .boxed()
     }
-}
 
-impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
-        // Use NoOpCatalogResolver to prime with a catch-all storage mapping.
-        let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
+        let mut live = build::no_op_live_catalog();
 
         // If we're unauthenticated then return the placeholder LiveCatalog.
         if self.access_token.is_none() {

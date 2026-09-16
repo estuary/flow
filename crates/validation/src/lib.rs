@@ -303,7 +303,7 @@ fn walk_prefix<'a>(
     {
         // OK: recovery prefix is "recovery/" + partition prefix.
     } else if partition.catalog_prefix.is_empty() && recovery.catalog_prefix.is_empty() {
-        // OK: support for test & flowctl cases using NoOpCatalogResolver.
+        // OK: support for offline test and flowctl builds.
     } else {
         Error::StorageMappingPrefixMismatch {
             entity,
