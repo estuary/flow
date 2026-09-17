@@ -6,12 +6,19 @@
       {
         "ordinal": 0,
         "name": "id!: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "alert_configs",
+            "name": "id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "created!: bool",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {

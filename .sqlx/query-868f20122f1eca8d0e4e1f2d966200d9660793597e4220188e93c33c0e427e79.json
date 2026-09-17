@@ -6,12 +6,24 @@
       {
         "ordinal": 0,
         "name": "id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "alert_history",
+            "name": "id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "catalog_name",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "alert_history",
+            "name": "catalog_name"
+          }
+        }
       },
       {
         "ordinal": 2,
@@ -37,27 +49,57 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "alert_history",
+            "name": "alert_type"
+          }
         }
       },
       {
         "ordinal": 3,
         "name": "fired_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "alert_history",
+            "name": "fired_at"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "resolved_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "alert_history",
+            "name": "resolved_at"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "arguments: Json<ArgsObject>",
-        "type_info": "Jsonb"
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "alert_history",
+            "name": "arguments"
+          }
+        }
       },
       {
         "ordinal": 6,
         "name": "resolved_arguments: Json<ArgsObject>",
-        "type_info": "Jsonb"
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "alert_history",
+            "name": "resolved_arguments"
+          }
+        }
       }
     ],
     "parameters": {

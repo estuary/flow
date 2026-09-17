@@ -6,47 +6,96 @@
       {
         "ordinal": 0,
         "name": "data_plane_name",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "data_plane_name"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "cidr_blocks!: Vec<String>",
-        "type_info": "TextArray"
+        "type_info": "TextArray",
+        "origin": "Expression"
       },
       {
         "ordinal": 2,
         "name": "gcp_service_account_email",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "gcp_service_account_email"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "aws_iam_user_arn",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "aws_iam_user_arn"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "azure_application_name",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "azure_application_name"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "azure_application_client_id",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "azure_application_client_id"
+          }
+        }
       },
       {
         "ordinal": 6,
         "name": "aws_link_endpoints: Vec<serde_json::Value>",
-        "type_info": "JsonArray"
+        "type_info": "JsonArray",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "aws_link_endpoints"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "azure_link_endpoints: Vec<serde_json::Value>",
-        "type_info": "JsonArray"
+        "type_info": "JsonArray",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "azure_link_endpoints"
+          }
+        }
       },
       {
         "ordinal": 8,
         "name": "gcp_psc_endpoints: Vec<serde_json::Value>",
-        "type_info": "JsonArray"
+        "type_info": "JsonArray",
+        "origin": {
+          "Table": {
+            "table": "data_planes",
+            "name": "gcp_psc_endpoints"
+          }
+        }
       }
     ],
     "parameters": {

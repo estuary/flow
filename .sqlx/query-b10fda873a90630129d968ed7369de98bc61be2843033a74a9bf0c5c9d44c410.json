@@ -6,12 +6,24 @@
       {
         "ordinal": 0,
         "name": "catalog_name!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "catalog_name"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "live_spec_id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "id"
+          }
+        }
       },
       {
         "ordinal": 2,
@@ -28,57 +40,118 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec_type"
+          }
         }
       },
       {
         "ordinal": 3,
         "name": "disabled!: bool",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       },
       {
         "ordinal": 4,
         "name": "last_pub_id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "last_pub_id"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "last_build_id: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "last_build_id"
+          }
+        }
       },
       {
         "ordinal": 6,
         "name": "controller_next_run: DateTime<Utc>",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.tasks",
+            "name": "wake_at"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "live_spec_updated_at: DateTime<Utc>",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "ordinal": 8,
         "name": "connector_status?: ConnectorStatus",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "connector_status",
+            "name": "flow_document"
+          }
+        }
       },
       {
         "ordinal": 9,
         "name": "controller_updated_at: DateTime<Utc>",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "ordinal": 10,
         "name": "controller_status?: status::ControllerStatus",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "status"
+          }
+        }
       },
       {
         "ordinal": 11,
         "name": "controller_error: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "error"
+          }
+        }
       },
       {
         "ordinal": 12,
         "name": "controller_failures: i32",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "controller_jobs",
+            "name": "failures"
+          }
+        }
       }
     ],
     "parameters": {

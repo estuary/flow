@@ -6,12 +6,24 @@
       {
         "ordinal": 0,
         "name": "catalog_prefix: models::Prefix",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "alert_subscriptions",
+            "name": "catalog_prefix"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "email!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "alert_subscriptions",
+            "name": "email"
+          }
+        }
       },
       {
         "ordinal": 2,
@@ -44,22 +56,46 @@
               }
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "alert_subscriptions",
+            "name": "include_alert_types"
+          }
         }
       },
       {
         "ordinal": 3,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "alert_subscriptions",
+            "name": "created_at"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "updated_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "alert_subscriptions",
+            "name": "updated_at"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "detail",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "alert_subscriptions",
+            "name": "detail"
+          }
+        }
       }
     ],
     "parameters": {

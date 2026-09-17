@@ -6,12 +6,24 @@
       {
         "ordinal": 0,
         "name": "draft_id!: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "draft_specs",
+            "name": "draft_id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "catalog_name!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "draft_specs",
+            "name": "catalog_name"
+          }
+        }
       },
       {
         "ordinal": 2,
@@ -28,17 +40,30 @@
               ]
             }
           }
-        }
+        },
+        "origin": "Expression"
       },
       {
         "ordinal": 3,
         "name": "spec?: TextJson<Box<RawValue>>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "draft_specs",
+            "name": "spec"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "expect_pub_id?: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "draft_specs",
+            "name": "expect_pub_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -47,8 +72,8 @@
       ]
     },
     "nullable": [
-      false,
-      false,
+      true,
+      true,
       null,
       true,
       true

@@ -6,47 +6,86 @@
       {
         "ordinal": 0,
         "name": "date_start!",
-        "type_info": "Date"
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "invoices_ext",
+            "name": "date_start"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "date_end!",
-        "type_info": "Date"
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "invoices_ext",
+            "name": "date_end"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "billed_prefix!",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invoices_ext",
+            "name": "billed_prefix"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "invoice_type!: InvoiceType",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invoices_ext",
+            "name": "invoice_type"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "line_items!: sqlx::types::Json<Vec<LineItem>>",
-        "type_info": "Jsonb"
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "invoices_ext",
+            "name": "line_items"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "subtotal!",
-        "type_info": "Int8"
+        "type_info": "Int8",
+        "origin": "Expression"
       },
       {
         "ordinal": 6,
         "name": "extra: sqlx::types::Json<Option<Extra>>",
-        "type_info": "Jsonb"
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "invoices_ext",
+            "name": "extra"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "has_payment_method",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       },
       {
         "ordinal": 8,
         "name": "has_full_pipeline!",
-        "type_info": "Bool"
+        "type_info": "Bool",
+        "origin": "Expression"
       },
       {
         "ordinal": 9,
@@ -61,12 +100,24 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "payment_provider"
+          }
         }
       },
       {
         "ordinal": 10,
         "name": "tenant_trial_start",
-        "type_info": "Date"
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "trial_start"
+          }
+        }
       }
     ],
     "parameters": {
