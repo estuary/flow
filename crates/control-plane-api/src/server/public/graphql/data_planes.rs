@@ -273,6 +273,32 @@ impl DataPlane {
     }
 }
 
+/// Keys the request-scoped loader by data plane name so sibling resolvers that
+/// expand data-plane names — one per `StorageMapping`, say — collapse into one
+/// batch query.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DataPlaneDetailsKey(String);
+
+impl async_graphql::dataloader::Loader<DataPlaneDetailsKey> for super::PgDataLoader {
+    type Value = DataPlaneDetails;
+    type Error = String;
+
+    async fn load(
+        &self,
+        keys: &[DataPlaneDetailsKey],
+    ) -> Result<HashMap<DataPlaneDetailsKey, Self::Value>, Self::Error> {
+        let names: Vec<String> = keys.iter().map(|key| key.0.clone()).collect();
+        let details = fetch_data_plane_details(&self.0, &names)
+            .await
+            .map_err(|err| format!("failed to fetch data plane details: {}", err.message))?;
+
+        Ok(details
+            .into_iter()
+            .map(|(name, details)| (DataPlaneDetailsKey(name), details))
+            .collect())
+    }
+}
+
 /// Fetches detail fields for the given data plane names from the database.
 /// Returns a map from data_plane_name to its detail fields.
 async fn fetch_data_plane_details(
@@ -322,6 +348,7 @@ async fn fetch_data_plane_details(
         .collect())
 }
 
+#[derive(Debug, Clone)]
 struct DataPlaneDetails {
     cidr_blocks: Vec<String>,
     gcp_service_account_email: Option<String>,
@@ -387,6 +414,132 @@ pub(crate) fn parse_data_plane_name(
         }
         _ => None,
     }
+}
+
+/// Expands data-plane catalog names into `DataPlane` nodes, for fields that
+/// hold names rather than nodes — a `StorageMapping`'s `spec.data_planes`, for
+/// example.
+///
+/// Output order follows `names`, so a spec's own ordering (where the first
+/// entry is the default plane) carries through. A name is dropped when no data
+/// plane carries it, when it does not parse, or when the caller lacks read
+/// capability on it: this is a field-visibility gate, so it fails closed to a
+/// shorter list rather than erroring on names the caller may not see.
+///
+/// Detail fields load through the request-scoped `DataPlaneDetailsKey` loader,
+/// so expanding many names — across a page of storage mappings, say — costs one
+/// batched query.
+pub(crate) async fn data_planes_by_name(
+    ctx: &Context<'_>,
+    names: &[String],
+) -> async_graphql::Result<Vec<DataPlane>> {
+    let env = ctx.data::<crate::Envelope>()?;
+    let claims = env.claims()?;
+    let snapshot = env.snapshot();
+
+    // Resolve names against the authorization snapshot first, so the loader is
+    // asked only for planes that will actually be returned. Everything needed
+    // to build a node is copied out here, because the snapshot is borrowed from
+    // the request while a node is owned by the response.
+    struct Resolved {
+        plane: tables::DataPlane,
+        user_capability: models::Capability,
+        cloud_provider: DataPlaneCloudProvider,
+        region: String,
+        tag: String,
+        is_public: bool,
+    }
+
+    let mut resolved = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for name in names {
+        let Some(plane) = snapshot.data_plane_by_catalog_name(name) else {
+            continue;
+        };
+        // A spec may name the same plane twice; emit it once.
+        if !seen.insert(plane.data_plane_name.clone()) {
+            continue;
+        }
+        let Some((cloud_provider, region, tag, is_public)) =
+            parse_data_plane_name(&plane.data_plane_name)
+        else {
+            tracing::warn!(
+                data_plane_name = %plane.data_plane_name,
+                "skipping data plane with unparseable name",
+            );
+            continue;
+        };
+        let Some(user_capability) = tables::UserGrant::get_user_capability(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            claims.sub,
+            &plane.data_plane_name,
+        )
+        .filter(|capability| *capability >= models::Capability::Read) else {
+            continue;
+        };
+
+        resolved.push(Resolved {
+            plane: plane.clone(),
+            user_capability,
+            cloud_provider,
+            region,
+            tag,
+            is_public,
+        });
+    }
+
+    let loader = ctx.data::<async_graphql::dataloader::DataLoader<super::PgDataLoader>>()?;
+    let mut details_map = loader
+        .load_many(
+            resolved
+                .iter()
+                .map(|r| DataPlaneDetailsKey(r.plane.data_plane_name.clone())),
+        )
+        .await?;
+
+    Ok(resolved
+        .into_iter()
+        .map(|r| {
+            let details = details_map.remove(&DataPlaneDetailsKey(r.plane.data_plane_name.clone()));
+            DataPlane {
+                id: r.plane.control_id,
+                name: r.plane.data_plane_name,
+                fqdn: r.plane.data_plane_fqdn,
+                reactor_address: r.plane.reactor_address,
+                user_capability: r.user_capability,
+                cloud_provider: r.cloud_provider,
+                region: r.region,
+                tag: r.tag,
+                is_public: r.is_public,
+                closed: r.plane.closed,
+                cidr_blocks: details
+                    .as_ref()
+                    .map(|d| d.cidr_blocks.clone())
+                    .unwrap_or_default(),
+                gcp_service_account_email: details
+                    .as_ref()
+                    .and_then(|d| d.gcp_service_account_email.clone()),
+                aws_iam_user_arn: details.as_ref().and_then(|d| d.aws_iam_user_arn.clone()),
+                azure_application_name: details
+                    .as_ref()
+                    .and_then(|d| d.azure_application_name.clone()),
+                azure_application_client_id: details
+                    .as_ref()
+                    .and_then(|d| d.azure_application_client_id.clone()),
+                raw_aws_link_endpoints: details
+                    .as_ref()
+                    .map(|d| d.aws_link_endpoints.clone())
+                    .unwrap_or_default(),
+                raw_azure_link_endpoints: details
+                    .as_ref()
+                    .map(|d| d.azure_link_endpoints.clone())
+                    .unwrap_or_default(),
+                raw_gcp_psc_endpoints: details.map(|d| d.gcp_psc_endpoints).unwrap_or_default(),
+            }
+        })
+        .collect())
 }
 
 /// A public data plane, as visible to unauthenticated callers.
