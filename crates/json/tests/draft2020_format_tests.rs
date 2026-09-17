@@ -110,41 +110,7 @@ fn test_d12_format_relative_json_pointer() {
 
 #[test]
 fn test_d12_format_time() {
-    run_draft12_format_test(
-        "time.json",
-        &[
-            (
-                "validation of time strings",
-                "a valid time string with leap second, Zulu",
-                serde_json::json!("23:59:60Z"),
-            ),
-            (
-                "validation of time strings",
-                "valid leap second, large negative time-offset",
-                serde_json::json!("00:29:60-23:30"),
-            ),
-            (
-                "validation of time strings",
-                "valid leap second, large positive time-offset",
-                serde_json::json!("23:29:60+23:30"),
-            ),
-            (
-                "validation of time strings",
-                "valid leap second, negative time-offset",
-                serde_json::json!("15:59:60-08:00"),
-            ),
-            (
-                "validation of time strings",
-                "valid leap second, positive time-offset",
-                serde_json::json!("01:29:60+01:30"),
-            ),
-            (
-                "validation of time strings",
-                "valid leap second, zero time-offset",
-                serde_json::json!("23:59:60+00:00"),
-            ),
-        ],
-    );
+    run_draft12_format_test("time.json", &[]);
 }
 
 // We deliberately reject unknown formats
