@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.94"
 authors = ["Estuary developers <engineering@estuary.dev>"]
 readme = "./README.md"
 homepage = "https://estuary.dev/"
@@ -96,6 +96,7 @@ hmac = "0"
 humantime = "2"
 humantime-serde = "1"
 itertools = "0"
+ipnetwork = { version = "0.21", features = ["serde"] }
 indexmap = { version = "1", features = ["serde"] }
 highway = "1"
 iri-string = "0"
@@ -175,13 +176,14 @@ strsim = "0"
 strum = { version = "0", features = ["derive"] }
 strum_macros = "0"
 superslice = "1"
-sqlx = { version = "0", features = [
+sqlx = { version = "0.9", features = [
     "chrono",
     "ipnetwork",
     "json",
     "macros",
     "postgres",
-    "runtime-tokio-native-tls",
+    "runtime-tokio",
+    "tls-native-tls",
     "uuid",
 ] }
 
