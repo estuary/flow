@@ -40,6 +40,8 @@ fn authorize(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Auth
             function_name: "load_extension",
         } => Deny,
         AuthAction::Pragma { pragma_name, .. } if !is_allowed_pragma(pragma_name) => Deny,
+        // SAVEPOINT is not denied: it nests within the enclosing transaction.
+        AuthAction::Transaction { .. } => Deny,
         // Action codes added by a future SQLite release.
         AuthAction::Unknown { .. } => Deny,
         _ => Allow,
@@ -204,16 +206,25 @@ pub fn update_checkpoint(conn: &Connection, checkpoint: RuntimeCheckpoint) -> an
 }
 
 pub fn commit_and_begin(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch(
-        r#"
+    conn.authorizer(NO_AUTHORIZER)
+        .context("failed to remove SQLite authorizer")?;
+
+    let result = conn
+        .execute_batch(
+            r#"
                 COMMIT;
                 BEGIN EXCLUSIVE;
                 "#,
-    )
-    .context("failed to commit transaction")?;
+        )
+        .context("failed to commit transaction");
 
-    Ok(())
+    set_authorizer(conn)?;
+    result
 }
+
+const NO_AUTHORIZER: Option<
+    fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization,
+> = None;
 
 // Map a block of SQL into its constituent statements.
 pub fn sql_block_to_statements(mut block: &str) -> Result<Vec<&str>, Error> {
@@ -410,11 +421,14 @@ mod test {
         insta::assert_snapshot!(fixture_content, @r###"[{"id":4,"value":"hello"},{"id":5,"value":"updated"},{"thing":"hi","other":32},{"thing":"there","other":32},{"thing":"bye","other":42}]"###);
     }
 
-    // Run `block` as a user migration over a temporary database,
-    // returning the error message if it failed.
-    fn try_migration(block: &str) -> Result<(), String> {
+    // Run each `block` as a user migration over a temporary database,
+    // returning the error message if any of them failed. Blocks are newline
+    // terminated because a block without whitespace is a URL to be generated.
+    fn try_migrations(blocks: &[&str]) -> Result<(), String> {
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        open(tmp.path().to_str().unwrap(), &[block.to_string()])
+        let blocks: Vec<String> = blocks.iter().map(|b| format!("{b}\n")).collect();
+
+        open(tmp.path().to_str().unwrap(), &blocks)
             .map(|_| ())
             .map_err(|err| format!("{err:#}"))
     }
@@ -425,12 +439,12 @@ mod test {
         let side = tmp.path().join("side.db");
         let side = side.to_str().unwrap();
 
-        let plain = try_migration(&format!("ATTACH DATABASE '{side}' AS other;")).unwrap_err();
+        let plain = try_migrations(&[&format!("ATTACH DATABASE '{side}' AS other;")]).unwrap_err();
         insta::assert_snapshot!(plain.replace(side, "<SIDE>"), @"failed to apply database migration at index 0: failed to prepare query for invocation: ATTACH DATABASE '<SIDE>' AS other;: not authorized: Error code 23: authorization denied");
 
-        let uri = try_migration(&format!(
+        let uri = try_migrations(&[&format!(
             "ATTACH DATABASE 'file:{side}?vfs=unix&mode=rwc' AS other;"
-        ))
+        )])
         .unwrap_err();
         insta::assert_snapshot!(uri.replace(side, "<SIDE>"), @"failed to apply database migration at index 0: failed to prepare query for invocation: ATTACH DATABASE 'file:<SIDE>?vfs=unix&mode=rwc' AS other;: not authorized: Error code 23: authorization denied");
 
@@ -446,7 +460,7 @@ mod test {
         let side = tmp.path().join("vacuumed.db");
         let side = side.to_str().unwrap();
 
-        let err = try_migration(&format!("VACUUM INTO '{side}';")).unwrap_err();
+        let err = try_migrations(&[&format!("VACUUM INTO '{side}';")]).unwrap_err();
         insta::assert_snapshot!(err.replace(side, "<SIDE>"), @"failed to apply database migration at index 0: cannot VACUUM from within a transaction: Error code 1: SQL logic error");
         assert!(!std::path::Path::new(side).exists());
     }
@@ -477,10 +491,13 @@ mod test {
             "PRAGMA mmap_size=0;",
             "PRAGMA cache_spill=OFF;",
             "DETACH DATABASE main;",
+            "COMMIT;",
+            "ROLLBACK;",
+            "BEGIN;",
         ];
 
         for statement in denied {
-            let err = try_migration(statement).unwrap_err();
+            let err = try_migrations(&[statement]).expect_err(statement);
             assert!(err.contains("not authorized"), "{statement}: {err}");
         }
     }
@@ -512,10 +529,7 @@ mod test {
             "RELEASE sp2;",
         ];
 
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let migrations: Vec<String> = allowed.iter().map(|s| s.to_string()).collect();
-        let _ =
-            open(tmp.path().to_str().unwrap(), &migrations).expect("all statements are allowed");
+        try_migrations(&allowed).expect("all statements are allowed");
     }
 
     #[test]
@@ -525,8 +539,13 @@ mod test {
 
         commit_and_begin(&conn).unwrap();
 
-        let err = run_script(&conn, "PRAGMA journal_mode=MEMORY;", "after commit").unwrap_err();
-        assert!(format!("{err:#}").contains("not authorized"), "{err:#}");
+        for statement in ["PRAGMA journal_mode=MEMORY;", "COMMIT;"] {
+            let err = run_script(&conn, statement, "after commit").unwrap_err();
+            assert!(
+                format!("{err:#}").contains("not authorized"),
+                "{statement}: {err:#}"
+            );
+        }
     }
 
     #[test]
