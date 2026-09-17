@@ -68,8 +68,11 @@ host-side DNS fixture. Unset, the path is unchanged.
 - `--deps-image PATH`: attach PATH as a read-only virtio-blk device after the
   scratch disk (so scratch stays `/dev/vda`, deps is `/dev/vdb`). flow-init
   mounts it read-only at `/opt/venv`. `--deps-fstype` defaults to `ext4`.
-  This is the production transport for the dependency set; WP08 measured
-  virtiofs at 2.4x-2.9x for it and a block device at 0.9x.
+  WP08 measured virtiofs at 2.4x-2.9x for the dependency set and a block
+  device at 0.9x, which made this the planned production transport. Phase-2
+  note (2026-09-17): not carried. There is no per-tag image; dependencies
+  install at start onto the scratch disk, and this flag and `--deps-dev` in
+  flow-init are spike-only.
 - Default workload argv:
   `/flow-connector-init --image-inspect-json-path=/image-inspect.json --vsock-port=49092`
 - `--exec ARGV...` replaces the workload argv. flow-init still does all of its
@@ -156,6 +159,14 @@ UDP DNS forwarder. Runs until killed. Behavior:
   Must not overlap the baseline. `ports` is TCP.
 - Rate limits: `null` means unlimited. Semantics per PLAN experiment 8.
 - Deny action everywhere is `drop`.
+
+Phase-2 note (2026-09-17): the policy's source is an image label read at
+inspect time, not a catalog field; the shim already receives the inspect
+output as `/init/image-inspect.json`. The JSON gains a name allowlist that the
+resolver enforces (names off the list are refused, so `@resolved` only ever
+holds listed destinations); `public` remains the "any resolved name" mode.
+Labels are honored only on images from our own registry. See
+`report/HANDOFF.md` R1.
 
 Baseline denylist (in the ruleset, not the policy): 0.0.0.0/8, 10.0.0.0/8,
 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16,
@@ -250,7 +261,9 @@ of the runtime's logger. What this section binds survives the move: the
 launch line of PLAN "Helper launch", the per-connector directory of "Paths
 and names", the dial of `<id>/sock/init.sock`, and the cleanup guard. The
 environment variables above are the spike's trigger and do not survive;
-`report/HANDOFF.md` R1 and R2 replace them with the built spec.
+`report/HANDOFF.md` R1 and R2 replace them: the policy from an image label,
+memory and CPU from the launcher's existing `CONNECTOR_MEMORY_LIMIT` and
+`CONNECTOR_CPU_LIMIT`, and a disk-size knob in the same style (2026-09-17).
 
 ## Fake reactor (WP00 provides)
 

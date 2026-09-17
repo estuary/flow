@@ -3016,3 +3016,32 @@ any runtime work is spent.)
 - Amended: HANDOFF (assumption note, switch row, R1, R2, R3), REPORT (4.1
   pointer, the accepted cost, open problem 5), CONTRACTS (phase-2 note on the
   switch section). PLAN keeps its historical wording.
+
+### 2026-09-17 master: three decisions folded in; the POC ran well
+
+- Decided outside this thread: (1) no builder and no pre-flight dependency
+  install, since there is nowhere to store per-tag images and customers will
+  not value a no-network sandbox; the package index goes in the allowed
+  egress. (2) CPU and memory limits are the launcher's existing
+  `CONNECTOR_MEMORY_LIMIT` / `CONNECTOR_CPU_LIMIT`; the sandbox adds only a
+  disk-size knob. (3) The egress list travels as an image label read at
+  inspect time, like `FLOW_RUNTIME_PROTOCOL` and John's secrets handling.
+- Consequences recorded in HANDOFF: B1 is dropped and says what replaces it
+  (derive-python's `uv` already installs into a temp dir under `/scratch`,
+  the virtio-blk volume, so experiment 4 is the production shape; `diskMib`
+  is now sized by installs, ~180 MiB per mid-sized dependency); the deps
+  disk and its flags leave the shim and flow-init; R1 is rewritten around
+  the label, with a name allowlist in the resolver and a trust rule that
+  honors labels only on our own images; R2 takes limits from the existing
+  variables and pins the memory semantic (cap unchanged, guest gets cap
+  minus 256); R3's two policy questions dissolve; R7's reopen trigger no
+  longer depends on B1. Decisions 5 to 7 added to HANDOFF section 4.
+- REPORT 4.4, 4.6 and open problem 5, exp4.md's footprint note, and
+  CONTRACTS (deps flags, Policy JSON, switch section) carry dated notes.
+  Measured records are unchanged.
+- HANDOFF also carried uncommitted edits from a 2026-09-16 session
+  (decisions 1 to 4 answered; R7 to "256 stays"; H1, P1 updated). Kept and
+  committed together with this entry. `spike/tasks/poc-*.sh` are untracked
+  and not this thread's.
+- Not measured, flagged in B1: import time for a venv freshly written onto
+  `/scratch`. Expected at or below the block-image figures.

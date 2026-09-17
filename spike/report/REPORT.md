@@ -630,6 +630,11 @@ to the measurement, because the benchmark puts site-packages on `sys.path`
 rather than running the venv's own interpreter. A phase-2 builder should create
 the venv at its final path.
 
+(Decision of 2026-09-17: there is no builder and no per-tag image. The mkfs
+options above stay in use because the shim formats the scratch disk with them,
+and the scratch disk is where a connector's own `uv` install now lands.
+`HANDOFF.md` B1.)
+
 ### 4.5 Sizing: the overhead constant, THP, and what a reactor sizes on
 
 Every figure in this section is experiment 10's, measured at `817c6c65bab`,
@@ -675,10 +680,13 @@ measurement-only flag.
 
 ### 4.6 Transport: what experiment 5 implies about layer versus share
 
-The dependency set ships as a **per-tag read-only ext4 image on a second
+The dependency set was measured as a **per-tag read-only ext4 image on a second
 virtio-blk device**, mounted read-only at `/opt/venv`. The root stays on
-virtiofs. That is the design, and the layer-versus-share question underneath it
-is now settled on measurements rather than assumption. Ratios below are the
+virtiofs. On 2026-09-17 the prebuilt image was dropped: the connector installs
+its dependencies at start onto the scratch disk, which is the same virtio-blk
+transport (`HANDOFF.md` B1). The transport conclusion below is what carries, and
+the layer-versus-share question underneath it is settled on measurements rather
+than assumption. Ratios below are the
 experiment 5 matrices of section 3.2 (`f6498560dea`, `18ae8986a0a`):
 
 - **The image layer is the worst option.** The venv baked into the connector
@@ -856,10 +864,11 @@ guest root, **T3** guest kernel control.
    through a Go proxy on its public address. The PR keeps the V1 proxy and
    defers control-plane adoption to a follow-up. Once adopted, Spec and
    Validate reach the same `container::start` as tasks, so a sandbox switch
-   there covers them. Left to decide: a default policy for the task-less Spec,
-   and what network a Validate gets before the builder has produced a
-   dependency image. Owner: control plane (agent) for adoption, runtime for
-   the policy; `HANDOFF.md` R1 and R3.
+   there covers them. With the egress policy carried as an image label
+   (2026-09-17, `HANDOFF.md` R1), Spec and Validate get the image's policy
+   like any launch, and Validate installs dependencies over the same allowed
+   egress a run does. Owner: control plane (agent) for adoption;
+   `HANDOFF.md` R3.
 
 6. **Root writes have no per-task bound, and the layer is not discoverable
    through `podman inspect`.** `.GraphDriver` reports the helper container's own

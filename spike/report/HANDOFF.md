@@ -19,6 +19,15 @@ and has the reactor serve a `connector.Connector` protocol. The carry-forward
 row for the spike switch and items R1, R2 and R3 are written against that
 shape; if the PR changes materially, revisit those four.
 
+Three decisions of 2026-09-17 are folded in below and marked with that date:
+there is no builder and no pre-flight dependency install (B1 is dropped;
+dependencies install at task start over allowed egress, onto the scratch
+disk); CPU and memory limits come from the launcher's existing
+`CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT` environment variables
+rather than anything new; and the egress list travels as an image label, read
+at inspect time the way `FLOW_RUNTIME_PROTOCOL` already is, rather than as a
+catalog-model change.
+
 ---
 
 ## 1. What was built, in one paragraph
@@ -36,15 +45,20 @@ static **flow-init** runs first in the guest: static network, mounts, uid
 drop, then `exec` of the image's command. **connector-init**, the same binary
 connectors run under today, answers the reactor's gRPC over a vsock port that
 libkrun maps to a Unix socket in the helper. Customer Python dependencies
-arrive as a **per-tag read-only ext4 image** on a second block device, mounted
-at `/opt/venv`.
+are installed by the connector at start (derive-python runs `uv` into a
+temporary directory) onto the **scratch disk**, a virtio-blk ext4 volume, over
+egress that allows the package index. The spike measured them as a per-tag
+read-only block image instead; the decision of 2026-09-17 dropped that.
 
 Five things the spike changed in the design, all measured (`REPORT.md` 4.6, 4.1,
 6, 7.10, 7.3):
 
-- Dependency sets ship as per-tag read-only **block images**, not virtiofs.
-  virtiofs failed the import gate at 2.88x; the block image is 2.12x on the
-  first import and 1.15x in steady state.
+- Dependencies live on a **block device**, not on virtiofs. virtiofs failed
+  the import gate at 2.88x; a block device passes (2.12x on the first import
+  after boot, 1.15x in steady state, measured as a per-tag read-only image).
+  The delivery changed on 2026-09-17: no prebuilt image, the connector
+  installs at start onto the scratch disk, which is the same transport. The
+  transport finding is what carries; see B1.
 - The writable root is **podman's per-container layer** served read-write.
   There is no overlay inside the guest and no libkrun patch.
 - **libkrun is unpatched.** The one-line ENOTTY patch WP04 needed for a guest
@@ -61,16 +75,16 @@ Five things the spike changed in the design, all measured (`REPORT.md` 4.6, 4.1,
 | what | where | size | verdict | why |
 |---|---|---|---|---|
 | connector-init `--vsock-port` | `crates/connector-init/src/lib.rs`, `tests/vsock.rs` | small | **keep** | Already in the crate with tests. Serves gRPC on AF_VSOCK when asked; unchanged otherwise. |
-| helper shim | `spike/helper/shim/src/*.rs` | ~900 lines Rust | **keep, move into `crates/`, harden** | Tap, ruleset, resolver spawn, scratch disk, image config, the libkrun call sequence of `REPORT.md` 4.3. Hardening is section 3 items R5 and R6. Drop the spike-only flags `--venv-dax` and `--thp-disable`. |
-| flow-init | `spike/flow-init/src/*.rs` | ~550 lines Rust, static musl | **keep, move into `crates/`** | Network, `/etc`, mounts, chown, uid drop, exec. It does no `pivot_root` and must not (CONTRACTS "flow-init"). |
+| helper shim | `spike/helper/shim/src/*.rs` | ~900 lines Rust | **keep, move into `crates/`, harden** | Tap, ruleset, resolver spawn, scratch disk, image config, the libkrun call sequence of `REPORT.md` 4.3. Hardening is section 3 items R5 and R6. Drop the spike-only flags `--venv-dax` and `--thp-disable`, and, with the builder gone, `--deps-image` and `--deps-fstype`. |
+| flow-init | `spike/flow-init/src/*.rs` | ~550 lines Rust, static musl | **keep, move into `crates/`** | Network, `/etc`, mounts, chown, uid drop, exec. It does no `pivot_root` and must not (CONTRACTS "flow-init"). Drop `--deps-dev`, `--deps-fstype` and the `/opt/venv` mount with them. |
 | egress ruleset generator | `spike/egress/src/{ruleset,policy,cidr,ifaddrs}.rs`, `src/bin/egress.rs` | ~550 lines Rust | **keep** | Policy JSON in, `inet flow_sandbox` out, applied once with `nft -f` before the VM boots. The rendered ruleset in `REPORT.md` 4.2 is the spec. |
 | egress resolver | `spike/egress/src/dns.rs`, `src/bin/resolver.rs` | ~450 lines Rust | **keep the DNS half, rewrite the nft half** | It forks one `nft` process per answered query, and `nft add element` does not refresh an existing element's timeout (open problem 4). Phase 2 drives the set over netlink and updates in place. |
 | runtime-next spike switch | `crates/runtime-next/src/container/spike.rs`, the hook in `container.rs` | ~330 lines Rust | **port into `crates/connector`, then productionize** | The launch line, the per-connector directory, the socket dial and the cleanup guard are right. PR 3490 deletes the `runtime-next` file the hook lives in and re-homes the launcher as `crates/connector/src/container.rs`, whose `start` takes a `StartContext` (container network, log level, `LogSink`, plane, process, task name) in place of the generic logger the spike threads through. The port is mechanical; a rebase hits a modify/delete conflict on `container.rs`. The trigger is wrong either way: an env var, a policy file path, and sizes from more env vars. Items R1 and R2 replace them. |
 | helper image build | `spike/helper/Dockerfile` | | **replace** | Builds libkrun v1.19.4 from source on Fedora 43 with libkrunfw 5.5.0 from Fedora, tagged `localhost/...:spike`. Phase 2 needs a CI build, a registry image, and pinned versions of both (item H1). |
-| deps image build | `spike/tasks/exp5-build.sh`, the mkfs line in `REPORT.md` 4.4 | | **seed of the builder** | The command is right; the venv it packaged was created at `/venv` and mounted at `/opt/venv`. The builder creates it at its final path (item B1). |
+| deps image build | `spike/tasks/exp5-build.sh`, the mkfs line in `REPORT.md` 4.4 | | **not carried** | Decided 2026-09-17: no builder, no per-tag image (B1). The mkfs options survive anyway, because the shim already formats the scratch disk with them. |
 | stub helper | `spike/stub-helper/` | 70 lines | **keep as a test double** | Satisfies the runtime switch with no VM: same mounts, same socket, `socat` to a chroot'd connector-init. It is how the runtime side can be tested on a machine without KVM. |
 | catalog fixtures | `spike/catalog/` | | **keep as test fixtures** | Fictitious `acmeCo/` specs for a Go capture, a Go materialization and a pandas derivation, with fixture files. Experiments 1 to 4 drive `flowctl preview` with them. |
-| benchmark image and instruments | `spike/derived/` | | **keep until item R7 is done** | `bench.py`, `prefault.py`, `attrib.py` and the pandas image are what experiment 5 measures with. The overhead-default decision needs one more run of them. |
+| benchmark image and instruments | `spike/derived/` | | **evidence; rerun only if R7 reopens** | `bench.py`, `prefault.py`, `attrib.py` and the pandas image are what experiment 5 measures with. Any rerun should measure the production shape, a venv `uv` installed onto `/scratch`, not a prebuilt image. |
 | probe suite and test internet | `spike/egress/probes.py`, `testnet.py`, `spike/tasks/egress-netns-test.sh` | ~650 lines Python | **seed of the integration tests** | Four named probe sets, one JSON line each, run where the connector runs. Item C1. |
 | push-button scripts | `spike/tasks/*.sh` (34) | | **evidence, not product** | Each is one experiment or one check, and each is green as of its last run. Their assertions are what the integration tests should assert; the scripts themselves are not carried. `env-setup.sh` documents how the box was provisioned. |
 | citation checker | `spike/tasks/check-exposure-citations.sh` | | **keep while `libkrun-exposure.md` is cited** | Checks all 96 file and line-range citations in the source read against the libkrun tag. Rerun it if the report is quoted against a newer libkrun. |
@@ -89,30 +103,50 @@ product owns and the mechanism must be able to carry either way. Items marked
 
 ### Runtime
 
-- **R1. Egress policy in the catalog model.** Today the policy is a JSON file
-  per CONTRACTS "Policy JSON" (`egress`, `allowAll`, `declaredCidrs`, the two
-  rate limits, the TTL floor and cap). It needs a model type, a place in the
-  built task spec, and validation that a declared CIDR does not overlap the
-  baseline (the egress binary already refuses that at load; the control plane
-  should refuse it at publish). Two cases the spike never met, both from PR
-  3490's protocol: `Spec` is task-less there (`SPEC_TASK_NAME`), so it needs a
-  default policy rather than one read from a spec; and `Validate` for
-  derive-python runs before any dependency image exists, so either it gets a
-  policy that reaches the package index or the builder (B1) runs first and
-  Validate consumes its image. Plan R1 and B1 together. **Policy:** which
-  tasks are sandboxed, and what a task may declare, is product's and
-  security's to set; the mechanism carries any answer.
-- **R2. The per-task launch decision, in `crates/connector`.** Port the spike
+- **R1. Egress policy from an image label** (decided 2026-09-17; replaces the
+  catalog-model item). The connector image carries its egress list as a
+  label, read at inspect time the way the runtime already reads
+  `FLOW_RUNTIME_PROTOCOL` (`crates/runtime/src/container.rs`), on the pattern
+  of John's secrets handling. The plumbing exists: the launcher already runs
+  `inspect`, and the shim already receives that output verbatim as
+  `/init/image-inspect.json` and parses `Config` from it (`image.rs`); adding
+  `Labels` is a struct field. The shim turns the label into the policy JSON of
+  CONTRACTS "Policy JSON", which gains one thing the spike did not have: a
+  **name allowlist**. Today `egress: public` admits any name the guest
+  resolves; with a list, the resolver answers only names on it (suffix match)
+  and refuses the rest, so `@resolved` never holds anything off the list. The
+  baseline denylist, anti-spoof, and the IPv6 and non-TCP/UDP drops all still
+  apply underneath. derive-python's list must include the package index
+  (`pypi.org`, `files.pythonhosted.org`), since dependencies now install at
+  start (B1). Two cases PR 3490 raised dissolve: a task-less `Spec` has an
+  image and so has a policy, and `Validate` installs dependencies over the
+  same allowed egress a run does. **Trust rule (mechanism):** a label is
+  written by whoever built the image, so honor it only on images from our own
+  registry; a non-Estuary image gets the strictest policy regardless of what
+  it claims. **Policy:** what each image's list is, whether derive-python's
+  arbitrary customer code gets a list or `public`, and whether a task may
+  ever add destinations of its own, are product's and security's to set; the
+  mechanism carries a list, `public`, or `none` alike.
+- **R2. The per-launch decision, in `crates/connector`.** Port the spike
   switch into `crates/connector/src/container.rs` once PR 3490 lands, and
-  replace `FLOW_SANDBOX_SPIKE_POLICY` and the other env vars (CONTRACTS
-  "runtime-next spike switch") with a decision made from the built spec:
-  sandbox or not, the policy from R1, and `memoryMib`, `vcpus`, `diskMib`
-  from the spec with defaults. `StartContext.plane` already gates local
-  connectors and non-Estuary images and is the natural place for "sandbox
-  this launch" to be decided as well. Every caller reaches `container::start`
-  through the connector service (runtime-next, flowctl, the catalog tests,
-  and the control plane once it adopts the protocol), so a switch there
-  covers all of them at once. The per-connector directory moves from
+  retire the `FLOW_SANDBOX_SPIKE_*` variables (CONTRACTS "runtime-next spike
+  switch"). What replaces each: the policy comes from the image label (R1);
+  memory and CPU come from the launcher's existing `CONNECTOR_MEMORY_LIMIT`
+  and `CONNECTOR_CPU_LIMIT` (decided 2026-09-17: connector limits are already
+  set this way, per reactor through the environment, and the sandbox adds
+  nothing to them); the disk size is the one new knob, in the same style.
+  "Sandbox this launch" is the presence of the egress label on the image,
+  which gives per-image rollout with no catalog change; `StartContext.plane`
+  already gates non-Estuary images and is where R1's trust rule belongs.
+  Every caller reaches `container::start` through the connector service
+  (runtime-next, flowctl, the catalog tests, and the control plane once it
+  adopts the protocol), so a switch there covers all of them at once. One
+  semantic to pin down and write down: `CONNECTOR_MEMORY_LIMIT` is the
+  container's cgroup cap today. Keep it that, and give the guest
+  `limit - 256 MiB` of RAM (decision 3), so a sandboxed connector under the
+  1 GiB default sees 768 MiB. The alternative, guest RAM equal to the limit
+  with the cap 256 above it, quietly makes every sandboxed connector exceed
+  the configured limit. The per-connector directory moves from
   `/var/tmp/flow-spike/reactor` to the reactor's own ephemeral directory,
   which is removed on restart and matches the contract that `<id>` is never
   reused (`REPORT.md` 4.1).
@@ -126,8 +160,9 @@ product owns and the mechanism must be able to carry either way. Items marked
   V1 proxy unchanged and defers control-plane adoption to a follow-up after
   the reactor rollout. Once the control plane adopts it, Spec and Validate go
   through the same `container::start` as tasks and the switch of R2 covers
-  them with no further runtime work. What stays ours is the policy for the
-  task-less Spec and the pre-builder Validate (R1). Until adoption lands,
+  them with no further runtime work. With the policy on the image (R1), Spec
+  and Validate carry it like any other launch, so nothing else is ours here.
+  Until adoption lands,
   customer Python runs unsandboxed during validation, and the report says so
   in accepted costs. Owner: control plane (agent) for adoption, runtime for
   the policy.
@@ -146,12 +181,17 @@ product owns and the mechanism must be able to carry either way. Items marked
   produce one structured stderr line and a distinct exit code. And the runtime
   must never branch on the helper's exit code: it is the guest workload's exit
   status, and 0 on a panic.
-- **R7. The memory overhead default** (open problem 2, `REPORT.md` 4.5).
-  Measured at 20 to 32 MiB; the spike ships 256; 64 is what the measurement
-  supports. Rerun experiment 5 at `memoryMib + 64` first, because the cgroup
-  limit also bounds the host page cache the helper is charged for and every
-  import number was taken at 256. A reactor sizes on 95 MiB of host memory per
-  idle 512 MiB guest, not on the cgroup figure.
+- **R7. The memory overhead default: 256 stays** (open problem 2, `REPORT.md`
+  4.5, decision 3). Decided, so phase 2 ships 256 and does not rerun experiment
+  5 for it now. The guest's `uv` run is the largest generator of the page
+  cache this cap bounds, and with B1 dropped (2026-09-17) that run is
+  permanent, so 256 was sized against the workload production actually has.
+  Reopen only if helpers are seen pinned at the cap in production. When it is
+  reopened, run experiment 5 at 64, 128 and 256, for a curve rather than a coin
+  flip. Not answered either way, and the more interesting question: whether the
+  cap should scale with `diskMib` rather than being a constant added to
+  `memoryMib`. Experiment 11 pinned the cgroup at its limit on disk size, not
+  on memory size.
 - **R8. Keep `rp_filter` explicit** (open problem 3). The launch line sets
   `--sysctl net.ipv4.conf.default.rp_filter=1` and phase 2 must keep it; there
   is no other route to the tap's setting from inside the container.
@@ -166,23 +206,35 @@ product owns and the mechanism must be able to carry either way. Items marked
 
 ### Builder
 
-- **B1. The dependency-image pipeline** (`REPORT.md` 4.4, 4.6). Per connector
-  tag: resolve and install the customer's dependencies into a venv created at
-  `/opt/venv`, then `mkfs.ext4 -d <venv> -O ^has_journal -E lazy_itable_init=0
-  -m 0` sized at `du -sk` plus 10% plus 24 MiB. ext4, not erofs. Where the
-  images are stored and how they reach a reactor is undecided; the spike bound
-  a host path read-only at `/deps.img`. This builder is where the work R3
-  removes from the reactor's network goes, and it should itself run sandboxed,
-  since it executes the customer's build backends.
+- **B1. Dropped (2026-09-17): no builder, no pre-flight dependency install.**
+  The spike's plan was a per-tag read-only dependency image built ahead of
+  time (`REPORT.md` 4.4, 4.6). It is not happening: there is nowhere to store
+  the images, and a formal no-network sandbox is something only we would
+  value, not customers. What replaces it is what experiment 4 already ran:
+  derive-python invokes `uv` at start into a temporary directory, and because
+  flow-init points `TMPDIR` and `UV_CACHE_DIR` at `/scratch`, the venv and
+  uv's cache land on the scratch disk, a virtio-blk ext4 volume, with the
+  package index reachable through the egress list (R1). Consequences: the
+  deps disk and `--deps-image`, `--deps-fstype` and `--deps-dev` are removed
+  from the shim and flow-init; `diskMib` is now sized by dependency installs
+  (experiment 4 measured about 180 MiB for one mid-sized dependency, venv and
+  cache each about half, so the 4096 MiB default is ample and heavy stacks
+  are the case to watch); every start pays the install, as it does today, and
+  the cache dies with the guest, as a container's does today. Not measured in
+  this exact shape: import time for a venv freshly written onto `/scratch`.
+  It is the same block transport experiment 5 passed with, and pages `uv`
+  just wrote are already in the guest's page cache, so it should sit at or
+  below the block-image figures; a run of `bench.py` in that shape closes the
+  point if anyone needs it closed.
 
 ### Helper image and packaging
 
 - **H1. Build and publish the helper image in CI.** Pin libkrun (v1.19.4 is
   what was measured and read) and libkrunfw (5.5.0, guest kernel 6.12.91), and
   record both in the image. libkrun 2.x offers a configurable kernel command
-  line, which the design does not need; do not upgrade for it. If the three
-  guest-kernel-level bugs in open problem 9 are reported upstream, track their
-  fixes here.
+  line, which the design does not need; do not upgrade for it. The three
+  guest-kernel-level bugs in open problem 9 are not being reported upstream
+  (decision 1), so there is nothing to track here unless that changes.
 
 ### Ops
 
@@ -208,9 +260,11 @@ product owns and the mechanism must be able to carry either way. Items marked
 
 ### Product and derive-python (policy, not mechanism)
 
-- **P1. Blocked connections stall rather than fail** (open problem 13). A
-  `reject` on the guest's DNS query alone would make lookups fail at once. The
-  spike keeps deny as `drop` by decision; the mechanism can do either.
+- **P1. Blocked connections stall rather than fail** (open problem 13).
+  **Decided: `drop` stays** (decision 2). A `reject` on the guest's DNS query
+  alone would have made lookups fail at once. The mechanism can still do
+  either, so this is reversible if a customer ever makes the stall the more
+  expensive half.
 - **P2. `connectionsPerMinute` is pacing, and invisible when it bites** (open
   problem 14). Whether it is named as a rate rather than a limit, and whether
   the policy is surfaced in the task's logs at startup.
@@ -221,20 +275,42 @@ product owns and the mechanism must be able to carry either way. Items marked
 
 ---
 
-## 4. Decisions waiting on the author
+## 4. Decisions
 
-Four, collected here so the plan is not blocked on finding them in the
-ledger:
+Seven, collected here so the plan is not blocked on finding them in the
+ledger. The first four were answered 2026-09-16, the last three 2026-09-17.
 
-1. **Report the three guest-kernel-level libkrun bugs upstream?** Console port
-   index, balloon report length, DAX offset overflow (open problem 9). None is
-   reachable from a connector. The spike's recommendation is an issue each, no
-   patches.
-2. **Should `egress: none` reject the guest's DNS query** instead of dropping
-   it (P1)? The spike chose drop.
-3. **Does the overhead default move to 64** after the experiment 5 rerun (R7)?
-4. **Who owns AWS** (O2)? The report proposes runtime to drive, ops for the
-   instance family and images.
+1. **The three guest-kernel-level libkrun bugs are not reported upstream.**
+   Console port index, balloon report length, DAX offset overflow (open problem
+   9). None is reachable from a connector. The standing rule is narrower than
+   the spike's recommendation of an issue each: report nothing unless it
+   actively bites us and is clearly wrong. Revisit per bug if one ever does.
+2. **`egress: none` keeps `drop`.** The guest's DNS query is dropped and not
+   rejected, so a blocked lookup stalls and then times out rather than failing
+   at once. This is what the spike chose, and accepted cost 6 stands (P1, open
+   problem 13).
+3. **The overhead default stays at 256 MiB.** Not 64. The measured overhead
+   constant is 20 to 32 MiB, but the cgroup limit is a cap and not a
+   reservation: a reactor sizes on the 95 MiB of host memory per idle 512 MiB
+   guest that experiment 10 measured directly, so lowering the cap buys no
+   density. What the cap also bounds is the host page cache charged to the
+   helper, which is the `import` path's working set, and every experiment 5
+   number was taken at 256. Keeping 256 costs a runaway guest about 190 MiB of
+   extra reclaimable page cache. R7 says when to reopen it.
+4. **AWS ownership is being worked.** Until it lands, O2 stands as the report
+   proposes: runtime to drive, ops for the instance family and images.
+5. **No builder and no pre-flight dependency install.** Nowhere to store the
+   images, and customers will not value a no-network sandbox; the package
+   index goes in the allowed egress instead. B1 is dropped and its
+   consequences are recorded there.
+6. **CPU and memory limits are the launcher's existing
+   `CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT`.** Already supported,
+   per reactor through the environment; the sandbox adds only a disk-size
+   knob (R2). The memory semantic is R2's to pin down.
+7. **The egress list travels as an image label**, read at inspect time like
+   `FLOW_RUNTIME_PROTOCOL`, on the pattern of John's secrets handling. R1 is
+   rewritten around it, and the trust rule for non-Estuary images is part of
+   the mechanism.
 
 ---
 

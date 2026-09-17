@@ -64,6 +64,9 @@ of which the venv and uv's cache are each about half. `TMPDIR` and
 `UV_CACHE_DIR` both point at `/scratch` (flow-init), which is why none of this
 landed in podman's container layer on host disk.
 
+(2026-09-17: the prebuilt image was dropped, so production guests do run `uv`
+at start and this footprint is exactly what sizes `diskMib`. `HANDOFF.md` B1.)
+
 ## What "allow-all" means here
 
 `allowAll: true` adds one accept at the head of `egress_accept` and changes
