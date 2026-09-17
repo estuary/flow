@@ -15,39 +15,6 @@ pub struct Secret {
     pub secret_id: models::Id,
 }
 
-/// The document must survive transport with its *key order* intact: sops
-/// verifies its MAC by traversing the document in order, and the workspace
-/// builds serde_json without `preserve_order`, so a round trip through
-/// `serde_json::Value` would alphabetize keys and break verification. This
-/// scalar routes through `async_graphql::Value` instead, whose objects are
-/// `IndexMap`s, and holds the result as text from then on.
-///
-/// `parse` does normalize the document's *formatting* — insignificant
-/// whitespace and JSON escape choices don't survive re-serialization — so the
-/// identity that `setSecret` judges is normalized-text equality with key order
-/// significant, not literal byte equality of what the client sent. sops is
-/// indifferent to formatting; only values and traversal order feed its MAC.
-#[derive(Debug, Clone)]
-pub struct SecretDocument(pub models::RawValue);
-
-/// The sops-wrapped document of a secret, as returned by config-encryption's
-/// `/secret/encrypt` route. It is opaque to the control plane, which holds no
-/// grant on the KMS key that wraps it and so can neither decrypt the document
-/// nor verify its MAC. Provide it verbatim, exactly as config-encryption
-/// returned it.
-#[async_graphql::Scalar(name = "SecretDocument")]
-impl async_graphql::ScalarType for SecretDocument {
-    fn parse(value: async_graphql::Value) -> async_graphql::InputValueResult<Self> {
-        let text = serde_json::to_string(&value)?;
-        Ok(Self(models::RawValue::from_string(text)?))
-    }
-
-    fn to_value(&self) -> async_graphql::Value {
-        // A held document is valid JSON by construction.
-        serde_json::from_str(self.0.get()).expect("secret document is valid JSON")
-    }
-}
-
 /// Outcome of `setSecret`.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct SetSecretResult {
@@ -184,21 +151,20 @@ impl SecretsMutation {
     /// invokes first.
     ///
     /// Requires `EditSecret` on a prefix covering `catalogName`. The document
-    /// must be an object whose `name` equals `catalogName` — the cryptographic
-    /// binding that keeps a wrapped document from being cloned under another
-    /// name, since sops MACs `name` even though it is stored in the clear.
+    /// must be an object whose `name` equals `catalogName`.
     ///
-    /// Setting is idempotent on the document's identity: re-applying a stored
+    /// Setting is idempotent on the document's value: re-applying a
     /// document leaves `secretId` alone and reports `changed: false`. Any other
     /// change mints a new `secretId`. A document whose embedded `sops.lastmodified`
     /// predates the stored one is rejected rather than applied, guarding
-    /// against a stale re-apply; ties are allowed, because the timestamp has
-    /// second granularity.
+    /// against a stale re-apply.
     async fn set_secret(
         &self,
         ctx: &Context<'_>,
         catalog_name: models::Name,
-        document: SecretDocument,
+        // We use Value so serializations are sorted, which lets PostgreSQL
+        // check document equality via string equality.
+        document: serde_json::Value,
     ) -> async_graphql::Result<SetSecretResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
@@ -215,8 +181,8 @@ impl SecretsMutation {
         )
         .await?;
 
-        let SecretDocument(document) = document;
         let last_modified = validate_document(catalog_name.as_str(), &document)?;
+        let document = document.to_string();
 
         let row = sqlx::query!(
             r#"
@@ -267,7 +233,7 @@ impl SecretsMutation {
                 ) AS "written_id: models::Id"
             "#,
             catalog_name.as_str(),
-            document.get(),
+            &document,
             last_modified,
         )
         .fetch_one(&env.pg_pool)
@@ -275,7 +241,7 @@ impl SecretsMutation {
 
         let (secret_id, changed) = match (row.written_id, row.prior_id, row.prior_document) {
             (Some(written_id), _, _) => (written_id, true),
-            (None, Some(prior_id), Some(prior_document)) if prior_document == document.get() => {
+            (None, Some(prior_id), Some(prior_document)) if prior_document == document => {
                 (prior_id, false)
             }
             (None, Some(_), _) => {
@@ -400,12 +366,9 @@ impl SecretsMutation {
 
 /// Structurally validate a wrapped secret document against the name it is being
 /// set at, returning its embedded `sops.lastmodified`.
-///
-/// The parse is into a throwaway side copy: `document` itself stays opaque text,
-/// because re-serializing it would reorder keys and break the sops MAC.
 fn validate_document(
     catalog_name: &str,
-    document: &models::RawValue,
+    document: &serde_json::Value,
 ) -> async_graphql::Result<chrono::DateTime<chrono::Utc>> {
     // Only the fields the control plane must agree with sops about. `value` is
     // checked for presence alone — its content is ciphertext we cannot read.
@@ -424,7 +387,7 @@ fn validate_document(
         lastmodified: chrono::DateTime<chrono::FixedOffset>,
     }
 
-    let wrapped: Wrapped = serde_json::from_str(document.get()).map_err(|err| {
+    let wrapped = <Wrapped as serde::Deserialize>::deserialize(document).map_err(|err| {
         async_graphql::Error::new(format!(
             "document is not a wrapped secret produced by /secret/encrypt: {err}"
         ))
@@ -480,7 +443,7 @@ mod test {
     }
 
     const SET_SECRET: &str = r#"
-        mutation($catalogName: Name!, $document: SecretDocument!) {
+        mutation($catalogName: Name!, $document: JSON!) {
             setSecret(catalogName: $catalogName, document: $document) {
                 changed
                 secret { catalogName secretId }
@@ -808,17 +771,11 @@ mod test {
         );
     }
 
-    // The whole reason `document` is `json` rather than `jsonb`, and RawValue
-    // rather than `serde_json::Value`, is that key order must survive to keep
-    // the sops MAC verifiable. `serde_json::json!` can't exercise that —
-    // without `preserve_order` it alphabetizes keys before the request is even
-    // sent — so this test posts raw request bodies with deliberately
-    // non-alphabetical key order and asserts the stored text retains it.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
     )]
-    async fn test_secret_document_key_order_is_preserved(pool: sqlx::PgPool) {
+    async fn test_secret_document_is_canonicalized(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
         let server = test_server::TestServer::start(
@@ -833,7 +790,7 @@ mod test {
             token: &str,
             document: &str,
         ) -> serde_json::Value {
-            const QUERY: &str = "mutation($catalogName: Name!, $document: SecretDocument!) \
+            const QUERY: &str = "mutation($catalogName: Name!, $document: JSON!) \
                 { setSecret(catalogName: $catalogName, document: $document) \
                 { changed secret { secretId } } }";
 
@@ -844,11 +801,12 @@ mod test {
             server.graphql(&body, Some(token)).await
         }
 
-        // `value` before `name`, and `version` and `mac` before `lastmodified`:
-        // alphabetization anywhere in the pipeline reorders one of them.
-        const DOCUMENT: &str = r#"{"value":"ENC[AES256_GCM,data:aaa,type:str]","name":"aliceCo/ordered","sops":{"version":"3.9.0","mac":"ENC[AES256_GCM,data:mac-aaa]","lastmodified":"2026-08-18T10:00:00Z"}}"#;
+        // `value` before `name`, and `version` and `mac` before `lastmodified`,
+        // at both levels of the document.
+        const UNSORTED: &str = r#"{"value":"ENC[AES256_GCM,data:aaa,type:str]","name":"aliceCo/ordered","sops":{"version":"3.9.0","mac":"ENC[AES256_GCM,data:mac-aaa]","lastmodified":"2026-08-18T10:00:00Z"}}"#;
+        const SORTED: &str = r#"{"name":"aliceCo/ordered","sops":{"lastmodified":"2026-08-18T10:00:00Z","mac":"ENC[AES256_GCM,data:mac-aaa]","version":"3.9.0"},"value":"ENC[AES256_GCM,data:aaa,type:str]"}"#;
 
-        let created = raw_set(&server, &alice, DOCUMENT).await;
+        let created = raw_set(&server, &alice, UNSORTED).await;
         assert!(created["errors"].is_null(), "set should succeed: {created}");
         assert_eq!(created["data"]["setSecret"]["changed"], true);
         let id = created["data"]["setSecret"]["secret"]["secretId"]
@@ -862,14 +820,11 @@ mod test {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(stored, DOCUMENT, "the stored text must retain key order");
+        assert_eq!(stored, SORTED, "the stored text must be canonical");
 
-        // Formatting is *not* significant: the same document with extra
-        // whitespace normalizes to identical text, and is a no-op re-apply of
-        // the same entity rather than a new one.
-        let spaced = DOCUMENT.replace(",\"", ", \"");
-        assert_ne!(spaced, DOCUMENT);
-        let reapplied = raw_set(&server, &alice, &spaced).await;
+        // Key order is therefore *not* part of a secret's identity: the same
+        // document sorted is a no-op re-apply of the same entity.
+        let reapplied = raw_set(&server, &alice, SORTED).await;
         assert!(
             reapplied["errors"].is_null(),
             "re-apply should succeed: {reapplied}"
@@ -877,7 +832,7 @@ mod test {
         assert_eq!(reapplied["data"]["setSecret"]["changed"], false);
         assert_eq!(
             reapplied["data"]["setSecret"]["secret"]["secretId"], id,
-            "a reformatted document is the same entity: {reapplied}"
+            "a re-ordered document is the same entity: {reapplied}"
         );
     }
 

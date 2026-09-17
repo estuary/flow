@@ -45,7 +45,8 @@ The two `SecretDecrypt` workflows are the exception: they address
 config-encryption rather than the control-plane, and must be driven by
 `tokens::fetch_once` rather than a Watch, which would retain and periodically
 re-fetch plaintext. Both extract their response through the module's
-`extract_secret_decryption()`.
+`extract_secret_decryption()`. A present JSON `null` is a successful secret
+value; only an omitted `value` field means no value was returned.
 
 ## Building Gazette Clients
 
