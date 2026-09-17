@@ -1,0 +1,35 @@
+# The composable `filter` narrows results to the caller's authorized specs.
+# Alice reads all of aliceCo/, so `startsWith` returns her whole shared
+# subtree and `in` matches both of its entries. Bob reads aliceCo/shared/ via
+# a role grant, so he sees the same shared subtree but the `in` entry for
+# Alice's private capture is dropped rather than erroring.
+query LiveSpecsFilterCatalogName {
+    startsWith: liveSpecs(
+        filter: { catalogName: { startsWith: "aliceCo/shared/" } }
+    ) {
+        edges {
+            node {
+                catalogName
+                userCapability
+            }
+        }
+    }
+    inSet: liveSpecs(
+        filter: {
+            catalogName: {
+                in: [
+                    "aliceCo/shared/a"
+                    "aliceCo/private/capture"
+                    "bobCo/does-not-exist"
+                ]
+            }
+        }
+    ) {
+        edges {
+            node {
+                catalogName
+                userCapability
+            }
+        }
+    }
+}
