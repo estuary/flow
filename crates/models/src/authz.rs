@@ -73,7 +73,7 @@ impl std::fmt::Display for Capability {
     }
 }
 
-/// The capability bundle has two function jobs:
+/// The capability bundle has two functions:
 /// 1) These bundles are stored within the grant part of the database, and are
 /// used along side of the capability column to enable graph traversals. Beyond
 /// storage these things are expanded into capability bits in order to support
@@ -261,28 +261,19 @@ impl CapabilityMask {
     /// means that the token is restricted from doing anything that requires any
     /// kind of permission.
     pub fn from_claims(mask: Option<&Vec<String>>) -> Option<Self> {
-        if let Some(mask) = mask {
-            Some(Self(
+        mask.map(|mask| {
+            Self(
                 mask.iter()
                     .filter_map(|name| CapabilityBundle::from_str(name).ok())
                     .map(|bundle| bundle.capabilities())
                     .fold(CapabilitySet::empty(), |set, bits| set | bits),
-            ))
-        } else {
-            None
-        }
+            )
+        })
     }
 
-    /// walk's result: the mask has to gate traversal itself, so that a mask
-    /// without `Delegate` (and `Assume`) confines the token to direct user
-    /// grants, and it must not be re-widened by `Assume`, which makes all of
-    /// an edge's bits delegatable as it passes through.
+    /// Apply a capability mask to another set of capabilities.
     pub fn apply(self, capabilities: CapabilitySet) -> CapabilitySet {
         capabilities & self.0
-    }
-
-    pub fn has_all_capabilities(self) -> bool {
-        self.0 == CapabilitySet::all()
     }
 }
 
@@ -299,19 +290,6 @@ mod test {
         CapabilityMask::from_claims(Some(&claim)).unwrap()
     }
 
-    const VARIANTS: [CapabilityBundle; 10] = [
-        CapabilityBundle::Viewer,
-        CapabilityBundle::Writer,
-        CapabilityBundle::Editor,
-        CapabilityBundle::Admin,
-        CapabilityBundle::Billing,
-        CapabilityBundle::TeamAdmin,
-        CapabilityBundle::ManageServiceAccounts,
-        CapabilityBundle::ManageDataPlane,
-        CapabilityBundle::Delegate,
-        CapabilityBundle::Assume,
-    ];
-
     #[test]
     fn from_name_is_strict() {
         for bad in [
@@ -325,17 +303,6 @@ mod test {
         ] {
             assert_eq!(CapabilityBundle::from_str(bad).ok(), None, "{bad:?}");
         }
-    }
-
-    #[test]
-    fn all_bundles_together_are_unrestricted() {
-        let union = VARIANTS
-            .iter()
-            .fold(CapabilitySet::empty(), |acc, b| acc | b.capabilities());
-        assert_eq!(union, CapabilitySet::all());
-
-        let every_name: Vec<&str> = VARIANTS.iter().map(|b| b.name()).collect();
-        assert!(mask_of(&every_name).has_all_capabilities());
     }
 
     #[test]

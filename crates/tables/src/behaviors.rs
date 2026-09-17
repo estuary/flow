@@ -128,10 +128,8 @@ impl super::UserGrant {
     pub fn reachable_nodes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject: &'a authz::Subject,
+        subject: &authz::Subject,
     ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
-        // Copy out what the walk needs so the returned iterator borrows only
-        // the grant tables, not `subject`.
         let user_id = subject.user_id;
         let seed = super::NodeRef {
             object_role: "",
@@ -164,7 +162,7 @@ impl super::UserGrant {
     pub fn reachable_prefixes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject: &'a authz::Subject,
+        subject: &authz::Subject,
     ) -> std::collections::BTreeMap<&'a str, (authz::CapabilitySet, models::Capability)> {
         let mut out: std::collections::BTreeMap<
             &'a str,
@@ -172,6 +170,10 @@ impl super::UserGrant {
         > = Default::default();
 
         for node in Self::reachable_nodes(role_grants, user_grants, subject) {
+            // Attenuation is only enabled when we have a capability mask set.
+            // We do this here because the get_user_capability doesn't filter
+            // these out so we have to do this here instead of inside of
+            // `reachable_nodes`.
             if node.capabilities.is_empty() && subject.capability_mask.is_some() {
                 continue;
             }
@@ -233,6 +235,10 @@ impl super::UserGrant {
 // up to 2^N per prefix where N is the number of capability bits. If deep
 // grant graphs cause latency, replace bfs_reach with a manual BFS that keys
 // visited state on object_role alone and prunes dominated capability subsets.
+//
+// The capability mask what is reachable by attenuating the capabilities of a
+// node against those of the mask. So the mask removes capabilities from nodes
+// that are not inside of the mask.
 fn next_neighbors<'a>(
     from: super::NodeRef<'a>,
     role_edges: &'a [super::RoleGrant],
