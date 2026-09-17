@@ -102,7 +102,7 @@ impl std::fmt::Display for Capability {
     strum::EnumString,
     strum::IntoStaticStr,
 )]
-#[strum(serialize_all = "PascalCase")]
+#[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(
     feature = "sqlx-support",
@@ -260,6 +260,10 @@ impl CapabilityMask {
     /// An empty array means that no capabilities have been granted yet. That
     /// means that the token is restricted from doing anything that requires any
     /// kind of permission.
+    ///
+    /// We ignore unrecognized bundle names. This is because if a token
+    /// is ever minted by a server newer version of a server, we just ignore
+    /// any new capabilities we don't understand.
     pub fn from_claims(mask: Option<&Vec<String>>) -> Option<Self> {
         mask.map(|mask| {
             Self(
@@ -293,13 +297,13 @@ mod test {
     #[test]
     fn from_name_is_strict() {
         for bad in [
-            "viewer",
+            "Viewer",
             "VIEWER",
             "Team_Admin",
-            "team_admin",
+            "TeamAdmin",
             "",
-            " Viewer",
-            "Viewer ",
+            " viewer",
+            "viewer ",
         ] {
             assert_eq!(CapabilityBundle::from_str(bad).ok(), None, "{bad:?}");
         }
@@ -316,18 +320,18 @@ mod test {
         let empty = mask_of(&[]);
         assert_eq!(empty.apply(all), CapabilitySet::empty());
 
-        assert_eq!(mask_of(&["Viewer"]), CapabilityMask::new(viewer));
-        assert_eq!(mask_of(&["Viewer", "Bogus"]), CapabilityMask::new(viewer));
+        assert_eq!(mask_of(&["viewer"]), CapabilityMask::new(viewer));
+        assert_eq!(mask_of(&["viewer", "bogus"]), CapabilityMask::new(viewer));
         assert_eq!(
-            mask_of(&["Bogus"]),
+            mask_of(&["bogus"]),
             CapabilityMask::new(CapabilitySet::empty())
         );
         assert_eq!(
-            mask_of(&["viewer"]),
+            mask_of(&["Viewer"]),
             CapabilityMask::new(CapabilitySet::empty())
         );
         assert_eq!(
-            mask_of(&["Viewer", "Delegate"]),
+            mask_of(&["viewer", "delegate"]),
             CapabilityMask::new(viewer | Capability::Delegate)
         );
     }
