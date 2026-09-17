@@ -20,12 +20,17 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_mask: Option<Vec<String>>,
 }
 
 impl ControlClaims {
     /// Converts these claims into the authorization subject used by grant evaluation.
     pub fn subject(&self) -> crate::authz::Subject {
-        crate::authz::Subject { user_id: self.sub }
+        crate::authz::Subject {
+            user_id: self.sub,
+            capability_mask: None,
+        }
     }
 
     pub fn time_remaining(&self) -> time::Duration {

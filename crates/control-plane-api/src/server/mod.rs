@@ -421,6 +421,7 @@ mod tests {
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: Some("user@example.test".to_string()),
+            capability_mask: None,
         }
     }
 
