@@ -245,6 +245,11 @@ impl CapabilityMask {
         Self(set)
     }
 
+    /// Returns true if there are no capabilities enabled within the mask.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Parse the capability mask from the claims string, the claims strings
     /// are a list of stringified CapabilityBundles. The bundles are expanded to
     /// their Capability and their union creates capability set.
@@ -255,7 +260,7 @@ impl CapabilityMask {
     /// An empty array means that no capabilities have been granted yet. That
     /// means that the token is restricted from doing anything that requires any
     /// kind of permission.
-    pub fn from_claims(mask: Option<&[String]>) -> Option<Self> {
+    pub fn from_claims(mask: Option<&Vec<String>>) -> Option<Self> {
         if let Some(mask) = mask {
             Some(Self(
                 mask.iter()

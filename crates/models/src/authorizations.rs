@@ -1,6 +1,8 @@
 use std::cmp::max;
 use validator::Validate;
 
+use crate::authz;
+
 /// ControlClaims are claims encoded within control-plane access tokens.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ControlClaims {
@@ -29,7 +31,7 @@ impl ControlClaims {
     pub fn subject(&self) -> crate::authz::Subject {
         crate::authz::Subject {
             user_id: self.sub,
-            capability_mask: None,
+            capability_mask: authz::CapabilityMask::from_claims(self.capability_mask.as_ref()),
         }
     }
 
