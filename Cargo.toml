@@ -92,7 +92,7 @@ graphql_client = "*"
 handlebars = "6"
 hex = "0"
 hexdump = "0"
-hmac = "0"
+hmac = "0.12"
 humantime = "2"
 humantime-serde = "1"
 itertools = "0"
@@ -161,7 +161,7 @@ rsasl = { version = "2", default-features = false, features = [
     "oauthbearer",
     "plain",
 ] }
-rusqlite = { version = "0", features = ["bundled-full"] }
+rusqlite = { version = "0.39", features = ["bundled-full", "fallible_uint"] }
 rustyline = "17"
 schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
@@ -169,7 +169,7 @@ serde_json = { version = "1", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0"
 serde-transcode = "1"
 serde-wasm-bindgen = "0"
-sha2 = "0"
+sha2 = "0.10"
 size = "0"
 socket2 = "0"
 strsim = "0"
