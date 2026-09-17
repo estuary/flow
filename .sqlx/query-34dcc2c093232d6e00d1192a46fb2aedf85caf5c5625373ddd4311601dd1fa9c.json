@@ -6,27 +6,32 @@
       {
         "ordinal": 0,
         "name": "id!: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": "Expression"
       },
       {
         "ordinal": 1,
         "name": "last_pub_id!: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": "Expression"
       },
       {
         "ordinal": 2,
         "name": "last_build_id!: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": "Expression"
       },
       {
         "ordinal": 3,
         "name": "data_plane_id!: Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": "Expression"
       },
       {
         "ordinal": 4,
         "name": "catalog_name!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": "Expression"
       },
       {
         "ordinal": 5,
@@ -43,27 +48,57 @@
               ]
             }
           }
+        },
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec_type"
+          }
         }
       },
       {
         "ordinal": 6,
         "name": "spec: TextJson<Box<RawValue>>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "spec"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "built_spec: TextJson<Box<RawValue>>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "built_spec"
+          }
+        }
       },
       {
         "ordinal": 8,
         "name": "inferred_schema_md5",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "inferred_schema_md5"
+          }
+        }
       },
       {
         "ordinal": 9,
         "name": "dependency_hash",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "dependency_hash"
+          }
+        }
       }
     ],
     "parameters": {
@@ -76,7 +111,7 @@
       null,
       null,
       null,
-      null,
+      true,
       true,
       true,
       true,

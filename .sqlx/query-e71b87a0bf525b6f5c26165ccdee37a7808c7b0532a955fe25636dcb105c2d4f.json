@@ -6,7 +6,8 @@
       {
         "ordinal": 0,
         "name": "wake_tenant_controller",
-        "type_info": "Void"
+        "type_info": "Void",
+        "origin": "Expression"
       }
     ],
     "parameters": {

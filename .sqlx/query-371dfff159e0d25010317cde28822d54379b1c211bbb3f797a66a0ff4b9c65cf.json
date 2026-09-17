@@ -6,17 +6,35 @@
       {
         "ordinal": 0,
         "name": "catalog_prefix!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "catalog_prefix"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "detail",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "detail"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "spec!: crate::TextJson<models::StorageDef>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "spec"
+          }
+        }
       }
     ],
     "parameters": {

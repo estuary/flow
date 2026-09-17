@@ -6,12 +6,24 @@
       {
         "ordinal": 0,
         "name": "token",
-        "type_info": "Uuid"
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "internal.invite_links",
+            "name": "token"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "created_at!: chrono::DateTime<chrono::Utc>",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.invite_links",
+            "name": "created_at"
+          }
+        }
       }
     ],
     "parameters": {
