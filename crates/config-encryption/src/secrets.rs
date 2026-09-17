@@ -78,11 +78,10 @@ pub async fn encrypt_secret(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum::extract::Query(EncryptQuery { name }): axum::extract::Query<EncryptQuery>,
     body: axum::body::Bytes,
-) -> Result<axum::Json<Box<serde_json::value::RawValue>>, Error> {
+) -> Result<axum::Json<serde_json::Value>, Error> {
     validate_name(&name)?;
 
-    let value: &serde_json::value::RawValue =
-        serde_json::from_slice(&body).map_err(Error::SecretValue)?;
+    let value: serde_json::Value = serde_json::from_slice(&body).map_err(Error::SecretValue)?;
 
     Ok(axum::Json(wrap(&app.keychain, &name, value).await?))
 }
@@ -120,7 +119,7 @@ pub async fn decrypt_secret(
             ..Default::default()
         },
         Some(document) => models::authorizations::SecretDecryption {
-            value: Some(unwrap(&name, document.get()).await?.into()),
+            value: Some(unwrap(&name, &document).await?),
             secret_id: authorized.secret_id,
             retry_millis: 0,
         },
@@ -207,25 +206,33 @@ async fn authorize(
 /// Build the sops document of secret `name` holding `value`.
 ///
 /// Only `value` is encrypted. `name` is plaintext, but sops MACs unencrypted
-/// values too, which is what lets `unwrap` refuse a document that was wrapped
-/// for a different secret and then stored under this one.
+/// values too: changing it will trigger a refusal.
+///
+/// Both the document sops is handed and the document it returns route through
+/// `serde_json::Value`, which sorts object properties (the workspace doesn't
+/// enable `preserve_order`). A sealed document may therefore be re-ordered by
+/// any JSON library it passes through, because `unwrap` takes sorted input
+/// (restoring the ordering invariant).
+///
+/// Note that sops prints its own `sops` metadata key last, so what this
+/// returns is not the byte-sequence sops emitted. That's safe only because
+/// sops excludes that branch from the MAC it verifies, which
+/// `test_sealed_document_may_be_reordered` pins.
 async fn wrap(
     keychain: &Keychain,
     name: &models::Name,
-    value: &serde_json::value::RawValue,
-) -> Result<Box<serde_json::value::RawValue>, Error> {
+    value: serde_json::Value,
+) -> Result<serde_json::Value, Error> {
     #[derive(serde::Serialize)]
     struct Document<'a> {
         name: &'a str,
-        // Serialized verbatim: sops MACs its values in traversal order, so the
-        // author's key order must survive into the document we hand it.
-        value: &'a serde_json::value::RawValue,
+        value: serde_json::Value,
     }
     let input = serde_json::to_vec(&Document {
         name: name.as_str(),
         value,
     })
-    .expect("serialization of a RawValue is infallible");
+    .expect("serialization of a Value is infallible");
 
     let stdout = invoke_sops(
         Some(keychain),
@@ -245,19 +252,15 @@ async fn wrap(
 /// under another name and disclosed to a task authorized only for that name.
 async fn unwrap(
     name: &models::Name,
-    document: &str,
-) -> Result<Box<serde_json::value::RawValue>, Error> {
-    let stdout = invoke_sops(None, &["--decrypt"], document.as_bytes()).await?;
+    document: &serde_json::Value,
+) -> Result<serde_json::Value, Error> {
+    let input = serde_json::to_vec(document).expect("serialization of a Value is infallible");
+    let stdout = invoke_sops(None, &["--decrypt"], &input).await?;
 
     #[derive(serde::Deserialize)]
-    struct Document<'a> {
-        // `Cow`, because a borrowed `&str` cannot represent an escaped JSON
-        // string: a document whose name happened to carry one would fail to
-        // parse at all, rather than being reported as the mismatch it is.
-        #[serde(borrow)]
-        name: std::borrow::Cow<'a, str>,
-        #[serde(borrow)]
-        value: &'a serde_json::value::RawValue,
+    struct Document {
+        name: String,
+        value: serde_json::Value,
     }
     let Document {
         name: embedded,
@@ -267,10 +270,10 @@ async fn unwrap(
     if embedded != name.as_str() {
         return Err(Error::NameMismatch {
             requested: name.to_string(),
-            embedded: embedded.into_owned(),
+            embedded,
         });
     }
-    Ok(value.to_owned())
+    Ok(value)
 }
 
 fn validate_name(name: &models::Name) -> Result<(), Error> {
@@ -313,10 +316,6 @@ mod test {
         models::Name::new(name)
     }
 
-    fn raw(value: serde_json::Value) -> Box<serde_json::value::RawValue> {
-        serde_json::value::RawValue::from_string(value.to_string()).unwrap()
-    }
-
     #[tokio::test]
     async fn test_round_trip_of_various_values() {
         let cases = [
@@ -334,24 +333,19 @@ mod test {
         let mut outcomes = Vec::new();
 
         for value in cases {
-            let value = raw(value);
-            let document = wrap(&keychain(), &name, &value).await.unwrap();
+            let document = wrap(&keychain(), &name, value.clone()).await.unwrap();
 
             // Every leaf under `value` is ciphertext, and nothing else is.
-            let parsed: serde_json::Value = serde_json::from_str(document.get()).unwrap();
             let mut leaves = Vec::new();
-            collect_leaves(&parsed["value"], &mut leaves);
+            collect_leaves(&document["value"], &mut leaves);
 
-            let unwrapped = unwrap(&name, document.get()).await.unwrap();
+            let unwrapped = unwrap(&name, &document).await.unwrap();
 
             outcomes.push((
-                value.get().to_string(),
-                parsed["name"].as_str().unwrap().to_string(),
+                value.to_string(),
+                document["name"].as_str().unwrap().to_string(),
                 leaves.iter().all(|leaf| leaf.starts_with("ENC[")),
-                // sops pretty-prints its output, so the round trip is over
-                // values and not over the bytes which carry them.
-                serde_json::from_str::<serde_json::Value>(unwrapped.get()).unwrap()
-                    == serde_json::from_str::<serde_json::Value>(value.get()).unwrap(),
+                unwrapped == value,
             ));
         }
 
@@ -408,31 +402,77 @@ mod test {
         }
     }
 
+    // Verify that `preserve_order` isn't enabled.
+    #[test]
+    fn test_serde_json_sorts_object_properties() {
+        let value: serde_json::Value = serde_json::from_str(r#"{"zulu":1,"alpha":2}"#).unwrap();
+        assert_eq!(value.to_string(), r#"{"alpha":2,"zulu":1}"#);
+    }
+
     #[tokio::test]
-    async fn test_name_binding_and_tampering() {
-        let document = wrap(
-            &keychain(),
-            &name("acmeCo/db/creds"),
-            &raw(json!("hunter2")),
+    async fn test_sealed_document_may_be_reordered() {
+        let name = name("acmeCo/db/creds");
+
+        // Sealed through sops directly, because `wrap`'s `Value` return type
+        // has already discarded the key order this test is about.
+        let input =
+            serde_json::to_vec(&json!({"name": name.as_str(), "value": "hunter2"})).unwrap();
+        let stdout = invoke_sops(
+            Some(&keychain()),
+            &["--encrypt", "--encrypted-regex", "^value$"],
+            &input,
         )
         .await
         .unwrap();
-        let document = document.get();
+
+        let emitted = String::from_utf8(stdout.clone()).unwrap();
+        let sealed: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        let canonical = sealed.to_string();
+
+        let locate = |document: &str| {
+            (
+                document.find(r#""value""#).expect("`value` is present"),
+                document.find(r#""sops""#).expect("`sops` is present"),
+            )
+        };
+        let (emitted_value, emitted_sops) = locate(&emitted);
+        let (canonical_value, canonical_sops) = locate(&canonical);
+
+        // The premise: canonicalizing moves `sops` ahead of `value`.
+        assert!(emitted_sops > emitted_value, "sops emits its metadata last");
+        assert!(canonical_sops < canonical_value, "sorting moves it ahead");
+
+        // The consequence: sops verifies the re-ordered document anyway.
+        assert_eq!(unwrap(&name, &sealed).await.unwrap(), json!("hunter2"));
+    }
+
+    #[tokio::test]
+    async fn test_name_binding_and_tampering() {
+        let document = wrap(&keychain(), &name("acmeCo/db/creds"), json!("hunter2"))
+            .await
+            .unwrap();
+
+        // Tampering is expressed over the document's text and then re-parsed:
+        // only a serialized document has the substrings a tamper targets.
+        let tamper = |from: &str, to: &str| {
+            serde_json::from_str::<serde_json::Value>(&document.to_string().replace(from, to))
+                .unwrap()
+        };
 
         // A document is bound to its name two ways over. Renaming it in place
         // breaks the MAC, because sops covers plaintext values too. Storing it
         // verbatim under another name leaves the MAC intact, and is caught by
         // comparing the name we asked for against the one we decrypted.
-        let renamed = document.replace("acmeCo/db/creds", "acmeCo/db/other");
-        let restamped = document.replace(
-            &lastmodified(document),
+        let renamed = tamper("acmeCo/db/creds", "acmeCo/db/other");
+        let restamped = tamper(
+            document["sops"]["lastmodified"].as_str().unwrap(),
             "2099-01-01T00:00:00Z", // Whatever the stored timestamp was, this isn't it.
         );
 
         let outcomes = [
             (
                 "cloned-under-another-name",
-                unwrap(&name("acmeCo/db/other"), document)
+                unwrap(&name("acmeCo/db/other"), &document)
                     .await
                     .unwrap_err(),
             ),
@@ -477,11 +517,6 @@ mod test {
             ),
         ]
         "#);
-    }
-
-    fn lastmodified(document: &str) -> String {
-        let parsed: serde_json::Value = serde_json::from_str(document).unwrap();
-        parsed["sops"]["lastmodified"].as_str().unwrap().to_string()
     }
 
     /// A stand-in control-plane which records what it was asked and answers
@@ -602,16 +637,12 @@ mod test {
 
     #[tokio::test]
     async fn test_decrypt_routes_to_the_control_plane() {
-        let document = wrap(
-            &keychain(),
-            &name("acmeCo/db/password"),
-            &raw(json!("hunter2")),
-        )
-        .await
-        .unwrap();
+        let document = wrap(&keychain(), &name("acmeCo/db/password"), json!("hunter2"))
+            .await
+            .unwrap();
 
         let authorized = serde_json::json!({
-            "document": serde_json::from_str::<serde_json::Value>(document.get()).unwrap(),
+            "document": document,
             "secretId": "1122334455667788",
             "retryMillis": 0,
         })

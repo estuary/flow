@@ -110,7 +110,7 @@ pub async fn authorize_task_secret(
     let row = sqlx::query!(
         r#"
         SELECT
-            s.document AS "document?: models::RawValue",
+            s.document AS "document?: serde_json::Value",
             s.id AS "secret_id?: models::Id",
             COALESCE(
                 (

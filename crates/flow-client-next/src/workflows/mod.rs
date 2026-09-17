@@ -51,12 +51,15 @@ mod tests {
         assert_eq!(retry.unwrap().unwrap_err(), tokens::TimeDelta::seconds(5));
 
         let ok = extract_secret_decryption(models::authorizations::SecretDecryption {
-            value: Some(models::RawValue::from_str(r#""p4ssw0rd""#).unwrap()),
+            value: Some(serde_json::json!("p4ssw0rd")),
             secret_id: Some(models::Id::new([1, 2, 3, 4, 5, 6, 7, 8])),
             retry_millis: 0,
         });
         let (model, _valid_for) = ok.unwrap().unwrap();
-        assert_eq!(model.value.as_ref().unwrap().get(), r#""p4ssw0rd""#);
+        assert_eq!(
+            model.value.as_ref().unwrap(),
+            &serde_json::json!("p4ssw0rd")
+        );
         assert_eq!(model.secret_id.unwrap().to_string(), "0102030405060708");
 
         // Debug renders the identity of a decryption but never its plaintext.

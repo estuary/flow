@@ -242,7 +242,7 @@ pub struct UserDecryptAuthorizationRequest {
 pub struct DecryptAuthorization {
     /// # The sops-wrapped document of the secret.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document: Option<crate::RawValue>,
+    pub document: Option<serde_json::Value>,
     /// # Lifecycle identity of the disclosed document.
     /// Every change to a secret mints a new `secretId`, and ids are
     /// time-ordered, so comparing two observations tells you which is newer.
@@ -261,7 +261,7 @@ pub struct DecryptAuthorization {
 pub struct SecretDecryption {
     /// # Decrypted value of the secret.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<crate::RawValue>,
+    pub value: Option<serde_json::Value>,
     /// # Lifecycle identity of the decrypted document.
     /// Every change to a secret mints a new `secretId`, and ids are
     /// time-ordered, so comparing two observations tells you which is newer.
