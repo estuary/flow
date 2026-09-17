@@ -75,7 +75,11 @@ Execute the full SQL test suite:
 ```
 
 ### Edge Functions
-Functions are deployed automatically but can be tested locally with the Supabase CLI.
+Functions are deployed automatically from `master`. Their Deno tests under
+`functions/tests/` run in CI on every PR that touches `functions/`, and locally with:
+```bash
+deno test --allow-all supabase/functions/tests/
+```
 
 ## Foundational Tables
 
