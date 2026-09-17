@@ -83,11 +83,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/cargo-sqlx
-          key: sqlx-cli-${{ runner.os }}-${{ runner.arch }}-0.8.6
+          key: sqlx-cli-${{ runner.os }}-${{ runner.arch }}-0.9.0
 
       - name: Install sqlx-cli
         if: steps.cache-sqlx.outputs.cache-hit != 'true'
-        run: cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
+        run: cargo install sqlx-cli@0.9.0 --no-default-features --features postgres
 
       - run: mise run build:rocksdb
       - run: mise run local:supabase

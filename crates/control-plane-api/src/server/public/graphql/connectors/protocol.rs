@@ -25,7 +25,7 @@ impl sqlx::Type<sqlx::Postgres> for ConnectorProto {
 impl<'q> sqlx::Encode<'q, sqlx::Postgres> for ConnectorProto {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         let name: &str = self.as_ref();
         sqlx::Encode::<'q, sqlx::Postgres>::encode_by_ref(&name, buf)
