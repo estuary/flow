@@ -42,11 +42,13 @@ export async function encryptConfig(req: Record<string, any>) {
     .single();
 
   if (error != null) {
-    returnPostgresError(error);
+    return returnPostgresError(error);
   }
-  // TODO - check for empty data
+  if (data == null) {
+    return returnPostgresError(`no connector with id ${connector_id}`);
+  }
 
-  const { oauth2_client_id, oauth2_client_secret, oauth2_injected_values } = data as OauthSettings;
+  const { oauth2_client_id, oauth2_client_secret, oauth2_injected_values } = data;
 
   if (
     config?.[CREDENTIALS_KEY]?.["client_id"] === CLIENT_CREDS_INJECTION &&
@@ -65,7 +67,10 @@ export async function encryptConfig(req: Record<string, any>) {
       .single();
 
   if (connectorTagError != null) {
-    returnPostgresError(error);
+    return returnPostgresError(connectorTagError);
+  }
+  if (connectorTagData == null) {
+    return returnPostgresError(`no connector tag with id ${connector_tag_id}`);
   }
 
   const { endpoint_spec_schema } = connectorTagData as ConnectorTagsResponse;

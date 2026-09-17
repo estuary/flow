@@ -25,7 +25,9 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
         if (error != null) {
             return returnPostgresError(error);
         }
-        // TODO - check for empty data
+        if (output_data == null) {
+            return returnPostgresError(`no connector with id ${connector_id}`);
+        }
         data = output_data;
     } else if (connector_config) {
         data = connector_config;

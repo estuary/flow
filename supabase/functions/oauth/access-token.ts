@@ -28,9 +28,11 @@ export async function accessToken(req: Record<string, any>) {
             .single();
 
         if (error != null) {
-            returnPostgresError(error);
+            return returnPostgresError(error);
         }
-        // TODO - check for empty data
+        if (output_data == null) {
+            return returnPostgresError(`no connector with id ${connector_id}`);
+        }
         data = output_data;
     }
 
