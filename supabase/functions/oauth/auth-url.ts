@@ -2,7 +2,7 @@ import Mustache from "npm:mustache";
 import { crypto } from "jsr:@std/crypto";
 
 import { corsHeaders } from "../_shared/cors.ts";
-import { base64URLSafe, generateUniqueRandomKey, hashStrBase64, compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
+import { base64URLSafe, generateUniqueRandomKey, hashStrBase64, renderValidatedTemplateUrl, returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 interface OauthSettings {
@@ -49,16 +49,17 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
     const codeVerifier = generateUniqueRandomKey(50);
     const codeChallenge = base64URLSafe(await hashStrBase64(codeVerifier));
 
-    const url = compileTemplate(
+    const url = renderValidatedTemplateUrl(
         oauth2_spec.authUrlTemplate,
-        {
+        oauth2_spec.provider,
+        (fromCaller) => ({
             state: finalState,
-            redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
+            redirect_uri: fromCaller(redirect_uri ?? "https://dashboard.estuary.dev/oauth"),
             client_id: oauth2_client_id,
-            config,
+            config: fromCaller(config),
             code_challenge: codeChallenge,
             code_challenge_method: "S256",
-        },
+        }),
     );
 
     return new Response(JSON.stringify({ url: url, state: finalState, code_verifier: codeVerifier }), {
