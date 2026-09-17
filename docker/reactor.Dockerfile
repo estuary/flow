@@ -5,7 +5,6 @@ RUN apt update -y \
         ca-certificates \
         podman \
         curl \
-        jq \
         netavark \
         podman \
         slirp4netns \

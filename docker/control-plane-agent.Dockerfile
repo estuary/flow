@@ -17,7 +17,6 @@ RUN apt update -y \
      crun \
      docker.io \
      google-cloud-cli \
-     jq \
      netavark \
      podman \
      slirp4netns \
