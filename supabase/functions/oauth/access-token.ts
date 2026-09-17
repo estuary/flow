@@ -1,5 +1,5 @@
 import jsonpointer from "npm:jsonpointer";
-import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
+import { compileTemplate, renderValidatedTemplateUrl, returnPostgresError } from "../_shared/helpers.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
@@ -38,17 +38,18 @@ export async function accessToken(req: Record<string, any>) {
 
     const { oauth2_spec, oauth2_client_id, oauth2_injected_values, oauth2_client_secret } = data as OauthSettings;
 
-    const url = compileTemplate(
+    const url = renderValidatedTemplateUrl(
         oauth2_spec.accessTokenUrlTemplate,
-        {
-            redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
+        oauth2_spec.provider,
+        (fromCaller) => ({
+            redirect_uri: fromCaller(redirect_uri ?? "https://dashboard.estuary.dev/oauth"),
             client_id: oauth2_client_id,
             client_secret: oauth2_client_secret,
-            config,
-            code_verifier,
+            config: fromCaller(config),
+            code_verifier: fromCaller(code_verifier),
             ...oauth2_injected_values,
-            ...params,
-        },
+            ...fromCaller(params),
+        }),
     );
 
     let body = null;
