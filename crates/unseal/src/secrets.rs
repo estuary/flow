@@ -36,7 +36,7 @@ pub async fn resolve<'a, S, Decrypt, Fut>(
 where
     S: AsRef<str> + ?Sized + 'a,
     Decrypt: Fn(&'a str) -> Fut,
-    Fut: std::future::Future<Output = anyhow::Result<models::RawValue>>,
+    Fut: std::future::Future<Output = anyhow::Result<serde_json::Value>>,
 {
     let decrypt = &decrypt;
 
@@ -51,7 +51,7 @@ where
                     "failed to resolve secret '{name}', used at configuration location {pointer}"
                 )
             })?;
-            anyhow::Ok((name, pointer, resolved.to_value()))
+            anyhow::Ok((name, pointer, resolved))
         })
         .collect();
 
@@ -107,7 +107,7 @@ mod test {
             secrets.iter().copied(),
             |name| {
                 std::future::ready(match fixture.get(name) {
-                    Some(value) => Ok(models::RawValue::from_value(value)),
+                    Some(value) => Ok(value.clone()),
                     None => Err(anyhow::anyhow!("secret does not exist")),
                 })
             },

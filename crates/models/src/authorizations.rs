@@ -265,7 +265,7 @@ pub struct UserDecryptAuthorizationRequest {
 pub struct DecryptAuthorization {
     /// # The sops-wrapped document of the secret.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document: Option<crate::RawValue>,
+    pub document: Option<serde_json::Value>,
     /// # Lifecycle identity of the disclosed document.
     /// Every change to a secret mints a new `secretId`, and ids are
     /// time-ordered, so comparing two observations tells you which is newer.
@@ -283,8 +283,12 @@ pub struct DecryptAuthorization {
 #[serde(rename_all = "camelCase")]
 pub struct SecretDecryption {
     /// # Decrypted value of the secret.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<crate::RawValue>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_secret_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub value: Option<serde_json::Value>,
     /// # Lifecycle identity of the decrypted document.
     /// Every change to a secret mints a new `secretId`, and ids are
     /// time-ordered, so comparing two observations tells you which is newer.
@@ -294,6 +298,15 @@ pub struct SecretDecryption {
     /// Non-zero if and only if `value` is not set. It is passed through from
     /// the control-plane, which alone decides when a denial becomes terminal.
     pub retry_millis: u64,
+}
+
+fn deserialize_secret_value<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Only an absent field means no value (via serde's default). A present
+    // JSON null is a valid secret and must survive the transport as Some(Null).
+    <serde_json::Value as serde::Deserialize>::deserialize(deserializer).map(Some)
 }
 
 impl std::fmt::Debug for SecretDecryption {

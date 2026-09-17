@@ -353,7 +353,7 @@ async fn fetch_secret(
     let row = sqlx::query!(
         r#"
         SELECT
-            document AS "document!: models::RawValue",
+            document AS "document!: serde_json::Value",
             id AS "secret_id!: models::Id"
         FROM internal.secrets
         WHERE catalog_name = $1::text::catalog_name
