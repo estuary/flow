@@ -3113,6 +3113,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "downcast"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3610,6 +3616,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fragile"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8878864ba14bb86e818a412bfd6f18f9eabd4ec0f008a28e8f7eb61db532fcf9"
+dependencies = [
+ "futures-core",
+]
+
+[[package]]
 name = "fs-err"
 version = "3.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3801,6 +3816,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "gcp"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "coroutines",
+ "futures",
+ "futures-core",
+ "futures-util",
+ "gcp_auth",
+ "googleapis-tonic-google-bigtable-admin-v2",
+ "googleapis-tonic-google-bigtable-v2",
+ "insta",
+ "mockall",
+ "ops",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tower",
+ "tuple",
+]
+
+[[package]]
 name = "gcp_auth"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3903,9 +3945,9 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "googleapis-tonic-google-api"
-version = "0.27.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c4265caca40796c59dc0f21023fac0275a4206dfb369f34e0fa84a93183c11f"
+checksum = "fca39f3577e656ca9ad97737fc1a397f45c46f54d047a43af1fb680287b5ace8"
 dependencies = [
  "prost",
  "prost-types",
@@ -3914,10 +3956,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "googleapis-tonic-google-bigtable-v2"
-version = "0.36.0"
+name = "googleapis-tonic-google-bigtable-admin-v2"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4416eb033bc8daa9e41b69d43b9b5d6db0fc160ac9a010b2e08f0b9ef89ac284"
+checksum = "82be6d1e36057dbfde72a692f7d84e68d2e12dc46d3fd7d80f46f102575b8a27"
+dependencies = [
+ "googleapis-tonic-google-api",
+ "googleapis-tonic-google-iam-v1",
+ "googleapis-tonic-google-longrunning",
+ "googleapis-tonic-google-rpc",
+ "googleapis-tonic-google-type",
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-prost",
+]
+
+[[package]]
+name = "googleapis-tonic-google-bigtable-v2"
+version = "0.39.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26a7cb407adead1bd3b623453ecc47556e07377a514793c0df52e9845caefadb"
 dependencies = [
  "googleapis-tonic-google-api",
  "googleapis-tonic-google-rpc",
@@ -3929,10 +3988,38 @@ dependencies = [
 ]
 
 [[package]]
-name = "googleapis-tonic-google-rpc"
-version = "0.23.0"
+name = "googleapis-tonic-google-iam-v1"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e7cde0280d228535f2dc25186cb661314d96d337a6cb6bb644a2525bc99a056"
+checksum = "66603b0825eda597e1acb5fa39fcfd44065c09b626c3a5541a40626c50ea7912"
+dependencies = [
+ "googleapis-tonic-google-api",
+ "googleapis-tonic-google-type",
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-prost",
+]
+
+[[package]]
+name = "googleapis-tonic-google-longrunning"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89168b18152abbb6320ec2cbb9469771ae09603d37714631019cb01f38fc023f"
+dependencies = [
+ "googleapis-tonic-google-api",
+ "googleapis-tonic-google-rpc",
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-prost",
+]
+
+[[package]]
+name = "googleapis-tonic-google-rpc"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f8922a81782e57325a059334bcec9730f7865eea2a1a1453896efe53a65b6af"
 dependencies = [
  "prost",
  "prost-types",
@@ -3942,9 +4029,9 @@ dependencies = [
 
 [[package]]
 name = "googleapis-tonic-google-type"
-version = "0.21.0"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "691c4dca3f36ca693f2644556d0be8303c2f92a9675b1a0cbc17951687e979db"
+checksum = "cc35fc04d6bb84eab8fff7c6a40357bfd647af0d5dfc41597a4ae6d8e0d84a2d"
 dependencies = [
  "prost",
  "prost-types",
@@ -5508,6 +5595,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "mockall"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a6ceddfe3ce334925e96bf420fdb2dcee5bed6c632a168ece622676dadeaf8a"
+dependencies = [
+ "cfg-if",
+ "downcast",
+ "fragile",
+ "mockall_derive",
+ "predicates",
+ "predicates-tree",
+]
+
+[[package]]
+name = "mockall_derive"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cfe16fbe8a314aeec0b861ac24e60b1e123e97634bab045475b9d6a18416fd8"
+dependencies = [
+ "cfg-if",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "models"
 version = "0.0.0"
 dependencies = [
@@ -6509,9 +6622,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
+checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -6541,9 +6654,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
+checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -6554,9 +6667,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
+checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
  "prost",
 ]
@@ -9229,9 +9342,9 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tonic"
-version = "0.14.2"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb7613188ce9f7df5bfe185db26c5814347d110db17920415cf2fbcad85e7203"
+checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
  "axum",
@@ -9272,9 +9385,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost"
-version = "0.14.2"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66bd50ad6ce1252d87ef024b3d64fe4c3cf54a86fb9ef4c631fdd0ded7aeaa67"
+checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
 dependencies = [
  "bytes",
  "prost",

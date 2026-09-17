@@ -87,7 +87,8 @@ futures-core = "0"
 futures-util = "0"
 fxhash = "0"
 gcp_auth = "0.12"
-googleapis-tonic-google-bigtable-v2 = "0.36"
+googleapis-tonic-google-bigtable-v2 = "0.39"
+googleapis-tonic-google-bigtable-admin-v2 = "0.45"
 graphql_client = "*"
 handlebars = "6"
 hex = "0"
@@ -268,6 +269,7 @@ assert_cmd = "2"
 criterion = "0"
 glob = "0"
 insta = { version = "1", features = ["redactions", "json", "yaml"] }
+mockall = "0"
 rand = { version = "0", features = ["small_rng"] }
 rand_distr = { version = "0" }
 rdkafka = "0"
