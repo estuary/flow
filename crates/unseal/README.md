@@ -28,8 +28,7 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 
 ## Non-obvious Details
 
-- Decryption shells out to the `sops` and `jq` binaries, located via
-  `locate-bin`.
+- Decryption shells out to the `sops` binary, located via `locate-bin`.
 - `secrets::resolve` merge-patches (RFC 7396) each entry in lexicographic
   pointer order, so a deeper pointer wins wherever two entries overlap, and a
   `null` leaf deletes its property. Pointer tokens are always object property

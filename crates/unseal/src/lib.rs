@@ -31,7 +31,6 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
         return Ok(config.to_owned());
     };
 
-    let jq = locate_bin::locate("jq").context("failed to locate jq")?;
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
 
     // Note that input_output() pre-allocates an output buffer as large as its input buffer,
@@ -72,40 +71,34 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
     };
 
     // We must re-write the document to remove the encrypted suffix.
-    // Use `jq` to do the re-writing. This avoids allocating and parsing
-    // values in our own heap, and is also succinct.
-    // See: https://jqplay.org/s/sQunN3Qc4s
-    let async_process::Output {
-        stderr,
-        stdout,
-        status,
-    } = async_process::input_output(
-        async_process::Command::new(jq).args([
-            // --compact-output disables jq's pretty-printer, which will otherwise introduce
-            // unnecessary newlines/tabs in the output, which will cause the output to be
-            // longer than the input.
-            "--compact-output".to_string(),
-            // --join-output puts jq into raw output mode, and additionally stops it from writing newlines
-            // at the end of its output, which can otherwise cause the output to be longer
-            // than the input.
-            "--join-output".to_string(),
-            format!("walk(if type == \"object\" then with_entries(. + {{key: .key | rtrimstr(\"{encrypted_suffix}\")}}) else . end)"),
-        ]),
-        &stdout,
-    )
-    .await
-    .context("failed to run jq")?;
+    let mut dom: serde_json::Value =
+        serde_json::from_slice(&stdout).context("parsing `sops` output")?;
+    strip_encrypted_suffix(&mut dom, &encrypted_suffix);
 
-    let stdout = Zeroizing::from(stdout);
+    Ok(models::RawValue::from_value(&dom))
+}
 
-    if !status.success() {
-        anyhow::bail!(
-            "stripping encrypted suffix {encrypted_suffix} from document failed: {}",
-            String::from_utf8_lossy(&stderr),
-        );
+/// Remove `suffix` from the end of every object key within `dom`, at any depth.
+/// Only a single trailing occurrence is removed, and an empty suffix is a no-op.
+fn strip_encrypted_suffix(dom: &mut serde_json::Value, suffix: &str) {
+    match dom {
+        serde_json::Value::Object(map) => {
+            *map = std::mem::take(map)
+                .into_iter()
+                .map(|(key, mut value)| {
+                    strip_encrypted_suffix(&mut value, suffix);
+                    let key = key.strip_suffix(suffix).map(str::to_string).unwrap_or(key);
+                    (key, value)
+                })
+                .collect();
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                strip_encrypted_suffix(item, suffix);
+            }
+        }
+        _ => {}
     }
-
-    Ok(serde_json::from_slice(&stdout).context("parsing stripped `jq` output")?)
 }
 
 #[cfg(test)]
