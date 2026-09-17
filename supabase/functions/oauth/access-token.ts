@@ -107,8 +107,9 @@ export async function accessToken(req: Record<string, any>) {
     const responseText = await response.text();
 
     if (response.status >= 400) {
+        const { origin, pathname } = new URL(url);
         console.log("access token request failed");
-        console.log("request: POST ", url);
+        console.log("request: POST ", origin + pathname);
         console.log(
             "response: ",
             response.status,
