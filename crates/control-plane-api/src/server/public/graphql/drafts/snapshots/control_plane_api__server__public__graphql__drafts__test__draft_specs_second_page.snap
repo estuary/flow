@@ -5,29 +5,21 @@ expression: second_page
 {
   "data": {
     "draft": {
-      "numSpecs": 4,
+      "numSpecs": 5,
       "specs": {
         "edges": [
           {
             "cursor": "aliceCo/out/materialize-bar",
             "node": {
               "catalogName": "aliceCo/out/materialize-bar",
+              "catalogType": "materialization",
               "detail": "changed model",
               "expectPubId": null,
               "isUnchanged": false,
               "lastPubId": "000000fffe000002",
-              "spec": {
-                "bindings": [],
-                "endpoint": {
-                  "connector": {
-                    "config": {
-                      "token": "ENC[AES256_GCM,data:invented,tag:invented,type:str]"
-                    },
-                    "image": "example/materialize:test"
-                  }
-                }
+              "model": {
+                "changed": true
               },
-              "specType": "materialization",
               "updatedAt": "2024-02-02T03:00:00+00:00"
             }
           },
@@ -35,22 +27,35 @@ expression: second_page
             "cursor": "aliceCo/z-new",
             "node": {
               "catalogName": "aliceCo/z-new",
+              "catalogType": "collection",
               "detail": null,
               "expectPubId": null,
               "isUnchanged": false,
               "lastPubId": null,
-              "spec": {
-                "schema": {
-                  "type": "object"
-                }
+              "model": {
+                "new": true
               },
-              "specType": "collection",
+              "updatedAt": "2024-02-02T04:00:00+00:00"
+            }
+          },
+          {
+            "cursor": "otherCo/hidden",
+            "node": {
+              "catalogName": "otherCo/hidden",
+              "catalogType": "capture",
+              "detail": "owned staged change",
+              "expectPubId": null,
+              "isUnchanged": false,
+              "lastPubId": null,
+              "model": {
+                "staged": "outside-grant"
+              },
               "updatedAt": "2024-02-02T04:00:00+00:00"
             }
           }
         ],
         "pageInfo": {
-          "endCursor": "aliceCo/z-new",
+          "endCursor": "otherCo/hidden",
           "hasNextPage": false,
           "hasPreviousPage": true,
           "startCursor": "aliceCo/out/materialize-bar"

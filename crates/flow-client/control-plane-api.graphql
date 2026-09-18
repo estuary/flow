@@ -885,24 +885,30 @@ type DiscoverChange {
 }
 
 """
-An authenticated user's private workspace for staging catalog changes.
+A draft change-set of Flow catalog specifications.
+Only its owner can access it; catalog edit permissions are checked when
+publishing.
 """
 type Draft {
 	id: Id!
 	createdAt: DateTime!
 	updatedAt: DateTime!
+	"""
+	Description of this draft.
+	"""
 	detail: String
 	"""
-	Number of staged specifications the caller is currently allowed to read.
+	Number of staged specifications.
 	"""
 	numSpecs: Int!
 	"""
-	Specifications the caller may read, in catalog-name order.
+	Staged specifications, in catalog-name order.
 	"""
 	specs(after: String, first: Int): DraftSpecConnection!
 	"""
-	Diagnostics from the draft's last build. A diagnostic scoped to a
-	catalog name the caller cannot read is omitted.
+	Errors found while validating, testing, or publishing this draft.
+	Staging and unstaging specifications do not clear these errors, so they
+	may describe an earlier version of the draft.
 	"""
 	errors: [Error!]!
 }
@@ -932,23 +938,39 @@ type DraftEdge {
 	cursor: String!
 }
 
+"""
+A proposed catalog specification of a draft.
+"""
 type DraftSpec {
 	catalogName: Name!
-	specType: CatalogType
+	catalogType: CatalogType
 	"""
-	The staged catalog model. Null, together with a null `specType`, stages
-	a deletion: publishing the draft removes the live specification of this
-	name.
+	A serialized catalog specification. Null, together with a null
+	`catalogType`, stages deletion of the specification when this draft is
+	published.
 	"""
-	spec: JSON
+	model: JSON
+	"""
+	Publication precondition: publishing fails if the live specification's
+	`lastPubId` differs. The zero ID requires that no live specification
+	exists; null imposes no precondition.
+	"""
 	expectPubId: Id
+	"""
+	Last publication ID which updated the live specification, or null if
+	it does not exist or the caller lacks CatalogRead on its name.
+	"""
 	lastPubId: Id
+	"""
+	Description of the staged change.
+	"""
 	detail: String
 	updatedAt: DateTime!
 	"""
-	Whether the staged model is textually identical to the published one,
-	so that a no-op can be told apart from a real edit. The comparison is
-	over the serialized model, so a reordered document reads as changed.
+	Whether the staged specification is textually identical to the published
+	one, so that a no-op can be told apart from a real edit. The comparison is
+	over the serialized specification, so a reordered document reads as changed.
+	False if no live specification exists or the caller lacks CatalogRead on it.
 	"""
 	isUnchanged: Boolean!
 }
@@ -978,6 +1000,32 @@ type DraftSpecEdge {
 	cursor: String!
 }
 
+input DraftSpecInput {
+	catalogName: Name!
+	catalogType: CatalogType
+	"""
+	The catalog specification to stage. Null, together with a null `catalogType`,
+	stages a deletion of the live specification instead.
+	
+	Both fields are required to be present. Omitting either is an error
+	rather than a deletion, so a partial input cannot silently become one.
+	"""
+	model: JSON
+	"""
+	Require the live specification's `lastPubId` to match when publishing.
+	When editing an existing specification, copy its `lastPubId` here to
+	prevent publication from overwriting intervening changes.
+	The zero ID requires that no live specification exists. Omitting this
+	field or passing null clears any previously staged precondition.
+	"""
+	expectPubId: Id
+	"""
+	Description of the staged change. Omission or null clears the previous
+	description.
+	"""
+	detail: String
+}
+
 type EffectiveAlertConfig {
 	config: JSON!
 	provenance: [FieldProvenance!]!
@@ -988,7 +1036,13 @@ A generic error that can be associated with a particular draft spec for a given 
 """
 type Error {
 	catalogName: String!
+	"""
+	Location scope of the error within the draft.
+	"""
 	scope: String
+	"""
+	Description of the error.
+	"""
 	detail: String!
 }
 
@@ -1627,6 +1681,29 @@ type MutationRoot {
 	or publication rather than here.
 	"""
 	deleteSecret(catalogName: Name, prefix: Prefix): [Name!]!
+	"""
+	Create an empty private draft owned by the authenticated caller.
+	"""
+	createDraft(detail: String): Draft!
+	"""
+	Stage specifications in a draft the caller owns, replacing all staged
+	fields under each name. Omitted `expectPubId` and `detail` are cleared.
+	The batch is atomic; returns the distinct staged names in catalog-name order.
+	Catalog edit permissions are checked when publishing.
+	"""
+	stageDraftSpecs(draftId: Id!, specs: [DraftSpecInput!]!): [Name!]!
+	"""
+	Drop staged specifications from a draft the caller owns, and return the
+	names actually dropped, in catalog-name order. This un-stages a pending
+	change; it does not delete anything published. To stage a deletion of a
+	live specification, use `stageDraftSpecs` with null `model` and `catalogType`.
+	"""
+	unstageDraftSpecs(draftId: Id!, catalogNames: [Name!]!): [Name!]!
+	"""
+	Discard a draft the caller owns, along with everything staged in it.
+	Returns the deleted ID. Nothing published is affected.
+	"""
+	deleteDraft(id: Id!): Id!
 }
 
 """
