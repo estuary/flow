@@ -12,7 +12,7 @@ expression: first_page
             "createdAt": "2024-01-01T00:00:00+00:00",
             "detail": "first",
             "id": "0000000000000010",
-            "numSpecs": 1,
+            "numSpecs": 2,
             "updatedAt": "2024-01-01T00:00:00+00:00"
           }
         },

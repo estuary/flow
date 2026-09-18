@@ -422,9 +422,11 @@ expression: schema
           "type": "string"
         },
         "detail": {
+          "description": "Description of the error.",
           "type": "string"
         },
         "scope": {
+          "description": "Location scope of the error within the draft.",
           "type": [
             "string",
             "null"
