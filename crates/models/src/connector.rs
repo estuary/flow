@@ -28,6 +28,37 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
     (image, tag)
 }
 
+/// Reserved catalog-name component which separates an arbitrary owner prefix
+/// from the exact repository of an image-owned secret.
+pub const IMAGE_SECRET_SEPARATOR: &str = "connectors";
+
+/// Whether `secret` is owned by `repository` under the image-secret naming
+/// rule: `<prefix>/connectors/<repository>/<leaf>`.
+///
+/// The rightmost `connectors` component is the separator, so the owner prefix
+/// remains arbitrary. Repositories containing that reserved component cannot
+/// participate because they would make the boundary ambiguous. Nor can a
+/// repository naming a registry port (`localhost:5000/image`), as catalog names
+/// do not allow `:`.
+pub fn image_owns_secret(secret: &str, repository: &str) -> bool {
+    if repository
+        .split('/')
+        .any(|component| component == IMAGE_SECRET_SEPARATOR)
+    {
+        return false;
+    }
+
+    let Some((parent, _leaf)) = secret.rsplit_once('/') else {
+        return false;
+    };
+    let separator = format!("/{IMAGE_SECRET_SEPARATOR}/");
+    let Some((prefix, embedded_repository)) = parent.rsplit_once(&separator) else {
+        return false;
+    };
+
+    !prefix.is_empty() && embedded_repository == repository
+}
+
 /// Connectors with an image name starting with this value are Dekaf-type materializations. No image with this
 /// name exists, instead we use it to identify which connectors get marked as `connector_type: ConnectorType::Dekaf`,
 /// causing the runtime to invoke Dekaf's in-tree connector logic in `[dekaf::connector]`
@@ -147,5 +178,51 @@ mod test {
             let actual = super::split_image_tag(image);
             assert_eq!((actual.0.as_str(), actual.1.as_str()), expected, "{image}");
         }
+    }
+
+    #[test]
+    fn image_secret_names_have_an_unambiguous_repository_boundary() {
+        let repository = "registry.vendor.test/acme/source-example";
+
+        for (secret, expected) in [
+            (
+                "vendor/connectors/registry.vendor.test/acme/source-example/oauth-client",
+                true,
+            ),
+            (
+                "arbitrary/connectors/prefix/connectors/registry.vendor.test/acme/source-example/oauth-client",
+                true,
+            ),
+            (
+                "vendor/registry.vendor.test/acme/source-example/oauth-client",
+                false,
+            ),
+            (
+                "connectors/registry.vendor.test/acme/source-example/oauth-client",
+                false,
+            ),
+            (
+                "vendor/connectors/registry.vendor.test/acme/source-example/nested/oauth-client",
+                false,
+            ),
+        ] {
+            assert_eq!(
+                super::image_owns_secret(secret, repository),
+                expected,
+                "{secret}"
+            );
+        }
+
+        // The longer repository is refused because it contains the separator;
+        // the rightmost separator deterministically assigns this name to the
+        // shorter repository instead.
+        assert!(!super::image_owns_secret(
+            "vendor/connectors/registry.vendor.test/connectors/registry.attacker.test/source/client",
+            "registry.vendor.test/connectors/registry.attacker.test/source",
+        ));
+        assert!(super::image_owns_secret(
+            "vendor/connectors/registry.vendor.test/connectors/registry.attacker.test/source/client",
+            "registry.attacker.test/source",
+        ));
     }
 }
