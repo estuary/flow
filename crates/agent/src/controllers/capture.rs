@@ -9,7 +9,7 @@ use crate::controllers::{
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
-    CaptureEndpoint, RawValue,
+    CaptureEndpoint,
     status::{
         capture::{AutoDiscoverStatus, CaptureStatus},
         connector::ConfigUpdate,
@@ -67,20 +67,19 @@ pub async fn update<C: ControlPlane>(
         events,
         control_plane,
         |config_update: &ConfigUpdate| -> anyhow::Result<publication_status::PendingPublication> {
-            let Some(updated_config) = config_update.fields.get("config") else {
-                anyhow::bail!("expected config to be present in fields");
-            };
+            let (updated_config, updated_secrets) = config_update::extract_update(config_update)?;
 
             let mut updated_model = model.clone();
             match &mut updated_model.endpoint {
                 CaptureEndpoint::Connector(connector) => {
                     // Overwrite the connector's config with the updated config.
-                    connector.config = RawValue::from_string(updated_config.to_string())?;
+                    connector.config = updated_config;
                 }
                 _ => {
                     anyhow::bail!("expected Connector endpoint for config update event");
                 }
             }
+            updated_model.secrets = updated_secrets;
 
             let capture_name = models::Capture::new(&state.catalog_name);
             let mut pending = publication_status::PendingPublication::new();
