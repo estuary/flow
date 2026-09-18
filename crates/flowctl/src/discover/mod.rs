@@ -32,8 +32,8 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     // Load, inline, and validate the source specifications.
     let build::Output {
         draft: mut draft_catalog,
-        live,
         built: validations,
+        ..
     } = local_specs::load_and_validate(ctx, &args.source).await?;
 
     // Identify the capture to discover.
@@ -60,7 +60,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     // Data-plane to which the discover will be submitted.
     // Use an explicit plane if provided, otherwise use the plane of the built capture.
     let data_plane_name = if let Some(data_plane) = &args.data_plane {
-        data_plane.as_str()
+        data_plane.to_string()
     } else {
         let data_plane_id = validations
             .built_captures
@@ -68,14 +68,12 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
             .expect("capture validated")
             .data_plane_id;
 
-        live.data_planes
-            .get_by_key(&data_plane_id)
-            .filter(|dp| dp.control_id != models::Id::zero()) // NoOpCatalogResolver fixture.
-            .with_context(|| {
-                format!("couldn't resolve data-plane {data_plane_id}; you may not have access")
-            })?
-            .data_plane_name
-            .as_str()
+        super::local_specs::Resolver {
+            pg: ctx.pg.clone(),
+            access_token: ctx.access_token(),
+        }
+        .data_plane_name(data_plane_id)
+        .await?
     };
     tracing::info!(%data_plane_name, "using data-plane for discovery");
 
@@ -118,7 +116,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     let create = CreateDiscoverRow {
         capture_name: &draft_capture.capture,
         connector_tag_id,
-        data_plane_name,
+        data_plane_name: &data_plane_name,
         draft_id: draft.id,
         endpoint_config,
         update_only,

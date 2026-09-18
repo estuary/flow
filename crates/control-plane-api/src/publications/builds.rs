@@ -1,15 +1,15 @@
-use crate::{jobs, logs, proxy_connectors::MakeConnectors};
+use crate::{connectors::ConnectorFactory, jobs, logs};
 use anyhow::Context;
 use models::Id;
 use rand::RngCore;
 use sqlx::types::Uuid;
 use std::path;
-use validation::Connectors;
 
 #[async_trait::async_trait]
 pub trait Builder: Send + Sync + std::fmt::Debug {
     async fn build(
         &self,
+        snapshot: &crate::Snapshot,
         builds_root: &url::Url,
         draft: tables::DraftCatalog,
         live: tables::LiveCatalog,
@@ -18,25 +18,26 @@ pub trait Builder: Send + Sync + std::fmt::Debug {
         tmpdir: &path::Path,
         logs_tx: logs::Tx,
         logs_token: sqlx::types::Uuid,
-        explicit_plane_name: Option<&str>,
+        default_data_plane: Option<&validation::DefaultDataPlane>,
     ) -> anyhow::Result<build::Output>;
 }
 
 #[derive(Debug)]
-pub struct BuilderImpl<MC: MakeConnectors> {
-    make_connectors: MC,
+pub struct BuilderImpl {
+    connector_factory: std::sync::Arc<dyn ConnectorFactory>,
 }
 
-impl<MC: MakeConnectors> BuilderImpl<MC> {
-    pub fn new(make_connectors: MC) -> Self {
-        Self { make_connectors }
+impl BuilderImpl {
+    pub fn new(connector_factory: std::sync::Arc<dyn ConnectorFactory>) -> Self {
+        Self { connector_factory }
     }
 }
 
 #[async_trait::async_trait]
-impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
+impl Builder for BuilderImpl {
     async fn build(
         &self,
+        snapshot: &crate::Snapshot,
         builds_root: &url::Url,
         draft: tables::DraftCatalog,
         live: tables::LiveCatalog,
@@ -45,9 +46,12 @@ impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
         tmpdir: &path::Path,
         logs_tx: logs::Tx,
         logs_token: sqlx::types::Uuid,
-        explicit_plane_name: Option<&str>,
+        default_data_plane: Option<&validation::DefaultDataPlane>,
     ) -> anyhow::Result<build::Output> {
-        let connectors = self.make_connectors.make_connectors(logs_token);
+        let connectors = self
+            .connector_factory
+            .make_connectors(snapshot, "build", logs_token);
+
         build_catalog(
             builds_root,
             draft,
@@ -57,19 +61,19 @@ impl<MC: MakeConnectors> Builder for BuilderImpl<MC> {
             tmpdir,
             logs_tx,
             logs_token,
-            &connectors,
-            explicit_plane_name,
+            connectors.as_ref(),
+            default_data_plane,
         )
         .await
     }
 }
 
 /// Create a new Builder instance
-pub fn new_builder<MC: MakeConnectors>(make_connectors: MC) -> Box<dyn Builder> {
-    Box::new(BuilderImpl::new(make_connectors))
+pub fn new_builder(connector_factory: std::sync::Arc<dyn ConnectorFactory>) -> Box<dyn Builder> {
+    Box::new(BuilderImpl::new(connector_factory))
 }
 
-async fn build_catalog<Conn: Connectors>(
+async fn build_catalog(
     builds_root: &url::Url,
     draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
@@ -78,8 +82,8 @@ async fn build_catalog<Conn: Connectors>(
     tmpdir: &path::Path,
     logs_tx: logs::Tx,
     logs_token: sqlx::types::Uuid,
-    connectors: &Conn,
-    explicit_plane_name: Option<&str>,
+    connectors: &validation::Connectors<'_>,
+    default_data_plane: Option<&validation::DefaultDataPlane>,
 ) -> anyhow::Result<build::Output> {
     // Stage the build database under a ./builds/ subdirectory of the working
     // temporary directory; it is uploaded to `builds_root` further below.
@@ -102,7 +106,7 @@ async fn build_catalog<Conn: Connectors>(
         build_id,
         &project_root,
         connectors,
-        explicit_plane_name,
+        default_data_plane,
         &draft,
         &live,
         true,  // Fail_fast.
@@ -157,8 +161,12 @@ async fn build_catalog<Conn: Connectors>(
     Ok(output)
 }
 
-/// Run a built catalog's tests locally, returning a `tables::Error` per test
-/// case that failed — or that never ran because an earlier failure ended the run.
+/// Run a built catalog's tests, returning a `tables::Error` per test case that
+/// failed — or that never ran because an earlier failure ended the run.
+///
+/// The test harness runs here in the agent, while each connector runs wherever
+/// `connector_router` sends it. The publisher supplies a router which maps
+/// derivations to their owning data planes.
 ///
 /// Derivations execute as resident runtime-next sessions, split across two
 /// shards to exercise multi-shard key routing. Connector and runtime logs stream
@@ -168,8 +176,8 @@ async fn build_catalog<Conn: Connectors>(
 pub async fn test_catalog(
     logs_token: Uuid,
     logs_tx: &logs::Tx,
-    connector_network: &str,
     catalog: &build::Output,
+    connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
 ) -> anyhow::Result<tables::Errors> {
     let mut errors = tables::Errors::default();
 
@@ -181,13 +189,10 @@ pub async fn test_catalog(
     // name that existing log consumers already select on.
     let ops_handler = logs::ops_handler(logs_tx.clone(), "test".to_string(), logs_token);
     let options = catalog_tests::Options {
-        connector_router: runtime_local::local_router(
-            connector_network.to_string(),
-            service_kit::Registry::new(),
-        ),
+        connector_router,
         splits: 2, // Exercise multi-shard key routing.
         log_handler: std::sync::Arc::new(move |log: &ops::Log| {
-            runtime::LogHandler::log(&ops_handler, log)
+            ::ops::LogHandler::log(&ops_handler, log)
         }),
         timeouts: catalog_tests::Timeouts::default(),
     };

@@ -4,7 +4,6 @@ use tables::EitherOrBoth as EOB;
 
 mod capture;
 pub mod collection;
-mod data_plane;
 mod derivation;
 mod errors;
 pub mod field_selection;
@@ -19,7 +18,13 @@ mod test_step;
 
 pub use derivation::derive_spec_request;
 pub use errors::Error;
-pub use noop::NoOpConnectors;
+
+/// A resolved data-plane used as the default placement of newly created specs.
+#[derive(Clone, Debug)]
+pub struct DefaultDataPlane {
+    pub id: models::Id,
+    pub name: String,
+}
 
 /// Portion of the binding namespace reserved for runtime-internal bindings
 /// (today: the capture connector-state pseudo-binding). Internal additions must
@@ -45,44 +50,26 @@ pub fn max_bindings(indirect_specs: bool) -> usize {
     }
 }
 
-/// Connectors is a delegated trait -- provided to validate -- through which
-/// connector validation RPCs are dispatched. Request and Response must always
-/// be Validate / Validated variants, but may include `internal` fields.
-pub trait Connectors: Send + Sync {
-    fn capture<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Capture,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::capture::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = proto_flow::capture::Request> + Send + Unpin + 'static;
+/// A thin, WASM-compatible seam for one connector request and response.
+pub type Connectors<'a> = dyn Fn(
+        models::Id,
+        proto_flow::connector::Request,
+    ) -> futures::future::BoxFuture<
+        'a,
+        anyhow::Result<(
+            proto_flow::connector::response::Started,
+            proto_flow::connector::response::Kind,
+        )>,
+    > + Send
+    + Sync
+    + 'a;
 
-    fn derive<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Collection,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::derive::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = proto_flow::derive::Request> + Send + Unpin + 'static;
-
-    fn materialize<'a, R>(
-        &'a self,
-        data_plane: &'a tables::DataPlane,
-        task: &'a models::Materialization,
-        request_rx: R,
-    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::materialize::Response>> + Send + 'a
-    where
-        R: futures::Stream<Item = proto_flow::materialize::Request> + Send + Unpin + 'static;
-}
-
-pub async fn validate<C: Connectors>(
+pub async fn validate(
     pub_id: models::Id,
     build_id: models::Id,
     project_root: &url::Url,
-    connectors: &C,
-    explicit_plane_name: Option<&str>,
+    connectors: &Connectors<'_>,
+    default_data_plane: Option<&DefaultDataPlane>,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
     fail_fast: bool,
@@ -93,33 +80,6 @@ pub async fn validate<C: Connectors>(
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
-    let explicit_plane =
-        match explicit_plane_name.map(|n| (n, data_plane::find_by_name(&live.data_planes, n))) {
-            Some((_, Ok(plane))) => Some(plane),
-            Some((name, Err(Some(suggest)))) => {
-                Error::NoSuchEntitySuggest {
-                    this_entity: "build",
-                    this_name: "parameter".to_string(),
-                    ref_entity: "data plane",
-                    ref_name: name.to_string(),
-                    suggest_name: suggest.to_string(),
-                }
-                .push(Scope::new(&project_root), &mut errors);
-                None
-            }
-            Some((name, Err(None))) => {
-                Error::NoSuchEntity {
-                    this_entity: "build",
-                    this_name: "parameter".to_string(),
-                    ref_entity: "data plane",
-                    ref_name: name.to_string(),
-                }
-                .push(Scope::new(&project_root), &mut errors);
-                None
-            }
-            None => None,
-        };
-
     storage_mapping::walk_all_storage_mappings(&live.storage_mappings, &mut errors);
 
     // Build all local collections.
@@ -129,8 +89,7 @@ pub async fn validate<C: Connectors>(
         &draft.collections,
         &live.inferred_schemas,
         &live.collections,
-        &live.data_planes,
-        explicit_plane,
+        default_data_plane,
         &live.storage_mappings,
         &mut errors,
     );
@@ -155,7 +114,6 @@ pub async fn validate<C: Connectors>(
         &draft.tests,
         &live.tests,
         &built_collections,
-        &live.data_planes,
         &dependencies,
         &live.storage_mappings,
         &mut errors,
@@ -183,8 +141,7 @@ pub async fn validate<C: Connectors>(
         &live.captures,
         &built_collections,
         connectors,
-        &live.data_planes,
-        explicit_plane,
+        default_data_plane,
         &dependencies,
         noop_captures,
         &live.storage_mappings,
@@ -200,7 +157,6 @@ pub async fn validate<C: Connectors>(
         &live.collections,
         &built_collections,
         connectors,
-        &live.data_planes,
         &dependencies,
         &draft.imports,
         noop_derivations,
@@ -218,8 +174,7 @@ pub async fn validate<C: Connectors>(
         &live.materializations,
         &built_collections,
         connectors,
-        &live.data_planes,
-        explicit_plane,
+        default_data_plane,
         &dependencies,
         noop_materializations,
         &live.storage_mappings,
@@ -286,14 +241,13 @@ fn walk_prefix<'a>(
     scope: Scope<'a>,
     entity: &'static str,
     name: &str,
-    data_planes: &'a tables::DataPlanes,
-    explicit_plane: Option<&'a tables::DataPlane>,
+    default_data_plane: Option<&DefaultDataPlane>,
     storage_mappings: &'a [tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> Option<(
-    &'a [models::Store],   // Partition stores.
-    &'a [models::Store],   // Recovery stores.
-    &'a tables::DataPlane, // Data-plane for task initialization.
+    &'a [models::Store], // Partition stores.
+    &'a [models::Store], // Recovery stores.
+    models::Id,          // Data-plane for task initialization.
 )> {
     let partition = match storage_mapping::lookup_mapping(entity, name, storage_mappings) {
         Ok(m) => m,
@@ -322,7 +276,7 @@ fn walk_prefix<'a>(
     {
         // OK: recovery prefix is "recovery/" + partition prefix.
     } else if partition.catalog_prefix.is_empty() && recovery.catalog_prefix.is_empty() {
-        // OK: support for test & flowctl cases using NoOpCatalogResolver.
+        // OK: support for offline test and flowctl builds.
     } else {
         Error::StorageMappingPrefixMismatch {
             entity,
@@ -334,62 +288,32 @@ fn walk_prefix<'a>(
     }
 
     // Similarly, require that data-planes of `partition` and `recovery` align.
-    if !recovery.data_planes.is_empty() && recovery.data_planes != partition.data_planes {
+    if !recovery.data_plane_ids.is_empty() && recovery.data_plane_ids != partition.data_plane_ids {
         Error::StorageMappingDataPlanesMismatch {
             entity,
             name: name.to_string(),
             partition_mapping: partition.catalog_prefix.clone(),
-            partition_planes: partition.data_planes.iter().cloned().collect(),
-            recovery_planes: recovery.data_planes.iter().cloned().collect(),
         }
         .push(scope, errors);
     }
 
     // Determine the data plane into which `name` should be initialized.
-    let init_data_plane = if let Some(explicit_plane) = explicit_plane {
-        if !partition
-            .data_planes
-            .contains(&explicit_plane.data_plane_name)
+    let init_data_plane = if let Some(default_data_plane) = default_data_plane {
+        if !partition.data_plane_ids.contains(&default_data_plane.id)
             && partition.catalog_prefix.as_str() != "ops/"
         {
             Error::DataPlaneNotInStorageMapping {
                 entity,
                 name: name.to_string(),
                 partition_mapping: partition.catalog_prefix.clone(),
-                data_plane: explicit_plane.data_plane_name.clone(),
-                listed_data_planes: partition.data_planes.iter().cloned().collect(),
+                data_plane: default_data_plane.name.clone(),
             }
             .push(scope, errors);
         }
-        explicit_plane
-    } else if let Some(default_plane_name) = partition.data_planes.first() {
+        default_data_plane.id
+    } else if let Some(default_plane_id) = partition.data_plane_ids.first() {
         // Default to using the first data-plane attached to the storage mapping.
-        // Yes, it's weird that mappings have data planes.
-        // This too is holding the door open for a "Prefix" concept.
-        match data_plane::find_by_name(data_planes, &default_plane_name) {
-            Ok(plane) => plane,
-            Err(Some(suggest)) => {
-                Error::NoSuchEntitySuggest {
-                    this_entity: "storage mapping",
-                    this_name: partition.catalog_prefix.to_string(),
-                    ref_entity: "data plane",
-                    ref_name: default_plane_name.to_string(),
-                    suggest_name: suggest.to_string(),
-                }
-                .push(scope, errors);
-                return None; // Cannot continue.
-            }
-            Err(None) => {
-                Error::NoSuchEntity {
-                    this_entity: "storage mapping",
-                    this_name: partition.catalog_prefix.to_string(),
-                    ref_entity: "data plane",
-                    ref_name: default_plane_name.to_string(),
-                }
-                .push(scope, errors);
-                return None; // Cannot continue.
-            }
-        }
+        *default_plane_id
     } else {
         // Admissible data-planes must be attached to every storage mapping.
         Error::StorageMappingMissingDataPlanes {
@@ -408,9 +332,8 @@ fn walk_transition<'a, D, L, B>(
     pub_id: models::Id,
     build_id: models::Id,
     entity: &'static str,
-    explicit_plane: Option<&'a tables::DataPlane>,
+    default_data_plane: Option<&DefaultDataPlane>,
     eob: EOB<&'a L, &'a D>,
-    data_planes: &'a tables::DataPlanes,
     storage_mappings: &'a tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Result<
@@ -420,7 +343,7 @@ fn walk_transition<'a, D, L, B>(
         &'a url::Url,             // Scope.
         D::ModelDef,              // Model to validate.
         models::Id,               // Live control-plane ID.
-        &'a tables::DataPlane,    // Assigned data-plane.
+        models::Id,               // Assigned data-plane.
         &'a [models::Store],      // Partition stores.
         &'a [models::Store],      // Recovery stores.
         models::Id,               // Live publication ID.
@@ -488,8 +411,7 @@ where
                 Scope::new(draft.scope()),
                 entity,
                 draft.catalog_name().as_ref(),
-                data_planes,
-                explicit_plane,
+                default_data_plane,
                 storage_mappings,
                 errors,
             ) else {
@@ -570,8 +492,8 @@ where
                 Error::TouchModelIsNotEqual.push(Scope::new(draft.scope()), errors);
             }
 
-            let explicit_plane = if !draft.catalog_name().as_ref().starts_with("ops/") {
-                // If we used `explicit_plane` here, we'd error if that plane was
+            let default_data_plane = if !draft.catalog_name().as_ref().starts_with("ops/") {
+                // If we used `default_data_plane` here, we'd error if that plane was
                 // intended for a different, initializing spec and not this one.
                 //
                 // If we used `data_plane_id`, we'd error if the data-plane is
@@ -585,15 +507,17 @@ where
                 // The ops/ prefix is special: it has no data-planes because it's
                 // in all data-planes, and if we didn't pass data_plane_id here
                 // we'd error about its lack of planes.
-                data_planes.get_key(&data_plane_id)
+                Some(DefaultDataPlane {
+                    id: data_plane_id,
+                    name: String::new(),
+                })
             };
 
             let Some((partition_stores, recovery_stores, init_data_plane)) = walk_prefix(
                 Scope::new(draft.scope()),
                 entity,
                 draft.catalog_name().as_ref(),
-                data_planes,
-                explicit_plane,
+                default_data_plane.as_ref(),
                 storage_mappings,
                 errors,
             ) else {
@@ -602,29 +526,14 @@ where
 
             // For entities with a data plane (captures, collections, materializations),
             // use the assigned data plane. For tests, use the initialization data plane.
-            let data_plane = if let Some(data_plane_id) = live.data_plane_id() {
-                if let Some(data_plane) = data_planes.get_by_key(&data_plane_id) {
-                    data_plane
-                } else {
-                    Error::MissingDataPlaneId {
-                        this_entity: entity,
-                        this_name: draft.catalog_name().as_ref().to_string(),
-                        data_plane_id,
-                    }
-                    .push(Scope::new(draft.scope()), errors);
-
-                    init_data_plane
-                }
-            } else {
-                init_data_plane
-            };
+            let data_plane_id = live.data_plane_id().unwrap_or(init_data_plane);
 
             Ok((
                 draft.catalog_name(),
                 draft.scope(),
                 model.clone(),
                 live.control_id(),
-                data_plane,
+                data_plane_id,
                 partition_stores,
                 recovery_stores,
                 live.last_pub_id(),
@@ -813,7 +722,7 @@ mod test {
         let name = models::Collection::new("test/a");
         let pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
         let build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
-        let (data_planes, storage_mappings) = prefix_fixture();
+        let storage_mappings = prefix_fixture();
 
         let draft = tables::DraftCollection {
             collection: name.clone(),
@@ -829,7 +738,6 @@ mod test {
             "collection",
             None,
             EOB::Right(&draft),
-            &data_planes,
             &storage_mappings,
             &mut errors,
         );
@@ -879,7 +787,7 @@ mod test {
         let mut errors = tables::Errors::default();
         let pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
         let build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
-        let (data_planes, storage_mappings) = prefix_fixture();
+        let storage_mappings = prefix_fixture();
 
         let (
             _name,
@@ -900,7 +808,6 @@ mod test {
             "collection",
             None,
             EOB::Both(&live, &draft),
-            &data_planes,
             &storage_mappings,
             &mut errors,
         )
@@ -920,7 +827,6 @@ mod test {
             "collection",
             None,
             EOB::Both(&live, &draft),
-            &data_planes,
             &storage_mappings,
             &mut errors,
         );
@@ -936,7 +842,6 @@ mod test {
             "collection",
             None,
             EOB::Both(&live, &draft),
-            &data_planes,
             &storage_mappings,
             &mut errors,
         );
@@ -946,36 +851,22 @@ mod test {
         ));
     }
 
-    fn prefix_fixture() -> (tables::DataPlanes, tables::StorageMappings) {
-        let mut data_planes = tables::DataPlanes::new();
-        data_planes.insert_row(
-            models::Id::new([0, 0, 0, 0, 0, 0, 2, 2]),
-            "test-plane".to_string(),
-            "test-plane.example.com".to_string(),
-            false, // closed
-            vec!["test-key".to_string()],
-            models::RawValue::default(),
-            models::Collection::new("ops/acmeCo/logs"),
-            models::Collection::new("ops/acmeCo/stats"),
-            "broker.example.com".to_string(),
-            "reactor.example.com".to_string(),
-            None::<String>, // dekaf_address
-            None::<String>, // dekaf_registry_address
-        );
+    fn prefix_fixture() -> tables::StorageMappings {
+        let data_plane_id = models::Id::new([0, 0, 0, 0, 0, 0, 2, 2]);
         let mut storage_mappings = tables::StorageMappings::new();
         storage_mappings.insert_row(
             models::Prefix::new("test/"),
             models::Id::zero(),
             vec![],
-            vec!["test-plane".to_string()],
+            vec![data_plane_id],
         );
         storage_mappings.insert_row(
             models::Prefix::new("recovery/test/"),
             models::Id::zero(),
             vec![],
-            vec!["test-plane".to_string()],
+            vec![data_plane_id],
         );
-        (data_planes, storage_mappings)
+        storage_mappings
     }
 }
 
@@ -1006,70 +897,59 @@ fn temporary_cross_data_plane_read_check<'a>(
     }
 }
 
-async fn expect_response<'a, R, E, T>(
-    scope: Scope<'a>,
-    mut response_rx: impl futures::Stream<Item = anyhow::Result<R>> + Unpin,
-    extract: E,
+/// Issue a unary Validate `kind` to the task's connector (or to the permissive
+/// no-op connector when `no_op`). Errors are pushed to `errors` under `scope`.
+/// Returns the Validated response and the connector's network ports.
+async fn validate_connector<V>(
+    scope: Scope<'_>,
+    connectors: &Connectors<'_>,
+    no_op: bool,
+    data_plane_id: models::Id,
+    log_level: Option<&str>,
+    kind: proto_flow::connector::request::Kind,
+    unwrap_validated: fn(proto_flow::connector::response::Kind) -> Option<V>,
     errors: &mut tables::Errors,
-) -> Option<T>
-where
-    E: FnOnce(&mut R) -> anyhow::Result<Option<T>>,
-    R: std::fmt::Debug,
-{
-    use futures::StreamExt;
+) -> Option<(V, Vec<proto_flow::flow::NetworkPort>)> {
+    use proto_flow::connector::request;
 
-    let response = match response_rx.next().await {
-        Some(response) => response,
-        None => Err(anyhow::anyhow!(
-            "Expected connector to send {}, but read an EOF",
-            std::any::type_name::<R>()
-        )),
+    let protocol = match &kind {
+        request::Kind::Capture(_) => "capture",
+        request::Kind::Derive(_) => "derivation",
+        request::Kind::Materialize(_) => "materialization",
+    };
+    let request = proto_flow::connector::Request {
+        start: Some(request::Start {
+            log_level: log_level
+                .and_then(proto_flow::ops::log::Level::from_str_name)
+                .unwrap_or_default() as i32,
+            ..Default::default()
+        }),
+        kind: Some(kind),
     };
 
-    let mut response = match response {
+    let result = if no_op {
+        noop::no_op_connector(request).await
+    } else {
+        connectors(data_plane_id, request).await
+    };
+    let (started, response) = match result {
         Ok(response) => response,
-        Err(err) => {
-            Error::Connector { detail: err }.push(scope, errors);
+        Err(detail) => {
+            Error::Connector { detail }.push(scope, errors);
             return None;
         }
     };
 
-    match extract(&mut response) {
-        Ok(Some(extracted)) => Some(extracted),
-        Ok(None) => {
-            Error::Connector {
-                detail: anyhow::anyhow!(
-                    "Expected connector to send {}, but read {response:?}",
-                    std::any::type_name::<T>()
-                ),
-            }
-            .push(scope, errors);
-            None
+    // `proto_grpc::connector::unary` verified that Started and the response are
+    // of the request's protocol; `unwrap_validated` checks only for Validated.
+    let Some(validated) = unwrap_validated(response) else {
+        Error::Connector {
+            detail: anyhow::anyhow!("connector did not return {protocol} Validated"),
         }
-        Err(err) => {
-            Error::Connector { detail: err }.push(scope, errors);
-            None
-        }
-    }
-}
-
-async fn expect_eof<'a, R>(
-    scope: Scope<'a>,
-    mut response_rx: impl futures::Stream<Item = anyhow::Result<R>> + Unpin,
-    errors: &mut tables::Errors,
-) where
-    R: std::fmt::Debug,
-{
-    use futures::StreamExt;
-
-    let response = match response_rx.next().await {
-        None => Ok(()),
-        Some(Ok(response)) => Err(anyhow::anyhow!(
-            "Expected connector to send closing EOF, but read {response:?}",
-        )),
-        Some(Err(err)) => Err(err),
+        .push(scope, errors);
+        return None;
     };
-    if let Err(err) = response {
-        Error::Connector { detail: err }.push(scope, errors);
-    }
+    let network_ports = started.container.unwrap_or_default().network_ports;
+
+    Some((validated, network_ports))
 }

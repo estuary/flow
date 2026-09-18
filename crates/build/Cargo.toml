@@ -10,11 +10,13 @@ license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
+connector = { path = "../connector" }
 json = { path = "../json" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
-runtime = { path = "../runtime" }
+proto-grpc = { path = "../proto-grpc", features = ["connector_client"] }
+service-kit = { path = "../service-kit" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }

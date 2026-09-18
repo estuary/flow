@@ -1,11 +1,11 @@
 pub mod db;
 pub mod specs;
 
-use crate::proxy_connectors::DiscoverConnectors;
+use crate::connectors::ConnectorFactory;
 
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
-use proto_flow::{capture, flow::capture_spec};
+use proto_flow::{capture, connector, flow::capture_spec};
 use sqlx::{PgPool, types::Uuid};
 use std::collections::HashSet;
 
@@ -17,10 +17,10 @@ pub use db::{Row, fetch_discover, resolve};
 pub struct Discover<'a> {
     /// The name of the capture, which _must_ exist within the `draft`.
     pub capture_name: models::Capture,
-    /// The data plane to use for the discover. For an existing capture, this
-    /// _should_ be the data plane that the capture is currently running in. But
-    /// that is not required.
-    pub data_plane: tables::DataPlane,
+    /// The data plane to use for the discover. Existing captures should use
+    /// their current data plane.
+    pub data_plane_id: models::Id,
+    /// Destination token for discover operation logs.
     pub logs_token: Uuid,
     /// Authorization subject used when evaluating this discover.
     pub subject: models::authz::Subject,
@@ -146,21 +146,20 @@ impl DiscoverOutput {
 }
 
 /// A DiscoverHandler is a Handler which performs discovery operations.
+// TODO(johnny): flatten into pure functions, taking a dyn ConnectorFactory.
 #[derive(Clone)]
-pub struct DiscoverHandler<C> {
-    pub connectors: C,
+pub struct DiscoverHandler {
+    connector_factory: std::sync::Arc<dyn ConnectorFactory>,
 }
 
-impl<C: DiscoverConnectors> DiscoverHandler<C> {
-    pub fn new(connectors: C) -> Self {
-        Self { connectors }
+impl DiscoverHandler {
+    pub fn new(connector_factory: std::sync::Arc<dyn ConnectorFactory>) -> Self {
+        Self { connector_factory }
     }
-}
 
-impl<C: DiscoverConnectors> DiscoverHandler<C> {
     #[tracing::instrument(skip_all, fields(
         capture_name = %req.capture_name,
-        data_plane_name = %req.data_plane.data_plane_name,
+        data_plane_id = %req.data_plane_id,
         user_id = %req.subject.user_id,
         update_only = %req.update_only,
         image
@@ -168,7 +167,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
     pub async fn discover(&self, db: &PgPool, req: Discover<'_>) -> anyhow::Result<DiscoverOutput> {
         let Discover {
             capture_name,
-            data_plane,
+            data_plane_id,
             logs_token,
             subject,
             filter_user_authz,
@@ -212,25 +211,44 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .and_then(ops::LogLevel::from_str_name)
             .unwrap_or(ops::LogLevel::Info);
 
-        let request = capture::Request {
-            kind: Some(capture::request::Kind::Discover(Box::new(
-                capture::request::Discover {
-                    name: capture_name.to_string(),
-                    connector_type: capture_spec::ConnectorType::Image as i32,
-                    config_json: serde_json::to_string(connector_cfg).unwrap().into(),
-                    created_at,
-                    secrets,
-                },
-            ))),
-            ..Default::default()
+        let connectors = self
+            .connector_factory
+            .make_connectors(snapshot, "discover", logs_token);
+
+        let request = connector::Request {
+            start: Some(connector::request::Start {
+                log_level: log_level as i32,
+                ..Default::default()
+            }),
+            kind: Some(connector::request::Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Discover(Box::new(
+                    capture::request::Discover {
+                        name: capture_name.to_string(),
+                        connector_type: capture_spec::ConnectorType::Image as i32,
+                        config_json: serde_json::to_string(connector_cfg).unwrap().into(),
+                        created_at,
+                        secrets,
+                    },
+                ))),
+                ..Default::default()
+            })),
+        };
+        let result = async {
+            let (started, response) = connectors(data_plane_id, request).await?;
+            // `proto_grpc::connector::unary` verified that Started and the
+            // response are of the capture protocol, so only Discovered can fail.
+            match (started.spec, response) {
+                (
+                    Some(connector::response::started::Spec::Capture(spec)),
+                    connector::response::Kind::Capture(capture::Response {
+                        kind: Some(capture::response::Kind::Discovered(discovered)),
+                        ..
+                    }),
+                ) => Ok((*spec, discovered)),
+                _ => anyhow::bail!("connector did not return capture Discovered"),
+            }
         }
-        .with_internal(|internal| {
-            internal.set_log_level(log_level);
-        });
-        let result = self
-            .connectors
-            .discover(&data_plane, &capture_name, logs_token, request)
-            .await;
+        .await;
 
         let (spec, discovered) = match result {
             Ok(response) => response,

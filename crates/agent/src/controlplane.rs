@@ -16,7 +16,6 @@ use control_plane_api::{
     connector_tags, controllers, data_plane,
     discovers::{Discover, DiscoverHandler, DiscoverOutput},
     live_specs, logs,
-    proxy_connectors::{DiscoverConnectors, MakeConnectors},
     publications::{
         DefaultRetryPolicy, DraftPublication, NoopInitialize, NoopWithCommit,
         PruneUnboundCollections, PublicationResult, Publisher,
@@ -42,7 +41,7 @@ macro_rules! unwrap_single {
 /// this point, as we plan to eventually make connectors a part of the catalog
 /// namespace.
 pub struct ConnectorSpec {
-    pub protocol: runtime::RuntimeProtocol,
+    pub protocol: String,
     pub documentation_url: String,
     pub endpoint_config_schema: models::Schema,
     pub resource_config_schema: models::Schema,
@@ -239,11 +238,11 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 
 /// Implementation of `ControlPlane` that connects directly to postgres.
 #[derive(Clone)]
-pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
+pub struct PGControlPlane {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
     pub publications_handler: Publisher,
-    pub discovers_handler: DiscoverHandler<C>,
+    pub discovers_handler: DiscoverHandler,
     pub logs_tx: logs::Tx,
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     pub auto_discover_probability: f64,
@@ -251,12 +250,12 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub controller_config: std::sync::Arc<crate::controllers::ControllerConfig>,
 }
 
-impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
+impl PGControlPlane {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
         publications_handler: Publisher,
-        discovers_handler: DiscoverHandler<C>,
+        discovers_handler: DiscoverHandler,
         logs_tx: logs::Tx,
         snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
         auto_discover_probability: f64,
@@ -288,7 +287,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let refresh = self.snapshot_watch.token();
         let snapshot = refresh.result().unwrap();
 
-        let Some(data_plane) = snapshot.data_planes.get_by_key(&data_plane_id) else {
+        let Some(data_plane) = snapshot.data_plane_by_id(data_plane_id) else {
             snapshot.revoke.cancel();
             return Err(anyhow::anyhow!(
                 "data-plane {data_plane_id} not in snapshot"
@@ -302,21 +301,17 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        // Parse first data-plane HMAC key (used for signing tokens).
-        let (encode_key, _decode) =
-            tokens::jwt::parse_base64_hmac_keys(data_plane.hmac_keys.iter().take(1))
-                .context("invalid data-plane HMAC key")?;
-
         let iat = tokens::now();
         let claims = proto_gazette::Claims {
             cap: proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
             exp: (iat + tokens::TimeDelta::minutes(1)).timestamp() as u64,
             iat: iat.timestamp() as u64,
-            iss: data_plane.data_plane_fqdn.clone(),
+            iss: String::new(),
             sel: broker::LabelSelector::default(),
             sub: "agent".to_string(),
         };
-        let token = tokens::jwt::sign(&claims, &encode_key)
+        let token = data_plane
+            .sign_claims(claims)
             .context("failed to sign claims for data-plane")?;
 
         let metadata = proto_grpc::Metadata::new()
@@ -344,7 +339,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 }
 
 #[async_trait::async_trait]
-impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
+impl ControlPlane for PGControlPlane {
     fn can_auto_discover(&self) -> bool {
         if self.auto_discover_probability == 1.0 {
             return true;
@@ -551,18 +546,18 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             oauth2,
             auto_discover_interval,
         } = row;
-        let Some(runtime_protocol) =
-            runtime::RuntimeProtocol::from_database_string_value(&protocol)
-        else {
-            anyhow::bail!("invalid protocol {:?}", protocol);
-        };
+
+        anyhow::ensure!(
+            matches!(protocol.as_str(), "capture" | "materialization" | "derive"),
+            "invalid protocol {protocol:?}",
+        );
 
         let resource_path_pointers = resource_path_pointers
             .into_iter()
             .map(|p| json::Pointer::from_str(&p))
             .collect::<Vec<_>>();
         Ok(ConnectorSpec {
-            protocol: runtime_protocol,
+            protocol,
             documentation_url,
             endpoint_config_schema: models::Schema::new(models::RawValue::from(
                 endpoint_config_schema.0,
@@ -634,11 +629,6 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         let refresh = snapshot_watch.token();
         let snapshot = refresh.result().unwrap();
 
-        let data_plane = snapshot
-            .data_planes
-            .get_by_key(&data_plane_id)
-            .with_context(|| format!("data-plane {data_plane_id} not in snapshot"))?;
-
         let req = Discover {
             subject: models::authz::Subject::unrestricted(*system_user_id),
             filter_user_authz: false,
@@ -647,7 +637,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             update_only,
             reset_on_key_change,
             logs_token,
-            data_plane: data_plane.clone(),
+            data_plane_id,
             created_at,
             snapshot,
         };

@@ -133,9 +133,6 @@ pub struct CliContext {
     registry: service_kit::Registry,
     /// Shared router for all locally-run connectors in this invocation.
     connector_router: std::sync::Arc<dyn proto_grpc::connector::Router>,
-    /// Docker network of locally-run connector images, for build paths which
-    /// still start their own connectors through the V1 runtime.
-    connector_network: String,
 }
 
 impl CliContext {
@@ -291,7 +288,6 @@ impl Cli {
             output,
             registry,
             connector_router,
-            connector_network: self.connector_network.clone(),
         };
 
         // Version check runs concurrently with the command

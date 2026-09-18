@@ -23,7 +23,7 @@ pub mod utils;
 pub use built::{BuiltRow, Validations};
 pub use dependencies::Dependencies;
 pub use draft::{DraftCatalog, DraftRow};
-pub use live::{CatalogResolver, LiveCatalog, LiveRow};
+pub use live::{LiveCatalog, LiveRow};
 
 tables!(
     table Fetches (row Fetch, sql "fetches") {
@@ -58,8 +58,9 @@ tables!(
         val control_id: models::Id,
         // Stores for journal fragments under this prefix.
         val stores: Vec<models::Store>,
-        // Names of data planes into which covered tasks may be created.
-        val data_planes: Vec<String>,
+        // Control-plane IDs of data planes into which covered tasks may be created.
+        // Order is significant: the first is the default placement.
+        val data_plane_ids: Vec<models::Id>,
     }
 
     table InferredSchemas (row InferredSchema, sql "inferred_schemas") {
@@ -69,43 +70,6 @@ tables!(
         val schema: models::Schema,
         // MD5 content sum of `schema`.
         val md5: String,
-    }
-
-    table DataPlanes (row #[derive(Clone, serde::Serialize, serde::Deserialize)] DataPlane, sql "data_planes") {
-        // Control-plane identifier for this data-plane.
-        key control_id: models::Id,
-        // Name of this data-plane under the catalog namespace.
-        // This is used for authorization and not much else.
-        val data_plane_name: String,
-        // Unique and fully-qualified domain name of this data-plane.
-        val data_plane_fqdn: String,
-        // Whether this data-plane is closed to new selection. Closed planes
-        // keep serving existing tasks but are hidden from the default
-        // `dataPlanes` listing, letting operators retire a plane from new
-        // selection without deleting its record.
-        val closed: bool,
-        // HMAC-256 keys for this data-plane.
-        // The first is used for signing, and any key may validate.
-        val hmac_keys: Vec<String>,
-        // HMAC-256 keys for this data-plane in sops-encrypted yaml document format
-        // The first is used for signing, and any key may validate.
-        val encrypted_hmac_keys: models::RawValue,
-        // Name of the collection for ops logs of the data-plane.
-        val ops_logs_name: models::Collection,
-        // Name of the collection for ops stats of the data-plane.
-        val ops_stats_name: models::Collection,
-        // Address of brokers within the data-plane.
-        val broker_address: String,
-        // Address of reactors within the data-plane.
-        val reactor_address: String,
-        // Kafka-protocol URI for this dataplane's Dekaf instance.
-        // This is managed by the data-plane-controller, and is
-        // None if this data-plane has no Dekaf instance.
-        val dekaf_address: Option<String>,
-        // Schema registry endpoint for this dataplane's Dekaf instance.
-        // This is managed by the data-plane-controller, and is
-        // None if this data-plane has no Dekaf instance.
-        val dekaf_registry_address: Option<String>,
     }
 
     table RoleGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
@@ -487,6 +451,7 @@ string_wrapper_types!(
 
 json_sql_types!(
     Vec<String>,
+    Vec<models::Id>,
     Vec<models::Store>,
     Vec<models::authz::CapabilityBundle>,
     models::Capability,

@@ -5,9 +5,7 @@ extern crate allocator;
 use anyhow::Context;
 use axum::http;
 use clap::Parser;
-use control_plane_api::{
-    App, discovers::DiscoverHandler, proxy_connectors::DataPlaneConnectors, publications::Publisher,
-};
+use control_plane_api::{App, publications::Publisher};
 use derivative::Derivative;
 use futures::FutureExt;
 use sqlx::{ConnectOptions, Connection};
@@ -32,9 +30,6 @@ struct Args {
     /// URL endpoint into which build database are placed.
     #[clap(long = "builds-root", env = "BUILDS_ROOT")]
     builds_root: url::Url,
-    /// Docker network for connector invocations.
-    #[clap(long = "connector-network", default_value = "bridge")]
-    connector_network: String,
     /// Email address of user which provisions and maintains tenant accounts.
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
@@ -316,13 +311,15 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
-    let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors.clone());
 
-    let builder = control_plane_api::publications::builds::new_builder(connectors);
+    let connector_factory =
+        Arc::new(control_plane_api::connectors::ControlPlaneConnectorFactory::new(logs_tx.clone()));
+    let discover_handler =
+        control_plane_api::discovers::DiscoverHandler::new(connector_factory.clone());
+
+    let builder = control_plane_api::publications::builds::new_builder(connector_factory.clone());
     let mut publisher = Publisher::new(
         &args.builds_root,
-        &args.connector_network,
         &logs_tx,
         pg_pool.clone(),
         agent::id_generator::with_random_shard(),
@@ -406,7 +403,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     let automations_fut = if args.max_automations > 0 {
         let directive_executor = agent::DirectiveHandler::new(args.accounts_email);
-        let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
+        let connector_tags_executor =
+            agent::TagExecutor::new(connector_factory, snapshot_watch.clone());
         let mut automations_server = automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,

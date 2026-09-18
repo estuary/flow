@@ -68,24 +68,23 @@ pub async fn authorize_task(
     );
 
     // Legacy: return a custom 200 response for client-side retries.
-    let (expiry, (encoding_key, data_plane_fqdn, broker_address, found)) =
-        match env.authorization_outcome(policy_result).await {
-            Ok(ok) => ok,
-            Err(crate::ApiError::AuthZRetry(retry)) => {
-                return Ok(axum::Json(Response {
-                    retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
-                    ..Default::default()
-                }));
-            }
-            Err(err @ crate::ApiError::Status(_)) => return Err(err),
-        };
+    let (expiry, (data_plane, found)) = match env.authorization_outcome(policy_result).await {
+        Ok(ok) => ok,
+        Err(crate::ApiError::AuthZRetry(retry)) => {
+            return Ok(axum::Json(Response {
+                retry_millis: (retry.retry_after - retry.failed).num_milliseconds() as u64,
+                ..Default::default()
+            }));
+        }
+        Err(err @ crate::ApiError::Status(_)) => return Err(err),
+    };
 
     // Build and sign response claims.
     let mut response_claims = proto_gazette::Claims {
         cap,
         exp: expiry.timestamp() as u64,
         iat: env.started.timestamp() as u64,
-        iss: data_plane_fqdn,
+        iss: String::new(),
         sel: unverified.claims().sel.clone(),
         sub: unverified.claims().sub.clone(),
     };
@@ -111,24 +110,24 @@ pub async fn authorize_task(
             "1",
         ));
     }
-    let token = tokens::jwt::sign(&response_claims, &encoding_key)?;
+    let token = data_plane.sign_claims(response_claims)?;
 
     Ok(axum::Json(Response {
-        broker_address,
+        broker_address: data_plane.broker_address.clone(),
         token,
         ..Default::default()
     }))
 }
 
-fn evaluate_authorization(
-    snapshot: &crate::Snapshot,
+fn evaluate_authorization<'s>(
+    snapshot: &'s crate::Snapshot,
     started: tokens::DateTime,
     shard_id: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
-) -> crate::AuthZResult<(tokens::jwt::EncodingKey, String, String, bool)> {
+) -> crate::AuthZResult<(&'s crate::snapshot::DataPlane, bool)> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
     else {
@@ -151,8 +150,7 @@ fn evaluate_authorization(
     let collection = snapshot.collection_by_journal_name(journal_name_or_prefix);
 
     let (found, collection_data_plane, is_ops) = if let Some(collection) = collection {
-        let Some(collection_data_plane) =
-            snapshot.data_planes.get_by_key(&collection.data_plane_id)
+        let Some(collection_data_plane) = snapshot.data_plane_by_id(collection.data_plane_id)
         else {
             return Err(tonic::Status::internal(format!(
                 "collection {} data-plane {} not found",
@@ -196,15 +194,6 @@ fn evaluate_authorization(
         )));
     }
 
-    let Some(encoding_key) = collection_data_plane.hmac_keys.first() else {
-        return Err(tonic::Status::internal(format!(
-            "collection data-plane {} has no configured HMAC keys",
-            collection_data_plane.data_plane_name
-        )));
-    };
-    let encoding_key =
-        tokens::jwt::EncodingKey::from_secret(&tokens::jwt::parse_base64(encoding_key)?);
-
     let cordon_at = match (
         snapshot.cordon_at(&task.task_name, task_data_plane),
         collection.and_then(|collection| {
@@ -232,15 +221,7 @@ fn evaluate_authorization(
         )));
     }
 
-    Ok((
-        cordon_at,
-        (
-            encoding_key,
-            collection_data_plane.data_plane_fqdn.clone(),
-            collection_data_plane.broker_address.clone(),
-            found,
-        ),
-    ))
+    Ok((cordon_at, (collection_data_plane, found)))
 }
 
 #[cfg(test)]
@@ -455,10 +436,10 @@ mod tests {
             journal_name_or_prefix,
             required_role,
         ) {
-            Ok((cordon_at, (_key, data_plane_fqdn, broker_address, found))) => {
+            Ok((cordon_at, (data_plane, found))) => {
                 let output = SuccessOutput {
-                    broker_address,
-                    data_plane_fqdn,
+                    broker_address: data_plane.broker_address.clone(),
+                    data_plane_fqdn: data_plane.data_plane_fqdn.clone(),
                     found,
                 };
 
