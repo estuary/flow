@@ -28,6 +28,7 @@ mod alerts;
 mod authorized_prefixes;
 pub(crate) mod billing;
 mod data_planes;
+mod drafts;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
 mod connectors;
@@ -127,6 +128,7 @@ pub struct QueryRoot(
     refresh_tokens::RefreshTokensQuery,
     service_accounts::ServiceAccountsQuery,
     secrets::SecretsQuery,
+    drafts::DraftsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.

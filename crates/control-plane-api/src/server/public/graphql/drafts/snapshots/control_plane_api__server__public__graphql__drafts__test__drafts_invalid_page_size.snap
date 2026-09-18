@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: out_of_range
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 7,
+          "line": 3
+        }
+      ],
+      "message": "first must be between 1 and 1000",
+      "path": [
+        "drafts"
+      ]
+    }
+  ]
+}

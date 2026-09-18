@@ -884,6 +884,100 @@ type DiscoverChange {
 	disable: Boolean!
 }
 
+"""
+An authenticated user's private workspace for staging catalog changes.
+"""
+type Draft {
+	id: Id!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	detail: String
+	"""
+	Number of staged specifications the caller is currently allowed to read.
+	"""
+	numSpecs: Int!
+	"""
+	Specifications the caller may read, in catalog-name order.
+	"""
+	specs(after: String, first: Int): DraftSpecConnection!
+	"""
+	Diagnostics from the draft's last build. A diagnostic scoped to a
+	catalog name the caller cannot read is omitted.
+	"""
+	errors: [Error!]!
+}
+
+type DraftConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [DraftEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type DraftEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Draft!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+type DraftSpec {
+	catalogName: Name!
+	specType: CatalogType
+	"""
+	The staged catalog model. Null, together with a null `specType`, stages
+	a deletion: publishing the draft removes the live specification of this
+	name.
+	"""
+	spec: JSON
+	expectPubId: Id
+	lastPubId: Id
+	detail: String
+	updatedAt: DateTime!
+	"""
+	Whether the staged model is textually identical to the published one,
+	so that a no-op can be told apart from a real edit. The comparison is
+	over the serialized model, so a reordered document reads as changed.
+	"""
+	isUnchanged: Boolean!
+}
+
+type DraftSpecConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [DraftSpecEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type DraftSpecEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: DraftSpec!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
 type EffectiveAlertConfig {
 	config: JSON!
 	provenance: [FieldProvenance!]!
@@ -1989,6 +2083,11 @@ type QueryRoot {
 	Requires `ViewSecret` on a prefix covering each returned name.
 	"""
 	secrets(filter: SecretsFilter, after: String, first: Int): SecretConnection!
+	draft(id: Id!): Draft
+	"""
+	The caller's own drafts, in stable ID order.
+	"""
+	drafts(after: String, first: Int): DraftConnection!
 }
 
 """

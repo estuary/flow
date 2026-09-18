@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                d.id AS \"id!: models::Id\",\n                d.created_at,\n                d.updated_at,\n                d.detail,\n                (\n                    SELECT count(*)::int4\n                    FROM draft_specs ds\n                    WHERE ds.draft_id = d.id\n                      AND ds.catalog_name::text ^@ ANY($3)\n                ) AS \"num_specs!\"\n            FROM drafts d\n            WHERE d.id = $1 AND d.user_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "num_specs!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "3785c7035e41a7292eff722a78d52a07b219fd6f3baa441b4903a0da80141cbe"
+}
