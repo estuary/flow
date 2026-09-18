@@ -2195,6 +2195,7 @@ func (m *Synced) XXX_DiscardUnknown() {
 var xxx_messageInfo_Synced proto.InternalMessageInfo
 
 // Stop is sent Controller → Shard → Leader to request graceful shutdown.
+// A shard may also originate Stop to shed resources held by its session.
 type Stop struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

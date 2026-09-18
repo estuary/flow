@@ -747,6 +747,7 @@ message Synced {
 }
 
 // Stop is sent Controller → Shard → Leader to request graceful shutdown.
+// A shard may also originate Stop to shed resources held by its session.
 message Stop {}
 
 // Stopped confirms the session has shut down. The leader sends Stopped

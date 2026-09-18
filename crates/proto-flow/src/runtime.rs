@@ -837,6 +837,7 @@ pub struct Synced {
     pub close_request_seq: u64,
 }
 /// Stop is sent Controller → Shard → Leader to request graceful shutdown.
+/// A shard may also originate Stop to shed resources held by its session.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Stop {}
 /// Stopped confirms the session has shut down. The leader sends Stopped

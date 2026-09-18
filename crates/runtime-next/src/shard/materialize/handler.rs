@@ -212,6 +212,7 @@ where
 
     let labeling = labeling.as_ref().context("missing shard labeling")?.clone();
     let log_level = labeling.log_level();
+    let max_pinned_segments = crate::shard::max_pinned_segments(&labeling);
     let shard_id = shard_id.clone();
     let shard_index = join.shard_index;
     let shuffle_directory = join.shuffle_directory.clone();
@@ -304,6 +305,7 @@ where
         controller_rx,
         &mut leader_rx,
         &logger,
+        max_pinned_segments,
         shuffle_reader,
     )
     .await;
