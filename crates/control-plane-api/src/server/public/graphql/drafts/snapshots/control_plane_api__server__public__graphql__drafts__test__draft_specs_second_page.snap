@@ -1,0 +1,61 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: second_page
+---
+{
+  "data": {
+    "draft": {
+      "numSpecs": 4,
+      "specs": {
+        "edges": [
+          {
+            "cursor": "aliceCo/out/materialize-bar",
+            "node": {
+              "catalogName": "aliceCo/out/materialize-bar",
+              "detail": "changed model",
+              "expectPubId": null,
+              "isUnchanged": false,
+              "lastPubId": "000000fffe000002",
+              "spec": {
+                "bindings": [],
+                "endpoint": {
+                  "connector": {
+                    "config": {
+                      "token": "ENC[AES256_GCM,data:invented,tag:invented,type:str]"
+                    },
+                    "image": "example/materialize:test"
+                  }
+                }
+              },
+              "specType": "materialization",
+              "updatedAt": "2024-02-02T03:00:00+00:00"
+            }
+          },
+          {
+            "cursor": "aliceCo/z-new",
+            "node": {
+              "catalogName": "aliceCo/z-new",
+              "detail": null,
+              "expectPubId": null,
+              "isUnchanged": false,
+              "lastPubId": null,
+              "spec": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "specType": "collection",
+              "updatedAt": "2024-02-02T04:00:00+00:00"
+            }
+          }
+        ],
+        "pageInfo": {
+          "endCursor": "aliceCo/z-new",
+          "hasNextPage": false,
+          "hasPreviousPage": true,
+          "startCursor": "aliceCo/out/materialize-bar"
+        }
+      }
+    }
+  }
+}

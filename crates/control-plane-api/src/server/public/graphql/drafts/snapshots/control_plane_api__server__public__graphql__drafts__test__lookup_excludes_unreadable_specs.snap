@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: alice_draft
+---
+{
+  "data": {
+    "draft": {
+      "createdAt": "2024-01-01T00:00:00+00:00",
+      "detail": "alice",
+      "id": "0000000000000010",
+      "numSpecs": 1,
+      "updatedAt": "2024-01-01T00:00:00+00:00"
+    }
+  }
+}
