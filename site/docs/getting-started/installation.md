@@ -112,7 +112,41 @@ Estuary's data plane IAM user will need the following actions:
 * `s3:GetBucketPolicy`
 
 You can apply the policy through the [AWS Console](https://console.aws.amazon.com/s3/) or the `aws` CLI.
-The storage mapping dialog provides a ready-to-use policy JSON during connection testing.
+
+:::tip
+The storage mapping dialog generates a complete bucket policy with the correct IAM ARNs for all data planes mapped to this bucket. Copy and paste it directly into your bucket's policy configuration — no manual ARN lookup needed.
+:::
+
+#### S3 Bucket Encryption
+
+S3 buckets are encrypted with **SSE-S3** (Amazon S3 managed keys) by default, which works with Estuary out of the box.
+
+If your bucket uses **SSE-KMS** (AWS Key Management Service) for default encryption, you must grant Estuary's data plane IAM user permissions on your KMS key. Add the following statement to your [KMS key policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html):
+
+```json
+{
+  "Sid": "AllowEstuaryDataPlane",
+  "Effect": "Allow",
+  "Principal": {
+    "AWS": "<data-plane-IAM-ARN>"
+  },
+  "Action": [
+    "kms:GenerateDataKey",
+    "kms:Decrypt",
+    "kms:DescribeKey"
+  ],
+  "Resource": "*"
+}
+```
+
+Replace `<data-plane-IAM-ARN>` with your data plane's IAM ARN, found under **Admin > Settings > Data Planes** in the Estuary dashboard.
+
+Alternatively, you can switch your bucket's default encryption from SSE-KMS to SSE-S3 to avoid managing KMS permissions:
+
+1. In the [AWS Console](https://console.aws.amazon.com/s3/), navigate to your bucket.
+2. Go to **Properties** > **Default encryption**.
+3. Click **Edit** and change from **AWS Key Management Service key (SSE-KMS)** to **Amazon S3 managed key (SSE-S3)**.
+4. Save the change, then retry the connection test in Estuary.
 
 ### Azure Blob Storage
 
