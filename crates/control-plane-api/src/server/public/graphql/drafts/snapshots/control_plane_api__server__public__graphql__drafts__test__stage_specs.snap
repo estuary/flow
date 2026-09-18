@@ -1,0 +1,14 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: inserted
+---
+{
+  "data": {
+    "stageDraftSpecs": [
+      "aliceCo/data/foo",
+      "aliceCo/explicit-null",
+      "aliceCo/in/capture-foo",
+      "aliceCo/new"
+    ]
+  }
+}

@@ -14,7 +14,7 @@ expression: specs_response
           "line": 5
         }
       ],
-      "message": "first must be between 1 and 1000",
+      "message": "The \"first\" parameter must be a non-negative number",
       "path": [
         "draft",
         "specs"

@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 pub struct Error {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub catalog_name: String,
+    /// Location scope of the error within the draft.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Description of the error.
     pub detail: String,
 }
 
