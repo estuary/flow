@@ -9,6 +9,24 @@ use futures::{Stream, StreamExt, stream::BoxStream};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
+/// What a connector needs in order to rotate a credential it manages: the
+/// signer of the token which authorizes it, and the two services it calls.
+///
+/// Held by a reactor, which has the data-plane signing key already. `None` in
+/// every local context -- `flowctl preview` and tests -- where connectors are
+/// expected to rotate in memory only.
+#[derive(Clone)]
+pub struct Rotation {
+    /// Signs the `AUTHORIZE | TASK_UPDATE` token handed to the connector.
+    pub signer: proto_grpc::Signer,
+    /// Control-plane base URL, serving `/task/set-secret` and
+    /// `/task/update-config`.
+    pub control_api: url::Url,
+    /// config-encryption base URL, serving `/secret/encrypt`. The connector
+    /// wraps its own plaintext there, so the control plane never sees it.
+    pub config_encryption: url::Url,
+}
+
 /// Service implements the `connector.Connector` gRPC service: it starts and
 /// drives connectors on behalf of an authorized caller.
 #[derive(Clone)]
@@ -30,6 +48,9 @@ pub struct ServiceImpl {
     pub(crate) registry: service_kit::Registry,
     /// Resolves endpoint configuration secrets.
     pub(crate) secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
+    /// Authorizes connectors to rotate the credentials they manage, or `None`
+    /// where they may only rotate in memory.
+    pub(crate) rotation: Option<Rotation>,
 }
 
 /// How a session reached this Service.
@@ -57,6 +78,7 @@ impl Service {
         process: Option<proto_gazette::broker::ProcessSpec>,
         registry: service_kit::Registry,
         secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
+        rotation: Option<Rotation>,
     ) -> Self {
         Self(std::sync::Arc::new(ServiceImpl {
             plane,
@@ -65,6 +87,7 @@ impl Service {
             process,
             registry,
             secret_resolver,
+            rotation,
         }))
     }
 
@@ -87,6 +110,9 @@ impl Service {
             None, // No dial-able process in a local context.
             registry,
             secret_resolver,
+            // A local context holds no data-plane signing key, and there is no
+            // control plane for a connector to rotate against.
+            None,
         );
         let signer = proto_grpc::Signer::new(
             crate::router::LOCAL_ISSUER.to_string(),

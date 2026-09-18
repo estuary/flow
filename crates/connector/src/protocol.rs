@@ -24,6 +24,9 @@ pub(crate) struct StartContext {
     pub process: Option<proto_gazette::broker::ProcessSpec>,
     /// Resolver of task secrets.
     pub secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
+    /// Authorizes the connector to rotate credentials it manages, or `None`
+    /// where it may only rotate in memory.
+    pub rotation: Option<crate::Rotation>,
     /// Catalog task name, or [`crate::SPEC_TASK_NAME`] for a task-less Spec.
     pub task_name: String,
 }
@@ -106,6 +109,14 @@ pub(crate) struct Extracted<'r, P: Protocol> {
     /// Secrets of the task. Keys are catalog names of secrets,
     /// while values are JSON pointers into the endpoint config.
     pub secrets: &'r std::collections::BTreeMap<String, String>,
+    /// True when this request opens a long-lived session, as against one of
+    /// the unary kinds. It's what separates a rotation token which must
+    /// outlive a session from one which need only outlive a single request.
+    pub is_session: bool,
+    /// Build the session runs, from the spec's shard-template labels. Only a
+    /// session has one, and `/task/update-config` requires it: a connector a
+    /// publication behind must not clobber a model it hasn't seen.
+    pub build: Option<String>,
 }
 
 /// Normalized endpoint: the three ways a connector is run.
@@ -137,6 +148,8 @@ pub(crate) async fn start<P: Protocol>(
         initial_config_slot,
         initial_sealed_config_slot,
         secrets,
+        is_session,
+        build,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
 
     // TODO(johnny): This bit of ugliness is to support frozen
@@ -163,6 +176,32 @@ pub(crate) async fn start<P: Protocol>(
         }
     };
 
+    // Only a container needs the injected URLs rewritten; a local or in-process
+    // connector runs on the host, and reaches what the reactor itself reaches.
+    let url_rewrite = match image_repo {
+        Some(_) => crate::container::url_rewrite()?,
+        None => None,
+    };
+
+    // Authorize the connector to rotate credentials it manages. A task-less
+    // Spec has no identity to rotate under, and is handed nothing.
+    let rotation = match &ctx.rotation {
+        Some(rotation) if ctx.task_name != crate::SPEC_TASK_NAME => Some(mint_rotation(
+            rotation,
+            P::TASK_TYPE,
+            &ctx.task_name,
+            build.as_deref(),
+            is_session,
+            &url_rewrite,
+        )?),
+        _ => None,
+    };
+    let rotation_restart_at = rotation.as_ref().and_then(|(_, expires_at)| {
+        // Only a session outlives its token; a unary request is long done.
+        is_session.then(|| crate::token_restart_deadline(std::time::SystemTime::now(), *expires_at))
+    });
+    let rotation_env = rotation.map(|(env, _)| env);
+
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
         connector_tx
@@ -183,6 +222,7 @@ pub(crate) async fn start<P: Protocol>(
         endpoint,
         image_repo.as_deref(),
         secrets,
+        &rotation_env,
         connector_type,
         spec_on_own_rpc,
         tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed(),
@@ -205,7 +245,7 @@ pub(crate) async fn start<P: Protocol>(
     };
 
     let inject_iam: bool;
-    let mut token_restart_at = None;
+    let mut iam_token_restart_at = None;
 
     // Unseal the configuration, or inject decrypted secrets into it.
     (*initial_config_slot, inject_iam) = if ctx.task_name == crate::SPEC_TASK_NAME {
@@ -241,11 +281,19 @@ pub(crate) async fn start<P: Protocol>(
         let tokens = iam_config.generate_tokens(&ctx.task_name).await?;
         *initial_config_slot = tokens.inject_into(initial_config_slot)?.to_string().into();
 
-        token_restart_at = Some(proto_flow::as_timestamp(crate::token_restart_deadline(
+        iam_token_restart_at = Some(crate::token_restart_deadline(
             std::time::SystemTime::now(),
             tokens.expires_at(),
-        )));
+        ));
     }
+
+    // Restart ahead of whichever injected credential expires first, so the
+    // session is re-established -- and both re-minted -- before either lapses.
+    let token_restart_at = match (iam_token_restart_at, rotation_restart_at) {
+        (Some(iam), Some(rotation)) => Some(iam.min(rotation)),
+        (restart_at, None) | (None, restart_at) => restart_at,
+    }
+    .map(proto_flow::as_timestamp);
 
     // Provide the original, sealed configuration for initial requests that carry it.
     // Connectors use this as a safe baseline for `configUpdate` log emissions.
@@ -268,6 +316,85 @@ pub(crate) async fn start<P: Protocol>(
         connector_rx,
         guard,
     })
+}
+
+/// Lifetime of a session's rotation token. A session runs indefinitely, and
+/// re-mints on each restart: long enough that a restart is driven by a
+/// publication rather than by token expiry, and short enough to bound the
+/// damage of one leaking.
+const SESSION_ROTATION_LIFETIME: tokens::TimeDelta = tokens::TimeDelta::weeks(1);
+/// Lifetime for the unary request kinds, which are done in moments.
+const UNARY_ROTATION_LIFETIME: tokens::TimeDelta = tokens::TimeDelta::minutes(10);
+
+/// Mint the rotation token a connector is handed, returning the environment
+/// which carries it and the moment it expires.
+///
+/// The token is injected by environment rather than a bind-mounted file: the
+/// reactor already holds the signing key which minted it, so its visibility to
+/// `docker inspect` on that host is not a new boundary.
+pub(crate) fn mint_rotation(
+    rotation: &crate::Rotation,
+    task_type: ops::TaskType,
+    task_name: &str,
+    build: Option<&str>,
+    is_session: bool,
+    url_rewrite: &Option<(String, String)>,
+) -> anyhow::Result<(Vec<(&'static str, String)>, std::time::SystemTime)> {
+    let mut include = labels::build_set([
+        (labels::TASK_NAME, task_name),
+        (labels::TASK_TYPE, task_type.as_str_name()),
+    ]);
+    // Only a session carries a build, and `/task/update-config` requires one.
+    if let Some(build) = build {
+        include = labels::add_value(include, labels::BUILD, build);
+    }
+
+    let duration = if is_session {
+        SESSION_ROTATION_LIFETIME
+    } else {
+        UNARY_ROTATION_LIFETIME
+    };
+
+    let token = rotation
+        .signer
+        .sign(
+            proto_flow::capability::AUTHORIZE | proto_flow::capability::TASK_UPDATE,
+            task_name.to_string(),
+            proto_gazette::broker::LabelSelector {
+                include: Some(include),
+                exclude: None,
+            },
+            duration,
+        )
+        .map_err(crate::status_to_anyhow)?;
+
+    let expires_at = std::time::SystemTime::now()
+        + duration
+            .to_std()
+            .expect("rotation lifetimes are positive constants");
+
+    // The connector calls these from wherever it runs, which for an image is a
+    // container that does not share its host's view of the network.
+    let control_api = crate::container::rewrite_url(&rotation.control_api, url_rewrite)?;
+    let config_encryption =
+        crate::container::rewrite_url(&rotation.config_encryption, url_rewrite)?;
+
+    Ok((
+        vec![
+            ("FLOW_ROTATION_TOKEN", token),
+            ("FLOW_CONTROL_API", control_api.to_string()),
+            ("FLOW_CONFIG_ENCRYPTION_URL", config_encryption.to_string()),
+        ],
+        expires_at,
+    ))
+}
+
+/// Build a task's shard template runs, from its `estuary.dev/build` label.
+pub(crate) fn shard_build(template: &Option<proto_gazette::consumer::ShardSpec>) -> Option<String> {
+    let set = template.as_ref()?.labels.as_ref()?;
+    labels::expect_one(set, labels::BUILD)
+        .ok()
+        .map(str::to_string)
 }
 
 /// Decrypt one secret of the task's `secrets` stanza under the task's identity,
@@ -328,6 +455,7 @@ async fn connect<P: Protocol>(
     endpoint: Endpoint<P>,
     image_repo: Option<&str>,
     secrets: &std::collections::BTreeMap<String, String>,
+    rotation_env: &Option<Vec<(&'static str, String)>>,
     connector_type: i32,   // TODO(johnny): remove with V1 derivations.
     spec_on_own_rpc: bool, // TODO(johnny): remove.
     requests: BoxStream<'static, P::Request>,
@@ -339,7 +467,8 @@ async fn connect<P: Protocol>(
         } => {
             let repo = image_repo.expect("an Image endpoint always has a repository");
             let (container, channel, guard, codec) =
-                crate::container::start(ctx, &image, repo, secrets, P::TASK_TYPE).await?;
+                crate::container::start(ctx, &image, repo, secrets, rotation_env, P::TASK_TYPE)
+                    .await?;
 
             // Drive the Spec to completion on its own RPC before opening the
             // real one, so the connector sees one request per invocation.
@@ -388,6 +517,9 @@ async fn connect<P: Protocol>(
                 "LOG_LEVEL",
                 ctx.log_level.or(ops::LogLevel::Info).as_str_name(),
             );
+            for (name, value) in rotation_env.iter().flatten() {
+                connector.env(name, value);
+            }
 
             // Dropping the local connector's response stream kills its subprocess
             // and closes its stderr, so only image connectors need a `Guard`.

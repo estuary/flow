@@ -79,6 +79,7 @@ pub(crate) async fn start(
     image: &str,
     repo: &str,
     secrets: &BTreeMap<String, String>,
+    rotation_env: &Option<Vec<(&'static str, String)>>,
     task_type: ops::TaskType,
 ) -> anyhow::Result<(
     runtime::Container,
@@ -193,10 +194,23 @@ pub(crate) async fn start(
         format!("--label=task-type={}", task_type.as_str_name()),
     ];
 
+    // Credentials by which the connector rotates what it manages. Passed as
+    // environment rather than a mount: this host already holds the key which
+    // signed the token, so `docker inspect` here is not a new boundary.
+    for (name, value) in rotation_env.iter().flatten() {
+        docker_args.push(format!("--env={name}={value}"));
+    }
+
     // When running locally, we publish ports so that connectors are accessible
     // on the host from Windows and MacOS (e.x. Docker Desktop).
     if matches!(plane, crate::Plane::Local) {
         docker_args.append(&mut vec![
+            // A local stack's control plane and config-encryption listen on the
+            // developer's own machine, so a connector reaches them only through
+            // an alias for its host. Docker Desktop defines one already; a plain
+            // Linux daemon does so only when asked. This is what makes a
+            // `CONNECTOR_URL_REWRITE` onto `host.docker.internal` resolve.
+            "--add-host=host.docker.internal:host-gateway".to_string(),
             // Support Docker Desktop in non-production contexts (for example, `flowctl`)
             // where the container IP is not directly addressable. As an alternative,
             // we ask Docker to provide mapped host ports that are then advertised
@@ -552,6 +566,69 @@ fn docker_cli() -> String {
     std::env::var("DOCKER_CLI")
         .ok()
         .unwrap_or_else(|| "docker".to_string())
+}
+
+/// Host rewrite applied to the URLs handed to an image connector, parsed from
+/// the optional `CONNECTOR_URL_REWRITE`: a single `<from-suffix>=<to-host>`,
+/// e.g. `flow.localhost=host.docker.internal`.
+///
+/// It exists because a container's view of the network is not its host's. A
+/// local stack serves its control plane and config-encryption on the
+/// developer's own machine, under names (`agent.flow.localhost`,
+/// `config-encryption.flow.localhost`) which inside a container resolve to the
+/// container itself. Unset -- every deployed data plane, whose services have
+/// names meaningful everywhere -- rewrites nothing.
+pub(crate) fn url_rewrite() -> anyhow::Result<Option<(String, String)>> {
+    parse_url_rewrite(&std::env::var("CONNECTOR_URL_REWRITE").unwrap_or_default())
+}
+
+/// Pure half of [`url_rewrite`], over the variable's value.
+pub(crate) fn parse_url_rewrite(spec: &str) -> anyhow::Result<Option<(String, String)>> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Ok(None);
+    }
+    let Some((from, to)) = spec.split_once('=') else {
+        anyhow::bail!("CONNECTOR_URL_REWRITE '{spec}' is not of the form <from-suffix>=<to-host>");
+    };
+    let (from, to) = (from.trim(), to.trim());
+
+    if from.is_empty() || to.is_empty() {
+        anyhow::bail!("CONNECTOR_URL_REWRITE '{spec}' has an empty side");
+    }
+    Ok(Some((from.to_string(), to.to_string())))
+}
+
+/// Replace the host of `url` with `to`, where its host is `from` or a subdomain
+/// of it. The scheme, port, and path are the reactor's own: the port is what
+/// tells two rewritten services apart.
+///
+/// The whole host is replaced, leading labels included, because the container
+/// resolves exactly one name for its host -- the alias [`start`] adds -- and
+/// `agent.host.docker.internal` is not it.
+///
+/// Rewriting a host is a TLS-visible change: an `https` URL moved onto a name
+/// its certificate does not cover fails verification inside the connector,
+/// which trusts only its own image's CA bundle. That is not a problem where
+/// this is used -- a local stack serves both of these over plain HTTP -- but it
+/// is the boundary of the knob.
+pub(crate) fn rewrite_url(
+    url: &url::Url,
+    rewrite: &Option<(String, String)>,
+) -> anyhow::Result<url::Url> {
+    let (Some((from, to)), Some(host)) = (rewrite, url.host_str()) else {
+        return Ok(url.clone());
+    };
+    if host != from && !host.ends_with(&format!(".{from}")) {
+        return Ok(url.clone());
+    }
+
+    let mut rewritten = url.clone();
+    rewritten
+        .set_host(Some(to))
+        .with_context(|| format!("URL rewrite '{to}' is not a valid host"))?;
+
+    Ok(rewritten)
 }
 
 fn connector_memory_limit() -> String {
@@ -971,6 +1048,7 @@ mod test {
             plane: crate::Plane::Local,
             process: None,
             secret_resolver: std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+            rotation: None,
             task_name: "a-task-name".to_string(),
         }
     }
@@ -989,6 +1067,7 @@ mod test {
             "ghcr.io/estuary/source-http-ingest:dev",
             "ghcr.io/estuary/source-http-ingest",
             &BTreeMap::new(),
+            &None,
             proto_flow::ops::TaskType::Capture,
         )
         .await
@@ -1051,6 +1130,7 @@ mod test {
             "alpine", // Not a connector.
             "alpine",
             &BTreeMap::new(),
+            &None,
             proto_flow::ops::TaskType::Capture,
         )
         .await

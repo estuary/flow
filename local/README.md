@@ -431,6 +431,21 @@ point straight at this stack's Supabase Postgres (`db:5432` inside the network
 — the container-internal port is always 5432 regardless of the host-published port);
 other services must be `docker network connect supabase_network_<stack>`'d first.
 
+The stack's own services are a different matter: the agent and
+config-encryption run on *this host*, at `*.flow.localhost` names which inside a
+container resolve to the container itself. A connector which calls back into the
+control plane — to rotate a credential it manages — is handed rewritten URLs:
+the reactor sets `CONNECTOR_URL_REWRITE=flow.localhost=host.docker.internal`
+(see `mise/tasks/local/reactor`), which replaces the host of any URL under that
+suffix with the alias every local-plane container gets for its host. The port is
+unchanged, and is what still tells the agent (`+20`) from config-encryption
+(`+21`). Deployed data planes set nothing and rewrite nothing.
+
+Both of those services are plain HTTP, so the connector needs no CA for them —
+the stack's self-signed CA (`SSL_CERT_FILE`) is for brokers and reactors, and a
+connector container never has it. Rewriting an `https` URL onto a host its
+certificate doesn't name would fail verification inside the container.
+
 ## Provisioning tenant credentials
 
 ```bash

@@ -163,4 +163,12 @@ pub mod capability {
     /// LEAD gives the bearer a capability to use the runtime's Leader API,
     /// driving a derivation or materialization task's transactions.
     pub const LEAD: u32 = 1 << 20;
+    /// TASK_UPDATE gives the bearer a capability to update a task's own stored
+    /// state through the control plane's `/task/set-secret` and
+    /// `/task/update-config` routes, which is how a connector rotates a
+    /// credential it manages. It is always paired with AUTHORIZE, and reaches
+    /// only those two routes: `/authorize/task` enumerates the capabilities it
+    /// serves exactly, and `/authorize/task/decrypt-secret` requires a
+    /// `secret-name` label which a TASK_UPDATE selector does not carry.
+    pub const TASK_UPDATE: u32 = 1 << 21;
 }

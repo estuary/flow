@@ -2059,6 +2059,7 @@ dependencies = [
  "futures",
  "iam-auth",
  "insta",
+ "labels",
  "locate-bin",
  "models",
  "ops",
@@ -2078,6 +2079,7 @@ dependencies = [
  "tonic",
  "tracing",
  "unseal",
+ "url",
  "zeroize",
 ]
 

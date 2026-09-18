@@ -73,6 +73,9 @@ impl TaskService {
         // serve an admin surface; event! tracks still capture per-handler.
         let registry = service_kit::Registry::default();
 
+        let data_plane_signer =
+            proto_grpc::Signer::new(data_plane_fqdn.clone(), data_plane_signing_key.clone());
+
         // The connector service is served both in-process and on this task's UDS, where
         // the Go connector proxy reaches it on behalf of the control plane.
         let connector_svc = connector::Service::new(
@@ -86,9 +89,15 @@ impl TaskService {
                 data_plane_fqdn.clone(),
                 data_plane_signing_key.clone(),
             )),
+            // A reactor holds the data-plane signing key already, so it can
+            // authorize its connectors to rotate what they manage. The URLs
+            // are the ones this process itself was configured with.
+            Some(connector::Rotation {
+                signer: data_plane_signer.clone(),
+                control_api: control_api_endpoint.clone(),
+                config_encryption: config_encryption_endpoint.clone(),
+            }),
         );
-        let data_plane_signer =
-            proto_grpc::Signer::new(data_plane_fqdn, data_plane_signing_key.clone());
 
         let shard_svc = shard::Service::new(
             std::sync::Arc::new(connector::ServiceRouter::new(

@@ -171,6 +171,7 @@ where
         plane: service.plane,
         process: service.process.clone(),
         secret_resolver: service.secret_resolver.clone(),
+        rotation: service.rotation.clone(),
         task_name: task_name.to_string(),
     };
     let started = tokio::select! {

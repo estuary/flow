@@ -23,6 +23,11 @@ const (
 	// LEAD gives the bearer a capability to use the runtime's Leader API,
 	// driving a derivation or materialization task's transactions.
 	Capability_LEAD pb.Capability = 1 << 20
+	// TASK_UPDATE gives the bearer a capability to update a task's own stored
+	// state through the control plane's /task/set-secret and
+	// /task/update-config routes, which is how a connector rotates a
+	// credential it manages.
+	Capability_TASK_UPDATE pb.Capability = 1 << 21
 )
 
 // NewAuthNetworkProxyClient returns a NetworkProxyClient which uses the Authorizer

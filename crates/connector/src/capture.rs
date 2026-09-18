@@ -74,6 +74,8 @@ impl Protocol for Capture {
         if sqlite_vfs_uri.is_some() {
             return Err(crate::protocol::sqlite_vfs_uri_error());
         }
+        let (mut is_session, mut build) = (false, None);
+
         let (connector_type, config_json, sealed_config_json, secrets) = match &mut request.kind {
             Some(request::Kind::Spec(spec)) => (
                 spec.connector_type,
@@ -105,6 +107,7 @@ impl Protocol for Capture {
             Some(request::Kind::Open(open)) => {
                 let sealed_config_json = &mut open.sealed_config_json;
                 let inner = open.capture.as_mut().expect("checked by task_name");
+                (is_session, build) = (true, crate::protocol::shard_build(&inner.shard_template));
                 (
                     inner.connector_type,
                     &mut inner.config_json,
@@ -134,6 +137,8 @@ impl Protocol for Capture {
             endpoint,
             initial_sealed_config_slot: sealed_config_json,
             secrets,
+            is_session,
+            build,
         })
     }
 }

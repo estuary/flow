@@ -69,6 +69,15 @@ FLOW_ALLOW_LOCAL=true
 FLOW_BUILDS_ROOT=file://${FLOW_STACK_DIR}/builds/
 FLOW_CONTROL_API=http://agent.flow.localhost:${FLOW_PORT_AGENT}
 FLOW_CONFIG_ENCRYPTION_URL=http://config-encryption.flow.localhost:${FLOW_PORT_CONFIG_ENC}
+
+# A connector container does not share this host's view of the network: both
+# URLs above are *.flow.localhost, which inside a container is the container
+# itself. Any host under this suffix is rewritten onto the alias for the
+# container's host, which the reactor adds to every local-plane container
+# (--add-host=...:host-gateway); the port is what keeps the two apart. Only the
+# URLs handed to an image connector are rewritten -- the reactor goes on dialing
+# what it was configured with.
+CONNECTOR_URL_REWRITE=flow.localhost=host.docker.internal
 FLOW_DASHBOARD=${FLOW_DASHBOARD_ORIGIN}
 FLOW_DASHBOARD_ORIGIN=${FLOW_DASHBOARD_ORIGIN}
 FLOW_DATA_PLANE_FQDN=${DATA_PLANE}.dp.estuary-data.com

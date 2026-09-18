@@ -393,6 +393,7 @@ fn authentication_requires_the_capability_and_the_issuer() {
         None,
         service_kit::Registry::new(),
         std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        None,
     );
     let signer = |issuer: &str, key: &[u8]| {
         proto_grpc::Signer::new(
@@ -477,6 +478,7 @@ fn an_endpoint_router_mints_for_the_service_it_names() {
         None,
         service_kit::Registry::new(),
         std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        None,
     );
     let router = proto_grpc::connector::EndpointRouter::new(
         "unix:/run/reactor.sock".to_string(),
@@ -1404,4 +1406,248 @@ async fn an_invalid_request_cannot_be_swallowed_as_eof() {
         "Status(InvalidArgument): every Connector request must set exactly one protocol request, of the type established by the first request",
     ]
     "#);
+}
+
+// ----------------------------------------------------------------- rotation --
+
+/// A router over a Service holding `rotation`, mirroring `Service::new_local`
+/// which deliberately holds none.
+fn rotation_router(rotation: Option<crate::Rotation>) -> crate::ServiceRouter {
+    let key: [u8; 32] = rand::random();
+
+    let service = crate::Service::new(
+        crate::Plane::Local,
+        String::new(),
+        proto_grpc::Authenticator::new(
+            crate::LOCAL_ISSUER.to_string(),
+            vec![tokens::jwt::DecodingKey::from_secret(&key)],
+        ),
+        None,
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        rotation,
+    );
+    crate::ServiceRouter::new(
+        service,
+        proto_grpc::Signer::new(
+            crate::LOCAL_ISSUER.to_string(),
+            tokens::jwt::EncodingKey::from_secret(&key),
+        ),
+    )
+}
+
+fn stub_rotation() -> crate::Rotation {
+    crate::Rotation {
+        signer: proto_grpc::Signer::new(
+            "fqdn.example.com".to_string(),
+            tokens::jwt::EncodingKey::from_secret(b"a reactor's data-plane key"),
+        ),
+        control_api: url::Url::parse("https://control.example.com/").unwrap(),
+        config_encryption: url::Url::parse("https://config-encryption.example.com/").unwrap(),
+    }
+}
+
+/// The claims of a minted rotation token. A session's carries the build it
+/// runs, which `/task/update-config` requires and which pins the proposed
+/// configuration to a model the connector has actually seen. A unary request
+/// has no session, and so no build and a much shorter lifetime.
+#[test]
+fn mints_a_rotation_token_scoped_to_its_task() {
+    let rotation = stub_rotation();
+
+    let outcomes = [
+        ("session", true, Some("1122334455667788")),
+        ("unary", false, None),
+    ]
+    .map(|(label, is_session, build)| {
+        let (env, expires_at) = crate::protocol::mint_rotation(
+            &rotation,
+            ops::TaskType::Capture,
+            "acmeCo/source-widgets",
+            build,
+            is_session,
+            &None,
+        )
+        .unwrap();
+
+        let env: std::collections::BTreeMap<&str, String> = env.into_iter().collect();
+        let claims = tokens::jwt::parse_unverified::<proto_gazette::Claims>(
+            env["FLOW_ROTATION_TOKEN"].as_bytes(),
+        )
+        .unwrap()
+        .claims()
+        .clone();
+
+        // Wall-clock, so the lifetime is rendered in whole hours.
+        let lifetime = expires_at
+            .duration_since(std::time::SystemTime::now())
+            .unwrap()
+            .as_secs()
+            / 3600;
+
+        (
+            label,
+            claims.cap,
+            claims.iss,
+            claims.sub,
+            claims.sel,
+            format!("~{lifetime}h"),
+            env["FLOW_CONTROL_API"].clone(),
+            env["FLOW_CONFIG_ENCRYPTION_URL"].clone(),
+        )
+    });
+
+    insta::assert_debug_snapshot!(outcomes);
+}
+
+/// The URL rewrite, by which a reactor hands an image connector an address its
+/// container can actually dial. It matches a host suffix and replaces the whole
+/// host: the container resolves one name for its host, and the port is what
+/// tells two rewritten services apart.
+#[test]
+fn rewrites_urls_handed_to_an_image_connector() {
+    let rewrite =
+        crate::container::parse_url_rewrite(" flow.localhost = host.docker.internal ").unwrap();
+
+    let outcomes: Vec<(&str, String)> = [
+        // Subdomains of the suffix, distinguished after rewriting by their ports.
+        "http://agent.flow.localhost:13020/",
+        "http://config-encryption.flow.localhost:13021/",
+        // The suffix itself, and a host which merely ends in the same letters.
+        "http://flow.localhost/",
+        "http://notflow.localhost/",
+        // No match: an address which is already meaningful everywhere.
+        "https://agent.estuary.dev/",
+    ]
+    .into_iter()
+    .map(|url| {
+        let rewritten =
+            crate::container::rewrite_url(&url::Url::parse(url).unwrap(), &rewrite).unwrap();
+        (url, rewritten.to_string())
+    })
+    .collect();
+
+    insta::assert_debug_snapshot!((rewrite, outcomes));
+}
+
+/// An unset variable rewrites nothing, and a malformed one fails the connector
+/// start rather than silently not applying.
+#[test]
+fn parses_the_url_rewrite() {
+    let outcomes: Vec<(&str, Result<Option<(String, String)>, String>)> =
+        ["", "   ", "flow.localhost", "=host.docker.internal", "a="]
+            .into_iter()
+            .map(|spec| {
+                (
+                    spec,
+                    crate::container::parse_url_rewrite(spec).map_err(|err| err.to_string()),
+                )
+            })
+            .collect();
+
+    insta::assert_debug_snapshot!(outcomes, @r#"
+    [
+        (
+            "",
+            Ok(
+                None,
+            ),
+        ),
+        (
+            "   ",
+            Ok(
+                None,
+            ),
+        ),
+        (
+            "flow.localhost",
+            Err(
+                "CONNECTOR_URL_REWRITE 'flow.localhost' is not of the form <from-suffix>=<to-host>",
+            ),
+        ),
+        (
+            "=host.docker.internal",
+            Err(
+                "CONNECTOR_URL_REWRITE '=host.docker.internal' has an empty side",
+            ),
+        ),
+        (
+            "a=",
+            Err(
+                "CONNECTOR_URL_REWRITE 'a=' has an empty side",
+            ),
+        ),
+    ]
+    "#);
+}
+
+/// The minted credentials reach the connector's process environment, and a
+/// Service holding no `Rotation` -- every local context -- injects nothing,
+/// which is how a connector knows to rotate in memory only.
+#[tokio::test]
+async fn injects_rotation_credentials_into_the_connector_environment() {
+    // `test` over each variable, so a missing one is reported by name rather
+    // than as an opaque non-zero exit.
+    let script = r#"
+read spec_request
+echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
+read open_request
+for name in FLOW_ROTATION_TOKEN FLOW_CONTROL_API FLOW_CONFIG_ENCRYPTION_URL; do
+  eval "value=\$$name"
+  if [ "$EXPECT_ROTATION" = "yes" ] && [ -z "$value" ]; then
+    echo "$name is unset" >&2; exit 7
+  fi
+  if [ "$EXPECT_ROTATION" = "no" ] && [ -n "$value" ]; then
+    echo "$name is set" >&2; exit 7
+  fi
+done
+echo '{"opened":{}}'
+"#;
+
+    let run = async |router: &crate::ServiceRouter, expect: &str| {
+        let endpoint = serde_json::json!({
+            "command": ["/bin/sh", "-c", script],
+            "config": {},
+            "env": {"EXPECT_ROTATION": expect},
+        });
+        let capture = flow::CaptureSpec {
+            name: "acmeCo/capture".to_string(),
+            connector_type: flow::capture_spec::ConnectorType::Local as i32,
+            config_json: endpoint.to_string().into(),
+            ..Default::default()
+        };
+
+        render(
+            drive_router(
+                router,
+                ops::TaskType::Capture,
+                "acmeCo/capture",
+                vec![proto::Request {
+                    start: Some(start("")),
+                    kind: Some(proto::request::Kind::Capture(capture::Request {
+                        kind: Some(capture::request::Kind::Open(Box::new(
+                            capture::request::Open {
+                                capture: Some(capture),
+                                ..Default::default()
+                            },
+                        ))),
+                        ..Default::default()
+                    })),
+                }],
+            )
+            .await,
+        )
+    };
+
+    let with_rotation = rotation_router(Some(stub_rotation()));
+    let (_service, local) = crate::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    );
+
+    insta::assert_debug_snapshot!([
+        ("injected", run(&with_rotation, "yes").await),
+        ("new_local injects nothing", run(&local, "no").await),
+    ]);
 }

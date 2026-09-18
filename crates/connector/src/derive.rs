@@ -72,6 +72,8 @@ impl Protocol for Derive {
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,
     ) -> anyhow::Result<Extracted<'r, Self>> {
+        let mut is_session = false;
+
         let (connector_type, config_json, secrets) = match &mut request.kind {
             Some(request::Kind::Spec(spec)) => (
                 spec.connector_type,
@@ -96,6 +98,7 @@ impl Protocol for Derive {
                         )
                     })?;
 
+                is_session = true;
                 (inner.connector_type, &mut inner.config_json, &inner.secrets)
             }
             _ => unreachable!("checked by task_name"),
@@ -148,6 +151,14 @@ impl Protocol for Derive {
             initial_config_slot: config_json,
             initial_sealed_config_slot: None,
             secrets,
+            is_session,
+            // No build, deliberately. `/task/set-secret` is task-type agnostic,
+            // so a derivation may rotate a secret it manages and gets a
+            // session-lifetime token to do it with. `/task/update-config` is
+            // not: a derivation's configuration is its module and environment,
+            // which the connector doesn't author. Withholding the build label
+            // makes that refusal independent of the route's own task-type check.
+            build: None,
         })
     }
 }
