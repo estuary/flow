@@ -13,6 +13,7 @@ mod materialization;
 mod noop;
 mod reference;
 mod schema;
+mod secrets;
 mod storage_mapping;
 mod test_step;
 
@@ -899,7 +900,7 @@ fn temporary_cross_data_plane_read_check<'a>(
 
 /// Issue a unary Validate `kind` to the task's connector (or to the permissive
 /// no-op connector when `no_op`). Errors are pushed to `errors` under `scope`.
-/// Returns the Validated response and the connector's network ports.
+/// Returns the Validated response, network ports, and the config JSON schema.
 async fn validate_connector<V>(
     scope: Scope<'_>,
     connectors: &Connectors<'_>,
@@ -909,7 +910,7 @@ async fn validate_connector<V>(
     kind: proto_flow::connector::request::Kind,
     unwrap_validated: fn(proto_flow::connector::response::Kind) -> Option<V>,
     errors: &mut tables::Errors,
-) -> Option<(V, Vec<proto_flow::flow::NetworkPort>)> {
+) -> Option<(V, Vec<proto_flow::flow::NetworkPort>, bytes::Bytes)> {
     use proto_flow::connector::request;
 
     let protocol = match &kind {
@@ -940,8 +941,10 @@ async fn validate_connector<V>(
         }
     };
 
-    // `proto_grpc::connector::unary` verified that Started and the response are
-    // of the request's protocol; `unwrap_validated` checks only for Validated.
+    // `proto_grpc::connector::unary` verified that Started.Spec is present and
+    // that it and the response are of the request's protocol, so a missing Spec
+    // is a bug in a `Connectors` implementation rather than a connector fault.
+    // `unwrap_validated` checks only for Validated.
     let Some(validated) = unwrap_validated(response) else {
         Error::Connector {
             detail: anyhow::anyhow!("connector did not return {protocol} Validated"),
@@ -951,5 +954,12 @@ async fn validate_connector<V>(
     };
     let network_ports = started.container.unwrap_or_default().network_ports;
 
-    Some((validated, network_ports))
+    use proto_flow::connector::response::started::Spec;
+    let config_schema_json = match started.spec.expect("unary verified Started.Spec is set") {
+        Spec::Capture(spec) => spec.config_schema_json,
+        Spec::Derive(spec) => spec.config_schema_json,
+        Spec::Materialize(spec) => spec.config_schema_json,
+    };
+
+    Some((validated, network_ports, config_schema_json))
 }

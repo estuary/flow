@@ -665,6 +665,10 @@ struct MockCaptureValidateCall {
     network_ports: Vec<flow::NetworkPort>,
     #[serde(default)]
     error: Option<String>,
+    /// Configuration schema of the connector's Spec response, which the
+    /// `secrets` plaintext invariant reads. Defaults to a permissive schema.
+    #[serde(default)]
+    config_schema: Option<serde_json::Value>,
 }
 
 #[derive(serde::Deserialize)]
@@ -680,6 +684,10 @@ struct MockDeriveValidateCall {
     network_ports: Vec<flow::NetworkPort>,
     #[serde(default)]
     error: Option<String>,
+    /// Configuration schema of the connector's Spec response, which the
+    /// `secrets` plaintext invariant reads. Defaults to a permissive schema.
+    #[serde(default)]
+    config_schema: Option<serde_json::Value>,
 }
 
 #[derive(serde::Deserialize)]
@@ -700,6 +708,10 @@ struct MockMaterializationValidateCall {
     network_ports: Vec<flow::NetworkPort>,
     #[serde(default)]
     error: Option<String>,
+    /// Configuration schema of the connector's Spec response, which the
+    /// `secrets` plaintext invariant reads. Defaults to a permissive schema.
+    #[serde(default)]
+    config_schema: Option<serde_json::Value>,
 }
 
 #[derive(serde::Deserialize)]
@@ -787,7 +799,7 @@ impl MockDriverCalls {
 
         Ok(mock_response(
             connector::response::started::Spec::Capture(Box::new(capture::response::Spec {
-                config_schema_json: serde_json::json!({"type": "object"}).to_string().into(),
+                config_schema_json: mock_config_schema(call.config_schema.as_ref()),
                 resource_config_schema_json: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -861,7 +873,7 @@ impl MockDriverCalls {
 
         Ok(mock_response(
             connector::response::started::Spec::Derive(Box::new(derive::response::Spec {
-                config_schema_json: "true".into(),
+                config_schema_json: mock_config_schema(call.config_schema.as_ref()),
                 resource_config_schema_json: "true".into(),
                 ..Default::default()
             })),
@@ -937,7 +949,7 @@ impl MockDriverCalls {
         Ok(mock_response(
             connector::response::started::Spec::Materialize(Box::new(
                 materialize::response::Spec {
-                    config_schema_json: serde_json::json!({"type": "object"}).to_string().into(),
+                    config_schema_json: mock_config_schema(call.config_schema.as_ref()),
                     resource_config_schema_json: serde_json::json!({
                         "type": "object",
                         "properties": {
@@ -961,6 +973,17 @@ impl MockDriverCalls {
             1.25,
         ))
     }
+}
+
+/// Configuration schema which a mocked Spec response carries. Fixtures which
+/// don't care get a bare object, and only the `secrets` plaintext invariant
+/// reads more than that.
+fn mock_config_schema(config_schema: Option<&serde_json::Value>) -> bytes::Bytes {
+    config_schema
+        .cloned()
+        .unwrap_or(serde_json::json!({"type": "object"}))
+        .to_string()
+        .into()
 }
 
 fn mock_response(
