@@ -644,6 +644,51 @@ driver:
 }
 
 #[test]
+fn test_target_naming_promotion() {
+    // When source.targetNaming is "withSchema" and no top-level targetNaming is set,
+    // validation should promote it to MatchSourceStructure as a model fix.
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      source:
+        capture: the/capture
+        targetNaming: withSchema
+    "#,
+    );
+    insta::assert_debug_snapshot!((
+        &outcome.built_materializations[0].model,
+        &outcome.built_materializations[0].model_fixes
+    ));
+}
+
+#[test]
+fn test_target_naming_no_promotion_when_set() {
+    // When top-level targetNaming is already set, source.targetNaming should not
+    // trigger promotion (the top-level value takes precedence).
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      source:
+        capture: the/capture
+        targetNaming: withSchema
+      targetNaming:
+        strategy: singleSchema
+        schema: my_schema
+    "#,
+    );
+    insta::assert_debug_snapshot!((
+        &outcome.built_materializations[0].model,
+        &outcome.built_materializations[0].model_fixes
+    ));
+}
+
+#[test]
 fn test_manual_redact_salt_override() {
     // Test that manually specified redact_salt overrides existing salt
     let outcome = common::run(
