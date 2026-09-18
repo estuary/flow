@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: negative
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 7,
+          "line": 3
+        }
+      ],
+      "message": "The \"first\" parameter must be a non-negative number",
+      "path": [
+        "drafts"
+      ]
+    }
+  ]
+}

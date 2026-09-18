@@ -1,0 +1,24 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: specs_response
+---
+{
+  "data": {
+    "draft": null
+  },
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 9,
+          "line": 5
+        }
+      ],
+      "message": "The \"first\" parameter must be a non-negative number",
+      "path": [
+        "draft",
+        "specs"
+      ]
+    }
+  ]
+}

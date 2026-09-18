@@ -1,0 +1,10 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: responses
+---
+{
+  "null_spec": "model and catalogType must both be null or both be non-null",
+  "null_type": "model and catalogType must both be null or both be non-null",
+  "omitted_spec": "model must be provided (use null for a catalog deletion)",
+  "omitted_type": "catalogType must be provided (use null for a catalog deletion)"
+}

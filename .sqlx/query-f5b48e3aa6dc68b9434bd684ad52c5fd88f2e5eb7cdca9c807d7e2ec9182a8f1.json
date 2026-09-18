@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        delete from draft_specs\n        where draft_id = $1 and catalog_name::text = any($2)\n        returning catalog_name as \"catalog_name!: models::Name\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: models::Name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f5b48e3aa6dc68b9434bd684ad52c5fd88f2e5eb7cdca9c807d7e2ec9182a8f1"
+}
