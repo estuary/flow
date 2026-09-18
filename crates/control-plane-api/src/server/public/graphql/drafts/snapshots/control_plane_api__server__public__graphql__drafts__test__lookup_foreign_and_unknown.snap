@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: responses
+---
+[
+  {
+    "data": {
+      "draft": null
+    }
+  },
+  {
+    "data": {
+      "draft": null
+    }
+  }
+]

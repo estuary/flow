@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: editor_draft
+---
+{
+  "data": {
+    "draft": {
+      "createdAt": "2024-01-01T00:00:00+00:00",
+      "detail": "editor",
+      "id": "0000000000000050",
+      "numSpecs": 1,
+      "updatedAt": "2024-01-01T00:00:00+00:00"
+    }
+  }
+}

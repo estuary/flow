@@ -1,0 +1,38 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/drafts/test.rs
+expression: first_page
+---
+{
+  "data": {
+    "drafts": {
+      "edges": [
+        {
+          "cursor": "0000000000000010",
+          "node": {
+            "createdAt": "2024-01-01T00:00:00+00:00",
+            "detail": "first",
+            "id": "0000000000000010",
+            "numSpecs": 1,
+            "updatedAt": "2024-01-01T00:00:00+00:00"
+          }
+        },
+        {
+          "cursor": "0000000000000030",
+          "node": {
+            "createdAt": "2024-01-02T00:00:00+00:00",
+            "detail": "second",
+            "id": "0000000000000030",
+            "numSpecs": 0,
+            "updatedAt": "2024-01-02T00:00:00+00:00"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "0000000000000030",
+        "hasNextPage": true,
+        "hasPreviousPage": false,
+        "startCursor": "0000000000000010"
+      }
+    }
+  }
+}
