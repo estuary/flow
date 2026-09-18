@@ -28,6 +28,44 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
     (image, tag)
 }
 
+/// Catalog-name component which marks where the image repository begins in
+/// the name of an image-owned secret. See [`image_owns_secret`].
+pub const IMAGE_SECRET_SEPARATOR: &str = "connectors";
+
+/// Whether `secret` belongs to the image `repository`. Such a secret is named
+/// `<prefix>/connectors/<repository>/<leaf>`, where `<prefix>` is any catalog
+/// prefix.
+///
+/// The `connectors` component is needed because a repository may have any
+/// number of path components. Without it, a secret named
+/// `acmeCo/oauth/ghcr.io/acmeco/source-foo/client` could belong to the image
+/// `ghcr.io/acmeco/source-foo`, or to the Docker Hub image `acmeco/source-foo`.
+/// Anyone can register `acmeco` on Docker Hub, publish that image, and use it
+/// to read the real connector's secret. With the separator, the repository is
+/// exactly what follows the last `connectors` component.
+///
+/// For the same reason, a repository which itself has a `connectors` component
+/// can't own secrets. Nor can a repository that names a registry port
+/// (`localhost:5000/image`), because catalog names don't allow `:`.
+pub fn image_owns_secret(secret: &str, repository: &str) -> bool {
+    if repository
+        .split('/')
+        .any(|component| component == IMAGE_SECRET_SEPARATOR)
+    {
+        return false;
+    }
+
+    let Some((parent, _leaf)) = secret.rsplit_once('/') else {
+        return false;
+    };
+    let separator = format!("/{IMAGE_SECRET_SEPARATOR}/");
+    let Some((prefix, embedded_repository)) = parent.rsplit_once(&separator) else {
+        return false;
+    };
+
+    !prefix.is_empty() && embedded_repository == repository
+}
+
 /// Connectors with an image name starting with this value are Dekaf-type materializations. No image with this
 /// name exists, instead we use it to identify which connectors get marked as `connector_type: ConnectorType::Dekaf`,
 /// causing the runtime to invoke Dekaf's in-tree connector logic in `[dekaf::connector]`
@@ -147,5 +185,51 @@ mod test {
             let actual = super::split_image_tag(image);
             assert_eq!((actual.0.as_str(), actual.1.as_str()), expected, "{image}");
         }
+    }
+
+    #[test]
+    fn image_secret_names_have_an_unambiguous_repository_boundary() {
+        let repository = "registry.vendor.test/acme/source-example";
+
+        for (secret, expected) in [
+            (
+                "vendor/connectors/registry.vendor.test/acme/source-example/oauth-client",
+                true,
+            ),
+            (
+                "arbitrary/connectors/prefix/connectors/registry.vendor.test/acme/source-example/oauth-client",
+                true,
+            ),
+            (
+                "vendor/registry.vendor.test/acme/source-example/oauth-client",
+                false,
+            ),
+            (
+                "connectors/registry.vendor.test/acme/source-example/oauth-client",
+                false,
+            ),
+            (
+                "vendor/connectors/registry.vendor.test/acme/source-example/nested/oauth-client",
+                false,
+            ),
+        ] {
+            assert_eq!(
+                super::image_owns_secret(secret, repository),
+                expected,
+                "{secret}"
+            );
+        }
+
+        // The longer repository is refused because it contains the separator;
+        // the rightmost separator deterministically assigns this name to the
+        // shorter repository instead.
+        assert!(!super::image_owns_secret(
+            "vendor/connectors/registry.vendor.test/connectors/registry.attacker.test/source/client",
+            "registry.vendor.test/connectors/registry.attacker.test/source",
+        ));
+        assert!(super::image_owns_secret(
+            "vendor/connectors/registry.vendor.test/connectors/registry.attacker.test/source/client",
+            "registry.attacker.test/source",
+        ));
     }
 }
