@@ -314,6 +314,14 @@ impl Worker {
         // DNS propagation backoff is relative to this moment.
         state.last_pulumi_up = chrono::Utc::now();
 
+        // Publish each link's DNS names now rather than after the DNS wait and
+        // Ansible; `write_private_link_statuses` covers why this is safe here.
+        state.publish_link_results = self
+            .stack_output(state, checkout)
+            .await?
+            .control
+            .link_results;
+
         let stack::PulumiStackHistory { resource_changes } =
             self.last_pulumi_run(state, checkout).await?;
 
@@ -365,28 +373,10 @@ impl Worker {
             .await?;
 
         // Load exported Pulumi state.
-        let output = self
-            .run_captured_cmd(
-                async_process::Command::new("pulumi")
-                    .arg("stack")
-                    .arg("output")
-                    .arg("--stack")
-                    .arg(&state.stack_name)
-                    .arg("--json")
-                    .arg("--non-interactive")
-                    .arg("--show-secrets")
-                    .current_dir(checkout.path())
-                    .env("PULUMI_BACKEND_URL", self.config.state_backend.as_str())
-                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
-                "pulumi-stack-output",
-                state.logs_token,
-            )
-            .await?;
-
         let stack::PulumiExports {
             ansible,
             mut control,
-        } = serde_json::from_slice(&output).context("failed to parse pulumi output")?;
+        } = self.stack_output(state, checkout).await?;
 
         // Install Ansible requirements.
         () = self
@@ -668,6 +658,32 @@ impl Worker {
         tracing::info!(repo=remote, dir=?dir.path(), "created repo clone");
 
         Ok(dir)
+    }
+
+    async fn stack_output(
+        &self,
+        state: &stack::State,
+        checkout: &tempfile::TempDir,
+    ) -> anyhow::Result<stack::PulumiExports> {
+        let output = self
+            .run_captured_cmd(
+                async_process::Command::new("pulumi")
+                    .arg("stack")
+                    .arg("output")
+                    .arg("--stack")
+                    .arg(&state.stack_name)
+                    .arg("--json")
+                    .arg("--non-interactive")
+                    .arg("--show-secrets")
+                    .current_dir(checkout.path())
+                    .env("PULUMI_BACKEND_URL", self.config.state_backend.as_str())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                "pulumi-stack-output",
+                state.logs_token,
+            )
+            .await?;
+
+        serde_json::from_slice(&output).context("failed to parse pulumi output")
     }
 
     async fn last_pulumi_run(
