@@ -5,24 +5,6 @@ use futures::{StreamExt, TryStreamExt};
 /// bounds what a pathological one could ask of the decryption service at once.
 const FETCH_CONCURRENCY: usize = 8;
 
-/// Does `config` look like a `sops`-wrapped document?
-///
-/// This is the sniff which distinguishes a task's two configuration branches,
-/// which are mutually exclusive: either the configuration is wrapped as a whole
-/// (the legacy path), or it's plaintext and its secrets arrive through a
-/// `secrets` stanza. `sops` is a reserved top-level property of the latter,
-/// which publication enforces.
-pub fn is_sops(config: &models::RawValue) -> bool {
-    #[derive(serde::Deserialize)]
-    struct Sniff {
-        #[serde(default)]
-        sops: Option<serde::de::IgnoredAny>,
-    }
-
-    // A configuration which isn't an object cannot be a `sops` document.
-    serde_json::from_str::<Sniff>(config.get()).is_ok_and(|Sniff { sops }| sops.is_some())
-}
-
 /// Resolve the `secrets` stanza of a task into its plaintext `config`.
 ///
 /// `secrets` pairs the catalog name of a secret with the JSON pointer of
@@ -76,7 +58,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{is_sops, resolve};
+    use super::resolve;
     use serde_json::json;
 
     /// Values which `stub` resolves, by secret name.
@@ -303,32 +285,5 @@ mod test {
                 )
             );
         }
-    }
-
-    #[test]
-    fn sops_sniff() {
-        let cases = [
-            json!({"sops": {"mac": "..."}}),
-            json!({"sops": null}),
-            json!({"address": "db:5432"}),
-            json!({}),
-            json!("not an object"),
-            json!(null),
-        ];
-        let sniffed: Vec<bool> = cases
-            .iter()
-            .map(|case| is_sops(&models::RawValue::from_value(case)))
-            .collect();
-
-        insta::assert_debug_snapshot!(sniffed, @r###"
-        [
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-        ]
-        "###);
     }
 }

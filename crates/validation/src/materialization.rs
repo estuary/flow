@@ -168,6 +168,17 @@ async fn walk_materialization(
         ),
     };
     let secrets_spec = assemble::secrets(&secrets);
+    let secrets_ctx = crate::secrets::Context::of_materialization(&secrets, &endpoint);
+
+    crate::secrets::walk_model(
+        scope,
+        "materialization",
+        materialization,
+        models::CatalogType::Materialization,
+        &shards,
+        &secrets_ctx,
+        errors,
+    );
 
     // Index live binding models on their (non-empty) resource /_meta/path .
     let live_bindings_model: BTreeMap<Vec<String>, &models::MaterializationBinding> = live_model
@@ -281,7 +292,7 @@ async fn walk_materialization(
     };
     linked::install_materialize_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports) = super::validate_connector(
+    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
         scope,
         connectors,
         noop_materializations || shards.disable,
@@ -303,6 +314,15 @@ async fn walk_materialization(
         errors,
     )
     .await?;
+
+    crate::secrets::walk_plaintext(
+        scope,
+        "materialization",
+        materialization,
+        &secrets_ctx,
+        &config_schema_json,
+        errors,
+    );
 
     let materialize::response::Validated {
         bindings: bindings_validated,

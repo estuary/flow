@@ -37,26 +37,13 @@ impl Schema {
         ptr: &models::JsonPointer,
         ptr_is_key: bool,
     ) -> Result<(), Error> {
-        let (start, stop) = models::JsonPointer::regex()
-            .find(ptr)
-            .map(|m| (m.start(), m.end()))
-            .unwrap_or((0, 0));
-        let unmatched = [&ptr[..start], &ptr[stop..]].concat();
+        super::indexed::walk_ptr(ptr)?;
 
         let (read_shape, read_exists) = read.shape.locate(&json::Pointer::from(ptr));
 
         // These checks return early if matched because
         // further errors are likely spurious.
-        if !ptr.is_empty() && !ptr.starts_with("/") {
-            return Err(Error::PtrMissingLeadingSlash {
-                ptr: ptr.to_string(),
-            });
-        } else if !unmatched.is_empty() {
-            return Err(Error::PtrRegexUnmatched {
-                ptr: ptr.to_string(),
-                unmatched,
-            });
-        } else if read_exists == Exists::Implicit {
+        if read_exists == Exists::Implicit {
             return Err(Error::PtrIsImplicit {
                 ptr: ptr.to_string(),
                 schema: read.curi.clone(),
