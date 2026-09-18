@@ -109,6 +109,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         connector_rx: &mut mpsc::Receiver<tonic::Result<connector::proto::Response>>,
         controller_rx: &mut Ctrl,
         leader_rx: &mut Ldr,
+        max_pinned_segments: usize,
         shuffle_reader: shuffle::log::Reader,
     ) -> anyhow::Result<crate::shard::RocksDB>
     where
@@ -131,6 +132,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             shuffle_remainders: VecDeque::new(),
         };
         let mut loop_count: u64 = 0;
+        let mut pinned_stop_sent = false;
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -188,6 +190,18 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         }),
                         ..Default::default()
                     });
+
+                    if crate::shard::stop_for_pinned_segments(
+                        &mut pinned_stop_sent,
+                        shuffle::log::pinned_segments(&shuffle_remainders),
+                        max_pinned_segments,
+                    ) {
+                        _ = self.leader_tx.send(proto::Derive {
+                            stop: Some(proto::Stop {}),
+                            ..Default::default()
+                        });
+                    }
+
                     phase = Phase::Idle {
                         shuffle_reader,
                         shuffle_remainders,
@@ -808,6 +822,7 @@ mod tests {
                     &mut conn_to_actor_rx,
                     &mut controller_stream,
                     &mut leader_stream,
+                    crate::shard::max_pinned_segments(&Default::default()),
                     shuffle_reader,
                 )
                 .await

@@ -199,6 +199,11 @@ rises, and discharges causal hints which trail it (`Completed::is_gap_stale`) â€
 never producer commits, and never the hinted frontier an idempotent-recovery
 session replays.
 
+**Remainder**: An already-read log block holding entries not yet committed at
+the reading shard's frontier, carried into later scans until they are
+(`log/reader/scan.rs`). A remainder holds its segment file open, and a segment
+is unlinked only when its last handle drops.
+
 #### Terms to avoid
 
 - *claim / claimed* â€” invokes confusing agency (claimed by whom?). Say "covered

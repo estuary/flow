@@ -39,6 +39,41 @@ pub(crate) async fn stopped_message(
     ))
 }
 
+/// Segments a shard lets its shuffle remainders pin, resolved once per session.
+///
+/// Remainders pin whole segment files the Log cannot reclaim, while unpinned
+/// backlog is reclaimed as the shard consumes it, so the Log's backlog is
+/// roughly the pinned bytes. Back-pressure engages at the full disk limit, so
+/// half of it leaves the session a margin to stop within. Without the clamp, a
+/// limit under two segment thresholds would stop on any remainder at all.
+pub(crate) fn max_pinned_segments(labeling: &ops::proto::ShardLabeling) -> usize {
+    let limit_bytes = match labeling.shuffle_disk_limit_bytes {
+        0 => shuffle::DEFAULT_SHUFFLE_DISK_LIMIT_BYTES,
+        limit => limit,
+    };
+    ((limit_bytes / 2 / shuffle::log::writer::DEFAULT_SEGMENT_THRESHOLD) as usize).max(1)
+}
+
+/// Stopping is safe because the next session's resume cut floors gaps from
+/// dead producers.
+pub(crate) fn stop_for_pinned_segments(
+    stop_sent: &mut bool,
+    pinned_segments: usize,
+    max_pinned_segments: usize,
+) -> bool {
+    if *stop_sent || pinned_segments <= max_pinned_segments {
+        return false;
+    }
+    *stop_sent = true;
+
+    tracing::warn!(
+        pinned_segments,
+        max_pinned_segments,
+        "stopping session to shed pinned shuffle log segments",
+    );
+    true
+}
+
 /// Feed one transaction's per-journal append-throttle samples into the shard's
 /// long-lived [`SplitPolicy`]. Called once per transaction at the commit/drain
 /// boundary.
@@ -157,7 +192,10 @@ pub(crate) fn leader_bearer(
 
 #[cfg(test)]
 mod tests {
-    use super::{finish_split, observe_throttle_samples, start_due_split};
+    use super::{
+        finish_split, max_pinned_segments, observe_throttle_samples, start_due_split,
+        stop_for_pinned_segments,
+    };
     use crate::shard::split_policy::SplitPolicy;
     use publisher::SplitOutcome;
     use std::time::{Duration, Instant};
@@ -200,6 +238,35 @@ mod tests {
         assert!(
             !policy.should_split("cold", now),
             "never-throttled journal must not become due",
+        );
+    }
+
+    #[test]
+    fn pinned_segments_policy() {
+        let segment = shuffle::log::writer::DEFAULT_SEGMENT_THRESHOLD;
+        let labeled = |shuffle_disk_limit_bytes| ops::proto::ShardLabeling {
+            shuffle_disk_limit_bytes,
+            ..Default::default()
+        };
+
+        assert_eq!(max_pinned_segments(&labeled(8 * segment)), 4);
+        assert_eq!(
+            max_pinned_segments(&labeled(segment)),
+            1,
+            "a limit under two segment thresholds clamps rather than stopping on any remainder",
+        );
+        assert_eq!(
+            max_pinned_segments(&labeled(0)),
+            max_pinned_segments(&labeled(shuffle::DEFAULT_SHUFFLE_DISK_LIMIT_BYTES)),
+            "a zero limit takes the sidecar default",
+        );
+
+        let mut stop_sent = false;
+        assert!(!stop_for_pinned_segments(&mut stop_sent, 4, 4));
+        assert!(stop_for_pinned_segments(&mut stop_sent, 5, 4));
+        assert!(
+            !stop_for_pinned_segments(&mut stop_sent, 100, 4),
+            "the session is stopped at most once",
         );
     }
 
