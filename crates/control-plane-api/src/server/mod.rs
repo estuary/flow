@@ -373,6 +373,12 @@ async fn fetch_secret(
     })
 }
 
+/// The catalog prefix which directly contains `name`, or None if `name` isn't a
+/// catalog name at all. Two names are siblings when their prefixes are equal.
+fn parent_prefix(name: &str) -> Option<&str> {
+    name.rfind('/').map(|index| &name[..index + 1])
+}
+
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
     let ops_kind = match task.spec_type {
         models::CatalogType::Capture => "capture",

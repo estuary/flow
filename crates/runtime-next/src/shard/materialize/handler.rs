@@ -335,8 +335,11 @@ mod test {
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
         let registry = service_kit::Registry::new();
-        let (_connector_svc, connector_router) =
-            ::connector::Service::new_local(String::new(), registry.clone());
+        let (_connector_svc, connector_router) = ::connector::Service::new_local(
+            String::new(),
+            registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        );
         let service = crate::shard::Service::new(
             std::sync::Arc::new(connector_router),
             None,

@@ -22,6 +22,8 @@ pub(crate) struct StartContext {
     pub plane: crate::Plane,
     /// Reactor process advertised in `Started.process`, or `None` in local contexts.
     pub process: Option<proto_gazette::broker::ProcessSpec>,
+    /// Resolver of task secrets.
+    pub secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
     /// Catalog task name, or [`crate::SPEC_TASK_NAME`] for a task-less Spec.
     pub task_name: String,
 }
@@ -101,6 +103,9 @@ pub(crate) struct Extracted<'r, P: Protocol> {
     /// the sealed configuration during startup.
     /// Present only on `Open` of protocols which have this field.
     pub initial_sealed_config_slot: Option<&'r mut bytes::Bytes>,
+    /// Secrets of the task. Keys are catalog names of secrets,
+    /// while values are JSON pointers into the endpoint config.
+    pub secrets: &'r std::collections::BTreeMap<String, String>,
 }
 
 /// Normalized endpoint: the three ways a connector is run.
@@ -131,6 +136,7 @@ pub(crate) async fn start<P: Protocol>(
         endpoint,
         initial_config_slot,
         initial_sealed_config_slot,
+        secrets,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
 
     // TODO(johnny): This bit of ugliness is to support frozen
@@ -144,6 +150,18 @@ pub(crate) async fn start<P: Protocol>(
         &endpoint,
         Endpoint::Image { image, .. } if one_request_per_invocation(image),
     );
+
+    // `connect` consumes the endpoint, so the repository which attests secret
+    // decryptions is taken now. Local and in-process connectors have no image,
+    // and so may use only secrets which are siblings of the task -- refused
+    // here, before a subprocess is spawned or an image is pulled.
+    let image_repo = match &endpoint {
+        Endpoint::Image { image, .. } => Some(models::split_image_tag(image).0),
+        Endpoint::Local { .. } | Endpoint::InProcess { .. } => {
+            crate::container::check_local_secrets(&ctx.task_name, secrets.keys())?;
+            None
+        }
+    };
 
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
@@ -163,6 +181,8 @@ pub(crate) async fn start<P: Protocol>(
     } = connect::<P>(
         &ctx,
         endpoint,
+        image_repo.as_deref(),
+        secrets,
         connector_type,
         spec_on_own_rpc,
         tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed(),
@@ -184,18 +204,30 @@ pub(crate) async fn start<P: Protocol>(
         proto::response::started::Spec::Materialize(spec) => &spec.config_schema_json,
     };
 
-    let mut iam_token_restart_at = None;
+    let inject_iam: bool;
+    let mut token_restart_at = None;
 
-    // A Spec has no task identity under which to unseal or inject, so its
-    // configuration passes through exactly as the caller sent it.
-    let inject_iam = ctx.task_name != crate::SPEC_TASK_NAME;
-
-    *initial_config_slot = if inject_iam {
-        unseal::overlay::decrypt_with_overlay(&sealed_config, config_schema)
-            .await?
-            .into()
+    // Unseal the configuration, or inject decrypted secrets into it.
+    (*initial_config_slot, inject_iam) = if ctx.task_name == crate::SPEC_TASK_NAME {
+        // A Spec has no task identity under which to unseal, resolve, or inject,
+        // so its configuration passes through exactly as the caller sent it.
+        (
+            bytes::Bytes::copy_from_slice(sealed_config.get().as_bytes()),
+            false,
+        )
     } else {
-        bytes::Bytes::copy_from_slice(sealed_config.get().as_bytes())
+        // Each uniquely keyed secret is decrypted concurrently.
+        let resolved = unseal::resolve(&sealed_config, secrets, config_schema, |name| {
+            resolve_secret::<P>(&ctx, image_repo.as_deref(), name)
+        })
+        .await
+        .map_err(|err| match err {
+            // A misconfiguration of the task, and not a failure of this runtime.
+            err @ unseal::Error::SopsWithSecrets => crate::invalid_argument(err.to_string()),
+            err => anyhow::Error::new(err),
+        })?;
+
+        (resolved.into(), true)
     };
 
     // If IAM token injection is configured, fetch and inject tokens.
@@ -209,7 +241,7 @@ pub(crate) async fn start<P: Protocol>(
         let tokens = iam_config.generate_tokens(&ctx.task_name).await?;
         *initial_config_slot = tokens.inject_into(initial_config_slot)?.to_string().into();
 
-        iam_token_restart_at = Some(proto_flow::as_timestamp(crate::token_restart_deadline(
+        token_restart_at = Some(proto_flow::as_timestamp(crate::token_restart_deadline(
             std::time::SystemTime::now(),
             tokens.expires_at(),
         )));
@@ -227,7 +259,7 @@ pub(crate) async fn start<P: Protocol>(
             kind: Some(proto::response::Kind::Started(proto::response::Started {
                 container,
                 codec: codec as i32,
-                token_restart_at: iam_token_restart_at,
+                token_restart_at,
                 process: ctx.process,
                 spec: Some(spec),
             })),
@@ -236,6 +268,45 @@ pub(crate) async fn start<P: Protocol>(
         connector_rx,
         guard,
     })
+}
+
+/// Decrypt one secret of the task's `secrets` stanza under the task's identity,
+/// attesting the image repository which is asking so that the control-plane may
+/// admit a secret under the image rule.
+async fn resolve_secret<P: Protocol>(
+    ctx: &StartContext,
+    image_repo: Option<&str>,
+    name: &str,
+) -> anyhow::Result<models::RawValue> {
+    let decrypted = ctx
+        .secret_resolver
+        .decrypt(
+            P::TASK_TYPE,
+            &ctx.task_name,
+            image_repo,
+            models::Secret::new(name),
+        )
+        .await?;
+
+    let (Some(value), Some(secret_id)) = (decrypted.value, decrypted.secret_id) else {
+        panic!("a successful secret decryption has a value and a secret id");
+    };
+    // config-encryption hands back a `Value`, while `unseal` splices `RawValue`
+    // into the sealed configuration. The rendering is canonical either way.
+    let value = models::RawValue::from_value(&value);
+
+    ctx.log_sink
+        .send(crate::build_log(
+            ops::LogLevel::Info,
+            "resolved task secret",
+            [
+                ("secret", crate::json_field(&name)),
+                ("secretId", crate::json_field(&secret_id)),
+            ],
+        ))
+        .await;
+
+    Ok(value)
 }
 
 /// A running connector, before its Spec response is verified.
@@ -255,6 +326,8 @@ struct Transport<P: Protocol> {
 async fn connect<P: Protocol>(
     ctx: &StartContext,
     endpoint: Endpoint<P>,
+    image_repo: Option<&str>,
+    secrets: &std::collections::BTreeMap<String, String>,
     connector_type: i32,   // TODO(johnny): remove with V1 derivations.
     spec_on_own_rpc: bool, // TODO(johnny): remove.
     requests: BoxStream<'static, P::Request>,
@@ -264,8 +337,9 @@ async fn connect<P: Protocol>(
             image,
             config: sealed_config,
         } => {
+            let repo = image_repo.expect("an Image endpoint always has a repository");
             let (container, channel, guard, codec) =
-                crate::container::start(ctx, &image, P::TASK_TYPE).await?;
+                crate::container::start(ctx, &image, repo, secrets, P::TASK_TYPE).await?;
 
             // Drive the Spec to completion on its own RPC before opening the
             // real one, so the connector sees one request per invocation.

@@ -56,7 +56,7 @@ owns its container, image, and local-connector implementation independently.
 | `flow_runtime_protocol`         | Image inspection, for callers which only need an image's protocol         |
 | `protocol::start`               | The start pipeline every connector goes through                          |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
-| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process          |
+| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
 
 ## Layout
@@ -87,6 +87,33 @@ not be able to leave it running.
   client's initial request follows after its configuration is unsealed, then
   subsequent client requests pass directly to the transport.
   `Started` carries the `Spec` response so the client can use it as well.
+
+- **Endpoint configuration resolves through `unseal::resolve`.** That one joint
+  chooses between whole-document `sops` unsealing and a merge-patched `secrets`
+  stanza. `protocol::start` wraps it. A task-less Spec passes its configuration
+  through untouched, and IAM injection follows every other outcome.
+  Plaintext values are never cached by this crate.
+
+- **A task may name a secret which isn't its sibling, if its image vouches for
+  it.** The image rule admits `<prefix>/<repo>/<leaf>`, where `<repo>` is the
+  running image with its tag or digest stripped: it's how a vendor's OAuth
+  client secret reaches every task using that connector. An image opts in by
+  listing full secret names in a `dev.estuary.secrets` label.
+
+  Two enforcement points, for two different failure modes.
+  `container::check_image_secrets` runs between `docker inspect` and `docker
+  run`, so a stanza the control-plane will refuse never reaches a container;
+  it also checks every *declared* name against the image rule, used or not, so
+  a typo'd label fails at start rather than whenever some task first depends
+  on it. `container::check_local_secrets` is the same check for a local or
+  in-process connector, which has no image and so gets siblings only -- run in
+  `protocol::start` before anything is pulled or spawned.
+
+  The real enforcement is the control-plane's: `protocol::start` captures the
+  repository before `connect` consumes the endpoint, and threads it into each
+  `SecretResolver::decrypt`, which attests it as `estuary.dev/image-name` in
+  the decrypt JWT's selector. Being absent is meaningful -- it's how the
+  control-plane tells a local connector from an image one.
 
 - **Invalid later requests close connector input and terminate the session.**
 The handler owns request validation, so malformed input cannot disappear as a

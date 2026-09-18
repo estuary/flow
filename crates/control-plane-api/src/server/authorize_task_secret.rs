@@ -9,13 +9,16 @@ type Response = models::authorizations::DecryptAuthorization;
 ///
 /// The request token is signed by the issuing data-plane. Its `sel` names the
 /// task type, task name, and requested secret under `estuary.dev/task-type`,
-/// `estuary.dev/task-name`, and `estuary.dev/secret-name`. Its `sub` is
+/// `estuary.dev/task-name`, and `estuary.dev/secret-name`, and optionally the
+/// connector image repository under `estuary.dev/image-name`. Its `sub` is
 /// advisory and is not inspected as part of authorization.
 ///
 /// Three things are verified:
 ///
-///  * The sibling rule: a task may use only the secrets which sit beside it,
-///    `dirname(secret) == dirname(task)`.
+///  * The secret is admitted by the sibling rule -- a task may use the secrets
+///    which sit beside it, `dirname(secret) == dirname(task)` -- or by the
+///    image rule, where the attested repository is the secret's immediate
+///    parent: `<prefix>/<repo>/<leaf>`.
 ///  * Residency: a task the Snapshot knows of must live in the issuing
 ///    data-plane, so that a compromised plane cannot ask for the secrets of
 ///    tasks it doesn't run.
@@ -40,6 +43,14 @@ type Response = models::authorizations::DecryptAuthorization;
 ///
 /// More generally, this is an argument in favor of least-privilege when
 /// configuring storage mappings.
+///
+/// The image rule is deliberately loose here: we check only that the attested
+/// repository is the secret's parent, and not that the image actually declared
+/// the secret, nor that the task's published model names that image. The
+/// reactor enforces both of those tightly. A private-plane operator can
+/// therefore mint any image label and read any secret named for any image --
+/// accepted, because private planes already decrypt legacy `sops` configs
+/// holding Estuary's own OAuth client secrets, so this discloses nothing new.
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 #[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_task_secret(
@@ -59,6 +70,20 @@ pub async fn authorize_task_secret(
         .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
     let task_type = labels::expect_one(unverified.claims().sel.include(), labels::TASK_TYPE)
         .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
+
+    // Present when the runtime attests an image connector, and absent for the
+    // local and in-process ones, which may use sibling secrets only.
+    let image_name = match labels::values(unverified.claims().sel.include(), labels::IMAGE_NAME) {
+        [] => None,
+        [image] => Some(image.value.as_str()),
+        many => {
+            return Err(tonic::Status::invalid_argument(format!(
+                "expected at most one {} label (got {many:?})",
+                labels::IMAGE_NAME
+            ))
+            .into());
+        }
+    };
 
     let secret_name = models::Name::new(secret_name);
     let task_name = models::Name::new(task_name);
@@ -89,6 +114,7 @@ pub async fn authorize_task_secret(
         &unverified.claims().iss,
         &token,
         &secret_name,
+        image_name,
     );
 
     let fallback_check_data_plane = match env.authorization_outcome(policy_result).await {
@@ -184,6 +210,7 @@ fn evaluate_authorization<'s>(
     task_data_plane_fqdn: &str,
     token: &str,
     secret_name: &models::Name,
+    image_name: Option<&str>,
 ) -> crate::AuthZResult<Option<&'s str>> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot.verify_data_plane_token(task_data_plane_fqdn, token)?
@@ -193,18 +220,35 @@ fn evaluate_authorization<'s>(
         ));
     };
 
-    let (Some(task_parent), Some(secret_parent)) =
-        (parent_prefix(task_name), parent_prefix(secret_name))
-    else {
+    let (Some(task_parent), Some(secret_parent)) = (
+        super::parent_prefix(task_name),
+        super::parent_prefix(secret_name),
+    ) else {
         return Err(tonic::Status::permission_denied(format!(
             "task '{task_name}' and secret '{secret_name}' are not both catalog names"
         )));
     };
 
-    if task_parent != secret_parent {
-        return Err(tonic::Status::permission_denied(format!(
-            "task '{task_name}' may only use secrets under '{task_parent}', and '{secret_name}' is not one"
-        )));
+    // Sibling rule, or image rule: the attested repository is the secret's
+    // immediate parent, beneath a non-empty catalog prefix -- which is what
+    // AuthZ is actually expressed over, and so may not be the registry host.
+    let admitted_by_image = image_name.is_some_and(|image| {
+        secret_parent
+            .strip_suffix('/')
+            .and_then(|parent| parent.strip_suffix(image))
+            .is_some_and(|prefix| prefix.ends_with('/'))
+    });
+
+    if task_parent != secret_parent && !admitted_by_image {
+        return Err(tonic::Status::permission_denied(match image_name {
+            Some(image) => format!(
+                "task '{task_name}' may only use secrets under '{task_parent}' or named \
+                 '<prefix>/{image}/<leaf>', and '{secret_name}' is neither"
+            ),
+            None => format!(
+                "task '{task_name}' may only use secrets under '{task_parent}', and '{secret_name}' is not one"
+            ),
+        }));
     }
 
     let mapping_fallback = if let Some(task) = snapshot.task_by_catalog_name(task_name) {
@@ -232,12 +276,6 @@ fn evaluate_authorization<'s>(
     ))
 }
 
-/// The catalog prefix which directly contains `name`, or None if `name` isn't a
-/// catalog name at all. Two names are siblings when their prefixes are equal.
-fn parent_prefix(name: &str) -> Option<&str> {
-    name.rfind('/').map(|index| &name[..index + 1])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,9 +286,16 @@ mod tests {
     const PLANE_ONE: (&str, &str) = ("fqdn1", "key1");
     const PLANE_TWO: (&str, &str) = ("fqdn2", "key3");
 
+    /// An image a connector may attest, and a secret named for it under the
+    /// image rule. `acmeCo` runs the tasks; `acmeVendor` publishes the
+    /// connector and owns the OAuth client secret every task of it uses.
+    const IMAGE: &str = "ghcr.io/acmeVendor/source-widgets";
+    const IMAGE_SECRET: &str = "acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client";
+
     /// Every case is driven through the same fixture Snapshot, whose tasks and
     /// migrations are what each case selects among.
-    /// Cases are (label, task type, task name, issuing data-plane, secret name).
+    /// Cases are (label, task type, task name, issuing data-plane, secret name,
+    /// attested image repository).
     #[test]
     fn test_evaluate_authorization() {
         let cases = [
@@ -260,6 +305,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             (
                 "resident/nested",
@@ -267,6 +313,7 @@ mod tests {
                 "bobCo/widgets/source-squash",
                 PLANE_TWO,
                 "bobCo/widgets/password",
+                None,
             ),
             (
                 "resident/materialize",
@@ -274,6 +321,7 @@ mod tests {
                 "acmeCo/materialize-pear",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             (
                 "unknown/derivation",
@@ -281,6 +329,7 @@ mod tests {
                 "acmeCo/derive-plum",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             (
                 "bad-task-type",
@@ -288,6 +337,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             (
                 "type-mismatch",
@@ -295,6 +345,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             // The mismatch is reported in the label vocabulary of the request,
             // where a derivation is a "derivation" and not a "collection".
@@ -304,6 +355,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             // Non-siblings: one level too deep, one level too shallow, and a
             // sibling-looking name under another tenant.
@@ -313,6 +365,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "acmeCo/db/password",
+                None,
             ),
             (
                 "parent",
@@ -320,6 +373,7 @@ mod tests {
                 "bobCo/widgets/source-squash",
                 PLANE_TWO,
                 "bobCo/password",
+                None,
             ),
             (
                 "other-tenant",
@@ -327,6 +381,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "bobCo/password",
+                None,
             ),
             (
                 "not-a-name",
@@ -334,6 +389,7 @@ mod tests {
                 "source-pineapple",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             // A secret which isn't a catalog name has no sibling prefix to
             // compare, and `models::Name` allows one, so it's rejected here.
@@ -343,6 +399,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_ONE,
                 "password",
+                None,
             ),
             // Residency of a known task, which runs in plane-one.
             // acmeCo/source-banana is migrating plane-one => plane-two,
@@ -353,6 +410,7 @@ mod tests {
                 "acmeCo/source-pineapple",
                 PLANE_TWO,
                 "acmeCo/password",
+                None,
             ),
             (
                 "migration/src",
@@ -360,6 +418,7 @@ mod tests {
                 "acmeCo/source-banana",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             (
                 "migration/tgt",
@@ -367,6 +426,7 @@ mod tests {
                 "acmeCo/source-banana",
                 PLANE_TWO,
                 "acmeCo/password",
+                None,
             ),
             // A task absent from the Snapshot defers to the storage mappings
             // of the live DB, which only `fetch_secret` can settle.
@@ -376,6 +436,7 @@ mod tests {
                 "acmeCo/source-new",
                 PLANE_ONE,
                 "acmeCo/password",
+                None,
             ),
             // An otherwise-valid request, signed with the other plane's key.
             (
@@ -384,31 +445,111 @@ mod tests {
                 "acmeCo/source-pineapple",
                 (PLANE_ONE.0, PLANE_TWO.1),
                 "acmeCo/password",
+                None,
+            ),
+            // Image rule: a vendor's secret, named for the repository which the
+            // runtime attests, reaches a task of another tenant entirely.
+            (
+                "image-rule",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                IMAGE_SECRET,
+                Some(IMAGE),
+            ),
+            // ... but only for the image which actually runs.
+            (
+                "image-rule/other-image",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                IMAGE_SECRET,
+                Some("ghcr.io/acmeVendor/source-gadgets"),
+            ),
+            // An unattested image admits nothing, which is how a local or
+            // in-process connector is held to siblings alone.
+            (
+                "image-rule/unattested",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                IMAGE_SECRET,
+                None,
+            ),
+            // The repository must be the secret's *immediate* parent...
+            (
+                "image-rule/grandparent",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                "acmeVendor/ghcr.io/acmeVendor/source-widgets/nested/oauth-client",
+                Some(IMAGE),
+            ),
+            // ... beneath a non-empty prefix, since a secret rooted at the
+            // registry host would belong to no tenant.
+            (
+                "image-rule/no-prefix",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                "ghcr.io/acmeVendor/source-widgets/oauth-client",
+                Some(IMAGE),
+            ),
+            // An attested image doesn't cost a task its siblings...
+            (
+                "image-rule/sibling-still-admitted",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
+                PLANE_ONE,
+                "acmeCo/password",
+                Some(IMAGE),
+            ),
+            // ... nor does it relax residency.
+            (
+                "image-rule/wrong-plane",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-pineapple",
+                PLANE_TWO,
+                IMAGE_SECRET,
+                Some(IMAGE),
+            ),
+            // An unknown task still defers to the storage-mapping fallback,
+            // which is keyed on the task's name and not on the secret's.
+            (
+                "image-rule/unknown-task",
+                labels::TASK_TYPE_CAPTURE,
+                "acmeCo/source-new",
+                PLANE_ONE,
+                IMAGE_SECRET,
+                Some(IMAGE),
             ),
         ];
 
         let outcomes: Vec<(&str, String)> = cases
             .into_iter()
-            .map(|(label, task_type, task_name, plane, secret)| {
-                (label, run(task_type, task_name, plane, secret))
+            .map(|(label, task_type, task_name, plane, secret, image)| {
+                (label, run(task_type, task_name, plane, secret, image))
             })
             .collect();
 
         insta::assert_debug_snapshot!(outcomes);
     }
 
-    /// Build the label selector a reactor signs: the secrets asked for, and the
-    /// task asking. Secrets are plural only so that a selector bearing none, or
-    /// two, is expressible -- no reactor mints one, and the route must refuse it.
+    /// Build the label selector a reactor signs: the secrets asked for, the
+    /// task, and the image repository it attests. Secrets and images are
+    /// plural only so that a selector bearing none, or two, is expressible --
+    /// no reactor mints one, and the route must refuse it.
     fn selector(
         secret_names: &[&str],
         task_name: &str,
         task_type: &str,
+        image_names: &[&str],
     ) -> proto_gazette::LabelSet {
         labels::build_set(
             secret_names
                 .iter()
                 .map(|name| (labels::SECRET_NAME, *name))
+                .chain(image_names.iter().map(|name| (labels::IMAGE_NAME, *name)))
                 .chain([
                     (labels::TASK_NAME, task_name),
                     (labels::TASK_TYPE, task_type),
@@ -421,6 +562,7 @@ mod tests {
         task_name: &str,
         (task_data_plane_fqdn, hmac_key): (&str, &str),
         secret_name: &str,
+        image_name: Option<&str>,
     ) -> String {
         let snapshot = crate::Snapshot::build_fixture(None);
         let now = tokens::now().timestamp() as u64;
@@ -431,7 +573,12 @@ mod tests {
             cap: proto_flow::capability::AUTHORIZE,
             iss: task_data_plane_fqdn.to_string(),
             sel: proto_gazette::LabelSelector {
-                include: Some(selector(&[secret_name], task_name, task_type)),
+                include: Some(selector(
+                    &[secret_name],
+                    task_name,
+                    task_type,
+                    image_name.as_slice(),
+                )),
                 exclude: None,
             },
             sub: task_name.to_string(),
@@ -456,6 +603,7 @@ mod tests {
             task_data_plane_fqdn,
             &token,
             &models::Name::new(secret_name),
+            image_name,
         ) {
             Ok((cordon_at, admit_data_plane)) => {
                 let mut out = "Ok".to_string();
@@ -489,6 +637,7 @@ mod tests {
         task_type: &str,
         task_name: &str,
         secret_names: &[&str],
+        image_names: &[&str],
     ) -> String {
         let now = tokens::now().timestamp() as u64;
 
@@ -498,7 +647,7 @@ mod tests {
             cap: proto_flow::capability::AUTHORIZE,
             iss: iss.to_string(),
             sel: proto_gazette::LabelSelector {
-                include: Some(selector(secret_names, task_name, task_type)),
+                include: Some(selector(secret_names, task_name, task_type, image_names)),
                 exclude: None,
             },
             sub: task_name.to_string(),
@@ -567,6 +716,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -578,6 +728,7 @@ mod tests {
                     labels::TASK_TYPE_MATERIALIZATION,
                     "aliceCo/out/materialize-bar",
                     &["aliceCo/out/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -589,6 +740,7 @@ mod tests {
                     labels::TASK_TYPE_MATERIALIZATION,
                     "aliceCo/out/materialize-bar",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -600,6 +752,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/in/nonexistent"],
+                    &[],
                 )
                 .await,
             ),
@@ -611,6 +764,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/bad name"],
+                    &[],
                 )
                 .await,
             ),
@@ -624,6 +778,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &[],
+                    &[],
                 )
                 .await,
             ),
@@ -635,6 +790,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/in/token", "aliceCo/out/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -651,6 +807,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-new",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -662,6 +819,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-new",
                     &["aliceCo/in/nonexistent"],
+                    &[],
                 )
                 .await,
             ),
@@ -673,6 +831,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "bobCo/capture-new",
                     &["bobCo/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -684,6 +843,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "carolCo/capture-new",
                     &["carolCo/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -699,6 +859,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/private/capture-new",
                     &["aliceCo/private/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -710,6 +871,73 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/private/capture-new",
                     &["aliceCo/private/token"],
+                    &[],
+                )
+                .await,
+            ),
+            // The image rule end to end: the vendor's secret belongs to no
+            // prefix aliceCo holds, and reaches the task only because the
+            // reactor attested the repository which names it.
+            (
+                "image-rule",
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &[IMAGE],
+                )
+                .await,
+            ),
+            (
+                "image-rule/unattested",
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &[],
+                )
+                .await,
+            ),
+            (
+                "image-rule/other-image",
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &["ghcr.io/acmeVendor/source-gadgets"],
+                )
+                .await,
+            ),
+            // An attested image is not a way around residency: this task runs
+            // in dp.one, so dp.two may not ask for its secrets at all.
+            (
+                "image-rule/wrong-plane",
+                post(
+                    &server,
+                    "dp.two",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &[IMAGE],
+                )
+                .await,
+            ),
+            // At most one image may be attested.
+            (
+                "image-rule/two-images",
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &[IMAGE, "ghcr.io/acmeVendor/source-gadgets"],
                 )
                 .await,
             ),
@@ -769,6 +997,26 @@ mod tests {
                 "nested/admitted",
                 "200 secretId=3333333333333333",
             ),
+            (
+                "image-rule",
+                "200 secretId=4444444444444444",
+            ),
+            (
+                "image-rule/unattested",
+                "403 task 'aliceCo/in/capture-foo' may only use secrets under 'aliceCo/in/', and 'acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client' is not one",
+            ),
+            (
+                "image-rule/other-image",
+                "403 task 'aliceCo/in/capture-foo' may only use secrets under 'aliceCo/in/' or named '<prefix>/ghcr.io/acmeVendor/source-gadgets/<leaf>', and 'acmeVendor/oauth/ghcr.io/acmeVendor/source-widgets/oauth-client' is neither",
+            ),
+            (
+                "image-rule/wrong-plane",
+                "403 task 'aliceCo/in/capture-foo' does not run in data-plane dp.two",
+            ),
+            (
+                "image-rule/two-images",
+                "400 expected at most one estuary.dev/image-name label (got [Label { name: \"estuary.dev/image-name\", value: \"ghcr.io/acmeVendor/source-gadgets\", prefix: false }, Label { name: \"estuary.dev/image-name\", value: \"ghcr.io/acmeVendor/source-widgets\", prefix: false }])",
+            ),
         ]
         "#);
     }
@@ -800,6 +1048,7 @@ mod tests {
             labels::TASK_TYPE_CAPTURE,
             "aliceCo/in/capture-foo",
             &["aliceCo/in/token"],
+            &[],
         )
         .await;
 
