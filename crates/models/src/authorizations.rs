@@ -1,6 +1,8 @@
 use std::cmp::max;
 use validator::Validate;
 
+use crate::authz;
+
 /// ControlClaims are claims encoded within control-plane access tokens.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ControlClaims {
@@ -20,12 +22,22 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    // This is the set of capabilities that the claims are limited to. The
+    // capabilities within this mask do not add privilege, but instead just
+    // enable a users privilege if they are set, and disabled if not. If no mask
+    // is present, the token is not a "capability masked token", and is treated
+    // as usual.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_mask: Option<Vec<String>>,
 }
 
 impl ControlClaims {
     /// Converts these claims into the authorization subject used by grant evaluation.
     pub fn subject(&self) -> crate::authz::Subject {
-        crate::authz::Subject { user_id: self.sub }
+        crate::authz::Subject {
+            user_id: self.sub,
+            capability_mask: authz::CapabilityMask::from_claims(self.capability_mask.as_ref()),
+        }
     }
 
     pub fn time_remaining(&self) -> time::Duration {

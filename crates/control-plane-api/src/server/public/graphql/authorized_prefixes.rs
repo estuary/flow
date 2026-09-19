@@ -286,12 +286,8 @@ mod tests {
             },
         ]);
         let rg = tables::RoleGrants::new();
-
-        let reachable = tables::UserGrant::reachable_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
-        );
+        let subject = models::authz::Subject::unrestricted(ALICE);
+        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, &subject);
         assert_eq!(
             reachable["acmeCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -327,12 +323,8 @@ mod tests {
                 bundles: vec![CapabilityBundle::TeamAdmin],
             },
         ]);
-
-        let reachable = tables::UserGrant::reachable_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
-        );
+        let subject = models::authz::Subject::unrestricted(ALICE);
+        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, &subject);
         assert_eq!(
             reachable["sharedCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
