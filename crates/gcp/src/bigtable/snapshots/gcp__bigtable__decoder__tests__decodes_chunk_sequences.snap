@@ -1,0 +1,183 @@
+---
+source: crates/gcp/src/bigtable/decoder.rs
+expression: snapshots
+---
+[
+    (
+        "empty stream",
+        [],
+    ),
+    (
+        "single chunk row",
+        [
+            "acmeCo/a f[q[@0=v []]]",
+        ],
+    ),
+    (
+        "multi-cell row carries family and qualifier forward",
+        [
+            "acmeCo/a f[q1[@0=v1 []], q2[@0=v2 [], @7=v3 []]]",
+        ],
+    ),
+    (
+        "cells group by family, then by qualifier",
+        [
+            "acmeCo/a f[q1[@0=v1 [], @0=v2 []], q2[@0=v3 []]], g[q1[@0=v4 []]]",
+        ],
+    ),
+    (
+        "cell split across chunks in one response",
+        [
+            "acmeCo/a f[q[@9=hello []]]",
+        ],
+    ),
+    (
+        "cell split across responses",
+        [
+            "acmeCo/a f[q[@0=hello []]]",
+        ],
+    ),
+    (
+        "row split across responses at a cell boundary",
+        [
+            "acmeCo/a f[q1[@0=v1 []], q2[@0=v2 []]]",
+        ],
+    ),
+    (
+        "two rows in one response",
+        [
+            "acmeCo/a f[q[@0=va []]]",
+            "acmeCo/b f[q[@0=vb []]]",
+        ],
+    ),
+    (
+        "ResetRow in row discards buffered cells",
+        [
+            "acmeCo/a f[q[@0=v []]]",
+        ],
+    ),
+    (
+        "ResetRow in cell discards partial value",
+        [
+            "acmeCo/a f[q[@0=v []]]",
+        ],
+    ),
+    (
+        "CommitRow(false) is not a commit",
+        [
+            "acmeCo/a f[q1[@0=v1 []], q2[@0=v2 []]]",
+        ],
+    ),
+    (
+        "empty heartbeat response between rows",
+        [
+            "acmeCo/a f[q[@0=va []]]",
+            "acmeCo/b f[q[@0=vb []]]",
+        ],
+    ),
+    (
+        "present but empty family and qualifier",
+        [
+            "acmeCo/a [[@0=v []]]",
+        ],
+    ),
+    (
+        "rows before an RPC error are yielded first",
+        [
+            "acmeCo/a f[q[@0=va []]]",
+            "Err(RPC error: code: 'The service is currently unavailable', message: \"boom\")",
+        ],
+    ),
+    (
+        "err: first chunk without row key",
+        [
+            "Err(chunk error: first chunk of a row has no row key)",
+        ],
+    ),
+    (
+        "err: first chunk without family",
+        [
+            "Err(chunk error: first chunk of a row has no family name or qualifier)",
+        ],
+    ),
+    (
+        "err: first chunk without qualifier",
+        [
+            "Err(chunk error: first chunk of a row has no family name or qualifier)",
+        ],
+    ),
+    (
+        "err: new family without qualifier mid-row",
+        [
+            "Err(chunk error: new column family without a qualifier)",
+        ],
+    ),
+    (
+        "err: commit while cell is chunked",
+        [
+            "Err(chunk error: CommitRow while a cell value is still being chunked)",
+        ],
+    ),
+    (
+        "err: row key changed without commit",
+        [
+            "Err(chunk error: row key changed without CommitRow)",
+        ],
+    ),
+    (
+        "err: duplicate row key",
+        [
+            "acmeCo/a f[q[@0=v []]]",
+            "Err(chunk error: row keys must be strictly increasing)",
+        ],
+    ),
+    (
+        "err: decreasing row key",
+        [
+            "acmeCo/b f[q[@0=v []]]",
+            "Err(chunk error: row keys must be strictly increasing)",
+        ],
+    ),
+    (
+        "err: ResetRow with value",
+        [
+            "Err(chunk error: ResetRow chunk carries other fields)",
+        ],
+    ),
+    (
+        "err: ResetRow with row key",
+        [
+            "Err(chunk error: ResetRow chunk carries other fields)",
+        ],
+    ),
+    (
+        "err: ResetRow between rows",
+        [
+            "Err(chunk error: ResetRow with no row in progress)",
+        ],
+    ),
+    (
+        "err: cell continuation with qualifier",
+        [
+            "Err(chunk error: continuation of a cell value carries cell metadata)",
+        ],
+    ),
+    (
+        "err: cell continuation with timestamp",
+        [
+            "Err(chunk error: continuation of a cell value carries cell metadata)",
+        ],
+    ),
+    (
+        "err: stream ends in row",
+        [
+            "Err(chunk error: stream ended with an uncommitted row)",
+        ],
+    ),
+    (
+        "err: stream ends in cell",
+        [
+            "Err(chunk error: stream ended with an uncommitted row)",
+        ],
+    ),
+]
