@@ -1386,6 +1386,8 @@ dependencies = [
  "cexpr",
  "clang-sys",
  "itertools 0.13.0",
+ "log",
+ "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
@@ -3112,6 +3114,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-daemon"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "bindgen",
+ "bitvec",
+ "bytes",
+ "clap",
+ "e2e-support",
+ "futures",
+ "gazette",
+ "insta",
+ "io-uring",
+ "labels",
+ "libc",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "publisher",
+ "quickcheck",
+ "rustls 0.23.32",
+ "service-kit",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokens",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3215,7 +3251,6 @@ dependencies = [
  "libc",
  "models",
  "proto-gazette",
- "proto-grpc",
  "publisher",
  "serde_json",
  "tempfile",
@@ -3855,12 +3890,14 @@ dependencies = [
  "metrics",
  "ops",
  "pin-project-lite",
+ "prost",
  "proto-gazette",
  "proto-grpc",
  "rand 0.9.2",
  "reqwest 0.12.23",
  "serde_json",
  "simd-doc",
+ "snap",
  "thiserror 2.0.20",
  "tokens",
  "tokio",
@@ -7699,7 +7736,6 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tracing",
- "tracing-subscriber",
  "url",
 ]
 
@@ -8243,6 +8279,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "clap",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
