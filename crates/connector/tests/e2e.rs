@@ -13,10 +13,14 @@ use tokio::sync::mpsc;
 
 // ----------------------------------------------------------------- fixtures --
 
-/// A local `Service` and its router, for the many tests which need a working
-/// pair and nothing more.
+/// A local `Service` and its router which resolve no secrets, for the many
+/// tests which never reference one.
 fn local_service() -> (connector::Service, connector::ServiceRouter) {
-    connector::Service::new_local(String::new(), service_kit::Registry::new())
+    connector::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    )
 }
 
 /// Requests are written as JSON because their typed form buries what each test
@@ -48,14 +52,28 @@ fn derive_open(collection: &str) -> serde_json::Value {
     }}}})
 }
 
+/// A first request opening `acmeCo/capture` over a `local:` endpoint.
+fn capture_open(endpoint: serde_json::Value, secrets: serde_json::Value) -> proto::Request {
+    request(with_start(
+        json!({"capture": {"open": {"capture": {
+            "name": "acmeCo/capture",
+            "connectorType": "LOCAL",
+            "config": endpoint,
+            "secrets": secrets,
+        }}}}),
+        "",
+    ))
+}
+
 /// A first request validating `acmeCo/materialization` against Dekaf, whose
 /// `{variant, config}` wrapper the pipeline splits before startup.
-fn dekaf_validate(config: serde_json::Value) -> proto::Request {
+fn dekaf_validate(config: serde_json::Value, secrets: serde_json::Value) -> proto::Request {
     request(with_start(
         json!({"materialize": {"validate": {
             "name": "acmeCo/materialization",
             "connectorType": "DEKAF",
             "config": {"variant": "test", "config": config},
+            "secrets": secrets,
         }}}),
         "",
     ))
@@ -230,8 +248,9 @@ fn render_lines(responses: Vec<tonic::Result<proto::Response>>) -> Vec<String> {
         .collect()
 }
 
-/// A log with its fields, ordered, so that identifiers this crate reports are
-/// asserted alongside the message which carries them.
+/// A log with its fields, ordered, so that identifiers this crate reports --
+/// a resolved secret's lifecycle id, for one -- are asserted alongside the
+/// message which carries them.
 fn render_log(log: ops::Log) -> String {
     let fields: std::collections::BTreeMap<&str, serde_json::Value> = log
         .fields_json_map
@@ -265,6 +284,171 @@ fn variant(response: &impl serde::Serialize) -> String {
         .map(|(key, _value)| key)
         .collect::<Vec<_>>()
         .join("+")
+}
+
+// ------------------------------------------------------------------ secrets --
+
+/// Resolves `acmeCo/password` for the tests which declare it, and panics for
+/// those asserting that a rejection happens *before* resolution.
+struct SecretResolver {
+    reachable: bool,
+}
+
+#[tonic::async_trait]
+impl flow_client_next::SecretResolver for SecretResolver {
+    async fn decrypt(
+        &self,
+        task_type: ops::TaskType,
+        task_name: &str,
+        _image: Option<&str>,
+        name: models::Secret,
+    ) -> anyhow::Result<models::authorizations::SecretDecryption> {
+        assert!(self.reachable, "resolution must not be reached");
+        match task_type {
+            ops::TaskType::Capture => assert_eq!(task_name, "acmeCo/capture"),
+            ops::TaskType::Materialization => assert_eq!(task_name, "acmeCo/materialization"),
+            _ => panic!("unexpected task type"),
+        }
+        assert_eq!(name.as_str(), "acmeCo/password");
+
+        Ok(models::authorizations::SecretDecryption {
+            value: Some(json!("resolved")),
+            secret_id: Some(models::Id::new([1, 2, 3, 4, 5, 6, 7, 8])),
+            retry_millis: 0,
+        })
+    }
+}
+
+fn resolving_router(reachable: bool) -> connector::ServiceRouter {
+    let (_service, router) = connector::Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(SecretResolver { reachable }),
+    );
+    router
+}
+
+/// Secret resolution happens after Spec, but before the connector receives its
+/// initial Open. The connector sees the resolved config while sealedConfig
+/// remains the as-published, non-secret baseline, and the lifecycle id is
+/// observable in the preceding INFO log.
+#[tokio::test]
+async fn resolves_secrets_and_preserves_the_published_open_config() {
+    // Each `case` fails with a distinct message, so a regression names itself.
+    let script = r#"
+read spec_request
+echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
+read open_request
+case "$open_request" in
+  *'"config":{"actual":"resolved","base":"published"}'*) ;;
+  *) echo 'resolved configuration was not provided' >&2; exit 7 ;;
+esac
+case "$open_request" in
+  *'"sealedConfig":{"base":"published"}'*) ;;
+  *) echo 'published baseline was not preserved' >&2; exit 7 ;;
+esac
+echo '{"opened":{}}'
+"#;
+
+    let mut endpoint = sh(script);
+    endpoint["config"] = json!({"base": "published"});
+
+    let responses = drive_router(
+        &resolving_router(true),
+        ops::TaskType::Capture,
+        "acmeCo/capture",
+        vec![capture_open(
+            endpoint,
+            json!({"acmeCo/password": "/actual"}),
+        )],
+    )
+    .await;
+
+    insta::assert_snapshot!(render(responses), @r#"
+    Log(info): resolved task secret {"secret":"acmeCo/password","secretId":"0102030405060708"}
+    Started(codec=Json, container=false, process=false, spec=capture)
+    Capture(opened)
+    "#);
+}
+
+/// A config which both carries a `sops` key and declares a `secrets` stanza is
+/// rejected before resolution, which an unreachable resolver proves. Dekaf's
+/// wrapper is split before startup, so the same check applies to its *inner*
+/// configuration.
+#[tokio::test]
+async fn rejects_a_sops_key_together_with_a_secrets_stanza() {
+    let router = resolving_router(false);
+    let secrets = json!({"acmeCo/password": "/actual"});
+
+    // The connector answers the internal Spec, so a rejection is the config
+    // check's and not a startup failure's.
+    let sops_endpoint = || {
+        let mut endpoint =
+            sh("read request; echo '{\"spec\":{\"configSchema\":true}}'; read forever");
+        endpoint["config"] = json!({"sops": null});
+        endpoint
+    };
+
+    let outer = drive_router(
+        &router,
+        ops::TaskType::Capture,
+        "acmeCo/capture",
+        vec![capture_open(sops_endpoint(), secrets.clone())],
+    )
+    .await;
+
+    let inner = drive_router(
+        &router,
+        ops::TaskType::Materialization,
+        "acmeCo/materialization",
+        vec![dekaf_validate(json!({"sops": null}), secrets)],
+    )
+    .await;
+
+    insta::assert_snapshot!(render_all([("outer", outer), ("dekaf inner", inner)]), @"
+    outer:
+      Status(InvalidArgument): endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza
+    dekaf inner:
+      Status(InvalidArgument): endpoint configuration has a top-level `sops` key and cannot also use a `secrets` stanza
+    ");
+}
+
+/// Dekaf's `{variant, config}` wrapper is split before startup, so the
+/// pipeline resolves the *inner* configuration and Dekaf validates its token
+/// from the request slot -- whether that token was published in plaintext or
+/// resolved from a secret.
+#[tokio::test]
+async fn dekaf_resolves_inner_configuration() {
+    let router = resolving_router(true);
+
+    let mut outcomes = Vec::new();
+    for (label, config, secrets) in [
+        ("plaintext token", json!({"token": "plaintext"}), json!({})),
+        (
+            "resolved secret",
+            json!({}),
+            json!({"acmeCo/password": "/token"}),
+        ),
+    ] {
+        let responses = drive_router(
+            &router,
+            ops::TaskType::Materialization,
+            "acmeCo/materialization",
+            vec![dekaf_validate(config, secrets)],
+        )
+        .await;
+        outcomes.push((label, responses));
+    }
+
+    insta::assert_snapshot!(render_all(outcomes), @r#"
+    plaintext token:
+      Started(codec=Proto, container=false, process=false, spec=materialize)
+      Materialize(validated)
+    resolved secret:
+      Log(info): resolved task secret {"secret":"acmeCo/password","secretId":"0102030405060708"}
+      Started(codec=Proto, container=false, process=false, spec=materialize)
+      Materialize(validated)
+    "#);
 }
 
 // ----------------------------------------------------------------- sessions --
@@ -424,7 +608,11 @@ async fn a_wire_caller_which_leaves_ends_a_silent_started_connector() {
 async fn leave_a_silent_wire_connector(script: &str) -> Vec<String> {
     _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let registry = service_kit::Registry::new();
-    let (service, router) = connector::Service::new_local(String::new(), registry.clone());
+    let (service, router) = connector::Service::new_local(
+        String::new(),
+        registry.clone(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    );
 
     let requests = vec![local_derive_spec(script)];
     let (task_type, task_name) = honest_identity(&requests);
@@ -517,7 +705,7 @@ async fn invalid_client_input_is_rejected() {
         (
             "an empty request, racing a started connector's EOF",
             vec![
-                dekaf_validate(json!({"token": "plaintext"})),
+                dekaf_validate(json!({"token": "plaintext"}), json!({})),
                 proto::Request::default(),
             ],
         ),

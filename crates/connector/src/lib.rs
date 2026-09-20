@@ -40,7 +40,11 @@ pub use service::Service;
 /// Build a connector router for tests and other offline callers which need no
 /// shared registry and never attach containers to a Docker network.
 pub fn local_test_router() -> std::sync::Arc<dyn proto_grpc::connector::Router> {
-    let (_service, router) = Service::new_local(String::new(), service_kit::Registry::new());
+    let (_service, router) = Service::new_local(
+        String::new(),
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+    );
     std::sync::Arc::new(router)
 }
 
