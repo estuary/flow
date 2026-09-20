@@ -163,4 +163,7 @@ pub mod capability {
     /// LEAD gives the bearer a capability to use the runtime's Leader API,
     /// driving a derivation or materialization task's transactions.
     pub const LEAD: u32 = 1 << 20;
+    /// TASK_UPDATE gives the bearer a capability to update a task
+    /// through the `/task/set-secret` and `/task/update-config` routes.
+    pub const TASK_UPDATE: u32 = 1 << 21;
 }
