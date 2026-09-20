@@ -15,6 +15,7 @@
 
 mod bitmap;
 mod chunk;
+mod horizon;
 mod image;
 mod ublk;
 
