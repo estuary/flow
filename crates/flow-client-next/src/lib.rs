@@ -2,8 +2,11 @@ use futures::StreamExt;
 
 pub mod postgrest;
 pub mod rest;
+pub mod secret_resolver;
 pub mod user_auth;
 pub mod workflows;
+
+pub use secret_resolver::SecretResolver;
 
 /// Adapt a Stream of gazette::RetryResult into a Stream of tonic::Result
 /// by unwrapping gRPC errors and rendering other errors as internal gRPC errors.

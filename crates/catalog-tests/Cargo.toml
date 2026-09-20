@@ -13,6 +13,7 @@ publish = false
 [dependencies]
 doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
+flow-client-next = { path = "../flow-client-next" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 ops = { path = "../ops" }
