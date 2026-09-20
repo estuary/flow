@@ -8,7 +8,10 @@ use proto_gazette::uuid;
 
 mod spec;
 
+pub mod buffer;
 pub mod fence;
+pub mod playback;
+pub mod replay;
 
 /// Run `work`, failing if the tenure ends before it finishes.
 ///
