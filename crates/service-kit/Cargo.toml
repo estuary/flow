@@ -14,6 +14,7 @@ proto-gazette = { path = "../proto-gazette" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
+clap = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 metrics-util = { workspace = true }
 serde = { workspace = true }

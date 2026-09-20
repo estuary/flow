@@ -20,9 +20,75 @@
 //! check (an atomic load, plus — only inside a handler span — a short scope
 //! walk) rather than being statically skipped.
 
+//! [`init`] assembles the whole subscriber such a service installs at startup:
+//! that filter, a `fmt` layer in the operator's chosen [`LogFormat`], and the
+//! event layer the drill-down page reads.
+
 use crate::Registry;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+
+/// Encoding of the application logs a service writes to stderr. A service
+/// exposes this as a `clap` argument.
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
+pub enum LogFormat {
+    Text,
+    Json,
+}
+
+/// Install the whole stderr subscriber a service runs under: a `fmt` layer in
+/// the operator's chosen [`LogFormat`], the base `EnvFilter` (`RUST_LOG`,
+/// default `info`) composed with this module's per-handler override, so an
+/// operator can raise one handler's verbosity at runtime via the admin
+/// dashboard, and [`crate::event`]'s layer, which captures opt-in `event!`
+/// breadcrumbs into per-handler tracks shown on the dashboard's handler
+/// drill-down page.
+///
+/// A service which registers no handlers passes a [`Registry`] all the same:
+/// the override filter then costs one atomic load per event, and the registry
+/// is the handle its admin surface would hang off.
+pub fn init(log_format: LogFormat, registry: Registry) {
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    tracing_subscriber::registry()
+        .with(fmt_layer(log_format).with_filter(layer_filter(env_filter(), registry.clone())))
+        .with(crate::event::layer(registry))
+        .init();
+}
+
+/// The base filter every install starts from.
+fn env_filter() -> tracing_subscriber::EnvFilter {
+    tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+}
+
+/// The stderr `fmt` layer of `log_format`, boxed so the JSON and text variants
+/// share one assembly path.
+fn fmt_layer(
+    log_format: LogFormat,
+) -> Box<dyn tracing_subscriber::Layer<tracing_subscriber::Registry> + Send + Sync> {
+    match log_format {
+        LogFormat::Json => Box::new(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_writer(std::io::stderr),
+        ),
+        // Colour an interactive run only, so no escape code reaches a log
+        // collector. `NO_COLOR` still vetoes it: an explicit `with_ansi`
+        // overrides what the `fmt` layer would otherwise infer from that
+        // variable itself, so this has to repeat the check.
+        LogFormat::Text => Box::new(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(
+                    std::io::IsTerminal::is_terminal(&std::io::stderr())
+                        && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()),
+                )
+                .with_writer(std::io::stderr),
+        ),
+    }
+}
 
 /// Compose `base` with an [`OverrideFilter`] over `registry`, yielding a filter
 /// to attach to a `fmt` (or other) layer via `Layer::with_filter`. Events pass

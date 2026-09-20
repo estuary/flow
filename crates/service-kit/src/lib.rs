@@ -7,9 +7,12 @@
 //! - [`admin`] serves that inventory as an HTML dashboard plus a JSON endpoint,
 //!   a per-handler drill-down page, and lets an operator raise the trace
 //!   verbosity of one handler at runtime.
-//! - [`trace`] is the dynamic-verbosity mechanism behind that control: a
+//! - [`trace`] installs the service's whole subscriber via [`trace::init`], and
+//!   is the dynamic-verbosity mechanism behind that control: a
 //!   [`tracing_subscriber`] filter, composed with the service's base filter via
 //!   [`trace::layer_filter`].
+//! - [`shutdown_signal`] resolves on SIGTERM or SIGINT, which is what a service
+//!   drives its own drain from.
 //! - [`event!`] appends an opt-in breadcrumb to a small per-handler ring (and
 //!   also emits a `tracing` event), surfaced on the drill-down page; install
 //!   [`event::layer`] alongside the `fmt` layer. Capture is lazy — see [`event`].
@@ -22,6 +25,8 @@ pub mod admin;
 pub mod event;
 mod handlers;
 pub mod metrics;
+mod signal;
 pub mod trace;
 
 pub use handlers::{FinishedView, HandlerDetail, HandlerGuard, HandlerView, Registry, Snapshot};
+pub use signal::shutdown_signal;
