@@ -1,0 +1,5 @@
+---
+source: crates/disk-daemon/src/chunk.rs
+expression: "render(&[encode_punch(11, 4)])"
+---
+blocks 11..15: punch 4

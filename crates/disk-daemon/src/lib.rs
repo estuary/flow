@@ -13,6 +13,9 @@
 
 #![allow(dead_code)] // Until the tenure service assembles these modules.
 
+mod bitmap;
+mod chunk;
+mod image;
 mod ublk;
 
 /// Tenure and journal-record protocol messages, generated from
