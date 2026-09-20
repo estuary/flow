@@ -45,6 +45,10 @@ pub const PORT_PUBLIC_PREFIX: &str = "estuary.dev/port-public/";
 // Authorization labels. These appear only in the label selector of an
 // authorization request or response, and never on a JournalSpec or ShardSpec.
 pub const SECRET_NAME: &str = "estuary.dev/secret-name";
+// Attests the image repository (tag and digest stripped) of the connector on
+// whose behalf a secret is being decrypted. Absent for local and in-process
+// connectors, which have no image and may use sibling secrets only.
+pub const IMAGE_REPO: &str = "estuary.dev/image-repo";
 
 // A used subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
 pub const CONTENT_TYPE: &str = "content-type";

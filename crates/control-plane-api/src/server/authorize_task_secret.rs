@@ -9,37 +9,54 @@ type Response = models::authorizations::DecryptAuthorization;
 ///
 /// The request token is signed by the issuing data-plane. Its `sel` names the
 /// task type, task name, and requested secret under `estuary.dev/task-type`,
-/// `estuary.dev/task-name`, and `estuary.dev/secret-name`. Its `sub` is
+/// `estuary.dev/task-name`, and `estuary.dev/secret-name`, and optionally the
+/// connector image repository under `estuary.dev/image-repo`. Its `sub` is
 /// advisory and is not inspected as part of authorization.
 ///
 /// Three things are verified:
 ///
-///  * The sibling rule: a task may use only the secrets which sit beside it,
-///    `dirname(secret) == dirname(task)`.
+///  * The secret's name is allowed by one of two rules. By the sibling rule, a
+///    task may use secrets in its own prefix: `dirname(secret) == dirname(task)`.
+///    By the image rule, a task may use secrets named for its image repository:
+///    `<prefix>/connectors/<repo>/<leaf>`. See [`models::image_owns_secret`]
+///    for why the `connectors` component is required.
 ///  * Residency: a task the Snapshot knows of must live in the issuing
-///    data-plane, so that a compromised plane cannot ask for the secrets of
-///    tasks it doesn't run.
+///    data-plane, so that a plane asks only for the secrets of tasks it runs.
 ///  * Type: a task the Snapshot knows of must have the claimed task type.
 ///
 /// If a task is not in the Snapshot, then the requesting data-plane must be
 /// admitted by the longest-prefix storage mapping covering the task name -- the
-/// same mapping which decides where the task could be created.
+/// same mapping which decides where the task could be created. A task which
+/// hasn't been published still needs its secrets: a Discover or Validate is
+/// where an OAuth flow runs, and it cannot authenticate without the connector's
+/// client secret.
 ///
 /// SAFETY:
 ///
-/// A compromised data-plane may craft requests of secrets for tenant storage-
-/// mappings that have opted into use of that data-plane. Accepted, because an
-/// attacker holding a compromised plane already has a capability to access
-/// secrets of *existing* tasks of that same plane, and few real secrets exist
-/// without accompanying live tasks.
+/// This route takes the issuing data-plane at its word on two things: the
+/// name of the task it's running, and that task's image repository. We have
+/// no way to confirm either here. The two rules limit what a false claim can
+/// get in different ways.
 ///
-/// As a critical call-out, the storage mapping check guards against a rogue
-/// bring-your-own-compute user who compromises their *own* data-plane in an
-/// attempt to exfiltrate secrets of *other* data-planes. For this reason if none
-/// other, the check is essential and must be preserved.
+/// The sibling rule is limited by the task name. A published task must live
+/// in the issuing data-plane. An unpublished task must fall under a storage
+/// mapping that names the issuing data-plane. Either way, a data-plane can
+/// read sibling secrets only under prefixes whose tenant chose to use that
+/// data-plane. Every data-plane a storage mapping names can read secrets
+/// under its prefix, so a mapping should name only the data-planes it needs.
 ///
-/// More generally, this is an argument in favor of least-privilege when
-/// configuring storage mappings.
+/// The image rule is deliberately not bounded that way, because the secret it
+/// admits belongs to the image vendor: a vendor image's OAuth client secret
+/// is named for the repository, is shared by every task of that connector,
+/// and is a sibling of none of them. A plane running the image reaches the
+/// image's secrets, whichever tenant asked.
+///
+/// Were a data-plane to be compromised, the exposure risk is that it can read
+/// any image-owned secret by naming its repository. The mitigation is that such
+/// secrets are limited (by policy) to vendor OAuth client credentials, meaning
+/// that they do not yield refresh or access tokens that other tasks of that
+/// connector hold. What it does widen is the phishing surface against that
+/// connector's users (accepted, and unavoidable).
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 #[tracing::instrument(skip(env), err(Debug, level = tracing::Level::WARN))]
 pub async fn authorize_task_secret(
@@ -61,6 +78,17 @@ pub async fn authorize_task_secret(
     let task_type = labels::expect_one(unverified.claims().sel.include(), labels::TASK_TYPE)
         .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
 
+    let image_repo = match labels::values(unverified.claims().sel.include(), labels::IMAGE_REPO) {
+        [] => None,
+        [image_repo] => Some(image_repo.value.as_str()),
+        many => {
+            return Err(tonic::Status::invalid_argument(format!(
+                "expected at most one {} label (got {many:?})",
+                labels::IMAGE_REPO
+            ))
+            .into());
+        }
+    };
     let secret_name = models::Name::new(secret_name);
     let task_name = models::Name::new(task_name);
 
@@ -83,7 +111,7 @@ pub async fn authorize_task_secret(
         }
     };
 
-    crate::secrets::validate_task_access(&task_name, &secret_name)
+    crate::secrets::validate_task_access(&task_name, &secret_name, image_repo)
         .map_err(|err| tonic::Status::permission_denied(err.to_string()))?;
 
     let policy_result = super::task_residency::evaluate_task_residency(
@@ -129,17 +157,25 @@ pub async fn authorize_task_secret(
 mod tests {
     use crate::test_server;
 
+    /// An image a connector may attest, and a secret named for it under the
+    /// image rule. `aliceCo` runs the tasks; `acmeVendor` publishes the
+    /// connector and owns the OAuth client secret every task of it uses.
+    const IMAGE_REPO: &str = "ghcr.io/acmeVendor/source-widgets";
+    const IMAGE_SECRET: &str =
+        "acmeVendor/oauth/connectors/ghcr.io/acmeVendor/source-widgets/oauth-client";
+
     /// Drive the route as config-encryption would, asking for `secret_names` on
     /// behalf of a task of `task_type` and `task_name`, issued by the data-plane
-    /// of FQDN `iss`. Secrets are plural only so that a selector bearing none,
-    /// or two, is expressible -- no reactor mints one, and the route must
-    /// refuse it.
+    /// of FQDN `iss`. Secrets and images are plural only so that a selector
+    /// bearing none, or two, is expressible -- no reactor mints one, and the
+    /// route must refuse it.
     async fn post(
         server: &test_server::TestServer,
         iss: &str,
         task_type: &str,
         task_name: &str,
         secret_names: &[&str],
+        image_repos: &[&str],
     ) -> String {
         let token = test_server::data_plane_token(
             iss,
@@ -148,6 +184,7 @@ mod tests {
             secret_names
                 .iter()
                 .map(|name| (labels::SECRET_NAME, *name))
+                .chain(image_repos.iter().map(|name| (labels::IMAGE_REPO, *name)))
                 .chain([
                     (labels::TASK_NAME, task_name),
                     (labels::TASK_TYPE, task_type),
@@ -200,6 +237,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -211,6 +249,7 @@ mod tests {
                     labels::TASK_TYPE_MATERIALIZATION,
                     "aliceCo/out/materialize-bar",
                     &["aliceCo/out/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -222,6 +261,7 @@ mod tests {
                     labels::TASK_TYPE_MATERIALIZATION,
                     "aliceCo/out/materialize-bar",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -233,11 +273,13 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/in/nonexistent"],
+                    &[],
                 )
                 .await,
             ),
             // Selector shape, which only this route can refuse: the names it
-            // reads must parse, and there must be exactly one secret.
+            // reads must parse, and there must be exactly one secret and at
+            // most one image.
             (
                 "malformed-secret",
                 post(
@@ -246,6 +288,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/bad name"],
+                    &[],
                 )
                 .await,
             ),
@@ -257,6 +300,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/bad name",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -268,6 +312,7 @@ mod tests {
                     "dekaf",
                     "aliceCo/in/capture-foo",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -278,6 +323,7 @@ mod tests {
                     "dp.one",
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
+                    &[],
                     &[],
                 )
                 .await,
@@ -290,10 +336,24 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
                     &["aliceCo/in/token", "aliceCo/out/token"],
+                    &[],
                 )
                 .await,
             ),
-            // Residency: this task runs in dp.one, and not in dp.two.
+            (
+                "two-images",
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &[IMAGE_REPO, "ghcr.io/acmeVendor/source-gadgets"],
+                )
+                .await,
+            ),
+            // Residency: this task runs in dp.one, and an attested image is not
+            // a way around that.
             (
                 "wrong-plane",
                 post(
@@ -301,7 +361,8 @@ mod tests {
                     "dp.two",
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-foo",
-                    &["aliceCo/in/token"],
+                    &[IMAGE_SECRET],
+                    &[IMAGE_REPO],
                 )
                 .await,
             ),
@@ -317,6 +378,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-new",
                     &["aliceCo/in/token"],
+                    &[],
                 )
                 .await,
             ),
@@ -328,6 +390,7 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "aliceCo/in/capture-new",
                     &["aliceCo/in/nonexistent"],
+                    &[],
                 )
                 .await,
             ),
@@ -339,12 +402,37 @@ mod tests {
                     labels::TASK_TYPE_CAPTURE,
                     "bobCo/capture-new",
                     &["bobCo/token"],
+                    &[],
                 )
                 .await,
             ),
             // The image rule end to end: the vendor's secret belongs to no
             // prefix aliceCo holds, and reaches the task only because the
             // reactor attested the repository which names it.
+            (
+                "image-rule",
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &[IMAGE_REPO],
+                )
+                .await,
+            ),
+            (
+                "image-rule/unattested",
+                post(
+                    &server,
+                    "dp.one",
+                    labels::TASK_TYPE_CAPTURE,
+                    "aliceCo/in/capture-foo",
+                    &[IMAGE_SECRET],
+                    &[],
+                )
+                .await,
+            ),
         ];
 
         insta::assert_debug_snapshot!(outcomes);
@@ -377,6 +465,7 @@ mod tests {
             labels::TASK_TYPE_CAPTURE,
             "aliceCo/in/capture-foo",
             &["aliceCo/in/token"],
+            &[],
         )
         .await;
 
