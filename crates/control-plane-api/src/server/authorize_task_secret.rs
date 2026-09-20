@@ -91,7 +91,17 @@ pub async fn authorize_task_secret(
     let Some(fallback_check_data_plane) = fallback_check_data_plane else {
         // Happy path: the Snapshot was able to establish task residency and we
         // bypass the storage-mapping fallback check.
-        return Ok(axum::Json(super::fetch_secret(&env.pg_pool, &name).await?));
+        // Absence is terminal: unlike a grant, a secret is read at its current
+        // value, so a later read cannot turn this answer around.
+        let Some(secret) = crate::secrets::fetch(&env.pg_pool, &name).await? else {
+            return Err(tonic::Status::not_found(format!("secret '{name}' does not exist")).into());
+        };
+
+        return Ok(axum::Json(Response {
+            document: Some(secret.document),
+            secret_id: Some(secret.secret_id),
+            retry_millis: 0,
+        }));
     };
 
     // Storage mapping prefixes are always slash-terminated, so the mappings
