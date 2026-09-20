@@ -24,16 +24,14 @@ pub use proto_flow::runtime::{Container, Plane};
 mod capture;
 mod container;
 mod derive;
+mod image;
 mod materialize;
+mod policy;
 mod protocol;
 mod router;
 mod serve;
 mod service;
 
-#[cfg(test)]
-mod tests;
-
-pub use container::flow_runtime_protocol;
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
@@ -56,6 +54,7 @@ enum LogDest {
         /// Dropping the last sink signals that all log producers are done.
         tokio::sync::oneshot::Sender<()>,
     ),
+    #[cfg(test)]
     Tracing,
 }
 
@@ -74,6 +73,7 @@ impl LogSink {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn tracing() -> Self {
         Self(std::sync::Arc::new(LogDest::Tracing))
     }
@@ -90,31 +90,10 @@ impl LogSink {
                 };
                 _ = response_tx.send(Ok(response)).await;
             }
+            #[cfg(test)]
             LogDest::Tracing => ops::tracing_log_handler(&log),
         }
     }
-}
-
-/// Deadline for beginning a graceful session restart ahead of IAM token
-/// expiry, so a transaction started near the deadline still has runway.
-pub fn token_restart_deadline(
-    now: std::time::SystemTime,
-    expires_at: std::time::SystemTime,
-) -> std::time::SystemTime {
-    use std::time::Duration;
-
-    const LONG_LIFETIME: Duration = Duration::from_secs(4 * 3600);
-    const LONG_MARGIN: Duration = Duration::from_secs(30 * 60);
-    const SHORT_MARGIN: Duration = Duration::from_secs(5 * 60);
-
-    let lifetime = expires_at.duration_since(now).unwrap_or_default();
-    let margin = if lifetime >= LONG_LIFETIME {
-        LONG_MARGIN
-    } else {
-        SHORT_MARGIN
-    };
-    // A pathologically short lifetime restarts immediately rather than never.
-    expires_at - margin.min(lifetime)
 }
 
 /// Describes the basic type of runtime protocol advertised by a connector
@@ -138,14 +117,28 @@ impl RuntimeProtocol {
     }
 }
 
+/// A running connector, before its Spec response is verified.
+struct Transport<P: protocol::Protocol> {
+    connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
+    container: Option<Container>,
+    codec: connector_init::Codec,
+    /// Ties an image connector's container to the served stream.
+    guard: Option<container::Guard>,
+    /// Sealed endpoint configuration of the dispatched endpoint.
+    sealed_config: models::RawValue,
+    /// Spec already exchanged on an RPC of its own, only when required.
+    // TODO(johnny): Remove with V1 derivations.
+    spec: Option<proto::response::started::Spec>,
+}
+
 /// The transport of a started connector, and the `Started` response which
 /// leads its protocol responses.
-pub(crate) struct Started<P: protocol::Protocol> {
-    pub started: proto::Response,
-    pub connector_tx: tokio::sync::mpsc::Sender<P::Request>,
-    pub connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
+struct Started<P: protocol::Protocol> {
+    started: proto::Response,
+    connector_tx: tokio::sync::mpsc::Sender<P::Request>,
+    connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
     /// Keeps an image connector alive until stream teardown.
-    pub guard: Option<container::Guard>,
+    guard: Option<container::Guard>,
 }
 
 /// Render one `ops::Log` of this crate's own reporting.
@@ -176,34 +169,4 @@ pub(crate) fn json_field(value: &impl serde::Serialize) -> bytes::Bytes {
 
 pub(crate) fn invalid_argument(message: String) -> anyhow::Error {
     proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(message))
-}
-
-#[cfg(test)]
-mod deadline_tests {
-    use super::token_restart_deadline;
-    use std::time::Duration;
-
-    #[test]
-    fn test_token_restart_deadline_margins() {
-        let now = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
-
-        // One-hour token restarts five minutes early.
-        let expires = now + Duration::from_secs(3600);
-        assert_eq!(
-            token_restart_deadline(now, expires),
-            expires - Duration::from_secs(5 * 60)
-        );
-
-        // Twelve-hour token restarts thirty minutes early.
-        let expires = now + Duration::from_secs(12 * 3600);
-        assert_eq!(
-            token_restart_deadline(now, expires),
-            expires - Duration::from_secs(30 * 60)
-        );
-
-        // A lifetime shorter than its margin restarts immediately, not never.
-        let expires = now + Duration::from_secs(60);
-        assert_eq!(token_restart_deadline(now, expires), now);
-        assert_eq!(token_restart_deadline(now, now), now);
-    }
 }

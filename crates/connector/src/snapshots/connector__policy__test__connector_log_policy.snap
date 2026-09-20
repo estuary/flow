@@ -1,0 +1,24 @@
+---
+source: crates/connector/src/policy.rs
+assertion_line: 443
+expression: outcomes
+---
+[
+    {
+        "eventTarget": b"\"a/b/c\"",
+        "eventType": b"\"connectorStatus\"",
+    },
+    {
+        "_sanitized_eventType": b"\"other\"",
+        "eventTarget": b"\"a/b/c\"",
+    },
+    {
+        "_sanitized_eventTarget": b"\"other/task\"",
+        "eventTarget": b"\"a/b/c\"",
+        "eventType": b"\"configUpdate\"",
+    },
+    {
+        "eventTarget": b"\"a/b/c\"",
+        "eventType": b"\"configUpdate\"",
+    },
+]
