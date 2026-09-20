@@ -1,0 +1,38 @@
+---
+source: crates/proto-grpc/src/connector/router.rs
+expression: outcomes
+---
+[
+    (
+        "its own task",
+        "ok",
+    ),
+    (
+        "a task-less Spec",
+        "ok",
+    ),
+    (
+        "a sibling task",
+        "PermissionDenied",
+    ),
+    (
+        "a prefix of its name",
+        "PermissionDenied",
+    ),
+    (
+        "another tenant",
+        "PermissionDenied",
+    ),
+    (
+        "as a derivation",
+        "PermissionDenied",
+    ),
+    (
+        "as a materialization",
+        "PermissionDenied",
+    ),
+    (
+        "another reactor's key",
+        "Unauthenticated",
+    ),
+]

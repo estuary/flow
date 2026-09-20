@@ -1,0 +1,16 @@
+---
+source: crates/connector/src/image.rs
+assertion_line: 255
+expression: outcomes
+---
+[
+    Err(
+        "image is missing required 'FLOW_RUNTIME_PROTOCOL' label",
+    ),
+    Err(
+        "invalid key in inspected Config.ExposedPorts 'whoops': invalid digit found in string",
+    ),
+    Err(
+        "invalid 'dev.estuary.port-public.111' label value: 'whoops', must be either 'true' or 'false': provided string was not `true` or `false`",
+    ),
+]

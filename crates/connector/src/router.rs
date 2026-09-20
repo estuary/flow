@@ -17,10 +17,8 @@ impl ServiceRouter {
         Self { service, signer }
     }
 
-    /// Signer minting this router's bearers, for tests which address a
-    /// `Service` directly rather than through the router.
-    #[cfg(test)]
-    pub(crate) fn signer(&self) -> &proto_grpc::Signer {
+    /// Signer minting this router's bearers.
+    pub fn signer(&self) -> &proto_grpc::Signer {
         &self.signer
     }
 }

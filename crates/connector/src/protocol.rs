@@ -31,7 +31,7 @@ pub(crate) type StartRpcFuture<Response> =
     BoxFuture<'static, tonic::Result<tonic::Response<tonic::Streaming<Response>>>>;
 
 /// Constructor of an in-process connector, given its request stream.
-pub(crate) type InProcessFn<P> = Box<
+type InProcessFn<P> = Box<
     dyn FnOnce(
             BoxStream<'static, <P as Protocol>::Request>,
         ) -> BoxStream<'static, tonic::Result<<P as Protocol>::Response>>
@@ -79,8 +79,7 @@ pub(crate) trait Protocol: Sized + 'static {
 
     /// Locate the endpoint configuration of a request and normalize its
     /// endpoint. `sqlite_vfs_uri` is the client's recorded recovery-log VFS,
-    /// which only an endpoint able to record into one may accept; every other
-    /// endpoint rejects it with [`sqlite_vfs_uri_error`].
+    /// which only derive-sqlite may accept (all others reject it).
     fn extract_endpoint<'r>(
         request: &'r mut Self::Request,
         sqlite_vfs_uri: Option<String>,
@@ -145,6 +144,12 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Image { image, .. } if one_request_per_invocation(image),
     );
 
+    // Apply image policy checks that don't require inspection (and registry I/O).
+    let image_policy = match &endpoint {
+        Endpoint::Image { image, .. } => Some(crate::policy::Image::check(ctx.plane, image)?),
+        Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
+    };
+
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
         connector_tx
@@ -153,21 +158,44 @@ pub(crate) async fn start<P: Protocol>(
             .expect("new connector request channel is open");
     }
 
-    let Transport {
+    // Spawn the connector, branched on its endpoint type.
+    let requests = tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed();
+    let crate::Transport {
         mut connector_rx,
         container,
         codec,
         guard,
         sealed_config,
         spec: own_rpc_spec,
-    } = connect::<P>(
-        &ctx,
-        endpoint,
-        connector_type,
-        spec_on_own_rpc,
-        tokio_stream::wrappers::ReceiverStream::new(connector_rx).boxed(),
-    )
-    .await?;
+    } = match endpoint {
+        Endpoint::Image {
+            image,
+            config: sealed_config,
+        } => {
+            crate::image::connect::<P>(
+                &ctx,
+                image,
+                sealed_config,
+                image_policy.as_ref().unwrap(),
+                connector_type,
+                spec_on_own_rpc,
+                requests,
+            )
+            .await
+        }
+        Endpoint::InProcess {
+            connector,
+            config: sealed_config,
+        } => Ok(crate::Transport {
+            connector_rx: connector(requests),
+            container: None,
+            codec: connector_init::Codec::Proto,
+            guard: None,
+            sealed_config,
+            spec: None,
+        }),
+        Endpoint::Local { config } => connect_local::<P>(&ctx, config, requests),
+    }?;
 
     let codec = match codec {
         connector_init::Codec::Proto => proto::response::started::Codec::Proto,
@@ -209,10 +237,12 @@ pub(crate) async fn start<P: Protocol>(
         let tokens = iam_config.generate_tokens(&ctx.task_name).await?;
         *initial_config_slot = tokens.inject_into(initial_config_slot)?.to_string().into();
 
-        iam_token_restart_at = Some(proto_flow::as_timestamp(crate::token_restart_deadline(
-            std::time::SystemTime::now(),
-            tokens.expires_at(),
-        )));
+        iam_token_restart_at = Some(proto_flow::as_timestamp(
+            crate::policy::token_restart_deadline(
+                std::time::SystemTime::now(),
+                tokens.expires_at(),
+            ),
+        ));
     }
 
     // Provide the original, sealed configuration for initial requests that carry it.
@@ -238,123 +268,66 @@ pub(crate) async fn start<P: Protocol>(
     })
 }
 
-/// A running connector, before its Spec response is verified.
-struct Transport<P: Protocol> {
-    connector_rx: BoxStream<'static, tonic::Result<P::Response>>,
-    container: Option<crate::Container>,
-    codec: connector_init::Codec,
-    /// Ties an image connector's container to the served stream.
-    guard: Option<crate::container::Guard>,
-    /// Sealed endpoint configuration of the dispatched endpoint.
-    sealed_config: models::RawValue,
-    /// Spec already exchanged on an RPC of its own, only when required.
-    // TODO(johnny): Remove with V1 derivations.
-    spec: Option<proto::response::started::Spec>,
-}
-
-async fn connect<P: Protocol>(
+fn connect_local<P: Protocol>(
     ctx: &StartContext,
-    endpoint: Endpoint<P>,
-    connector_type: i32,   // TODO(johnny): remove with V1 derivations.
-    spec_on_own_rpc: bool, // TODO(johnny): remove.
+    models::LocalConfig {
+        command,
+        config: sealed_config,
+        env,
+        protobuf,
+    }: models::LocalConfig,
     requests: BoxStream<'static, P::Request>,
-) -> anyhow::Result<Transport<P>> {
-    match endpoint {
-        Endpoint::Image {
-            image,
-            config: sealed_config,
-        } => {
-            let (container, channel, guard, codec) =
-                crate::container::start(ctx, &image, P::TASK_TYPE).await?;
-
-            // Drive the Spec to completion on its own RPC before opening the
-            // real one, so the connector sees one request per invocation.
-            let spec = if spec_on_own_rpc {
-                Some(spec_rpc::<P>(channel.clone(), connector_type).await?)
-            } else {
-                None
-            };
-
-            let connector_rx = P::open_rpc(channel, requests).await?.into_inner();
-
-            Ok(Transport {
-                connector_rx: connector_rx.boxed(),
-                container: Some(container),
-                codec,
-                guard: Some(guard),
-                sealed_config,
-                spec,
-            })
-        }
-        Endpoint::Local { .. } if !matches!(ctx.plane, crate::Plane::Local) => {
-            Err(tonic::Status::failed_precondition(
-                "Local connectors are not permitted in this context",
-            )
-            .into())
-        }
-        Endpoint::Local {
-            config:
-                models::LocalConfig {
-                    command,
-                    config: sealed_config,
-                    env,
-                    protobuf,
-                },
-        } => {
-            let codec = if protobuf {
-                connector_init::Codec::Proto
-            } else {
-                connector_init::Codec::Json
-            };
-
-            let mut connector = connector_init::rpc::new_command(&command);
-            connector.envs(&env);
-            connector.env("LOG_FORMAT", "json");
-            connector.env(
-                "LOG_LEVEL",
-                ctx.log_level.or(ops::LogLevel::Info).as_str_name(),
-            );
-
-            // Dropping the local connector's response stream kills its subprocess
-            // and closes its stderr, so only image connectors need a `Guard`.
-            let log_sink = ctx.log_sink.clone();
-            let connector_rx = connector_init::rpc::bidi::<P::Request, P::Response, _, _, _>(
-                connector,
-                codec,
-                requests.map(Result::Ok),
-                move |log| {
-                    let log_sink = log_sink.clone();
-                    async move { log_sink.send(log).await }
-                },
-            )?;
-
-            Ok(Transport {
-                connector_rx: connector_rx.boxed(),
-                container: None,
-                codec,
-                guard: None,
-                sealed_config,
-                spec: None,
-            })
-        }
-        Endpoint::InProcess {
-            connector,
-            config: sealed_config,
-        } => Ok(Transport {
-            connector_rx: connector(requests),
-            container: None,
-            codec: connector_init::Codec::Proto,
-            guard: None,
-            sealed_config,
-            spec: None,
-        }),
+) -> anyhow::Result<crate::Transport<P>> {
+    if !crate::policy::local_connectors_allowed(ctx.plane) {
+        return Err(tonic::Status::failed_precondition(
+            "Local connectors are not permitted in this context",
+        )
+        .into());
     }
+
+    let codec = if protobuf {
+        connector_init::Codec::Proto
+    } else {
+        connector_init::Codec::Json
+    };
+
+    let mut connector = connector_init::rpc::new_command(&command);
+    connector.envs(&env);
+    connector.env("LOG_FORMAT", "json");
+    connector.env(
+        "LOG_LEVEL",
+        ctx.log_level.or(ops::LogLevel::Info).as_str_name(),
+    );
+
+    // Dropping the local connector's response stream kills its subprocess
+    // and closes its stderr, so only image connectors need a `Guard`.
+    let log_sink = ctx.log_sink.clone();
+    let quoted_task_name: bytes::Bytes = format!("\"{}\"", ctx.task_name).into();
+    let connector_rx = connector_init::rpc::bidi::<P::Request, P::Response, _, _, _>(
+        connector,
+        codec,
+        requests.map(Result::Ok),
+        move |log| {
+            let log = crate::policy::sanitize_connector_log(&quoted_task_name, log);
+            let log_sink = log_sink.clone();
+            async move { log_sink.send(log).await }
+        },
+    )?;
+
+    Ok(crate::Transport {
+        connector_rx: connector_rx.boxed(),
+        container: None,
+        codec,
+        guard: None,
+        sealed_config,
+        spec: None,
+    })
 }
 
 /// Take the connector's Spec from its first response, or fail with the
 /// response it sent instead.
 // TODO(johnny): inline with retirement of `:dev` images.
-fn unwrap_spec_response<P: Protocol>(
+pub(super) fn unwrap_spec_response<P: Protocol>(
     response: Option<tonic::Result<P::Response>>,
 ) -> anyhow::Result<proto::response::started::Spec> {
     let verify = crate::verify(P::NAME, "spec response", "connector");
@@ -367,7 +340,7 @@ fn unwrap_spec_response<P: Protocol>(
 
 /// Exchange a Spec on an RPC which carries nothing else, then close it.
 // TODO(johnny): remove with retirement of `:dev` images.
-async fn spec_rpc<P: Protocol>(
+pub(super) async fn spec_rpc<P: Protocol>(
     channel: tonic::transport::Channel,
     connector_type: i32,
 ) -> anyhow::Result<proto::response::started::Spec> {
@@ -421,11 +394,4 @@ mod test {
             assert!(!super::one_request_per_invocation(image), "{image}");
         }
     }
-}
-
-/// The client sent a recovery-log VFS for a connector which cannot record into one.
-pub(crate) fn sqlite_vfs_uri_error() -> anyhow::Error {
-    crate::invalid_argument(
-        "Start.sqlite_vfs_uri may only be set for a Sqlite derivation connector".to_string(),
-    )
 }

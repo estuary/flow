@@ -137,3 +137,98 @@ impl Router for EndpointRouter {
         response_rx
     }
 }
+
+#[cfg(test)]
+mod test {
+    const ISSUER: &str = "data-plane.example";
+    const KEY: &[u8] = b"a reactor's data-plane key";
+
+    fn bearer(key: &[u8], task_name: &str) -> crate::Metadata {
+        super::connector_bearer(
+            &crate::Signer::new(
+                ISSUER.to_string(),
+                tokens::jwt::EncodingKey::from_secret(key),
+            ),
+            ops::TaskType::Capture,
+            task_name,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_connector_bearer_scopes_to_its_task_and_a_spec() {
+        let authenticator = crate::Authenticator::new(
+            ISSUER.to_string(),
+            vec![tokens::jwt::DecodingKey::from_secret(KEY)],
+        );
+        let outcome = |metadata: &crate::Metadata, task_type, task_name: &str| {
+            authenticator
+                .authenticate(&metadata.0, proto_flow::capability::PROXY_CONNECTOR)
+                .and_then(|verified| {
+                    crate::Authorizer::from_verified(verified)
+                        .authorize(super::super::task_label_set(task_type, task_name))
+                })
+                .map_or_else(
+                    |status| format!("{:?}", status.code()),
+                    |_authorized| "ok".to_string(),
+                )
+        };
+
+        let mine = bearer(KEY, "acmeCo/foo");
+        let theirs = bearer(b"another reactor's key", "acmeCo/foo");
+
+        let outcomes = [
+            ("its own task", &mine, ops::TaskType::Capture, "acmeCo/foo"),
+            (
+                "a task-less Spec",
+                &mine,
+                ops::TaskType::Capture,
+                super::super::SPEC_TASK_NAME,
+            ),
+            // A prefix match which did not respect name boundaries would admit
+            // the sibling and the prefix.
+            (
+                "a sibling task",
+                &mine,
+                ops::TaskType::Capture,
+                "acmeCo/foobar",
+            ),
+            (
+                "a prefix of its name",
+                &mine,
+                ops::TaskType::Capture,
+                "acmeCo/fo",
+            ),
+            (
+                "another tenant",
+                &mine,
+                ops::TaskType::Capture,
+                "otherCo/foo",
+            ),
+            // The right name of the wrong task type.
+            (
+                "as a derivation",
+                &mine,
+                ops::TaskType::Derivation,
+                "acmeCo/foo",
+            ),
+            (
+                "as a materialization",
+                &mine,
+                ops::TaskType::Materialization,
+                "acmeCo/foo",
+            ),
+            (
+                "another reactor's key",
+                &theirs,
+                ops::TaskType::Capture,
+                "acmeCo/foo",
+            ),
+        ]
+        .map(|(label, metadata, task_type, task_name)| {
+            (label, outcome(metadata, task_type, task_name))
+        });
+
+        insta::assert_debug_snapshot!(outcomes);
+    }
+}

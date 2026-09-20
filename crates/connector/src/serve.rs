@@ -291,12 +291,11 @@ fn authorize(
     // `sqlite_vfs_uri` is an unvalidated path which the connector opens (and
     // creates) as the reactor. It's meaningful only to the shard which recorded
     // the recovery log it names, so a remote caller may never supply one.
-    if !sqlite_vfs_uri.is_empty() && matches!(transport, crate::service::Transport::Wire) {
-        return Err(crate::invalid_argument(
-            "Start.sqlite_vfs_uri is runtime-internal and may not be set by a remote client"
-                .to_string(),
-        ));
-    }
+    crate::policy::check_remote_sqlite_vfs(
+        matches!(transport, crate::service::Transport::Wire),
+        !sqlite_vfs_uri.is_empty(),
+    )
+    .map_err(|err| crate::invalid_argument(err.to_string()))?;
 
     let (task_type, task_name) = proto_grpc::connector::task_identity(&request)?;
     let task_name = task_name.to_string();

@@ -71,9 +71,8 @@ impl Protocol for Capture {
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,
     ) -> anyhow::Result<Extracted<'r, Self>> {
-        if sqlite_vfs_uri.is_some() {
-            return Err(crate::protocol::sqlite_vfs_uri_error());
-        }
+        crate::policy::check_connector_sqlite_vfs(false, sqlite_vfs_uri.is_some())
+            .map_err(|err| crate::invalid_argument(err.to_string()))?;
         let (connector_type, config_json, sealed_config_json) = match &mut request.kind {
             Some(request::Kind::Spec(spec)) => (spec.connector_type, &mut spec.config_json, None),
             Some(request::Kind::Discover(discover)) => {
