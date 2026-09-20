@@ -55,7 +55,7 @@ owns its container, image, and local-connector implementation independently.
 | `LogSink` / `LogDest`           | Routes connector logs and container lifecycle records                     |
 | `protocol::start`               | The start pipeline every connector goes through                          |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
-| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process          |
+| `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
 
 ## Layout

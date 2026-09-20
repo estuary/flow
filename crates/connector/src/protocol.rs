@@ -22,6 +22,8 @@ pub(crate) struct StartContext {
     pub plane: crate::Plane,
     /// Reactor process advertised in `Started.process`, or `None` in local contexts.
     pub process: Option<proto_gazette::broker::ProcessSpec>,
+    /// Resolver of task secrets.
+    pub secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
     /// Catalog task name, or [`crate::SPEC_TASK_NAME`] for a task-less Spec.
     pub task_name: String,
 }
@@ -219,16 +221,33 @@ pub(crate) async fn start<P: Protocol>(
 
     let mut iam_token_restart_at = None;
 
-    // A Spec has no task identity under which to unseal or inject, so its
-    // configuration passes through exactly as the caller sent it.
-    let inject_iam = ctx.task_name != crate::SPEC_TASK_NAME;
+    let inject_iam: bool;
 
-    *initial_config_slot = if inject_iam {
-        unseal::overlay::decrypt_with_overlay(&sealed_config, config_schema)
-            .await?
-            .into()
+    // Unseal the configuration, or inject decrypted secrets into it.
+    (*initial_config_slot, inject_iam) = if ctx.task_name == crate::SPEC_TASK_NAME {
+        // A Spec has no task identity under which to unseal, resolve, or inject,
+        // so its configuration passes through exactly as the caller sent it.
+        (
+            bytes::Bytes::copy_from_slice(sealed_config.get().as_bytes()),
+            false,
+        )
     } else {
-        bytes::Bytes::copy_from_slice(sealed_config.get().as_bytes())
+        // Each uniquely keyed secret is decrypted concurrently.
+        let resolved = unseal::resolve(&sealed_config, secrets, config_schema, |name| {
+            resolve_secret::<P>(
+                &ctx,
+                image_policy.as_ref().map(crate::policy::Image::repository),
+                name,
+            )
+        })
+        .await
+        .map_err(|err| match err {
+            // A misconfiguration of the task, and not a failure of this runtime.
+            err @ unseal::Error::SopsWithSecrets => crate::invalid_argument(err.to_string()),
+            err => anyhow::Error::new(err),
+        })?;
+
+        (resolved.into(), true)
     };
 
     // If IAM token injection is configured, fetch and inject tokens.
@@ -271,6 +290,42 @@ pub(crate) async fn start<P: Protocol>(
         connector_rx,
         guard,
     })
+}
+
+/// Decrypt one secret of the task's `secrets` stanza under the task's identity,
+/// attesting the image repository which is asking so that the control-plane may
+/// admit a secret under the image rule.
+async fn resolve_secret<P: Protocol>(
+    ctx: &StartContext,
+    image_repo: Option<&str>,
+    name: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let decrypted = ctx
+        .secret_resolver
+        .decrypt(
+            P::TASK_TYPE,
+            &ctx.task_name,
+            image_repo,
+            models::Secret::new(name),
+        )
+        .await?;
+
+    let (Some(value), Some(secret_id)) = (decrypted.value, decrypted.secret_id) else {
+        panic!("a successful secret decryption has a value and a secret id");
+    };
+
+    ctx.log_sink
+        .send(crate::build_log(
+            ops::LogLevel::Info,
+            "resolved task secret",
+            [
+                ("secret", crate::json_field(&name)),
+                ("secretId", crate::json_field(&secret_id)),
+            ],
+        ))
+        .await;
+
+    Ok(value)
 }
 
 fn connect_local<P: Protocol>(

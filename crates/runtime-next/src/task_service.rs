@@ -33,6 +33,8 @@ impl TaskService {
             std::env::var("FLOW_DATA_PLANE_FQDN").context("FLOW_DATA_PLANE_FQDN not set")?;
         let control_api_endpoint =
             std::env::var("FLOW_CONTROL_API").context("FLOW_CONTROL_API not set")?;
+        let config_encryption_endpoint = std::env::var("FLOW_CONFIG_ENCRYPTION_URL")
+            .context("FLOW_CONFIG_ENCRYPTION_URL not set")?;
         let availability_zone = std::env::var("CONSUMER_ZONE").context("CONSUMER_ZONE not set")?;
 
         // Every key verifies (supporting rotation); the first also signs.
@@ -54,6 +56,8 @@ impl TaskService {
 
         let control_api_endpoint: url::Url =
             url::Url::parse(&control_api_endpoint).context("invalid control API endpoint URL")?;
+        let config_encryption_endpoint: url::Url = url::Url::parse(&config_encryption_endpoint)
+            .context("invalid config-encryption endpoint URL")?;
 
         use proto_gazette::capability::{APPEND, APPLY, LIST};
         let publisher_factory =
@@ -77,6 +81,11 @@ impl TaskService {
             proto_grpc::Authenticator::new(data_plane_fqdn.clone(), data_plane_verify_keys),
             process,
             registry.clone(),
+            std::sync::Arc::new(flow_client_next::secret_resolver::Task::new(
+                flow_client_next::rest::Client::new(&config_encryption_endpoint, "task-service"),
+                data_plane_fqdn.clone(),
+                data_plane_signing_key.clone(),
+            )),
         );
         let data_plane_signer =
             proto_grpc::Signer::new(data_plane_fqdn, data_plane_signing_key.clone());

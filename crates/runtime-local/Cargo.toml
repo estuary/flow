@@ -14,6 +14,7 @@ publish = false
 assemble = { path = "../assemble" }
 connector = { path = "../connector" }
 doc = { path = "../doc" }
+flow-client-next = { path = "../flow-client-next" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }

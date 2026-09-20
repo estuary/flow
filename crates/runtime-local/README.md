@@ -34,7 +34,7 @@ runtime's equivalent and dies with V1 preview.)
 | Item | Purpose |
 |---|---|
 | `services::Run` | Per-invocation resources: the loopback tonic server and the shuffle-log directory. `start_capture` for leaderless captures; `start_with_shuffle_leader` otherwise. |
-| `local_router` | The in-process `proto_grpc::connector::Router` of local contexts: one `Plane::Local` `connector::Service` over a throwaway key. |
+| `local_router` | The in-process `proto_grpc::connector::Router` of local contexts: one `Plane::Local` `connector::Service` over a throwaway key, resolving task secrets through the given `flow_client_next::SecretResolver` (`secret_resolver::User` under flowctl). `local_test_router` is the same with `secret_resolver::NoOp`, for contexts holding no credentials. |
 | `Controls<P, L>` | The publisher and logger factories installed on each shard, plus shard zero's optional connector-state seed and final-state request, both carried on its `SessionLoop`. `run_sessions` returns the reported final state. |
 | `materialize_driver` / `derive_driver` / `capture_driver` | `run_sessions` drives N shards of one materialization / derivation / capture through a sequence of sessions. |
 | `segments` | Writes documents directly as `shuffle::log` segments and builds the checkpoint `Frontier` that makes them visible — a whole transaction at a time, or document-by-document through a `TxnState`; plus the channel-fed `ShuffleSessionFactory` that relays those frontiers. |
