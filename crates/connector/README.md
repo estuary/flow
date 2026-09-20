@@ -53,7 +53,6 @@ owns its container, image, and local-connector implementation independently.
 | `LOCAL_ISSUER`                  | Issuer of local self-signed bearers; public for served test fixtures      |
 | `proto_grpc::connector`         | Client routing, identity, bearer, and stream helpers                      |
 | `LogSink` / `LogDest`           | Routes connector logs and container lifecycle records                     |
-| `flow_runtime_protocol`         | Image inspection, for callers which only need an image's protocol         |
 | `protocol::start`               | The start pipeline every connector goes through                          |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
 | `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process          |
@@ -68,11 +67,14 @@ src/
 ├── router.rs     # ServiceRouter and the local bearer issuer
 ├── serve.rs      # per-stream: authn/authz, extract, start, pump, teardown
 ├── protocol.rs   # Protocol trait, StartContext, and the one start pipeline
+├── policy.rs     # pure product policy: image admission, usage, safe logs
+├── image.rs      # Estuary image declarations and image-endpoint connection
 ├── capture.rs    # Protocol impl: capture endpoints and RPC
 ├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
 ├── materialize.rs# Protocol impl: materialize endpoints and RPC, incl. Dekaf
-├── container.rs  # docker pull / inspect / run, connector-init dial, Guard
-└── tests.rs      # authz, stream semantics, and end-to-end coverage
+└── container.rs  # Docker/Podman pull, inspect/run capabilities, dial, Guard
+tests/
+└── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
 ```
 
 ## Non-obvious details

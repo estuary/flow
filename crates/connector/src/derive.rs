@@ -95,9 +95,11 @@ impl Protocol for Derive {
             _ => unreachable!("checked by task_name"),
         };
 
-        if sqlite_vfs_uri.is_some() && connector_type != ConnectorType::Sqlite as i32 {
-            return Err(crate::protocol::sqlite_vfs_uri_error());
-        }
+        crate::policy::check_connector_sqlite_vfs(
+            connector_type == ConnectorType::Sqlite as i32,
+            sqlite_vfs_uri.is_some(),
+        )
+        .map_err(|err| crate::invalid_argument(err.to_string()))?;
 
         let endpoint = if connector_type == ConnectorType::Image as i32 {
             let models::ConnectorConfig { image, config } =

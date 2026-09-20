@@ -130,3 +130,47 @@ fn materialize_task_name(request: &materialize::Request) -> anyhow::Result<Optio
         }
     })
 }
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+
+    #[test]
+    fn task_identity_of_every_request_shape() {
+        let outcomes: Vec<String> = [
+            json!({"capture": {"spec": {}}}),
+            json!({"capture": {"discover": {"name": "acmeCo/capture"}}}),
+            json!({"capture": {"validate": {"name": "acmeCo/capture"}}}),
+            json!({"capture": {"apply": {"capture": {"name": "acmeCo/capture"}}}}),
+            json!({"capture": {"open": {"capture": {"name": "acmeCo/capture"}}}}),
+            json!({"derive": {"spec": {}}}),
+            json!({"derive": {"validate": {"collection": {"name": "acmeCo/derivation"}}}}),
+            json!({"derive": {"open": {"collection": {"name": "acmeCo/derivation"}}}}),
+            json!({"materialize": {"spec": {}}}),
+            json!({"materialize": {"validate": {"name": "acmeCo/materialization"}}}),
+            json!({"materialize": {"apply": {"materialization": {"name": "acmeCo/materialization"}}}}),
+            json!({"materialize": {"open": {"materialization": {"name": "acmeCo/materialization"}}}}),
+            // No named operation at all.
+            json!({"capture": {}}),
+            // A named operation missing the spec which names its task.
+            json!({"materialize": {"apply": {}}}),
+            // The reserved sentinel, named by a request which is not a Spec.
+            json!({"derive": {"open": {"collection": {"name": super::SPEC_TASK_NAME}}}}),
+        ]
+        .into_iter()
+        .map(|request| {
+            let request: proto_flow::connector::Request = serde_json::from_value(request).unwrap();
+
+            match super::task_identity(request.kind.as_ref().expect("a request kind is set")) {
+                Ok((task_type, task_name)) => format!("{} {task_name}", task_type.as_str_name()),
+                Err(err) => {
+                    let status = err.downcast_ref::<crate::StatusError>().unwrap();
+                    format!("{:?}: {}", status.code(), status.message())
+                }
+            }
+        })
+        .collect();
+
+        insta::assert_debug_snapshot!(outcomes);
+    }
+}

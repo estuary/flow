@@ -1,9 +1,8 @@
-//! Docker container lifecycle: pull, inspect, run, dial `flow-connector-init`,
-//! and tear down. The one place this crate shells out to `docker`.
-use crate::{LogSink, RuntimeProtocol};
+//! Docker and Podman image mechanics: pull, inspect, run, dial
+//! `flow-connector-init`, and tear down.
+use crate::LogSink;
 use anyhow::Context;
 use futures::channel::oneshot;
-use proto_flow::{flow, runtime};
 use std::collections::BTreeMap;
 use tokio::io::AsyncBufReadExt;
 
@@ -19,69 +18,59 @@ const CONNECTOR_INIT_PORT: u16 = 49092;
 // fetches only the host's variant, which `docker run --platform` cannot use.
 const CONNECTOR_PLATFORM: &str = "linux/amd64";
 
-const RUNTIME_PROTO_LABEL: &str = "FLOW_RUNTIME_PROTOCOL";
-const USAGE_RATE_LABEL: &str = "dev.estuary.usage-rate";
-const PORT_PUBLIC_LABEL_PREFIX: &str = "dev.estuary.port-public.";
-const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
-
 // `flow-connector-init` is extracted from this image when a locally-built copy
 // isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
 const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.12-69-gb7eb6426711";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
-/// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
-/// then it's value is used. Otherwise, this will apply a simple heuristic based on the image name,
-/// for backward compatibility purposes. An error will be returned if it fails to inspect the image
-/// or parse the label. The image must already have been pulled before calling this function.
-pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtocol> {
-    if image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
-        return Ok(RuntimeProtocol::Materialize);
-    }
-    if !image.ends_with(":local") {
-        // Inspection-only path: there's no RPC to sink logs into, so a pull
-        // retry surfaces through this process's own tracing.
-        docker_pull(image, &crate::LogSink::tracing())
-            .await
-            .context("pulling image")?;
-    }
-
-    let inspect_output = inspect_image(image).await.context("inspecting image")?;
-
-    let inspection = parse_image_inspection(&inspect_output)?;
-    tracing::info!(
-        %image,
-        inspection = ?ops::DebugJson(&inspection),
-        "inspected connector image"
-    );
-    Ok(inspection.runtime_protocol)
+/// Options which have already been selected for a container execution.
+pub(crate) struct RunParams {
+    pub labels: BTreeMap<String, String>,
+    pub log_level: ops::LogLevel,
+    pub log_sink: LogSink,
+    pub network: String,
+    pub publish_ports: bool,
 }
 
-/// Start an image connector container, returning its description and a dialed tonic Channel.
-/// The container is attached to the context's network, and its logs and lifecycle
-/// events are reported through its `log_sink`. The context's `task_name` and
-/// `task_type` are used only to label the container.
-///
-/// The returned [`Guard`] owns the container: dropping it SIGKILLs the `docker
-/// run` client, which closes the container's stderr and lets the log pump run
-/// to completion -- reporting "stopped connector container" and then releasing
-/// the `log_sink` clone it holds, which is how the caller learns that teardown
-/// is done.
-pub(crate) async fn start(
-    ctx: &crate::protocol::StartContext,
-    image: &str,
-    task_type: ops::TaskType,
-) -> anyhow::Result<(
-    runtime::Container,
-    tonic::transport::Channel,
-    Guard,
-    connector_init::Codec,
-)> {
-    let (plane, log_level) = (ctx.plane, ctx.log_level);
-    let (network, task_name) = (ctx.container_network.as_str(), ctx.task_name.as_str());
-    let log_sink = ctx.log_sink.clone();
+/// Lower-level facts of a running image connector.
+pub(crate) struct RunningContainer {
+    pub channel: tonic::transport::Channel,
+    pub guard: Guard,
+    pub ip_addr: std::net::IpAddr,
+    pub mapped_host_ports: BTreeMap<u32, String>,
+}
 
-    validate_connector_image(image, plane)?;
+/// A pulled and inspected image, and the capability to run it once.
+pub(crate) struct ImageInspection {
+    pub image: String,
+    pub inspection: connector_init::inspect::Image,
+    inspect_json: Vec<u8>,
+}
+
+/// Run an inspected image. The original mutable reference is intentionally
+/// retained for compatibility across Docker and Podman; pinning the run to
+/// the inspected image identity is a separate concern.
+pub(crate) async fn run<F>(
+    inspection: ImageInspection,
+    params: RunParams,
+    transform_log: F,
+) -> anyhow::Result<RunningContainer>
+where
+    F: Fn(ops::Log) -> ops::Log + Send + 'static,
+{
+    let ImageInspection {
+        image,
+        inspect_json,
+        ..
+    } = inspection;
+    let RunParams {
+        labels,
+        log_level,
+        log_sink,
+        network,
+        publish_ports,
+    } = params;
 
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
@@ -105,22 +94,26 @@ pub(crate) async fn start(
         tmp_docker_inspect.as_file_mut().set_permissions(perms)?;
     }
 
-    // Concurrently 1) find or fetch a copy of `flow-connector-init`, copying it
-    // into a temp path, and 2) inspect the image, also copying into a temp path,
-    // and parsing its advertised network ports.
-    let ((), (image_inspection, codec)) = futures::try_join!(
+    // Prepare flow-connector-init and the image inspection for the container.
+    let ((), ()) = futures::try_join!(
         find_connector_init_and_copy(tmp_connector_init.path()),
-        inspect_image_and_copy(image, tmp_docker_inspect.path(), &log_sink),
+        async {
+            tokio::fs::write(tmp_docker_inspect.path(), &inspect_json)
+                .await
+                .context("writing docker inspect output")
+        },
     )?;
-
-    validate_runtime_protocol(image_inspection.runtime_protocol, task_type)?;
 
     // Close our open files but retain a deletion guard.
     let tmp_connector_init = tmp_connector_init.into_temp_path();
     let tmp_docker_inspect = tmp_docker_inspect.into_temp_path();
 
     // This is default `docker run` behavior if --network is not provided.
-    let network = if network == "" { "bridge" } else { network };
+    let network = if network.is_empty() {
+        "bridge"
+    } else {
+        network.as_str()
+    };
     let log_level = log_level.or(ops::LogLevel::Warn);
 
     // Generate a unique name for this container instance.
@@ -133,7 +126,7 @@ pub(crate) async fn start(
         // Addressable name of this connector.
         format!("--name={name}"),
         // Network to which the container should attach.
-        format!("--network={}", network),
+        format!("--network={network}"),
         // The entrypoint into a connector is always flow-connector-init,
         // which will delegate to the actual entrypoint of the connector.
         "--entrypoint=/flow-connector-init".to_string(),
@@ -157,15 +150,15 @@ pub(crate) async fn start(
         "--cpus".to_string(),
         connector_cpu_limit(),
         format!("--platform={CONNECTOR_PLATFORM}"),
-        // Attach labels that let us group connector resource usage under a few dimensions.
-        format!("--label=image={}", image),
-        format!("--label=task-name={}", task_name),
-        format!("--label=task-type={}", task_type.as_str_name()),
     ];
+
+    for (name, value) in labels {
+        docker_args.push(format!("--label={name}={value}"));
+    }
 
     // When running locally, we publish ports so that connectors are accessible
     // on the host from Windows and MacOS (e.x. Docker Desktop).
-    if matches!(plane, crate::Plane::Local) {
+    if publish_ports {
         docker_args.append(&mut vec![
             // Support Docker Desktop in non-production contexts (for example, `flowctl`)
             // where the container IP is not directly addressable. As an alternative,
@@ -185,7 +178,7 @@ pub(crate) async fn start(
 
     docker_args.append(&mut vec![
         // Image to run.
-        image.to_string(),
+        image.clone(),
         // The following are arguments of flow-connector-init, not docker.
         "--image-inspect-json-path=/image-inspect.json".to_string(),
         format!("--port={CONNECTOR_INIT_PORT}"),
@@ -211,8 +204,7 @@ pub(crate) async fn start(
 
     // Service process stderr by decoding ops::Logs into the log sink.
     let stderr = process.stderr.take().unwrap();
-    let quoted_task_name: bytes::Bytes = format!("\"{task_name}\"").into();
-    let (pump_sink, pump_image) = (log_sink.clone(), image.to_string());
+    let (pump_sink, pump_image) = (log_sink.clone(), image.clone());
     tokio::spawn(async move {
         let mut stderr = tokio::io::BufReader::new(stderr);
         let mut line = String::new();
@@ -254,11 +246,9 @@ pub(crate) async fn start(
 
             let (log, consume) = decoder.line_to_log(&line, stderr.buffer());
             stderr.consume(consume);
-            pump_sink
-                .send(sanitize_event_type(&quoted_task_name, log))
-                .await;
+            pump_sink.send(transform_log(log)).await;
         }
-        // An un-sent `ready_tx` cancels on drop, telling `start()` that stderr
+        // An un-sent `ready_tx` cancels on drop, telling `run()` that stderr
         // closed before the container came up. That case never logged a
         // "started connector container", so it gets no "stopped" either --
         // otherwise this pairs with it, and is the last record of the
@@ -319,113 +309,19 @@ pub(crate) async fn start(
         %ip_addr,
         mapped_host_ports = ?ops::DebugJson(&mapped_host_ports),
         %name,
-        image_inspection = ?ops::DebugJson(&image_inspection),
-        ?codec,
-        %task_name,
-        ?task_type,
         "dialed connector container"
     );
-    let usage_rate = image_inspection.usage_rate;
-    let network_ports = image_inspection.network_ports;
 
-    let container = runtime::Container {
-        ip_addr: format!("{ip_addr}"),
-        network_ports,
-        usage_rate,
+    Ok(RunningContainer {
+        ip_addr,
         mapped_host_ports,
-    };
-    log_sink
-        .send(crate::build_log(
-            ops::LogLevel::Info,
-            "started connector container",
-            [
-                ("image", crate::json_field(&image)),
-                ("container", crate::json_field(&container)),
-            ],
-        ))
-        .await;
-
-    Ok((
-        container,
         channel,
-        Guard {
+        guard: Guard {
             _tmp_connector_init: tmp_connector_init,
             _tmp_docker_inspect: tmp_docker_inspect,
             _process: process,
         },
-        codec,
-    ))
-}
-
-fn validate_runtime_protocol(
-    runtime_protocol: RuntimeProtocol,
-    task_type: ops::TaskType,
-) -> anyhow::Result<()> {
-    if !matches!(
-        (runtime_protocol, task_type),
-        (RuntimeProtocol::Capture, ops::TaskType::Capture)
-            | (RuntimeProtocol::Derive, ops::TaskType::Derivation)
-            | (RuntimeProtocol::Materialize, ops::TaskType::Materialization)
-    ) {
-        anyhow::bail!(
-            "connector protocol {runtime_protocol:?} does not match requested type {task_type:?}"
-        );
-    }
-    Ok(())
-}
-
-/// Validates that a connector image is allowed to run in this data-plane.
-fn validate_connector_image(image: &str, plane: crate::Plane) -> anyhow::Result<()> {
-    if matches!(plane, crate::Plane::Public) {
-        if !image.starts_with("ghcr.io/estuary/") {
-            anyhow::bail!(
-                "connector image '{image}' is not allowed in public data planes: only Estuary-managed images are permitted"
-            );
-        }
-        if image.starts_with("ghcr.io/estuary/derive-python:") {
-            anyhow::bail!("Python derivations may only run in private data-planes");
-        }
-    }
-    Ok(())
-}
-
-/// Performs a basic validation of logs that represent events, to restrict
-/// connectors to emitting connectorStatus and configUpdate events for the
-/// currently running task.
-fn sanitize_event_type(quoted_task_name: &bytes::Bytes, mut log: ops::Log) -> ops::Log {
-    match log
-        .fields_json_map
-        .get("eventType")
-        .map(|v| v == "\"connectorStatus\"" || v == "\"configUpdate\"")
-    {
-        Some(true) => {
-            match log
-                .fields_json_map
-                .get("eventTarget")
-                .map(|t| t == quoted_task_name)
-            {
-                Some(true) => { /* eventTarget is valid */ }
-                Some(false) => {
-                    let v = log.fields_json_map.remove("eventTarget").unwrap();
-                    log.fields_json_map
-                        .insert("_sanitized_eventTarget".to_string(), v);
-                    log.fields_json_map
-                        .insert("eventTarget".to_string(), quoted_task_name.clone());
-                }
-                None => {
-                    log.fields_json_map
-                        .insert("eventTarget".to_string(), quoted_task_name.clone());
-                }
-            }
-        }
-        Some(false) => {
-            let v = log.fields_json_map.remove("eventType").unwrap();
-            log.fields_json_map
-                .insert("_sanitized_eventType".to_string(), v);
-        }
-        None => { /* this is not an event */ }
-    }
-    log
+    })
 }
 
 /// Guard contains a running image container instance, which is SIGKILLed and
@@ -611,127 +507,6 @@ async fn inspect_container_network(
     Ok((ip, mapped_host_ports))
 }
 
-/// Information about a conector image, which is derived from `docker inspect`
-#[derive(Debug, serde::Serialize)]
-struct ImageInspection {
-    /// The type of connector
-    runtime_protocol: RuntimeProtocol,
-    /// Network ports that the connector wishes to expose
-    network_ports: Vec<flow::NetworkPort>,
-    /// The number of usage credits per second that the connector incurs
-    usage_rate: f32,
-    /// A brief description of how the `usage_rate` was determined
-    usage_rate_source: &'static str,
-    /// The full id of the image, which allows determining when a given tag has been updated
-    /// by looking for changes to the id in the logs
-    id: String,
-    /// The creation timestamp of the image, for debugging purposes
-    image_created_at: String,
-}
-
-fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    struct InspectConfig {
-        /// According to the [OCI spec](https://github.com/opencontainers/image-spec/blob/d60099175f88c47cd379c4738d158884749ed235/config.md?plain=1#L125)
-        /// `ExposedPorts` is a map where the keys are in the format `1234/tcp`, `456/udp`, or `789` (implicit default of tcp), and the values are
-        /// empty objects. The choice of `serde_json::Value` here is meant to convey that the actual values are irrelevant.
-        #[serde(default)]
-        exposed_ports: BTreeMap<String, serde_json::Value>,
-        #[serde(default)]
-        labels: Option<BTreeMap<String, String>>,
-    }
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    struct InspectJson {
-        id: String,
-        created: String,
-        config: InspectConfig,
-    }
-
-    // Deserialize into a destructured one-tuple.
-    let (InspectJson {
-        id,
-        created,
-        config: InspectConfig {
-            exposed_ports,
-            labels,
-        },
-    },) = serde_json::from_slice(&content).with_context(|| {
-        format!(
-            "failed to parse `docker inspect` output: {}",
-            String::from_utf8_lossy(&content)
-        )
-    })?;
-
-    let labels = labels.unwrap_or_default();
-    let mut network_ports = Vec::new();
-
-    for (exposed_port, _) in exposed_ports.iter() {
-        // We're unable to support UDP at this time.
-        if exposed_port.ends_with("/udp") {
-            continue;
-        }
-        // Technically, the ports are allowed to appear without the '/tcp' suffix, though
-        // I haven't actually observed that in practice.
-        let exposed_port = exposed_port.strip_suffix("/tcp").unwrap_or(exposed_port);
-        let number = exposed_port.parse::<u16>().with_context(|| {
-            format!("invalid key in inspected Config.ExposedPorts '{exposed_port}'")
-        })?;
-
-        let protocol_label = format!("{PORT_PROTO_LABEL_PREFIX}{number}");
-        let protocol = labels.get(&protocol_label).cloned();
-
-        let public_label = format!("{PORT_PUBLIC_LABEL_PREFIX}{number}");
-        let public = labels
-            .get(&public_label)
-            .map(String::as_str)
-            .unwrap_or("false");
-        let public = public.parse::<bool>().with_context(|| {
-            format!(
-                "invalid '{public_label}' label value: '{public}', must be either 'true' or 'false'"
-            )
-        })?;
-
-        network_ports.push(flow::NetworkPort {
-            number: number as u32,
-            protocol: protocol.unwrap_or_default(),
-            public,
-        });
-    }
-
-    let Some(rt_proto_label) = labels.get(RUNTIME_PROTO_LABEL) else {
-        anyhow::bail!("image is missing required '{RUNTIME_PROTO_LABEL}' label");
-    };
-    let runtime_protocol =
-        RuntimeProtocol::from_image_label(rt_proto_label.as_str()).map_err(|unknown| {
-            anyhow::anyhow!("image labels specify unknown protocol {RUNTIME_PROTO_LABEL}={unknown}")
-        })?;
-
-    let (usage_rate, usage_rate_source) = if let Some(rate_value) = labels.get(USAGE_RATE_LABEL) {
-        let rate = rate_value
-            .parse::<f32>()
-            .with_context(|| format!("invalid '{USAGE_RATE_LABEL}' value {rate_value:?}"))?;
-        (rate, USAGE_RATE_LABEL)
-    } else {
-        if runtime_protocol == RuntimeProtocol::Derive {
-            (0.0f32, "default for derive protocol")
-        } else {
-            (1.0f32, "default for capture and materialize protocol")
-        }
-    };
-
-    Ok(ImageInspection {
-        runtime_protocol,
-        network_ports,
-        usage_rate,
-        usage_rate_source,
-        id,
-        image_created_at: created,
-    })
-}
-
 async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Result<()> {
     // If we can locate an installed flow-connector-init, use that.
     // This is common when developing or within a container workspace.
@@ -788,101 +563,62 @@ async fn inspect_image(image: &str) -> anyhow::Result<Vec<u8>> {
     }
 }
 
-async fn inspect_image_and_copy(
+/// Pull and inspect an image without otherwise preparing or starting it.
+pub(crate) async fn pull_and_inspect(
     image: &str,
-    tmp_path: &std::path::Path,
     log_sink: &LogSink,
-) -> anyhow::Result<(ImageInspection, connector_init::Codec)> {
+) -> anyhow::Result<ImageInspection> {
     if !image.ends_with(":local") {
         docker_pull(image, log_sink)
             .await
             .context("pulling image")?;
     }
 
-    let inspect_content = inspect_image(image).await.context("inspecting image")?;
+    let inspect_json = inspect_image(image).await.context("inspecting image")?;
+    let inspection = connector_init::inspect::Image::parse_from_json_slice(&inspect_json)
+        .context("parsing image inspection")?;
 
-    tokio::fs::write(tmp_path, &inspect_content)
-        .await
-        .context("writing docker inspect output")?;
-
-    // Resolve the codec that `flow-connector-init` will negotiate with the
-    // connector from this same inspection, so we agree on the wire codec and
-    // know whether we must populate JSON tuple fields it forwards verbatim.
-    let codec = connector_init::inspect::Image::parse_from_json_slice(&inspect_content)
-        .context("parsing image inspection for runtime codec")?
-        .runtime_codec();
-
-    Ok((parse_image_inspection(&inspect_content)?, codec))
+    Ok(ImageInspection {
+        image: image.to_string(),
+        inspect_json,
+        inspection,
+    })
 }
 
 #[cfg(test)]
 mod test {
-    use super::{parse_image_inspection, sanitize_event_type, start};
-    use futures::stream::StreamExt;
-    use proto_flow::flow;
+    use futures::StreamExt;
     use serde_json::json;
 
-    fn context() -> crate::protocol::StartContext {
-        crate::protocol::StartContext {
-            container_network: String::new(),
-            log_level: ops::LogLevel::Debug,
-            log_sink: crate::LogSink::tracing(),
-            plane: crate::Plane::Local,
-            process: None,
-            task_name: "a-task-name".to_string(),
-        }
-    }
-
     #[tokio::test]
-    async fn test_http_ingest_spec() {
-        if let Err(_) = locate_bin::locate("flow-connector-init") {
-            // Skip if `flow-connector-init` isn't available (yet). We're probably on CI.
-            // This test is useful as a sanity check for local development
-            // and we have plenty of other coverage during CI.
+    async fn runs_an_inspected_image() {
+        if super::docker_cmd(&["version"]).await.is_err() {
+            // Most CI jobs don't provide a container engine.
             return;
         }
 
-        let (container, channel, _guard, _codec) = start(
-            &context(),
+        let inspected = super::pull_and_inspect(
             "ghcr.io/estuary/source-http-ingest:dev",
-            proto_flow::ops::TaskType::Capture,
+            &crate::LogSink::tracing(),
+        )
+        .await
+        .unwrap();
+        let running = super::run(
+            inspected,
+            super::RunParams {
+                network: String::new(),
+                publish_ports: true,
+                log_level: ops::LogLevel::Debug,
+                log_sink: crate::LogSink::tracing(),
+                labels: std::collections::BTreeMap::new(),
+            },
+            |log| log,
         )
         .await
         .unwrap();
 
-        let mut rx = proto_grpc::capture::connector_client::ConnectorClient::new(channel)
-            .capture(futures::stream::once(async move {
-                serde_json::from_value(json!({
-                    "spec": {"connectorType": "IMAGE", "config": {}}
-                }))
-                .unwrap()
-            }))
-            .await
-            .unwrap()
-            .into_inner();
-
-        let resp = rx
-            .next()
-            .await
-            .expect("should get a spec response")
-            .unwrap();
-
-        assert!(matches!(
-            resp.kind,
-            Some(proto_flow::capture::response::Kind::Spec(_))
-        ));
-
         assert_eq!(
-            container.network_ports,
-            [flow::NetworkPort {
-                number: 8080,
-                protocol: String::new(),
-                public: true
-            }]
-        );
-
-        assert_eq!(
-            container
+            running
                 .mapped_host_ports
                 .keys()
                 .copied()
@@ -890,240 +626,22 @@ mod test {
             vec![8080, 49092]
         );
 
-        assert_eq!(1.0, container.usage_rate);
-    }
+        let mut responses =
+            proto_grpc::capture::connector_client::ConnectorClient::new(running.channel)
+                .capture(futures::stream::once(async move {
+                    serde_json::from_value(json!({
+                        "spec": {"connectorType": "IMAGE", "config": {}}
+                    }))
+                    .unwrap()
+                }))
+                .await
+                .unwrap()
+                .into_inner();
+        let response = responses.next().await.unwrap().unwrap();
 
-    #[tokio::test]
-    async fn test_container_fails_to_start() {
-        if let Err(_) = locate_bin::locate("flow-connector-init") {
-            // Skip if `flow-connector-init` isn't available (yet). We're probably on CI.
-            // This test is useful as a sanity check for local development
-            // and we have plenty of other coverage during CI.
-            return;
-        }
-
-        let Err(err) = start(
-            &context(),
-            "alpine", // Not a connector.
-            proto_flow::ops::TaskType::Capture,
-        )
-        .await
-        else {
-            panic!("didn't crash")
-        };
-
-        println!("{err:#}")
-    }
-
-    #[test]
-    fn test_parsing_inspection_output() {
-        let fixture = json!([
-            {
-                "Id": "test-image-id",
-                "Created": "2024-02-02T14:39:11.958Z",
-                "Config":{
-                    "ExposedPorts": {"567/tcp":{}, "123/udp": {}, "789":{} },
-                    "Labels":{
-                        "FLOW_RUNTIME_PROTOCOL": "derive",
-                        "dev.estuary.port-public.567":"true",
-                        "dev.estuary.port-proto.789":"h2",
-                        "dev.estuary.usage-rate": "1.3",
-                    }
-                }
-            }
-        ]);
-        let inspection = parse_image_inspection(fixture.to_string().as_bytes()).unwrap();
-
-        assert_eq!(
-            &inspection.network_ports,
-            &[
-                flow::NetworkPort {
-                    number: 567,
-                    protocol: String::new(),
-                    public: true
-                },
-                flow::NetworkPort {
-                    number: 789,
-                    protocol: "h2".to_string(),
-                    public: false
-                },
-            ]
-        );
-        assert_eq!(1.3, inspection.usage_rate);
-        assert_eq!("test-image-id", &inspection.id);
-        assert_eq!("2024-02-02T14:39:11.958Z", &inspection.image_created_at);
-    }
-
-    #[test]
-    fn parse_image_inspection_failure_cases() {
-        let fixture = json!([{
-            "Id": "missing FLOW_RUNTIME_PROTOCOL",
-            "Created": "any time will do",
-            "Config": {
-                "Labels": {},
-            }
-        }]);
-        insta::assert_debug_snapshot!(parse_image_inspection(fixture.to_string().as_bytes()).unwrap_err(), @r###""image is missing required 'FLOW_RUNTIME_PROTOCOL' label""###);
-
-        let fixture = json!([
-            {
-                "Id": "any",
-                "Created": "any time will do",
-                "Config":{
-                    "Labels": {
-                        "FLOW_RUNTIME_PROTOCOL": "derive",
-                    },
-                    "ExposedPorts": {"whoops":{}},
-                }
-            }
-        ]);
-        insta::assert_debug_snapshot!(parse_image_inspection(fixture.to_string().as_bytes()).unwrap_err(), @r###"
-        Error {
-            context: "invalid key in inspected Config.ExposedPorts \'whoops\'",
-            source: ParseIntError {
-                kind: InvalidDigit,
-            },
-        }
-        "###);
-
-        let fixture = json!([
-            {
-                "Id": "any",
-                "Created": "any time will do",
-                "Config":{
-                    "ExposedPorts": {"111/tcp":{}},
-                    "Labels":{
-                        "dev.estuary.port-public.111":"whoops",
-                        "FLOW_RUNTIME_PROTOCOL": "derive",
-                    }
-                }
-            }
-        ]);
-        insta::assert_debug_snapshot!(parse_image_inspection(fixture.to_string().as_bytes()).unwrap_err(), @r###"
-        Error {
-            context: "invalid \'dev.estuary.port-public.111\' label value: \'whoops\', must be either \'true\' or \'false\'",
-            source: ParseBoolError,
-        }
-        "###);
-    }
-
-    #[test]
-    fn test_validate_runtime_protocol() {
-        use crate::RuntimeProtocol;
-        use proto_flow::ops::TaskType;
-
-        assert!(
-            super::validate_runtime_protocol(RuntimeProtocol::Capture, TaskType::Capture).is_ok()
-        );
-        insta::assert_snapshot!(
-            super::validate_runtime_protocol(RuntimeProtocol::Capture, TaskType::Materialization)
-                .unwrap_err(),
-            @"connector protocol Capture does not match requested type Materialization"
-        );
-    }
-
-    #[test]
-    fn test_validate_connector_image_public_plane() {
-        let validate = |img| super::validate_connector_image(img, crate::Plane::Public);
-
-        // Allowed: estuary connectors (except derive-python)
-        assert!(validate("ghcr.io/estuary/source-http-ingest:dev").is_ok());
-        assert!(validate("ghcr.io/estuary/materialize-postgres:v1").is_ok());
-
-        // Blocked: derive-python
-        assert!(validate("ghcr.io/estuary/derive-python:latest").is_err());
-
-        // Blocked: non-estuary images
-        assert!(validate("alpine").is_err());
-        assert!(validate("docker.io/estuary/source-postgres:v1").is_err());
-    }
-
-    #[test]
-    fn test_validate_connector_image_private_and_local() {
-        for plane in [crate::Plane::Private, crate::Plane::Local] {
-            let validate = |img| super::validate_connector_image(img, plane);
-
-            // All images allowed in private/local planes
-            assert!(validate("ghcr.io/estuary/source-http-ingest:dev").is_ok());
-            assert!(validate("ghcr.io/estuary/derive-python:latest").is_ok());
-            assert!(validate("alpine").is_ok());
-            assert!(validate("docker.io/custom/connector:v1").is_ok());
-        }
-    }
-
-    #[test]
-    fn test_log_event_validation() {
-        let abc = bytes::Bytes::from("\"a/b/c\"");
-
-        let good = json!({
-            "shard": {
-                "name": "a/b/c",
-                "keyBegin": "00000000",
-                "rClockBegin": "00000000",
-                "build": "1122334455667788"
-            },
-            "level": "info",
-            "ts": "2025-01-02T03:04:05.06Z",
-            "message": "a test status",
-            "fields": {
-                "eventType": "connectorStatus",
-                "eventTarget": "a/b/c"
-            }
-        });
-        let log: ops::Log = serde_json::from_value(good).unwrap();
-        let out = sanitize_event_type(&abc, log.clone());
-        assert_eq!(log, out);
-
-        let naughty_type = json!({
-            "shard": {
-                "name": "a/b/c",
-                "keyBegin": "00000000",
-                "rClockBegin": "00000000",
-                "build": "1122334455667788"
-            },
-            "level": "info",
-            "ts": "2025-01-02T03:04:05.06Z",
-            "message": "a test status",
-            "fields": {
-                "eventType": "foo",
-                "eventTarget": "a/b/c"
-            }
-        });
-        let log: ops::Log = serde_json::from_value(naughty_type).unwrap();
-        let out = sanitize_event_type(&abc, log);
-
-        assert!(!out.fields_json_map.contains_key("eventType"));
-        assert_eq!(
-            out.fields_json_map
-                .get("_sanitized_eventType")
-                .map(|v| v.as_ref()),
-            Some("\"foo\"".as_bytes()),
-        );
-
-        let naughty_target = json!({
-            "shard": {
-                "name": "a/b/c",
-                "keyBegin": "00000000",
-                "rClockBegin": "00000000",
-                "build": "1122334455667788"
-            },
-            "level": "info",
-            "ts": "2025-01-02T03:04:05.06Z",
-            "message": "a test status",
-            "fields": {
-                "eventType": "connectorStatus",
-                "eventTarget": "another/thing"
-            }
-        });
-        let log: ops::Log = serde_json::from_value(naughty_target).unwrap();
-        let out = sanitize_event_type(&abc, log);
-        assert_eq!(
-            out.fields_json_map.get("eventTarget").map(|v| v.as_ref()),
-            Some("\"a/b/c\"".as_bytes()),
-        );
-        assert_eq!(
-            out.fields_json_map.get("eventType").map(|v| v.as_ref()),
-            Some("\"connectorStatus\"".as_bytes()),
-        );
+        assert!(matches!(
+            response.kind,
+            Some(proto_flow::capture::response::Kind::Spec(_))
+        ));
     }
 }
