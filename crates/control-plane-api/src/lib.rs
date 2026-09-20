@@ -19,6 +19,7 @@ pub mod jobs;
 pub mod live_specs;
 pub mod logs;
 pub mod publications;
+pub mod secrets;
 pub mod server;
 pub mod storage_mappings;
 mod text_json;

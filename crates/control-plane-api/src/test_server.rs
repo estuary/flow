@@ -313,3 +313,42 @@ pub fn snapshot_of_grants(
     snapshot.role_grants = role_grants;
     snapshot
 }
+
+/// A stand-in for what config-encryption's `/secret/encrypt` returns. Only the
+/// fields the control plane reads are real, and `value` is ciphertext that
+/// nothing in this crate can decrypt.
+pub fn wrapped(name: &str, ciphertext: &str, last_modified: &str) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "value": format!("ENC[AES256_GCM,data:{ciphertext},type:str]"),
+        "sops": {
+            "lastmodified": last_modified,
+            "mac": format!("ENC[AES256_GCM,data:mac-{ciphertext}]"),
+            "encrypted_regex": "^value$",
+            "version": "3.11.0",
+        },
+    })
+}
+
+/// Reduce a secret-bearing response to a snapshot-able summary.
+///
+/// Errors are a bare status message rather than JSON, so only a success is
+/// parsed. The wrapped document itself is elided: its content is opaque
+/// ciphertext, and only its presence is what a route decides.
+pub async fn summarize_secret(response: reqwest::Response) -> String {
+    let status = response.status().as_u16();
+    let body = response.text().await.unwrap();
+
+    if status != 200 {
+        return format!("{status} {body}");
+    }
+    let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+    match body.get("document") {
+        Some(_) => format!(
+            "200 secretId={}",
+            body["secretId"].as_str().unwrap_or("<missing>")
+        ),
+        None => format!("200 retryMillis={}", body["retryMillis"]),
+    }
+}
