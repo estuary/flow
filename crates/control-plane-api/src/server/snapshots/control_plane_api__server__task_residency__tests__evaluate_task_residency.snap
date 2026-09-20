@@ -24,6 +24,10 @@ expression: outcomes
         "403 task 'acmeCo/source-pineapple' is a capture, not a collection",
     ),
     (
+        "unknown/required",
+        "412 task 'acmeCo/source-new' is not known to the control-plane",
+    ),
+    (
         "unknown/storage-mapping",
         "storage-mapping ops/dp/public/plane-one",
     ),
