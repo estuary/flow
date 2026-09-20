@@ -62,8 +62,8 @@ where
     // of the loop. Two distinct producers: `shard_producer` sequences this
     // shard's derived documents; `leader_producer` is forwarded by shard zero
     // in Task and sequences the leader's stats / ACK-intent Publisher.
-    let shard_producer = crate::new_producer();
-    let leader_producer = crate::new_producer();
+    let shard_producer = gazette::random_producer();
+    let leader_producer = gazette::random_producer();
 
     let verify = crate::verify("Derive", "Join", "controller");
     while let Some(result) = controller_rx.next().await {

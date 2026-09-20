@@ -110,7 +110,7 @@ fn open_publisher(
     JournalPublisherFactory::new(factory.clone())
         .open(
             "test".to_string(),
-            runtime_next::new_producer(),
+            gazette::random_producer(),
             "testing/ops/stats",
             &[spec],
             &[0],

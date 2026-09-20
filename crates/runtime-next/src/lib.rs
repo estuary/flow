@@ -45,7 +45,7 @@ pub use logger::{
 };
 pub use publish::{
     JournalPublisher, JournalPublisherFactory, Publisher, PublisherFactory, RecordingPublisher,
-    RecordingPublisherFactory, new_producer,
+    RecordingPublisherFactory,
 };
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;

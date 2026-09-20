@@ -337,23 +337,13 @@ impl JournalPublisher {
         JournalPublisherFactory::new(factory)
             .open(
                 "test".to_string(),
-                new_producer(),
+                gazette::random_producer(),
                 "test/ops/stats",
                 &collection_specs,
                 &binding_targets,
             )
             .unwrap()
     }
-}
-
-/// Generate a fresh random Gazette `Producer` identity.
-///
-/// The producer is the vector-clock key under which a publisher's documents
-/// are sequenced.
-pub fn new_producer() -> uuid::Producer {
-    let mut producer: [u8; 6] = rand::random();
-    producer[0] |= 0x01; // Set multicast bit (mark as not a real MAC address).
-    uuid::Producer::from_bytes(producer)
 }
 
 /// Decode a 6-byte `Producer`.
@@ -535,9 +525,9 @@ mod test {
 
     #[test]
     fn producer_round_trips_through_task_bytes() {
-        // new_producer sets the multicast bit, and producer_from_bytes recovers
-        // the exact identity shard zero forwards in Task.publisher_id.
-        let producer = new_producer();
+        // random_producer sets the multicast bit, and producer_from_bytes
+        // recovers the exact identity shard zero forwards in Task.publisher_id.
+        let producer = gazette::random_producer();
         assert_eq!(producer.as_bytes()[0] & 0x01, 0x01, "multicast bit set");
 
         let recovered = producer_from_bytes(producer.as_bytes()).unwrap();

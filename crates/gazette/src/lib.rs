@@ -151,6 +151,23 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// RetryResult is a single Result of a retry-able operation.
 pub type RetryResult<T> = std::result::Result<T, RetryError>;
 
+/// Draw a random Producer for a writer to sequence its records under.
+///
+/// A writer identifies itself to Gazette by its Producer, which is the key of
+/// the vector clock its records are sequenced under. Two writers which drew the
+/// same one would have their records sequenced as one writer's, so the identity
+/// is random rather than assigned: six random bytes need no coordination and
+/// collide vanishingly rarely.
+///
+/// This lives in the client rather than beside `Producer` because `proto-gazette`
+/// is compiled to wasm by `flow-web`, where there is no source of randomness.
+pub fn random_producer() -> proto_gazette::uuid::Producer {
+    let mut bytes: [u8; 6] = rand::random();
+    // Per RFC 4122, the multicast bit marks a node ID which is not a MAC address.
+    bytes[0] |= 0x01;
+    proto_gazette::uuid::Producer::from_bytes(bytes)
+}
+
 fn backoff(attempt: usize) -> std::time::Duration {
     // The choices of backoff duration reflect that we're usually waiting for
     // the cluster to converge on a shared understanding of ownership, and that
