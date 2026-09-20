@@ -1,12 +1,23 @@
-//! Secret storage, and the policy by which tasks may use it.
+//! Secret storage and the policy by which tasks may use it.
 //!
-//! A task may use the secrets which sit beside it in the catalog namespace,
-//! and the secrets owned by its connector image: those naming the image's
-//! own repository after the reserved `connectors` component, which every
-//! task of that connector shares.
+//! Task reads admit sibling secrets and secrets owned by the task's connector
+//! image. Task writes admit siblings only: image-owned secrets are shared by
+//! every task of that connector and are updated by their publisher. A task not
+//! yet known to the control-plane is tied to a data-plane by the longest storage
+//! mapping which covers its name.
 //!
 //! Setting is shared by the GraphQL `setSecret` mutation, acting for a user,
-//! and by later data-plane routes acting for a task.
+//! and `/task/set-secret`, acting for a task rotating a credential it manages.
+
+/// How a task intends to access a secret.
+pub enum TaskSecretAccess<'a> {
+    /// Read the secret. An attested connector image may additionally read a
+    /// secret named for that exact image repository after the reserved
+    /// `connectors` component.
+    Read { image_repo: Option<&'a str> },
+    /// Set the secret. Tasks may set only their own sibling secrets.
+    Set,
+}
 
 /// Why a task is not allowed to access a secret.
 #[derive(Debug, thiserror::Error)]
@@ -37,17 +48,20 @@ pub enum TaskAccessError {
         "image repository '{image_repo}' contains the reserved 'connectors' component and cannot vouch for image-owned secrets"
     )]
     ImageUsesReservedComponent { image_repo: String },
+    #[error(
+        "task '{task_name}' may only set secrets which are its siblings, and '{secret_name}' is not one"
+    )]
+    NotWritableSibling {
+        task_name: String,
+        secret_name: String,
+    },
 }
 
 /// Validate the catalog-name relationship by which a task may access a secret.
-///
-/// `image_repo` is the repository the runtime attests is asking, tag and digest
-/// stripped. It's None for local and in-process connectors, which have no image
-/// and are held to sibling secrets alone.
 pub fn validate_task_access(
     task_name: &models::Name,
     secret_name: &models::Name,
-    image_repo: Option<&str>,
+    access: TaskSecretAccess<'_>,
 ) -> Result<(), TaskAccessError> {
     let (Some(task_parent), Some(secret_parent)) = (
         parent_prefix(task_name.as_str()),
@@ -63,41 +77,41 @@ pub fn validate_task_access(
         return Ok(()); // Admitted by sibling rule.
     }
 
-    let Some(image_repo) = image_repo else {
-        return Err(TaskAccessError::NotReadableSibling {
+    match access {
+        TaskSecretAccess::Set => Err(TaskAccessError::NotWritableSibling {
             task_name: task_name.to_string(),
-            task_parent: task_parent.to_string(),
             secret_name: secret_name.to_string(),
-        });
-    };
+        }),
+        TaskSecretAccess::Read { image_repo } => {
+            if let Some(image_repo) = image_repo {
+                if image_repo
+                    .split('/')
+                    .any(|component| component == models::IMAGE_SECRET_SEPARATOR)
+                {
+                    return Err(TaskAccessError::ImageUsesReservedComponent {
+                        image_repo: image_repo.to_string(),
+                    });
+                }
 
-    // The image rule: the rightmost `connectors` component separates a prefix
-    // which some tenant owns from the exact attested repository. A repository
-    // bearing that component cannot participate, as it would make the boundary
-    // ambiguous.
-    if image_repo
-        .split('/')
-        .any(|component| component == models::IMAGE_SECRET_SEPARATOR)
-    {
-        return Err(TaskAccessError::ImageUsesReservedComponent {
-            image_repo: image_repo.to_string(),
-        });
+                if models::image_owns_secret(secret_name.as_str(), image_repo) {
+                    Ok(())
+                } else {
+                    Err(TaskAccessError::NotReadableByImage {
+                        task_name: task_name.to_string(),
+                        task_parent: task_parent.to_string(),
+                        image_repo: image_repo.to_string(),
+                        secret_name: secret_name.to_string(),
+                    })
+                }
+            } else {
+                Err(TaskAccessError::NotReadableSibling {
+                    task_name: task_name.to_string(),
+                    task_parent: task_parent.to_string(),
+                    secret_name: secret_name.to_string(),
+                })
+            }
+        }
     }
-
-    if models::image_owns_secret(secret_name.as_str(), image_repo) {
-        Ok(())
-    } else {
-        Err(TaskAccessError::NotReadableByImage {
-            task_name: task_name.to_string(),
-            task_parent: task_parent.to_string(),
-            image_repo: image_repo.to_string(),
-            secret_name: secret_name.to_string(),
-        })
-    }
-}
-
-fn parent_prefix(name: &str) -> Option<&str> {
-    name.rfind('/').map(|index| &name[..index + 1])
 }
 
 /// A wrapped secret document read from storage.
@@ -130,6 +144,10 @@ pub async fn fetch(
     }))
 }
 
+fn parent_prefix(name: &str) -> Option<&str> {
+    name.rfind('/').map(|index| &name[..index + 1])
+}
+
 /// Outcome of [`set`].
 pub enum SetOutcome {
     /// The document was written, minting `secret_id`.
@@ -144,14 +162,21 @@ pub enum SetOutcome {
     Conflict,
 }
 
+/// How far ahead of this service's clock a document's `sops.lastmodified` may
+/// be. sops stamps a document as config-encryption wraps it, so a legitimate
+/// future stamp arises only from that service's clock running ahead of ours.
+pub const LAST_MODIFIED_SKEW: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
 /// Structurally validate a wrapped secret document against the name it is being
-/// set at, returning its embedded `sops.lastmodified`.
+/// set at, returning its embedded `sops.lastmodified`. `now` is the wall-clock
+/// time of the set, which bounds how far in the future that stamp may be.
 ///
 /// The error is a plain message, since the two callers render it into different
 /// error types.
 pub fn validate_document(
     catalog_name: &str,
     document: &serde_json::Value,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> Result<chrono::DateTime<chrono::Utc>, String> {
     // Only the fields the control plane must agree with sops about. `value` is
     // checked for presence alone -- its content is ciphertext we cannot read.
@@ -198,7 +223,19 @@ pub fn validate_document(
         ));
     }
 
-    Ok(last_modified.to_utc())
+    // The stored stamp orders every later set: one set in the future would
+    // refuse each legitimate set until then as stale, wedging the row just as
+    // an unparseable stamp would. sops MACs the stamp, but the MAC isn't
+    // verified here, so a document may carry any stamp its author chose.
+    let last_modified = last_modified.to_utc();
+    if last_modified > now + LAST_MODIFIED_SKEW {
+        return Err(format!(
+            "document's sops.lastmodified '{last_modified}' is in the future; \
+             re-encrypt the value to wrap it with the current time"
+        ));
+    }
+
+    Ok(last_modified)
 }
 
 /// Write the wrapped `document` of secret `catalog_name`, for a caller already
@@ -280,7 +317,7 @@ pub async fn set(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_document, validate_task_access};
+    use super::*;
 
     /// A repository a connector may attest, and a vendor secret named for it
     /// under the image rule. No task is a sibling of that secret: only an
@@ -291,57 +328,63 @@ mod tests {
     const TASK: &str = "acmeCo/in/capture-foo";
 
     /// Cases are aligned data; rustfmt's call-width budget would otherwise
-    /// break each of them across five lines.
+    /// break each of them across six lines.
     #[rustfmt::skip]
     #[test]
     fn test_task_access() {
         let cases = [
-            ("sibling", TASK, "acmeCo/in/token", None),
+            ("read/sibling", TASK, "acmeCo/in/token", TaskSecretAccess::Read { image_repo: None }),
+            ("set/sibling", TASK, "acmeCo/in/token", TaskSecretAccess::Set),
 
             // Non-siblings: one level too deep, one level too shallow, and a
             // sibling-looking name under another tenant.
-            ("child", TASK, "acmeCo/in/db/token", None),
-            ("parent", TASK, "acmeCo/token", None),
-            ("other-tenant", TASK, "bobCo/in/token", None),
+            ("read/child", TASK, "acmeCo/in/db/token", TaskSecretAccess::Read { image_repo: None }),
+            ("read/parent", TASK, "acmeCo/token", TaskSecretAccess::Read { image_repo: None }),
+            ("read/other-tenant", TASK, "bobCo/in/token", TaskSecretAccess::Read { image_repo: None }),
 
             // Neither name has a prefix to compare when it isn't a catalog
             // name, and `models::Name` permits a single bare segment.
-            ("task-not-a-name", "capture-foo", "acmeCo/in/token", None),
-            ("secret-not-a-name", TASK, "token", None),
+            ("read/task-not-a-name", "capture-foo", "acmeCo/in/token", TaskSecretAccess::Read { image_repo: None }),
+            ("read/secret-not-a-name", TASK, "token", TaskSecretAccess::Read { image_repo: None }),
 
             // The image rule, which reaches across tenants for the image that
             // actually runs...
-            ("image", TASK, IMAGE_SECRET, Some(IMAGE)),
-            ("image-other", TASK, IMAGE_SECRET, Some("ghcr.io/acmeVendor/source-gadgets")),
+            ("read/image", TASK, IMAGE_SECRET, TaskSecretAccess::Read { image_repo: Some(IMAGE) }),
+            ("read/image-other", TASK, IMAGE_SECRET, TaskSecretAccess::Read { image_repo: Some("ghcr.io/acmeVendor/source-gadgets") }),
             // ... and admits nothing when unattested, which is how a local or
             // in-process connector is held to siblings alone.
-            ("image-unattested", TASK, IMAGE_SECRET, None),
+            ("read/image-unattested", TASK, IMAGE_SECRET, TaskSecretAccess::Read { image_repo: None }),
             // Nothing may intervene between the exact repository and leaf.
-            ("image-grandparent", TASK, "acmeVendor/connectors/ghcr.io/acmeVendor/source-widgets/nested/oauth-client", Some(IMAGE)),
+            ("read/image-grandparent", TASK, "acmeVendor/connectors/ghcr.io/acmeVendor/source-widgets/nested/oauth-client", TaskSecretAccess::Read { image_repo: Some(IMAGE) }),
             // ... beneath a non-empty prefix, since a secret rooted at the
             // registry host would belong to no tenant.
-            ("image-no-prefix", TASK, "connectors/ghcr.io/acmeVendor/source-widgets/oauth-client", Some(IMAGE)),
+            ("read/image-no-prefix", TASK, "connectors/ghcr.io/acmeVendor/source-widgets/oauth-client", TaskSecretAccess::Read { image_repo: Some(IMAGE) }),
             // An attested image doesn't cost a task its siblings.
-            ("image-sibling-still-admitted", TASK, "acmeCo/in/token", Some(IMAGE)),
+            ("read/image-sibling-still-admitted", TASK, "acmeCo/in/token", TaskSecretAccess::Read { image_repo: Some(IMAGE) }),
             // Repository matching is exact. A short image name cannot reach a
             // secret named for a fully-qualified repository, but can reach a
             // secret explicitly named for that exact short repository.
-            ("image-short-name-other-registry", TASK, "acmeVendor/oauth/connectors/ghcr.io/acmevendor/source-widgets/oauth-client", Some("acmevendor/source-widgets")),
-            ("image-short-name-exact", TASK, "acmeVendor/oauth/connectors/acmevendor/source-widgets/oauth-client", Some("acmevendor/source-widgets")),
-            ("image-bare-name-exact", TASK, "acmeVendor/oauth/connectors/source-widgets/oauth-client", Some("source-widgets")),
+            ("read/image-short-name-other-registry", TASK, "acmeVendor/oauth/connectors/ghcr.io/acmevendor/source-widgets/oauth-client", TaskSecretAccess::Read { image_repo: Some("acmevendor/source-widgets") }),
+            ("read/image-short-name-exact", TASK, "acmeVendor/oauth/connectors/acmevendor/source-widgets/oauth-client", TaskSecretAccess::Read { image_repo: Some("acmevendor/source-widgets") }),
+            ("read/image-bare-name-exact", TASK, "acmeVendor/oauth/connectors/source-widgets/oauth-client", TaskSecretAccess::Read { image_repo: Some("source-widgets") }),
             // The rightmost separator determines the boundary, and a repository
             // may not contain that reserved component.
-            ("image-ambiguous-repository", TASK, "acmeVendor/oauth/connectors/registry.vendor.test/connectors/registry.attacker.test/source/oauth-client", Some("registry.vendor.test/connectors/registry.attacker.test/source")),
-            ("image-shorter-ambiguous-repository", TASK, "acmeVendor/oauth/connectors/registry.vendor.test/connectors/registry.attacker.test/source/oauth-client", Some("registry.attacker.test/source")),
+            ("read/image-ambiguous-repository", TASK, "acmeVendor/oauth/connectors/registry.vendor.test/connectors/registry.attacker.test/source/oauth-client", TaskSecretAccess::Read { image_repo: Some("registry.vendor.test/connectors/registry.attacker.test/source") }),
+            ("read/image-shorter-ambiguous-repository", TASK, "acmeVendor/oauth/connectors/registry.vendor.test/connectors/registry.attacker.test/source/oauth-client", TaskSecretAccess::Read { image_repo: Some("registry.attacker.test/source") }),
+
+            // Writes admit siblings alone: an image secret belongs to the
+            // image's publisher and is shared by every task of that connector.
+            ("set/image", TASK, IMAGE_SECRET, TaskSecretAccess::Set),
+            ("set/other-tenant", TASK, "bobCo/in/token", TaskSecretAccess::Set),
         ];
 
         let outcomes: Vec<_> = cases
             .into_iter()
-            .map(|(label, task, secret, image_repo)| {
+            .map(|(label, task, secret, access)| {
                 let outcome = validate_task_access(
                     &models::Name::new(task),
                     &models::Name::new(secret),
-                    image_repo,
+                    access,
                 )
                 .map(|()| "Ok".to_string())
                 .unwrap_or_else(|err| err.to_string());
@@ -358,6 +401,8 @@ mod tests {
     #[test]
     fn test_validate_document() {
         const NAME: &str = "acmeCo/in/token";
+        // The wall-clock time of every set. Only the future cases are after it.
+        let now: chrono::DateTime<chrono::Utc> = "2026-08-18T12:00:00Z".parse().unwrap();
         let wrapped = |name: &str, last_modified: &str| {
             serde_json::json!({
                 "name": name,
@@ -387,6 +432,11 @@ mod tests {
                 "offset-within-postgres",
                 wrapped(NAME, "2026-08-18T10:00:00+14:00"),
             ),
+            // A future stamp would refuse every later set as stale. A stamp
+            // within the allowed skew of `now` is a clock difference.
+            ("future-within-skew", wrapped(NAME, "2026-08-18T12:04:59Z")),
+            ("future-beyond-skew", wrapped(NAME, "2026-08-18T12:05:01Z")),
+            ("far-future", wrapped(NAME, "9999-12-31T23:59:59Z")),
             // Documents which aren't wrapped secrets at all, rejected on shape.
             ("no-sops", serde_json::json!({"name": NAME, "value": "x"})),
             (
@@ -403,7 +453,7 @@ mod tests {
         let outcomes: Vec<_> = cases
             .into_iter()
             .map(|(label, document)| {
-                let outcome = validate_document(NAME, &document)
+                let outcome = validate_document(NAME, &document, now)
                     .map(|last_modified| last_modified.to_rfc3339())
                     .unwrap_or_else(|err| err);
                 (label, outcome)
