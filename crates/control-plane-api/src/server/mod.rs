@@ -14,6 +14,7 @@ mod create_data_plane;
 mod error;
 pub mod public;
 pub mod snapshot;
+mod task_residency;
 mod update_l2_reporting;
 
 pub use error::{ApiError, AuthZRetry};
@@ -317,6 +318,7 @@ pub async fn exchange_refresh_token(
 /// Returns an `Unverified` wrapper to make clear the claims have not been verified.
 fn parse_untrusted_data_plane_claims(
     token: &str,
+    required_capability: u32,
 ) -> tonic::Result<tokens::jwt::Unverified<proto_gazette::Claims>> {
     let unverified = tokens::jwt::parse_unverified::<proto_gazette::Claims>(token.as_bytes())?;
     let claims = unverified.claims();
@@ -333,10 +335,14 @@ fn parse_untrusted_data_plane_claims(
             "missing required JWT `iss` claim (data-plane FQDN)",
         ));
     }
-    if claims.cap & proto_flow::capability::AUTHORIZE == 0 {
-        return Err(tonic::Status::unauthenticated(
-            "missing required AUTHORIZE capability",
-        ));
+    if claims.cap & required_capability != required_capability {
+        let required_capability = match required_capability {
+            proto_flow::capability::AUTHORIZE => "AUTHORIZE".to_string(),
+            other => format!("{other:#x}"),
+        };
+        return Err(tonic::Status::unauthenticated(format!(
+            "missing required {required_capability} capability"
+        )));
     }
 
     Ok(unverified)

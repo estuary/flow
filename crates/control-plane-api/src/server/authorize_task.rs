@@ -19,7 +19,8 @@ pub async fn authorize_task(
     mut env: crate::Envelope,
     super::Request(Request { token }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
-    let unverified = super::parse_untrusted_data_plane_claims(&token)?;
+    let unverified =
+        super::parse_untrusted_data_plane_claims(&token, proto_flow::capability::AUTHORIZE)?;
 
     // Use the `iat` claim to establish the logical start of the request,
     // rounded up to the next second (as it was round down when encoded).

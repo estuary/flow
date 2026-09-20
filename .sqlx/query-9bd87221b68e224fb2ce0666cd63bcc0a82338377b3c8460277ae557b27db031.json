@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT COALESCE(\n            (\n                SELECT $2 IN (SELECT json_array_elements_text(m.spec -> 'data_planes'))\n                FROM storage_mappings m\n                WHERE m.catalog_prefix = ANY ($1::text[])\n                ORDER BY length(m.catalog_prefix) DESC\n                LIMIT 1\n            ),\n            false\n        ) AS \"admissible!: bool\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "admissible!: bool",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9bd87221b68e224fb2ce0666cd63bcc0a82338377b3c8460277ae557b27db031"
+}
