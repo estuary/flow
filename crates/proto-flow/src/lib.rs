@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 pub mod capture;
 pub mod connector;
 pub mod derive;
+pub mod disk;
 pub mod flow;
 mod internal;
 pub mod linked;

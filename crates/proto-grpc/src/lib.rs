@@ -21,6 +21,7 @@ pub mod connector {
 }
 pub mod consumer;
 pub mod derive;
+pub mod disk;
 pub mod flow;
 pub mod materialize;
 mod protocol;

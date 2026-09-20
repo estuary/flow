@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package disk;
+
+// Disk serves block devices backed by Gazette journals.
+service Disk {
+  // A tenure serves one disk for the life of this stream, first as a standby
+  // and then, once promoted, as its sole writer. Closing the stream unmounts
+  // the filesystem and destroys the local device.
+  rpc Tenure(stream Request) returns (stream Response);
+}
+
+// Open must be the first request and may be sent only once.
+message Request {
+  oneof request {
+    Open open = 1;
+    Promote promote = 2;
+    Prepare prepare = 3;
+    Acknowledge acknowledge = 4;
+  }
+}
+
+// Responses correspond one-to-one with requests and arrive in request order.
+message Response {
+  oneof response {
+    Opened opened = 1;
+    Promoted promoted = 2;
+    Prepared prepared = 3;
+    Acknowledged acknowledged = 4;
+  }
+}
+
+// Open validates the journal and begins replay without fencing or mounting.
+message Open {
+  // Journal the disk's state lives in; its name identifies the disk. It must
+  // already exist. Its creator -- Flow's activation, or whoever runs the daemon
+  // standalone -- owns its specification: the daemon validates that live
+  // specification and never creates or converges one.
+  string journal = 1;
+  // Logical capacity of the sparse device in bytes: a nonzero multiple of 4096,
+  // at most 2^32 - 1 blocks. The first prepared delta fixes this size for all
+  // later tenures.
+  uint64 device_size = 2;
+}
+
+// Replay has reached the head observed by Open and begun tailing. Sent once,
+// even if replay later falls behind. The filesystem is available at Promoted.
+message Opened {}
+
+// Promote fences the journal, replays through the fenced head, and mounts the
+// filesystem. Losing the fence ends the tenure.
+//
+// May follow Open without waiting for Opened: the daemon fences when it handles
+// Promote, giving replay a fixed head. Opened still precedes Promoted. Requests
+// queued behind Promote are served once it completes.
+message Promote {
+  // Prepared.ack values committed by the client but not confirmed in the
+  // journal. Appended after fencing; replay ignores duplicate UUIDs.
+  repeated bytes recovered_acks = 1;
+}
+
+// Sent after replay reaches the fenced head and the filesystem is mounted.
+message Promoted {
+  // Absolute path of the mounted filesystem.
+  string mount_path = 1;
+}
+
+// Prepare closes the current delta at a point in time and waits for broker
+// confirmation of its data records. The delta is durable but uncommitted.
+//
+// Preparing while a delta awaits Acknowledge fails with FAILED_PRECONDITION.
+message Prepare {}
+
+message Prepared {
+  // Unappended commit record for the delta. The client stores these bytes
+  // atomically with its corresponding state, then returns them in Acknowledge
+  // or, after tenure failure, Promote.recovered_acks.
+  //
+  // Empty if the disk did not change; only nonempty values are acknowledged.
+  bytes ack = 1;
+}
+
+// Acknowledge commits the prepared delta by appending its ack to the journal.
+message Acknowledge {
+  // Exact value returned by the matching Prepared.
+  bytes ack = 1;
+}
+
+// The broker has confirmed the ack.
+message Acknowledged {}
+
+// DiskRecord is the sole record type in a disk journal, encoded with Gazette's
+// fixed protobuf framing. UUID flags distinguish fences from deltas:
+//
+//   - A fence is an OUTSIDE_TXN record with installs_epoch set and no chunks.
+//   - A delta is one or more CONTINUE_TXN records, committed by an ACK_TXN
+//     record with no chunks.
+//
+// Replay sequences records by producer and clock, ignores duplicate UUIDs,
+// and applies only acknowledged deltas.
+message DiskRecord {
+  // Gazette UUID carrying a producer, clock, and transaction flags. Each
+  // tenure uses a fresh producer for deltas; fences use separate producers.
+  bytes uuid = 1;
+  // Block changes in journal order; the last change to each block wins.
+  repeated Chunk chunks = 2;
+  // Opens a recovery horizon at this record's offset. Set only on a delta's
+  // first record, and effective only when that delta is acknowledged.
+  //
+  // Recovery may start here once committed chunks at or after this offset cover
+  // every block allocated before the delta.
+  bool opens_horizon = 3;
+  // Producer installed as the writer epoch. Set only on fences, which use
+  // compare-and-swap on the journal's `author` register to exclude old writers.
+  bytes installs_epoch = 4;
+}
+
+// Chunk updates contiguous 4096-byte device blocks.
+message Chunk {
+  // Starting block index.
+  uint32 block = 1;
+
+  oneof content {
+    // Writes and allocates `max(1, ceil(len(data) / 4096))` blocks, starting at
+    // block. Trailing zeroes are omitted; replay zero-fills the last block's
+    // unused suffix. Empty data represents one allocated zero block.
+    bytes data = 2;
+    // Number of blocks to deallocate, used for discard and write-zeroes.
+    // Unallocated blocks read as zeroes.
+    uint32 punch = 3;
+  }
+}
