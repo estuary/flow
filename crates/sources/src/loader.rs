@@ -145,10 +145,7 @@ impl<F: Fetcher> Loader<F> {
         use flow::ContentType as CT;
         let is_dom = match content_type {
             CT::Catalog | CT::JsonSchema | CT::DocumentsFixture => true,
-            CT::Config => {
-                let path = scope.resource().path().to_lowercase();
-                path.ends_with("yaml") || path.ends_with("yml") || path.ends_with("json")
-            }
+            CT::Config => crate::is_dom_path(scope.resource().path()),
         };
 
         // We must map the raw `content` into a document object model.
@@ -1057,19 +1054,15 @@ impl<F: Fetcher> Loader<F> {
     }
 
     async fn load_config<'s>(&'s self, scope: Scope<'s>, config: &RawValue) {
-        // If `config` is a JSON string that has no whitespace then presume and
-        // require that it's a relative or absolute URL to an imported file.
-        match serde_json::from_str::<&str>(config.get()) {
-            Ok(import) if !import.chars().any(char::is_whitespace) => {
-                self.load_import(
-                    scope,
-                    self.fallible(scope, scope.resource().join(&import)),
-                    flow::ContentType::Config,
-                )
-                .await;
-            }
-            _ => {}
-        }
+        let Some(import) = config.as_import_url() else {
+            return;
+        };
+        self.load_import(
+            scope,
+            self.fallible(scope, scope.resource().join(&import)),
+            flow::ContentType::Config,
+        )
+        .await;
     }
 
     // Rewrite the `command` of a `local:` connector endpoint so that its

@@ -1,0 +1,68 @@
+---
+source: crates/sources/src/indirect.rs
+expression: "(values, written, imports)"
+---
+(
+    [
+        (
+            "lib/__init__.py",
+            "\"lib/__init__.py\"",
+        ),
+        (
+            "lib/already.py",
+            "\"lib/already.py\"",
+        ),
+        (
+            "lib/geo.py",
+            "\"lib/geo.py\"",
+        ),
+        (
+            "data/regions.json",
+            "\"data/regions.json\"",
+        ),
+        (
+            "data/config.yaml",
+            "\"data/config.yaml\"",
+        ),
+        (
+            "data/notjson",
+            "{\"not\":\"text\"}",
+        ),
+    ],
+    [
+        (
+            "test://example/data/config.yaml",
+            "labels:\n- alpha\nretries: 3\n",
+        ),
+        (
+            "test://example/data/regions.json",
+            "{\n  \"north\": 1,\n  \"south\": 2\n}",
+        ),
+        (
+            "test://example/lib/__init__.py",
+            "",
+        ),
+        (
+            "test://example/lib/geo.py",
+            "def region_for(doc):\n    return doc\n",
+        ),
+    ],
+    [
+        Import {
+            scope: test://example/catalog.yaml#/collections/acmeCo~1orders,
+            to_resource: test://example/data/config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/acmeCo~1orders,
+            to_resource: test://example/data/regions.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/acmeCo~1orders,
+            to_resource: test://example/lib/__init__.py,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/acmeCo~1orders,
+            to_resource: test://example/lib/geo.py,
+        },
+    ],
+)

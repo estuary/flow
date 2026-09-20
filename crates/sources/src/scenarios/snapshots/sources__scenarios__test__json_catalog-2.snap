@@ -1,0 +1,136 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+DraftCatalog {
+    captures: [
+        DraftCapture {
+            capture: acmeCo/json-capture,
+            scope: test://example/nested/flow.json#/captures/acmeCo~1json-capture,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": {"bucket":"a-bucket-name-which-is-long-enough"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"a-stream-name-which-is-long-enough"},
+                  "target": "acmeCo/collection"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCapture {
+            capture: acmeCo/yaml-capture,
+            scope: test://example/catalog.yaml#/captures/acmeCo~1yaml-capture,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": {"bucket":"a-bucket-name-which-is-long-enough"}
+                }
+              },
+              "bindings": []
+            },
+            is_touch: 0,
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: acmeCo/collection,
+            scope: test://example/nested/flow.json#/collections/acmeCo~1collection,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/nested/flow.json?ptr=/collections/acmeCo~1collection/schema","properties":{"key":{"type":"string"}},"type":"object"},
+              "key": [
+                "/key"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: acmeCo/derivation,
+            scope: test://example/nested/flow.json#/collections/acmeCo~1derivation,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/nested/flow.json?ptr=/collections/acmeCo~1derivation/schema","properties":{"key":{"type":"string"}},"type":"object"},
+              "key": [
+                "/key"
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {}
+                },
+                "transforms": [
+                  {
+                    "name": "fromCollection",
+                    "source": "acmeCo/collection",
+                    "shuffle": "any",
+                    "lambda": "select 'a long string which makes this a larger lambda';"
+                  }
+                ]
+              }
+            },
+            is_touch: 0,
+        },
+    ],
+    materializations: [
+        DraftMaterialization {
+            materialization: acmeCo/json-materialization,
+            scope: test://example/nested/flow.json#/materializations/acmeCo~1json-materialization,
+            expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": {"table_prefix":"a-table-prefix-which-is-long-enough"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"a-table-name-which-is-long-enough"},
+                  "source": "acmeCo/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    tests: [
+        DraftTest {
+            test: acmeCo/json-test,
+            scope: test://example/nested/flow.json#/tests/acmeCo~1json-test,
+            expect_pub_id: NULL,
+            model: {
+              "steps": [
+                {
+                  "ingest": {
+                    "collection": "acmeCo/collection",
+                    "documents": [{"key":"a-key-which-is-long-enough"}]
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/nested/flow.json,
+        },
+    ],
+}
