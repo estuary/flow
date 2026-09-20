@@ -3843,6 +3843,7 @@ dependencies = [
  "async-compression",
  "bytes",
  "coroutines",
+ "crc32c",
  "doc",
  "flate2",
  "futures",

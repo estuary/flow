@@ -76,6 +76,7 @@ clap = { package = "clap", version = "4", features = ["derive", "env"] }
 colored_json = "5"
 comfy-table = "7"
 console_error_panic_hook = { version = "0" }
+crc32c = "0.6"
 crossterm = "0"
 csv = "1"
 dirs = "6"
@@ -171,6 +172,7 @@ serde-transcode = "1"
 serde-wasm-bindgen = "0"
 sha2 = "0.10"
 size = "0"
+snap = "1"
 socket2 = "0"
 strsim = "0"
 strum = { version = "0", features = ["derive"] }
