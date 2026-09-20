@@ -1,6 +1,9 @@
 //! Secret storage, and the policy by which tasks may use it.
 //!
-//! A task may use the secrets which sit beside it in the catalog namespace.
+//! A task may use the secrets which sit beside it in the catalog namespace,
+//! and the secrets owned by its connector image: those naming the image's
+//! own repository after the reserved `connectors` component, which every
+//! task of that connector shares.
 //!
 //! Setting is shared by the GraphQL `setSecret` mutation, acting for a user,
 //! and by later data-plane routes acting for a task.
@@ -21,12 +24,30 @@ pub enum TaskAccessError {
         task_parent: String,
         secret_name: String,
     },
+    #[error(
+        "task '{task_name}' may only use secrets under '{task_parent}' or named '<prefix>/connectors/{image_repo}/<leaf>', and '{secret_name}' is neither"
+    )]
+    NotReadableByImage {
+        task_name: String,
+        task_parent: String,
+        image_repo: String,
+        secret_name: String,
+    },
+    #[error(
+        "image repository '{image_repo}' contains the reserved 'connectors' component and cannot vouch for image-owned secrets"
+    )]
+    ImageUsesReservedComponent { image_repo: String },
 }
 
 /// Validate the catalog-name relationship by which a task may access a secret.
+///
+/// `image_repo` is the repository the runtime attests is asking, tag and digest
+/// stripped. It's None for local and in-process connectors, which have no image
+/// and are held to sibling secrets alone.
 pub fn validate_task_access(
     task_name: &models::Name,
     secret_name: &models::Name,
+    image_repo: Option<&str>,
 ) -> Result<(), TaskAccessError> {
     let (Some(task_parent), Some(secret_parent)) = (
         parent_prefix(task_name.as_str()),
@@ -38,14 +59,41 @@ pub fn validate_task_access(
         });
     };
 
-    if task_parent != secret_parent {
+    if task_parent == secret_parent {
+        return Ok(()); // Admitted by sibling rule.
+    }
+
+    let Some(image_repo) = image_repo else {
         return Err(TaskAccessError::NotReadableSibling {
             task_name: task_name.to_string(),
             task_parent: task_parent.to_string(),
             secret_name: secret_name.to_string(),
         });
+    };
+
+    // The image rule: the rightmost `connectors` component separates a prefix
+    // which some tenant owns from the exact attested repository. A repository
+    // bearing that component cannot participate, as it would make the boundary
+    // ambiguous.
+    if image_repo
+        .split('/')
+        .any(|component| component == models::IMAGE_SECRET_SEPARATOR)
+    {
+        return Err(TaskAccessError::ImageUsesReservedComponent {
+            image_repo: image_repo.to_string(),
+        });
     }
-    Ok(())
+
+    if models::image_owns_secret(secret_name.as_str(), image_repo) {
+        Ok(())
+    } else {
+        Err(TaskAccessError::NotReadableByImage {
+            task_name: task_name.to_string(),
+            task_parent: task_parent.to_string(),
+            image_repo: image_repo.to_string(),
+            secret_name: secret_name.to_string(),
+        })
+    }
 }
 
 fn parent_prefix(name: &str) -> Option<&str> {
@@ -234,34 +282,66 @@ pub async fn set(
 mod tests {
     use super::{validate_document, validate_task_access};
 
+    /// A repository a connector may attest, and a vendor secret named for it
+    /// under the image rule. No task is a sibling of that secret: only an
+    /// attested image reaches it.
+    const IMAGE: &str = "ghcr.io/acmeVendor/source-widgets";
+    const IMAGE_SECRET: &str =
+        "acmeVendor/oauth/connectors/ghcr.io/acmeVendor/source-widgets/oauth-client";
     const TASK: &str = "acmeCo/in/capture-foo";
 
     /// Cases are aligned data; rustfmt's call-width budget would otherwise
-    /// break each of them across four lines.
+    /// break each of them across five lines.
     #[rustfmt::skip]
     #[test]
     fn test_task_access() {
         let cases = [
-            ("sibling", TASK, "acmeCo/in/token"),
+            ("sibling", TASK, "acmeCo/in/token", None),
 
             // Non-siblings: one level too deep, one level too shallow, and a
             // sibling-looking name under another tenant.
-            ("child", TASK, "acmeCo/in/db/token"),
-            ("parent", TASK, "acmeCo/token"),
-            ("other-tenant", TASK, "bobCo/in/token"),
+            ("child", TASK, "acmeCo/in/db/token", None),
+            ("parent", TASK, "acmeCo/token", None),
+            ("other-tenant", TASK, "bobCo/in/token", None),
 
             // Neither name has a prefix to compare when it isn't a catalog
             // name, and `models::Name` permits a single bare segment.
-            ("task-not-a-name", "capture-foo", "acmeCo/in/token"),
-            ("secret-not-a-name", TASK, "token"),
+            ("task-not-a-name", "capture-foo", "acmeCo/in/token", None),
+            ("secret-not-a-name", TASK, "token", None),
+
+            // The image rule, which reaches across tenants for the image that
+            // actually runs...
+            ("image", TASK, IMAGE_SECRET, Some(IMAGE)),
+            ("image-other", TASK, IMAGE_SECRET, Some("ghcr.io/acmeVendor/source-gadgets")),
+            // ... and admits nothing when unattested, which is how a local or
+            // in-process connector is held to siblings alone.
+            ("image-unattested", TASK, IMAGE_SECRET, None),
+            // Nothing may intervene between the exact repository and leaf.
+            ("image-grandparent", TASK, "acmeVendor/connectors/ghcr.io/acmeVendor/source-widgets/nested/oauth-client", Some(IMAGE)),
+            // ... beneath a non-empty prefix, since a secret rooted at the
+            // registry host would belong to no tenant.
+            ("image-no-prefix", TASK, "connectors/ghcr.io/acmeVendor/source-widgets/oauth-client", Some(IMAGE)),
+            // An attested image doesn't cost a task its siblings.
+            ("image-sibling-still-admitted", TASK, "acmeCo/in/token", Some(IMAGE)),
+            // Repository matching is exact. A short image name cannot reach a
+            // secret named for a fully-qualified repository, but can reach a
+            // secret explicitly named for that exact short repository.
+            ("image-short-name-other-registry", TASK, "acmeVendor/oauth/connectors/ghcr.io/acmevendor/source-widgets/oauth-client", Some("acmevendor/source-widgets")),
+            ("image-short-name-exact", TASK, "acmeVendor/oauth/connectors/acmevendor/source-widgets/oauth-client", Some("acmevendor/source-widgets")),
+            ("image-bare-name-exact", TASK, "acmeVendor/oauth/connectors/source-widgets/oauth-client", Some("source-widgets")),
+            // The rightmost separator determines the boundary, and a repository
+            // may not contain that reserved component.
+            ("image-ambiguous-repository", TASK, "acmeVendor/oauth/connectors/registry.vendor.test/connectors/registry.attacker.test/source/oauth-client", Some("registry.vendor.test/connectors/registry.attacker.test/source")),
+            ("image-shorter-ambiguous-repository", TASK, "acmeVendor/oauth/connectors/registry.vendor.test/connectors/registry.attacker.test/source/oauth-client", Some("registry.attacker.test/source")),
         ];
 
         let outcomes: Vec<_> = cases
             .into_iter()
-            .map(|(label, task, secret)| {
+            .map(|(label, task, secret, image_repo)| {
                 let outcome = validate_task_access(
                     &models::Name::new(task),
                     &models::Name::new(secret),
+                    image_repo,
                 )
                 .map(|()| "Ok".to_string())
                 .unwrap_or_else(|err| err.to_string());
