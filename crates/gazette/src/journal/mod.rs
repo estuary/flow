@@ -106,6 +106,48 @@ impl Client {
         }
     }
 
+    /// Derive a Client which signs its own bearer tokens from `claims` and `key`,
+    /// renewing each ahead of its expiry, while sharing this Client's fragment
+    /// client and Router. `duration` is both the lifetime of a token and the
+    /// cadence at which it's renewed.
+    ///
+    /// Signing for itself is how a data-plane component reaches the journals of
+    /// its own state — shard recovery logs and disk journals — because those are
+    /// authorized under the data plane's signing key rather than through the
+    /// control plane's authorization API.
+    ///
+    /// This is the counterpart of wrapping a Go client in `NewAuthJournalClient`
+    /// with a `KeyedAuth`, with one difference: claims are fixed per Client here,
+    /// where Go derives them per request.
+    pub fn with_signed_claims(
+        &self,
+        claims: proto_gazette::Claims,
+        key: tokens::jwt::EncodingKey,
+        duration: tokens::TimeDelta,
+        default_endpoint: String,
+    ) -> Self {
+        let source = tokens::jwt::SignedSource {
+            claims,
+            set_time_claims: Box::new(|claims: &mut proto_gazette::Claims, iat, exp| {
+                (claims.iat, claims.exp) = (iat.timestamp() as u64, exp.timestamp() as u64);
+            }),
+            duration,
+            key,
+        };
+
+        Self::new_with_tokens(
+            move |token: &String| {
+                Ok((
+                    proto_grpc::Metadata::new().with_bearer_token(token)?,
+                    default_endpoint.clone(),
+                ))
+            },
+            self.fragment_client.clone(),
+            self.router.clone(),
+            tokens::watch(source),
+        )
+    }
+
     // TODO(johnny): Remove this method once all clients use tokens.
     pub fn with_endpoint_and_metadata(
         &self,
