@@ -74,17 +74,30 @@ impl Protocol for Materialize {
     ) -> anyhow::Result<Extracted<'r, Self>> {
         crate::policy::check_connector_sqlite_vfs(false, sqlite_vfs_uri.is_some())
             .map_err(|err| crate::invalid_argument(err.to_string()))?;
-        let (connector_type, config_json, sealed_config_json) = match &mut request.kind {
-            Some(request::Kind::Spec(spec)) => (spec.connector_type, &mut spec.config_json, None),
-            Some(request::Kind::Validate(validate)) => {
-                (validate.connector_type, &mut validate.config_json, None)
-            }
+        let (connector_type, config_json, sealed_config_json, secrets) = match &mut request.kind {
+            Some(request::Kind::Spec(spec)) => (
+                spec.connector_type,
+                &mut spec.config_json,
+                None,
+                &super::EMPTY_SECRETS,
+            ),
+            Some(request::Kind::Validate(validate)) => (
+                validate.connector_type,
+                &mut validate.config_json,
+                None,
+                &validate.secrets,
+            ),
             Some(request::Kind::Apply(apply)) => {
                 let inner = apply
                     .materialization
                     .as_mut()
                     .expect("checked by task_name");
-                (inner.connector_type, &mut inner.config_json, None)
+                (
+                    inner.connector_type,
+                    &mut inner.config_json,
+                    None,
+                    &inner.secrets,
+                )
             }
             Some(request::Kind::Open(open)) => {
                 let sealed_config_json = &mut open.sealed_config_json;
@@ -93,6 +106,7 @@ impl Protocol for Materialize {
                     inner.connector_type,
                     &mut inner.config_json,
                     Some(sealed_config_json),
+                    &inner.secrets,
                 )
             }
             _ => unreachable!("checked by task_name"),
@@ -129,6 +143,7 @@ impl Protocol for Materialize {
             endpoint,
             initial_config_slot: config_json,
             initial_sealed_config_slot: sealed_config_json,
+            secrets,
         })
     }
 }
