@@ -8,6 +8,10 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "flow-disk-daemon"
+path = "src/bin/daemon.rs"
+
 [dependencies]
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }

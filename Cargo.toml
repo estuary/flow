@@ -194,7 +194,9 @@ sqlx = { version = "0.9", features = [
 ] }
 
 tokio-rustls = "0"
-rustls = { version = "0", features = ["aws_lc_rs"] }
+# Pinned. A "0" requirement also matches the 0.21 which transitive dependencies
+# pull in, and that version has no `aws_lc_rs` feature.
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
 rustls-pemfile = "2"
 webpki = "0"
 tempfile = "3"

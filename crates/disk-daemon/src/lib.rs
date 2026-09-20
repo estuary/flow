@@ -11,7 +11,8 @@
 //!
 //! The crate README is the durable design and operating record.
 
-#![allow(dead_code)] // Until the tenure service assembles these modules.
+pub mod args;
+pub mod daemon;
 
 mod bitmap;
 mod capture;
@@ -23,6 +24,7 @@ mod image;
 mod inflight;
 mod journal;
 mod owner;
+mod tenure;
 mod ublk;
 mod wake;
 
@@ -55,16 +57,14 @@ pub const BLOCK_SIZE: u32 = 4096;
 /// cannot read.
 pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
 
-/// Label naming a disk journal's recovery floor: the offset of the earliest record
-/// a replay must read to rebuild the disk.
+/// Flow's label naming a disk journal's recovery floor: the offset of the earliest
+/// record a replay must read to rebuild the disk.
 ///
-/// This sits in Gazette's own `app.gazette.dev` label namespace rather than an
-/// Estuary one, because it describes a journal rather than anything of Flow's, and
-/// because this daemon serves any Gazette cluster. Gazette does not define the name
-/// today; Flow's `labels` crate does, because `labels::is_data_plane_label` must
+/// The `labels` crate defines the name, because `labels::is_data_plane_label` must
 /// name it so that a control-plane activation preserves it rather than rebuilding
-/// it away. It is re-exported here so that a client of a disk need not depend on
-/// Flow's label vocabulary to find the floor.
+/// it away. It is re-exported here so that a client of a disk, or whatever prunes
+/// its journal's fragments, finds it beside the other constants the client and
+/// daemon agree on.
 pub const DISK_RECOVERY_FLOOR: &str = labels::DISK_RECOVERY_FLOOR;
 
 /// Format `offset` as a [`DISK_RECOVERY_FLOOR`] value: fixed-width, 16-character
