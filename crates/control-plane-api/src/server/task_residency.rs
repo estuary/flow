@@ -21,6 +21,16 @@ pub(super) enum TaskLocation<'s> {
     },
 }
 
+/// How a strict residency policy treats a task absent from the Snapshot.
+#[derive(Clone, Copy)]
+pub(super) enum UnknownTaskPolicy {
+    /// The operation requires an existing task.
+    RequireKnown,
+    /// An unpublished Discover or Validate task may establish residency through
+    /// its longest covering storage mapping.
+    AllowStorageMapping,
+}
+
 /// The successful outcome of strict task-residency evaluation.
 pub(super) enum TaskResidency<'s> {
     Resident,
@@ -59,16 +69,17 @@ pub(super) fn resolve_catalog_task_location<'s>(
 /// Evaluate task residency under a strict policy.
 ///
 /// A known task must reside in the authenticated issuing plane and have the
-/// claimed type. An unknown task -- an unpublished Discover or Validate -- is
-/// handed back for a storage-mapping check. All successful outcomes carry the
-/// task's cordon so [`crate::Envelope::authorization_outcome`] can settle
-/// migrations and stale Snapshots consistently.
+/// claimed type. An unknown task is either rejected or handed back for a
+/// storage-mapping check. All successful outcomes carry the task's cordon so
+/// [`crate::Envelope::authorization_outcome`] can settle migrations and stale
+/// Snapshots consistently.
 pub(super) fn evaluate_task_residency<'s>(
     snapshot: &'s crate::Snapshot,
     task_name: &models::Name,
     expected_type: models::CatalogType,
     data_plane_fqdn: &str,
     token: &str,
+    unknown: UnknownTaskPolicy,
 ) -> crate::AuthZResult<TaskResidency<'s>> {
     let location = resolve_catalog_task_location(snapshot, task_name, data_plane_fqdn, token)?;
 
@@ -94,12 +105,19 @@ pub(super) fn evaluate_task_residency<'s>(
                 task.task_name, issuing_plane.data_plane_fqdn,
             )));
         }
-        TaskLocation::Unknown { issuing_plane } => (
-            issuing_plane,
-            TaskResidency::StorageMappingRequired {
-                data_plane: issuing_plane,
-            },
-        ),
+        TaskLocation::Unknown { issuing_plane } => match unknown {
+            UnknownTaskPolicy::RequireKnown => {
+                return Err(tonic::Status::failed_precondition(format!(
+                    "task '{task_name}' is not known to the control-plane"
+                )));
+            }
+            UnknownTaskPolicy::AllowStorageMapping => (
+                issuing_plane,
+                TaskResidency::StorageMappingRequired {
+                    data_plane: issuing_plane,
+                },
+            ),
+        },
     };
 
     Ok((
@@ -187,35 +205,37 @@ mod tests {
     #[test]
     fn test_evaluate_task_residency() {
         use models::CatalogType::{Capture, Collection, Materialization};
+        use UnknownTaskPolicy::{AllowStorageMapping, RequireKnown};
 
         let snapshot = crate::Snapshot::build_fixture(None);
         let cases = [
-            ("resident", "acmeCo/source-pineapple", Capture, PLANE_ONE),
+            ("resident", "acmeCo/source-pineapple", Capture, PLANE_ONE, RequireKnown),
             // A task of the other plane, at depth, whose cordon rides along
             // with the successful outcome.
-            ("resident/nested", "bobCo/widgets/source-squash", Capture, PLANE_TWO),
-            ("elsewhere", "acmeCo/source-pineapple", Capture, PLANE_TWO),
+            ("resident/nested", "bobCo/widgets/source-squash", Capture, PLANE_TWO, RequireKnown),
+            ("elsewhere", "acmeCo/source-pineapple", Capture, PLANE_TWO, RequireKnown),
 
-            ("type-mismatch", "acmeCo/source-pineapple", Materialization, PLANE_ONE),
+            ("type-mismatch", "acmeCo/source-pineapple", Materialization, PLANE_ONE, RequireKnown),
             // The mismatch is reported in catalog vocabulary, where a
             // derivation is a "collection" -- not in the label vocabulary of a
             // data-plane request, which calls the same thing a "derivation".
-            ("type-mismatch/derivation", "acmeCo/source-pineapple", Collection, PLANE_ONE),
+            ("type-mismatch/derivation", "acmeCo/source-pineapple", Collection, PLANE_ONE, RequireKnown),
 
-            ("unknown/storage-mapping", "acmeCo/source-new", Capture, PLANE_ONE),
+            ("unknown/required", "acmeCo/source-new", Capture, PLANE_ONE, RequireKnown),
+            ("unknown/storage-mapping", "acmeCo/source-new", Capture, PLANE_ONE, AllowStorageMapping),
 
             // A task migrating plane-one => plane-two is cordoned in its source
             // plane, and denied in its target until its residency actually moves.
-            ("migration/source", "acmeCo/source-banana", Capture, PLANE_ONE),
-            ("migration/target", "acmeCo/source-banana", Capture, PLANE_TWO),
+            ("migration/source", "acmeCo/source-banana", Capture, PLANE_ONE, RequireKnown),
+            ("migration/target", "acmeCo/source-banana", Capture, PLANE_TWO, RequireKnown),
 
             // An otherwise-valid request, signed with the other plane's key.
-            ("bad-signature", "acmeCo/source-pineapple", Capture, (PLANE_ONE.0, PLANE_TWO.1)),
+            ("bad-signature", "acmeCo/source-pineapple", Capture, (PLANE_ONE.0, PLANE_TWO.1), RequireKnown),
         ];
 
         let outcomes: Vec<_> = cases
             .into_iter()
-            .map(|(label, task_name, task_type, (fqdn, hmac_key))| {
+            .map(|(label, task_name, task_type, (fqdn, hmac_key), unknown)| {
                 let token = crate::test_server::data_plane_token(
                     fqdn,
                     hmac_key.as_bytes(),
@@ -229,6 +249,7 @@ mod tests {
                     task_type,
                     fqdn,
                     &token,
+                    unknown,
                 )
                 .map(|(cordon_at, residency)| match residency {
                     TaskResidency::Resident => {

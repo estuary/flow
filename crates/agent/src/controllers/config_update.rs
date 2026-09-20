@@ -1,5 +1,6 @@
 use super::{ControlPlane, ControllerState, Inbox, NextRun};
 use crate::controllers::{RetryableError, publication_status};
+use anyhow::Context;
 use control_plane_api::controllers::Message;
 use models::status::{
     Alerts, PendingConfigUpdateStatus, connector::ConfigUpdate, publications::PublicationStatus,
@@ -7,6 +8,38 @@ use models::status::{
 
 pub const CONFIG_UPDATE_PUBLICATION_DETAIL: &str =
     "in response to an updated config emitted by the connector";
+
+/// Read the endpoint configuration and secrets an update proposes.
+/// Both replace their model counterparts wholesale.
+///
+/// * Legacy connectors rotate by publishing a sops-encrypted config
+///   via a special `configUpdate` log event type, and use no secrets.
+/// * Updated connectors rotate by calling /task/set-secret and
+///   /task/update-config (with plaintext config).
+///
+/// A connector which calls /task/update-config must not also emit
+/// `configUpdate` logs (see `crates/connector/README.md`).
+pub fn extract_update(
+    update: &ConfigUpdate,
+) -> anyhow::Result<(
+    models::RawValue,
+    std::collections::BTreeMap<models::Secret, models::JsonPointer>,
+)> {
+    let Some(config) = update.fields.get("config") else {
+        anyhow::bail!("expected config to be present in fields");
+    };
+    let config = models::RawValue::from_string(config.to_string())?;
+
+    let secrets = update
+        .fields
+        .get("secrets")
+        .map(|secrets| serde_json::from_value(secrets.clone()))
+        .transpose()
+        .context("decoding `secrets` stanza of config update")?
+        .unwrap_or_default();
+
+    Ok((config, secrets))
+}
 
 pub async fn updated_config_publish<C: ControlPlane, F>(
     state: &ControllerState,

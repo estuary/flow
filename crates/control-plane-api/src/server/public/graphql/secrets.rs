@@ -181,8 +181,9 @@ impl SecretsMutation {
         )
         .await?;
 
-        let last_modified = crate::secrets::validate_document(catalog_name.as_str(), &document)
-            .map_err(async_graphql::Error::new)?;
+        let last_modified =
+            crate::secrets::validate_document(catalog_name.as_str(), &document, chrono::Utc::now())
+                .map_err(async_graphql::Error::new)?;
 
         let (secret_id, changed) = match crate::secrets::set(
             &env.pg_pool,

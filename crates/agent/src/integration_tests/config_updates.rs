@@ -38,6 +38,8 @@ async fn test_config_update_publication_success() {
 
     const CAPTURE_NAME: &str = "ducks/capture";
     const MATERIALIZATION_NAME: &str = "ducks/materialization";
+    let initial_secrets = serde_json::json!({"ducks/credentials": "/credentials"});
+    let updated_secrets = serde_json::json!({"ducks/credentials-v2": "/credentials"});
 
     // Draft a catalog including both a capture and a materialization.
     let initial_draft = draft_catalog(serde_json::json!({
@@ -60,6 +62,8 @@ async fn test_config_update_publication_success() {
                         "config": initial_config(),
                     }
                 },
+                "secrets": initial_secrets,
+                "shards": {"flags": {"enable-runtime-v2": "true"}},
                 "bindings": [
                     {
                         "resource": {
@@ -79,6 +83,8 @@ async fn test_config_update_publication_success() {
                         "config": initial_config(),
                     }
                 },
+                "secrets": initial_secrets,
+                "shards": {"flags": {"enable-runtime-v2": "true"}},
                 "bindings": [ ]
             }
         }
@@ -121,6 +127,7 @@ async fn test_config_update_publication_success() {
             r_clock_begin: "00000000".to_string(),
         },
         updated_config(),
+        Some(updated_secrets.clone()),
     )
     .await;
     let capture_state = harness.run_pending_controller(CAPTURE_NAME).await;
@@ -128,13 +135,16 @@ async fn test_config_update_publication_success() {
     // Assert the capture's config is updated.
     let capture_live_spec = capture_state.live_spec.unwrap();
 
-    let CaptureEndpoint::Connector(ref capture_endpoint) =
-        capture_live_spec.as_capture().unwrap().endpoint
-    else {
+    let capture = capture_live_spec.as_capture().unwrap();
+    let CaptureEndpoint::Connector(ref capture_endpoint) = capture.endpoint else {
         panic!("expected capture endpoint")
     };
 
     assert!(updated_config() == capture_endpoint.config.to_value());
+    assert_eq!(
+        serde_json::to_value(&capture.secrets).unwrap(),
+        updated_secrets
+    );
 
     // Confirm materializations republish a new spec with the updated config
     // in response to an insert into the config_updates table.
@@ -154,6 +164,7 @@ async fn test_config_update_publication_success() {
             r_clock_begin: "00000000".to_string(),
         },
         updated_config(),
+        None,
     )
     .await;
 
@@ -162,16 +173,14 @@ async fn test_config_update_publication_success() {
     // Assert the materialization's config is updated.
     let materialization_live_spec = materialization_state.live_spec.unwrap();
 
-    let MaterializationEndpoint::Connector(ref materialization_endpoint) =
-        materialization_live_spec
-            .as_materialization()
-            .unwrap()
-            .endpoint
+    let materialization = materialization_live_spec.as_materialization().unwrap();
+    let MaterializationEndpoint::Connector(ref materialization_endpoint) = materialization.endpoint
     else {
         panic!("expected materialization endpoint")
     };
 
     assert!(updated_config() == materialization_endpoint.config.to_value());
+    assert!(materialization.secrets.is_empty());
 }
 
 #[tokio::test]
@@ -264,6 +273,7 @@ async fn test_config_update_publication_failure() {
             r_clock_begin: "00000000".to_string(),
         },
         updated_config(),
+        None,
     )
     .await;
 
@@ -307,6 +317,7 @@ async fn test_config_update_publication_failure() {
             r_clock_begin: "00000000".to_string(),
         },
         updated_config(),
+        None,
     )
     .await;
 
@@ -458,6 +469,7 @@ async fn test_config_update_publication_backoff() {
             r_clock_begin: "00000000".to_string(),
         },
         updated_config(),
+        None,
     )
     .await;
 
@@ -527,13 +539,17 @@ async fn upsert_config_update(
     harness: &mut TestHarness,
     shard: &ShardRef,
     updated_config: serde_json::Value,
+    updated_secrets: Option<serde_json::Value>,
 ) {
-    let fields = serde_json::from_value(serde_json::json!({
+    let mut fields = serde_json::json!({
         "eventType": "configUpdate",
         "eventTarget": shard.name.as_str(),
         "config": updated_config,
-    }))
-    .unwrap();
+    });
+    if let Some(updated_secrets) = updated_secrets {
+        fields["secrets"] = updated_secrets;
+    }
+    let fields = serde_json::from_value(fields).unwrap();
 
     let ts = harness.control_plane().current_time();
     let event = serde_json::to_value(models::status::connector::ConfigUpdate {

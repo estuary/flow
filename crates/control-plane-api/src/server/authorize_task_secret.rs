@@ -110,8 +110,12 @@ pub async fn authorize_task_secret(
         }
     };
 
-    crate::secrets::validate_task_access(&task_name, &secret_name, image_repo)
-        .map_err(|err| tonic::Status::permission_denied(err.to_string()))?;
+    crate::secrets::validate_task_access(
+        &task_name,
+        &secret_name,
+        crate::secrets::TaskSecretAccess::Read { image_repo },
+    )
+    .map_err(|err| tonic::Status::permission_denied(err.to_string()))?;
 
     let policy_result = super::task_residency::evaluate_task_residency(
         env.snapshot(),
@@ -119,6 +123,7 @@ pub async fn authorize_task_secret(
         task_type,
         &unverified.claims().iss,
         &token,
+        super::task_residency::UnknownTaskPolicy::AllowStorageMapping,
     );
 
     let residency = match env.authorization_outcome(policy_result).await {

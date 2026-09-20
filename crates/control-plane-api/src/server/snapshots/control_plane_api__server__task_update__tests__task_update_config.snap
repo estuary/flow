@@ -1,0 +1,46 @@
+---
+source: crates/control-plane-api/src/server/task_update.rs
+expression: outcomes
+---
+[
+    (
+        "matching-build",
+        "200 message=\"endpoint configuration updated by the connector\"",
+    ),
+    (
+        "message-override",
+        "200 message=\"refreshed an expiring OAuth token\"",
+    ),
+    (
+        "stale-build",
+        "412 task 'aliceCo/in/capture-foo' is now running build <live-build>, and this connector started under build 0909090909090909: restart to update its configuration",
+    ),
+    (
+        "missing-build",
+        "400 token is missing the estuary.dev/build label, which a configuration update requires",
+    ),
+    (
+        "two-builds",
+        "400 expected at most one estuary.dev/build label (got [Label { name: \"estuary.dev/build\", value: \"0909090909090909\", prefix: false }, Label { name: \"estuary.dev/build\", value: \"<live-build>\", prefix: false }])",
+    ),
+    (
+        "unparseable-build",
+        "400 invalid estuary.dev/build label: invalid digit found in string",
+    ),
+    (
+        "derivation",
+        "412 derivation 'aliceCo/data/foo' cannot update its configuration",
+    ),
+    (
+        "wrong-plane",
+        "403 task 'aliceCo/in/capture-foo' does not run in data-plane dp.two",
+    ),
+    (
+        "unknown-task",
+        "412 task 'aliceCo/in/capture-new' is not known to the control-plane",
+    ),
+    (
+        "missing-capability",
+        "401 missing required TASK_UPDATE capability",
+    ),
+]

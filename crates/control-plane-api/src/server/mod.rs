@@ -15,6 +15,7 @@ mod error;
 pub mod public;
 pub mod snapshot;
 mod task_residency;
+mod task_update;
 mod update_l2_reporting;
 
 pub use error::{ApiError, AuthZRetry};
@@ -232,6 +233,8 @@ pub fn build_router(
             "/authorize/user/task",
             post(authorize_user_task::authorize_user_task).options(preflight_handler),
         )
+        .route("/task/set-secret", post(task_update::task_set_secret))
+        .route("/task/update-config", post(task_update::task_update_config))
         .route(
             "/admin/create-data-plane",
             post(create_data_plane::create_data_plane),
@@ -338,6 +341,7 @@ fn parse_untrusted_data_plane_claims(
     if claims.cap & required_capability != required_capability {
         let required_capability = match required_capability {
             proto_flow::capability::AUTHORIZE => "AUTHORIZE".to_string(),
+            proto_flow::capability::TASK_UPDATE => "TASK_UPDATE".to_string(),
             other => format!("{other:#x}"),
         };
         return Err(tonic::Status::unauthenticated(format!(

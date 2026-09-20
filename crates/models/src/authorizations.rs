@@ -352,6 +352,71 @@ pub struct DekafAuthResponse {
     pub redirect_dekaf_registry_address: Option<String>,
 }
 
+/// TaskSetSecretRequest asks the control-plane to store a wrapped secret
+/// document on behalf of the task named by `token`, which is how a connector
+/// rotates a credential it manages.
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSetSecretRequest {
+    /// # Catalog name of the secret to set (a sibling of the task).
+    #[validate(nested)]
+    pub name: crate::Name,
+    /// # The sops-wrapped document to store.
+    pub document: serde_json::Value,
+    /// # JWT token signed by the requesting data-plane.
+    /// It carries TASK_UPDATE and names the task in its selector.
+    pub token: String,
+}
+
+/// TaskSetSecret is the outcome of [`TaskSetSecretRequest`].
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSetSecret {
+    /// # Lifecycle identity of the secret's post-set document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_id: Option<crate::Id>,
+    /// # Whether the document changed.
+    /// False when the provided document was structurally identical to the
+    /// stored one, in which case `secretId` is the id the secret already had.
+    pub changed: bool,
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if `secretId` is not set.
+    pub retry_millis: u64,
+}
+
+/// TaskUpdateConfigRequest asks the control-plane to record a new endpoint
+/// configuration and `secrets` stanza for the task named by `token`.
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskUpdateConfigRequest {
+    /// # Complete plaintext endpoint configuration.
+    pub config: crate::RawValue,
+    /// # Complete `secrets` stanza: secret catalog names to JSON pointers.
+    #[serde(default)]
+    pub secrets: std::collections::BTreeMap<crate::Secret, crate::JsonPointer>,
+    /// # Message presented to users, which may use Markdown formatting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// # JWT token signed by the requesting data-plane.
+    /// It carries TASK_UPDATE, names the task in its selector, and
+    /// must name the build the task is currently running.
+    pub token: String,
+}
+
+/// TaskUpdateConfig is the outcome of [`TaskUpdateConfigRequest`]: the update
+/// was recorded, and the task's controller has been woken to publish it.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskUpdateConfig {
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if the update was not recorded.
+    pub retry_millis: u64,
+}
+
 const fn capability_read() -> crate::Capability {
     crate::Capability::Read
 }
