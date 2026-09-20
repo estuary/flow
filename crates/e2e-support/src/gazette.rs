@@ -10,6 +10,9 @@ pub struct GazetteBroker {
 pub struct GazetteCluster {
     pub brokers: Vec<GazetteBroker>,
     pub encode_key: tokens::jwt::EncodingKey,
+    /// The same key as `encode_key`, base64 as a `--broker.auth-keys` value, for a
+    /// component under test which parses its keys from configuration.
+    pub auth_keys: String,
     /// Subdirectory used as `--broker.file-root` for fragment storage.
     /// Lives under the tempdir so it can be blown away on reset without
     /// disturbing UDS sockets.
@@ -98,13 +101,28 @@ impl GazetteCluster {
         Ok(Self {
             brokers,
             encode_key,
+            auth_keys: base64_key,
             fragment_root,
         })
     }
 
+    /// Deliver `signal` to every broker process.
+    ///
+    /// A test simulates an outage with SIGSTOP and SIGCONT: a stopped broker answers
+    /// nothing at all while it is stopped, which is what a client must park through
+    /// rather than fail.
+    pub fn signal(&self, signal: libc::c_int) {
+        for broker in &self.brokers {
+            let pid = broker.process.id() as libc::pid_t;
+
+            // SAFETY: `pid` is a child of this process, which has not been reaped.
+            assert_eq!(unsafe { libc::kill(pid, signal) }, 0, "signalling {pid}");
+        }
+    }
+
     /// Build a journal client authenticated with the cluster's HMAC key.
     pub fn journal_client(&self) -> anyhow::Result<gazette::journal::Client> {
-        // Start a self-signed tokens source with broad claims.
+        // Broad claims, self-signed as a data-plane component signs its own.
         let claims = proto_gazette::Claims {
             cap: proto_gazette::capability::LIST
                 | proto_gazette::capability::APPLY
@@ -116,26 +134,22 @@ impl GazetteCluster {
             sel: proto_gazette::broker::LabelSelector::default(),
             sub: "e2e-test".to_string(),
         };
-        let source = tokens::jwt::SignedSource {
-            claims,
-            set_time_claims: Box::new(|claims, iat, exp| {
-                (claims.iat, claims.exp) = (iat.timestamp() as u64, exp.timestamp() as u64);
-            }),
-            duration: tokens::TimeDelta::seconds(70), // Max refresh cadence in `tokens` is every 60s.
-            key: self.encode_key.clone(),
-        };
-        let default_endpoint = self.brokers[0].endpoint.clone();
 
-        Ok(gazette::journal::Client::new_with_tokens(
-            move |token| {
-                Ok((
-                    proto_grpc::Metadata::new().with_bearer_token(&token)?,
-                    default_endpoint.clone(),
-                ))
-            },
+        // The base client exists only to be derived from: `with_signed_claims` is
+        // the one constructor the client offers for a self-signed token, as Go
+        // offers only the wrapper form.
+        let client = gazette::journal::Client::new(
+            self.brokers[0].endpoint.clone(),
             gazette::journal::Client::new_fragment_client(),
+            proto_grpc::Metadata::new(),
             gazette::Router::new("local"),
-            tokens::watch(source),
+        );
+
+        Ok(client.with_signed_claims(
+            claims,
+            self.encode_key.clone(),
+            tokens::TimeDelta::seconds(70), // Max refresh cadence in `tokens` is every 60s.
+            self.brokers[0].endpoint.clone(),
         ))
     }
 }

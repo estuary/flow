@@ -2,6 +2,7 @@ use anyhow::Context;
 
 pub mod etcd;
 pub mod gazette;
+pub mod journals;
 
 pub use etcd::EtcdInstance;
 pub use gazette::GazetteCluster;

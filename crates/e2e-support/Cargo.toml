@@ -17,6 +17,8 @@ publisher = { path = "../publisher" }
 tokens = { path = "../tokens" }
 
 anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
 libc = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
@@ -27,6 +29,5 @@ tracing-subscriber = { workspace = true }
 build = { path = "../build" }
 models = { path = "../models" }
 
-futures = { workspace = true }
 insta = { workspace = true }
 serde_json = { workspace = true }
