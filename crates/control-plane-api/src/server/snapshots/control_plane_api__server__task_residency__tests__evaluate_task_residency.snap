@@ -1,0 +1,42 @@
+---
+source: crates/control-plane-api/src/server/task_residency.rs
+expression: outcomes
+---
+[
+    (
+        "resident",
+        "resident cordoned=false",
+    ),
+    (
+        "resident/nested",
+        "resident cordoned=true",
+    ),
+    (
+        "elsewhere",
+        "403 task 'acmeCo/source-pineapple' does not run in data-plane fqdn2",
+    ),
+    (
+        "type-mismatch",
+        "403 task 'acmeCo/source-pineapple' is a capture, not a materialization",
+    ),
+    (
+        "type-mismatch/derivation",
+        "403 task 'acmeCo/source-pineapple' is a capture, not a collection",
+    ),
+    (
+        "unknown/storage-mapping",
+        "storage-mapping ops/dp/public/plane-one",
+    ),
+    (
+        "migration/source",
+        "resident cordoned=true",
+    ),
+    (
+        "migration/target",
+        "403 task 'acmeCo/source-banana' does not run in data-plane fqdn2",
+    ),
+    (
+        "bad-signature",
+        "401 no data-plane keys validated against the token signature",
+    ),
+]

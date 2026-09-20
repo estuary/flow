@@ -314,6 +314,38 @@ pub fn snapshot_of_grants(
     snapshot
 }
 
+/// The HMAC key every data-plane of the `data_planes` fixture signs with:
+/// its "c2VjcmV0", base64-decoded.
+pub const FIXTURE_HMAC_KEY: &[u8] = b"secret";
+
+/// Mint the data-plane-signed token which the reactor-facing routes verify.
+///
+/// The key is a parameter rather than looked up from `iss`, so that a case can
+/// deliberately sign with the wrong plane's key. `sub` is advisory on every
+/// route that reads one, and is simply the task name.
+pub fn data_plane_token<S: AsRef<str>>(
+    iss: &str,
+    hmac_key: &[u8],
+    cap: u32,
+    labels: impl IntoIterator<Item = (S, S)>,
+    sub: &str,
+) -> String {
+    let now = tokens::now().timestamp() as u64;
+
+    let claims = proto_gazette::Claims {
+        iat: now,
+        exp: now + 100,
+        cap,
+        iss: iss.to_string(),
+        sel: proto_gazette::LabelSelector {
+            include: Some(labels::build_set(labels)),
+            exclude: None,
+        },
+        sub: sub.to_string(),
+    };
+    tokens::jwt::sign(&claims, &tokens::jwt::EncodingKey::from_secret(hmac_key)).unwrap()
+}
+
 /// A stand-in for what config-encryption's `/secret/encrypt` returns. Only the
 /// fields the control plane reads are real, and `value` is ciphertext that
 /// nothing in this crate can decrypt.

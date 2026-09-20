@@ -1,7 +1,56 @@
-//! Secret storage, shared by every route which reads or writes one.
+//! Secret storage, and the policy by which tasks may use it.
+//!
+//! A task may use the secrets which sit beside it in the catalog namespace.
 //!
 //! Setting is shared by the GraphQL `setSecret` mutation, acting for a user,
 //! and by later data-plane routes acting for a task.
+
+/// Why a task is not allowed to access a secret.
+#[derive(Debug, thiserror::Error)]
+pub enum TaskAccessError {
+    #[error("task '{task_name}' and secret '{secret_name}' are not both catalog names")]
+    NotCatalogNames {
+        task_name: String,
+        secret_name: String,
+    },
+    #[error(
+        "task '{task_name}' may only use secrets under '{task_parent}', and '{secret_name}' is not one"
+    )]
+    NotReadableSibling {
+        task_name: String,
+        task_parent: String,
+        secret_name: String,
+    },
+}
+
+/// Validate the catalog-name relationship by which a task may access a secret.
+pub fn validate_task_access(
+    task_name: &models::Name,
+    secret_name: &models::Name,
+) -> Result<(), TaskAccessError> {
+    let (Some(task_parent), Some(secret_parent)) = (
+        parent_prefix(task_name.as_str()),
+        parent_prefix(secret_name.as_str()),
+    ) else {
+        return Err(TaskAccessError::NotCatalogNames {
+            task_name: task_name.to_string(),
+            secret_name: secret_name.to_string(),
+        });
+    };
+
+    if task_parent != secret_parent {
+        return Err(TaskAccessError::NotReadableSibling {
+            task_name: task_name.to_string(),
+            task_parent: task_parent.to_string(),
+            secret_name: secret_name.to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn parent_prefix(name: &str) -> Option<&str> {
+    name.rfind('/').map(|index| &name[..index + 1])
+}
 
 /// A wrapped secret document read from storage.
 pub struct StoredSecret {
@@ -183,7 +232,45 @@ pub async fn set(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_document;
+    use super::{validate_document, validate_task_access};
+
+    const TASK: &str = "acmeCo/in/capture-foo";
+
+    /// Cases are aligned data; rustfmt's call-width budget would otherwise
+    /// break each of them across four lines.
+    #[rustfmt::skip]
+    #[test]
+    fn test_task_access() {
+        let cases = [
+            ("sibling", TASK, "acmeCo/in/token"),
+
+            // Non-siblings: one level too deep, one level too shallow, and a
+            // sibling-looking name under another tenant.
+            ("child", TASK, "acmeCo/in/db/token"),
+            ("parent", TASK, "acmeCo/token"),
+            ("other-tenant", TASK, "bobCo/in/token"),
+
+            // Neither name has a prefix to compare when it isn't a catalog
+            // name, and `models::Name` permits a single bare segment.
+            ("task-not-a-name", "capture-foo", "acmeCo/in/token"),
+            ("secret-not-a-name", TASK, "token"),
+        ];
+
+        let outcomes: Vec<_> = cases
+            .into_iter()
+            .map(|(label, task, secret)| {
+                let outcome = validate_task_access(
+                    &models::Name::new(task),
+                    &models::Name::new(secret),
+                )
+                .map(|()| "Ok".to_string())
+                .unwrap_or_else(|err| err.to_string());
+                (label, outcome)
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!(outcomes);
+    }
 
     /// The document guard is a pure function shared by the GraphQL mutation and
     /// `/task/set-secret`, so its shape cases live here rather than being paid
