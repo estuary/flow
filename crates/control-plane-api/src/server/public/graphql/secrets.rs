@@ -181,76 +181,26 @@ impl SecretsMutation {
         )
         .await?;
 
-        let last_modified = validate_document(catalog_name.as_str(), &document)?;
-        let document = document.to_string();
+        let last_modified = crate::secrets::validate_document(catalog_name.as_str(), &document)
+            .map_err(async_graphql::Error::new)?;
 
-        let row = sqlx::query!(
-            r#"
-            WITH locked AS (
-                -- Lock the current row so that concurrent sets of this secret
-                -- serialize, and so the outcome classified below is of the same
-                -- row version that the conditional write acts upon.
-                SELECT
-                    id,
-                    document::text AS document_text,
-                    (document->'sops'->>'lastmodified')::timestamptz AS last_modified
-                FROM internal.secrets
-                WHERE catalog_name = $1::text::catalog_name
-                FOR UPDATE
-            ),
-            updated AS (
-                -- An identical document is the same entity, so it must not
-                -- mint an id; a document older than the stored one must not be
-                -- applied at all. Either way this UPDATE matches no row, and
-                -- the two cases are told apart from `locked` below.
-                UPDATE internal.secrets SET
-                    id = internal.id_generator(),
-                    document = $2::text::json
-                WHERE catalog_name = $1::text::catalog_name
-                  AND EXISTS (
-                    SELECT 1 FROM locked
-                    WHERE locked.document_text <> $2::text
-                      AND locked.last_modified <= $3::timestamptz
-                  )
-                RETURNING id
-            ),
-            inserted AS (
-                INSERT INTO internal.secrets (catalog_name, document)
-                SELECT $1::text::catalog_name, $2::text::json
-                WHERE NOT EXISTS (SELECT 1 FROM locked)
-                -- `locked` takes no lock when there is no row to lock, so two
-                -- concurrent first-sets can reach this INSERT. The loser writes
-                -- nothing and is reported as a conflict to retry.
-                ON CONFLICT (catalog_name) DO NOTHING
-                RETURNING id
-            )
-            SELECT
-                (SELECT id FROM locked) AS "prior_id: models::Id",
-                (SELECT document_text FROM locked) AS "prior_document: String",
-                coalesce(
-                    (SELECT id FROM updated),
-                    (SELECT id FROM inserted)
-                ) AS "written_id: models::Id"
-            "#,
+        let (secret_id, changed) = match crate::secrets::set(
+            &env.pg_pool,
             catalog_name.as_str(),
             &document,
             last_modified,
         )
-        .fetch_one(&env.pg_pool)
-        .await?;
-
-        let (secret_id, changed) = match (row.written_id, row.prior_id, row.prior_document) {
-            (Some(written_id), _, _) => (written_id, true),
-            (None, Some(prior_id), Some(prior_document)) if prior_document == document => {
-                (prior_id, false)
-            }
-            (None, Some(_), _) => {
+        .await?
+        {
+            crate::secrets::SetOutcome::Written(secret_id) => (secret_id, true),
+            crate::secrets::SetOutcome::Unchanged(secret_id) => (secret_id, false),
+            crate::secrets::SetOutcome::Stale => {
                 return Err(async_graphql::Error::new(format!(
                     "the stored secret '{catalog_name}' is newer than the provided document; \
                      re-encrypt the value you intend to set, or fetch the current document"
                 )));
             }
-            (None, None, _) => {
+            crate::secrets::SetOutcome::Conflict => {
                 return Err(async_graphql::Error::new(format!(
                     "secret '{catalog_name}' was concurrently set by another request; retry"
                 )));
@@ -364,83 +314,12 @@ impl SecretsMutation {
     }
 }
 
-/// Structurally validate a wrapped secret document against the name it is being
-/// set at, returning its embedded `sops.lastmodified`.
-fn validate_document(
-    catalog_name: &str,
-    document: &serde_json::Value,
-) -> async_graphql::Result<chrono::DateTime<chrono::Utc>> {
-    // Only the fields the control plane must agree with sops about. `value` is
-    // checked for presence alone — its content is ciphertext we cannot read.
-    #[derive(serde::Deserialize)]
-    struct Wrapped {
-        name: String,
-        // Deserialized to require its presence, then discarded.
-        #[allow(dead_code)]
-        value: serde::de::IgnoredAny,
-        sops: Sops,
-    }
-    // Parsed with its offset retained, because Postgres re-parses the literal
-    // `lastmodified` text below and the offset is part of what it must accept.
-    #[derive(serde::Deserialize)]
-    struct Sops {
-        lastmodified: chrono::DateTime<chrono::FixedOffset>,
-    }
-
-    let wrapped = <Wrapped as serde::Deserialize>::deserialize(document).map_err(|err| {
-        async_graphql::Error::new(format!(
-            "document is not a wrapped secret produced by /secret/encrypt: {err}"
-        ))
-    })?;
-
-    if wrapped.name != catalog_name {
-        return Err(async_graphql::Error::new(format!(
-            "document is wrapped for secret '{}', not '{catalog_name}'; a wrapped document is \
-             bound to its name and cannot be set under another",
-            wrapped.name,
-        )));
-    }
-
-    // Postgres re-parses the *stored* `lastmodified` text on every later set of
-    // this secret, so a value chrono accepts here but Postgres cannot parse
-    // would wedge the row: every future set fails until the secret is deleted.
-    // The parsers diverge on year zero and on UTC offsets beyond Postgres's
-    // ±15:59 — sops never emits either (it writes UTC 'Z' timestamps), so
-    // reject them up front rather than store a poison value.
-    let last_modified = wrapped.sops.lastmodified;
-    if chrono::Datelike::year(&last_modified) < 1
-        || last_modified.offset().local_minus_utc().abs() > 15 * 3600 + 59 * 60
-    {
-        return Err(async_graphql::Error::new(format!(
-            "document's sops.lastmodified '{last_modified}' is outside the range \
-             this API can store"
-        )));
-    }
-
-    Ok(last_modified.to_utc())
-}
-
 #[cfg(test)]
 mod test {
     use crate::test_server;
     use serde_json::json;
 
-    /// A stand-in for what config-encryption's `/secret/encrypt` returns: only
-    /// the fields the control plane reads are real, and `value` is ciphertext
-    /// that nothing in this crate can decrypt.
-    fn wrapped(name: &str, ciphertext: &str, last_modified: &str) -> serde_json::Value {
-        serde_json::json!({
-            "name": name,
-            "value": format!("ENC[AES256_GCM,data:{ciphertext},type:str]"),
-            "sops": {
-                "age": [{ "recipient": "age1exampleexample", "enc": "-----BEGIN AGE ENCRYPTED FILE-----" }],
-                "lastmodified": last_modified,
-                "mac": format!("ENC[AES256_GCM,data:mac-{ciphertext}]"),
-                "encrypted_regex": "^value$",
-                "version": "3.9.0",
-            },
-        })
-    }
+    use test_server::wrapped;
 
     const SET_SECRET: &str = r#"
         mutation($catalogName: Name!, $document: JSON!) {
@@ -700,26 +579,11 @@ mod test {
             // encryptions within one second must not deadlock rotation.
             ("alice", "a tie is allowed", set(PASSWORD, "ccc", T11)),
 
-            // sops MACs the plaintext `name`, so a document is bound to it and
-            // cannot be cloned under another; the mismatch is caught up front
-            // rather than surfacing later as a decryption failure.
+            // The document guard itself is `secrets::test_validate_document`,
+            // a pure function shared with `/task/set-secret`. This step is the
+            // one which proves the mutation applies it and renders its message.
             ("alice", "a document is bound to the name it was wrapped for",
                 Op::Set(OTHER, wrapped(PASSWORD, "aaa", T10))),
-            // A `lastmodified` that chrono accepts but Postgres cannot re-parse
-            // would wedge the row: every future set fails until it is deleted.
-            ("alice", "a year-zero lastmodified is rejected",
-                set(OTHER, "zzz", "0000-12-31T23:59:59Z")),
-            ("alice", "as is an offset beyond Postgres's ±15:59",
-                set(OTHER, "zzz", "2026-08-18T10:00:00+16:00")),
-            // A document that isn't a wrapped secret at all is rejected on shape.
-            ("alice", "a document without sops is not a wrapped secret",
-                Op::Set(OTHER, json!({ "name": OTHER, "value": "x" }))),
-            ("alice", "nor is one without value",
-                Op::Set(OTHER, json!({ "name": OTHER, "sops": { "lastmodified": T10 } }))),
-            ("alice", "nor one whose lastmodified doesn't parse",
-                Op::Set(OTHER, json!({
-                    "name": OTHER, "value": "x", "sops": { "lastmodified": "whenever" } }))),
-            ("alice", "nor a bare string", Op::Set(OTHER, json!("just a string"))),
 
             // Capability gating. Bob's Viewer bundle carries none of the three
             // secret bits; Carol's Editor carries all three, which is what

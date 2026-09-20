@@ -342,40 +342,6 @@ fn parse_untrusted_data_plane_claims(
     Ok(unverified)
 }
 
-/// Read the wrapped document of `name` from the DB, for a caller already
-/// authorized to have it. Note `/authorize/task/decrypt-secret` also implements
-/// a variant of this query which performs additional storage-mapping AuthZ,
-/// for Discover / Validate cases of novel tasks.
-async fn fetch_secret(
-    pg_pool: &sqlx::PgPool,
-    name: &models::Name,
-) -> Result<models::authorizations::DecryptAuthorization, ApiError> {
-    let row = sqlx::query!(
-        r#"
-        SELECT
-            document AS "document!: serde_json::Value",
-            id AS "secret_id!: models::Id"
-        FROM internal.secrets
-        WHERE catalog_name = $1::text::catalog_name
-        "#,
-        name.as_str(),
-    )
-    .fetch_optional(pg_pool)
-    .await?;
-
-    // Absence is terminal: unlike a grant, a secret is read at its current
-    // value, so a later read cannot turn this answer around.
-    let Some(row) = row else {
-        return Err(tonic::Status::not_found(format!("secret '{name}' does not exist")).into());
-    };
-
-    Ok(models::authorizations::DecryptAuthorization {
-        document: Some(row.document),
-        secret_id: Some(row.secret_id),
-        retry_millis: 0,
-    })
-}
-
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
     let ops_kind = match task.spec_type {
         models::CatalogType::Capture => "capture",
