@@ -250,9 +250,10 @@ is refused as `INVALID_ARGUMENT`, because no retry of it could find one.
 
 The daemon validates the live specification of the journal it is given, before
 creating a device. A disk journal must declare the disk content type, permit reads
-and writes, and use a codec the Gazette reader supports. Age-based retention and
-fragment path postfix templates are refused because deletion must follow the disk's
-recovery floor. The recovery-floor label is the one field the daemon writes.
+and writes, and use a codec Gazette defines, every one of which the reader decodes.
+Age-based retention and fragment path postfix templates are refused because deletion
+must follow the disk's recovery floor. The recovery-floor label is the one field the
+daemon writes.
 
 Resolving a journal lists it and then probes it, which resumes one Gazette has
 suspended. A recovery needs that resumption; of a disk nobody writes it costs a

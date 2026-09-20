@@ -21,6 +21,7 @@ mod filesystem;
 mod horizon;
 mod image;
 mod inflight;
+mod journal;
 mod owner;
 mod ublk;
 mod wake;
@@ -44,3 +45,88 @@ pub use proto_flow::disk as proto;
 /// of the hosts this daemon runs on and the ext4 default, so nothing was buying
 /// that risk.
 pub const BLOCK_SIZE: u32 = 4096;
+
+/// Value of Gazette's `content-type` label which a journal must carry to serve as a
+/// disk, alongside `application/x-gazette-recoverylog` and the rest.
+///
+/// Gazette requires a content type of a journal which serves as a shard recovery
+/// log, and this is the same rule for the same reason: it is what keeps an `Open`
+/// of some other journal from fencing it and appending disk records over content it
+/// cannot read.
+pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
+
+/// Label naming a disk journal's recovery floor: the offset of the earliest record
+/// a replay must read to rebuild the disk.
+///
+/// This sits in Gazette's own `app.gazette.dev` label namespace rather than an
+/// Estuary one, because it describes a journal rather than anything of Flow's, and
+/// because this daemon serves any Gazette cluster. Gazette does not define the name
+/// today; Flow's `labels` crate does, because `labels::is_data_plane_label` must
+/// name it so that a control-plane activation preserves it rather than rebuilding
+/// it away. It is re-exported here so that a client of a disk need not depend on
+/// Flow's label vocabulary to find the floor.
+pub const DISK_RECOVERY_FLOOR: &str = labels::DISK_RECOVERY_FLOOR;
+
+/// Format `offset` as a [`DISK_RECOVERY_FLOOR`] value: fixed-width, 16-character
+/// lowercase hex, so that comparing two values as strings compares the offsets they
+/// carry. The label is therefore advanced by a string comparison, and only ever
+/// moves forward.
+pub fn recovery_floor_value(offset: u64) -> String {
+    format!("{offset:016x}")
+}
+
+/// Parse a [`DISK_RECOVERY_FLOOR`] value back into its journal offset.
+pub fn parse_recovery_floor(value: &str) -> std::result::Result<u64, std::num::ParseIntError> {
+    u64::from_str_radix(value, 16)
+}
+
+/// A failure whose cause names what the tenure stream must report.
+///
+/// The code a tenure ends with is the only part of a failure a client can act on,
+/// and it turns on why the tenure failed rather than on what the message says.
+/// This therefore travels as an error cause rather than as text, so it survives
+/// `anyhow::Context`. Everything the tenure stream does not find one of is the
+/// daemon, its host, or its brokers.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum Failure {
+    /// What the tenure asked for, rather than anything of this daemon's.
+    ///
+    /// A retry of an invalid request can never succeed, while a retry after a
+    /// broker outage or a lost fence can. [`tenure`] reports this as
+    /// `INVALID_ARGUMENT`.
+    #[error("{0}")]
+    Invalid(String),
+
+    /// A request which is well-formed, but out of turn for what the tenure owes.
+    ///
+    /// A second `Prepare` before its `Acknowledge`, an `Acknowledge` with nothing
+    /// prepared, or an `Acknowledge` of bytes no `Prepare` returned, is a client
+    /// which lost track of the delta it owes. No retry of it can succeed, but
+    /// nothing about the request itself is wrong, so [`tenure`] reports this as
+    /// `FAILED_PRECONDITION` rather than `INVALID_ARGUMENT`.
+    #[error("{0}")]
+    OutOfOrder(String),
+
+    /// The tenure's cancellation token fired while a request's work was in flight.
+    ///
+    /// Under a request that can only be the daemon draining. The token is also
+    /// cancelled once a tenure is over, but nothing of the client's is in flight
+    /// then. The disk may be served by another host, so [`tenure`] reports this as
+    /// `UNAVAILABLE` — the same code a drain observed between requests already gets.
+    #[error("{0}")]
+    Ended(String),
+}
+
+/// `anyhow::ensure!` for a rule a tenure broke. A validator states each rule in
+/// one place, and the tenure stream reports the right code for it.
+macro_rules! ensure_valid {
+    ($condition:expr, $($message:tt)*) => {
+        if !$condition {
+            return Err(::anyhow::Error::new($crate::Failure::Invalid(format!(
+                $($message)*
+            ))));
+        }
+    };
+}
+
+pub(crate) use ensure_valid;
