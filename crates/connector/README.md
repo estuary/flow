@@ -67,7 +67,7 @@ src/
 ├── router.rs     # ServiceRouter and the local bearer issuer
 ├── serve.rs      # per-stream: authn/authz, extract, start, pump, teardown
 ├── protocol.rs   # Protocol trait, StartContext, and the one start pipeline
-├── policy.rs     # pure product policy: image admission, usage, safe logs
+├── policy.rs     # pure product policy: image/secret admission, usage, safe logs
 ├── image.rs      # Estuary image declarations and image-endpoint connection
 ├── capture.rs    # Protocol impl: capture endpoints and RPC
 ├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
