@@ -19,6 +19,14 @@ pub const KEY_END: &str = "estuary.dev/key-end";
 pub const KEY_END_MAX: &str = "ffffffff";
 pub const MANAGED_BY_FLOW: &str = "estuary.dev/flow";
 pub const TRUNCATED_AT: &str = "estuary.dev/truncated-at";
+/// Recovery floor of a journal-backed disk: the offset of the earliest record a
+/// replay must read to rebuild it.
+///
+/// The disk daemon applies it to live disk journals, as the capture runtime
+/// applies `TRUNCATED_AT`, so `is_data_plane_label` below names it and a
+/// control-plane activation preserves it rather than rebuilding it away. The
+/// daemon re-exports it beside the other constants a client of a disk needs.
+pub const DISK_RECOVERY_FLOOR: &str = "estuary.dev/disk-recovery-floor";
 
 // ShardSpec labels.
 pub const TASK_NAME: &str = "estuary.dev/task-name";
@@ -193,11 +201,11 @@ pub fn is_data_plane_label(label: &str) -> bool {
     }
     match label {
         // Labels the data-plane runtime applies to live journals/shards — key,
-        // r-clock, and shard splits, cordoning, and the backfill truncation
-        // boundary — which activation and partition splits must preserve rather
-        // than rebuild away.
-        CORDON | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET
-        | TRUNCATED_AT => true,
+        // r-clock, and shard splits, cordoning, the backfill truncation
+        // boundary, and a disk journal's recovery floor — which activation and
+        // partition splits must preserve rather than rebuild away.
+        CORDON | DISK_RECOVERY_FLOOR | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END
+        | SPLIT_SOURCE | SPLIT_TARGET | TRUNCATED_AT => true,
         _ => false,
     }
 }
