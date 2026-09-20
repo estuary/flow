@@ -1,8 +1,8 @@
-use futures::StreamExt;
 use proto_gazette::broker;
 use std::sync::Arc;
 
 /// An Appender manages a pipeline of sequential appends directed to a single journal.
+/// Dropping it aborts pending appends.
 pub struct Appender {
     /// A buffer of data which is to be appended. Clients directly mutate `buffer`,
     /// encoding data as they see fit, and call `checkpoint()` at message boundaries.
@@ -32,7 +32,8 @@ type UpdateFn = Box<
     dyn FnMut(
             tonic::Result<(broker::AppendResponse, usize)>,
         ) -> Option<tokens::WaitForCancellationFutureOwned>
-        + Send,
+        + Send
+        + Sync,
 >;
 
 enum AppendState {
@@ -48,7 +49,11 @@ enum AppendState {
 
 impl Appender {
     /// Build a new Appender for the given journal and client.
-    pub fn new(client: gazette::journal::Client, journal: String) -> Self {
+    pub fn new(
+        client: gazette::journal::Client,
+        journal: String,
+        check_registers: Option<broker::LabelSelector>,
+    ) -> Self {
         let (watch, update) = tokens::manual::<(broker::AppendResponse, usize)>();
         let mut update: UpdateFn = Box::new(update);
 
@@ -63,7 +68,7 @@ impl Appender {
             buffer: bytes::BytesMut::new(),
             watch,
             state: AppendState::Idle(update),
-            check_registers: None,
+            check_registers: check_registers.map(Box::new),
             delayed_chunks: 0,
             total_chunks: 0,
         }
@@ -77,6 +82,8 @@ impl Appender {
     /// Checkpoint is called after one or more complete messages have been encoded
     /// into `buffer`. It may start a background append, or it may block until a
     /// currently-running append completes if `buffer` is large.
+    ///
+    /// Whole messages can carry `buffer` beyond the flush threshold.
     ///
     /// Appender guarantees that the entire contents of `buffer` will land
     /// atomically in the journal (all or nothing).
@@ -94,6 +101,10 @@ impl Appender {
     /// Barrier returns a future that resolves when the contents of `buffer`
     /// and all prior appends have completed, returning success or failure.
     ///
+    /// It resolves to the response of the append which satisfied it, as Go's
+    /// AsyncAppend yields its response once it's Done, so that a caller which
+    /// flushes behind a barrier learns the offsets its own writes landed at.
+    ///
     /// Note that barrier() does not itself spawn a background RPC and
     /// provides no guarantee that the returned Future will ever resolve.
     /// The caller must continue to drive the Appender via checkpoint(),
@@ -102,9 +113,15 @@ impl Appender {
     /// Barriers are useful as a share-able synchronization point that
     /// gates a task that cannot begin until the barrier has resolved
     /// (e.x. writing ACKs only after a durable write-ahead log commit).
+    ///
+    /// The watch holds only the latest response, so when several appends
+    /// complete between polls of the barrier, the response is that of the
+    /// append which satisfied it or of a later one. A caller which needs an
+    /// exact offset appends that record alone.
     pub fn barrier(
         &mut self,
-    ) -> impl std::future::Future<Output = tonic::Result<()>> + Send + Sync + 'static {
+    ) -> impl std::future::Future<Output = tonic::Result<broker::AppendResponse>> + Send + Sync + 'static
+    {
         self.barrier += 1;
 
         let target = self.barrier;
@@ -113,10 +130,10 @@ impl Appender {
         async move {
             loop {
                 let token = watch.token();
-                let (_response, barrier) = token.result()?;
+                let (response, barrier) = token.result()?;
 
                 if *barrier >= target {
-                    return Ok(());
+                    return Ok(response.clone());
                 }
                 () = token.expired().await;
             }
@@ -127,36 +144,34 @@ impl Appender {
     /// Then, if `buffer` is non-empty, start a new background Append RPC for it.
     /// On return `self.buffer` is empty.
     pub async fn start_flush(&mut self) -> tonic::Result<()> {
-        let mut update = match std::mem::replace(&mut self.state, AppendState::Empty) {
-            AppendState::InFlight(handle) => {
-                // Fold the completed append's throttle counts into our running totals
-                let (update, delayed_chunks, total_chunks) =
-                    handle.await.expect("append task panicked");
-                self.delayed_chunks += delayed_chunks;
-                self.total_chunks += total_chunks;
-                update
-            }
-            AppendState::Idle(update) => update,
-            AppendState::Empty => panic!("AppendState::Empty outside of start_flush"),
-        };
+        // Await in place so cancellation leaves the append joinable.
+        if let AppendState::InFlight(handle) = &mut self.state {
+            // Fold the completed append's throttle counts into our running totals
+            let (update, delayed_chunks, total_chunks) =
+                handle.await.expect("append task panicked");
+            self.delayed_chunks += delayed_chunks;
+            self.total_chunks += total_chunks;
+            self.state = AppendState::Idle(update);
+        }
 
         // Verify that all prior appends were successful.
         // An error is terminal: the Appender cannot make further progress.
         let token = self.watch.token();
-        let header = match token.result() {
-            Ok((last_response, _last_barrier)) => {
-                // Use the header of the last response to route our next one.
-                last_response.header.clone()
-            }
-            Err(err) => {
-                self.state = AppendState::Idle(update);
-                return Err(err);
-            }
-        };
+        let (last_response, last_barrier) = token.result()?;
 
         // If there's nothing further to append, bail out now.
         if self.buffer.is_empty() {
-            self.state = AppendState::Idle(update);
+            // Only a spawned append updates the watch, so an outstanding barrier
+            // would never resolve even though the appends it waits upon have all
+            // completed. Re-publish the last response under the current count.
+            if *last_barrier < self.barrier {
+                let response = last_response.clone();
+
+                let AppendState::Idle(update) = &mut self.state else {
+                    unreachable!("an in-flight append was joined above")
+                };
+                _ = update(Ok((response, self.barrier)));
+            }
             return Ok(());
         }
 
@@ -165,7 +180,7 @@ impl Appender {
         let client = self.client.clone();
 
         let request = proto_gazette::broker::AppendRequest {
-            header,
+            header: last_response.header.clone(),
             journal: self.journal.to_string(),
             check_registers: self.check_registers.as_ref().map(Box::as_ref).cloned(),
             ..Default::default()
@@ -182,41 +197,37 @@ impl Appender {
                 ))
             };
 
+        let AppendState::Idle(mut update) = std::mem::replace(&mut self.state, AppendState::Empty)
+        else {
+            unreachable!("an in-flight append was joined above")
+        };
+
         let handle = tokio::spawn(async move {
             let journal = request.journal.clone();
-            let stream = client.append(request, chunk_stream);
 
-            futures::pin_mut!(stream);
-            loop {
-                match stream.next().await {
-                    Some(Ok(response)) => {
-                        // Return this response's throttle counts for the join to fold in
-                        let (delayed_chunks, total_chunks) =
-                            (response.delayed_chunks, response.total_chunks);
-                        update(Ok((response, barrier)));
-                        return (update, delayed_chunks, total_chunks);
-                    }
-                    Some(Err(gazette::RetryError {
-                        attempt,
-                        inner: err,
-                    })) => {
-                        if err.is_transient() {
-                            tracing::warn!(?attempt, journal, %err, "append failed (will retry)");
-                        } else {
-                            let err = match err {
-                                gazette::Error::Grpc(status) => status,
-                                gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
-                                    tonic::Status::not_found(format!("journal {journal} not found"))
-                                }
-                                other => tonic::Status::internal(other.to_string()),
-                            };
-                            update(Err(err));
-                            return (update, 0, 0);
-                        }
-                    }
-                    None => unreachable!("append stream does not EOF without Ok response"),
+            let err = match client.append_once(request, chunk_stream).await {
+                Ok(response) => {
+                    // Return this response's throttle counts for the join to fold in
+                    let (delayed_chunks, total_chunks) =
+                        (response.delayed_chunks, response.total_chunks);
+                    update(Ok((response, barrier)));
+                    return (update, delayed_chunks, total_chunks);
                 }
-            }
+                Err(err) => err,
+            };
+
+            let mut status = match &err {
+                gazette::Error::Grpc(status) => status.clone(),
+                gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
+                    tonic::Status::not_found(format!("journal {journal} not found"))
+                }
+                other => tonic::Status::internal(other.to_string()),
+            };
+            // Preserve the original error so callers can classify the failure.
+            status.set_source(Arc::new(err));
+            update(Err(status));
+
+            (update, 0, 0)
         });
         self.state = AppendState::InFlight(handle);
 
@@ -242,6 +253,15 @@ impl Appender {
 
     /// Chunk size for streaming data to the broker during an append RPC.
     const CHUNK_SIZE: usize = 32 << 10; // 32 KB
+}
+
+impl Drop for Appender {
+    fn drop(&mut self) {
+        // Dropping a JoinHandle alone would detach its retry loop.
+        if let AppendState::InFlight(handle) = &self.state {
+            handle.abort();
+        }
+    }
 }
 
 /// A per-journal sample of append-throttle pressure observed over all of a
@@ -277,7 +297,7 @@ impl AppenderGroup {
             let appender = self
                 .idle
                 .remove(journal)
-                .unwrap_or_else(|| Appender::new(client.clone(), journal.to_string()));
+                .unwrap_or_else(|| Appender::new(client.clone(), journal.to_string(), None));
             self.active.insert(Box::from(journal), appender);
         }
         self.active.get_mut(journal).unwrap()
@@ -339,11 +359,12 @@ impl AppenderGroup {
 #[cfg(test)]
 mod test {
     use super::*;
+    use futures::FutureExt;
 
     /// Build an Appender whose watch can be driven externally via the returned UpdateFn.
-    /// The Appender's state is Empty (tests must never call start_flush()).
+    /// Its state is Empty until a test installs a task.
     fn test_appender(journal: &str) -> (Appender, UpdateFn) {
-        let mut appender = Appender::new(mock_journal_client(), journal.to_string());
+        let mut appender = Appender::new(mock_journal_client(), journal.to_string(), None);
 
         let AppendState::Idle(update) = std::mem::replace(&mut appender.state, AppendState::Empty)
         else {
@@ -495,6 +516,63 @@ mod test {
         // Subsequent barriers see the same error.
         let err = b2.await.unwrap_err();
         assert_eq!(err.code(), tonic::Code::Internal);
+    }
+
+    #[test]
+    fn test_barrier_yields_its_response() {
+        let (mut appender, mut update) = test_appender("test/journal");
+        let barrier = appender.barrier(); // target = 1
+
+        let expected = broker::AppendResponse {
+            commit: Some(broker::Fragment {
+                begin: 10,
+                end: 110,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        update(Ok((expected.clone(), 1)));
+        assert_eq!(barrier.now_or_never().unwrap().unwrap(), expected);
+
+        // An append which failed is terminal for later barriers, too.
+        update(Err(tonic::Status::internal("simulated failure")));
+        assert!(appender.barrier().now_or_never().unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_backpressure_cancellation_and_drop() {
+        let (mut appender, update) = test_appender("test/stalled");
+        let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let barrier = appender.barrier();
+
+        appender.state = AppendState::InFlight(tokio::spawn(async move {
+            let _stopped = stopped_tx;
+            () = futures::future::pending().await;
+            (update, 0, 0)
+        }));
+
+        let threshold = Appender::BUFFER_FLUSH_THRESHOLD;
+
+        appender.buffer.resize(threshold - 1, 0x11);
+        appender.checkpoint().now_or_never().unwrap().unwrap();
+
+        appender.buffer.resize(threshold, 0x11);
+        for _ in 0..2 {
+            assert!(appender.checkpoint().now_or_never().is_none());
+            assert!(appender.flush().now_or_never().is_none());
+            assert_eq!(appender.buffer.len(), threshold);
+            assert!(appender.buffer.iter().all(|byte| *byte == 0x11));
+        }
+
+        drop(appender);
+        tokio::time::timeout(std::time::Duration::from_secs(5), stopped_rx)
+            .await
+            .expect("dropping the appender did not stop its task")
+            .unwrap_err();
+
+        // The aborted append never completed, so nothing can satisfy its barrier.
+        assert!(barrier.now_or_never().is_none());
     }
 
     fn mock_journal_client() -> gazette::journal::Client {
