@@ -1,0 +1,222 @@
+[
+     {
+          "Id": "9e544cbf7d80edc92a2b9e8b1d5ec447d1e16d4e16e82c8bf77bc7407fece984",
+          "Digest": "sha256:c57faed797fce979d79ab84b76f7655b7d1b34a048fb1a9f518b2657e0ca54b7",
+          "RepoTags": [
+               "ghcr.io/estuary/source-http-ingest:dev"
+          ],
+          "RepoDigests": [
+               "ghcr.io/estuary/source-http-ingest@sha256:c57faed797fce979d79ab84b76f7655b7d1b34a048fb1a9f518b2657e0ca54b7"
+          ],
+          "Parent": "",
+          "Comment": "",
+          "Created": "2026-09-18T23:24:38.79323068Z",
+          "Config": {
+               "User": "nonroot:nonroot",
+               "ExposedPorts": {
+                    "8080/tcp": {}
+               },
+               "Env": [
+                    "PATH=/connector:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "GOMEMLIMIT=900MiB",
+                    "DOCS_URL=https://go.estuary.dev/source-http-ingest",
+                    "CONNECTOR_NAME=source-http-ingest"
+               ],
+               "Entrypoint": [
+                    "/connector/source-http-ingest"
+               ],
+               "WorkingDir": "/connector",
+               "Labels": {
+                    "CONNECTOR_PROTOCOL": "flow-capture",
+                    "FLOW_RUNTIME_CODEC": "json",
+                    "FLOW_RUNTIME_PROTOCOL": "capture",
+                    "dev.estuary.port-public.8080": "true",
+                    "org.opencontainers.image.revision": "262fcee1dab22b57a234e247f8b65b93a7bf0032"
+               }
+          },
+          "Version": "",
+          "Author": "",
+          "Architecture": "amd64",
+          "Os": "linux",
+          "Size": 165972762,
+          "VirtualSize": 165972762,
+          "GraphDriver": {
+               "Name": "overlay",
+               "Data": {
+                    "LowerDir": "/var/lib/containers/storage/overlay/60818622a6512da29a834c69dc3866b40fe1651ee9c25d73b0de6c388827fb15/diff:/var/lib/containers/storage/overlay/368954cab88ebb92f50df76b4db23c847b43b14c10298c4a3b578a081c3c9bd2/diff:/var/lib/containers/storage/overlay/8a76d390dda54c5dfc03378800ed194a74eea7b0a916f4b9a1c10c099512b46c/diff:/var/lib/containers/storage/overlay/1697785b3c6725ee993391960e3bad1e71a40724895bd6f583a0d654e70fe471/diff:/var/lib/containers/storage/overlay/d44a0787a9900c76d17d3178514e36c82171d16f00b189f422a5f0460fd1bf47/diff:/var/lib/containers/storage/overlay/51b6dfdb3d5dbddbaaae3f9fc5bd9b641a496dfe0dbea3b00bfcf1e62f19efd1/diff:/var/lib/containers/storage/overlay/48ef28b70aa81ad98d930b1053ff9110915e391a4c8413fe60d1910cf294dc01/diff:/var/lib/containers/storage/overlay/f80d9fda11ac910d2162b175dc318f15908b46338d3692a8978c7b5eac267de9/diff:/var/lib/containers/storage/overlay/411a86676185cb54d695a805b238194a64e9b77e0c723f3802fbb87d333ea0b3/diff",
+                    "UpperDir": "/var/lib/containers/storage/overlay/54957fec0e70a456b2a4c10048f809362c7e9a5b7b7bfd9a1186bf28320e4f39/diff",
+                    "WorkDir": "/var/lib/containers/storage/overlay/54957fec0e70a456b2a4c10048f809362c7e9a5b7b7bfd9a1186bf28320e4f39/work"
+               }
+          },
+          "RootFS": {
+               "Type": "layers",
+               "Layers": [
+                    "sha256:411a86676185cb54d695a805b238194a64e9b77e0c723f3802fbb87d333ea0b3",
+                    "sha256:523f0d78a46d7d400785dc0019a993c601d2af1cb466a078a3ce7a20ce079622",
+                    "sha256:ab6de9ed38131ea5df869917e0244e676db44901dfacfce1919ff6a6f3f10e72",
+                    "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                    "sha256:9b15a8aef2647fea0b2dc8da13a6914316867dc39cc8ba86ee0d64a1dadce359",
+                    "sha256:f63ee2be759ae12e415f64ac6e297096f8f02e5f6433861e9571b11abdc7ec11",
+                    "sha256:151f07c5471ecdd488f4a8e90ebf7e80e9c9f4a2632d527a6d5c7c190f0b7ff2",
+                    "sha256:c8350ffa03a566f8d3b0a899e042e558396aa9e60f5bcba61dee4c8ae7e14436",
+                    "sha256:8602a439610dbcd0d4dba2fd621640d7ba8e559e71d7479ae4e052c0a220b660",
+                    "sha256:fd749836ae3f2c0c211ffc7273fd899703bea1321766a7a5a53feac7fea8c1fc"
+               ]
+          },
+          "Labels": {
+               "CONNECTOR_PROTOCOL": "flow-capture",
+               "FLOW_RUNTIME_CODEC": "json",
+               "FLOW_RUNTIME_PROTOCOL": "capture",
+               "dev.estuary.port-public.8080": "true",
+               "org.opencontainers.image.revision": "262fcee1dab22b57a234e247f8b65b93a7bf0032"
+          },
+          "Annotations": {},
+          "ManifestType": "application/vnd.docker.distribution.manifest.v2+json",
+          "User": "nonroot:nonroot",
+          "History": [
+               {
+                    "created": "2026-08-24T00:00:00Z",
+                    "created_by": "# debian.sh --arch 'amd64' out/ 'trixie' '@1787529600'",
+                    "comment": "debuerreotype 0.17"
+               },
+               {
+                    "created": "2026-09-18T23:17:58.213422233Z",
+                    "created_by": "RUN /bin/sh -c apt-get update && apt-get install -y openssh-client ca-certificates curl tzdata tzdata-legacy # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:17:58.30977796Z",
+                    "created_by": "RUN /bin/sh -c useradd nonroot --create-home --shell /usr/sbin/nologin # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:17:58.364764935Z",
+                    "created_by": "RUN /bin/sh -c chown nonroot /home/nonroot # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:17:58.41919927Z",
+                    "created_by": "USER nonroot:nonroot",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:17:58.41919927Z",
+                    "created_by": "RUN /bin/sh -c mkdir /home/nonroot/.ssh # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:17:58.472279458Z",
+                    "created_by": "RUN /bin/sh -c chmod 700 /home/nonroot/.ssh # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:17:58.530102027Z",
+                    "created_by": "RUN /bin/sh -c chmod 755 /home/nonroot # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:17:58.530102027Z",
+                    "created_by": "ENV GOMEMLIMIT=900MiB",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:17:58.530102027Z",
+                    "created_by": "USER root",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:19:42.406138067Z",
+                    "created_by": "WORKDIR /connector",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:19:44.49549155Z",
+                    "created_by": "ENV PATH=/connector:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:19:44.49549155Z",
+                    "created_by": "COPY /bin/sh /bin/sh # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "COPY /connector/target/release/source-http-ingest ./ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "USER nonroot:nonroot",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "ENTRYPOINT [\"/connector/source-http-ingest\"]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "LABEL FLOW_RUNTIME_PROTOCOL=capture",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "LABEL FLOW_RUNTIME_CODEC=json",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "LABEL CONNECTOR_PROTOCOL=flow-capture",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "EXPOSE [8080/tcp]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "LABEL dev.estuary.port-public.8080=true",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "ARG DOCS_URL=https://go.estuary.dev/source-http-ingest",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "ENV DOCS_URL=https://go.estuary.dev/source-http-ingest",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "ARG CONNECTOR_NAME=source-http-ingest",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-18T23:24:38.79323068Z",
+                    "created_by": "ENV CONNECTOR_NAME=source-http-ingest",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               }
+          ],
+          "NamesHistory": [
+               "ghcr.io/estuary/source-http-ingest:dev"
+          ]
+     }
+]
