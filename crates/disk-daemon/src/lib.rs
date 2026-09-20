@@ -12,6 +12,7 @@
 //! The crate README is the durable design and operating record.
 
 pub mod args;
+pub mod client;
 pub mod daemon;
 
 mod bitmap;
