@@ -20,6 +20,7 @@
 //! That suite, in `tests/`, covers the daemon as a whole, over [`crate::client`] and
 //! its journals, and shares nothing with this.
 
+pub mod broker;
 pub mod device;
 
 /// Each allocated block of `image`, paired with the byte it is filled with: a

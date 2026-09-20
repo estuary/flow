@@ -223,7 +223,7 @@ pub(super) struct Pass {
     applied_chunks: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct Sequence {
     /// Clocks which [`uuid::sequence`] transitions.
     last_commit: uuid::Clock,
@@ -265,6 +265,25 @@ impl Pass {
     /// this pass elsewhere.
     pub(super) fn into_parts(self) -> (Buffer, Option<i64>, Option<Opened>) {
         (self.buffer, self.floor, self.horizon)
+    }
+
+    /// Whether an acknowledgement of `producer` at `clock` is one this pass can
+    /// honor: it commits the delta the pass holds, or it commits nothing. Any other
+    /// acknowledgement fails [`Pass::record`], and one which reaches the journal fails
+    /// every replay from then on, so a caller asks here before appending one.
+    pub(super) fn can_acknowledge(&self, producer: uuid::Producer, clock: uuid::Clock) -> bool {
+        let mut state = self.producers.get(&producer).copied().unwrap_or_default();
+
+        match uuid::sequence(
+            uuid::Flags::ACK_TXN,
+            clock,
+            &mut state.last_commit,
+            &mut state.max_continue,
+        ) {
+            Ok(uuid::SequenceOutcome::AckCommit) => self.open == Some(producer),
+            Ok(uuid::SequenceOutcome::AckEmpty | uuid::SequenceOutcome::AckDuplicate) => true,
+            _ => false,
+        }
     }
 
     /// Sequence `record`, which begins at `offset` and was framed as `framed`, and

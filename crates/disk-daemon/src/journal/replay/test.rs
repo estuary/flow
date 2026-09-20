@@ -487,7 +487,10 @@ fn test_a_displaced_delta_which_resumes_is_never_committed() {
 
     let (pass, _image, blocks) = replay(&dir, &displaced);
     assert_eq!(blocks, vec![(3, 0xbb)], "only the committed delta applied");
-
+    assert!(
+        !pass.can_acknowledge(a, clock(5)),
+        "a recovered acknowledgement of the fragment would be appended",
+    );
     let (held, _floor, _horizon) = pass.into_parts();
     assert!(held.is_empty(), "the fragment was held");
 
@@ -526,4 +529,33 @@ fn test_an_acknowledgement_which_rolls_back_is_rejected() {
         ],
     );
     assert!(err.contains("rolls back"), "{err}");
+}
+
+/// A recovered acknowledgement is appended only if a replay could honor it: it must
+/// commit the delta the pass holds, or commit nothing at all.
+#[test]
+fn test_which_acknowledgements_a_pass_can_honor() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (producer(0x10), producer(0x30));
+
+    // Nothing is sequenced, so any acknowledgement commits nothing.
+    let (pass, _image, _blocks) = replay(&dir, &[]);
+    assert!(pass.can_acknowledge(a, clock(5)));
+
+    // A delta of `a` is held. Its acknowledgement commits it, one at or below its
+    // last commit rolls back, and another producer's commits nothing.
+    let (pass, _image, _blocks) = replay(
+        &dir,
+        &[write(a, 1, 2, 0xaa), ack(a, 2), write(a, 3, 3, 0xbb)],
+    );
+    assert!(pass.can_acknowledge(a, clock(3)));
+    assert!(pass.can_acknowledge(a, clock(4)));
+    assert!(!pass.can_acknowledge(a, clock(2)));
+    assert!(!pass.can_acknowledge(a, clock(1)));
+    assert!(pass.can_acknowledge(b, clock(9)));
+
+    // `b` displaced the delta of `a`, whose acknowledgement can no longer be honored.
+    let (pass, _image, _blocks) = replay(&dir, &[write(a, 1, 2, 0xaa), write(b, 2, 3, 0xbb)]);
+    assert!(!pass.can_acknowledge(a, clock(3)));
+    assert!(pass.can_acknowledge(b, clock(3)));
 }
