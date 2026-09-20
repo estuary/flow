@@ -357,34 +357,31 @@ fn inline_config(
     imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
-    match serde_json::from_str::<&str>(config.get()) {
-        Ok(import) if !import.chars().any(char::is_whitespace) => {
-            let scope = scope.flatten();
-            let resource = scope.join(import).unwrap();
+    let Some(import) = config.as_import_url() else {
+        return;
+    };
+    let scope = scope.flatten();
+    let resource = scope.join(import).unwrap();
 
-            if let Some(resource) = tables::Resource::fetch(resources, &resource) {
-                *config = resource.content_dom.clone();
+    if let Some(resource) = tables::Resource::fetch(resources, &resource) {
+        *config = resource.content_dom.clone();
 
-                // Remove the associated import.
-                let rng = imports.equal_range_by(|import| {
-                    import
-                        .scope
-                        .cmp(&scope)
-                        .then(import.to_resource.cmp(&resource.resource))
-                });
-                assert_eq!(
-                    rng.end - rng.start,
-                    1,
-                    "expected exactly one import from config scope {scope}"
-                );
-                imports.drain(rng);
-            } else {
-                // We failed to load the named resource. Replace with the absolute URL
-                // that we *would* have loaded if we could.
-                *config =
-                    models::RawValue::from_string(serde_json::json!(resource).to_string()).unwrap();
-            }
-        }
-        _ => {}
+        // Remove the associated import.
+        let rng = imports.equal_range_by(|import| {
+            import
+                .scope
+                .cmp(&scope)
+                .then(import.to_resource.cmp(&resource.resource))
+        });
+        assert_eq!(
+            rng.end - rng.start,
+            1,
+            "expected exactly one import from config scope {scope}"
+        );
+        imports.drain(rng);
+    } else {
+        // We failed to load the named resource. Replace with the absolute URL
+        // that we *would* have loaded if we could.
+        *config = models::RawValue::from_string(serde_json::json!(resource).to_string()).unwrap();
     }
 }

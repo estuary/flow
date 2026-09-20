@@ -1,0 +1,62 @@
+---
+source: crates/sources/src/lib.rs
+expression: "(formats, dom_paths)"
+---
+(
+    [
+        (
+            "file:///project/flow.json",
+            "json",
+        ),
+        (
+            "file:///project/flow.JSON",
+            "json",
+        ),
+        (
+            "file:///project/flow.json#/collections/acmeCo~1orders/schema",
+            "json",
+        ),
+        (
+            "file:///project/flow.yaml#/collections/acmeCo~1orders.json",
+            "yaml",
+        ),
+        (
+            "file:///project/flow.yaml",
+            "yaml",
+        ),
+        (
+            "file:///project/notjson",
+            "yaml",
+        ),
+    ],
+    [
+        (
+            "data/regions.json",
+            true,
+        ),
+        (
+            "data/regions.JSON",
+            true,
+        ),
+        (
+            "data/config.yaml",
+            true,
+        ),
+        (
+            "data/config.yml",
+            true,
+        ),
+        (
+            "data/notjson",
+            false,
+        ),
+        (
+            "data.json/notes.txt",
+            false,
+        ),
+        (
+            "lib/geo.py",
+            false,
+        ),
+    ],
+)

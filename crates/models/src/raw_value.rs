@@ -47,6 +47,17 @@ impl RawValue {
         }
         serde_json::from_str::<Sniff>(self.get()).is_ok()
     }
+
+    /// Return this value as an import URL, if it's a non-empty
+    /// JSON string without whitespace.
+    pub fn as_import_url(&self) -> Option<&str> {
+        match serde_json::from_str::<&str>(self.get()) {
+            Ok(import) if !import.is_empty() && !import.chars().any(char::is_whitespace) => {
+                Some(import)
+            }
+            _ => None,
+        }
+    }
 }
 
 impl<'de> serde::Deserialize<'de> for RawValue {

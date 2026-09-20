@@ -1,0 +1,64 @@
+test://example/catalog.yaml:
+  import:
+    - nested/flow.json
+  captures:
+    # Specs of a YAML catalog are indirected into YAML resources.
+    acmeCo/yaml-capture:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            bucket: a-bucket-name-which-is-long-enough
+      bindings: []
+
+# Specs of a JSON catalog are indirected into JSON resources,
+# except for SQL which is always indirected as a text resource.
+test://example/nested/flow.json:
+  captures:
+    acmeCo/json-capture:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            bucket: a-bucket-name-which-is-long-enough
+      bindings:
+        - target: acmeCo/collection
+          resource: { stream: "a-stream-name-which-is-long-enough" }
+
+  collections:
+    acmeCo/collection:
+      schema:
+        type: object
+        properties: { key: { type: string } }
+      key: [/key]
+
+    acmeCo/derivation:
+      schema:
+        type: object
+        properties: { key: { type: string } }
+      key: [/key]
+      derive:
+        using:
+          sqlite: {}
+        transforms:
+          - name: fromCollection
+            source: acmeCo/collection
+            shuffle: any
+            lambda: select 'a long string which makes this a larger lambda';
+
+  materializations:
+    acmeCo/json-materialization:
+      endpoint:
+        connector:
+          image: an/image
+          config:
+            table_prefix: a-table-prefix-which-is-long-enough
+      bindings:
+        - source: acmeCo/collection
+          resource: { table: "a-table-name-which-is-long-enough" }
+
+  tests:
+    acmeCo/json-test:
+      - ingest:
+          collection: acmeCo/collection
+          documents: [{ "key": "a-key-which-is-long-enough" }]
