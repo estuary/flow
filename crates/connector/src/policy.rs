@@ -1,10 +1,14 @@
 //! Pure product-policy decisions applied at connector boundaries.
 
+use std::collections::BTreeMap;
+
 /// Policy established from an image reference before registry I/O.
 #[derive(Debug, Clone)]
 pub(crate) struct Image {
     /// Full image, including tag or digest (ghcr.io/estuary/source-foobar:v6)
     image: String,
+    /// Image repository (ghcr.io/estuary/source-foobar)
+    repository: String,
     /// Is this an Estuary first-party connector?
     first_party: bool,
 }
@@ -35,8 +39,13 @@ impl Image {
 
         Ok(Self {
             image: image.to_string(),
+            repository,
             first_party,
         })
+    }
+
+    pub(crate) fn repository(&self) -> &str {
+        &self.repository
     }
 
     pub(crate) fn usage_rate(
@@ -76,6 +85,101 @@ impl Image {
             },
         })
     }
+}
+
+/// Attribution under which secrets are being decrypted.
+pub(crate) enum SecretIdentity<'a> {
+    /// Image contexts may decrypt declared secrets by image label, each at
+    /// the configuration location the image declares for it.
+    Image {
+        image: &'a str,
+        repository: &'a str,
+        declared: &'a BTreeMap<String, String>,
+    },
+    /// Non-image context are restricted to sibling secrets.
+    NoImage,
+}
+
+/// Check the `secrets` stanza of a task, as (secret name, JSON pointer) pairs,
+/// against the identity of its connector.
+///
+/// A sibling secret may be merged wherever the task chooses. An image-owned
+/// secret must be merged exactly where its image declares: the secret belongs
+/// to the image's vendor and is shared by every task of that connector, so the
+/// task author mustn't be able to redirect it into a location (a host, a URL,
+/// a field echoed into logs) through which it would leave the connector.
+pub(crate) fn check_secrets<'a>(
+    task_name: &str,
+    stanza: impl IntoIterator<Item = (&'a str, &'a str)>,
+    identity: SecretIdentity<'_>,
+) -> anyhow::Result<()> {
+    let no_declarations = BTreeMap::new();
+    let (image, declared) = match identity {
+        SecretIdentity::Image {
+            image,
+            repository,
+            declared,
+        } => {
+            if !declared.is_empty()
+                && repository
+                    .split('/')
+                    .any(|component| component == models::IMAGE_SECRET_SEPARATOR)
+            {
+                anyhow::bail!(
+                    "image '{image}' repository contains the reserved '{}' component and cannot declare image-owned secrets",
+                    models::IMAGE_SECRET_SEPARATOR,
+                );
+            }
+            for secret in declared.keys() {
+                if !models::image_owns_secret(secret, repository) {
+                    anyhow::bail!(
+                        "image '{image}' declares secret '{secret}' in its '{}' label, \
+                         but the image rule cannot admit it: a declared secret must be named \
+                         <prefix>/connectors/{repository}/<leaf>",
+                        crate::image::SECRETS_LABEL,
+                    );
+                }
+            }
+            (Some(image), declared)
+        }
+        SecretIdentity::NoImage => (None, &no_declarations),
+    };
+
+    let task_prefix = parent_prefix(task_name).unwrap_or("");
+    for (secret, pointer) in stanza {
+        if parent_prefix(secret).unwrap_or("") == task_prefix {
+            continue;
+        }
+        let Some(image) = image else {
+            anyhow::bail!(
+                "task '{task_name}' uses secret '{secret}', which is not a sibling of the task \
+                 (under '{task_prefix}'). A connector which runs without an image can use only \
+                 sibling secrets, as it has no image identity under which to be granted others"
+            );
+        };
+        match declared.get(secret) {
+            Some(declared_pointer) if declared_pointer == pointer => {}
+            Some(declared_pointer) => anyhow::bail!(
+                "task '{task_name}' merges image-owned secret '{secret}' at configuration \
+                 location '{pointer}', but image '{image}' declares it for location \
+                 '{declared_pointer}' in its '{}' label: an image-owned secret may only be \
+                 merged where its image declares",
+                crate::image::SECRETS_LABEL,
+            ),
+            None => anyhow::bail!(
+                "task '{task_name}' uses secret '{secret}', which is neither a sibling of the task \
+                 (under '{task_prefix}') nor declared by image '{image}' in its '{}' \
+                 label (which declares {:?})",
+                crate::image::SECRETS_LABEL,
+                declared.keys().collect::<Vec<_>>(),
+            ),
+        }
+    }
+    Ok(())
+}
+
+fn parent_prefix(name: &str) -> Option<&str> {
+    name.rfind('/').map(|index| &name[..index + 1])
 }
 
 pub(crate) fn local_connectors_allowed(plane: crate::Plane) -> bool {
@@ -165,9 +269,11 @@ pub(crate) fn token_restart_deadline(
 #[cfg(test)]
 mod test {
     use super::{
-        Image, check_connector_sqlite_vfs, check_remote_sqlite_vfs, sanitize_connector_log,
+        Image, SecretIdentity, check_connector_sqlite_vfs, check_remote_sqlite_vfs, check_secrets,
+        sanitize_connector_log,
     };
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     #[test]
     fn image_admission_and_usage_rate() {
@@ -280,6 +386,135 @@ mod test {
             "ghcr.io/estuary/derive-python-tools:v1",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn secret_admission() {
+        const REPOSITORY: &str = "ghcr.io/acmeVendor/source-widgets";
+        const IMAGE: &str = "ghcr.io/acmeVendor/source-widgets:v1";
+        const TASK: &str = "acmeCo/team/capture";
+        const IMAGE_RULE: &str =
+            "acmeVendor/oauth/connectors/ghcr.io/acmeVendor/source-widgets/oauth-client";
+
+        const SIBLING: (&str, &str) = ("acmeCo/team/password", "/password");
+        const BOUND: (&str, &str) = (IMAGE_RULE, "/credentials");
+
+        let cases: [(&str, &[(&str, &str)], &[(&str, &str)]); 12] = [
+            ("sibling only", &[SIBLING], &[]),
+            // A sibling belongs to the task, which may merge it anywhere.
+            ("sibling at the root", &[("acmeCo/team/password", "")], &[]),
+            ("declared image-rule secret", &[BOUND], &[BOUND]),
+            ("both kinds", &[SIBLING, BOUND], &[BOUND]),
+            ("declared but unused", &[SIBLING], &[BOUND]),
+            // The task names a declared secret, but would merge it at a
+            // location of its own choosing rather than the image's.
+            (
+                "declared, at another location",
+                &[(IMAGE_RULE, "/host")],
+                &[BOUND],
+            ),
+            (
+                "declares a non-admissible name",
+                &[],
+                &[("acmeCo/team/password", "/password")],
+            ),
+            (
+                "declares another image's secret",
+                &[],
+                &[(
+                    "acmeVendor/oauth/connectors/ghcr.io/acmeVendor/source-gadgets/oauth-client",
+                    "/credentials",
+                )],
+            ),
+            (
+                "repo is a grandparent",
+                &[],
+                &[(
+                    "acmeVendor/connectors/ghcr.io/acmeVendor/source-widgets/nested/leaf",
+                    "/credentials",
+                )],
+            ),
+            (
+                "no prefix above the repo",
+                &[],
+                &[(
+                    "connectors/ghcr.io/acmeVendor/source-widgets/oauth-client",
+                    "/credentials",
+                )],
+            ),
+            ("undeclared image-rule secret", &[BOUND], &[]),
+            (
+                "undeclared stranger",
+                &[("acmeCo/other-team/password", "/password")],
+                &[],
+            ),
+        ];
+        let outcomes: Vec<_> = cases
+            .into_iter()
+            .map(|(case, stanza, declared)| {
+                let declared: BTreeMap<String, String> = declared
+                    .iter()
+                    .map(|(name, pointer)| (name.to_string(), pointer.to_string()))
+                    .collect();
+                (
+                    case,
+                    check_secrets(
+                        TASK,
+                        stanza.iter().copied(),
+                        SecretIdentity::Image {
+                            image: IMAGE,
+                            repository: REPOSITORY,
+                            declared: &declared,
+                        },
+                    )
+                    .map_err(|err| format!("{err:#}")),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!(outcomes);
+
+        let declared = BTreeMap::from([(
+            "vendor/connectors/registry.vendor.test/connectors/registry.attacker.test/source/client"
+                .to_string(),
+            "/credentials".to_string(),
+        )]);
+        let err = check_secrets(
+            TASK,
+            std::iter::empty(),
+            SecretIdentity::Image {
+                image: "registry.vendor.test/connectors/registry.attacker.test/source:v1",
+                repository: "registry.vendor.test/connectors/registry.attacker.test/source",
+                declared: &declared,
+            },
+        )
+        .unwrap_err();
+        insta::assert_snapshot!(format!("{err:#}"), @"image 'registry.vendor.test/connectors/registry.attacker.test/source:v1' repository contains the reserved 'connectors' component and cannot declare image-owned secrets");
+    }
+
+    #[test]
+    fn no_image_secret_admission() {
+        check_secrets(
+            "acmeCo/team/capture",
+            [("acmeCo/team/password", "/password")],
+            SecretIdentity::NoImage,
+        )
+        .unwrap();
+        insta::assert_snapshot!(
+            format!(
+                "{:#}",
+                check_secrets(
+                    "acmeCo/team/capture",
+                    [
+                        ("acmeCo/team/password", "/password"),
+                        ("acmeCo/other/password", "/password"),
+                    ],
+                    SecretIdentity::NoImage,
+                )
+                .unwrap_err()
+            ),
+            @"task 'acmeCo/team/capture' uses secret 'acmeCo/other/password', which is not a sibling of the task (under 'acmeCo/team/'). A connector which runs without an image can use only sibling secrets, as it has no image identity under which to be granted others"
+        );
     }
 
     #[test]

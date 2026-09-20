@@ -170,3 +170,6 @@ pub(crate) fn json_field(value: &impl serde::Serialize) -> bytes::Bytes {
 pub(crate) fn invalid_argument(message: String) -> anyhow::Error {
     proto_grpc::status_to_anyhow(tonic::Status::invalid_argument(message))
 }
+
+static EMPTY_SECRETS: std::collections::BTreeMap<String, String> =
+    std::collections::BTreeMap::new();

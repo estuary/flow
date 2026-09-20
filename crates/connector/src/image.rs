@@ -6,7 +6,7 @@
 use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::flow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Required image label selecting the connector protocol spoken at runtime.
 const RUNTIME_PROTO_LABEL: &str = "FLOW_RUNTIME_PROTOCOL";
@@ -16,6 +16,10 @@ pub(crate) const USAGE_RATE_LABEL: &str = "dev.estuary.usage-rate";
 const PORT_PUBLIC_LABEL_PREFIX: &str = "dev.estuary.port-public.";
 /// Prefix of per-port labels describing the application protocol being exposed.
 const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
+/// Optional image label declaring the non-sibling secrets the connector may
+/// access: a JSON object mapping each secret name to the JSON pointer of the
+/// endpoint configuration location where it must be merged.
+pub(crate) const SECRETS_LABEL: &str = "dev.estuary.secrets";
 
 /// Estuary declarations carried by an inspected connector image.
 #[derive(Debug, serde::Serialize)]
@@ -26,6 +30,8 @@ struct Declarations {
     pub network_ports: Vec<flow::NetworkPort>,
     /// A rate declared by the image. [`crate::policy`] decides whether it is trusted.
     pub declared_usage_rate: Option<f32>,
+    /// Declared image-owned secrets, and the location each must merge at.
+    pub secrets: BTreeMap<String, String>,
 }
 
 impl Declarations {
@@ -88,6 +94,7 @@ impl Declarations {
             codec: inspected.runtime_codec(),
             network_ports,
             declared_usage_rate,
+            secrets: parse_secrets_label(labels.get(SECRETS_LABEL).map(String::as_str))?,
         })
     }
 }
@@ -98,6 +105,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     image: String,
     sealed_config: models::RawValue,
     policy: &crate::policy::Image,
+    secrets: &std::collections::BTreeMap<String, String>,
     connector_type: i32,   // TODO(johnny): remove with V1 derivations.
     spec_on_own_rpc: bool, // TODO(johnny): remove.
     requests: futures::stream::BoxStream<'static, P::Request>,
@@ -108,6 +116,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         declared_usage_rate,
         network_ports,
         runtime_protocol,
+        secrets: declared_secrets,
     } = Declarations::parse(&inspected.inspection)?;
 
     if !matches!(
@@ -125,6 +134,17 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         );
     }
 
+    crate::policy::check_secrets(
+        &ctx.task_name,
+        secrets
+            .iter()
+            .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
+        crate::policy::SecretIdentity::Image {
+            image: &image,
+            repository: policy.repository(),
+            declared: &declared_secrets,
+        },
+    )?;
     let usage_rate = policy.usage_rate(runtime_protocol, declared_usage_rate)?;
 
     let labels = BTreeMap::from([
@@ -186,9 +206,40 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     })
 }
 
+/// Parse the secrets declaration of an image: a JSON object of secret catalog
+/// names to JSON pointers, like the `secrets` stanza of a task. A blank label
+/// declares nothing, as Docker offers no way to remove a label inherited from a
+/// base image other than overriding it.
+fn parse_secrets_label(label: Option<&str>) -> anyhow::Result<BTreeMap<String, String>> {
+    let Some(label) = label.map(str::trim).filter(|label| !label.is_empty()) else {
+        return Ok(BTreeMap::new());
+    };
+
+    let declared: BTreeMap<models::Secret, models::JsonPointer> = serde_json::from_str(label)
+        .with_context(|| {
+            format!(
+                "image label '{SECRETS_LABEL}' must be a JSON object of secret names to JSON pointers: {label:?}"
+            )
+        })?;
+
+    declared
+        .into_iter()
+        .map(|(name, pointer)| {
+            // `err` renders as ": {value} doesn't match pattern ...", restating the value.
+            if let Err(err) = validator::Validate::validate(&name) {
+                anyhow::bail!("image label '{SECRETS_LABEL}' has an invalid secret name{err}");
+            }
+            if let Err(err) = validator::Validate::validate(&pointer) {
+                anyhow::bail!("image label '{SECRETS_LABEL}' has an invalid JSON pointer{err}");
+            }
+            Ok((name.into(), pointer.into()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod test {
-    use super::Declarations;
+    use super::{Declarations, parse_secrets_label};
     use proto_flow::flow;
     use serde_json::json;
 
@@ -206,7 +257,8 @@ mod test {
                     "FLOW_RUNTIME_PROTOCOL": "derive",
                     "dev.estuary.port-public.567": "true",
                     "dev.estuary.port-proto.789": "h2",
-                    "dev.estuary.usage-rate": "1.3"
+                    "dev.estuary.usage-rate": "1.3",
+                    "dev.estuary.secrets": r#" {"acmeVendor/oauth/connectors/ghcr.io/acmeVendor/source-widgets/oauth-client": "/credentials", "acmeVendor/other": ""} "#
                 }
             }
         }]);
@@ -232,6 +284,43 @@ mod test {
         );
         assert_eq!(Some(1.3), declarations.declared_usage_rate);
         assert_eq!(connector_init::Codec::Json, declarations.codec);
+        insta::assert_debug_snapshot!(declarations.secrets, @r###"
+        {
+            "acmeVendor/oauth/connectors/ghcr.io/acmeVendor/source-widgets/oauth-client": "/credentials",
+            "acmeVendor/other": "",
+        }
+        "###);
+    }
+
+    #[test]
+    fn parses_secrets_declaration() {
+        let cases = [
+            None,
+            Some(""),
+            Some("   "),
+            Some("{}"),
+            Some(r#"{"acmeCo/one": "/credentials"}"#),
+            Some(r#" {"acmeCo/one": "/credentials", "acmeCo/two": ""} "#),
+            // Two secrets may merge at one location.
+            Some(r#"{"acmeCo/one": "/credentials", "acmeCo/two": "/credentials"}"#),
+            // The former comma-delimited form of names alone.
+            Some("acmeCo/one,acmeCo/two"),
+            Some(r#"["acmeCo/one"]"#),
+            Some(r#"{"acmeCo/one": 42}"#),
+            Some(r#"{"acmeCo/bad name": "/credentials"}"#),
+            Some(r#"{"acmeCo/one": "credentials"}"#),
+        ];
+        let outcomes: Vec<_> = cases
+            .into_iter()
+            .map(|label| {
+                (
+                    label,
+                    parse_secrets_label(label).map_err(|err| format!("{err:#}")),
+                )
+            })
+            .collect();
+
+        insta::assert_debug_snapshot!(outcomes);
     }
 
     #[test]

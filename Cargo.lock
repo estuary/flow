@@ -2076,6 +2076,7 @@ dependencies = [
  "tonic",
  "tracing",
  "unseal",
+ "validator",
  "zeroize",
 ]
 

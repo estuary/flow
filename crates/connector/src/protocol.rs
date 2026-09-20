@@ -100,6 +100,9 @@ pub(crate) struct Extracted<'r, P: Protocol> {
     /// the sealed configuration during startup.
     /// Present only on `Open` of protocols which have this field.
     pub initial_sealed_config_slot: Option<&'r mut bytes::Bytes>,
+    /// Secrets of the task. Keys are catalog names of secrets,
+    /// while values are JSON pointers into the endpoint config.
+    pub secrets: &'r std::collections::BTreeMap<String, String>,
 }
 
 /// Normalized endpoint: the three ways a connector is run.
@@ -130,6 +133,7 @@ pub(crate) async fn start<P: Protocol>(
         endpoint,
         initial_config_slot,
         initial_sealed_config_slot,
+        secrets,
     } = P::extract_endpoint(&mut initial, sqlite_vfs_uri)?;
 
     // TODO(johnny): This bit of ugliness is to support frozen
@@ -177,6 +181,7 @@ pub(crate) async fn start<P: Protocol>(
                 image,
                 sealed_config,
                 image_policy.as_ref().unwrap(),
+                secrets,
                 connector_type,
                 spec_on_own_rpc,
                 requests,
@@ -194,7 +199,7 @@ pub(crate) async fn start<P: Protocol>(
             sealed_config,
             spec: None,
         }),
-        Endpoint::Local { config } => connect_local::<P>(&ctx, config, requests),
+        Endpoint::Local { config } => connect_local::<P>(&ctx, config, secrets, requests),
     }?;
 
     let codec = match codec {
@@ -276,6 +281,7 @@ fn connect_local<P: Protocol>(
         env,
         protobuf,
     }: models::LocalConfig,
+    secrets: &std::collections::BTreeMap<String, String>,
     requests: BoxStream<'static, P::Request>,
 ) -> anyhow::Result<crate::Transport<P>> {
     if !crate::policy::local_connectors_allowed(ctx.plane) {
@@ -284,6 +290,14 @@ fn connect_local<P: Protocol>(
         )
         .into());
     }
+
+    crate::policy::check_secrets(
+        &ctx.task_name,
+        secrets
+            .iter()
+            .map(|(name, pointer)| (name.as_str(), pointer.as_str())),
+        crate::policy::SecretIdentity::NoImage,
+    )?;
 
     let codec = if protobuf {
         connector_init::Codec::Proto
