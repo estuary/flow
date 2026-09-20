@@ -8,6 +8,11 @@ serial-db-tests = { max-threads = 1 }
 # a bound leaves the allocator headroom that an unbounded fan-out would not.
 capped-shard-reconfiguration = { max-threads = 3 }
 
+# disk-daemon's privileged tests contend on the host-wide /dev/ublk-control. They
+# also assert that a scenario leaves no device node or mount behind, which holds only
+# when no other scenario is running.
+serial-ublk-tests = { max-threads = 1 }
+
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 # Exclude e2e tests from Dekaf by default because they require special setup.
@@ -76,6 +81,22 @@ test-group = 'serial-db-tests'
 [[profile.default.overrides]]
 filter = 'package(automations) and test(test_fibonacci_bench)'
 test-group = 'serial-db-tests'
+
+# disk-daemon's black-box suite. Every binary of it starts a data plane and runs the
+# daemon in a privileged child, and each works many disks, so they routinely run past
+# the default slow-timeout. Matched by kind rather than by name: a new scenario file
+# of that suite serves devices too, and must not be left out of the group by default.
+[[profile.default.overrides]]
+filter = 'package(disk-daemon) and kind(test)'
+test-group = 'serial-ublk-tests'
+slow-timeout = { period = "60s", terminate-after = 6 }
+
+# The crate's own device-backed cases, which serve a real device from a privileged
+# child of the lib test binary. They live in the modules they cover, so the filter
+# names the module every one of them is in.
+[[profile.default.overrides]]
+filter = 'package(disk-daemon) and test(/::device_test::/)'
+test-group = 'serial-ublk-tests'
 
 # This `server::` filter is overly broad, as not all the tests there actually
 # need the database. But I gave up on listing all the tests individually, as

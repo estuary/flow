@@ -14,10 +14,21 @@
 #![allow(dead_code)] // Until the tenure service assembles these modules.
 
 mod bitmap;
+mod capture;
 mod chunk;
+mod device;
+mod filesystem;
 mod horizon;
 mod image;
+mod inflight;
+mod owner;
 mod ublk;
+mod wake;
+
+/// Prerequisites of the crate's own tests: a real `ublk` device, and a real broker.
+/// The cases which use them live beside the code they cover.
+#[cfg(test)]
+mod test_support;
 
 /// Tenure and journal-record protocol messages, generated from
 /// `go/protocols/disk/disk.proto`.
