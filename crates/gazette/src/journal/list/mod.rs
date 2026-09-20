@@ -42,6 +42,25 @@ impl Client {
         self.list_with(req, FoldViaExtend(Default::default())).await
     }
 
+    /// Listing of `journal` by its exact name, or `None` where no such journal
+    /// exists. This is the counterpart of Go's `client.GetJournal`.
+    ///
+    /// The listing entry carries both the spec and its Etcd `mod_revision`, which is
+    /// what a conditioned Apply of that spec must apply against.
+    pub async fn get_journal(
+        &self,
+        journal: &str,
+    ) -> crate::Result<Option<broker::list_response::Journal>> {
+        let response = self
+            .list(broker::ListRequest {
+                selector: Some(super::name_selector(journal)),
+                ..Default::default()
+            })
+            .await?;
+
+        Ok(response.journals.into_iter().next())
+    }
+
     /// List journals that match the ListRequest, using a custom Fold.
     pub async fn list_with<F: Fold>(
         &self,

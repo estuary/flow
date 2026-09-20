@@ -289,22 +289,12 @@ async fn fetch_journal(
     client: &gazette::journal::Client,
     name: &str,
 ) -> (broker::JournalSpec, i64) {
-    let response = client
-        .list(broker::ListRequest {
-            selector: Some(broker::LabelSelector {
-                include: Some(labels::build_set([("name", name)])),
-                exclude: None,
-            }),
-            ..Default::default()
-        })
+    let journal = client
+        .get_journal(name)
         .await
-        .expect("list journal by name");
-
-    let journal = response
-        .journals
-        .into_iter()
-        .next()
+        .expect("list journal by name")
         .unwrap_or_else(|| panic!("journal {name} is not listed"));
+
     (
         journal.spec.expect("listed journal has spec"),
         journal.mod_revision,

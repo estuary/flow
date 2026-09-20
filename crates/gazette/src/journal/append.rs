@@ -48,6 +48,41 @@ impl Client {
         })
     }
 
+    /// Append `req` and return its response. This is the counterpart of Go's
+    /// `client.Append`.
+    ///
+    /// "Once" is one response rather than one attempt: this drives [`Client::append`]
+    /// to its first outcome, so a transient failure is retried indefinitely with that
+    /// stream's own backoff and cancellation is the caller's to arrange. `source` is
+    /// called once per attempt, so it must yield identical content each time.
+    ///
+    /// A request whose `source` yields no content is the zero-byte probe. It reads a
+    /// journal's write head and registers without changing either, because Gazette
+    /// applies register changes only to an append of at least one byte.
+    pub async fn append_once<S>(
+        &self,
+        req: broker::AppendRequest,
+        source: impl Fn() -> S + Send + Sync,
+    ) -> crate::Result<AppendResponse>
+    where
+        S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
+    {
+        let journal = req.journal.clone();
+        let stream = self.append(req, source);
+        futures::pin_mut!(stream);
+
+        loop {
+            match stream.next().await {
+                Some(Ok(response)) => return Ok(response),
+                Some(Err(crate::RetryError { attempt, inner })) if inner.is_transient() => {
+                    tracing::warn!(journal, attempt, %inner, "append failed (will retry)");
+                }
+                Some(Err(crate::RetryError { inner, .. })) => return Err(inner),
+                None => unreachable!("an append stream does not end without a response"),
+            }
+        }
+    }
+
     async fn try_append<S>(
         &self,
         metrics: Metrics,

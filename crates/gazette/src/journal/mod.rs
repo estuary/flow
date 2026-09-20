@@ -156,6 +156,26 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
+    /// Invoke the Gazette journal ListFragments API, paged to completion as Go's
+    /// `client.ListAllFragments` does.
+    ///
+    /// The listing is what a pruner of a fragment store works from.
+    pub async fn list_all_fragments(
+        &self,
+        mut req: broker::FragmentsRequest,
+    ) -> crate::Result<broker::FragmentsResponse> {
+        let mut all = self.list_fragments(req.clone()).await?;
+
+        while all.next_page_token != 0 {
+            req.next_page_token = all.next_page_token;
+
+            let mut next = self.list_fragments(req.clone()).await?;
+            all.fragments.append(&mut next.fragments);
+            all.next_page_token = next.next_page_token;
+        }
+        Ok(all)
+    }
+
     pub async fn fragment_store_health(
         &self,
         req: broker::FragmentStoreHealthRequest,
@@ -202,10 +222,40 @@ impl Client {
     }
 }
 
+/// Selector which matches exactly one journal. Gazette indexes a journal's own
+/// name as a label of its spec, so a name is selected as any other label is.
+pub(crate) fn name_selector(journal: &str) -> broker::LabelSelector {
+    broker::LabelSelector {
+        include: Some(broker::LabelSet {
+            labels: vec![broker::Label {
+                name: "name".to_string(),
+                value: journal.to_string(),
+                prefix: false,
+            }],
+        }),
+        exclude: None,
+    }
+}
+
 fn check_ok<R>(status: broker::Status, r: R) -> Result<R, crate::Error> {
     if status == broker::Status::Ok {
         Ok(r)
     } else {
         Err(crate::Error::BrokerStatus(status))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_a_name_selector_matches_exactly_one_journal() {
+        let selector = super::name_selector("acmeCo/journal");
+        let include = selector.include.expect("names are an include");
+
+        assert_eq!(include.labels.len(), 1);
+        assert_eq!(include.labels[0].name, "name");
+        assert_eq!(include.labels[0].value, "acmeCo/journal");
+        assert!(!include.labels[0].prefix);
+        assert_eq!(selector.exclude, None);
     }
 }
