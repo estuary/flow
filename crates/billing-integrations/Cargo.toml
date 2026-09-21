@@ -28,3 +28,6 @@ tracing-subscriber = { workspace = true }
 num-format = { workspace = true }
 itertools = { workspace = true }
 indicatif = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
