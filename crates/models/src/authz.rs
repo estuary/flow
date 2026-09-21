@@ -73,21 +73,9 @@ impl std::fmt::Display for Capability {
     }
 }
 
-/// The capability bundle has two functions:
-/// 1) These bundles are stored within the grant part of the database, and are
-/// used along side of the capability column to enable graph traversals. Beyond
-/// storage these things are expanded into capability bits in order to support
-/// a more fine grain access control between nodes of the role graph.
-/// 2) To provide the users with an interface for selecting capabilities that
-/// can be used as part of the capability mask feature.
-///
-/// This means that there are two representations of this, while there isn't
-/// really another way to do this currently, we are leveraging strum to provide
-/// access to parsing of the enum in pascal case and serde to provide parsing of
-/// this in snake case. The snake case lives within the database, while the
-/// external representation is accepted by the users. The only overlap these
-/// features have is during part of `Display`/`Debug` when the strum
-/// representation is printed.
+/// A stable, named bundle of capability bits. Grants and token capability
+/// masks name bundles rather than bits, so bits may be added, split, or
+/// merged without changing stored grants or minted tokens.
 #[derive(
     Clone,
     Copy,
