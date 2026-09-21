@@ -3,7 +3,7 @@ use billing_types::{
     InvoiceMetadata, InvoiceSearch, InvoiceType, PaymentProvider, SearchParams,
     customer_create_idempotency_key, customer_search_query, stripe_search, tenant_metadata,
 };
-use chrono::{Duration, ParseError, Utc};
+use chrono::{Duration, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -36,13 +36,13 @@ pub struct PublishInvoice {
     /// Generate invoices for all tenants that have bills in the provided month.
     #[clap(long, conflicts_with("tenants"))]
     all_tenants: bool,
-    /// The month to generate invoices for, in format "YYYY-MM-DD"
-    #[clap(long, value_parser = parse_date)]
+    /// The month to generate invoices for: YYYY-MM (also accepts YYYY-MM-01)
+    #[clap(long, value_parser = crate::parse_month)]
     month: NaiveDate,
-    /// Whether to recreate existing invoices: drafts are deleted and open
-    /// invoices are voided before the replacement is created.
-    #[clap(long)]
-    recreate_finalized: bool,
+    /// Recreate existing usage invoices: delete drafts or void open invoices.
+    /// Manual invoices are excluded; paid and uncollectible invoices are not replaced.
+    #[clap(long, alias = "recreate-finalized")]
+    recreate_existing: bool,
     /// Stop execution after first failure
     #[clap(long)]
     fail_fast: bool,
@@ -67,10 +67,6 @@ pub struct PublishInvoice {
     /// items.
     #[clap(long, default_value_t = false)]
     pub dry_run: bool,
-}
-
-fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
-    NaiveDate::parse_from_str(arg, "%Y-%m-%d")
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -168,7 +164,7 @@ enum InvoiceAction {
         result: InvoiceResult,
         customer: Option<stripe::Customer>,
     },
-    /// Create a new invoice. `replace` is set when --recreate-finalized
+    /// Create a new invoice. `replace` is set when --recreate-existing
     /// requires deleting an existing invoice first. `customer` is the customer
     /// found during classification, or None when none exists yet (execute then
     /// creates one).
@@ -237,7 +233,7 @@ impl Invoice {
         .await
         .context("Searching for an invoice")?;
 
-        // Prefer a live invoice over a voided one: after --recreate-finalized
+        // Prefer a live invoice over a voided one: after --recreate-existing
         // voids and recreates an invoice, both match this search, and
         // classification should act on the replacement. A voided invoice is
         // still returned when it's the only match, so that a voided manual
@@ -258,7 +254,7 @@ impl Invoice {
     async fn classify(
         &self,
         client: &stripe::Client,
-        recreate_finalized: bool,
+        recreate_existing: bool,
     ) -> anyhow::Result<InvoiceAction> {
         match (&self.invoice_type, &self.extra) {
             (InvoiceType::Preview, _) => {
@@ -350,11 +346,11 @@ impl Invoice {
             .await?
         {
             match invoice.status {
-                // Manual invoices are excluded from --recreate-finalized: an
+                // Manual invoices are excluded from --recreate-existing: an
                 // already-sent (open) manual invoice must not be voided and
                 // reissued, and a manual draft is refreshed via the Update arm below.
                 Some(stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft)
-                    if recreate_finalized && !matches!(self.invoice_type, InvoiceType::Manual) =>
+                    if recreate_existing && !matches!(self.invoice_type, InvoiceType::Manual) =>
                 {
                     Ok(InvoiceAction::Create {
                         replace: Some(invoice.id),
@@ -363,12 +359,12 @@ impl Invoice {
                 }
                 // A voided invoice can be neither deleted nor updated, so treat
                 // it as absent and create a fresh replacement. This also
-                // recovers a --recreate-finalized run that voided an open
+                // recovers a --recreate-existing run that voided an open
                 // invoice but failed before creating its replacement. Without
                 // the flag, the unsupported-state error below keeps a voided
                 // invoice loud rather than silently re-billing the tenant.
                 Some(stripe::InvoiceStatus::Void)
-                    if recreate_finalized && !matches!(self.invoice_type, InvoiceType::Manual) =>
+                    if recreate_existing && !matches!(self.invoice_type, InvoiceType::Manual) =>
                 {
                     tracing::warn!(
                         "Found voided invoice {id}; treating it as absent",
@@ -403,7 +399,7 @@ impl Invoice {
                 }
                 Some(stripe::InvoiceStatus::Open) => {
                     bail!(
-                        "Found open invoice {id}. Pass --recreate-finalized to void and recreate this invoice.",
+                        "Found open invoice {id}. Pass --recreate-existing to void and recreate this invoice.",
                         id = invoice.id.to_string()
                     )
                 }
@@ -494,7 +490,7 @@ impl Invoice {
         let date_start_repr = self.date_start.format("%F").to_string();
         let date_end_repr = self.date_end.format("%F").to_string();
 
-        // Remove the existing invoice if --recreate-finalized was used
+        // Remove the existing invoice if --recreate-existing was used
         if let Some(ref replace_id) = replace {
             // Re-verify the invoice status before removing it (guard against race conditions)
             let existing = stripe::Invoice::retrieve(client, replace_id, &[]).await?;
@@ -959,7 +955,7 @@ async fn process_invoice(
     invoice: &Invoice,
 ) -> anyhow::Result<InvoiceResult> {
     let action = invoice
-        .classify(client, cmd.recreate_finalized)
+        .classify(client, cmd.recreate_existing)
         .await
         .with_context(|| {
             format!(
