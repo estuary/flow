@@ -1964,10 +1964,7 @@ mod test {
             vec![&"acmeCo/", &"bobCo/shared/", &"carolCo/upstream/",],
         );
 
-        let subject_no_mask = authz::Subject {
-            user_id,
-            capability_mask: None,
-        };
+        let subject_no_mask = Subject::unrestricted(user_id);
         // Unmasked: every reached prefix surfaces. supportCo/ emits its bare
         // Assume bit, so it is non-empty and never a candidate for the skip;
         // that Assume bit is what carries the walk on to daveCo/, which
