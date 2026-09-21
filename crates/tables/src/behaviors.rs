@@ -130,6 +130,8 @@ impl super::UserGrant {
         user_grants: &'a [super::UserGrant],
         subject: &authz::Subject,
     ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
+        // Copy out what the walk needs so the returned iterator borrows only
+        // the grant tables, not `subject`.
         let user_id = subject.user_id;
         let seed = super::NodeRef {
             object_role: "",
