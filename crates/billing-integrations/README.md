@@ -11,7 +11,9 @@ Operator CLI for publishing control-plane bills to Stripe and approving collecti
   finalization. Usage drafts without a payment method can switch to Net 30 with
   operator approval. Failed switches are excluded from finalization; incorrectly
   configured manual drafts require republishing. A changed collection decision
-  after approval requires another send run.
+  after approval requires another send run. Per-invoice failures do not prevent
+  other invoices from completing, but cause the command to exit unsuccessfully.
+  Errors use structured logging so invoice context is retained in redirected output.
 - `stripe_utils.rs` wraps Stripe invoices for metadata access and operator tables.
 
 Both commands accept `--month YYYY-MM` or the legacy `YYYY-MM-01` form.

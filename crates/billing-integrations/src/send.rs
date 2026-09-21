@@ -3,7 +3,10 @@ use anyhow::Context;
 use billing_types::{InvoiceSearch, InvoiceType, StatusFilter};
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use clap::Args;
-use futures::stream::{self, StreamExt};
+use futures::{
+    TryFutureExt,
+    stream::{self, StreamExt},
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use num_format::{Locale, ToFormattedString};
@@ -143,10 +146,9 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
         draft_invoices.len()
     );
 
-    if !draft_invoices.is_empty() {
-        // 2a. Update collection methods for any drafts that need it
-        draft_invoices = update_draft_collection_methods(&stripe_client, draft_invoices).await?;
-    }
+    let selected_drafts = draft_invoices.len();
+    draft_invoices = update_draft_collection_methods(&stripe_client, draft_invoices).await?;
+    let mut failures = selected_drafts - draft_invoices.len();
 
     if !draft_invoices.is_empty() {
         print_invoice_table("Invoices to finalize", &draft_invoices);
@@ -154,17 +156,19 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
             .await?;
 
         // 2b. Move the draft invoices to the `open` state
-        finalized_invoices.append(&mut finalize_invoices(&stripe_client, draft_invoices).await?);
+        let selected = draft_invoices.len();
+        let mut finalized = finalize_invoices(&stripe_client, draft_invoices).await?;
+        failures += selected - finalized.len();
+        finalized_invoices.append(&mut finalized);
     }
 
     if finalized_invoices.is_empty() {
         tracing::info!("No invoices to send for {month_human_repr}");
-        return Ok(());
     }
 
     // 2c. Check for and fix auto_advance if flag is set
     if cmd.fix_auto_advance {
-        finalized_invoices = check_and_fix_auto_advance(&stripe_client, finalized_invoices).await?;
+        failures += check_and_fix_auto_advance(&stripe_client, &finalized_invoices).await?;
     }
 
     // 3. Show final status of invoices (auto-advance will handle charging automatically)
@@ -175,6 +179,10 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
             finalized_invoices.len()
         );
     }
+    anyhow::ensure!(
+        failures == 0,
+        "Failed to process {failures} invoice(s); review the errors above before retrying"
+    );
     Ok(())
 }
 
@@ -198,7 +206,8 @@ async fn update_draft_collection_methods(
                 current.status() == Some(stripe::InvoiceStatus::Draft),
                 "invoice is no longer a draft"
             );
-            let needs_update = collection_method_needs_update(&current)?;
+            let needs_update = collection_method_needs_update(&current)
+                .context("Invalid draft collection configuration; rerun publish-invoices")?;
             Ok::<_, anyhow::Error>((current, needs_update))
         }
         .await;
@@ -209,7 +218,9 @@ async fn update_draft_collection_methods(
                 }
                 refreshed.push(current);
             }
-            Err(error) => tracing::error!(invoice = %inv.id(), error = %error, "Skipping invoice"),
+            Err(error) => {
+                tracing::error!(invoice = %inv.id(), tenant = %inv.tenant(), error = %format!("{error:#}"), "Skipping invoice")
+            }
         }
     }
     to_update = refreshed;
@@ -274,13 +285,17 @@ async fn update_collection_methods(
             )
             .await;
         match res {
-            Ok(invoice) => updated.push(Invoice::from(invoice)),
+            Ok(mut invoice) => {
+                invoice.customer = inv.customer.clone();
+                updated.push(Invoice::from(invoice));
+            }
             Err(e) => {
-                pb.println(format!(
-                    "Skipping invoice {} after collection method update failed: {}",
-                    inv.id(),
-                    e
-                ));
+                tracing::error!(
+                    invoice = %inv.id(),
+                    tenant = %inv.tenant(),
+                    error = %format!("{e:#}"),
+                    "Skipping invoice after collection method update failed"
+                );
             }
         }
         pb.inc(1);
@@ -295,7 +310,7 @@ fn collection_method_needs_update(invoice: &Invoice) -> anyhow::Result<bool> {
     let method = invoice.collection_method()?;
     anyhow::ensure!(
         !invoice.is_manual() || method == stripe::CollectionMethod::SendInvoice,
-        "manual invoice must use send_invoice; rerun publish-invoices"
+        "manual invoice must use send_invoice"
     );
     if method == stripe::CollectionMethod::SendInvoice {
         return Ok(false);
@@ -319,6 +334,7 @@ async fn finalize_invoices(
     let finalize_futs = to_finalize.into_iter().map(|row| {
         let stripe_client = stripe_client;
         let pb = pb.clone();
+        let context = format!("Invoice {} (tenant: {})", row.id(), row.tenant());
         async move {
             // The operator can pause at the prompt. Re-read before enabling collection,
             // and require another send run if the approved collection decision changed.
@@ -336,7 +352,9 @@ async fn finalize_invoices(
             );
             anyhow::ensure!(
                 current.collection_method()? == row.collection_method()?
-                    && !collection_method_needs_update(&current)?,
+                    && !collection_method_needs_update(&current).context(
+                        "Invalid draft collection configuration; rerun publish-invoices"
+                    )?,
                 "invoice {} collection decision changed; rerun send-invoices",
                 row.id()
             );
@@ -348,17 +366,21 @@ async fn finalize_invoices(
                 },
             )
             .await
-            .map_err(|e| {
-                pb.println(format!("Error finalizing invoice {}: {}", row.id(), e));
-                anyhow::Error::from(e)
-            })?;
+            .context("Finalizing invoice")?;
             pb.inc(1);
 
-            let invoice =
-                StripeInvoice::retrieve(stripe_client, row.id(), vec!["customer"].as_slice())
-                    .await?;
+            let invoice = StripeInvoice::retrieve(
+                stripe_client,
+                row.id(),
+                vec!["customer"].as_slice(),
+            )
+            .await
+            .context(
+                "Invoice was finalized but could not be read back; check Stripe before retrying",
+            )?;
             Ok(Invoice::from(invoice))
         }
+        .map_err(move |error: anyhow::Error| error.context(context))
     });
     let finalize_results = stream::iter(finalize_futs)
         .buffer_unordered(10)
@@ -367,7 +389,7 @@ async fn finalize_invoices(
         .into_iter()
         .filter(|res: &anyhow::Result<Invoice>| {
             if let Err(e) = res {
-                tracing::error!(error = ?e, "Error finalizing invoice");
+                tracing::error!(error = %format!("{e:#}"), "Failed to process invoice");
                 return false;
             }
             true
@@ -382,8 +404,8 @@ async fn finalize_invoices(
 
 async fn check_and_fix_auto_advance(
     stripe_client: &Client,
-    invoices: Vec<Invoice>,
-) -> anyhow::Result<Vec<Invoice>> {
+    invoices: &[Invoice],
+) -> anyhow::Result<usize> {
     // Find invoices with auto_advance turned off
     let needs_auto_advance_fix: Vec<Invoice> = invoices
         .iter()
@@ -395,7 +417,7 @@ async fn check_and_fix_auto_advance(
         .collect();
 
     if needs_auto_advance_fix.is_empty() {
-        return Ok(invoices);
+        return Ok(0);
     }
 
     // Show table of invoices that need auto_advance fixed
@@ -436,13 +458,16 @@ async fn check_and_fix_auto_advance(
         .await?;
 
         // Update auto_advance to true
-        update_auto_advance(stripe_client, needs_auto_advance_fix).await?;
+        return update_auto_advance(stripe_client, needs_auto_advance_fix).await;
     }
 
-    Ok(invoices)
+    Ok(0)
 }
 
-async fn update_auto_advance(stripe_client: &Client, invoices: Vec<Invoice>) -> anyhow::Result<()> {
+async fn update_auto_advance(
+    stripe_client: &Client,
+    invoices: Vec<Invoice>,
+) -> anyhow::Result<usize> {
     #[derive(serde::Serialize)]
     struct UpdateAutoAdvance {
         auto_advance: bool,
@@ -452,10 +477,16 @@ async fn update_auto_advance(stripe_client: &Client, invoices: Vec<Invoice>) -> 
     pb.set_message("updating auto_advance");
     pb.set_style(ProgressStyle::with_template(PROGRESS_BAR_TEMPLATE).unwrap());
 
+    let mut failures = 0;
     for inv in invoices {
         let res: anyhow::Result<stripe::Invoice> = async {
-            let current = Invoice::from(StripeInvoice::retrieve(stripe_client, inv.id(), &["customer"]).await?);
-            anyhow::ensure!(current.status() == Some(stripe::InvoiceStatus::Open), "invoice is no longer open");
+            let current = Invoice::from(
+                StripeInvoice::retrieve(stripe_client, inv.id(), &["customer"]).await?
+            );
+            anyhow::ensure!(
+                current.status() == Some(stripe::InvoiceStatus::Open),
+                "invoice is no longer open"
+            );
             anyhow::ensure!(
                 !collection_method_needs_update(&current)
                     .context("Open invoice requires explicit correction in Stripe")?,
@@ -476,19 +507,20 @@ async fn update_auto_advance(stripe_client: &Client, invoices: Vec<Invoice>) -> 
                 ));
             }
             Err(e) => {
-                pb.println(format!(
-                    "Failed to update auto_advance for invoice {} (tenant: {}): {}",
-                    inv.id(),
-                    inv.tenant(),
-                    e
-                ));
+                failures += 1;
+                tracing::error!(
+                    invoice = %inv.id(),
+                    tenant = %inv.tenant(),
+                    error = %format!("{e:#}"),
+                    "Failed to update auto_advance for invoice"
+                );
             }
         }
         pb.inc(1);
     }
 
     pb.finish_with_message("Auto-advance updates complete");
-    Ok(())
+    Ok(failures)
 }
 
 fn build_invoice_table<I>(rows: I, subtotal: Option<f64>) -> comfy_table::Table
@@ -616,7 +648,7 @@ mod tests {
                 collection_method_needs_update(&manual)
                     .unwrap_err()
                     .to_string()
-                    .contains("publish-invoices")
+                    .contains("manual invoice")
             );
             manual.collection_method = Some(stripe::CollectionMethod::SendInvoice);
             assert!(!collection_method_needs_update(&manual).unwrap());
@@ -712,17 +744,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_open_invoices_cannot_enable_collection() {
-        for manual in [false, true] {
-            let mut current = invoice(manual, manual);
+    async fn only_valid_open_invoices_can_enable_collection() {
+        for (manual, has_payment_method, valid) in [
+            (false, false, false),
+            (true, true, false),
+            (false, true, true),
+        ] {
+            let mut current = invoice(manual, has_payment_method);
             current.status = Some(stripe::InvoiceStatus::Open);
-            let (client, requests) = stripe_stub(vec![(
+            let response = (
                 axum::http::StatusCode::OK,
                 serde_json::to_value(&*current).unwrap(),
-            )])
-            .await;
-            update_auto_advance(&client, vec![current]).await.unwrap();
-            assert_eq!(*requests.lock().unwrap(), ["GET /v1/invoices/in_test"]);
+            );
+            let (client, requests) = stripe_stub(vec![response.clone(), response]).await;
+            // The second response is used only when collection is allowed.
+            let expected = if valid {
+                vec!["GET /v1/invoices/in_test", "POST /v1/invoices/in_test"]
+            } else {
+                vec!["GET /v1/invoices/in_test"]
+            };
+            let failures = update_auto_advance(&client, vec![current]).await.unwrap();
+            assert_eq!(failures, usize::from(!valid));
+            assert_eq!(*requests.lock().unwrap(), expected);
         }
     }
 }
