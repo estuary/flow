@@ -170,10 +170,10 @@ impl super::UserGrant {
         > = Default::default();
 
         for node in Self::reachable_nodes(role_grants, user_grants, subject) {
-            // Attenuation is only enabled when we have a capability mask set.
-            // We do this here because the get_user_capability doesn't filter
-            // these out so we have to do this here instead of inside of
-            // `reachable_nodes`.
+            // Keep empty nodes in the walk for legacy capability reporting.
+            // Omit them from prefix listings only for masked subjects, so a
+            // masked token does not learn of grants it cannot use, while
+            // existing unmasked listings are preserved.
             if node.capabilities.is_empty() && subject.capability_mask.is_some() {
                 continue;
             }
