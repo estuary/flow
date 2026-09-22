@@ -163,6 +163,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         inspected,
         crate::container::RunParams {
             env,
+            host_gateway_names: host_gateway_names(ctx.plane, ctx.task_update.as_ref()),
             labels,
             log_sink: ctx.log_sink.clone(),
             mount: mount.to_owned(),
@@ -240,9 +241,32 @@ fn parse_secrets_label(label: Option<&str>) -> anyhow::Result<BTreeMap<String, S
         .collect()
 }
 
+/// Exact local service names which must resolve to the host rather than the
+/// image container's own loopback interface.
+fn host_gateway_names(plane: crate::Plane, task_update: Option<&crate::TaskUpdate>) -> Vec<String> {
+    if !matches!(plane, crate::Plane::Local) {
+        return Vec::new();
+    }
+    let Some(task_update) = task_update else {
+        return Vec::new();
+    };
+
+    // A `.localhost` name denotes the loopback of its resolver, which is the
+    // wrong namespace inside an image. Ordinary DNS names must retain their
+    // configured resolution even in a local data plane.
+    [&task_update.control_api, &task_update.config_encryption]
+        .into_iter()
+        .filter_map(url::Url::host_str)
+        .filter(|host| *host == "localhost" || host.ends_with(".localhost"))
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 #[cfg(test)]
 mod test {
-    use super::{Declarations, parse_secrets_label};
+    use super::{Declarations, host_gateway_names, parse_secrets_label};
     use proto_flow::flow;
     use serde_json::json;
 
@@ -356,5 +380,52 @@ mod test {
             .collect();
 
         insta::assert_debug_snapshot!(outcomes);
+    }
+
+    #[test]
+    fn maps_local_task_update_hosts_to_the_host_gateway() {
+        let mut local = crate::TaskUpdate::for_test();
+        local.control_api = url::Url::parse("http://agent.flow.localhost:13020/").unwrap();
+        local.config_encryption =
+            url::Url::parse("http://config-encryption.flow.localhost:13021/").unwrap();
+
+        insta::assert_debug_snapshot!(
+            [
+                ("local", crate::Plane::Local, Some(&local)),
+                ("private", crate::Plane::Private, Some(&local)),
+                ("no task update", crate::Plane::Local, None),
+                (
+                    "ordinary DNS",
+                    crate::Plane::Local,
+                    Some(&crate::TaskUpdate::for_test()),
+                ),
+            ]
+            .map(|(label, plane, task_update)| {
+                (label, host_gateway_names(plane, task_update))
+            }),
+            @r#"
+        [
+            (
+                "local",
+                [
+                    "agent.flow.localhost",
+                    "config-encryption.flow.localhost",
+                ],
+            ),
+            (
+                "private",
+                [],
+            ),
+            (
+                "no task update",
+                [],
+            ),
+            (
+                "ordinary DNS",
+                [],
+            ),
+        ]
+        "#,
+        );
     }
 }

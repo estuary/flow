@@ -69,6 +69,38 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
   areas (scratch, persisted state) will be nested read-write mounts within it.
 - An image mount additionally contains `flow-connector-init` (its entrypoint)
   and `image-inspect.json` (its `--image-inspect-json-path`).
+- `task-update.json` is present only where the `Service` holds a `TaskUpdate`
+  and the run has a task identity — not for a `<spec>` Spec, and not under
+  `Service::new_local` (`flowctl preview`). Its shape is exactly:
+
+  ```json
+  {"token": "…", "control_plane_url": "…", "config_encryption_url": "…"}
+  ```
+
+- `token` bears `TASK_UPDATE` scoped to the task, and is periodically re-minted
+  and rewritten **in place**. A connector therefore MUST re-read
+  `task-update.json` at each use.
+
+## Secrets and task update
+
+- A task's `secrets` stanza maps secret names to the JSON pointers they merge
+  at. A sibling of the task may merge wherever the task chooses. Any other
+  secret reaches a connector only under the **image rule**: the image's
+  `dev.estuary.secrets` label is a JSON object of
+  `<prefix>/connectors/<repository>/<leaf>` names to pointers, and the task
+  must name the same pointer the image declares. The vendor, and not the task
+  author, decides where a vendor secret lands.
+- What remains is connector development policy: a connector author must not
+  send a declared location's value anywhere other than its intended service,
+  such as to a host or URL the task configures.
+- A connector updates its task by calling `/task/set-secret` and
+  `/task/update-config` with the `task-update.json` credential
+  (`tests/secrets/connector/source_secrets/rotation.py` is the reference). Such
+  a connector MUST NOT also emit legacy `configUpdate` log events: a legacy
+  update carries no `secrets` stanza, and publishing it clears the task's
+  stanza. That's intended for legacy connectors, whose update is a `sops`
+  config that cannot publish beside a stanza. It is connector development
+  policy, and not enforced by the runtime.
 
 ## Key types
 
@@ -82,9 +114,10 @@ It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
 | `protocol::start`               | The start pipeline every connector goes through                          |
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
 | `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets |
+| `TaskUpdate`                    | Signer and URLs by which a connector updates its config and secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
 | `protocol::create_connector_mount` | Creates the per-run connector mount; see above                        |
-| `Guard`                         | Host resources of one run: the container process and the mount           |
+| `Guard`                         | Host resources of one run: container process, refresh task, mount        |
 
 ## Layout
 
@@ -95,7 +128,7 @@ src/
 ├── router.rs     # ServiceRouter and the local bearer issuer
 ├── serve.rs      # per-stream: authn/authz, extract, start, pump, teardown
 ├── protocol.rs   # Protocol trait, StartContext, start pipeline, connector mount
-├── policy.rs     # pure product policy: image/secret admission, usage, safe logs
+├── policy.rs     # pure product policy: image/secret admission, usage, token lifetimes
 ├── image.rs      # Estuary image declarations and image-endpoint connection
 ├── capture.rs    # Protocol impl: capture endpoints and RPC
 ├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
@@ -118,6 +151,12 @@ to leave it running.
   subsequent client requests pass directly to the transport.
   `Started` carries the `Spec` response so the client can use it as well.
 
+- **A local data plane's `*.localhost` services get a host-gateway mapping.**
+  A `.localhost` name denotes the loopback of whoever resolves it, which inside
+  an image container is the container. The `TaskUpdate` URLs are mapped to the
+  host so a connector can reach them; only exact `.localhost` names, and only
+  in a local plane, so ordinary DNS keeps its configured resolution.
+
 - **Invalid later requests close connector input and terminate the session.**
 The handler owns request validation, so malformed input cannot disappear as a
 clean connector EOF.
@@ -128,11 +167,12 @@ that stderr has been read through, which the handler awaits before terminal
 EOF or status. A client which does not drain responses may park the handler.
 
 - **Dropping a `Guard` kills `docker run`, then frees the connector mount.**
-  The `docker run` child is SIGKILLed *before* the mount it reads is removed.
-  Killing `docker run` closes its stderr so its log pump can finish before the
-  stream terminates; a local subprocess instead couples process and stderr
-  completion in `connector_init::rpc::bidi`, so its `Guard` holds no process —
-  only the mount which must outlive it.
+  The `docker run` child is SIGKILLed and the token refresh signaled to stop
+  *before* the mount they use is removed. Killing `docker run` closes its
+  stderr so its log pump can finish before the stream terminates; a local
+  subprocess instead couples process and stderr completion in
+  `connector_init::rpc::bidi`, so its `Guard` holds no process — only the
+  mount which must outlive it.
   Note that killing `docker run` does NOT stop the container, only its log proxy.
   `flow-connector-init` self-exits after 10s without a received RPC.
 

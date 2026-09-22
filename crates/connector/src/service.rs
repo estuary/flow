@@ -9,6 +9,51 @@ use futures::{Stream, StreamExt, stream::BoxStream};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
+/// What a connector needs in order to update its task configuration and secrets:
+/// the signer of the token which authorizes it, and the two services it calls.
+#[derive(Clone)]
+pub struct TaskUpdate {
+    /// Signs the `TASK_UPDATE` token handed to the connector.
+    pub signer: proto_grpc::Signer,
+    /// Control-plane base URL, serving `/task/set-secret` and
+    /// `/task/update-config`.
+    pub control_api: url::Url,
+    /// config-encryption base URL, serving `/secret/encrypt`. The connector
+    /// wraps its own plaintext there, so the control plane never sees it.
+    pub config_encryption: url::Url,
+    /// Interval at which the connector's `task-update.json` is re-minted.
+    pub refresh_interval: std::time::Duration,
+}
+
+impl TaskUpdate {
+    pub fn new(
+        signer: proto_grpc::Signer,
+        control_api: url::Url,
+        config_encryption: url::Url,
+    ) -> Self {
+        Self {
+            signer,
+            control_api,
+            config_encryption,
+            refresh_interval: crate::policy::TASK_UPDATE_LIFETIME.to_std().unwrap() / 2,
+        }
+    }
+}
+
+#[cfg(test)]
+impl TaskUpdate {
+    pub(crate) fn for_test() -> Self {
+        Self::new(
+            proto_grpc::Signer::new(
+                "fqdn.example.com".to_string(),
+                tokens::jwt::EncodingKey::from_secret(b"a reactor's data-plane key"),
+            ),
+            url::Url::parse("https://control.example.com/").unwrap(),
+            url::Url::parse("https://config-encryption.example.com/").unwrap(),
+        )
+    }
+}
+
 /// Service implements the `connector.Connector` gRPC service: it starts and
 /// drives connectors on behalf of an authorized caller.
 #[derive(Clone)]
@@ -30,6 +75,8 @@ pub struct ServiceImpl {
     pub(crate) registry: service_kit::Registry,
     /// Resolves endpoint configuration secrets.
     pub(crate) secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
+    /// Authorizes connectors to update their task configuration and secrets.
+    pub(crate) task_update: Option<TaskUpdate>,
 }
 
 /// How a session reached this Service.
@@ -57,6 +104,7 @@ impl Service {
         process: Option<proto_gazette::broker::ProcessSpec>,
         registry: service_kit::Registry,
         secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
+        task_update: Option<TaskUpdate>,
     ) -> Self {
         Self(std::sync::Arc::new(ServiceImpl {
             plane,
@@ -65,6 +113,7 @@ impl Service {
             process,
             registry,
             secret_resolver,
+            task_update,
         }))
     }
 
@@ -87,6 +136,7 @@ impl Service {
             None, // No dial-able process in a local context.
             registry,
             secret_resolver,
+            None, // No TaskUpdate context.
         );
         let signer = proto_grpc::Signer::new(
             crate::router::LOCAL_ISSUER.to_string(),

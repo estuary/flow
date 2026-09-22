@@ -72,6 +72,8 @@ impl Protocol for Derive {
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,
     ) -> anyhow::Result<Extracted<'r, Self>> {
+        let mut build = None;
+
         let (connector_type, config_json, secrets) = match &mut request.kind {
             Some(request::Kind::Spec(spec)) => (
                 spec.connector_type,
@@ -96,6 +98,7 @@ impl Protocol for Derive {
                         )
                     })?;
 
+                build = Some(crate::protocol::shard_build(&inner.shard_template)?);
                 (inner.connector_type, &mut inner.config_json, &inner.secrets)
             }
             _ => unreachable!("checked by task_name"),
@@ -145,6 +148,7 @@ impl Protocol for Derive {
         };
 
         Ok(Extracted {
+            build,
             connector_type,
             endpoint,
             initial_config_slot: config_json,
