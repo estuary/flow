@@ -253,7 +253,8 @@ where
         }
     };
 
-    // Killing an image connector closes stderr, allowing log draining to finish.
+    // Releases the run's host resources: killing an image connector closes
+    // stderr, allowing log draining to finish.
     std::mem::drop(guard);
     result
 }
@@ -335,7 +336,10 @@ mod test {
             started: proto::Response::default(),
             connector_tx,
             connector_rx: futures::stream::pending().boxed(),
-            guard: None,
+            guard: crate::Guard {
+                _process: None,
+                _mount: tempfile::tempdir().unwrap(),
+            },
         };
         std::mem::drop(response_rx);
 

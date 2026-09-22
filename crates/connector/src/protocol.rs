@@ -5,8 +5,13 @@
 //!
 //! [`Protocol`] is a trait over what differs between captures, derivations,
 //! and materializations; everything else in this module is protocol-agnostic.
+//!
+//! This module also owns the **connector mount**: the one host directory,
+//! named by `CONNECTOR_MOUNT`, through which the runtime hands files to an
+//! image or local connector. See `README.md` for its normative contract.
 
 use crate::proto;
+use anyhow::Context;
 use futures::{StreamExt, future::BoxFuture, stream::BoxStream};
 
 /// Everything a connector start needs from its [`Service`](crate::Service) and
@@ -156,6 +161,9 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
     };
 
+    let mount = create_connector_mount()?;
+    let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
+
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
         connector_tx
@@ -170,7 +178,7 @@ pub(crate) async fn start<P: Protocol>(
         mut connector_rx,
         container,
         codec,
-        guard,
+        process,
         sealed_config,
         spec: own_rpc_spec,
     } = match endpoint {
@@ -183,6 +191,8 @@ pub(crate) async fn start<P: Protocol>(
                 image,
                 sealed_config,
                 image_policy.as_ref().unwrap(),
+                env,
+                mount.path(),
                 secrets,
                 connector_type,
                 spec_on_own_rpc,
@@ -197,11 +207,11 @@ pub(crate) async fn start<P: Protocol>(
             connector_rx: connector(requests),
             container: None,
             codec: connector_init::Codec::Proto,
-            guard: None,
+            process: None,
             sealed_config,
             spec: None,
         }),
-        Endpoint::Local { config } => connect_local::<P>(&ctx, config, secrets, requests),
+        Endpoint::Local { config } => connect_local::<P>(&ctx, config, secrets, env, requests),
     }?;
 
     let codec = match codec {
@@ -288,8 +298,81 @@ pub(crate) async fn start<P: Protocol>(
         },
         connector_tx,
         connector_rx,
-        guard,
+        guard: crate::Guard {
+            _process: process,
+            _mount: mount,
+        },
     })
+}
+
+/// Build the environment contract shared by image and local connectors.
+fn connector_env(
+    plane: crate::Plane,
+    log_level: ops::LogLevel,
+    mount: &std::path::Path,
+) -> anyhow::Result<std::collections::BTreeMap<String, String>> {
+    let default_log_level = match plane {
+        crate::Plane::Local => ops::LogLevel::Info,
+        crate::Plane::Public | crate::Plane::Private => ops::LogLevel::Warn,
+    };
+    let mount = mount
+        .to_str()
+        .context("connector mount path is not valid UTF-8")?;
+
+    Ok(std::collections::BTreeMap::from([
+        ("CONNECTOR_MOUNT".to_string(), mount.to_string()),
+        ("LOG_FORMAT".to_string(), "json".to_string()),
+        (
+            "LOG_LEVEL".to_string(),
+            log_level.or(default_log_level).as_str_name().to_string(),
+        ),
+    ]))
+}
+
+/// Create the connector mount volume: a directory of resources shared with
+/// the connector for its use. Image connectors bind-mount as read-only at
+/// this same absolute path. Local connectors access it directly.
+///
+/// It lives under TMPDIR as a known location that a launching docker / podman
+/// is capable of sharing with the container. Note Docker for Mac restricts
+/// other share locations.
+///
+/// The root is a pure host-to-connector channel and stays read-only inside the
+/// container. Writable areas (scratch space, recorded state) must arrive as
+/// nested mounts under it, never as a relaxation of this root.
+pub(crate) fn create_connector_mount() -> anyhow::Result<tempfile::TempDir> {
+    // Traversable by all, listable by none: a connector image commonly runs as
+    // an unprivileged image-defined UID, which must reach files it is told the
+    // name of without being able to enumerate the mount. Scope the parent to
+    // the host user so that users sharing a TMPDIR don't contend over ownership.
+    #[cfg(unix)]
+    let parent =
+        std::env::temp_dir().join(format!("connector-mounts-{}", unsafe { libc::geteuid() }));
+    #[cfg(not(unix))]
+    let parent = std::env::temp_dir().join("connector-mounts");
+    std::fs::create_dir_all(&parent).context("creating connector mounts directory")?;
+    set_mount_mode(&parent, 0o711)?;
+
+    let dir = tempfile::Builder::new()
+        .prefix("mount-")
+        .tempdir_in(&parent)
+        .context("creating connector mount directory")?;
+    set_mount_mode(dir.path(), 0o711)?;
+
+    Ok(dir)
+}
+
+pub(crate) fn set_mount_mode(path: &std::path::Path, mode: u32) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .with_context(|| format!("setting mode of {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+
+    Ok(())
 }
 
 /// Decrypt one secret of the task's `secrets` stanza under the task's identity,
@@ -333,10 +416,11 @@ fn connect_local<P: Protocol>(
     models::LocalConfig {
         command,
         config: sealed_config,
-        env,
+        env: model_env,
         protobuf,
     }: models::LocalConfig,
     secrets: &std::collections::BTreeMap<String, String>,
+    runtime_env: std::collections::BTreeMap<String, String>,
     requests: BoxStream<'static, P::Request>,
 ) -> anyhow::Result<crate::Transport<P>> {
     if !crate::policy::local_connectors_allowed(ctx.plane) {
@@ -361,15 +445,12 @@ fn connect_local<P: Protocol>(
     };
 
     let mut connector = connector_init::rpc::new_command(&command);
-    connector.envs(&env);
-    connector.env("LOG_FORMAT", "json");
-    connector.env(
-        "LOG_LEVEL",
-        ctx.log_level.or(ops::LogLevel::Info).as_str_name(),
-    );
+    connector.envs(&model_env);
+    connector.envs(runtime_env);
 
-    // Dropping the local connector's response stream kills its subprocess
-    // and closes its stderr, so only image connectors need a `Guard`.
+    // Dropping the local connector's response stream kills its subprocess and
+    // closes its stderr. Its `Guard` holds no process: only the mount,
+    // which must outlive the subprocess reading it.
     let log_sink = ctx.log_sink.clone();
     let quoted_task_name: bytes::Bytes = format!("\"{}\"", ctx.task_name).into();
     let connector_rx = connector_init::rpc::bidi::<P::Request, P::Response, _, _, _>(
@@ -387,7 +468,7 @@ fn connect_local<P: Protocol>(
         connector_rx: connector_rx.boxed(),
         container: None,
         codec,
-        guard: None,
+        process: None,
         sealed_config,
         spec: None,
     })
@@ -435,6 +516,26 @@ fn one_request_per_invocation(image: &str) -> bool {
 
 #[cfg(test)]
 mod test {
+    #[test]
+    fn connector_environment_is_transport_agnostic() {
+        let mount = std::path::Path::new("/tmp/connector-mount-test");
+
+        for (plane, expected) in [
+            (crate::Plane::Public, "warn"),
+            (crate::Plane::Private, "warn"),
+            (crate::Plane::Local, "info"),
+        ] {
+            let env = super::connector_env(plane, ops::LogLevel::UndefinedLevel, mount).unwrap();
+
+            assert_eq!(env["CONNECTOR_MOUNT"], mount.to_str().unwrap());
+            assert_eq!(env["LOG_FORMAT"], "json");
+            assert_eq!(env["LOG_LEVEL"], expected);
+        }
+
+        let env = super::connector_env(crate::Plane::Local, ops::LogLevel::Trace, mount).unwrap();
+        assert_eq!(env["LOG_LEVEL"], "trace");
+    }
+
     /// Pins the exhaustive list, because it gates a behavior change that is
     /// invisible until a connector fails to parse a multiplexed stream.
     #[test]

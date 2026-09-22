@@ -126,8 +126,8 @@ struct Transport<P: protocol::Protocol> {
     connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
     container: Option<Container>,
     codec: connector_init::Codec,
-    /// Ties an image connector's container to the served stream.
-    guard: Option<container::Guard>,
+    /// `docker run` of an image connector, which its [`Guard`] SIGKILLs.
+    process: Option<async_process::Child>,
     /// Sealed endpoint configuration of the dispatched endpoint.
     sealed_config: models::RawValue,
     /// Spec already exchanged on an RPC of its own, only when required.
@@ -141,8 +141,20 @@ struct Started<P: protocol::Protocol> {
     started: proto::Response,
     connector_tx: tokio::sync::mpsc::Sender<P::Request>,
     connector_rx: futures::stream::BoxStream<'static, tonic::Result<P::Response>>,
-    /// Keeps an image connector alive until stream teardown.
-    guard: Option<container::Guard>,
+    /// Keeps an image or local connector's host resources alive until stream
+    /// teardown. In-process connectors have none.
+    guard: Guard,
+}
+
+/// Host resources of an image or local connector, released when the served
+/// stream ends.
+///
+/// Field order is the teardown order: the container is SIGKILLed *before*
+/// the mount it reads is removed. Killing the container also closes its
+/// stderr, so its log pump can finish.
+pub(crate) struct Guard {
+    _process: Option<async_process::Child>,
+    _mount: tempfile::TempDir,
 }
 
 /// Render one `ops::Log` of this crate's own reporting.

@@ -26,9 +26,10 @@ const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 /// Options which have already been selected for a container execution.
 pub(crate) struct RunParams {
+    pub env: BTreeMap<String, String>,
     pub labels: BTreeMap<String, String>,
-    pub log_level: ops::LogLevel,
     pub log_sink: LogSink,
+    pub mount: std::path::PathBuf,
     pub network: String,
     pub publish_ports: bool,
 }
@@ -36,9 +37,9 @@ pub(crate) struct RunParams {
 /// Lower-level facts of a running image connector.
 pub(crate) struct RunningContainer {
     pub channel: tonic::transport::Channel,
-    pub guard: Guard,
     pub ip_addr: std::net::IpAddr,
     pub mapped_host_ports: BTreeMap<u32, String>,
+    pub process: async_process::Child,
 }
 
 /// A pulled and inspected image, and the capability to run it once.
@@ -65,48 +66,34 @@ where
         ..
     } = inspection;
     let RunParams {
+        env,
         labels,
-        log_level,
         log_sink,
+        mount,
         network,
         publish_ports,
     } = params;
 
-    // Many operational contexts only allow for docker volume mounts
-    // from certain locations:
-    //  * Docker for Mac restricts file shares to /User, /tmp, and a couple others.
-    //  * Estuary's current K8s deployments use a separate docker daemon container
-    //    within the pod, having a common /tmp tempdir volume.
-    //
-    // So, we use temporaries to ensure that files are readable within the container.
-    let tmp_connector_init =
-        tempfile::NamedTempFile::new().context("creating temp for flow-connector-init")?;
-    let mut tmp_docker_inspect =
-        tempfile::NamedTempFile::new().context("creating temp for docker inspect output")?;
+    // The mount is bind-mounted at its own path, so container-side paths are
+    // host-side paths and there is no fixed location anywhere.
+    let mount = mount
+        .to_str()
+        .context("connector mount path is not valid UTF-8")?;
+    let connector_init_path = format!("{mount}/flow-connector-init");
+    let image_inspect_path = format!("{mount}/image-inspect.json");
 
-    // Change mode of `docker_inspect` to be readable by all users.
-    // This is required because the effective container user may have a different UID.
-    #[cfg(unix)]
-    {
-        use std::os::unix::prelude::PermissionsExt;
-        let mut perms = tmp_docker_inspect.as_file_mut().metadata()?.permissions();
-        perms.set_mode(0o644);
-        tmp_docker_inspect.as_file_mut().set_permissions(perms)?;
-    }
-
-    // Prepare flow-connector-init and the image inspection for the container.
     let ((), ()) = futures::try_join!(
-        find_connector_init_and_copy(tmp_connector_init.path()),
         async {
-            tokio::fs::write(tmp_docker_inspect.path(), &inspect_json)
+            find_connector_init_and_copy(std::path::Path::new(&connector_init_path)).await?;
+            crate::protocol::set_mount_mode(std::path::Path::new(&connector_init_path), 0o555)
+        },
+        async {
+            tokio::fs::write(&image_inspect_path, &inspect_json)
                 .await
-                .context("writing docker inspect output")
+                .context("writing docker inspect output")?;
+            crate::protocol::set_mount_mode(std::path::Path::new(&image_inspect_path), 0o444)
         },
     )?;
-
-    // Close our open files but retain a deletion guard.
-    let tmp_connector_init = tmp_connector_init.into_temp_path();
-    let tmp_docker_inspect = tmp_docker_inspect.into_temp_path();
 
     // This is default `docker run` behavior if --network is not provided.
     let network = if network.is_empty() {
@@ -114,8 +101,6 @@ where
     } else {
         network.as_str()
     };
-    let log_level = log_level.or(ops::LogLevel::Warn);
-
     // Generate a unique name for this container instance.
     let name = unique_container_name();
 
@@ -129,21 +114,13 @@ where
         format!("--network={network}"),
         // The entrypoint into a connector is always flow-connector-init,
         // which will delegate to the actual entrypoint of the connector.
-        "--entrypoint=/flow-connector-init".to_string(),
+        format!("--entrypoint={connector_init_path}"),
         // Disable logging of connector containers.
         "--log-driver=none".to_string(),
-        // Mount the flow-connector-init binary and `docker inspect` output.
-        format!(
-            "--mount=type=bind,source={},target=/flow-connector-init",
-            tmp_connector_init.to_string_lossy()
-        ),
-        format!(
-            "--mount=type=bind,source={},target=/image-inspect.json",
-            tmp_docker_inspect.to_string_lossy(),
-        ),
-        // Thread-through the logging configuration of the connector.
-        "--env=LOG_FORMAT=json".to_string(),
-        format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
+        // The connector mount, at the same absolute path it has on the host.
+        // Read-only: it is a host-to-connector channel, and future writable
+        // areas will be nested mounts within it rather than a relaxation here.
+        format!("--mount=type=bind,source={mount},target={mount},readonly"),
         // Cgroup memory / CPU resource limits.
         "--memory".to_string(),
         connector_memory_limit(),
@@ -152,6 +129,9 @@ where
         format!("--platform={CONNECTOR_PLATFORM}"),
     ];
 
+    for (name, value) in env {
+        docker_args.push(format!("--env={name}={value}"));
+    }
     for (name, value) in labels {
         docker_args.push(format!("--label={name}={value}"));
     }
@@ -180,7 +160,7 @@ where
         // Image to run.
         image.clone(),
         // The following are arguments of flow-connector-init, not docker.
-        "--image-inspect-json-path=/image-inspect.json".to_string(),
+        format!("--image-inspect-json-path={image_inspect_path}"),
         format!("--port={CONNECTOR_INIT_PORT}"),
     ]);
 
@@ -316,21 +296,8 @@ where
         ip_addr,
         mapped_host_ports,
         channel,
-        guard: Guard {
-            _tmp_connector_init: tmp_connector_init,
-            _tmp_docker_inspect: tmp_docker_inspect,
-            _process: process,
-        },
+        process,
     })
-}
-
-/// Guard contains a running image container instance, which is SIGKILLed and
-/// cleaned up when the Guard is dropped -- closing the container's stderr, so
-/// that its log pump finishes and releases the last clone of the sink.
-pub(crate) struct Guard {
-    _tmp_connector_init: tempfile::TempPath,
-    _tmp_docker_inspect: tempfile::TempPath,
-    _process: async_process::Child,
 }
 
 /// Generate a name for a connector container which is unique on this host.
@@ -603,14 +570,23 @@ mod test {
         )
         .await
         .unwrap();
+        let mount = crate::protocol::create_connector_mount().unwrap();
         let running = super::run(
             inspected,
             super::RunParams {
+                env: std::collections::BTreeMap::from([
+                    (
+                        "CONNECTOR_MOUNT".to_string(),
+                        mount.path().to_string_lossy().into_owned(),
+                    ),
+                    ("LOG_FORMAT".to_string(), "json".to_string()),
+                    ("LOG_LEVEL".to_string(), "debug".to_string()),
+                ]),
+                labels: std::collections::BTreeMap::new(),
+                log_sink: crate::LogSink::tracing(),
+                mount: mount.path().to_owned(),
                 network: String::new(),
                 publish_ports: true,
-                log_level: ops::LogLevel::Debug,
-                log_sink: crate::LogSink::tracing(),
-                labels: std::collections::BTreeMap::new(),
             },
             |log| log,
         )
