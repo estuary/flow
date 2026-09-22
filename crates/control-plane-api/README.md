@@ -1,4 +1,17 @@
 # control-plane-api
+## Sandbox reset and cancellation
+
+`src/sandboxes.rs` captures a baseline checkpoint after installing flowctl.
+`sandboxReset` and the HTTP reset route in `src/server/public/sandboxes.rs`
+restore that baseline, discarding later filesystem changes and execution history.
+Reset then prunes extra checkpoints in the background. Sandboxes provisioned
+before baseline creation was introduced must be recreated before reset works.
+
+`sandboxExecCancel` signals the execution's process group and escalates to a
+kill if necessary. The wrapper preserves output and records the exit result.
+The Sprites checkpoint client methods live in `src/sprites.rs`; GraphQL
+operations and ownership checks are in `src/server/public/graphql/sandboxes.rs`.
+
 
 ## Development
 

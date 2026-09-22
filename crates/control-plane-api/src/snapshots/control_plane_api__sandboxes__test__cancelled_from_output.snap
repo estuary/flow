@@ -1,0 +1,12 @@
+---
+source: crates/control-plane-api/src/sandboxes.rs
+assertion_line: 963
+expression: "cases.into_iter().map(render).collect::<Vec<_>>()"
+---
+[
+    "cancelled=true",
+    "cancelled=false",
+    "error: exec has not started",
+    "error: command did not stop",
+    "error: cancelling the command failed with status 1",
+]

@@ -8,9 +8,11 @@
 //! sandboxes whose record names them. Exec metadata, output, and exit status
 //! live together in the sandbox under `.estuary/exec/<id>`. Operations on an
 //! exec take both its id and its sandbox id; authorization uses the sandbox.
-//! Deletion discards the metadata along with the output.
+//! Reset and delete discard the metadata along with the output.
 //!
-//! GraphQL operations in `server::public::graphql::sandboxes` use this module.
+//! Both sandbox surfaces share this module: the GraphQL operations in
+//! `server::public::graphql::sandboxes` and the reset route in
+//! `server::public::sandboxes`.
 
 use anyhow::Context;
 use futures::StreamExt;
@@ -19,8 +21,13 @@ use futures::StreamExt;
 /// Estuary provisions for other purposes.
 const HANDLE_PREFIX: &str = "sbx-";
 
+/// Comment on the checkpoint that provisioning takes once a sandbox is prepared.
+/// [`reset`] restores this checkpoint and prunes every other one, so the comment
+/// is how it identifies the baseline among a sandbox's checkpoints.
+const BASELINE_COMMENT: &str = "baseline";
+
 /// Directory under the sandbox user's home directory that holds one
-/// subdirectory per exec. [`EXEC_WRAPPER`] and [`PROBE_START`]
+/// subdirectory per exec. [`EXEC_WRAPPER`], [`CANCEL_EXEC`] and [`PROBE_START`]
 /// spell the same path in shell, and [`ExecFile::path`] builds the paths
 /// clients read.
 const EXEC_DIR: &str = ".estuary/exec";
@@ -39,8 +46,10 @@ const EXEC_DIR: &str = ".estuary/exec";
 ///
 /// The command runs under a login shell as a background job, with stdout and
 /// stderr redirected to files. Job control (`set -m`) gives that job a process
-/// group of its own. The wrapper records it as the marker that the command
-/// started, which [`PROBE_START`] looks for.
+/// group of its own, which the wrapper records: the group holds the command and
+/// everything it starts, so [`CANCEL_EXEC`] stops all of it with one signal.
+/// The recorded group is also the marker that the command started, which
+/// [`PROBE_START`] looks for.
 ///
 /// The wrapper then announces itself with one line on its own stdout, because
 /// the Sprites API sends its response only once the command writes something
@@ -90,6 +99,32 @@ for d in "$HOME"/.estuary/exec/*; do
     if [ -f "$d/exit" ]; then cat "$d/exit" || exit 1; else printf 'null'; fi
     printf ']\n'
 done
+"#;
+
+/// Stops the command of an exec, and waits for its exit status to be recorded.
+///
+/// Invoked as `bash -c CANCEL_EXEC flow-cancel-exec <exec id>`. It signals the
+/// process group [`EXEC_WRAPPER`] recorded, so the command and everything it
+/// started stop together, then waits for the wrapper to write the exit status.
+/// A command that ignores the terminate signal is killed after ten seconds.
+///
+/// The script's exit status is the outcome: 0 when it stopped the command, 3
+/// when the command was no longer running, 2 when the exec has no directory,
+/// and 4 when the command outlasted both signals. Its stderr carries the
+/// reason when it did not stop a command. The exit-status file is checked
+/// before the process group, because a group id belongs to the system once the
+/// group is gone and may since have been reused.
+const CANCEL_EXEC: &str = r#"
+d="$HOME/.estuary/exec/$1"
+if ! [ -e "$d/pgid" ]; then echo "exec has not started" >&2; exit 2; fi
+pgid="$(cat "$d/pgid")"
+if [ -e "$d/exit" ] || ! kill -0 -"$pgid" 2>/dev/null; then exit 3; fi
+kill -TERM -"$pgid" 2>/dev/null
+for _ in $(seq 100); do [ -e "$d/exit" ] && exit 0; sleep 0.1; done
+kill -KILL -"$pgid" 2>/dev/null
+for _ in $(seq 50); do [ -e "$d/exit" ] && exit 0; sleep 0.1; done
+echo "command did not stop" >&2
+exit 4
 "#;
 
 /// Settles whether the command of an exec started, for a launch whose
@@ -150,6 +185,10 @@ dd if="$f" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=non
 
 /// How long reading a sandbox file may take.
 const FILE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// How long cancelling an exec may take. [`CANCEL_EXEC`] waits out both of its
+/// signals before it gives up, so this leaves room for that and the round trip.
+const CANCEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Bound finite input before sending it to Fly.
 const STDIN_MAX_BYTES: usize = 1024 * 1024;
@@ -305,9 +344,9 @@ fn validate_relative_path(path: &str) -> Result<(), PathError> {
 /// Creates a sandbox named `catalog_name` for `user_id` and returns once it accepts
 /// commands.
 ///
-/// Refuses an invalid catalog name, one any live sandbox
-/// already uses. The sandbox is fully prepared
-/// when this returns: it runs commands and flowctl is installed. If creating
+/// Refuses an invalid catalog name or one any live sandbox already uses.
+/// The sandbox is fully prepared when this returns: it runs commands, flowctl
+/// is installed, and the baseline that [`reset`] restores exists. If creating
 /// the sprite fails the record stays, and the sandbox's first command
 /// provisions the sprite instead.
 pub async fn create(
@@ -733,6 +772,45 @@ fn chunk_from_output(
     })
 }
 
+/// Stops the command of exec `exec_id` in `sandbox`, and reports whether it was
+/// still running.
+///
+/// The command and everything it started stop together, and it ends as any
+/// signalled command does: the output it wrote stays readable, and the exit
+/// status of the signal that stopped it (143, or 137 when it had to be killed)
+/// becomes the exec's exit status, which the next read reports. See
+/// [`CANCEL_EXEC`].
+pub async fn cancel_exec(
+    client: &crate::sprites::Client,
+    sandbox: &Sandbox,
+    exec_id: models::Id,
+) -> anyhow::Result<bool> {
+    let exec_id = exec_id.to_string();
+    let argv = ["bash", "-c", CANCEL_EXEC, "flow-cancel-exec", &exec_id];
+
+    let output = exec_output(client, sandbox, &argv, CANCEL_TIMEOUT)
+        .await
+        .context("cancelling command")?;
+
+    cancelled_from_output(output)
+}
+
+/// Interprets the outcome [`CANCEL_EXEC`] exits with: it stopped a running
+/// command, it found none to stop, or its stderr says why it could not.
+fn cancelled_from_output(output: crate::sprites::Output) -> anyhow::Result<bool> {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+
+    match output.exit_code {
+        0 => Ok(true),
+        3 => Ok(false),
+        exit_code if stderr.is_empty() => {
+            anyhow::bail!("cancelling the command failed with status {exit_code}")
+        }
+        _ => anyhow::bail!("{stderr}"),
+    }
+}
+
 /// Starts `argv` in `sandbox`.
 ///
 /// A record whose sprite is missing, because [`create`] failed after inserting
@@ -896,7 +974,8 @@ async fn wait_until_ready(client: &crate::sprites::Client, handle: &str) -> anyh
     }
 }
 
-/// Prepares a just-provisioned sandbox by installing flowctl.
+/// Prepares a just-provisioned sandbox by installing flowctl and capturing
+/// the baseline that [`reset`] restores.
 ///
 /// Every step must succeed, since a caller hands its user a prepared sandbox or
 /// none at all.
@@ -923,8 +1002,100 @@ async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
         String::from_utf8_lossy(&output.stderr),
     );
 
+    client
+        .create_checkpoint(handle, BASELINE_COMMENT)
+        .await
+        .context("capturing the sandbox baseline checkpoint")?;
+
     tracing::info!(%handle, "bootstrapped sandbox");
     Ok(())
+}
+
+/// Resets `sandbox` to its provisioning baseline, returning once the restore
+/// has completed.
+///
+/// Restores the baseline checkpoint, which reverts the filesystem and restarts
+/// the sandbox's processes from that snapshot. Restore itself snapshots the
+/// pre-reset state into a new checkpoint, so without pruning resets would
+/// accumulate snapshots; [`prune_checkpoints`] runs after this returns, since
+/// the caller needs the restore and not the cleanup. Exec directories are part
+/// of the filesystem, so a reset discards metadata and output together.
+pub async fn reset(
+    client: std::sync::Arc<crate::sprites::Client>,
+    sandbox: &Sandbox,
+) -> anyhow::Result<()> {
+    let handle = sandbox.handle.as_str();
+
+    let baseline = client
+        .list_checkpoints(handle)
+        .await?
+        .into_iter()
+        .find(|checkpoint| checkpoint.comment.as_deref() == Some(BASELINE_COMMENT))
+        .context("sandbox has no baseline checkpoint to reset to")?;
+
+    let started = std::time::Instant::now();
+    client
+        .restore_checkpoint(handle, &baseline.id)
+        .await
+        .with_context(|| format!("restoring baseline checkpoint {}", baseline.id))?;
+
+    tracing::info!(
+        %handle,
+        %sandbox.id,
+        restore_secs = started.elapsed().as_secs_f32(),
+        "reset sandbox to baseline"
+    );
+
+    let handle = sandbox.handle.clone();
+    let sandbox_id = sandbox.id;
+    tokio::spawn(
+        async move { prune_checkpoints(&client, &handle, sandbox_id, &baseline.id).await },
+    );
+
+    Ok(())
+}
+
+/// Deletes every checkpoint of `handle` except `baseline_id`, including the
+/// pre-reset snapshot a restore takes, so a sandbox keeps one checkpoint. The
+/// synthetic live-state entry cannot be deleted and is skipped. Pruning is
+/// best-effort: a leftover checkpoint wastes storage but does not make a reset
+/// wrong, so failures are logged.
+async fn prune_checkpoints(
+    client: &crate::sprites::Client,
+    handle: &str,
+    sandbox_id: models::Id,
+    baseline_id: &str,
+) {
+    let started = std::time::Instant::now();
+
+    let checkpoints = match client.list_checkpoints(handle).await {
+        Ok(checkpoints) => checkpoints,
+        Err(err) => {
+            tracing::warn!(%handle, %sandbox_id, ?err, "failed to list sandbox checkpoints to prune");
+            return;
+        }
+    };
+
+    let mut pruned = 0;
+    for checkpoint in checkpoints {
+        if checkpoint.id == baseline_id || checkpoint.id == crate::sprites::LIVE_STATE_ID {
+            continue;
+        }
+        match client.delete_checkpoint(handle, &checkpoint.id).await {
+            Ok(()) => pruned += 1,
+            Err(err) => {
+                tracing::warn!(%handle, id = %checkpoint.id, ?err, "failed to prune sandbox checkpoint")
+            }
+        }
+    }
+
+    tracing::info!(
+        %handle,
+        %sandbox_id,
+        pruned,
+        prune_secs = started.elapsed().as_secs_f32(),
+        "pruned sandbox checkpoints"
+    );
 }
 
 /// Deletes `sandbox`: its sprite and storage at the provider, then its record
@@ -1240,6 +1411,34 @@ mod test {
             chunk_from_output(0, output(b"", b"path is a directory\n", 1)),
             // The script failed without saying why.
             chunk_from_output(0, output(b"", b"", 1)),
+        ];
+
+        insta::assert_debug_snapshot!(cases.into_iter().map(render).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_cancelled_from_output() {
+        let output = |stderr: &[u8], exit_code: i32| Output {
+            stdout: Vec::new(),
+            stderr: stderr.to_vec(),
+            exit_code,
+        };
+        let render = |cancelled: anyhow::Result<bool>| match cancelled {
+            Ok(cancelled) => format!("cancelled={cancelled}"),
+            Err(err) => format!("error: {err:#}"),
+        };
+
+        let cases = [
+            // The command was running, and the cancel stopped it.
+            cancelled_from_output(output(b"", 0)),
+            // The command had already exited.
+            cancelled_from_output(output(b"", 3)),
+            // The exec directory is absent: never started, or reset since.
+            cancelled_from_output(output(b"exec has not started\n", 2)),
+            // The command survived both signals.
+            cancelled_from_output(output(b"command did not stop\n", 4)),
+            // The script failed without saying why.
+            cancelled_from_output(output(b"", 1)),
         ];
 
         insta::assert_debug_snapshot!(cases.into_iter().map(render).collect::<Vec<_>>());
@@ -1697,6 +1896,10 @@ mod live {
     use super::*;
     use futures::StreamExt;
 
+    /// Name of the sprite the cancel test owns. It is created and deleted by
+    /// the test, and is deliberately outside the `sbx-` sandbox namespace.
+    const SPRITE: &str = "control-plane-api-cancel-live-test";
+
     /// Name of the sprite the bootstrap test owns, on the same terms.
     const BOOTSTRAP_SPRITE: &str = "control-plane-api-bootstrap-live-test";
 
@@ -1884,6 +2087,95 @@ mod live {
         assert!(client.delete_sprite(LAUNCH_SPRITE).await.unwrap());
     }
 
+    #[tokio::test]
+    #[ignore]
+    async fn test_cancel_stops_a_running_command() {
+        let token = std::env::var("SPRITES_TOKEN").expect("SPRITES_TOKEN must be set");
+        let client = crate::sprites::Client::new(token);
+
+        client.create_sprite(SPRITE).await.unwrap();
+        wait_until_ready(&client, SPRITE).await.unwrap();
+        let sandbox = sandbox_for(SPRITE);
+
+        // A fresh exec id each run, so a sprite left behind by an earlier
+        // failure cannot answer with that run's exec directory.
+        let exec_id = models::IdGenerator::new(1).next();
+        let exec_arg = exec_id.to_string();
+
+        // Start a command that outlives the test and wait for the wrapper's
+        // announcement, keeping the connection this time to see how the
+        // wrapper reports the cancelled command's end.
+        let argv = [
+            "bash",
+            "-c",
+            EXEC_WRAPPER,
+            "flow-exec",
+            &exec_arg,
+            "for i in $(seq 1 600); do echo tick $i; sleep 1; done",
+            "0",
+            &serde_json::json!({"id": &exec_arg, "command": "for i in $(seq 1 600); do echo tick $i; sleep 1; done", "requested_at": "2026-09-21T00:00:00Z"}).to_string(),
+        ];
+        let mut frames = client
+            .exec_stream(SPRITE, &argv, START_TIMEOUT)
+            .await
+            .unwrap();
+        assert!(matches!(
+            frames.next().await,
+            Some(Ok(crate::sprites::Frame::Stdout(_)))
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+        // The cancel stops the running command, and a second one finds nothing
+        // left to stop.
+        assert!(cancel_exec(&client, &sandbox, exec_id).await.unwrap());
+        assert!(!cancel_exec(&client, &sandbox, exec_id).await.unwrap());
+
+        // The wrapper survived the signal to record the status of the terminated
+        // command, which it also reports on its own stream.
+        assert!(matches!(
+            frames.next().await,
+            Some(Ok(crate::sprites::Frame::Exit(143)))
+        ));
+
+        // Output written before the cancel is still readable, and the exit
+        // status of the signal that stopped the command stands as its own.
+        let status = read_file(&client, &sandbox, &ExecFile::Exit.path(exec_id), 0, None)
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&status.bytes).trim(), "143");
+        let chunk = read_file(&client, &sandbox, &ExecFile::Stdout.path(exec_id), 0, None)
+            .await
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&chunk.bytes).starts_with("tick 1\n"),
+            "unexpected output: {:?}",
+            String::from_utf8_lossy(&chunk.bytes)
+        );
+
+        // Nothing the command started outlived it: the process group the
+        // wrapper recorded has no members left. Counting by group rather than
+        // by command line keeps the counting shell from matching itself.
+        let count_survivors =
+            format!("pgrep -g \"$(cat $HOME/.estuary/exec/{exec_arg}/pgid)\" | wc -l");
+        let survivors = client
+            .exec(
+                SPRITE,
+                &["bash", "-lc", &count_survivors],
+                FILE_READ_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&survivors.stdout).trim(), "0");
+
+        // An exec the sandbox has no directory for cannot be cancelled.
+        let unknown = models::Id::from_hex("8877665544332211").unwrap();
+        let err = cancel_exec(&client, &sandbox, unknown).await.unwrap_err();
+        assert_eq!(format!("{err:#}"), "exec has not started");
+
+        assert!(client.delete_sprite(SPRITE).await.unwrap());
+    }
+
     /// [`bootstrap`] must install flowctl before `sandboxCreate` returns.
     #[tokio::test]
     #[ignore]
@@ -1904,6 +2196,15 @@ mod live {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.starts_with("flowctl v"), "unexpected: {stdout}");
+
+        // The baseline a reset restores is part of a bootstrapped sandbox.
+        let checkpoints = client.list_checkpoints(BOOTSTRAP_SPRITE).await.unwrap();
+        assert!(
+            checkpoints
+                .iter()
+                .any(|checkpoint| checkpoint.comment.as_deref() == Some(BASELINE_COMMENT)),
+            "no baseline checkpoint: {checkpoints:?}"
+        );
 
         assert!(client.delete_sprite(BOOTSTRAP_SPRITE).await.unwrap());
     }

@@ -22,7 +22,7 @@ pub struct Sandbox {
 #[async_graphql::ComplexObject]
 impl Sandbox {
     /// Commands run in this sandbox, newest first. Each is the record of a
-    /// command that started, with its observed exit result. Deletion
+    /// command that started, with its observed exit result. A reset or delete
     /// discards them along with their output.
     async fn execs(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<ExecEvent>> {
         let env = ctx.data::<crate::Envelope>()?;
@@ -54,7 +54,7 @@ impl From<crate::sandboxes::Sandbox> for Sandbox {
 /// `sandbox.execs` for the exit result.
 #[derive(Debug, async_graphql::SimpleObject)]
 pub struct ExecEvent {
-    /// Server-generated identifier of this command execution.
+    /// Identifier of the exec, passed with `catalogName` to `sandboxExecCancel`.
     pub exec_id: models::Id,
     /// The bash command that ran.
     pub command: String,
@@ -173,6 +173,9 @@ impl SandboxesQuery {
     /// The wrapper records that result after the command's last output, so once
     /// you see it, read output through EOF from your current offset to get the
     /// remainder.
+    ///
+    /// A sandbox reset discards past commands, taking their output files with
+    /// them, after which those paths no longer exist.
     async fn sandbox_file_read(
         &self,
         ctx: &Context<'_>,
@@ -224,7 +227,8 @@ impl SandboxesMutation {
     /// other live sandboxes. A deleted sandbox frees its catalog name.
     ///
     /// When this returns the sandbox is ready to use: it accepts commands,
-    /// and flowctl is installed.
+    /// flowctl is installed, and the baseline that `sandboxReset` restores
+    /// exists.
     async fn sandbox_create(
         &self,
         ctx: &Context<'_>,
@@ -301,6 +305,58 @@ impl SandboxesMutation {
 
         tracing::info!(%sandbox.id, %event.id, "started sandbox command");
         Ok(event.into())
+    }
+
+    /// Stop the authenticated user's command `execId`, along with everything
+    /// that command started. Returns whether the command was still running:
+    /// false means it had already exited.
+    ///
+    /// The output it wrote before it stopped stays readable at its
+    /// `stdoutPath` and `stderrPath`, and its `exitResult` then reports the exit
+    /// status of the signal that stopped it: 143, or 137 for a command that
+    /// had to be killed.
+    async fn sandbox_exec_cancel(
+        &self,
+        ctx: &Context<'_>,
+        catalog_name: models::Name,
+        exec_id: models::Id,
+    ) -> async_graphql::Result<bool> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let client = sprites_client(ctx)?;
+        let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
+
+        let cancelled = crate::sandboxes::cancel_exec(&client, &sandbox, exec_id)
+            .await
+            .map_err(|err| {
+                tracing::error!(?err, %sandbox.id, %exec_id, "failed to cancel sandbox command");
+                async_graphql::Error::new(format!("failed to cancel command: {err:#}"))
+            })?;
+
+        tracing::info!(%sandbox.id, %exec_id, cancelled, "cancelled sandbox command");
+        Ok(cancelled)
+    }
+
+    /// Reset the authenticated user's sandbox `catalogName` to its provisioning
+    /// baseline, discarding every change made since. Past commands and their
+    /// output are discarded too, so their exec ids stop resolving. The sandbox
+    /// keeps its catalog name.
+    async fn sandbox_reset(
+        &self,
+        ctx: &Context<'_>,
+        catalog_name: models::Name,
+    ) -> async_graphql::Result<bool> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let client = sprites_client(ctx)?;
+        let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
+
+        crate::sandboxes::reset(client, &sandbox)
+            .await
+            .map_err(|err| {
+                tracing::error!(?err, %sandbox.id, "failed to reset sandbox");
+                async_graphql::Error::new(format!("failed to reset sandbox: {err:#}"))
+            })?;
+
+        Ok(true)
     }
 
     /// Delete the authenticated user's sandbox `catalogName`, including its
@@ -635,10 +691,12 @@ mod test {
         .await;
         let queries = [
             "query Execs($name: Name!) { sandbox(catalogName: $name) { execs { execId command requestedAt } } }",
+            "mutation Cancel($name: Name!) { sandboxExecCancel(catalogName: $name, execId: \"0102030405060708\") }",
             "mutation Exec($name: Name!) { sandboxExec(catalogName: $name, command: \"true\") { execId } }",
+            "mutation Reset($name: Name!) { sandboxReset(catalogName: $name) }",
             "mutation Delete($name: Name!) { sandboxDelete(catalogName: $name) }",
         ];
-        for (user, expected_requests) in [(BOB, 0), (ALICE, 3)] {
+        for (user, expected_requests) in [(BOB, 0), (ALICE, 5)] {
             let token = server.make_access_token(user, None);
             for query in queries {
                 let response: serde_json::Value = server

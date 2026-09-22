@@ -35,6 +35,22 @@ pub struct Sprite {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// A saved filesystem snapshot of a sprite. The API also reports a synthetic
+/// entry with id [`LIVE_STATE_ID`] for the current live state, which is not a
+/// saved checkpoint and cannot be deleted.
+#[derive(Debug, serde::Deserialize)]
+pub struct Checkpoint {
+    pub id: String,
+    /// Free-text label set when the checkpoint was created, absent on the
+    /// synthetic live-state entry and on auto-created checkpoints.
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// Id of the synthetic checkpoint the API lists for a sprite's current live
+/// state. It is not a saved checkpoint.
+pub const LIVE_STATE_ID: &str = "Current";
+
 /// Output of a command that ran to completion in a sprite.
 #[derive(Debug, PartialEq)]
 pub struct Output {
@@ -125,6 +141,87 @@ impl Client {
             status if status.is_success() => Ok(true),
             _ => Err(api_error("failed to delete sprite", response).await),
         }
+    }
+
+    /// Snapshots `name`'s filesystem into a new checkpoint, labeled `comment`.
+    pub async fn create_checkpoint(&self, name: &str, comment: &str) -> anyhow::Result<()> {
+        let url = self.url(["v1", "sprites", name, "checkpoint"]);
+
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(&self.token)
+            .timeout(std::time::Duration::from_secs(30))
+            .json(&serde_json::json!({ "comment": comment }))
+            .send()
+            .await
+            .context("failed to reach the Sprites API")?;
+
+        stream_result("create checkpoint", response).await
+    }
+
+    /// Lists `name`'s saved checkpoints, plus the synthetic [`LIVE_STATE_ID`]
+    /// entry for its current state.
+    pub async fn list_checkpoints(&self, name: &str) -> anyhow::Result<Vec<Checkpoint>> {
+        let url = self.url(["v1", "sprites", name, "checkpoints"]);
+
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .context("failed to reach the Sprites API")?;
+
+        if !response.status().is_success() {
+            return Err(api_error("failed to list checkpoints", response).await);
+        }
+        response
+            .json()
+            .await
+            .context("failed to decode checkpoints")
+    }
+
+    /// Deletes checkpoint `id` of `name`, treating an already-absent checkpoint
+    /// as success.
+    pub async fn delete_checkpoint(&self, name: &str, id: &str) -> anyhow::Result<()> {
+        let url = self.url(["v1", "sprites", name, "checkpoints", id]);
+
+        let response = self
+            .http
+            .delete(url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .context("failed to reach the Sprites API")?;
+
+        match response.status() {
+            reqwest::StatusCode::NOT_FOUND => Ok(()),
+            status if status.is_success() => Ok(()),
+            _ => Err(api_error("failed to delete checkpoint", response).await),
+        }
+    }
+
+    /// Restores `name` to checkpoint `id`, reverting its filesystem and
+    /// restarting its processes from that snapshot.
+    ///
+    /// The API snapshots the current state into a new checkpoint before it
+    /// reverts, so a caller that wants a single steady-state checkpoint prunes
+    /// afterward. Restore restarts the sprite's container, so it takes longer
+    /// than the other calls.
+    pub async fn restore_checkpoint(&self, name: &str, id: &str) -> anyhow::Result<()> {
+        let url = self.url(["v1", "sprites", name, "checkpoints", id, "restore"]);
+
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(&self.token)
+            .timeout(std::time::Duration::from_secs(120))
+            .send()
+            .await
+            .context("failed to reach the Sprites API")?;
+
+        stream_result("restore checkpoint", response).await
     }
 
     /// Streams the output of `argv` running in `name`. `argv[0]` is the
@@ -501,6 +598,47 @@ impl Decoder {
             tag => anyhow::bail!("sprite sent an exec frame with unknown stream tag {tag}"),
         }))
     }
+}
+
+/// Resolves a checkpoint or restore call, whose outcome the API streams as
+/// NDJSON events under HTTP 200.
+///
+/// Success ends with a `complete` event and failure carries an `error` event,
+/// so the HTTP status alone does not report the outcome. This reads the whole
+/// stream and maps those events to a `Result`.
+async fn stream_result(context: &str, response: reqwest::Response) -> anyhow::Result<()> {
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        anyhow::bail!("{context} failed: HTTP {status}: {body}");
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Event {
+        #[serde(rename = "type")]
+        kind: String,
+        #[serde(default)]
+        error: Option<String>,
+    }
+
+    let mut completed = false;
+    for line in body.lines() {
+        let Ok(event) = serde_json::from_str::<Event>(line.trim()) else {
+            continue;
+        };
+        match event.kind.as_str() {
+            "error" => anyhow::bail!(
+                "{context} failed: {}",
+                event.error.as_deref().unwrap_or("unknown error")
+            ),
+            "complete" => completed = true,
+            _ => {}
+        }
+    }
+
+    anyhow::ensure!(completed, "{context} ended without completing");
+    Ok(())
 }
 
 /// Builds an error from a failed Sprites API response, folding in the

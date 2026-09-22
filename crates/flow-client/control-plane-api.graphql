@@ -1054,7 +1054,7 @@ sandbox holds its output. Read output with `sandboxFileRead` and poll
 """
 type ExecEvent {
 	"""
-	Server-generated identifier of this command execution.
+	Identifier of the exec, passed with `catalogName` to `sandboxExecCancel`.
 	"""
 	execId: Id!
 	"""
@@ -1623,7 +1623,8 @@ type MutationRoot {
 	other live sandboxes. A deleted sandbox frees its catalog name.
 	
 	When this returns the sandbox is ready to use: it accepts commands,
-	and flowctl is installed.
+	flowctl is installed, and the baseline that `sandboxReset` restores
+	exists.
 	"""
 	sandboxCreate(catalogName: Name!): Sandbox!
 	"""
@@ -1644,6 +1645,24 @@ type MutationRoot {
 		"""
 		stdin: String
 	): ExecEvent!
+	"""
+	Stop the authenticated user's command `execId`, along with everything
+	that command started. Returns whether the command was still running:
+	false means it had already exited.
+	
+	The output it wrote before it stopped stays readable at its
+	`stdoutPath` and `stderrPath`, and its `exitResult` then reports the exit
+	status of the signal that stopped it: 143, or 137 for a command that
+	had to be killed.
+	"""
+	sandboxExecCancel(catalogName: Name!, execId: Id!): Boolean!
+	"""
+	Reset the authenticated user's sandbox `catalogName` to its provisioning
+	baseline, discarding every change made since. Past commands and their
+	output are discarded too, so their exec ids stop resolving. The sandbox
+	keeps its catalog name.
+	"""
+	sandboxReset(catalogName: Name!): Boolean!
 	"""
 	Delete the authenticated user's sandbox `catalogName`, including its
 	filesystem and the record of commands run in it. Its catalog name becomes
@@ -2294,6 +2313,9 @@ type QueryRoot {
 	The wrapper records that result after the command's last output, so once
 	you see it, read output through EOF from your current offset to get the
 	remainder.
+	
+	A sandbox reset discards past commands, taking their output files with
+	them, after which those paths no longer exist.
 	"""
 	sandboxFileRead(		catalogName: Name!,		path: String!,
 		"""
@@ -2401,7 +2423,7 @@ type Sandbox {
 	createdAt: DateTime!
 	"""
 	Commands run in this sandbox, newest first. Each is the record of a
-	command that started, with its observed exit result. Deletion
+	command that started, with its observed exit result. A reset or delete
 	discards them along with their output.
 	"""
 	execs: [ExecEvent!]!

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 pub mod graphql;
 mod open_metrics;
+pub mod sandboxes;
 pub mod status;
 pub mod stripe_webhooks;
 pub mod token_exchange;
@@ -68,6 +69,13 @@ pub(crate) fn api_v1_router(
             axum::routing::post(graphql::graphql_handler),
         )
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
+        // Sandbox reset. A plain route (not `.api_route`): it is a sandbox
+        // operation rather than part of the documented CRUD surface the OpenAPI
+        // conventions describe.
+        .route(
+            "/api/v1/sandboxes/{id}/reset",
+            axum::routing::post(sandboxes::handle_post_sandbox_reset),
+        )
         // Stripe webhook receiver. Registered as a plain route (not `.api_route`)
         // because it isn't part of our documented public API and authenticates
         // via a signed raw body rather than the usual JWT/JSON convention.
