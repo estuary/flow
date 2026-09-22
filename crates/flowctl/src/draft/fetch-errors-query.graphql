@@ -1,0 +1,8 @@
+query FetchDraftErrorsQuery($id: Id!) {
+    draft(id: $id) {
+        errors {
+            scope
+            detail
+        }
+    }
+}

@@ -1,6 +1,5 @@
 use crate::{CliContext, catalog, draft};
 use anyhow::Context;
-use serde::Serialize;
 
 // This `NameSelector` is essentially a copy of `catalog::NameSelector`, except that this
 // definition requires that either --name or --prefix are provided. Other commands will allow neither
@@ -48,15 +47,6 @@ pub struct Delete {
     pub dangerous_auto_approve: bool,
 }
 
-#[derive(Serialize, Debug)]
-struct DraftSpec {
-    draft_id: models::Id,
-    catalog_name: String,
-    expect_pub_id: models::Id,
-    spec_type: serde_json::Value, // always null, since we're deleting
-    spec: serde_json::Value,      // always null, since we're deleting
-}
-
 pub async fn do_delete(
     ctx: &mut CliContext,
     Delete {
@@ -100,37 +90,31 @@ pub async fn do_delete(
     );
     tracing::info!(draft_id = %draft.id, "created draft");
 
-    // create the draft specs now, so we can pass owned `specs` to `write_all`
+    // A deletion is staged with neither a model nor a type.
     let draft_specs = specs
         .into_iter()
-        .map(|spec| DraftSpec {
-            draft_id: draft.id.clone(),
-            catalog_name: spec.catalog_name.to_string(),
-            spec_type: serde_json::Value::Null,
-            spec: serde_json::Value::Null,
-            expect_pub_id: spec
-                .live_spec
-                .as_ref()
-                .map(|ls| ls.last_pub_id)
-                .unwrap_or(models::Id::zero()),
+        .map(|spec| draft::DraftSpecInput {
+            catalog_name: spec.catalog_name,
+            catalog_type: None,
+            model: None,
+            expect_pub_id: Some(
+                spec.live_spec
+                    .as_ref()
+                    .map(|ls| ls.last_pub_id)
+                    .unwrap_or(models::Id::zero()),
+            ),
+            detail: None,
         })
-        .collect::<Vec<DraftSpec>>();
+        .collect::<Vec<_>>();
+    let count = draft_specs.len();
 
-    flow_client_next::postgrest::exec::<Vec<serde_json::Value>>(
-        ctx.pg
-            .from("draft_specs")
-            //.select("catalog_name,spec_type")
-            .upsert(serde_json::to_string(&draft_specs).unwrap())
-            .on_conflict("draft_id,catalog_name"),
-        ctx.access_token().as_deref(),
-    )
-    .await?;
+    draft::stage_draft_specs(ctx, draft.id, draft_specs).await?;
     tracing::debug!("added deletions to draft");
 
     draft::publish(ctx, None, draft.id, false).await?;
 
     // extra newline before, since `publish` will output a bunch of logs
-    println!("\nsuccessfully deleted {} spec(s)", draft_specs.len());
+    println!("\nsuccessfully deleted {count} spec(s)");
     Ok(())
 }
 

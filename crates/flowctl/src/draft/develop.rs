@@ -1,7 +1,5 @@
 use crate::local_specs;
-use futures::TryStreamExt;
 use models::{CatalogType, RawValue};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -36,17 +34,18 @@ pub async fn develop(
     overwrite: bool,
     flat: bool,
 ) -> anyhow::Result<()> {
-    let rows: Vec<DraftSpecRow> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("draft_specs")
-            .select("catalog_name,spec,spec_type,expect_pub_id")
-            .not("is", "spec_type", "null")
-            .eq("draft_id", draft_id.to_string()),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
+    // Drafted deletions have no model to develop, and are skipped.
+    let rows = super::fetch_draft_specs(ctx, draft_id, true)
+        .await?
+        .into_iter()
+        .filter_map(|spec| {
+            Some(DraftSpecRow {
+                catalog_name: spec.catalog_name.to_string(),
+                spec: spec.model?,
+                spec_type: spec.catalog_type?,
+                expect_pub_id: spec.expect_pub_id,
+            })
+        });
 
     let target = build::arg_source_to_url(&target, true)?;
     let mut sources = local_specs::surface_errors(local_specs::load(&target).await.into_result())?;
@@ -64,7 +63,6 @@ pub async fn develop(
     Ok(())
 }
 
-#[derive(Deserialize, Serialize)]
 pub struct DraftSpecRow {
     pub catalog_name: String,
     pub spec: RawValue,

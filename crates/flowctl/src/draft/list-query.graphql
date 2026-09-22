@@ -1,0 +1,17 @@
+query ListDraftsQuery($after: String) {
+    drafts(after: $after) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                id
+                createdAt
+                updatedAt
+                detail
+                numSpecs
+            }
+        }
+    }
+}
