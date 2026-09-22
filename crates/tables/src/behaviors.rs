@@ -1840,11 +1840,8 @@ mod test {
     fn test_masked_walk_without_delegate_is_direct_only() {
         use Capability::*;
 
-        // The mask strips Delegate from the direct Editor grant, so the
-        // walk terminates there: bobCo/ and carolCo/ are unreachable even
-        // though the underlying grants reach them. The supportCo/ grant's
-        // Assume bit is likewise stripped, so that node surfaces empty and
-        // daveCo/ is unreachable too.
+        // Masking away Delegate and Assume makes the direct grants terminal, so
+        // nothing beyond them is reached even though the underlying grants delegate.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
         let mask = authz::CapabilityMask::new(CatalogRead | JournalRead | SpecEdit);
         let subject = authz::Subject {
