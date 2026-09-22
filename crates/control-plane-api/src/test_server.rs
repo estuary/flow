@@ -79,6 +79,7 @@ impl TestServer {
             pg_pool,
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
             models::AlertConfig::default(),
         )
         .await
@@ -93,7 +94,25 @@ impl TestServer {
             pg_pool,
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
             alert_config_defaults,
+        )
+        .await
+    }
+
+    /// Starts a server wired to a BigTable catalog stats client, for the tests
+    /// that exercise the `catalogStats` query against the emulator.
+    pub async fn start_with_catalog_stats(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        catalog_stats: Arc<catalog_stats::Client>,
+    ) -> Self {
+        Self::start_with_config(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            Some(catalog_stats),
+            models::AlertConfig::default(),
         )
         .await
     }
@@ -102,6 +121,7 @@ impl TestServer {
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -121,6 +141,7 @@ impl TestServer {
         let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
             billing_provider,
+            catalog_stats,
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),
             publisher,
