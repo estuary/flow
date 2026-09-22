@@ -218,7 +218,6 @@ async fn walk_materialization(
                 model,
                 built_collections,
                 materialization,
-                data_plane_id,
                 shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
@@ -712,7 +711,6 @@ fn walk_materialization_binding<'a>(
     mut model: models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
     catalog_name: &models::Materialization,
-    data_plane_id: models::Id,
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::MaterializationBinding>,
     live_bindings_spec: &LiveBindings,
@@ -754,7 +752,7 @@ fn walk_materialization_binding<'a>(
             (name, partitions.as_ref())
         }
     };
-    let Some((mut source_spec, built_collection)) = reference::walk_reference(
+    let Some((mut source_spec, _)) = reference::walk_reference(
         scope,
         "materialization binding",
         || {
@@ -798,8 +796,6 @@ fn walk_materialization_binding<'a>(
         model_fixes,
         errors,
     );
-
-    super::temporary_cross_data_plane_read_check(scope, built_collection, data_plane_id, errors);
 
     // The binding's `onIncompatibleSchemaChange` takes precedence, if specified.
     let on_incompatible_schema_change = model

@@ -64,8 +64,9 @@ pub async fn provision_tenant(
         .filter(models::status::AlertType::is_default)
         .collect();
 
-    // Note that the gcp-us-central1-c1 (combustible-cronut) dataplane is excluded here
-    // because it's being deprecated and replaced.
+    // Note that the gcp-us-central1-c1 (combustible-cronut) data-plane is excluded here.
+    // It was deprecated and is no longer functional (no tasks run in it), but its
+    // production `data_planes` row still exists, so it must still be filtered out.
     sqlx::query!(
         r#"with
         accounts_root_user as (
