@@ -71,6 +71,8 @@ pub async fn connect(
         emulator_host: bigtable_emulator_host,
     };
 
+    // Requires the `roles/bigtable.reader` IAM role for the Bigtable instance
+    // provided in the above configuration.
     let client = tokio::time::timeout(
         bigtable_connect_timeout,
         catalog_stats::Client::connect(&config),
