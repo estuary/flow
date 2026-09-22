@@ -110,7 +110,7 @@ fn open_publisher(
     JournalPublisherFactory::new(factory.clone())
         .open(
             "test".to_string(),
-            gazette::random_producer(),
+            runtime_next::new_producer(),
             "testing/ops/stats",
             &[spec],
             &[0],
@@ -289,12 +289,22 @@ async fn fetch_journal(
     client: &gazette::journal::Client,
     name: &str,
 ) -> (broker::JournalSpec, i64) {
-    let journal = client
-        .get_journal(name)
+    let response = client
+        .list(broker::ListRequest {
+            selector: Some(broker::LabelSelector {
+                include: Some(labels::build_set([("name", name)])),
+                exclude: None,
+            }),
+            ..Default::default()
+        })
         .await
-        .expect("list journal by name")
-        .unwrap_or_else(|| panic!("journal {name} is not listed"));
+        .expect("list journal by name");
 
+    let journal = response
+        .journals
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("journal {name} is not listed"));
     (
         journal.spec.expect("listed journal has spec"),
         journal.mod_revision,

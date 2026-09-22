@@ -43,11 +43,6 @@ const (
 	// message.Clock. A reader raises its effective not_before to this clock to
 	// skip the stale pre-backfill prefix.
 	TruncatedAt = "estuary.dev/truncated-at"
-
-	// DiskRecoveryFloor is the journal offset a disk-daemon replay may begin at:
-	// every allocated block of the disk has a committed copy at or after it. The
-	// daemon applies it to live disk journals, so convergence must preserve it.
-	DiskRecoveryFloor = "estuary.dev/disk-recovery-floor"
 )
 
 // ShardSpec labels.
@@ -134,9 +129,7 @@ func IsRuntimeLabel(label string) bool {
 		SplitTarget, SplitSource,
 		// The backfill truncation boundary is applied to live journals by the
 		// capture runtime, so convergence must preserve it (not rebuild it away).
-		TruncatedAt,
-		// A disk journal's recovery floor is applied by the disk daemon.
-		DiskRecoveryFloor:
+		TruncatedAt:
 		return true
 	default:
 		return false

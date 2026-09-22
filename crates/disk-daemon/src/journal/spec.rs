@@ -51,10 +51,13 @@ pub(super) async fn resolve(
     })
     .await?;
 
+    // Indistinguishable here: the daemon's token selects the disk content type, so a
+    // journal of some other type lists as absent rather than reaching the content-type
+    // check below.
     let Some(listing) = listing else {
         return Err(anyhow::Error::new(crate::Failure::Invalid(format!(
-            "journal {journal} does not exist, and the daemon creates none: whoever \
-             deploys this disk owns its journal's specification",
+            "journal {journal} does not exist or is not a disk journal, and the daemon \
+             creates none: whoever deploys this disk owns its journal's specification",
         ))));
     };
     let floor = listed_floor(listing)?;
@@ -185,8 +188,9 @@ pub(super) async fn current_floor(
 /// This is the one part of a journal's specification the daemon writes. The floor
 /// is the daemon's own state about a disk rather than the caller's, so the daemon
 /// keeps it here, attached to the journal it describes, where a later tenure finds
-/// it without a client having to carry it. `labels::is_data_plane_label` names it,
-/// so that a control-plane activation preserves it rather than rebuilding it away.
+/// it without a client having to carry it. Whatever converges the journal's
+/// specification must carry the label over: one which rebuilt it away would cost a
+/// later replay the work of reading below it, and nothing else.
 ///
 /// The value is fixed-width hex, so the label is advanced by comparing strings and
 /// only ever moves forward: a tenure which finds a newer floor leaves it alone.

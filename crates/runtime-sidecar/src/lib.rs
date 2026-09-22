@@ -13,7 +13,7 @@ use std::path::PathBuf;
 #[command(about, version)]
 pub struct Args {
     #[arg(long = "log-format", env = "LOG_FORMAT", default_value = "text")]
-    pub log_format: service_kit::trace::LogFormat,
+    pub log_format: LogFormat,
 
     /// TCP port to listen on, binding `[::]:<port>`.
     #[arg(long, env = "LISTEN_PORT")]
@@ -62,6 +62,12 @@ pub struct Args {
     /// set its own `estuary.dev/shuffle-disk-limit` label. Default is 2 GiB.
     #[arg(long, env = "SHUFFLE_DISK_LIMIT_BYTES", default_value_t = shuffle::DEFAULT_SHUFFLE_DISK_LIMIT_BYTES)]
     pub shuffle_disk_limit_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
+pub enum LogFormat {
+    Text,
+    Json,
 }
 
 pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<()> {
@@ -138,7 +144,13 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
     {
         let shutdown_tx = shutdown_tx.clone();
         tokio::spawn(async move {
-            () = service_kit::shutdown_signal().await;
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("install SIGTERM handler");
+            tokio::select! {
+                _ = term.recv() => tracing::info!("SIGTERM received"),
+                _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
+            }
             let _ = shutdown_tx.send(());
         });
     }

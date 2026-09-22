@@ -3135,6 +3135,7 @@ dependencies = [
  "proto-grpc",
  "publisher",
  "quickcheck",
+ "rand 0.9.2",
  "rustls 0.23.32",
  "service-kit",
  "tempfile",
@@ -3145,6 +3146,7 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -7736,6 +7738,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 
@@ -8279,7 +8282,6 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
- "clap",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",

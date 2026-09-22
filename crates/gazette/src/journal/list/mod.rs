@@ -53,7 +53,17 @@ impl Client {
     ) -> crate::Result<Option<broker::list_response::Journal>> {
         let response = self
             .list(broker::ListRequest {
-                selector: Some(super::name_selector(journal)),
+                // Gazette indexes a journal's own name as a label of its spec.
+                selector: Some(broker::LabelSelector {
+                    include: Some(broker::LabelSet {
+                        labels: vec![broker::Label {
+                            name: "name".to_string(),
+                            value: journal.to_string(),
+                            prefix: false,
+                        }],
+                    }),
+                    exclude: None,
+                }),
                 ..Default::default()
             })
             .await?;

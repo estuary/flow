@@ -119,7 +119,7 @@ where
     // Shard zero forwards this producer to the leader, so its Publisher identity
     // is held constant across every session of the loop. Non-zero shards select
     // one also, but never forward it.
-    let leader_producer = gazette::random_producer();
+    let leader_producer = crate::new_producer();
 
     let verify = crate::verify("Materialize", "Join", "controller");
     while let Some(result) = controller_rx.next().await {

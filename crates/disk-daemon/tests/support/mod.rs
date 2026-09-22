@@ -246,7 +246,7 @@ impl Fixture {
     /// this directly to stage a journal of its own: one which a disk cannot be
     /// recovered from, or one Gazette has suspended.
     pub async fn create_journal(&self, spec: broker::JournalSpec) {
-        _ = e2e_support::journals::create(&self.client, spec)
+        () = e2e_support::journals::create(&self.client, spec)
             .await
             .expect("staging a journal");
     }
@@ -325,13 +325,12 @@ impl Fixture {
     /// This is not monotonic, unlike the daemon's own store: a case uses it to plant
     /// the floor it wants to see a recovery handle.
     pub async fn store_floor(&self, journal: &str, floor: u64) {
-        _ = e2e_support::journals::update(&self.client, journal, |spec| {
+        () = e2e_support::journals::update(&self.client, journal, |spec| {
             spec.labels = Some(labels::set_value(
                 spec.labels.take().unwrap_or_default(),
                 disk_daemon::DISK_RECOVERY_FLOOR,
                 &disk_daemon::recovery_floor_value(floor),
             ));
-            true
         })
         .await
         .expect("applying a recovery floor");

@@ -12,7 +12,7 @@
 use crate::capture::{self, Capture};
 use crate::image::Image;
 use crate::journal::buffer;
-use crate::journal::{self, Opening, Writer};
+use crate::journal::{Opening, Writer};
 use crate::proto;
 use crate::wake::Waker;
 use proto_gazette::{broker, fixed_framing, uuid};
@@ -25,8 +25,8 @@ pub const BLOCKS: u32 = 64;
 pub type UuidParts = (uuid::Producer, uuid::Clock, uuid::Flags);
 
 pub struct Fixture {
-    /// Brokers of a writer under test, and the key it signs its own tokens with.
-    pub auth: journal::Auth,
+    /// Client of the writer under test, signed exactly as the daemon signs.
+    pub daemon_client: gazette::journal::Client,
     /// Client of the test itself, which probes, reads, and applies specs.
     pub client: gazette::journal::Client,
     data_plane: e2e_support::DataPlane,
@@ -39,12 +39,18 @@ impl Fixture {
                 .await
                 .expect("DataPlane start");
 
+        // The daemon's own constructor, so that a scenario exercises the credential
+        // the daemon signs rather than one of the test's making.
+        let daemon_client = crate::daemon::client(
+            &data_plane.gazette.brokers[0].endpoint,
+            "local",
+            "disk-daemon-test",
+            &data_plane.gazette.auth_keys,
+        )
+        .expect("building the daemon's journal client");
+
         Self {
-            auth: journal::Auth {
-                endpoint: data_plane.gazette.brokers[0].endpoint.clone(),
-                fqdn: "disk-daemon-test".to_string(),
-                key: data_plane.gazette.encode_key.clone(),
-            },
+            daemon_client,
             client: data_plane.journal_client.clone(),
             data_plane,
         }
@@ -106,11 +112,8 @@ impl Fixture {
     /// [`Fixture::opening`], creating nothing, for a scenario which staged a journal
     /// of its own — or which stages none at all.
     pub async fn opening_uncreated(&self, journal: &str) -> anyhow::Result<Opening> {
-        let client = journal::shared_client(&self.auth.endpoint, "local");
-
         Opening::new(
-            &client,
-            &self.auth,
+            &self.daemon_client,
             journal.to_string(),
             tokio_util::sync::CancellationToken::new(),
         )
@@ -151,9 +154,7 @@ impl Fixture {
     /// Every open needs one, and a scenario calls this directly to stage a journal
     /// whose spec differs from [`Fixture::spec`].
     pub async fn create_journal(&self, spec: broker::JournalSpec) -> anyhow::Result<()> {
-        _ = e2e_support::journals::create(&self.client, spec).await?;
-
-        Ok(())
+        e2e_support::journals::create(&self.client, spec).await
     }
 
     /// Every record of `journal`, paired with its parsed UUID.
@@ -188,14 +189,13 @@ impl Fixture {
         }
 
         let mut records = Vec::new();
-        let mut rest = &content[..];
+        let mut rest = bytes::BytesMut::from(&content[..]);
 
         while !rest.is_empty() {
-            match fixed_framing::decode::<proto::DiskRecord>(rest).expect("a record decodes") {
-                fixed_framing::Frame::Record { message, consumed } => {
+            match fixed_framing::unpack::<proto::DiskRecord>(&mut rest).expect("a record decodes") {
+                fixed_framing::Frame::Record { message, .. } => {
                     let uuid = uuid::Uuid::from_slice(&message.uuid).unwrap();
                     records.push((uuid::parse(uuid).unwrap(), message));
-                    rest = &rest[consumed..];
                 }
                 frame => panic!("expected a record of {journal}, got {frame:?}"),
             }

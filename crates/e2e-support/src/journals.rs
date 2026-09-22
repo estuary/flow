@@ -33,10 +33,25 @@ pub async fn probe(
     };
     let source = || futures::stream::empty::<std::io::Result<bytes::Bytes>>();
 
-    match client.append_once(request, source).await {
-        Ok(response) => Ok(Some(response)),
-        Err(gazette::Error::BrokerStatus(broker::Status::Suspended)) => Ok(None),
-        Err(err) => Err(anyhow::Error::new(err).context(format!("probing {journal}"))),
+    let stream = client.append(request, source);
+    futures::pin_mut!(stream);
+
+    loop {
+        match futures::StreamExt::next(&mut stream).await {
+            Some(Ok(response)) => return Ok(Some(response)),
+            Some(Err(gazette::RetryError {
+                inner: gazette::Error::BrokerStatus(broker::Status::Suspended),
+                ..
+            })) => return Ok(None),
+            // Polling again pays the stream's backoff and restarts route discovery.
+            Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
+                tracing::warn!(journal, attempt, %inner, "probe append failed (will retry)");
+            }
+            Some(Err(gazette::RetryError { inner, .. })) => {
+                return Err(anyhow::Error::new(inner).context(format!("probing {journal}")));
+            }
+            None => unreachable!("an append stream does not end without a response"),
+        }
     }
 }
 
@@ -78,17 +93,16 @@ pub async fn register(
     }
 }
 
-/// Create `spec`'s journal unless it exists, and report whether this call created it.
+/// Create `spec`'s journal unless it exists.
 ///
 /// This is what a deployer does, and it is the request an activation and the
-/// publisher's partition mapping each build inline. It is here because a test is the
-/// only caller which wants the outcome as a bool: a fixture which opens the same
-/// journal twice creates it once, and a lost race to another creator is the rare
-/// instance of that same outcome.
+/// publisher's partition mapping each build inline. A journal which exists is not an
+/// error: a fixture which opens the same journal twice creates it once, and a lost
+/// race to another creator ends the same way.
 pub async fn create(
     client: &gazette::journal::Client,
     spec: broker::JournalSpec,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let journal = spec.name.clone();
 
     let request = broker::ApplyRequest {
@@ -101,14 +115,13 @@ pub async fn create(
     };
 
     match client.apply(request).await {
-        Ok(_response) => Ok(true),
-        Err(gazette::Error::BrokerStatus(broker::Status::EtcdTransactionFailed)) => Ok(false),
+        Ok(_response) => Ok(()),
+        Err(gazette::Error::BrokerStatus(broker::Status::EtcdTransactionFailed)) => Ok(()),
         Err(err) => Err(anyhow::Error::new(err).context(format!("creating {journal}"))),
     }
 }
 
-/// Apply `modify` to the live spec of `journal`, and apply what it leaves. Report
-/// whether `modify` changed anything.
+/// Apply `modify` to the live spec of `journal`, and apply what it leaves.
 ///
 /// The change is conditioned on the `mod_revision` which was listed, so a spec which
 /// something else changed in between is refused rather than overwritten. That refusal
@@ -117,8 +130,8 @@ pub async fn create(
 pub async fn update(
     client: &gazette::journal::Client,
     journal: &str,
-    modify: impl FnOnce(&mut broker::JournalSpec) -> bool,
-) -> anyhow::Result<bool> {
+    modify: impl FnOnce(&mut broker::JournalSpec),
+) -> anyhow::Result<()> {
     let listed = client
         .get_journal(journal)
         .await
@@ -128,10 +141,7 @@ pub async fn update(
         anyhow::bail!("journal {journal} does not exist");
     };
     let mut spec = listed.spec.expect("a listed journal has a spec");
-
-    if !modify(&mut spec) {
-        return Ok(false);
-    }
+    modify(&mut spec);
 
     _ = client
         .apply(broker::ApplyRequest {
@@ -144,5 +154,5 @@ pub async fn update(
         .await
         .with_context(|| format!("updating {journal}"))?;
 
-    Ok(true)
+    Ok(())
 }

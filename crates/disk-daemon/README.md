@@ -28,7 +28,7 @@ rest belongs to the daemon and is private. Everything below is `src/`.
 | File | What it owns |
 | --- | --- |
 | `client.rs` | `Client`, `Standby`, `Disk`, and `Error`: the caller's side of the tenure gRPC, and the two-phase commit it drives. |
-| `daemon.rs` | The process: its `Config`, the socket, and the drain. |
+| `daemon.rs` | The process: its `Config`, the socket, the drain, and the self-signed broker client every tenure shares. |
 | `args.rs` | The command line, which is the daemon's whole configuration. |
 | `tenure.rs` | `Service` and `Tenure`: the RPC state machine, and the cut order of `Serving::prepare`. |
 | `device.rs` | `Device`: one `ublk` device's life, from `add_dev` to `del_dev`. |
@@ -42,7 +42,7 @@ rest belongs to the daemon and is private. Everything below is `src/`.
 | `inflight.rs` | `InFlight`: serialization of overlapping mutations. |
 | `wake.rs` | `Waker`: the eventfd which interrupts an owner parked on its ring. |
 | `filesystem.rs` | `mkfs`, `Mount`, and `syncfs`. The only file which knows it is ext4. |
-| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `fence.rs` claims it, `writer.rs` appends its deltas, `playback.rs` replays it, `replay.rs` holds the rules, `buffer.rs` holds the unacknowledged delta, `auth.rs` signs the broker tokens. |
+| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `fence.rs` claims it, `writer.rs` appends its deltas, `playback.rs` replays it, `replay.rs` holds the rules, `buffer.rs` holds the unacknowledged delta. |
 
 ## Architecture
 
@@ -413,9 +413,12 @@ Fresh root ownership is set during format, keeping it part of the initial
 filesystem rather than a separate mutation. Recovery changes root ownership only
 if the peer's UID/GID differs from the replayed one.
 
-The daemon uses its configured brokers and data-plane signing key to mint
-refreshing tokens scoped to each tenure's journal. Clients supply neither broker
-addresses nor credentials. Socket access consequently authorizes access to disk
+The daemon uses its configured brokers and data-plane signing key to mint one
+refreshing token, shared by every tenure and scoped to the disk journal content
+type. That scope bounds the daemon rather than its clients: it cannot reach a
+collection's journal or a shard's recovery log, and a journal of some other
+content type is invisible to it. Clients supply neither broker addresses nor
+credentials. Socket access consequently authorizes access to disk
 journals in that data plane. The socket is mode `0666`; its parent directory
 must restrict traversal to authorized clients. The required content type
 prevents opening other journal formats, but is not authorization between disk

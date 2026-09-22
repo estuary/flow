@@ -1,7 +1,6 @@
 //! The daemon process. This covers what it serves, and how it stops.
 
 use crate::args::Args;
-use crate::journal;
 use crate::ublk::Control;
 use anyhow::Context;
 
@@ -17,11 +16,91 @@ pub struct Config {
     pub mount_dir: std::path::PathBuf,
     /// When a disk opens a recovery horizon, and how fast it discharges one.
     pub horizon: crate::horizon::Policy,
-    /// Shared by every tenure's journal writer.
+    /// Brokers of every disk journal, authorized by [`client`]. Shared by every
+    /// tenure's journal writer.
     pub client: gazette::journal::Client,
-    /// Brokers of every disk journal, and the key which authorizes this daemon to
-    /// them. Each tenure signs a token of its own journal from these.
-    pub auth: journal::Auth,
+}
+
+/// Duration of a token the daemon signs. `tokens` renews two minutes ahead of
+/// expiry and never more often than once a minute, so this is minutes rather than
+/// seconds. Rotating the key needs a restart, as it does for every component of the
+/// data plane.
+const TOKEN_DURATION: tokens::TimeDelta = match tokens::TimeDelta::try_minutes(10) {
+    Some(duration) => duration,
+    None => panic!("ten minutes is a valid duration"),
+};
+
+/// The daemon's broker client: one self-signed credential over one transport, which
+/// every tenure shares.
+///
+/// The daemon holds the data plane's signing key and mints its own tokens, rather
+/// than being handed one by a client and having to be handed another before it
+/// expires. This is how a reactor reaches its shard recovery logs: a journal of the
+/// data plane's own state is self-signed, and only user collection data goes through
+/// the control plane's authorization API. Only the first of `auth_keys` signs; the
+/// daemon verifies nothing, so it needs no others.
+///
+/// One token serves every disk. A narrower one would not be authorization between
+/// clients, because socket access already reaches every disk journal of the data
+/// plane. What the content-type selector does bound is the daemon itself, which
+/// cannot touch a collection's journal or a shard's recovery log with it.
+///
+/// It also bounds what the daemon can see: a journal carrying some other content
+/// type does not merely fail `spec`'s validation, it lists as absent, and `Open`
+/// reports it as a journal which does not exist.
+pub(crate) fn client(
+    broker_address: &str,
+    zone: &str,
+    fqdn: &str,
+    auth_keys: &str,
+) -> anyhow::Result<gazette::journal::Client> {
+    use proto_gazette::capability::{APPEND, APPLY, LIST, READ};
+
+    let (key, _verify) = tokens::jwt::parse_base64_hmac_keys_str(auth_keys)
+        .map_err(|status| anyhow::anyhow!("parsing --data-plane-auth-keys: {status}"))?;
+
+    let claims = proto_gazette::Claims {
+        // Everything the daemon does: it lists a journal to validate its spec, reads
+        // it back to recover a disk, appends its deltas, and applies the recovery
+        // floor it derives.
+        cap: APPEND | APPLY | LIST | READ,
+        // Stamped at each signing, from `TOKEN_DURATION`.
+        exp: 0,
+        iat: 0,
+        iss: fqdn.to_string(),
+        sel: proto_gazette::broker::LabelSelector {
+            include: Some(labels::build_set([(
+                labels::CONTENT_TYPE,
+                crate::CONTENT_TYPE_DISK,
+            )])),
+            exclude: None,
+        },
+        // A broker enforces the capability and the selector, not this. It names what
+        // is acting, for a broker's own logs.
+        sub: "disk-daemon".to_string(),
+    };
+
+    let source = tokens::jwt::SignedSource {
+        claims,
+        set_time_claims: Box::new(|claims: &mut proto_gazette::Claims, iat, exp| {
+            (claims.iat, claims.exp) = (iat.timestamp() as u64, exp.timestamp() as u64);
+        }),
+        duration: TOKEN_DURATION,
+        key,
+    };
+    let endpoint = broker_address.to_string();
+
+    Ok(gazette::journal::Client::new_with_tokens(
+        move |token: &String| {
+            Ok((
+                proto_grpc::Metadata::new().with_bearer_token(token)?,
+                endpoint.clone(),
+            ))
+        },
+        gazette::journal::Client::new_fragment_client(),
+        gazette::Router::new(zone),
+        tokens::watch(source),
+    ))
 }
 
 /// Prefix of a disk's mount point. The rest of the name is the device number, so
@@ -34,11 +113,12 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     () = std::fs::create_dir_all(&args.mount_dir)
         .with_context(|| format!("creating {:?}", args.mount_dir))?;
 
-    let client = journal::shared_client(&args.broker_address, &args.gazette_zone);
-
-    // Only the first key signs. The daemon verifies nothing, so it needs no others.
-    let (key, _verify) = tokens::jwt::parse_base64_hmac_keys_str(&args.data_plane_auth_keys)
-        .map_err(|status| anyhow::anyhow!("parsing --data-plane-auth-keys: {status}"))?;
+    let client = client(
+        &args.broker_address,
+        &args.gazette_zone,
+        &args.data_plane_fqdn,
+        &args.data_plane_auth_keys,
+    )?;
 
     let config = std::sync::Arc::new(Config {
         image_dir: args.image_dir.clone(),
@@ -49,11 +129,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             minimum_bytes: args.horizon_minimum_bytes,
         },
         client,
-        auth: journal::Auth {
-            endpoint: args.broker_address.clone(),
-            fqdn: args.data_plane_fqdn.clone(),
-            key,
-        },
     });
 
     tracing::info!(
@@ -73,7 +148,13 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         let draining = draining.clone();
 
         tokio::spawn(async move {
-            () = service_kit::shutdown_signal().await;
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("install SIGTERM handler");
+            tokio::select! {
+                _ = term.recv() => tracing::info!("SIGTERM received"),
+                _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
+            }
             draining.cancel();
         });
     }

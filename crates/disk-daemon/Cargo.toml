@@ -30,6 +30,7 @@ clap = { workspace = true }
 futures = { workspace = true }
 io-uring = { workspace = true }
 libc = { workspace = true }
+rand = { workspace = true }
 rustls = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -37,6 +38,7 @@ tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }

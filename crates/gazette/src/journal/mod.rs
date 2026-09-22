@@ -106,48 +106,6 @@ impl Client {
         }
     }
 
-    /// Derive a Client which signs its own bearer tokens from `claims` and `key`,
-    /// renewing each ahead of its expiry, while sharing this Client's fragment
-    /// client and Router. `duration` is both the lifetime of a token and the
-    /// cadence at which it's renewed.
-    ///
-    /// Signing for itself is how a data-plane component reaches the journals of
-    /// its own state — shard recovery logs and disk journals — because those are
-    /// authorized under the data plane's signing key rather than through the
-    /// control plane's authorization API.
-    ///
-    /// This is the counterpart of wrapping a Go client in `NewAuthJournalClient`
-    /// with a `KeyedAuth`, with one difference: claims are fixed per Client here,
-    /// where Go derives them per request.
-    pub fn with_signed_claims(
-        &self,
-        claims: proto_gazette::Claims,
-        key: tokens::jwt::EncodingKey,
-        duration: tokens::TimeDelta,
-        default_endpoint: String,
-    ) -> Self {
-        let source = tokens::jwt::SignedSource {
-            claims,
-            set_time_claims: Box::new(|claims: &mut proto_gazette::Claims, iat, exp| {
-                (claims.iat, claims.exp) = (iat.timestamp() as u64, exp.timestamp() as u64);
-            }),
-            duration,
-            key,
-        };
-
-        Self::new_with_tokens(
-            move |token: &String| {
-                Ok((
-                    proto_grpc::Metadata::new().with_bearer_token(token)?,
-                    default_endpoint.clone(),
-                ))
-            },
-            self.fragment_client.clone(),
-            self.router.clone(),
-            tokens::watch(source),
-        )
-    }
-
     // TODO(johnny): Remove this method once all clients use tokens.
     pub fn with_endpoint_and_metadata(
         &self,
@@ -198,26 +156,6 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
-    /// Invoke the Gazette journal ListFragments API, paged to completion as Go's
-    /// `client.ListAllFragments` does.
-    ///
-    /// The listing is what a pruner of a fragment store works from.
-    pub async fn list_all_fragments(
-        &self,
-        mut req: broker::FragmentsRequest,
-    ) -> crate::Result<broker::FragmentsResponse> {
-        let mut all = self.list_fragments(req.clone()).await?;
-
-        while all.next_page_token != 0 {
-            req.next_page_token = all.next_page_token;
-
-            let mut next = self.list_fragments(req.clone()).await?;
-            all.fragments.append(&mut next.fragments);
-            all.next_page_token = next.next_page_token;
-        }
-        Ok(all)
-    }
-
     pub async fn fragment_store_health(
         &self,
         req: broker::FragmentStoreHealthRequest,
@@ -264,40 +202,10 @@ impl Client {
     }
 }
 
-/// Selector which matches exactly one journal. Gazette indexes a journal's own
-/// name as a label of its spec, so a name is selected as any other label is.
-pub(crate) fn name_selector(journal: &str) -> broker::LabelSelector {
-    broker::LabelSelector {
-        include: Some(broker::LabelSet {
-            labels: vec![broker::Label {
-                name: "name".to_string(),
-                value: journal.to_string(),
-                prefix: false,
-            }],
-        }),
-        exclude: None,
-    }
-}
-
 fn check_ok<R>(status: broker::Status, r: R) -> Result<R, crate::Error> {
     if status == broker::Status::Ok {
         Ok(r)
     } else {
         Err(crate::Error::BrokerStatus(status))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn test_a_name_selector_matches_exactly_one_journal() {
-        let selector = super::name_selector("acmeCo/journal");
-        let include = selector.include.expect("names are an include");
-
-        assert_eq!(include.labels.len(), 1);
-        assert_eq!(include.labels[0].name, "name");
-        assert_eq!(include.labels[0].value, "acmeCo/journal");
-        assert!(!include.labels[0].prefix);
-        assert_eq!(selector.exclude, None);
     }
 }

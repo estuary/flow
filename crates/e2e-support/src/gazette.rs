@@ -122,7 +122,7 @@ impl GazetteCluster {
 
     /// Build a journal client authenticated with the cluster's HMAC key.
     pub fn journal_client(&self) -> anyhow::Result<gazette::journal::Client> {
-        // Broad claims, self-signed as a data-plane component signs its own.
+        // Start a self-signed tokens source with broad claims.
         let claims = proto_gazette::Claims {
             cap: proto_gazette::capability::LIST
                 | proto_gazette::capability::APPLY
@@ -134,22 +134,26 @@ impl GazetteCluster {
             sel: proto_gazette::broker::LabelSelector::default(),
             sub: "e2e-test".to_string(),
         };
-
-        // The base client exists only to be derived from: `with_signed_claims` is
-        // the one constructor the client offers for a self-signed token, as Go
-        // offers only the wrapper form.
-        let client = gazette::journal::Client::new(
-            self.brokers[0].endpoint.clone(),
-            gazette::journal::Client::new_fragment_client(),
-            proto_grpc::Metadata::new(),
-            gazette::Router::new("local"),
-        );
-
-        Ok(client.with_signed_claims(
+        let source = tokens::jwt::SignedSource {
             claims,
-            self.encode_key.clone(),
-            tokens::TimeDelta::seconds(70), // Max refresh cadence in `tokens` is every 60s.
-            self.brokers[0].endpoint.clone(),
+            set_time_claims: Box::new(|claims, iat, exp| {
+                (claims.iat, claims.exp) = (iat.timestamp() as u64, exp.timestamp() as u64);
+            }),
+            duration: tokens::TimeDelta::seconds(70), // Max refresh cadence in `tokens` is every 60s.
+            key: self.encode_key.clone(),
+        };
+        let default_endpoint = self.brokers[0].endpoint.clone();
+
+        Ok(gazette::journal::Client::new_with_tokens(
+            move |token| {
+                Ok((
+                    proto_grpc::Metadata::new().with_bearer_token(&token)?,
+                    default_endpoint.clone(),
+                ))
+            },
+            gazette::journal::Client::new_fragment_client(),
+            gazette::Router::new("local"),
+            tokens::watch(source),
         ))
     }
 }

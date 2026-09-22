@@ -151,20 +151,20 @@ pub(super) async fn read(
         buf.extend_from_slice(&response.content);
 
         loop {
-            match fixed_framing::decode::<proto::DiskRecord>(&buf)
+            match fixed_framing::unpack::<proto::DiskRecord>(&mut buf)
                 .with_context(|| format!("decoding a record of {journal} at offset {offset}"))?
             {
-                fixed_framing::Frame::Record { message, consumed } => {
+                fixed_framing::Frame::Record { message, framed } => {
                     applied += pass
-                        .record(&message, &buf[..consumed], offset, image)
+                        .record(&message, &framed, offset, image)
                         .with_context(|| format!("replaying {journal} at offset {offset}"))?;
 
-                    offset += consumed as i64;
-                    _ = buf.split_to(consumed);
+                    offset += framed.len() as i64;
                 }
                 fixed_framing::Frame::Desync { skipped } => anyhow::bail!(
-                    "{journal} holds {skipped} unframed bytes at offset {offset}, and this \
+                    "{journal} holds {} unframed bytes at offset {offset}, and this \
                      daemon frames every record it writes",
+                    skipped.len(),
                 ),
                 fixed_framing::Frame::Incomplete => break,
             }

@@ -28,10 +28,10 @@ use crate::image::Image;
 use anyhow::Context;
 use proto_gazette::{fixed_framing, uuid};
 
-/// Capacity of the reader a held delta is replayed through. A delta has no size
-/// bound of its own — it is whatever the primary wrote between two acknowledgements,
-/// and may exceed the disk it belongs to — so it is read back through this buffer
-/// rather than read whole. A record larger than the buffer is read whole anyway,
+/// Size of the blocks a held delta is read back in. A delta has no size bound of
+/// its own — it is whatever the primary wrote between two acknowledgements, and may
+/// exceed the disk it belongs to — so it is read back in blocks rather than read
+/// whole. A record larger than the buffer is read whole anyway,
 /// because framing decodes a record as a unit: replay therefore costs this buffer
 /// plus the largest record, and not the delta.
 const READ_BYTES: usize = 64 << 10;
@@ -124,52 +124,58 @@ impl Buffer {
 
         // The file outlives the delta it holds, because `clear` punches it rather
         // than truncating it, so the read stops at this delta's own end.
-        let mut reader = std::io::BufReader::with_capacity(
-            READ_BYTES,
-            std::io::Read::take(&self.file, self.len),
-        );
-        let mut frame = Vec::new();
+        let mut reader = std::io::Read::take(&self.file, self.len);
+        // Blocks are read straight into `buf`, and records are unpacked out of it
+        // without copying: a record's chunks reference `buf` until it is applied.
+        let mut buf = bytes::BytesMut::new();
         let mut applied = 0;
-        // Bytes of the delta behind the record being read, which every read takes
-        // from and every frame must fit within.
+        // Bytes of the delta not yet read into `buf`.
         let mut unread = self.len;
 
         for _ in 0..self.records {
-            frame.resize(fixed_framing::HEADER_LEN, 0);
-            () = read_framed(&mut reader, &mut frame)?;
+            let record = loop {
+                let framed = match fixed_framing::header(&buf) {
+                    // This file framed these records itself, so a header which is not
+                    // one is corruption of the file, and not a stream which a reader
+                    // joined between frames and can resynchronize with.
+                    fixed_framing::Header::Desync { .. } => anyhow::bail!(
+                        "a held delta does not decode: a record begins {:02x?}",
+                        &buf[..fixed_framing::MAGIC.len()],
+                    ),
+                    fixed_framing::Header::Incomplete => fixed_framing::HEADER_LEN,
+                    fixed_framing::Header::Frame { payload } => {
+                        // Nothing stands behind a length the file states, so it sizes
+                        // a read only once the delta is known to hold that many bytes.
+                        // A record the file holds all but the end of is truncation,
+                        // which the read below reports.
+                        let held = buf.len() as u64 + unread;
+                        let framed = fixed_framing::HEADER_LEN + payload;
+                        anyhow::ensure!(
+                            payload as u64 <= held,
+                            "a held record frames {framed} bytes, which is {} more than \
+                             the delta holds",
+                            framed as u64 - held,
+                        );
+                        framed
+                    }
+                };
+                if buf.len() >= framed {
+                    match fixed_framing::unpack::<crate::proto::DiskRecord>(&mut buf)
+                        .context("decoding a held record")?
+                    {
+                        fixed_framing::Frame::Record { message, .. } => break message,
+                        // The magic word and the whole payload were both checked above.
+                        other => panic!("a checked frame unpacked as {other:?}"),
+                    }
+                }
+                anyhow::ensure!(unread != 0, "a held delta ends within a record");
 
-            // This file framed these records itself, so a header which is not one is
-            // corruption of the file, and not a stream which a reader joined between
-            // frames and can resynchronize with.
-            anyhow::ensure!(
-                frame[..fixed_framing::MAGIC.len()] == fixed_framing::MAGIC,
-                "a held delta does not decode: a record begins {:02x?}",
-                &frame[..fixed_framing::MAGIC.len()],
-            );
-            let payload =
-                u32::from_le_bytes(frame[fixed_framing::MAGIC.len()..].try_into().unwrap())
-                    as usize;
-            let framed = fixed_framing::HEADER_LEN + payload;
-
-            // Nothing stands behind a length the file states, so it sizes an
-            // allocation only once the delta is known to hold that many bytes. A
-            // record the file holds all but the end of is truncation, and the read
-            // below is what reports it.
-            anyhow::ensure!(
-                payload as u64 <= unread,
-                "a held record frames {framed} bytes, which is {} more than the delta holds",
-                framed as u64 - unread,
-            );
-            frame.resize(framed, 0);
-            () = read_framed(&mut reader, &mut frame[fixed_framing::HEADER_LEN..])?;
-            unread -= framed as u64;
-
-            let record = match fixed_framing::decode::<crate::proto::DiskRecord>(&frame)
-                .context("decoding a held record")?
-            {
-                fixed_framing::Frame::Record { message, .. } => message,
-                // The magic word and the whole payload were both checked above.
-                other => panic!("a checked frame decoded as {other:?}"),
+                // A block, or the rest of the record where that is longer.
+                let len = buf.len();
+                let read = ((framed - len).max(READ_BYTES) as u64).min(unread) as usize;
+                buf.resize(len + read, 0);
+                () = read_framed(&mut reader, &mut buf[len..])?;
+                unread -= read as u64;
             };
 
             if record.opens_horizon {
@@ -185,9 +191,10 @@ impl Buffer {
             }
             applied += apply(&record, image, horizon)?;
         }
+        let trailing = buf.len() as u64 + unread;
         anyhow::ensure!(
-            unread == 0,
-            "a held delta ends within a record, with {unread} trailing bytes which frame none",
+            trailing == 0,
+            "a held delta ends within a record, with {trailing} trailing bytes which frame none",
         );
         () = self.clear()?;
 

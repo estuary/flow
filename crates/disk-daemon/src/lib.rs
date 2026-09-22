@@ -61,12 +61,9 @@ pub const CONTENT_TYPE_DISK: &str = "application/x-journal-backed-disk";
 /// Flow's label naming a disk journal's recovery floor: the offset of the earliest
 /// record a replay must read to rebuild the disk.
 ///
-/// The `labels` crate defines the name, because `labels::is_data_plane_label` must
-/// name it so that a control-plane activation preserves it rather than rebuilding
-/// it away. It is re-exported here so that a client of a disk, or whatever prunes
-/// its journal's fragments, finds it beside the other constants the client and
-/// daemon agree on.
-pub const DISK_RECOVERY_FLOOR: &str = labels::DISK_RECOVERY_FLOOR;
+/// It is defined here so that a client of a disk, or whatever prunes its journal's
+/// fragments, finds it beside the other constants the client and daemon agree on.
+pub const DISK_RECOVERY_FLOOR: &str = "estuary.dev/disk-recovery-floor";
 
 /// Format `offset` as a [`DISK_RECOVERY_FLOOR`] value: fixed-width, 16-character
 /// lowercase hex, so that comparing two values as strings compares the offsets they

@@ -2,8 +2,6 @@
 //!
 //! The files of this directory are:
 //!
-//! - `auth.rs` — the broker client every tenure derives its own from, and the token
-//!   it signs for its journal alone.
 //! - `spec.rs` — the live journal specification a disk may be served from, and the
 //!   recovery-floor label the daemon stores on it.
 //! - `fence.rs` — the `author` register, and the claim which installs a tenure's
@@ -68,7 +66,6 @@ use crate::proto;
 use anyhow::Context;
 use proto_gazette::{fixed_framing, uuid};
 
-mod auth;
 mod spec;
 mod writer;
 
@@ -80,7 +77,6 @@ pub mod replay;
 #[cfg(test)]
 mod broker_test;
 
-pub use auth::{Auth, shared_client};
 use spec::{Resolved, resolve};
 pub use writer::Writer;
 
@@ -137,11 +133,10 @@ impl Opening {
     /// already mounted and already serving its client.
     pub async fn new(
         client: &gazette::journal::Client,
-        auth: &Auth,
         journal: String,
         ended: tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<Self> {
-        let client = auth.signed_client(client, &journal);
+        let client = client.clone();
 
         // The author this reports is not kept. A standby opens once and claims much
         // later, and [`Opening::claim_journal`] reads the author of that moment.
@@ -149,9 +144,9 @@ impl Opening {
 
         // The claim is an append of its own, and checks the *prior* author (see
         // `fence`). Every record behind it checks the epoch that claim installed.
-        let epoch = gazette::random_producer();
-        let appender =
-            publisher::Appender::new(client.clone(), journal.clone(), Some(fence::held_by(epoch)));
+        let epoch = random_producer();
+        let appender = publisher::Appender::new(client.clone(), journal.clone())
+            .with_check_registers(fence::held_by(epoch));
 
         Ok(Self {
             journal: Journal {
@@ -421,8 +416,9 @@ impl Claimed {
 /// Refuse a recovered acknowledgement which a replay could not honor, before it is
 /// appended. A journal which holds one fails every replay from then on.
 fn check_recovered_ack(pass: &replay::Pass, ack: &[u8]) -> anyhow::Result<()> {
-    let record = match fixed_framing::decode::<proto::DiskRecord>(ack) {
-        Ok(fixed_framing::Frame::Record { message, consumed }) if consumed == ack.len() => message,
+    let mut ack = bytes::BytesMut::from(ack);
+    let record = match fixed_framing::unpack::<proto::DiskRecord>(&mut ack) {
+        Ok(fixed_framing::Frame::Record { message, .. }) if ack.is_empty() => message,
         _ => {
             return Err(anyhow::Error::new(crate::Failure::Invalid(
                 "a recovered acknowledgement is not one framed record".to_string(),
@@ -588,6 +584,15 @@ async fn until_ended<T>(
             "the tenure ended while {what}"
         ))))
     })
+}
+
+/// Generate a fresh random Gazette `Producer` identity.
+///
+/// A copy of runtime-next's `new_producer`, which this crate does not depend on.
+fn random_producer() -> uuid::Producer {
+    let mut producer: [u8; 6] = rand::random();
+    producer[0] |= 0x01; // Set multicast bit (mark as not a real MAC address).
+    uuid::Producer::from_bytes(producer)
 }
 
 fn uuid_bytes(producer: uuid::Producer, clock: uuid::Clock, flags: uuid::Flags) -> bytes::Bytes {

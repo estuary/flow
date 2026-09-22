@@ -149,12 +149,13 @@ async fn a_planted_floor_only_seeks_a_recovery(
 async fn fragments(fixture: &support::Fixture, journal: &str) -> Vec<broker::Fragment> {
     let listed = fixture
         .client
-        .list_all_fragments(broker::FragmentsRequest {
+        .list_fragments(broker::FragmentsRequest {
             journal: journal.to_string(),
             ..Default::default()
         })
         .await
         .expect("listing the fragments of a journal");
+    assert_eq!(listed.next_page_token, 0, "{journal} lists on one page");
 
     listed
         .fragments

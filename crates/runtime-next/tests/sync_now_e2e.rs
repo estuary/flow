@@ -367,7 +367,9 @@ impl Harness {
                 spec: self.spec_bytes(task_name),
                 max_transactions: 0,
                 sqlite_vfs_uri: String::new(),
-                publisher_id: bytes::Bytes::copy_from_slice(gazette::random_producer().as_bytes()),
+                publisher_id: bytes::Bytes::copy_from_slice(
+                    runtime_next::new_producer().as_bytes(),
+                ),
             }),
             ..Default::default()
         });

@@ -278,7 +278,9 @@ assert_cmd = "2"
 criterion = "0"
 glob = "0"
 insta = { version = "1", features = ["redactions", "json", "yaml"] }
-rand = { version = "0", features = ["small_rng"] }
+# Pinned. A "0" requirement also matches the 0.4 which transitive dependencies
+# pull in, and that version has no `small_rng` feature.
+rand = { version = "0.9", features = ["small_rng"] }
 rand_distr = { version = "0" }
 rdkafka = "0"
 schema_registry_converter = { version = "4", features = [

@@ -72,7 +72,7 @@ where
 
     // Producer identity for this shard's Publisher, selected once and held
     // constant across every session of the loop.
-    let producer = gazette::random_producer();
+    let producer = crate::new_producer();
 
     while let Some(result) = controller_rx.next().await {
         let join = match verify.ok(result)? {

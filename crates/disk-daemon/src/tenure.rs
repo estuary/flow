@@ -376,13 +376,8 @@ impl Tenure {
         let blocks = blocks(device_size)?;
         self.journal = journal.clone();
 
-        let mut opening = journal::Opening::new(
-            &self.daemon.client,
-            &self.daemon.auth,
-            journal,
-            self.ended.clone(),
-        )
-        .await?;
+        let mut opening =
+            journal::Opening::new(&self.daemon.client, journal, self.ended.clone()).await?;
 
         let image = Image::create(&self.daemon.image_dir, blocks)
             .with_context(|| format!("creating an image in {:?}", self.daemon.image_dir))?;

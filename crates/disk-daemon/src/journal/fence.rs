@@ -25,7 +25,6 @@
 //! selector. A journal whose registers were lost is therefore writable again,
 //! while its committed records stay authoritative.
 
-use anyhow::Context;
 use proto_gazette::{broker, uuid};
 
 /// Register naming the epoch permitted to append.
@@ -54,10 +53,22 @@ pub async fn probe(client: &gazette::journal::Client, journal: &str) -> anyhow::
     };
     let source = || futures::stream::empty::<std::io::Result<bytes::Bytes>>();
 
-    let response = client
-        .append_once(request, source)
-        .await
-        .with_context(|| format!("probing {journal}"))?;
+    let stream = client.append(request, source);
+    futures::pin_mut!(stream);
+
+    let response = loop {
+        match futures::StreamExt::next(&mut stream).await {
+            Some(Ok(response)) => break response,
+            // Polling again pays the stream's backoff and restarts route discovery.
+            Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
+                tracing::warn!(journal, attempt, %inner, "probe append failed (will retry)");
+            }
+            Some(Err(gazette::RetryError { inner, .. })) => {
+                return Err(anyhow::Error::new(inner).context(format!("probing {journal}")));
+            }
+            None => unreachable!("an append stream does not end without a response"),
+        }
+    };
 
     Ok(Probe {
         author: author_of(&response),
@@ -89,17 +100,29 @@ pub async fn claim(
     };
     let source = || futures::stream::once(futures::future::ready(Ok(record.clone())));
 
-    let err = match client.append_once(request, source).await {
-        Ok(response) => {
-            let author = author_of(&response);
+    let stream = client.append(request, source);
+    futures::pin_mut!(stream);
 
-            anyhow::ensure!(
-                author.as_deref() == Some(held.as_str()),
-                "claimed {journal} but its author is {author:?} rather than {held}",
-            );
-            return Ok(());
+    // A transient failure is retried rather than probed: `check_registers` refuses a
+    // retry whose earlier attempt had landed, and the probe below settles that outcome
+    // either way. Giving up here instead would fail a claim which no writer holds.
+    let err = loop {
+        match futures::StreamExt::next(&mut stream).await {
+            Some(Ok(response)) => {
+                let author = author_of(&response);
+
+                anyhow::ensure!(
+                    author.as_deref() == Some(held.as_str()),
+                    "claimed {journal} but its author is {author:?} rather than {held}",
+                );
+                return Ok(());
+            }
+            Some(Err(gazette::RetryError { attempt, inner })) if inner.is_transient() => {
+                tracing::warn!(journal, attempt, %inner, "claim append failed (will retry)");
+            }
+            Some(Err(gazette::RetryError { inner, .. })) => break inner,
+            None => unreachable!("an append stream does not end without a response"),
         }
-        Err(err) => err,
     };
 
     let probe = probe(client, journal).await?;
@@ -124,7 +147,7 @@ pub async fn claim(
 pub fn record(epoch: uuid::Producer) -> bytes::Bytes {
     let record = crate::proto::DiskRecord {
         uuid: super::uuid_bytes(
-            gazette::random_producer(),
+            super::random_producer(),
             uuid::Clock::from_time(std::time::SystemTime::now()),
             uuid::Flags::OUTSIDE_TXN,
         ),
@@ -249,7 +272,7 @@ mod broker_test {
 
         // A tenure's epoch, which this claims with directly rather than through an
         // `Opening`. Nothing else appends here.
-        let epoch = gazette::random_producer();
+        let epoch = crate::journal::random_producer();
         let fence_record = record(epoch);
 
         () = claim(&fixture.client, journal, None, epoch, fence_record.clone())

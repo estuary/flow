@@ -4,8 +4,8 @@ Building blocks for the operational surface of a long-running async service:
 a loopback HTTP port exposing what the process is doing right now, with
 controls to debug it without restarting.
 
-Service-agnostic. Used by Estuary reactors, runtime-next and the disk daemon;
-nothing here knows about Flow.
+Service-agnostic. Used by Estuary reactors and runtime-next; nothing here
+knows about Flow.
 
 ## Surface
 
@@ -18,10 +18,9 @@ become visible on the dashboard.
 | ------------------ | --------------------------------------------------------------------------------------- |
 | [`handlers`]       | `Registry` / `HandlerGuard` — in-flight handler inventory plus a recently-finished ring |
 | [`admin`]          | HTML dashboard, JSON views, per-handler drill-down, trace-override `POST` endpoint      |
-| [`trace`]          | Subscriber install (`init`, `LogFormat`) plus the per-handler verbosity override filter |
+| [`trace`]          | Per-handler `tracing` verbosity override — additive filter composed with the base       |
 | [`event`]          | Opt-in per-handler event tracks (named ring buffers) + `event!` macro; lazy capture     |
 | [`metrics`]        | Prometheus `/metrics` exporter folded into the admin router; histogram upkeep tick      |
-| `signal`           | `shutdown_signal()` — SIGTERM or SIGINT, logging which one arrived                      |
 
 ## Entry points
 
@@ -29,15 +28,8 @@ become visible on the dashboard.
   its body inside `guard.span()` so tracing/event layers can find it.
 - `admin::serve(name, registry, addr, shutdown)` — bind the loopback admin
   port and serve until shutdown.
-- `trace::init(log_format, registry)` — install the whole stderr subscriber: a
-  text or JSON `fmt` layer, the base `RUST_LOG` filter composed with operator
-  overrides, and the event layer. A service which registers no handlers passes
-  a `Registry` all the same.
 - `trace::layer_filter(base, registry)` — wrap a `tracing_subscriber`
-  `EnvFilter` so operator overrides bypass it, for a service which assembles
-  its own subscriber.
-- `shutdown_signal()` — await SIGTERM or SIGINT; the caller then fires its own
-  drain (a cancellation token, a broadcast, a return from `main`).
+  `EnvFilter` so operator overrides bypass it.
 - `event::layer(registry)` — install alongside `fmt` so `event!` calls
   capture into per-handler tracks.
 - `metrics::install_recorder()` — idempotently install the global

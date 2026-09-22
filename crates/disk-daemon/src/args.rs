@@ -39,7 +39,7 @@ pub struct Args {
     pub mount_dir: std::path::PathBuf,
 
     #[arg(long, env = "LOG_FORMAT", default_value = "text")]
-    pub log_format: service_kit::trace::LogFormat,
+    pub log_format: LogFormat,
 
     /// Journal range above the recovery floor beyond which a disk opens a
     /// recovery horizon, as a multiple of that disk's live allocated size.
@@ -57,4 +57,10 @@ pub struct Args {
     /// a small disk from compacting constantly.
     #[arg(long, env = "HORIZON_MINIMUM_BYTES", default_value_t = 1 << 30)]
     pub horizon_minimum_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
+pub enum LogFormat {
+    Text,
+    Json,
 }
