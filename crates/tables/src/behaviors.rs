@@ -1942,10 +1942,13 @@ mod test {
         );
 
         let subject_no_mask = Subject::unrestricted(user_id);
-        // Unmasked: every reached prefix surfaces. supportCo/ emits its bare
-        // Assume bit, so it is non-empty and never a candidate for the skip;
-        // that Assume bit is what carries the walk on to daveCo/, which
-        // arrives with full Admin bits.
+        // Unmasked: every reached prefix surfaces. This half does not
+        // exercise the skip's `is_some()` guard: supportCo/ emits its bare
+        // Assume bit, so no node in this fixture is empty when unmasked.
+        // That guard is covered by
+        // test_masked_walk_prefixes_keep_empty_when_unmasked. The Assume
+        // bit is what carries the walk on to daveCo/, which arrives with
+        // full Admin bits.
         let unmasked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject_no_mask);
         assert_eq!(
             unmasked.keys().collect::<Vec<_>>(),
@@ -1956,6 +1959,57 @@ mod test {
                 &"daveCo/",
                 &"supportCo/"
             ],
+        );
+    }
+
+    #[test]
+    fn test_masked_walk_prefixes_keep_empty_when_unmasked() {
+        use Capability::*;
+
+        // The `is_some()` half of the skip in `reachable_prefixes`: an empty
+        // node is omitted only for masked subjects. The shared fixture has no
+        // node that is empty when unmasked, so add one here rather than in
+        // the fixture, keeping its other tests' expectations intact. A direct
+        // grant with legacy `None` and no bundles conveys zero bits regardless
+        // of masking, and touches no role edge, so the rest of the walk is
+        // unchanged.
+        let (role_grants, mut user_grants, user_id) = masked_walk_scenario();
+        user_grants.insert(UserGrant {
+            user_id,
+            object_role: models::Prefix::new("orphanCo/"),
+            capability: models::Capability::None,
+            bundles: vec![],
+        });
+
+        let unmasked = UserGrant::reachable_prefixes(
+            &role_grants,
+            &user_grants,
+            &Subject::unrestricted(user_id),
+        );
+        assert_eq!(
+            unmasked.keys().collect::<Vec<_>>(),
+            vec![
+                &"acmeCo/",
+                &"bobCo/shared/",
+                &"carolCo/upstream/",
+                &"daveCo/",
+                &"orphanCo/",
+                &"supportCo/",
+            ],
+        );
+        assert_eq!(
+            unmasked.get("orphanCo/"),
+            Some(&(authz::CapabilitySet::empty(), models::Capability::None)),
+        );
+
+        let subject = authz::Subject {
+            user_id,
+            capability_mask: Some(authz::CapabilitySet::from(CatalogRead | Delegate)),
+        };
+        let masked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
+        assert_eq!(
+            masked.keys().collect::<Vec<_>>(),
+            vec![&"acmeCo/", &"bobCo/shared/", &"carolCo/upstream/"],
         );
     }
 
