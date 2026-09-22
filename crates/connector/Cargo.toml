@@ -34,6 +34,7 @@ unseal = { path = "../unseal" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+libc = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }

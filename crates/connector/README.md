@@ -44,6 +44,32 @@ owns its container, image, and local-connector implementation independently.
   is also a teardown signal: it's raced against both connector startup and the
   running session.
 
+## Connector process environment
+
+Image and local connectors receive the same runtime-owned environment contract.
+These values override same-named entries of a local connector's model-provided
+`env`; connectors may rely on them regardless of how they are launched.
+
+- `CONNECTOR_MOUNT` names the connector mount described below.
+- `LOG_FORMAT` is always `json`.
+- `LOG_LEVEL` is the requested task log level. When unspecified,
+  it defaults to `info` on development planes and `warn` elsewhere.
+
+In-process connectors do not receive a process environment.
+
+## Connector mount
+
+Every image and local connector run receives a **connector mount**, which is
+a defined file layout of resources handed to the connector for its use.
+It exists only under the V2 runtime; the V1 `runtime` crate is untouched.
+
+- `CONNECTOR_MOUNT` names the directory, which MUST exist though MAY be empty.
+  A connector tests for the files it wants.
+- Image connectors bind-mount the directory **read-only**. Future writable
+  areas (scratch, persisted state) will be nested read-write mounts within it.
+- An image mount additionally contains `flow-connector-init` (its entrypoint)
+  and `image-inspect.json` (its `--image-inspect-json-path`).
+
 ## Key types
 
 | Type / item                     | Role                                                                     |
@@ -57,6 +83,8 @@ owns its container, image, and local-connector implementation independently.
 | `protocol::Protocol`            | Per-protocol trait: Spec request, RPC, and endpoint extraction             |
 | `protocol::StartContext`        | Plain data a start needs: plane, network, logging, task, process, secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
+| `protocol::create_connector_mount` | Creates the per-run connector mount; see above                        |
+| `Guard`                         | Host resources of one run: the container process and the mount           |
 
 ## Layout
 
@@ -66,13 +94,13 @@ src/
 ├── service.rs    # Service / ServiceImpl, spawn_connector, tonic Connector impl
 ├── router.rs     # ServiceRouter and the local bearer issuer
 ├── serve.rs      # per-stream: authn/authz, extract, start, pump, teardown
-├── protocol.rs   # Protocol trait, StartContext, and the one start pipeline
+├── protocol.rs   # Protocol trait, StartContext, start pipeline, connector mount
 ├── policy.rs     # pure product policy: image/secret admission, usage, safe logs
 ├── image.rs      # Estuary image declarations and image-endpoint connection
 ├── capture.rs    # Protocol impl: capture endpoints and RPC
 ├── derive.rs     # Protocol impl: derive endpoints and RPC, incl. derive-sqlite
 ├── materialize.rs# Protocol impl: materialize endpoints and RPC, incl. Dekaf
-└── container.rs  # Docker/Podman pull, inspect/run capabilities, dial, Guard
+└── container.rs  # Docker/Podman pull, inspect/run capabilities, dial
 tests/
 └── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
 ```
@@ -81,9 +109,9 @@ tests/
 
 - **Either stream ends a session.** Opening eagerly spawns the handler, which
 races a closed request stream against a dropped response stream at every stage,
-including connector startup. Only the handler's return releases an image
-connector's `Guard`, so a client which walks away from a wedged connector must
-not be able to leave it running.
+including connector startup. Only the handler's return releases the run's
+`Guard`, so a client which walks away from a wedged connector must not be able
+to leave it running.
 
 - **The connector request stream begins with an internal Spec exchange.** The
   client's initial request follows after its configuration is unsealed, then
@@ -99,9 +127,14 @@ gives them the same backpressure and ordering. Log-producer lifetime signals
 that stderr has been read through, which the handler awaits before terminal
 EOF or status. A client which does not drain responses may park the handler.
 
-- **Dropping an image connector's `Guard` kills `docker run`.** This closes
-  stderr so its log pump can finish before the stream terminates. Local
-  connectors couple process and stderr completion in `connector_init::rpc::bidi`.
+- **Dropping a `Guard` kills `docker run`, then frees the connector mount.**
+  The `docker run` child is SIGKILLed *before* the mount it reads is removed.
+  Killing `docker run` closes its stderr so its log pump can finish before the
+  stream terminates; a local subprocess instead couples process and stderr
+  completion in `connector_init::rpc::bidi`, so its `Guard` holds no process —
+  only the mount which must outlive it.
+  Note that killing `docker run` does NOT stop the container, only its log proxy.
+  `flow-connector-init` self-exits after 10s without a received RPC.
 
 - **The minted selector always admits `<spec>`.** `connector_bearer` scopes to
   `{task-type: [type], task-name: [name, <spec>]}`, so one bearer shape serves
