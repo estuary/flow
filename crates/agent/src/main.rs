@@ -181,6 +181,11 @@ struct Args {
     #[clap(long, env = "RUNTIME_V2_NEW_DERIVATIONS", default_value = "false")]
     runtime_v2_new_derivations: bool,
 
+    /// Catalog Stats configuration. When provided, the catalogStats GraphQL queries
+    /// to read stats are enabled.
+    #[command(flatten)]
+    catalog_stats_config: control_plane_api::catalog_stats::CatalogStatsConfig,
+
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
 }
@@ -381,9 +386,13 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
     let tenant_controller_billing_provider = billing_provider.clone();
+    let catalog_stats =
+        control_plane_api::catalog_stats::connect(args.catalog_stats_config).await?;
+
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
+        catalog_stats,
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),

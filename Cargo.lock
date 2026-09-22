@@ -2192,6 +2192,7 @@ dependencies = [
  "billing-types",
  "build",
  "bytes",
+ "catalog-stats",
  "catalog-tests",
  "chrono",
  "clap",

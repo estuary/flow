@@ -16,6 +16,7 @@ async-process = { path = "../async-process" }
 async-stripe = { workspace = true }
 billing-types = { path = "../billing-types", features = ["async-graphql"] }
 build = { path = "../build" }
+catalog-stats = { path = "../catalog-stats" }
 catalog-tests = { path = "../catalog-tests" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
@@ -84,6 +85,7 @@ xxhash-rust = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+catalog-stats = { path = "../catalog-stats", features = ["test_util"] }
 flow-client-next = { path = "../flow-client-next" }
 
 hex = { workspace = true }
