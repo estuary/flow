@@ -36,7 +36,7 @@ impl ControlClaims {
     pub fn subject(&self) -> crate::authz::Subject {
         crate::authz::Subject {
             user_id: self.sub,
-            capability_mask: authz::CapabilityMask::from_claims(self.capability_mask.as_ref()),
+            capability_mask: self.parse_capability_mask(),
         }
     }
 
@@ -45,6 +45,34 @@ impl ControlClaims {
         let exp = time::OffsetDateTime::from_unix_timestamp(self.exp as i64).unwrap();
 
         max(exp - now, time::Duration::ZERO)
+    }
+
+    /// Resolves the `capability_mask` claim into the capability set the token
+    /// is limited to. Each entry is a `CapabilityBundle` name in its serialized
+    /// form; the bundles are expanded to their capability bits and unioned.
+    ///
+    /// A `None` claim means the token has no mask and the subject keeps every
+    /// granted capability.
+    ///
+    /// An empty list yields an empty set, so the token is restricted from
+    /// anything that requires a capability.
+    ///
+    /// Unrecognized bundle names are dropped rather than rejected. A token
+    /// minted by a newer server may name bundles this version does not know,
+    /// and it should still verify with the capabilities we do understand.
+    fn parse_capability_mask(&self) -> Option<authz::CapabilitySet> {
+        use serde::{Deserialize, de::value};
+        self.capability_mask.as_ref().map(|mask| {
+            mask.iter()
+                .filter_map(|name| {
+                    authz::CapabilityBundle::deserialize(
+                        value::StrDeserializer::<value::Error>::new(name),
+                    )
+                    .ok()
+                })
+                .map(|bundle| bundle.capabilities())
+                .fold(authz::CapabilitySet::empty(), |set, bits| set | bits)
+        })
     }
 }
 
@@ -330,4 +358,76 @@ pub struct DekafAuthResponse {
 
 const fn capability_read() -> crate::Capability {
     crate::Capability::Read
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::authz::{Capability, CapabilityBundle, CapabilitySet};
+
+    fn claims(capability_mask: Option<Vec<String>>) -> ControlClaims {
+        ControlClaims {
+            aud: "authenticated".to_string(),
+            iat: 0,
+            exp: 0,
+            sub: uuid::Uuid::nil(),
+            role: "authenticated".to_string(),
+            email: None,
+            capability_mask,
+        }
+    }
+
+    fn parse(names: &[&str]) -> CapabilitySet {
+        let names = names.iter().map(|n| n.to_string()).collect();
+        claims(Some(names)).parse_capability_mask().unwrap()
+    }
+
+    #[test]
+    fn parse_capability_mask_is_strict_about_names() {
+        // Bundle names are matched against their serialized form only, so
+        // casing, separators, and whitespace variants are all unrecognized.
+        for bad in [
+            "Viewer",
+            "VIEWER",
+            "Team_Admin",
+            "TeamAdmin",
+            "",
+            " viewer",
+            "viewer ",
+        ] {
+            assert_eq!(parse(&[bad]), CapabilitySet::empty(), "{bad:?}");
+        }
+        assert_eq!(
+            parse(&["team_admin"]),
+            CapabilityBundle::TeamAdmin.capabilities()
+        );
+    }
+
+    #[test]
+    fn parse_capability_mask_from_claim() {
+        let viewer = CapabilityBundle::Viewer.capabilities();
+
+        assert_eq!(claims(None).parse_capability_mask(), None);
+        assert_eq!(parse(&[]), CapabilitySet::empty());
+
+        assert_eq!(parse(&["viewer"]), viewer);
+        assert_eq!(parse(&["bogus"]), CapabilitySet::empty());
+        // Unknown names are ignored rather than failing the whole claim.
+        assert_eq!(parse(&["viewer", "bogus"]), viewer);
+        assert_eq!(
+            parse(&["viewer", "delegate"]),
+            viewer | Capability::Delegate
+        );
+    }
+
+    #[test]
+    fn subject_carries_parsed_mask() {
+        assert_eq!(claims(None).subject().capability_mask, None);
+
+        let masked = claims(Some(vec!["viewer".to_string(), "bogus".to_string()]));
+        assert_eq!(
+            masked.subject().capability_mask,
+            Some(CapabilityBundle::Viewer.capabilities())
+        );
+    }
 }

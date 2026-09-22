@@ -245,7 +245,7 @@ fn next_neighbors<'a>(
     role_edges: &'a [super::RoleGrant],
     user_edges: &'a [super::UserGrant],
     user_id: uuid::Uuid,
-    capability_mask: Option<authz::CapabilityMask>,
+    capability_mask: Option<authz::CapabilitySet>,
 ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
     let has_delegate = from.capabilities.contains(authz::Capability::Delegate);
     let has_assume = from.capabilities.contains(authz::Capability::Assume);
@@ -319,7 +319,7 @@ fn next_neighbors<'a>(
 
     p1.chain(p2).chain(p3).map(move |mut node| {
         if let Some(mask) = capability_mask {
-            node.capabilities = mask.apply(node.capabilities);
+            node.capabilities = mask & node.capabilities;
         }
         node
     })
@@ -1817,7 +1817,7 @@ mod test {
         // An empty mask leaves only direct-grant nodes, with no capabilities;
         // the walk stops there and no prefix is listed.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilityMask::new(EnumSet::empty());
+        let mask = authz::CapabilitySet::empty();
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -1842,7 +1842,7 @@ mod test {
         // Masking away Delegate and Assume makes the direct grants terminal, so
         // nothing beyond them is reached even though the underlying grants delegate.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilityMask::new(CatalogRead | JournalRead | SpecEdit);
+        let mask = authz::CapabilitySet::from(CatalogRead | JournalRead | SpecEdit);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -1875,7 +1875,7 @@ mod test {
         // (CatalogRead | Delegate), and carolCo/ receives Viewer bits
         // clamped to CatalogRead alone.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -1917,7 +1917,7 @@ mod test {
         // With Assume in the mask, daveCo/ is reached through the takeover
         // edge but its Admin bundle is still clamped to the mask.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilityMask::new(CatalogRead | Assume);
+        let mask = authz::CapabilitySet::from(CatalogRead | Assume);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -1951,7 +1951,7 @@ mod test {
         // Masked: supportCo/ is walked (its Assume seed-edge is emitted,
         // fully attenuated) but conveys nothing, so it must not surface —
         // a masked token doesn't learn the shape of grants it can't use.
-        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -1995,7 +1995,7 @@ mod test {
 
         // With Delegate in the mask the parent-subject edge traverses,
         // and sharedCo/'s Viewer bits are clamped to CatalogRead.
-        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2013,7 +2013,7 @@ mod test {
 
         // Without Delegate the direct grant is terminal, so the
         // parent-prefix pickup never happens.
-        let mask = authz::CapabilityMask::new(CatalogRead | SpecEdit);
+        let mask = authz::CapabilitySet::from(CatalogRead | SpecEdit);
         let subject_no_delegate = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2057,7 +2057,7 @@ mod test {
         // A reached node's legacy value passes through un-attenuated:
         // even an identity-only token reports the legacy metadata of its
         // direct grants, while authorization under the same mask denies.
-        let mask = authz::CapabilityMask::new(EnumSet::empty());
+        let mask = authz::CapabilitySet::empty();
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2085,7 +2085,7 @@ mod test {
         // ...and with Delegate it's reached, reporting its legacy value
         // even though the mask attenuates its effective bits to nothing
         // beyond CatalogRead.
-        let mask = authz::CapabilityMask::new(CatalogRead | Delegate);
+        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
         let subject_delegation = authz::Subject {
             user_id,
             capability_mask: Some(mask),

@@ -1,13 +1,12 @@
 use enumset::{EnumSet, EnumSetType};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 /// The subject of an authorization check: whose grants to evaluate and any
 /// restrictions on their use.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Subject {
     pub user_id: uuid::Uuid,
-    pub capability_mask: Option<CapabilityMask>,
+    pub capability_mask: Option<CapabilitySet>,
 }
 
 impl Subject {
@@ -76,21 +75,7 @@ impl std::fmt::Display for Capability {
 /// A stable, named bundle of capability bits. Grants and token capability
 /// masks name bundles rather than bits, so bits may be added, split, or
 /// merged without changing stored grants or minted tokens.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-    strum::EnumString,
-    strum::IntoStaticStr,
-)]
-#[strum(serialize_all = "snake_case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(
     feature = "sqlx-support",
@@ -193,11 +178,6 @@ impl CapabilityBundle {
             Self::Assume => Assume.into(),
         }
     }
-
-    /// This returns the pascal cased name of the enum variant.
-    pub fn name(self) -> &'static str {
-        self.into()
-    }
 }
 
 pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
@@ -212,168 +192,5 @@ pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
 impl From<super::Capability> for CapabilitySet {
     fn from(capability: super::Capability) -> Self {
         bits_for_legacy(capability)
-    }
-}
-
-impl From<CapabilityBundle> for CapabilitySet {
-    fn from(bundle: CapabilityBundle) -> Self {
-        bundle.capabilities()
-    }
-}
-
-/// This capability mask type. this is a set of capabilities associated with a
-/// token. This is a new type so we don't confuse a capability mask with
-/// a set of required capabilities, as they would both be a capability set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CapabilityMask(CapabilitySet);
-
-impl CapabilityMask {
-    /// A mask enabling exactly `set`.
-    pub fn new(set: CapabilitySet) -> Self {
-        Self(set)
-    }
-
-    /// Returns true if there are no capabilities enabled within the mask.
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Parse the capability mask from the claims string, the claims strings
-    /// are a list of stringified CapabilityBundles. The bundles are expanded to
-    /// their Capability and their union creates capability set.
-    ///
-    /// A `None` value means the token does not have a mask and it shouldn't be
-    /// restricted, so all of the users capabilities are enabled.
-    ///
-    /// An empty array means that no capabilities have been granted yet. That
-    /// means that the token is restricted from doing anything that requires any
-    /// kind of permission.
-    ///
-    /// We ignore unrecognized bundle names. This is because if a token
-    /// is ever minted by a server newer version of a server, we just ignore
-    /// any new capabilities we don't understand.
-    pub fn from_claims(mask: Option<&Vec<String>>) -> Option<Self> {
-        mask.map(|mask| {
-            Self(
-                mask.iter()
-                    .filter_map(|name| CapabilityBundle::from_str(name).ok())
-                    .map(|bundle| bundle.capabilities())
-                    .fold(CapabilitySet::empty(), |set, bits| set | bits),
-            )
-        })
-    }
-
-    /// Apply a capability mask to another set of capabilities.
-    pub fn apply(self, capabilities: CapabilitySet) -> CapabilitySet {
-        capabilities & self.0
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn names(set: CapabilitySet) -> Vec<String> {
-        set.iter().map(|bit| bit.to_string()).collect()
-    }
-
-    fn mask_of(names: &[&str]) -> CapabilityMask {
-        let claim: Vec<String> = names.iter().map(|n| n.to_string()).collect();
-        CapabilityMask::from_claims(Some(&claim)).unwrap()
-    }
-
-    #[test]
-    fn from_name_is_strict() {
-        for bad in [
-            "Viewer",
-            "VIEWER",
-            "Team_Admin",
-            "TeamAdmin",
-            "",
-            " viewer",
-            "viewer ",
-        ] {
-            assert_eq!(CapabilityBundle::from_str(bad).ok(), None, "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn mask_from_claim() {
-        let all = CapabilitySet::all();
-        let viewer = CapabilityBundle::Viewer.capabilities();
-
-        let absent = CapabilityMask::from_claims(None);
-        assert_eq!(absent, None);
-
-        let empty = mask_of(&[]);
-        assert_eq!(empty.apply(all), CapabilitySet::empty());
-
-        assert_eq!(mask_of(&["viewer"]), CapabilityMask::new(viewer));
-        assert_eq!(mask_of(&["viewer", "bogus"]), CapabilityMask::new(viewer));
-        assert_eq!(
-            mask_of(&["bogus"]),
-            CapabilityMask::new(CapabilitySet::empty())
-        );
-        assert_eq!(
-            mask_of(&["Viewer"]),
-            CapabilityMask::new(CapabilitySet::empty())
-        );
-        assert_eq!(
-            mask_of(&["viewer", "delegate"]),
-            CapabilityMask::new(viewer | Capability::Delegate)
-        );
-    }
-
-    #[test]
-    fn mask_apply_intersects() {
-        let admin = CapabilityBundle::Admin.capabilities();
-        let editor = CapabilityBundle::Editor.capabilities();
-        let viewer = CapabilityBundle::Viewer.capabilities();
-
-        assert_eq!(CapabilityMask::new(viewer).apply(admin), viewer);
-        assert_eq!(CapabilityMask::new(admin).apply(viewer), viewer);
-        assert_eq!(CapabilityMask::new(editor).apply(viewer), viewer & editor);
-
-        // A mask without `Delegate` confines a token to direct grants even
-        // when the underlying grant would delegate.
-        assert!(editor.contains(Capability::Delegate));
-        assert!(
-            !CapabilityMask::new(viewer)
-                .apply(editor)
-                .contains(Capability::Delegate)
-        );
-
-        insta::assert_debug_snapshot!(names(CapabilityMask::new(editor).apply(viewer)), @r###"
-        [
-            "CatalogRead",
-            "JournalRead",
-        ]
-        "###);
-    }
-
-    #[test]
-    fn legacy_capability_parity() {
-        use super::super::Capability as Legacy;
-        assert_eq!(bits_for_legacy(Legacy::None), CapabilitySet::empty());
-        assert_eq!(
-            bits_for_legacy(Legacy::Read),
-            CapabilityBundle::Viewer.capabilities()
-        );
-        assert_eq!(
-            bits_for_legacy(Legacy::Write),
-            CapabilityBundle::Writer.capabilities()
-        );
-        assert_eq!(
-            bits_for_legacy(Legacy::Admin),
-            CapabilityBundle::Admin.capabilities()
-        );
-        assert_eq!(
-            CapabilitySet::from(Legacy::Write),
-            bits_for_legacy(Legacy::Write)
-        );
-        assert_eq!(
-            CapabilitySet::from(CapabilityBundle::Writer),
-            bits_for_legacy(Legacy::Write)
-        );
     }
 }

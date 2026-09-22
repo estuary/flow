@@ -5663,7 +5663,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sqlx",
- "strum 0.26.3",
  "superslice",
  "time",
  "unicode-normalization",
