@@ -2383,6 +2383,7 @@ Outcome {
             capture: testing/fully-disabled-capture,
             scope: test://example/catalog.yaml#/captures/testing~1fully-disabled-capture,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -2409,6 +2410,7 @@ Outcome {
             capture: testing/partially-disabled-capture,
             scope: test://example/catalog.yaml#/captures/testing~1partially-disabled-capture,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -2436,6 +2438,7 @@ Outcome {
             collection: testing/collection,
             scope: test://example/catalog.yaml#/collections/testing~1collection,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -2448,6 +2451,7 @@ Outcome {
             collection: testing/fully-disabled-derivation,
             scope: test://example/catalog.yaml#/collections/testing~1fully-disabled-derivation,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1fully-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -2485,6 +2489,7 @@ Outcome {
             collection: testing/partly-disabled-derivation,
             scope: test://example/catalog.yaml#/collections/testing~1partly-disabled-derivation,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1partly-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -2532,6 +2537,7 @@ Outcome {
             materialization: testing/fully-disabled-materialization,
             scope: test://example/catalog.yaml#/materializations/testing~1fully-disabled-materialization,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -2556,6 +2562,7 @@ Outcome {
             materialization: testing/partially-disabled-materialization,
             scope: test://example/catalog.yaml#/materializations/testing~1partially-disabled-materialization,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {

@@ -234,6 +234,7 @@ async fn test_user_publications() {
         ),
         collection: noms_collection,
         expect_pub_id: Some(noms_last_pub_id),
+        data_plane_id: models::Id::zero(),
         model: Some(noms_model),
         is_touch: false,
     });

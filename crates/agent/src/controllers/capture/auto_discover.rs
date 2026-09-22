@@ -257,6 +257,7 @@ async fn try_auto_discover<C: ControlPlane>(
         capture: capture_name.clone(),
         scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
         expect_pub_id: Some(state.last_pub_id),
+        data_plane_id: models::Id::zero(),
         model: Some(model.clone()),
         // start with a touch. The discover merge will set this to false if it actually updates the capture
         is_touch: true,

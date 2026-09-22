@@ -8,6 +8,7 @@ DraftCatalog {
             capture: capture/config-missing,
             scope: test://example/catalog.yaml#/captures/capture~1config-missing,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -29,6 +30,7 @@ DraftCatalog {
             capture: capture/config-raw,
             scope: test://example/catalog.yaml#/captures/capture~1config-raw,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -44,6 +46,7 @@ DraftCatalog {
             capture: capture/local,
             scope: test://example/catalog.yaml#/captures/capture~1local,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "local": {
@@ -64,6 +67,7 @@ DraftCatalog {
             capture: capture/second,
             scope: test://example/catalog.yaml#/captures/capture~1second,
             expect_pub_id: "0011223344556677",
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -89,6 +93,7 @@ DraftCatalog {
             capture: first/capture,
             scope: test://example/catalog.yaml#/captures/first~1capture,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -116,6 +121,7 @@ DraftCatalog {
             materialization: a/materialization,
             scope: test://example/catalog.yaml#/materializations/a~1materialization,
             expect_pub_id: "0011223344556677",
+            data_plane_id: "0000000000000000",
             model: {
               "source": "a/capture",
               "endpoint": {
@@ -167,6 +173,7 @@ DraftCatalog {
             materialization: materialization/local,
             scope: test://example/catalog.yaml#/materializations/materialization~1local,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "local": {
@@ -198,6 +205,7 @@ DraftCatalog {
             materialization: materialization/missing-config,
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -221,6 +229,7 @@ DraftCatalog {
             materialization: materialization/with-config,
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -245,6 +254,7 @@ DraftCatalog {
             materialization: materialization/with-config-fragment,
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {

@@ -8,6 +8,7 @@ DraftCatalog {
             capture: squirrels/capture-1,
             scope: flow://capture/squirrels/capture-1,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -40,6 +41,7 @@ DraftCatalog {
             collection: squirrels/acorns,
             scope: flow://collection/squirrels/acorns,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"},"nuttiness":{"maximum":2,"type":"number"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
               "key": [
@@ -55,6 +57,7 @@ DraftCatalog {
             collection: squirrels/extra,
             scope: flow://collection/squirrels/extra,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
               "key": [
@@ -67,6 +70,7 @@ DraftCatalog {
             collection: squirrels/hickory_nuts,
             scope: flow://collection/squirrels/hickory_nuts,
             expect_pub_id: "0000000000000000",
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"},"nuttiness":{"maximum":2,"type":"number"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
               "key": [
@@ -79,6 +83,7 @@ DraftCatalog {
             collection: squirrels/walnuts,
             scope: flow://collection/squirrels/walnuts,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id":{"type":"string"},"nuttiness":{"maximum":2,"type":"number"}},"required":["id"],"type":"object"}},"$ref":"flow://connector-schema"},
               "readSchema": {"properties":{"drafted":{"type":"string"},"id":{"type":"string"}},"required":["id","drafted"],"type":"object"},

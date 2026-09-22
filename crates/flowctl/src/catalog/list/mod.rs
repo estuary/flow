@@ -96,6 +96,7 @@ pub fn into_draft(
                     models::Capture::new(catalog_name),
                     &scope,
                     Some(live_spec.last_pub_id),
+                    models::Id::zero(), // Local drafts make no placement.
                     parse::<models::CaptureDef>(live_spec.model.as_ref())?,
                     false, // !is_touch
                 );
@@ -105,6 +106,7 @@ pub fn into_draft(
                     models::Collection::new(catalog_name),
                     &scope,
                     Some(live_spec.last_pub_id),
+                    models::Id::zero(), // Local drafts make no placement.
                     parse::<models::CollectionDef>(live_spec.model.as_ref())?,
                     false, // !is_touch
                 );
@@ -114,6 +116,7 @@ pub fn into_draft(
                     models::Materialization::new(catalog_name),
                     &scope,
                     Some(live_spec.last_pub_id),
+                    models::Id::zero(), // Local drafts make no placement.
                     parse::<models::MaterializationDef>(live_spec.model.as_ref())?,
                     false, // !is_touch
                 );

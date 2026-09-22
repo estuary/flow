@@ -728,6 +728,7 @@ mod test {
             collection: name.clone(),
             scope: tables::synthetic_scope(models::CatalogType::Collection, &name),
             expect_pub_id: None,
+            data_plane_id: models::Id::zero(),
             model: Some(models::CollectionDef::example()),
             is_touch: true,
         };
@@ -780,6 +781,7 @@ mod test {
             collection: name.clone(),
             scope: tables::synthetic_scope(models::CatalogType::Collection, &name),
             expect_pub_id: None,
+            data_plane_id: models::Id::zero(),
             model: Some(models::CollectionDef::example()),
             is_touch: true,
         };

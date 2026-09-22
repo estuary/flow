@@ -281,6 +281,7 @@ pub async fn update_inferred_schema<C: ControlPlane>(
                         &collection_name,
                     ),
                     expect_pub_id: Some(state.last_pub_id),
+                    data_plane_id: models::Id::zero(),
                     model: Some(collection_def.clone()),
                     is_touch: false, // We intend to update the model
                 }

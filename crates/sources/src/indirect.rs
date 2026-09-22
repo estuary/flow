@@ -21,6 +21,7 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         capture,
         scope,
         expect_pub_id: _,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in captures.iter_mut()
@@ -33,6 +34,7 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         collection,
         scope,
         expect_pub_id: _,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in collections.iter_mut()
@@ -45,6 +47,7 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         materialization,
         scope,
         expect_pub_id: _,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in materializations.iter_mut()
@@ -108,6 +111,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         capture,
         scope,
         expect_pub_id,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in captures.iter()
@@ -124,6 +128,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         collection,
         scope,
         expect_pub_id,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in collections.iter()
@@ -140,6 +145,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         materialization,
         scope,
         expect_pub_id,
+        data_plane_id: _,
         model,
         is_touch: _,
     } in materializations.iter()
