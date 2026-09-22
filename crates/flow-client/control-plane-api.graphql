@@ -411,11 +411,192 @@ enum CapabilityBit {
 	Assume
 }
 
+"""
+Stats for one binding of a capture, keyed by the collection it writes to.
+"""
+type CaptureBindingStats {
+	"""
+	The collection name.
+	"""
+	collection: String!
+	"""
+	Documents from the connector, before combining.
+	"""
+	right: DocsAndBytes
+	"""
+	Documents written to the collection, after combining.
+	"""
+	out: DocsAndBytes
+	"""
+	The most recent publish timestamp of documents captured by this binding.
+	"""
+	lastPublishedAt: DateTime
+}
+
 type CardPaymentMethodDetails {
 	brand: String
 	last4: String
 	expMonth: Int!
 	expYear: Int!
+}
+
+"""
+A single stored reporting bucket. The stats for a single catalog name over a
+single window of the requested time grain.
+"""
+type CatalogStats {
+	"""
+	The name of the catalog that this stats bucket is associated with.
+	The name is either a task, a collection, or a prefix that rolls up both.
+	"""
+	catalogName: String!
+	"""
+	Time grain at which this bucket is aggregated over.
+	"""
+	grain: CatalogStatsGrain!
+	"""
+	Start of the window this bucket covers, always on a `grain` boundary:
+	the hour for `HOURLY`, midnight for `DAILY`, and day 1 at midnight for
+	`MONTHLY`. The window runs up to, but does not include, the next one.
+	"""
+	timestamp: DateTime!
+	"""
+	Combined totals across every task and collection contributing to the row.
+	"""
+	statsSummary: CatalogStatsSummary!
+	"""
+	Binding-level detail, present only on exact task rows. Prefix rollup
+	rows aggregate across tasks and carry none.
+	"""
+	taskStats: CatalogTaskStats
+}
+
+input CatalogStatsBy {
+	"""
+	Exact catalog names. A prefix rollup is addressed by its own
+	trailing-slash name, such as `acmeCo/`. A minimum of of 1 name is
+	required. A maximum of 100 names are supported.
+	"""
+	names: [String!]!
+	"""
+	Time grain to retrieve aggregates stats for.
+	"""
+	grain: CatalogStatsGrain!
+	"""
+	Inclusive lower bound, which must fall on a `grain` boundary.
+	"""
+	start: DateTime!
+	"""
+	Exclusive upper bound, which must fall on a `grain` boundary.
+	"""
+	end: DateTime!
+}
+
+type CatalogStatsConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [CatalogStatsEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type CatalogStatsEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: CatalogStats!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+Time grain at which a bucket aggregates.
+"""
+enum CatalogStatsGrain {
+	HOURLY
+	DAILY
+	MONTHLY
+}
+
+"""
+Combined totals across every task and collection contributing to a bucket.
+
+A bucket's name is a task, a collection, or a prefix that rolls up both, so
+which counters are non-zero depends on what the name refers to. The `ByMe`
+pair counts what a task moved; the `FromMe` and `ToMe` pair counts what
+flowed through a collection.
+"""
+type CatalogStatsSummary {
+	"""
+	Documents a task read from the collections it sources from. Captures
+	read from no collection, so this covers materializations and
+	derivations.
+	"""
+	readByMe: DocsAndBytes!
+	"""
+	Documents read out of a collection by the tasks that source from it.
+	"""
+	readFromMe: DocsAndBytes!
+	"""
+	Documents a task wrote to the collections it produces. Materializations
+	write to an endpoint rather than a collection, so this covers captures
+	and derivations.
+	"""
+	writtenByMe: DocsAndBytes!
+	"""
+	Documents written into a collection by the tasks that produce it.
+	"""
+	writtenToMe: DocsAndBytes!
+	"""
+	Warnings logged.
+	"""
+	warnings: UInt64!
+	"""
+	Errors logged.
+	"""
+	errors: UInt64!
+	"""
+	Times a task shard failed.
+	"""
+	failures: UInt64!
+	"""
+	Metered seconds of task usage, which is what usage billing is drawn
+	from.
+	"""
+	usageSeconds: UInt64!
+	"""
+	Transactions processed successfully.
+	"""
+	txnCount: UInt64!
+}
+
+"""
+Per-task-kind breakouts. A given row populates at most one of these, since a
+task is a capture, a derivation, or a materialization.
+"""
+type CatalogTaskStats {
+	"""
+	List of stats for bindings of a capture task.
+	Each entry represents stats for a single binding.
+	"""
+	capture: [CaptureBindingStats!]!
+	"""
+	Derivation stats.
+	"""
+	derive: DeriveStats
+	"""
+	List of stats for bindings of a materialization task.
+	Each entry represents stats for a single binding.
+	"""
+	materialize: [MaterializeBindingStats!]!
 }
 
 enum CatalogType {
@@ -867,6 +1048,59 @@ The input/output is a string in RFC3339 format.
 scalar DateTime
 
 """
+Stats for a derivation. A derivation has a single output collection, so
+unlike captures and materializations there is one block rather than a list.
+"""
+type DeriveStats {
+	"""
+	List of metrics for the transforms in this derivation.
+	"""
+	transforms: [DeriveTransformStats!]!
+	"""
+	Documents published by the connector, before combining.
+	"""
+	published: DocsAndBytes
+	"""
+	Documents written to the derived collection, after combining.
+	"""
+	out: DocsAndBytes
+	"""
+	The most recent publish timestamp of documents written to the derived collection.
+	"""
+	lastPublishedAt: DateTime
+}
+
+"""
+Stats for one transform of a derivation. Unlike the capture and materialize
+breakouts, these are keyed by transform name, and the collection read is a
+separate field.
+"""
+type DeriveTransformStats {
+	"""
+	The transform name.
+	"""
+	transform: String!
+	"""
+	The name of the collection that this transform sourced from.
+	"""
+	source: String!
+	"""
+	Input documents that were read by this transform.
+	"""
+	input: DocsAndBytes
+	"""
+	The most recent publish timestamp from the source documents that were read by this transform.
+	"""
+	lastSourcePublishedAt: DateTime
+	"""
+	Bytes behind across the transform's source journals. A historical row
+	that predates this counter reports zero, indistinguishable from a
+	transform that is genuinely caught up.
+	"""
+	bytesBehind: UInt64!
+}
+
+"""
 A capture binding that has changed as a result of a discover
 """
 type DiscoverChange {
@@ -882,6 +1116,20 @@ type DiscoverChange {
 	Whether the capture binding is disabled.
 	"""
 	disable: Boolean!
+}
+
+"""
+A count of documents and their cumulative size.
+"""
+type DocsAndBytes {
+	"""
+	The count of JSON documents.
+	"""
+	docsTotal: UInt64!
+	"""
+	Cumulative total size of the documents, in bytes.
+	"""
+	bytesTotal: UInt64!
 }
 
 """
@@ -1419,6 +1667,39 @@ type LockFailure {
 	The actual id that was found.
 	"""
 	actual: Id
+}
+
+"""
+Stats for one binding of a materialization, keyed by its source collection.
+"""
+type MaterializeBindingStats {
+	"""
+	The collection name.
+	"""
+	collection: String!
+	"""
+	Documents loaded from the endpoint.
+	"""
+	left: DocsAndBytes
+	"""
+	Documents read from the source collection.
+	"""
+	right: DocsAndBytes
+	"""
+	Documents stored to the endpoint.
+	"""
+	out: DocsAndBytes
+	"""
+	The most recent publish timestamp from the source documents that were
+	read by this binding.
+	"""
+	lastSourcePublishedAt: DateTime
+	"""
+	Bytes behind across the binding's source journals. A historical row
+	that predates this counter reports zero, indistinguishably from a
+	binding that is genuinely caught up.
+	"""
+	bytesBehind: UInt64!
 }
 
 type MutationRoot {
@@ -2165,6 +2446,11 @@ type QueryRoot {
 	The caller's own drafts, in stable ID order.
 	"""
 	drafts(after: String, first: Int): DraftConnection!
+	"""
+	Returns stored reporting buckets for the given catalog names, at the
+	given grain, over the half-open window `[start, end)`.
+	"""
+	catalogStats(by: CatalogStatsBy!): CatalogStatsConnection!
 }
 
 """
@@ -2760,6 +3046,11 @@ type TenantBilling {
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
 }
+
+"""
+A 64-bit unsigned integer, serialized as a decimal string.
+"""
+scalar UInt64
 
 """
 A UUID is a unique 128-bit number, stored as 16 octets. UUIDs are parsed as
