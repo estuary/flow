@@ -116,4 +116,29 @@ describe("handleRequest", () => {
             expect(userLookups).toBe(0);
         });
     });
+
+    describe("encrypt-config", () => {
+        const encryptRequest = {
+            operation: "encrypt-config",
+            connector_id: "00:00:00:00:00:00:00:01",
+            connector_tag_id: "00:00:00:00:00:00:00:02",
+            config: { credentials: { client_id: "_injectedDuringEncryption_", client_secret: "_injectedDuringEncryption_" } },
+        };
+
+        it("is refused without an Authorization header", async () => {
+            const res = await post(encryptRequest);
+
+            expect(res.status).toBe(401);
+            expect((await res.json()).error).toBe("Missing Authorization header");
+            expect(userLookups).toBe(0);
+        });
+
+        it("is refused for a token with no user behind it", async () => {
+            const res = await post(encryptRequest, ANON_TOKEN);
+
+            expect(res.status).toBe(401);
+            expect((await res.json()).error).toBe("User not found");
+            expect(userLookups).toBe(1);
+        });
+    });
 });

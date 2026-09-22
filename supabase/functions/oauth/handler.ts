@@ -18,9 +18,11 @@ export const handleRequest = async (req: Request): Promise<Response> => {
 
   // `connector_config` supplies the OAuth spec inline instead of loading one
   // from the `connectors` table. It exists for the `flowctl raw oauth`
-  // development workflow. Callers are expected to hold real user tokens,
-  // and we require an authenticated user.
-  if (request.connector_config) {
+  // development workflow. `encrypt-config` reads platform OAuth client secrets
+  // with the service role and embeds them in the encrypted config it returns.
+  // Callers of both hold real user tokens, and we require an authenticated
+  // user, since the public anon key alone passes the platform's JWT check.
+  if (request.connector_config || request.operation === "encrypt-config") {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
