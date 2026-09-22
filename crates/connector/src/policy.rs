@@ -266,6 +266,9 @@ pub(crate) fn token_restart_deadline(
     expires_at - margin.min(lifetime)
 }
 
+/// Lifetime of the `TASK_UPDATE` token written into a connector mount.
+pub(crate) const TASK_UPDATE_LIFETIME: tokens::TimeDelta = tokens::TimeDelta::hours(1);
+
 #[cfg(test)]
 mod test {
     use super::{

@@ -86,6 +86,7 @@ DATA_PLANE_ACCESS_KEY=${HMAC_KEY}
 # compiled-in defaults (ports are dynamic); clap reads these from the env.
 API_ENDPOINT=http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1
 AGENT_ENDPOINT=http://agent.flow.localhost:${FLOW_PORT_AGENT}
+CONFIG_ENCRYPTION_ENDPOINT=http://config-encryption.flow.localhost:${FLOW_PORT_CONFIG_ENC}
 DEKAF_KAFKA_PORT=${DEKAF_KAFKA_PORT}
 DEKAF_REGISTRY_PORT=${DEKAF_REGISTRY_PORT}
 DEKAF_METRICS_PORT=${DEKAF_METRICS_PORT}

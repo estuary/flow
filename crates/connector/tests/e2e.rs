@@ -36,6 +36,11 @@ fn with_start(mut fixture: serde_json::Value, sqlite_vfs_uri: &str) -> serde_jso
     fixture
 }
 
+/// A task template carrying the build which a session's task update token pins.
+fn shard_template() -> serde_json::Value {
+    json!({"labels": {"labels": [{"name": labels::BUILD, "value": "1122334455667788"}]}})
+}
+
 /// A `local:` endpoint running `script` under `/bin/sh`. Callers which care
 /// set `config` or `env` on the result.
 fn sh(script: &str) -> serde_json::Value {
@@ -48,6 +53,7 @@ fn derive_open(collection: &str) -> serde_json::Value {
         "derivation": {
             "connectorType": "SQLITE",
             "config": {"migrations": []},
+            "shardTemplate": shard_template(),
         },
     }}}})
 }
@@ -60,6 +66,7 @@ fn capture_open(endpoint: serde_json::Value, secrets: serde_json::Value) -> prot
             "connectorType": "LOCAL",
             "config": endpoint,
             "secrets": secrets,
+            "shardTemplate": shard_template(),
         }}}}),
         "",
     ))
@@ -824,4 +831,155 @@ async fn a_bearer_is_scoped_to_its_task_and_its_service() {
       Status(InvalidArgument): `<spec>` is reserved for Spec requests and cannot name a task
     "
     );
+}
+
+// ----------------------------------------------------------------- mount --
+
+/// Every local connector gets a `CONNECTOR_MOUNT` directory, whether or not
+/// anything is in it. `task-update.json` is in it only where the Service holds
+/// a `TaskUpdate` -- and its absence is how a connector knows to rotate in
+/// memory only, which is every `Service::new_local` context.
+#[tokio::test]
+async fn provides_task_update_through_the_connector_mount() {
+    // Each check fails with its own message, so a regression names itself
+    // rather than surfacing as an opaque non-zero exit.
+    let script = r#"
+read spec_request
+echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
+read open_request
+if [ -z "$CONNECTOR_MOUNT" ]; then echo 'CONNECTOR_MOUNT is unset' >&2; exit 7; fi
+if [ ! -d "$CONNECTOR_MOUNT" ]; then echo 'CONNECTOR_MOUNT is not a directory' >&2; exit 7; fi
+if [ "$LOG_FORMAT" != json ]; then echo "LOG_FORMAT is $LOG_FORMAT" >&2; exit 7; fi
+if [ "$LOG_LEVEL" != debug ]; then echo "LOG_LEVEL is $LOG_LEVEL" >&2; exit 7; fi
+
+file="$CONNECTOR_MOUNT/task-update.json"
+if [ "$EXPECT_TASK_UPDATE" = yes ]; then
+  if [ ! -f "$file" ]; then echo 'task-update.json is missing' >&2; exit 7; fi
+  for property in '"token"' '"control_plane_url"' '"config_encryption_url"'; do
+    if ! grep -q "$property" "$file"; then
+      echo "task-update.json has no $property" >&2; exit 7
+    fi
+  done
+elif [ -e "$file" ]; then
+  echo 'task-update.json is present' >&2; exit 7
+fi
+echo '{"opened":{}}'
+"#;
+
+    let run = async |router: &connector::ServiceRouter, expect: &str| {
+        let mut endpoint = sh(script);
+        endpoint["env"] = json!({
+            "CONNECTOR_MOUNT": "/configured/connector/mount",
+            "EXPECT_TASK_UPDATE": expect,
+            "LOG_FORMAT": "configured-format",
+            "LOG_LEVEL": "error",
+        });
+
+        drive_router(
+            router,
+            ops::TaskType::Capture,
+            "acmeCo/capture",
+            vec![capture_open(endpoint, json!({}))],
+        )
+        .await
+    };
+
+    let (_service, local) = local_service();
+
+    // A failed check fails the connector, so an identical pair of clean
+    // sessions is what both expectations being met looks like.
+    let outcomes = [
+        (
+            "with task update",
+            run(
+                &task_update_router(std::time::Duration::from_secs(600)),
+                "yes",
+            )
+            .await,
+        ),
+        ("new_local has an empty mount", run(&local, "no").await),
+    ];
+
+    insta::assert_snapshot!(render_all(outcomes), @"
+    with task update:
+      Started(codec=Json, container=false, process=false, spec=capture)
+      Capture(opened)
+    new_local has an empty mount:
+      Started(codec=Json, container=false, process=false, spec=capture)
+      Capture(opened)
+    ");
+}
+
+/// The mounted credential is refreshed *in place*, which a running connector
+/// observes by re-reading the file it already read once. A connector which
+/// cached the first token would hold an expiring one; this is the behavior
+/// that makes re-reading correct.
+#[tokio::test]
+async fn refreshes_the_mounted_token_in_place() {
+    // Claims are second-granular, so two mints within one second are the same
+    // token: the sleep must cross a second boundary, not merely a tick.
+    let script = r#"
+read spec_request
+echo '{"spec":{"protocol":3032023,"configSchema":true,"resourceConfigSchema":true,"documentationUrl":"https://example.test/docs"}}'
+read open_request
+file="$CONNECTOR_MOUNT/task-update.json"
+token() { sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$file"; }
+
+before=$(token)
+if [ -z "$before" ]; then echo 'task-update.json has no token' >&2; exit 7; fi
+sleep 2
+after=$(token)
+if [ -z "$after" ]; then echo 'task-update.json has no token after refresh' >&2; exit 7; fi
+if [ "$before" = "$after" ]; then echo 'the token was not refreshed' >&2; exit 7; fi
+echo '{"opened":{}}'
+"#;
+
+    let responses = drive_router(
+        &task_update_router(std::time::Duration::from_millis(200)),
+        ops::TaskType::Capture,
+        "acmeCo/capture",
+        vec![capture_open(sh(script), json!({}))],
+    )
+    .await;
+
+    insta::assert_snapshot!(render(responses), @"
+    Started(codec=Json, container=false, process=false, spec=capture)
+    Capture(opened)
+    ");
+}
+
+/// A router over a Service holding a `TaskUpdate`, mirroring
+/// `Service::new_local` which deliberately holds none.
+fn task_update_router(refresh_interval: std::time::Duration) -> connector::ServiceRouter {
+    let key: [u8; 32] = rand::random();
+
+    let mut task_update = connector::TaskUpdate::new(
+        proto_grpc::Signer::new(
+            "fqdn.example.com".to_string(),
+            tokens::jwt::EncodingKey::from_secret(b"a reactor's data-plane key"),
+        ),
+        url::Url::parse("https://control.example.com/").unwrap(),
+        url::Url::parse("https://config-encryption.example.com/").unwrap(),
+    );
+    task_update.refresh_interval = refresh_interval;
+
+    let service = connector::Service::new(
+        connector::Plane::Local,
+        String::new(),
+        proto_grpc::Authenticator::new(
+            connector::LOCAL_ISSUER.to_string(),
+            vec![tokens::jwt::DecodingKey::from_secret(&key)],
+        ),
+        None,
+        service_kit::Registry::new(),
+        std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
+        Some(task_update),
+    );
+    connector::ServiceRouter::new(
+        service,
+        proto_grpc::Signer::new(
+            connector::LOCAL_ISSUER.to_string(),
+            tokens::jwt::EncodingKey::from_secret(&key),
+        ),
+    )
 }
