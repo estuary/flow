@@ -1,0 +1,63 @@
+---
+source: crates/connector/src/protocol.rs
+expression: outcomes
+---
+[
+    (
+        "with a build",
+        2097152,
+        "fqdn.example.com",
+        "acmeCo/source-widgets",
+        LabelSelector {
+            include: Some(
+                LabelSet {
+                    labels: [
+                        Label {
+                            name: "estuary.dev/build",
+                            value: "1122334455667788",
+                            prefix: false,
+                        },
+                        Label {
+                            name: "estuary.dev/task-name",
+                            value: "acmeCo/source-widgets",
+                            prefix: false,
+                        },
+                        Label {
+                            name: "estuary.dev/task-type",
+                            value: "capture",
+                            prefix: false,
+                        },
+                    ],
+                },
+            ),
+            exclude: None,
+        },
+        "3600s",
+    ),
+    (
+        "without a build",
+        2097152,
+        "fqdn.example.com",
+        "acmeCo/source-widgets",
+        LabelSelector {
+            include: Some(
+                LabelSet {
+                    labels: [
+                        Label {
+                            name: "estuary.dev/task-name",
+                            value: "acmeCo/source-widgets",
+                            prefix: false,
+                        },
+                        Label {
+                            name: "estuary.dev/task-type",
+                            value: "capture",
+                            prefix: false,
+                        },
+                    ],
+                },
+            ),
+            exclude: None,
+        },
+        "3600s",
+    ),
+]

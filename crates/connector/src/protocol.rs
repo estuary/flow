@@ -31,6 +31,8 @@ pub(crate) struct StartContext {
     pub secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
     /// Catalog task name, or [`crate::SPEC_TASK_NAME`] for a task-less Spec.
     pub task_name: String,
+    /// Authorizes the connector to update its task configuration and secrets.
+    pub task_update: Option<crate::TaskUpdate>,
 }
 
 /// Result of opening a protocol RPC on an image connector's channel.
@@ -107,6 +109,8 @@ pub(crate) struct Extracted<'r, P: Protocol> {
     /// the sealed configuration during startup.
     /// Present only on `Open` of protocols which have this field.
     pub initial_sealed_config_slot: Option<&'r mut bytes::Bytes>,
+    /// Build of the initial request's spec, or `None` for requests lacking one.
+    pub build: Option<&'r str>,
     /// Secrets of the task. Keys are catalog names of secrets,
     /// while values are JSON pointers into the endpoint config.
     pub secrets: &'r std::collections::BTreeMap<String, String>,
@@ -136,6 +140,7 @@ pub(crate) async fn start<P: Protocol>(
     mut initial: P::Request,
 ) -> anyhow::Result<crate::Started<P>> {
     let Extracted {
+        build,
         connector_type,
         endpoint,
         initial_config_slot,
@@ -163,6 +168,31 @@ pub(crate) async fn start<P: Protocol>(
 
     let mount = create_connector_mount()?;
     let env = connector_env(ctx.plane, ctx.log_level, mount.path())?;
+
+    // If Some(task_update), inject and rotate credentials and metadata which
+    // offer tasks a capability to update their configuration and/or secrets.
+    let mut refresh = None;
+    if let Some(task_update) = ctx
+        .task_update
+        .as_ref()
+        .filter(|_| ctx.task_name != crate::SPEC_TASK_NAME)
+    {
+        // Written before the connector starts, so that its first read succeeds.
+        let token = mint_task_update(task_update, P::TASK_TYPE, &ctx.task_name, build)?;
+        write_task_update(mount.path(), task_update, &token).await?;
+
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(refresh_task_update(
+            task_update.clone(),
+            P::TASK_TYPE,
+            ctx.task_name.clone(),
+            build.map(str::to_string),
+            mount.path().to_owned(),
+            ctx.log_sink.clone(),
+            stop_rx,
+        ));
+        refresh = Some(stop_tx);
+    }
 
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
@@ -229,9 +259,8 @@ pub(crate) async fn start<P: Protocol>(
         proto::response::started::Spec::Materialize(spec) => &spec.config_schema_json,
     };
 
-    let mut iam_token_restart_at = None;
-
     let inject_iam: bool;
+    let mut token_restart_at = None;
 
     // Unseal the configuration, or inject decrypted secrets into it.
     (*initial_config_slot, inject_iam) = if ctx.task_name == crate::SPEC_TASK_NAME {
@@ -271,7 +300,7 @@ pub(crate) async fn start<P: Protocol>(
         let tokens = iam_config.generate_tokens(&ctx.task_name).await?;
         *initial_config_slot = tokens.inject_into(initial_config_slot)?.to_string().into();
 
-        iam_token_restart_at = Some(proto_flow::as_timestamp(
+        token_restart_at = Some(proto_flow::as_timestamp(
             crate::policy::token_restart_deadline(
                 std::time::SystemTime::now(),
                 tokens.expires_at(),
@@ -291,7 +320,7 @@ pub(crate) async fn start<P: Protocol>(
             kind: Some(proto::response::Kind::Started(proto::response::Started {
                 container,
                 codec: codec as i32,
-                token_restart_at: iam_token_restart_at,
+                token_restart_at,
                 process: ctx.process,
                 spec: Some(spec),
             })),
@@ -300,6 +329,7 @@ pub(crate) async fn start<P: Protocol>(
         connector_rx,
         guard: crate::Guard {
             _process: process,
+            _refresh: refresh,
             _mount: mount,
         },
     })
@@ -373,6 +403,121 @@ pub(crate) fn set_mount_mode(path: &std::path::Path, mode: u32) -> anyhow::Resul
     let _ = (path, mode);
 
     Ok(())
+}
+
+/// Contents of `task-update.json`: everything a connector needs to call the
+/// routes by which it updates its own configuration and secrets.
+#[derive(serde::Serialize)]
+struct TaskUpdateFile<'a> {
+    token: &'a str,
+    control_plane_url: &'a str,
+    config_encryption_url: &'a str,
+}
+
+/// Write `task-update.json` into a connector mount via atomic rename.
+async fn write_task_update(
+    dir: &std::path::Path,
+    task_update: &crate::TaskUpdate,
+    token: &str,
+) -> anyhow::Result<()> {
+    let body = serde_json::to_vec(&TaskUpdateFile {
+        token,
+        control_plane_url: task_update.control_api.as_str(),
+        config_encryption_url: task_update.config_encryption.as_str(),
+    })
+    .expect("task update file always serializes");
+
+    let staged = dir.join(".task-update.json.tmp");
+    match tokio::fs::remove_file(&staged).await {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err).context("removing stale staged task update file"),
+    }
+    tokio::fs::write(&staged, &body)
+        .await
+        .context("writing staged task update file")?;
+    set_mount_mode(&staged, 0o444)?;
+
+    tokio::fs::rename(&staged, dir.join("task-update.json"))
+        .await
+        .context("renaming staged task update file")
+}
+
+/// Re-mint the connector's `task-update.json` in place until `stop` is dropped.
+async fn refresh_task_update(
+    task_update: crate::TaskUpdate,
+    task_type: ops::TaskType,
+    task_name: String,
+    build: Option<String>,
+    dir: std::path::PathBuf,
+    log_sink: crate::LogSink,
+    mut stop: tokio::sync::oneshot::Receiver<()>,
+) {
+    let mut ticker = tokio::time::interval(task_update.refresh_interval);
+    ticker.tick().await; // The first tick completes immediately.
+
+    loop {
+        tokio::select! {
+            _ = &mut stop => return,
+            _ = ticker.tick() => {}
+        }
+
+        let result = match mint_task_update(&task_update, task_type, &task_name, build.as_deref()) {
+            Ok(token) => write_task_update(&dir, &task_update, &token).await,
+            Err(err) => Err(err),
+        };
+        let Err(err) = result else { continue };
+
+        log_sink
+            .send(crate::build_log(
+                ops::LogLevel::Warn,
+                "failed to refresh the connector's task update credential (will retry)",
+                [("error", crate::json_field(&format!("{err:#}")))],
+            ))
+            .await;
+    }
+}
+
+/// Mint the task-scoped `TASK_UPDATE` credential handed to a connector.
+fn mint_task_update(
+    task_update: &crate::TaskUpdate,
+    task_type: ops::TaskType,
+    task_name: &str,
+    build: Option<&str>,
+) -> anyhow::Result<String> {
+    let mut include = labels::build_set([
+        (labels::TASK_NAME, task_name),
+        (labels::TASK_TYPE, task_type.as_str_name()),
+    ]);
+    if let Some(build) = build {
+        include = labels::add_value(include, labels::BUILD, build);
+    }
+    task_update
+        .signer
+        .sign(
+            proto_flow::capability::TASK_UPDATE,
+            task_name.to_string(),
+            proto_gazette::broker::LabelSelector {
+                include: Some(include),
+                exclude: None,
+            },
+            crate::policy::TASK_UPDATE_LIFETIME,
+        )
+        .map_err(crate::status_to_anyhow)
+}
+
+/// Extract `estuary.dev/build` label from a task's template ShardSpec.
+pub(crate) fn shard_build<'a>(
+    template: &'a Option<proto_gazette::consumer::ShardSpec>,
+) -> anyhow::Result<&'a str> {
+    let label_set = template
+        .as_ref()
+        .context("missing expected template ShardSpec")?
+        .labels
+        .as_ref()
+        .context("missing expected template ShardSpec labels")?;
+
+    Ok(labels::expect_one(label_set, labels::BUILD)?)
 }
 
 /// Decrypt one secret of the task's `secrets` stanza under the task's identity,
@@ -534,6 +679,74 @@ mod test {
 
         let env = super::connector_env(crate::Plane::Local, ops::LogLevel::Trace, mount).unwrap();
         assert_eq!(env["LOG_LEVEL"], "trace");
+    }
+
+    /// The claims of a minted task update token. A session's `Open` carries the
+    /// build it runs, which `/task/update-config` requires and which pins the
+    /// proposed configuration to a model the connector has actually seen. A
+    /// unary request has no session and so no build. Both have the one
+    /// lifetime, because both are refreshed in place.
+    #[test]
+    fn mints_a_task_update_token_scoped_to_its_task() {
+        let task_update = crate::TaskUpdate::for_test();
+
+        let outcomes = [
+            ("with a build", Some("1122334455667788")),
+            ("without a build", None),
+        ]
+        .map(|(label, build)| {
+            let token = super::mint_task_update(
+                &task_update,
+                ops::TaskType::Capture,
+                "acmeCo/source-widgets",
+                build,
+            )
+            .unwrap();
+
+            let claims = tokens::jwt::parse_unverified::<proto_gazette::Claims>(token.as_bytes())
+                .unwrap()
+                .claims()
+                .clone();
+
+            (
+                label,
+                claims.cap,
+                claims.iss,
+                claims.sub,
+                claims.sel,
+                format!("{}s", claims.exp - claims.iat),
+            )
+        });
+
+        insta::assert_debug_snapshot!(outcomes);
+    }
+
+    /// `task-update.json` has exactly the three properties a connector reads,
+    /// and lands with a mode its container's unprivileged user can read.
+    #[tokio::test]
+    async fn writes_the_task_update_file_into_a_mount() {
+        let mount = super::create_connector_mount().unwrap();
+        super::write_task_update(mount.path(), &crate::TaskUpdate::for_test(), "a.token.here")
+            .await
+            .unwrap();
+
+        let path = mount.path().join("task-update.json");
+        let body = std::fs::read_to_string(&path).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &std::path::Path| {
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+            };
+            assert_eq!(mode(mount.path()), 0o711);
+            assert_eq!(mode(&path), 0o444);
+        }
+
+        insta::assert_snapshot!(
+            body,
+            @r#"{"token":"a.token.here","control_plane_url":"https://control.example.com/","config_encryption_url":"https://config-encryption.example.com/"}"#
+        );
     }
 
     /// Pins the exhaustive list, because it gates a behavior change that is

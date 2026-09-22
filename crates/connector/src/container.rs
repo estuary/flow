@@ -27,6 +27,7 @@ const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 /// Options which have already been selected for a container execution.
 pub(crate) struct RunParams {
     pub env: BTreeMap<String, String>,
+    pub host_gateway_names: Vec<String>,
     pub labels: BTreeMap<String, String>,
     pub log_sink: LogSink,
     pub mount: std::path::PathBuf,
@@ -67,6 +68,7 @@ where
     } = inspection;
     let RunParams {
         env,
+        host_gateway_names,
         labels,
         log_sink,
         mount,
@@ -131,6 +133,9 @@ where
 
     for (name, value) in env {
         docker_args.push(format!("--env={name}={value}"));
+    }
+    for name in host_gateway_names {
+        docker_args.push(format!("--add-host={name}:host-gateway"));
     }
     for (name, value) in labels {
         docker_args.push(format!("--label={name}={value}"));
@@ -582,6 +587,7 @@ mod test {
                     ("LOG_FORMAT".to_string(), "json".to_string()),
                     ("LOG_LEVEL".to_string(), "debug".to_string()),
                 ]),
+                host_gateway_names: Vec::new(),
                 labels: std::collections::BTreeMap::new(),
                 log_sink: crate::LogSink::tracing(),
                 mount: mount.path().to_owned(),

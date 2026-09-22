@@ -35,7 +35,7 @@ mod service;
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify};
 pub use router::{LOCAL_ISSUER, ServiceRouter};
-pub use service::Service;
+pub use service::{Service, TaskUpdate};
 
 /// Build a connector router for tests and other offline callers which need no
 /// shared registry and never attach containers to a Docker network.
@@ -149,11 +149,12 @@ struct Started<P: protocol::Protocol> {
 /// Host resources of an image or local connector, released when the served
 /// stream ends.
 ///
-/// Field order is the teardown order: the container is SIGKILLed *before*
-/// the mount it reads is removed. Killing the container also closes its
-/// stderr, so its log pump can finish.
+/// Field order is the teardown order: the container is SIGKILLed and the
+/// token refresh signaled *before* the mount they both use is removed.
+/// Killing the container also closes its stderr, so its log pump can finish.
 pub(crate) struct Guard {
     _process: Option<async_process::Child>,
+    _refresh: Option<tokio::sync::oneshot::Sender<()>>,
     _mount: tempfile::TempDir,
 }
 

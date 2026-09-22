@@ -172,6 +172,7 @@ where
         process: service.process.clone(),
         secret_resolver: service.secret_resolver.clone(),
         task_name: task_name.to_string(),
+        task_update: service.task_update.clone(),
     };
     let started = tokio::select! {
         () = response_tx.closed() => return Err(client_dropped()),
@@ -338,6 +339,7 @@ mod test {
             connector_rx: futures::stream::pending().boxed(),
             guard: crate::Guard {
                 _process: None,
+                _refresh: None,
                 _mount: tempfile::tempdir().unwrap(),
             },
         };
