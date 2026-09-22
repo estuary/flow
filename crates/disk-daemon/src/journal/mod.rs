@@ -15,37 +15,17 @@
 //!
 //! This file is the phases a journal passes through. [`Opening`] is a journal which
 //! is validated and being replayed, and which nothing has claimed. [`Claimed`] is one
-//! this tenure holds, between the claim and the disk it goes on to serve. [`Journal`]
-//! is what is carried through all of them: the name, the client, the appender, the
-//! epoch, and the offsets a broker has confirmed.
-//!
-//! A tenure appends each mutation as its device accepts it. An acknowledgement
-//! commits the delta, and the client makes that acknowledgement durable elsewhere
-//! before it hands the acknowledgement back. The writer therefore holds the two
-//! halves of a boundary apart. `prepare` finishes and confirms every data append,
-//! then returns the acknowledgement's exact bytes. `acknowledge` appends those bytes
-//! and awaits the broker's confirmation.
+//! this tenure holds while its replay finishes. [`Promoted`] is one whose replay is
+//! done, and which a writer serves from the offsets it settled. [`Journal`] is what is
+//! carried through all of them: the name, the client, the epoch, and the offsets a
+//! broker has confirmed.
 //!
 //! Records reach the journal through the `publisher::Appender` which
 //! `runtime-next` publishes its collection documents with. The writer hands it
 //! one complete record at a time and checkpoints at that boundary, and the
 //! appender decides when a batch of them becomes an append RPC. What is
 //! particular to a disk stays here: claiming the journal and the recovery floor.
-//!
-//! The writer takes no mutation while an acknowledgement is outstanding. A tenure
-//! stamps every delta with one producer, and Gazette sequences per producer: an
-//! `ACK_TXN` commits the pending records of its producer whose clocks are at or
-//! below its own and drops the rest, and an acknowledgement's clock is fixed at the
-//! cut which built it. Records of the next delta which reached the journal ahead of
-//! that acknowledgement would therefore be lost, so nothing of the next delta is
-//! taken until it has landed. A device whose mutations nothing takes parks after a
-//! queue depth of them, so a workload which writes heavily across a boundary waits
-//! for `Acknowledge`, and a client keeps that interval short.
-//!
-//! A tenure holds one prepared delta at a time, per [`writer::Task::prepare`], so a
-//! client is never handed a second acknowledgement while it holds an unconfirmed one.
-//! This is the same rule the Gazette consumer framework applies between one
-//! transaction's `StartCommit` and the last transaction's pending acknowledgement.
+//! How the writer holds a delta and its acknowledgement apart is `writer.rs`'s.
 //!
 //! The journal's specification is the caller's, and so is the journal. `Open` names
 //! one which must already exist, and the daemon validates its live spec rather than
@@ -54,13 +34,11 @@
 //! never creates a journal, never deletes one, and writes exactly one field of a spec
 //! it did not create: the recovery-floor label.
 //!
-//! A tenure claims its journal exactly once, at [`Opening::claim_journal`], and
-//! claims it whether or not the journal holds anything. Every append behind that
-//! claim checks the epoch it installed, so a writer serves only after the claim has
-//! landed. A tenure's own setup — a fresh disk's `mkfs`, and the mount of any disk —
-//! writes through that writer, and the tenure commits those writes itself before it
-//! hands the mount to its client.
+//! A tenure claims its journal exactly once, at [`Opening::claim_journal`]. Every
+//! append behind that claim checks the epoch it installed, so a writer serves only
+//! after the claim has landed.
 
+use crate::failure;
 use crate::image::Image;
 use crate::proto;
 use anyhow::Context;
@@ -90,22 +68,33 @@ pub struct Opening {
     appender: publisher::Appender,
 }
 
-/// A journal this tenure holds, before it serves the disk behind it.
+/// A journal this tenure holds, while the replay of it finishes.
 ///
 /// The claim is a step of its own because it bounds a replay which is still
-/// running: see [`Opening::claim_journal`]. What lies between the two is
-/// [`Claimed::promote`], which finishes that replay and settles the offsets its
-/// writer starts from.
+/// running: see [`Opening::claim_journal`]. [`Claimed::promote`] then finishes that
+/// replay.
 pub struct Claimed {
     journal: Journal,
     appender: publisher::Appender,
-    /// Offset of a horizon the replay left open, which the writer resumes rather
-    /// than opening one of its own.
+}
+
+/// A journal this tenure holds and has replayed, which [`Promoted::serve`] appends
+/// the disk's deltas to.
+///
+/// Its offsets are the ones the promotion settled: the head its replay read to, the
+/// floor that replay derived, and the horizon it left open.
+pub struct Promoted {
+    journal: Journal,
+    appender: publisher::Appender,
+    /// Offset of a horizon the replay left open, which the writer completes rather
+    /// than opening one of its own. See [`Recovered::horizon`].
     horizon: Option<i64>,
 }
 
 /// What a recovery of a disk found in its journal.
 pub struct Recovered {
+    /// The disk's committed state, rebuilt.
+    pub image: Image,
     /// Whether the journal held committed state. False for a disk which is fresh,
     /// and whose filesystem the caller must format.
     pub recovered: bool,
@@ -113,9 +102,10 @@ pub struct Recovered {
     /// owner resumes rather than opening a horizon of its own over whatever it
     /// finds allocated.
     ///
-    /// This is `Some` exactly when [`Claimed`]'s own horizon offset is, and the
-    /// two are the halves of one horizon: the writer completes it at that offset
-    /// once the owner reports these blocks discharged.
+    /// This is `Some` exactly when [`Promoted`]'s horizon offset is. The two are the
+    /// halves of one horizon, held apart because the offset is the writer's and the
+    /// blocks are the owner's: the writer completes the horizon at that offset once
+    /// the owner reports these blocks discharged.
     pub horizon: Option<crate::horizon::Horizon>,
 }
 
@@ -170,9 +160,8 @@ impl Opening {
     /// what is rebuilt.
     ///
     /// This does not claim the journal, so another tenure may still be writing it.
-    /// That is what makes a standby possible, and the claim in `promote` is what
-    /// makes it safe: it bounds what the other writer can ever append, and the read
-    /// which follows it converges on that bound.
+    /// That is what makes a standby possible, and [`Opening::claim_journal`] is what
+    /// makes it safe.
     pub fn play(&mut self, image: Image, buffer: buffer::Buffer) -> playback::Playback {
         let source = playback::Source {
             client: self.journal.client.clone(),
@@ -212,13 +201,8 @@ impl Opening {
     /// converges on rather than chases.
     ///
     /// The journal is resolved again here, and nothing of what this tenure's own
-    /// `Open` saw is used. A standby opens once and promotes much later, and the
-    /// author goes stale in the interval: every fence since that open was another
-    /// writer's and each was legitimate, so a claim against the author the open read
-    /// fails although this tenure is the rightful writer — and if two standbies both
-    /// hold that stale value, neither can promote at all. The compare-and-swap still
-    /// arbitrates two promotions which race, because both compare against the value
-    /// they each just read and only one installs itself over it.
+    /// `Open` saw is used: the author goes stale while a standby waits, for the
+    /// reasons the `fence` module gives.
     ///
     /// Every journal is claimed, whether or not it holds anything. A tenure serves a
     /// disk only behind its claim, and a fresh disk's own `mkfs` is a delta like any
@@ -250,11 +234,7 @@ impl Opening {
         })
         .await?;
 
-        Ok(Claimed {
-            journal,
-            appender,
-            horizon: None,
-        })
+        Ok(Claimed { journal, appender })
     }
 }
 
@@ -282,10 +262,14 @@ impl Claimed {
     /// committed edge, and dropping them is what keeps a promoted disk from running
     /// ahead of the client's own commit.
     pub async fn promote(
-        &mut self,
+        self,
         playback: playback::Playback,
         recovered_acks: Vec<bytes::Bytes>,
-    ) -> anyhow::Result<(Image, Recovered)> {
+    ) -> anyhow::Result<(Promoted, Recovered)> {
+        let Self {
+            mut journal,
+            mut appender,
+        } = self;
         let playback::Handoff {
             mut image,
             mut pass,
@@ -296,14 +280,12 @@ impl Claimed {
         // an append. Its index therefore covers every fragment below it, and the
         // claim means nobody else can append past it. That fixes the end of this
         // read and makes it fresh.
-        let mut head = until_ended(&self.journal.ended, "promoting", async {
-            let head = fence::probe(&self.journal.client, &self.journal.name)
-                .await?
-                .head;
+        let mut head = until_ended(&journal.ended, "promoting", async {
+            let head = fence::probe(&journal.client, &journal.name).await?.head;
 
             _ = replay::read(
-                &self.journal.client,
-                &self.journal.name,
+                &journal.client,
+                &journal.name,
                 applied,
                 replay::Extent::Bounded(head),
                 &mut image,
@@ -325,21 +307,20 @@ impl Claimed {
 
         if repaired {
             for ack in recovered_acks {
-                () = self
-                    .journal
-                    .append_ack(&mut self.appender, &ack)
+                () = journal
+                    .append_ack(&mut appender, &ack)
                     .await
                     .context("repairing a recovered acknowledgement")?;
             }
             // The acknowledgements landed at `head`, and the flush which appended them
             // learned the head beyond them. They are read back through the same pass,
             // which is how it learns they committed what it held.
-            let repaired_head = self.journal.head;
+            let repaired_head = journal.head;
 
-            () = until_ended(&self.journal.ended, "promoting", async {
+            () = until_ended(&journal.ended, "promoting", async {
                 _ = replay::read(
-                    &self.journal.client,
-                    &self.journal.name,
+                    &journal.client,
+                    &journal.name,
                     head,
                     replay::Extent::Bounded(repaired_head),
                     &mut image,
@@ -356,7 +337,6 @@ impl Claimed {
         let (chunks, derived) = (pass.applied_chunks(), pass.derived_floor());
         let (held, _floor, opened) = pass.into_parts();
 
-        // The offset is the writer's, and the blocks are the owner's.
         let (horizon_at, horizon) = match opened {
             Some(replay::Opened { at, blocks }) => (Some(at), Some(blocks)),
             None => (None, None),
@@ -364,14 +344,14 @@ impl Claimed {
 
         if !held.is_empty() {
             tracing::info!(
-                journal = self.journal.name,
+                journal = journal.name,
                 bytes = held.len(),
                 "dropping the delta which the journal never acknowledged",
             );
         }
 
         tracing::info!(
-            journal = self.journal.name,
+            journal = journal.name,
             head,
             chunks,
             floor = ?derived,
@@ -384,28 +364,32 @@ impl Claimed {
         // records were destroyed, even though the journal's head outlived them.
         // The acknowledged records are the newest the disk has, so no floor this
         // daemon stored can seek past them.
-        crate::ensure_valid!(
+        failure::ensure_valid!(
             !repaired || chunks != 0,
             "the tenure supplied recovered acknowledgements, but a replay of journal {} \
              applied nothing: its committed state was destroyed",
-            self.journal.name,
+            journal.name,
         );
 
-        self.journal.head = head;
-        self.journal.floor = derived.unwrap_or(self.journal.floor);
-        self.horizon = horizon_at;
+        journal.head = head;
+        journal.floor = derived.unwrap_or(journal.floor);
 
         // A floor the replay derived is one an earlier tenure completed a horizon
         // for but could not store, because it died before it could. This tenure
         // stores it on that tenure's behalf, which is what makes the scheme
         // self-healing.
         if let Some(derived) = derived {
-            () = self.journal.store_floor(derived).await;
+            () = journal.store_floor(derived).await;
         }
 
         Ok((
-            image,
+            Promoted {
+                journal,
+                appender,
+                horizon: horizon_at,
+            },
             Recovered {
+                image,
                 recovered: chunks != 0,
                 horizon,
             },
@@ -420,30 +404,30 @@ fn check_recovered_ack(pass: &replay::Pass, ack: &[u8]) -> anyhow::Result<()> {
     let record = match fixed_framing::unpack::<proto::DiskRecord>(&mut ack) {
         Ok(fixed_framing::Frame::Record { message, .. }) if ack.is_empty() => message,
         _ => {
-            return Err(anyhow::Error::new(crate::Failure::Invalid(
+            return Err(anyhow::Error::new(failure::Failure::Invalid(
                 "a recovered acknowledgement is not one framed record".to_string(),
             )));
         }
     };
     let uuid = uuid::Uuid::from_slice(&record.uuid).map_err(|err| {
-        crate::Failure::Invalid(format!(
+        failure::Failure::Invalid(format!(
             "a recovered acknowledgement carries no message UUID: {err}"
         ))
     })?;
     let (producer, clock, flags) = uuid::parse(uuid).map_err(|err| {
-        crate::Failure::Invalid(format!(
+        failure::Failure::Invalid(format!(
             "a recovered acknowledgement carries a malformed UUID: {err}"
         ))
     })?;
 
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         flags.is_ack()
             && record.chunks.is_empty()
             && !record.opens_horizon
             && record.installs_epoch.is_empty(),
         "a recovered acknowledgement is not an ACK_TXN record which carries nothing else",
     );
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         pass.can_acknowledge(producer, clock),
         "the recovered acknowledgement of {producer:?} at {clock:?} commits a delta which later \
          records of this journal displaced, or rolls back what they committed",
@@ -580,7 +564,7 @@ async fn until_ended<T>(
     work: impl Future<Output = anyhow::Result<T>>,
 ) -> anyhow::Result<T> {
     ended.run_until_cancelled(work).await.unwrap_or_else(|| {
-        Err(anyhow::Error::new(crate::Failure::Ended(format!(
+        Err(anyhow::Error::new(failure::Failure::Ended(format!(
             "the tenure ended while {what}"
         ))))
     })

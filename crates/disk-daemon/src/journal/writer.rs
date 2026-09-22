@@ -4,18 +4,19 @@
 //! [`Task`] owns the journal for the length of the tenure. It takes each captured
 //! mutation as the device accepts it, stamps it as a record, and hands it to the
 //! appender. [`Writer`] is the handle the tenure's `Prepare` and `Acknowledge`
-//! reach it over, and both halves of the boundary those requests hold apart live
-//! here: `prepare` finishes and confirms every data append and returns the
-//! acknowledgement's exact bytes, and `acknowledge` appends those bytes and awaits
-//! the broker's confirmation.
+//! reach it over.
 //!
-//! The writer takes no mutation while an acknowledgement is outstanding. That
-//! barrier, and why Gazette's sequencing requires it, is in the `journal` module
-//! doc.
+//! An acknowledgement commits a delta, and the client makes it durable in its own
+//! store before handing it back, so the writer holds the two halves of that boundary
+//! apart. `prepare` finishes and confirms every data append and returns the
+//! acknowledgement's exact bytes. `acknowledge` appends those bytes and awaits the
+//! broker's confirmation. Between the two the writer takes no mutation, for the
+//! reason [`Task::taking`] gives.
 
-use super::{Claimed, Journal, uuid_bytes};
+use super::{Journal, Promoted, uuid_bytes};
 use crate::capture::Captured;
-use crate::owner::Compactor;
+use crate::device::Compactor;
+use crate::failure;
 use crate::proto;
 use anyhow::Context;
 use proto_gazette::uuid;
@@ -46,9 +47,9 @@ enum Command {
 /// a replacement tenure fenced is reported as fenced.
 type Reply<T> = tokio::sync::oneshot::Sender<anyhow::Result<T>>;
 
-impl Claimed {
+impl Promoted {
     /// Build the actor which serves this journal, at the start of a delta it has
-    /// not yet taken anything into. Nothing runs until [`Claimed::serve`] spawns it.
+    /// not yet taken anything into. Nothing runs until [`Promoted::serve`] spawns it.
     pub(super) fn into_task(self, compactor: Option<Compactor>) -> Task {
         let Self {
             journal,
@@ -189,8 +190,7 @@ pub(super) struct Task {
 /// A tenure begins [`Phase::Appending`] and leaves it once, in one direction. What
 /// leaves it drops the appender, which aborts an append RPC that would otherwise go
 /// on retrying for a disk which no longer has a writer. Mutations are still taken
-/// afterwards, because an unmount writes and a device whose mutations nothing takes
-/// cannot be unmounted; they are discarded instead of appended.
+/// afterwards, per [`Task::taking`], and discarded instead of appended.
 enum Phase {
     /// Appending under the claim this tenure installed. `prepared` is the delta
     /// which was cut and whose acknowledgement the client holds, and while it is
@@ -269,9 +269,16 @@ impl Task {
     /// `ACK_TXN` commits the pending records of its producer with clocks at or below
     /// its own and drops the rest, and the acknowledgement's clock was fixed at the
     /// cut. A record of the next delta which reached the journal ahead of it would
-    /// be lost, so none is taken until it has landed. A tenure which appends no
-    /// more keeps taking, because a device whose mutations nothing takes cannot be
-    /// unmounted.
+    /// be lost, so none is taken until it has landed. This is the rule the Gazette
+    /// consumer framework applies between one transaction's `StartCommit` and the
+    /// last transaction's pending acknowledgement.
+    ///
+    /// Meanwhile the device parks after a queue depth of mutations, so a workload
+    /// which writes heavily across a boundary waits for `Acknowledge`, and a client
+    /// keeps that interval short.
+    ///
+    /// A tenure which appends no more keeps taking, because an unmount writes and a
+    /// device whose mutations nothing takes cannot be unmounted.
     fn taking(&self) -> bool {
         !self.drained
             && match &self.phase {
@@ -328,10 +335,7 @@ impl Task {
         }
     }
 
-    /// Finish the delta and construct its acknowledgement.
-    ///
-    /// A tenure cuts one delta at a time. The writer serves its commands in order,
-    /// so an `Acknowledge` ahead of this one has already been appended and confirmed.
+    /// Finish the delta and construct its acknowledgement, per [`Writer::prepare`].
     async fn prepare(&mut self, captured: &mut Captured) -> anyhow::Result<Option<bytes::Bytes>> {
         () = self.check()?;
 
@@ -342,7 +346,7 @@ impl Task {
                 ..
             }
         ) {
-            return Err(anyhow::Error::new(crate::Failure::OutOfOrder(
+            return Err(anyhow::Error::new(failure::Failure::OutOfOrder(
                 "a prepared delta is still awaiting its commit".to_string(),
             )));
         }
@@ -397,13 +401,13 @@ impl Task {
             panic!("the tenure is appending");
         };
         let Some(prepared) = prepared.take() else {
-            return Err(anyhow::Error::new(crate::Failure::OutOfOrder(
+            return Err(anyhow::Error::new(failure::Failure::OutOfOrder(
                 "no prepared delta is awaiting a commit".to_string(),
             )));
         };
 
         if ack != prepared.ack {
-            return Err(anyhow::Error::new(crate::Failure::OutOfOrder(
+            return Err(anyhow::Error::new(failure::Failure::OutOfOrder(
                 "commit acknowledgement differs from the prepared one".to_string(),
             )));
         }

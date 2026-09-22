@@ -7,6 +7,7 @@
 //! writes: it is the daemon's own state about a disk rather than the spec owner's.
 
 use super::{fence, until_ended};
+use crate::failure;
 use anyhow::Context;
 use proto_gazette::broker;
 
@@ -55,7 +56,7 @@ pub(super) async fn resolve(
     // journal of some other type lists as absent rather than reaching the content-type
     // check below.
     let Some(listing) = listing else {
-        return Err(anyhow::Error::new(crate::Failure::Invalid(format!(
+        return Err(anyhow::Error::new(failure::Failure::Invalid(format!(
             "journal {journal} does not exist or is not a disk journal, and the daemon \
              creates none: whoever deploys this disk owns its journal's specification",
         ))));
@@ -112,7 +113,7 @@ fn validate_recoverable(spec: &broker::JournalSpec) -> anyhow::Result<()> {
     // it is the same rule for the same reason. Without it, an `Open` of a collection
     // partition or of somebody's recovery log would fence that journal and append
     // disk records over content this daemon cannot read.
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         content_type == crate::CONTENT_TYPE_DISK,
         "journal {journal} has content type {content_type:?}, and a disk's journal must \
          declare {:?}",
@@ -122,7 +123,7 @@ fn validate_recoverable(spec: &broker::JournalSpec) -> anyhow::Result<()> {
     // The journal client decodes every codec Gazette names, so a value which names
     // none of them is the one thing left to refuse: fragments this daemon cannot
     // read back are records it cannot recover the disk from.
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         matches!(
             broker::CompressionCodec::try_from(fragment.compression_codec),
             Ok(codec) if codec != broker::CompressionCodec::Invalid,
@@ -134,7 +135,7 @@ fn validate_recoverable(spec: &broker::JournalSpec) -> anyhow::Result<()> {
 
     // Gazette deletes fragments by age, and age cannot see the recovery floor.
     // Any retention therefore risks deleting records a live disk needs.
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         fragment
             .retention
             .is_none_or(|retention| retention.seconds == 0 && retention.nanos == 0),
@@ -143,14 +144,14 @@ fn validate_recoverable(spec: &broker::JournalSpec) -> anyhow::Result<()> {
     );
     // A bucket lifecycle rule keys on date-prefixed paths, which is age-based
     // deletion by another route.
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         fragment.path_postfix_template.is_empty(),
         "journal {journal} sets a fragment path postfix template, which date-prefixes \
          fragment paths so a bucket lifecycle rule can delete them by age",
     );
     // The daemon both appends to this journal and replays it. NOT_SPECIFIED is
     // Gazette's own default of read-write.
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         spec.flags == broker::journal_spec::Flag::NotSpecified as u32
             || spec.flags == broker::journal_spec::Flag::ORdwr as u32,
         "journal {journal} has flags {:#x}, and a disk's journal must be read-write",

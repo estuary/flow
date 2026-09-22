@@ -186,8 +186,8 @@ pub(super) async fn read(
 ///
 /// The offset and the bitmap are held together because they are one fact: `at` is
 /// the floor which completing the horizon establishes, and `blocks` is what the
-/// horizon still owes before it may. A live disk keeps the same pair apart, because
-/// the offset is the writer's and the bitmap is the owner's.
+/// horizon still owes before it may. A live disk keeps the pair apart, per
+/// [`super::Recovered::horizon`].
 pub(super) struct Opened {
     /// Offset at which the record which opened this horizon begins.
     pub(super) at: i64,
@@ -341,19 +341,17 @@ impl Pass {
                 self.applied = offset + framed.len() as i64;
             }
             uuid::SequenceOutcome::ContinueBeginSpan => {
-                self.open = Some(producer);
+                () = self.hold(producer, framed)?;
 
                 // The horizon this record opens is held with it, and so is dropped
-                // with the delta whose records this one displaces. A horizon belongs
-                // to its delta, so a delta which is never acknowledged never opened
-                // one.
-                () = self.buffer.push(producer, framed)?;
+                // with it. A horizon belongs to its delta, so a delta which is never
+                // acknowledged never opened one.
                 self.horizon_at = record.opens_horizon.then_some(offset);
 
                 return Ok(0);
             }
             uuid::SequenceOutcome::ContinueExtendSpan if self.open == Some(producer) => {
-                () = self.buffer.push(producer, framed)?;
+                () = self.buffer.push(framed)?;
 
                 return Ok(0);
             }
@@ -364,15 +362,7 @@ impl Pass {
             // still interleaves whatever is held, as any other producer's record
             // does.
             uuid::SequenceOutcome::ContinueExtendSpan => {
-                tracing::debug!(
-                    held = ?self.open,
-                    bytes = self.buffer.len(),
-                    ?producer,
-                    "dropping a held delta which a displaced delta's resumed records interleaved",
-                );
-                () = self.buffer.clear()?;
-                self.horizon_at = None;
-                self.open = None;
+                () = self.displace(producer)?;
 
                 return Ok(0);
             }
@@ -393,11 +383,7 @@ impl Pass {
                 // The delta is committed, so the records held for it apply now.
                 // This must precede the horizon check below, because the chunks
                 // which discharge that horizon are among the ones applied here.
-                // The drain also opens the horizon this delta opens, which it must
-                // do before the delta's own chunks apply.
-                let applied =
-                    self.buffer
-                        .drain(image, &mut self.horizon, self.horizon_at.take())?;
+                let applied = self.apply_held(image)?;
 
                 self.applied = offset + framed.len() as i64;
                 self.applied_chunks += applied;
@@ -433,6 +419,85 @@ impl Pass {
             }
         }
         Ok(0)
+    }
+
+    /// Hold `framed`, the first record of `producer`'s delta.
+    fn hold(&mut self, producer: uuid::Producer, framed: &[u8]) -> anyhow::Result<()> {
+        () = self.displace(producer)?;
+        self.open = Some(producer);
+
+        self.buffer.push(framed)
+    }
+
+    /// Drop the held delta, unless it is `producer`'s.
+    ///
+    /// A record of another producer is a delta which displaced the one held. Only
+    /// an acknowledgement of the delta at the head can be honored, and this record
+    /// proves that none arrived.
+    fn displace(&mut self, producer: uuid::Producer) -> anyhow::Result<()> {
+        let Some(held) = self.open.filter(|held| *held != producer) else {
+            return Ok(());
+        };
+        tracing::debug!(
+            ?held,
+            bytes = self.buffer.len(),
+            ?producer,
+            "dropping a held delta which another producer's records displaced",
+        );
+        () = self.buffer.clear()?;
+        self.horizon_at = None;
+        self.open = None;
+
+        Ok(())
+    }
+
+    /// Apply the held delta to `image`, which its acknowledgement has committed, and
+    /// report the chunks it applied.
+    ///
+    /// The records apply in the order they were held. The record which opens a
+    /// horizon therefore snapshots the blocks allocated before this delta, and the
+    /// chunks which discharge that horizon apply after it. A delta's effects are
+    /// whole: they all land here, or none of them ever land.
+    fn apply_held(&mut self, image: &mut Image) -> anyhow::Result<usize> {
+        let Self {
+            buffer,
+            horizon,
+            horizon_at,
+            ..
+        } = self;
+        let opens_at = horizon_at.take();
+        let mut applied = 0;
+
+        () = buffer.drain(|record| {
+            if record.opens_horizon {
+                let at = opens_at.expect("the pass held the offset of an opening record");
+                let blocks = Horizon::open(image.allocated());
+
+                tracing::debug!(
+                    pending = blocks.pending(),
+                    at,
+                    "a held delta opened a recovery horizon",
+                );
+                *horizon = Some(Opened { at, blocks });
+            }
+
+            // A horizon opens at a record and a replay is a forward pass, so every
+            // chunk here is at or after any horizon which is open.
+            for chunk in &record.chunks {
+                () = image
+                    .apply(chunk)
+                    .with_context(|| format!("applying chunk at block {}", chunk.block))?;
+
+                if let Some(open) = horizon {
+                    () = open.blocks.published(crate::chunk::covered_blocks(chunk));
+                }
+            }
+            applied += record.chunks.len();
+
+            Ok(())
+        })?;
+
+        Ok(applied)
     }
 }
 

@@ -16,13 +16,13 @@
 //! disk's contents can no longer be trusted to reach its journal. A protocol
 //! violation is terminal because the client has lost track of which delta it owes
 //! an acknowledgement. What differs is the code the stream ends with. That code is
-//! the only part of a failure a client can act on. See `failed`.
+//! the only part of a failure a client can act on. See [`crate::failure`].
 
-use crate::device::Device;
-use crate::filesystem::{self, Mount};
+use crate::failure;
 use crate::image::Image;
-use crate::journal::{self, Writer};
+use crate::journal;
 use crate::proto;
+use crate::serving::Serving;
 use crate::ublk::Control;
 use anyhow::Context;
 
@@ -147,17 +147,6 @@ enum Event {
     CaughtUp,
 }
 
-/// What one open disk consists of.
-///
-/// The fields are declared in the order [`teardown`] runs them, which is also
-/// the order they drop in. The filesystem unmounts before the device under it
-/// stops. The writer outlives both, because an unmount writes.
-struct Serving {
-    mount: Mount,
-    device: Device,
-    writer: Writer,
-}
-
 impl Tenure {
     async fn run(
         mut self,
@@ -166,19 +155,20 @@ impl Tenure {
     ) {
         let outcome = self.serve(&mut requests, &responses).await;
 
-        // "The tenure is over" now means one thing, whatever state it ended in.
-        // `teardown` has nothing to unmount for a tenure which was still standing by,
-        // and its playback would otherwise go on tailing the journal — holding the
-        // image and the delta buffer open — until the daemon itself exits. A serving
-        // tenure's teardown cancels this token anyway, through `Writer::abandon`.
+        // "The tenure is over" now means one thing, whatever state it ended in. A
+        // tenure which was still standing by has nothing to tear down, and its
+        // playback would otherwise go on tailing the journal — holding the image and
+        // the delta buffer open — until the daemon itself exits. A serving tenure's
+        // teardown cancels this token anyway, through `Writer::abandon`.
         () = self.ended.cancel();
 
         // The disk is torn down before the failure which ended the tenure is
         // reported, so that a client which sees its tenure end sees a disk
         // which is already gone. It is also how a draining daemon waits for its
         // tenures. This stream stays open until its disk is destroyed.
-        let state = std::mem::replace(&mut self.state, State::Fresh);
-        () = teardown(state).await;
+        if let State::Serving(serving) = std::mem::replace(&mut self.state, State::Fresh) {
+            () = serving.teardown().await;
+        }
 
         if let Err(status) = outcome {
             tracing::warn!(journal = self.journal, %status, "tenure failed");
@@ -255,7 +245,7 @@ impl Tenure {
             _ = ended.cancelled() => Err(tonic::Status::unavailable("the daemon is draining")),
             request = requests.message() => Ok(Event::Request(request?.map(Box::new))),
             caught_up = caught_up => {
-                () = caught_up.map_err(failed)?;
+                () = caught_up.map_err(failure::status)?;
                 Ok(Event::CaughtUp)
             }
         }
@@ -276,7 +266,7 @@ impl Tenure {
                         "a tenure opens exactly one disk",
                     ));
                 }
-                let standing = self.open(open).await.map_err(failed)?;
+                let standing = self.open(open).await.map_err(failure::status)?;
                 self.state = State::Standing(Box::new(standing));
 
                 // `Opened` follows when the replay has read the journal's history.
@@ -307,9 +297,9 @@ impl Tenure {
 
                 // The claim comes now, and not when the replay is current. A client
                 // which pipelines this behind its `Open` is asking for the disk at
-                // once, and fencing bounds what is left to read: a head no other
-                // writer can move is one the replay converges on rather than chases.
-                let claimed = opening.claim_journal().await.map_err(failed)?;
+                // once, and the claim bounds what is left to read, per
+                // `Opening::claim_journal`.
+                let claimed = opening.claim_journal().await.map_err(failure::status)?;
 
                 let mut replies = Vec::new();
 
@@ -318,15 +308,21 @@ impl Tenure {
                     // rather than resuming from `next`. A drain reaches this wait
                     // through the playback, which reports `Ended` as its failure, so
                     // there is nothing for the tenure's own token to race.
-                    () = playback.caught_up().await.map_err(failed)?;
+                    () = playback.caught_up().await.map_err(failure::status)?;
 
                     replies.push(reply(Response::Opened(proto::Opened {})));
                 }
 
-                let serving = self
-                    .serve_disk(claimed, playback, recovered_acks)
-                    .await
-                    .map_err(failed)?;
+                let serving = Serving::open(
+                    &self.daemon,
+                    &self.control,
+                    self.owner,
+                    claimed,
+                    playback,
+                    recovered_acks,
+                )
+                .await
+                .map_err(failure::status)?;
 
                 let promoted = proto::Promoted {
                     mount_path: serving.mount.path().display().to_string(),
@@ -337,7 +333,7 @@ impl Tenure {
                 replies
             }
             Request::Prepare(proto::Prepare {}) => {
-                let ack = self.serving()?.prepare().await.map_err(failed)?;
+                let ack = self.serving()?.prepare().await.map_err(failure::status)?;
 
                 vec![reply(Response::Prepared(proto::Prepared {
                     ack: ack.unwrap_or_default(),
@@ -349,7 +345,7 @@ impl Tenure {
                     .writer
                     .acknowledge(ack)
                     .await
-                    .map_err(failed)?;
+                    .map_err(failure::status)?;
 
                 vec![reply(Response::Acknowledged(proto::Acknowledged {}))]
             }
@@ -371,7 +367,7 @@ impl Tenure {
             device_size,
         } = open;
 
-        crate::ensure_valid!(!journal.is_empty(), "the tenure named no journal");
+        failure::ensure_valid!(!journal.is_empty(), "the tenure named no journal");
 
         let blocks = blocks(device_size)?;
         self.journal = journal.clone();
@@ -391,88 +387,6 @@ impl Tenure {
             playback,
             opened: false,
         })
-    }
-
-    /// Finish `playback` and serve the disk it rebuilt. The journal is claimed
-    /// already, by the `Promote` which reached this tenure.
-    ///
-    /// A disk with committed state is served from what the replay rebuilt. A disk
-    /// without it is formatted instead. Either way the daemon's own setup writes: an
-    /// `mkfs` on a fresh disk, and the bookkeeping ext4 does at any mount. Those are
-    /// ordinary mutations of a writer which is already running, and this tenure cuts
-    /// and acknowledges them itself before it answers `Promoted`. A client's
-    /// acknowledgements therefore cover only its own writes, it owes nothing for a
-    /// disk it never writes, and a reopen of one recovers the filesystem rather than
-    /// formatting it again.
-    async fn serve_disk(
-        &self,
-        mut claimed: journal::Claimed,
-        playback: journal::playback::Playback,
-        recovered_acks: Vec<bytes::Bytes>,
-    ) -> anyhow::Result<Serving> {
-        // A horizon the replay leaves open is handed to the disk, which resumes it
-        // rather than opening a new one over whatever this tenure finds allocated.
-        // Its offset stays with the writer `claimed` goes on to build.
-        let (image, journal::Recovered { recovered, horizon }) =
-            claimed.promote(playback, recovered_acks).await?;
-
-        let control = self.control.clone();
-        let policy = self.daemon.horizon;
-
-        // Creating a device is a handshake with the kernel and with the thread
-        // which will own it. Neither handshake is async.
-        let (device, captured) = tokio::task::spawn_blocking(move || {
-            Device::create(&control, image, crate::ublk::QUEUE_DEPTH, horizon, policy)
-        })
-        .await??;
-
-        let compactor = Some(device.compactor()?);
-        let block_path = device.block_path();
-        let mount_path = self.daemon.mount_dir.join(format!(
-            "{}{}",
-            crate::daemon::MOUNT_PREFIX,
-            device.dev_id()
-        ));
-
-        // The writer runs before anything writes to the device, because the capture
-        // channel is bounded and a mutation nothing takes parks the device. That is
-        // true of a fresh disk's `mkfs` as much as of a recovered disk's mount.
-        let writer = claimed.serve(captured, compactor);
-
-        if !recovered {
-            () = filesystem::format(&block_path, self.owner, filesystem::MKFS_TIMEOUT).await?;
-        }
-        let mount = Mount::new(
-            &block_path,
-            mount_path,
-            self.owner,
-            filesystem::MOUNT_TIMEOUT,
-        )
-        .await?;
-
-        let mut serving = Serving {
-            mount,
-            device,
-            writer,
-        };
-
-        // The bootstrap commit. It is the same cut a client's `Prepare` makes, so
-        // whatever the format and the mount wrote is committed state of the journal
-        // before the client is told the disk exists, and nothing of the daemon's own
-        // is left for a client's acknowledgement to carry or for an idle restart to
-        // orphan. A mount which wrote nothing is an empty delta, and owes nothing.
-        if let Some(ack) = serving.prepare().await? {
-            () = serving.writer.acknowledge(ack).await?;
-        }
-
-        tracing::info!(
-            dev_id = serving.device.dev_id(),
-            mount = ?serving.mount.path(),
-            recovered,
-            "opened a disk",
-        );
-
-        Ok(serving)
     }
 
     fn serving(&mut self) -> tonic::Result<&mut Serving> {
@@ -495,150 +409,26 @@ fn reply(response: proto::response::Response) -> proto::Response {
     }
 }
 
-/// Unmount, destroy the device, and drop the image.
-async fn teardown(state: State) {
-    let State::Serving(Serving {
-        mut mount,
-        mut device,
-        writer,
-    }) = state
-    else {
-        return;
-    };
-
-    // This tenure prepares nothing more. The writer takes what the unmount
-    // mutates and then discards it.
-    () = writer.abandon();
-
-    let dev_id = device.dev_id();
-
-    if let Err(err) = mount.unmount(filesystem::MOUNT_TIMEOUT).await {
-        tracing::error!(?err, dev_id, "failed to unmount a disk");
-    }
-
-    match tokio::task::spawn_blocking(move || device.stop()).await {
-        Ok(Ok(_image)) => (),
-        Ok(Err(err)) => tracing::error!(?err, dev_id, "failed to stop a device"),
-        Err(panic) => tracing::error!(?panic, dev_id, "panicked stopping a device"),
-    }
-    drop(writer);
-
-    tracing::info!(dev_id, "closed a disk");
-}
-
-impl Serving {
-    /// Cut a point-in-time boundary of the disk and finish the delta
-    /// before it.
-    ///
-    /// The cut runs in this order. The mount flushes, admission closes, and every
-    /// mutation which was admitted lands. A mutation is captured before it is
-    /// applied, so each one then falls entirely before or after the boundary. The
-    /// writer can therefore finish exactly the delta which precedes it.
-    ///
-    /// Admission resumes as soon as the acknowledgement exists. The mutations
-    /// admitted from then on belong to the next delta. The writer takes none of them
-    /// until this acknowledgement is appended, so a device which writes more than
-    /// the capture channel holds in the meantime waits for `Acknowledge`.
-    async fn prepare(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
-        let mount = self.mount.path().to_path_buf();
-
-        tokio::task::spawn_blocking(move || filesystem::sync(&mount))
-            .await?
-            .context("syncing a disk's filesystem")?;
-
-        () = self.device.close_admission().await?;
-        let prepared = self.writer.prepare().await;
-
-        // Admission resumes even where the prepare failed. The unmount which
-        // follows a failed tenure writes.
-        if let Err(err) = self.device.resume_admission() {
-            let dev_id = self.device.dev_id();
-            tracing::error!(?err, dev_id, "failed to resume a disk's admission");
-        }
-        prepared
-    }
-}
-
 /// Block count of a device. `device_size` is the one durable geometry a tenure
 /// supplies, because the block size is [`crate::BLOCK_SIZE`] for every disk.
 fn blocks(device_size: u64) -> anyhow::Result<u32> {
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         device_size != 0 && device_size.is_multiple_of(crate::BLOCK_SIZE as u64),
         "device size {device_size} must be a non-zero multiple of the {} byte block size",
         crate::BLOCK_SIZE,
     );
     let blocks = device_size / crate::BLOCK_SIZE as u64;
 
-    crate::ensure_valid!(
+    failure::ensure_valid!(
         blocks <= u32::MAX as u64,
         "a device of {blocks} blocks exceeds the 2^32 which a chunk indexes",
     );
     Ok(blocks as u32)
 }
 
-/// gRPC code of a failure which ends a tenure.
-///
-/// A client cannot act on a message, so the code is the contract:
-///
-/// - `INVALID_ARGUMENT` is what the tenure asked for. A retry cannot succeed.
-/// - `ABORTED` is a lost fence. Another tenure owns this disk, and this one must
-///   not take it back.
-/// - `UNAUTHENTICATED` is a credential the broker refused. A client should
-///   refresh it and open again.
-/// - `UNAVAILABLE` is a broker this daemon could not reach, or a tenure the
-///   daemon's drain cut short. Another host may reach that broker, or serve
-///   that disk.
-/// - `INTERNAL` is everything else, which is the daemon or its host failing.
-///
-/// `Tenure::request` reports a tenure's own state as `FAILED_PRECONDITION`, and
-/// that never reaches here. The crate README says what a client should do with
-/// each code.
-fn failed(err: anyhow::Error) -> tonic::Status {
-    let code = match err
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<crate::Failure>())
-    {
-        Some(crate::Failure::Invalid(_)) => tonic::Code::InvalidArgument,
-        Some(crate::Failure::OutOfOrder(_)) => tonic::Code::FailedPrecondition,
-        Some(crate::Failure::Ended(_)) => tonic::Code::Unavailable,
-        // Anything the tenure did not bring on itself is the daemon, its host, or
-        // its brokers, and only a broker failure carries a code beyond `INTERNAL`.
-        None => broker_code(&err),
-    };
-
-    tonic::Status::new(code, format!("{err:#}"))
-}
-
-/// gRPC code of a failure which is not the tenure's own, per [`failed`].
-fn broker_code(err: &anyhow::Error) -> tonic::Code {
-    match err
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<gazette::Error>())
-    {
-        Some(gazette::Error::BrokerStatus(proto_gazette::broker::Status::RegisterMismatch)) => {
-            tonic::Code::Aborted
-        }
-        // `UNAUTHENTICATED` is not a promise that every credential problem
-        // arrives this way. A broker may refuse whatever it was doing rather
-        // than the credential. Gazette answers an expired token on an append
-        // with `DeadlineExceeded`, because the pipeline the append waited for
-        // is what timed out.
-        Some(gazette::Error::Grpc(status))
-            if matches!(
-                status.code(),
-                tonic::Code::Unauthenticated | tonic::Code::PermissionDenied,
-            ) =>
-        {
-            tonic::Code::Unauthenticated
-        }
-        Some(broker) if broker.is_transient() => tonic::Code::Unavailable,
-        _ => tonic::Code::Internal,
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use super::{blocks, failed};
+    use super::blocks;
 
     #[test]
     fn test_a_devices_geometry_is_checked_before_it_exists() {
@@ -651,72 +441,6 @@ mod test {
         ] {
             let err = blocks(device_size).unwrap_err();
             assert!(format!("{err}").contains(expect), "{err}");
-        }
-    }
-
-    /// A cause is classified however deeply context is stacked over it. Every
-    /// failure reaches the tenure stream that way.
-    #[test]
-    fn test_a_failure_is_classified_by_its_cause() {
-        let cases: Vec<(anyhow::Error, tonic::Code)> = vec![
-            (
-                blocks(0).unwrap_err().context("creating a disk"),
-                tonic::Code::InvalidArgument,
-            ),
-            (
-                anyhow::Error::new(gazette::Error::BrokerStatus(
-                    proto_gazette::broker::Status::RegisterMismatch,
-                ))
-                .context("appending to acmeCo/disk/one"),
-                tonic::Code::Aborted,
-            ),
-            (
-                anyhow::Error::new(gazette::Error::Grpc(tonic::Status::unauthenticated(
-                    "token has expired",
-                )))
-                .context("appending to acmeCo/disk/one"),
-                tonic::Code::Unauthenticated,
-            ),
-            (
-                anyhow::Error::new(gazette::Error::Grpc(tonic::Status::permission_denied(
-                    "not authorized to append",
-                ))),
-                tonic::Code::Unauthenticated,
-            ),
-            // Whatever the broker was doing refuses a credential which runs out
-            // under a live append, so it does not report this code.
-            (
-                anyhow::Error::new(gazette::Error::Grpc(tonic::Status::deadline_exceeded(
-                    "waiting for pipeline",
-                ))),
-                tonic::Code::Internal,
-            ),
-            (
-                anyhow::Error::new(gazette::Error::UnexpectedEof).context("probing"),
-                tonic::Code::Unavailable,
-            ),
-            (
-                anyhow::Error::new(crate::Failure::Ended(
-                    "the tenure ended while its playback backfilled".to_string(),
-                ))
-                .context("promoting acmeCo/disk/one"),
-                tonic::Code::Unavailable,
-            ),
-            (
-                anyhow::Error::new(gazette::Error::BrokerStatus(
-                    proto_gazette::broker::Status::JournalNotFound,
-                )),
-                tonic::Code::Internal,
-            ),
-            (
-                anyhow::anyhow!("the image could not be written"),
-                tonic::Code::Internal,
-            ),
-        ];
-
-        for (err, expect) in cases {
-            let status = failed(err);
-            assert_eq!(status.code(), expect, "{status}");
         }
     }
 }

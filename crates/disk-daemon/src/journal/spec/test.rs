@@ -133,8 +133,8 @@ fn test_a_spec_a_disk_cannot_recover_from_is_refused() {
 
         assert!(format!("{err}").contains(expect), "{expect}: {err}");
         assert!(err.chain().any(|cause| matches!(
-            cause.downcast_ref::<crate::Failure>(),
-            Some(crate::Failure::Invalid(_)),
+            cause.downcast_ref::<crate::failure::Failure>(),
+            Some(crate::failure::Failure::Invalid(_)),
         )));
     }
 }

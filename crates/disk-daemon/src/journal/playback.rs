@@ -16,6 +16,7 @@
 
 use super::buffer::Buffer;
 use super::replay::{self, Extent, Pass};
+use crate::failure;
 use crate::image::Image;
 use anyhow::Context;
 
@@ -255,7 +256,7 @@ async fn play(
             _ = result?;
         }
         () = stop.cancelled() => return Ok(()),
-        () = ended.cancelled() => return Err(anyhow::Error::new(crate::Failure::Ended(
+        () = ended.cancelled() => return Err(anyhow::Error::new(failure::Failure::Ended(
             "the tenure ended while its playback backfilled".to_string(),
         ))),
     }
@@ -275,7 +276,7 @@ async fn play(
             anyhow::bail!("a tail of {journal} ended on its own, which it cannot do")
         }
         () = stop.cancelled() => Ok(()),
-        () = ended.cancelled() => Err(anyhow::Error::new(crate::Failure::Ended(
+        () = ended.cancelled() => Err(anyhow::Error::new(failure::Failure::Ended(
             "the tenure ended while its playback tailed".to_string(),
         ))),
     }
@@ -288,7 +289,7 @@ async fn ended_or_stopped(
 ) -> anyhow::Result<()> {
     tokio::select! {
         () = stop.cancelled() => Ok(()),
-        () = ended.cancelled() => Err(anyhow::Error::new(crate::Failure::Ended(
+        () = ended.cancelled() => Err(anyhow::Error::new(failure::Failure::Ended(
             "the tenure ended while its playback waited".to_string(),
         ))),
     }

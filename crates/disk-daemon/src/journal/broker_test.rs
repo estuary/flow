@@ -151,8 +151,8 @@ async fn an_absent_journal_is_refused_at_open(fixture: &Fixture) {
     };
     assert!(format!("{err:#}").contains("does not exist"), "{err:#}");
     assert!(err.chain().any(|cause| matches!(
-        cause.downcast_ref::<crate::Failure>(),
-        Some(crate::Failure::Invalid(_)),
+        cause.downcast_ref::<crate::failure::Failure>(),
+        Some(crate::failure::Failure::Invalid(_)),
     )));
 }
 
@@ -354,14 +354,14 @@ async fn a_delta_which_spans_several_appends_keeps_its_records(fixture: &Fixture
 /// otherwise needs a compactor, and a compactor needs a real device.
 async fn a_horizon_records_its_openers_own_offset(fixture: &Fixture) {
     let journal = "acmeCo/disk/horizon-offset";
-    let opening = fixture.opening(journal).await.unwrap();
 
-    // Every append checks the epoch this installs, so the claim comes first even
-    // though the scenario drives the writer's primitives directly.
-    let claimed = opening.claim_journal().await.unwrap();
+    // Every append checks the epoch the claim installs, so the journal is promoted
+    // as a tenure's is even though the scenario drives the writer's primitives
+    // directly.
+    let (promoted, _blocks) = fixture.promote(journal, Vec::new()).await.unwrap();
 
     // The actor, but not spawned: this drives its primitives itself.
-    let mut task = claimed.into_task(None);
+    let mut task = promoted.into_task(None);
 
     let each = crate::test_support::broker::BLOCKS as usize * BLOCK_SIZE as usize;
     let write = || encode_write(0, &bytes::Bytes::from(vec![0x55; each]));
@@ -510,8 +510,8 @@ async fn a_stale_recovered_acknowledgement_is_refused(fixture: &Fixture) {
     };
     assert!(
         err.chain().any(|cause| matches!(
-            cause.downcast_ref::<crate::Failure>(),
-            Some(crate::Failure::Invalid(_)),
+            cause.downcast_ref::<crate::failure::Failure>(),
+            Some(crate::failure::Failure::Invalid(_)),
         )),
         "{err:#}",
     );

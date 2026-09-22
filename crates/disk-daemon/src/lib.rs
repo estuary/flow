@@ -19,12 +19,12 @@ mod bitmap;
 mod capture;
 mod chunk;
 mod device;
+mod failure;
 mod filesystem;
 mod horizon;
 mod image;
-mod inflight;
 mod journal;
-mod owner;
+mod serving;
 mod tenure;
 mod ublk;
 mod wake;
@@ -77,54 +77,3 @@ pub fn recovery_floor_value(offset: u64) -> String {
 pub fn parse_recovery_floor(value: &str) -> std::result::Result<u64, std::num::ParseIntError> {
     u64::from_str_radix(value, 16)
 }
-
-/// A failure whose cause names what the tenure stream must report.
-///
-/// The code a tenure ends with is the only part of a failure a client can act on,
-/// and it turns on why the tenure failed rather than on what the message says.
-/// This therefore travels as an error cause rather than as text, so it survives
-/// `anyhow::Context`. Everything the tenure stream does not find one of is the
-/// daemon, its host, or its brokers.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum Failure {
-    /// What the tenure asked for, rather than anything of this daemon's.
-    ///
-    /// A retry of an invalid request can never succeed, while a retry after a
-    /// broker outage or a lost fence can. [`tenure`] reports this as
-    /// `INVALID_ARGUMENT`.
-    #[error("{0}")]
-    Invalid(String),
-
-    /// A request which is well-formed, but out of turn for what the tenure owes.
-    ///
-    /// A second `Prepare` before its `Acknowledge`, an `Acknowledge` with nothing
-    /// prepared, or an `Acknowledge` of bytes no `Prepare` returned, is a client
-    /// which lost track of the delta it owes. No retry of it can succeed, but
-    /// nothing about the request itself is wrong, so [`tenure`] reports this as
-    /// `FAILED_PRECONDITION` rather than `INVALID_ARGUMENT`.
-    #[error("{0}")]
-    OutOfOrder(String),
-
-    /// The tenure's cancellation token fired while a request's work was in flight.
-    ///
-    /// Under a request that can only be the daemon draining. The token is also
-    /// cancelled once a tenure is over, but nothing of the client's is in flight
-    /// then. The disk may be served by another host, so [`tenure`] reports this as
-    /// `UNAVAILABLE` — the same code a drain observed between requests already gets.
-    #[error("{0}")]
-    Ended(String),
-}
-
-/// `anyhow::ensure!` for a rule a tenure broke. A validator states each rule in
-/// one place, and the tenure stream reports the right code for it.
-macro_rules! ensure_valid {
-    ($condition:expr, $($message:tt)*) => {
-        if !$condition {
-            return Err(::anyhow::Error::new($crate::Failure::Invalid(format!(
-                $($message)*
-            ))));
-        }
-    };
-}
-
-pub(crate) use ensure_valid;

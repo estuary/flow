@@ -1,32 +1,25 @@
 //! Records of the delta which the journal holds but has not acknowledged.
 //!
-//! A replay cannot apply a delta before its acknowledgement. A standby has no end
-//! of range at which an unacknowledged delta could be discovered and taken back: the
-//! delta at the head is open because the primary is still writing it, and that is
-//! the normal state. Its image would then hold writes the client never committed,
-//! and a promotion would serve a disk ahead of the client's own checkpoint. That is
-//! the duplicate work which `Prepare`/`Acknowledge` exists to prevent.
-//!
-//! This holds those records instead, in a file beside the image. Records go in as
-//! they arrive, framed exactly as the journal framed them. They come out and are
-//! applied when the acknowledgement arrives, and they are dropped if it never comes
-//! — which costs a hole punch and leaves the image untouched.
+//! A replay cannot apply a delta before its acknowledgement, for the reasons the
+//! [`super::replay`] module gives. It holds that delta's records here instead, in a
+//! file beside the image. Records go in as they arrive, framed exactly as the
+//! journal framed them, and come back out in the same order when the delta is
+//! applied. They are dropped if it never is, which costs a hole punch.
 //!
 //! One delta is held at a time, because a live writer keeps one delta in doubt at a
 //! time: the records of the delta behind a cut are held by that writer until the
-//! acknowledgement lands, so they never reach the journal ahead of it. Which delta
-//! may still be acknowledged is [`super::replay::Pass`]'s decision and not this
-//! file's.
+//! acknowledgement lands, so they never reach the journal ahead of it.
+//!
+//! This file is the storage and nothing else. Which delta is held, when it is
+//! dropped, and what applying it does to the image and its horizon are all
+//! [`super::replay::Pass`]'s rules.
 //!
 //! The file is `O_TMPFILE` like the image, so it cannot outlive its daemon. Nothing
 //! recovers it: a standby which dies is replaced by one which replays from the
 //! floor.
 
-use super::replay::Opened;
-use crate::horizon::Horizon;
-use crate::image::Image;
 use anyhow::Context;
-use proto_gazette::{fixed_framing, uuid};
+use proto_gazette::fixed_framing;
 
 /// Size of the blocks a held delta is read back in. A delta has no size bound of
 /// its own — it is whatever the primary wrote between two acknowledgements, and may
@@ -44,8 +37,6 @@ pub struct Buffer {
     /// so a standby which runs for weeks holds no more than the delta it is holding.
     len: u64,
     records: usize,
-    /// Producer which stamped every record held. Absent while nothing is held.
-    producer: Option<uuid::Producer>,
 }
 
 impl Buffer {
@@ -60,7 +51,6 @@ impl Buffer {
             file: options.open(dir)?,
             len: 0,
             records: 0,
-            producer: None,
         })
     }
 
@@ -73,50 +63,26 @@ impl Buffer {
         self.records == 0
     }
 
-    /// Hold `framed`, the journal's own bytes of a record of `producer`'s delta.
-    ///
-    /// A record of another producer is a delta which displaced the one held, so what
-    /// is held is dropped. Only an acknowledgement of the delta at the head can be
-    /// honored, and this record proves that none arrived.
-    pub(super) fn push(&mut self, producer: uuid::Producer, framed: &[u8]) -> anyhow::Result<()> {
-        if self.producer.is_some_and(|held| held != producer) {
-            tracing::debug!(
-                held = ?self.producer,
-                records = self.records,
-                ?producer,
-                "dropping a held delta which another producer's records displaced",
-            );
-            () = self.clear()?;
-        }
+    /// Hold `framed`, the journal's own bytes of one record.
+    pub(super) fn push(&mut self, framed: &[u8]) -> anyhow::Result<()> {
         () = std::os::unix::fs::FileExt::write_all_at(&self.file, framed, self.len)
             .context("holding a record of an unacknowledged delta")?;
 
         self.len += framed.len() as u64;
         self.records += 1;
-        self.producer = Some(producer);
 
         Ok(())
     }
 
-    /// Apply the held delta to `image`, and report the chunks it applied.
+    /// Hand every held record to `each`, in the order it was held, and then drop
+    /// them all.
     ///
-    /// The records apply in the order they were held, so the horizon the delta opens
-    /// snapshots the blocks which were allocated before that delta, and the chunks
-    /// which discharge it are applied after. A delta's effects are therefore whole:
-    /// they all land here, or none of them ever land.
-    ///
-    /// `horizon` is the replay's own, which this delta may open, discharge, or
-    /// leave alone. `opens_at` is the offset the pass recorded for the record which
-    /// carries the flag, and it is that horizon's floor.
-    ///
-    /// Replay buffers its reads and decodes one record at a time, using memory
-    /// independent of the delta's length.
+    /// The records are read back in blocks and decoded one at a time, so this uses
+    /// memory independent of the delta's length.
     pub(super) fn drain(
         &mut self,
-        image: &mut Image,
-        horizon: &mut Option<Opened>,
-        opens_at: Option<i64>,
-    ) -> anyhow::Result<usize> {
+        mut each: impl FnMut(crate::proto::DiskRecord) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
         // Records are held with positional writes, which never move the cursor, so
         // it is still wherever the tenure's last drain left it.
         () = std::io::Seek::rewind(&mut &self.file)
@@ -126,9 +92,8 @@ impl Buffer {
         // than truncating it, so the read stops at this delta's own end.
         let mut reader = std::io::Read::take(&self.file, self.len);
         // Blocks are read straight into `buf`, and records are unpacked out of it
-        // without copying: a record's chunks reference `buf` until it is applied.
+        // without copying: a record's chunks reference `buf` until it is handled.
         let mut buf = bytes::BytesMut::new();
-        let mut applied = 0;
         // Bytes of the delta not yet read into `buf`.
         let mut unread = self.len;
 
@@ -177,19 +142,7 @@ impl Buffer {
                 () = read_framed(&mut reader, &mut buf[len..])?;
                 unread -= read as u64;
             };
-
-            if record.opens_horizon {
-                let at = opens_at.expect("the pass held the offset of an opening record");
-                let blocks = Horizon::open(image.allocated());
-
-                tracing::debug!(
-                    pending = blocks.pending(),
-                    at,
-                    "a held delta opened a recovery horizon",
-                );
-                *horizon = Some(Opened { at, blocks });
-            }
-            applied += apply(&record, image, horizon)?;
+            () = each(record)?;
         }
         let trailing = buf.len() as u64 + unread;
         anyhow::ensure!(
@@ -198,7 +151,7 @@ impl Buffer {
         );
         () = self.clear()?;
 
-        Ok(applied)
+        Ok(())
     }
 
     /// Drop every held record. The image is untouched, because nothing of them was
@@ -209,32 +162,9 @@ impl Buffer {
         }
         self.len = 0;
         self.records = 0;
-        self.producer = None;
 
         Ok(())
     }
-}
-
-/// Apply every chunk of `record` to `image`, discharging each from `horizon`, and
-/// report how many it applied.
-///
-/// A horizon opens at a record and a replay is a forward pass, so every chunk which
-/// reaches here is at or after any horizon which is open.
-fn apply(
-    record: &crate::proto::DiskRecord,
-    image: &mut Image,
-    horizon: &mut Option<Opened>,
-) -> anyhow::Result<usize> {
-    for chunk in &record.chunks {
-        () = image
-            .apply(chunk)
-            .with_context(|| format!("applying chunk at block {}", chunk.block))?;
-
-        if let Some(open) = horizon {
-            () = open.blocks.published(crate::chunk::covered_blocks(chunk));
-        }
-    }
-    Ok(record.chunks.len())
 }
 
 /// Fill `buf` from `reader`, which reads the held delta and stops at its end.

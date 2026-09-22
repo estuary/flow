@@ -1,11 +1,7 @@
 use super::{Buffer, READ_BYTES};
-use crate::image::Image;
 use crate::proto;
-use crate::test_support;
 use crate::{BLOCK_SIZE, chunk};
 use proto_gazette::{fixed_framing, uuid};
-
-const BLOCKS: u32 = 256;
 
 fn producer(seed: u8) -> uuid::Producer {
     uuid::Producer::from_bytes([seed | 0x01, 0, 0, 0, 0, seed])
@@ -49,45 +45,48 @@ fn sized(producer: uuid::Producer, block: u32, bytes: usize, fill: u8) -> proto:
 }
 
 /// Hold `records`, framed exactly as the journal frames them.
-fn hold(buffer: &mut Buffer, producer: uuid::Producer, records: &[proto::DiskRecord]) {
+fn hold(buffer: &mut Buffer, records: &[proto::DiskRecord]) {
     let mut framed = bytes::BytesMut::new();
 
     for record in records {
         framed.clear();
         fixed_framing::encode(record, &mut framed);
-        buffer.push(producer, &framed).unwrap();
+        buffer.push(&framed).unwrap();
     }
 }
 
-/// A delta of many records, spanning many fills of the reader's buffer, applies
-/// in the order it was held.
+/// Drain `buffer`, collecting what it hands back and the failure, if any, which
+/// stopped it.
+fn drained(buffer: &mut Buffer) -> (Vec<proto::DiskRecord>, anyhow::Result<()>) {
+    let mut records = Vec::new();
+
+    let result = buffer.drain(|record| {
+        records.push(record);
+        Ok(())
+    });
+    (records, result)
+}
+
+/// A delta of many records, spanning many fills of the reader's buffer, reads
+/// back in the order it was held.
 #[test]
-fn test_a_many_record_delta_applies_in_order() {
+fn test_a_many_record_delta_reads_back_in_order() {
     let dir = tempfile::tempdir().unwrap();
-    let mut image = Image::create(dir.path(), BLOCKS).unwrap();
     let mut buffer = Buffer::create(dir.path()).unwrap();
     let a = producer(0x10);
 
-    // Each block is rewritten many times over, so only ordered application
-    // leaves the last writer of each.
     let records: Vec<_> = (0..600u32).map(|i| write(a, i % 8, 1, i as u8)).collect();
 
-    hold(&mut buffer, a, &records);
+    hold(&mut buffer, &records);
     assert!(
         buffer.len() > 8 * READ_BYTES as u64,
         "many buffer fills of delta"
     );
 
-    assert_eq!(
-        buffer.drain(&mut image, &mut None, None).unwrap(),
-        records.len()
-    );
-    assert_eq!(
-        test_support::allocated(&image),
-        (0..8u32)
-            .map(|block| (block, (592 + block) as u8))
-            .collect::<Vec<_>>(),
-    );
+    let (read, result) = drained(&mut buffer);
+    () = result.unwrap();
+
+    assert!(read == records, "the delta read back differently");
     assert!(buffer.is_empty());
     assert_eq!(buffer.len(), 0);
 }
@@ -98,28 +97,22 @@ fn test_a_many_record_delta_applies_in_order() {
 #[test]
 fn test_a_record_larger_than_the_read_buffer() {
     let dir = tempfile::tempdir().unwrap();
-    let mut image = Image::create(dir.path(), BLOCKS).unwrap();
     let mut buffer = Buffer::create(dir.path()).unwrap();
     let a = producer(0x10);
 
     let blocks = 2 + READ_BYTES as u32 / BLOCK_SIZE;
+    let records = [
+        write(a, 0, 1, 0xaa),
+        write(a, 1, blocks, 0xbb),
+        write(a, 1 + blocks, 1, 0xcc),
+    ];
 
-    hold(
-        &mut buffer,
-        a,
-        &[
-            write(a, 0, 1, 0xaa),
-            write(a, 1, blocks, 0xbb),
-            write(a, 1 + blocks, 1, 0xcc),
-        ],
-    );
-    assert_eq!(buffer.drain(&mut image, &mut None, None).unwrap(), 3);
+    hold(&mut buffer, &records);
 
-    let mut expect = vec![(0, 0xaa)];
-    expect.extend((1..1 + blocks).map(|block| (block, 0xbb)));
-    expect.push((1 + blocks, 0xcc));
+    let (read, result) = drained(&mut buffer);
+    () = result.unwrap();
 
-    assert_eq!(test_support::allocated(&image), expect);
+    assert!(read == records, "the delta read back differently");
 }
 
 /// A frame may cross a fill of the reader's buffer at any offset, including
@@ -133,7 +126,6 @@ fn test_a_record_may_straddle_the_read_buffer() {
     let mut split_header = false;
 
     for bytes in READ_BYTES - 72..READ_BYTES + 8 {
-        let mut image = Image::create(dir.path(), BLOCKS).unwrap();
         let mut buffer = Buffer::create(dir.path()).unwrap();
 
         let first = sized(a, 0, bytes, 0xaa);
@@ -143,22 +135,13 @@ fn test_a_record_may_straddle_the_read_buffer() {
         split_header |=
             (READ_BYTES - fixed_framing::HEADER_LEN..READ_BYTES).contains(&framed.len());
 
-        hold(
-            &mut buffer,
-            a,
-            &[first, write(a, 40, 1, 0xbb), write(a, 41, 1, 0xcc)],
-        );
-        assert_eq!(buffer.drain(&mut image, &mut None, None).unwrap(), 3);
+        let records = [first, write(a, 40, 1, 0xbb), write(a, 41, 1, 0xcc)];
+        hold(&mut buffer, &records);
 
-        let covered = bytes.div_ceil(BLOCK_SIZE as usize) as u32;
-        let mut expect: Vec<_> = (0..covered).map(|block| (block, 0xaa)).collect();
-        expect.extend([(40, 0xbb), (41, 0xcc)]);
+        let (read, result) = drained(&mut buffer);
+        () = result.unwrap();
 
-        assert_eq!(
-            test_support::allocated(&image),
-            expect,
-            "with {bytes} bytes of data"
-        );
+        assert!(read == records, "with {bytes} bytes of data");
     }
     assert!(split_header, "a frame header straddled a buffer boundary");
 }
@@ -168,48 +151,42 @@ fn test_a_record_may_straddle_the_read_buffer() {
 #[test]
 fn test_a_drained_buffer_holds_the_next_delta() {
     let dir = tempfile::tempdir().unwrap();
-    let mut image = Image::create(dir.path(), BLOCKS).unwrap();
     let mut buffer = Buffer::create(dir.path()).unwrap();
     let a = producer(0x10);
 
-    hold(
-        &mut buffer,
-        a,
-        &[write(a, 0, 2, 0xaa), write(a, 1, 1, 0xbb)],
-    );
+    hold(&mut buffer, &[write(a, 0, 2, 0xaa), write(a, 1, 1, 0xbb)]);
     let prior_len = buffer.len();
-    assert_eq!(buffer.drain(&mut image, &mut None, None).unwrap(), 2);
+
+    let (read, result) = drained(&mut buffer);
+    () = result.unwrap();
+    assert_eq!(read.len(), 2);
     assert_eq!(buffer.len(), 0);
 
-    hold(
-        &mut buffer,
-        a,
-        &[write(a, 1, 1, 0xcc), write(a, 2, 1, 0xdd)],
-    );
+    let next = [write(a, 1, 1, 0xcc), write(a, 2, 1, 0xdd)];
+    hold(&mut buffer, &next);
     assert!(buffer.len() < prior_len, "the next delta is shorter");
     assert_eq!(buffer.file.metadata().unwrap().len(), prior_len);
-    assert_eq!(buffer.drain(&mut image, &mut None, None).unwrap(), 2);
 
-    assert_eq!(
-        test_support::allocated(&image),
-        vec![(0, 0xaa), (1, 0xcc), (2, 0xdd)],
-        "the second delta applied over the first",
+    let (read, result) = drained(&mut buffer);
+    () = result.unwrap();
+
+    assert!(
+        read == next,
+        "the next delta read back with the prior one's tail"
     );
 }
 
 /// Hold malformed bytes and report the failure of draining them.
 fn refused(dir: &tempfile::TempDir, parts: &[&[u8]]) -> String {
-    let mut image = Image::create(dir.path(), BLOCKS).unwrap();
     let mut buffer = Buffer::create(dir.path()).unwrap();
-    let a = producer(0x10);
 
     for part in parts {
-        buffer.push(a, part).unwrap();
+        buffer.push(part).unwrap();
     }
-    let err = buffer.drain(&mut image, &mut None, None).unwrap_err();
-    assert!(test_support::allocated(&image).is_empty());
+    let (read, result) = drained(&mut buffer);
+    assert!(read.is_empty(), "a malformed delta handed back {read:?}");
 
-    format!("{err:#}")
+    format!("{:#}", result.unwrap_err())
 }
 
 #[test]

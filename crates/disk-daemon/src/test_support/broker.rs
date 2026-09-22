@@ -12,7 +12,7 @@
 use crate::capture::{self, Capture};
 use crate::image::Image;
 use crate::journal::buffer;
-use crate::journal::{Opening, Writer};
+use crate::journal::{Opening, Promoted, Writer};
 use crate::proto;
 use crate::wake::Waker;
 use proto_gazette::{broker, fixed_framing, uuid};
@@ -63,24 +63,34 @@ impl Fixture {
             .expect("DataPlane graceful_stop");
     }
 
-    /// Open and claim `journal` as a tenure does. A writer serves only a journal it
-    /// has claimed, because every append checks the epoch that claim installed.
+    /// Open, claim, and promote `journal` as a tenure does, and serve a writer from
+    /// it which compacts nothing.
     pub async fn open(&self, journal: &str) -> anyhow::Result<(Capture, Writer)> {
-        let opening = self.opening(journal).await?;
-        let claimed = opening.claim_journal().await?;
+        let (capture, writer, _blocks) = self.recover(journal, Vec::new()).await?;
 
-        let (capture, captured) = capture::channel(64, Waker::new().unwrap());
-
-        Ok((capture, claimed.serve(captured, None)))
+        Ok((capture, writer))
     }
 
-    /// Open `journal` as a tenure with committed state does, and report the fill byte
-    /// of every block the replay left allocated.
+    /// [`Fixture::open`], reporting the fill byte of every block the replay left
+    /// allocated.
     pub async fn recover(
         &self,
         journal: &str,
         acks: Vec<bytes::Bytes>,
     ) -> anyhow::Result<(Capture, Writer, Vec<(u32, u8)>)> {
+        let (promoted, blocks) = self.promote(journal, acks).await?;
+        let (capture, captured) = capture::channel(64, Waker::new().unwrap());
+
+        Ok((capture, promoted.serve(captured, None), blocks))
+    }
+
+    /// Open, claim, and promote `journal` as a tenure does, repairing `acks`, and
+    /// report the fill byte of every block the replay left allocated.
+    pub async fn promote(
+        &self,
+        journal: &str,
+        acks: Vec<bytes::Bytes>,
+    ) -> anyhow::Result<(Promoted, Vec<(u32, u8)>)> {
         let mut opening = self.opening(journal).await?;
 
         // The image outlives its directory, having no directory entry of its own.
@@ -91,14 +101,10 @@ impl Fixture {
         let playback = opening.play(image, buffer);
 
         // A tenure claims when it reads `Promote`, and finishes the promotion after.
-        let mut claimed = opening.claim_journal().await?;
-        let (image, _recovered) = claimed.promote(playback, acks).await?;
+        let claimed = opening.claim_journal().await?;
+        let (promoted, recovered) = claimed.promote(playback, acks).await?;
 
-        let blocks = super::allocated(&image);
-
-        let (capture, captured) = capture::channel(64, Waker::new().unwrap());
-
-        Ok((capture, claimed.serve(captured, None), blocks))
+        Ok((promoted, super::allocated(&recovered.image)))
     }
 
     /// Open `journal`, having created it from [`Fixture::spec`] as a deployment's

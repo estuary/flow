@@ -30,19 +30,19 @@ rest belongs to the daemon and is private. Everything below is `src/`.
 | `client.rs` | `Client`, `Standby`, `Disk`, and `Error`: the caller's side of the tenure gRPC, and the two-phase commit it drives. |
 | `daemon.rs` | The process: its `Config`, the socket, the drain, and the self-signed broker client every tenure shares. |
 | `args.rs` | The command line, which is the daemon's whole configuration. |
-| `tenure.rs` | `Service` and `Tenure`: the RPC state machine, and the cut order of `Serving::prepare`. |
-| `device.rs` | `Device`: one `ublk` device's life, from `add_dev` to `del_dev`. |
-| `owner/` | `Owner`: the thread which serves that device. `ring.rs` is the `io_uring`, `request.rs` the per-tag path of one request, `admission.rs` the cut and the horizon copies. |
+| `tenure.rs` | `Service` and `Tenure`: the RPC state machine. |
+| `failure.rs` | `Failure`, and the gRPC code each tenure failure ends its stream with. |
+| `serving.rs` | `Serving`: one open disk's mount, device, and writer — its bootstrap commit, the cut order of `prepare`, and its teardown. |
+| `device/` | `Device`: one `ublk` device's life from `add_dev` to `del_dev`, and the `Owner` thread which serves it. `owner.rs` is that thread, `ring.rs` its `io_uring`, `request.rs` the per-tag path of one request, `admission.rs` the cut and the horizon copies, `inflight.rs` the serialization of overlapping mutations. |
 | `ublk/` | The `ublk` ABI: `control.rs` is the host-wide control device, `sys.rs` the generated bindings. |
 | `image.rs` | `Image`: the sparse file and the bitmap of what it has allocated. |
 | `bitmap.rs` | `Bitmap`: a fixed set of block indices. |
 | `chunk.rs` | The durable chunk codec, and applying a chunk to an image. |
 | `horizon.rs` | `Horizon` and `Policy`: when a recovery horizon opens, and how it discharges. |
 | `capture.rs` | The bounded channel between an accepted mutation and the writer. |
-| `inflight.rs` | `InFlight`: serialization of overlapping mutations. |
 | `wake.rs` | `Waker`: the eventfd which interrupts an owner parked on its ring. |
 | `filesystem.rs` | `mkfs`, `Mount`, and `syncfs`. The only file which knows it is ext4. |
-| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `fence.rs` claims it, `writer.rs` appends its deltas, `playback.rs` replays it, `replay.rs` holds the rules, `buffer.rs` holds the unacknowledged delta. |
+| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `fence.rs` claims it, `writer.rs` appends its deltas, `playback.rs` replays it, `replay.rs` holds the rules, `buffer.rs` stores the unacknowledged delta. |
 
 ## Architecture
 
@@ -66,8 +66,9 @@ transaction client ── Tenure RPC ──► tenure task
 
 The responsibilities follow these ownership boundaries:
 
-- **Tenure** owns the RPC state machine, playback, mount, device, and writer.
-  It coordinates cuts and teardown.
+- **Tenure** owns the RPC state machine and, until promotion, the playback. Once
+  promoted it holds a **serving** disk: the mount, device, and writer, whose cuts
+  and teardown that disk coordinates.
 - **Device** is the `ublk` device itself, which a tenure creates over a rebuilt
   image and destroys as it tears down.
 - **Owner** serves that device's queue and is the only thread that mutates the
