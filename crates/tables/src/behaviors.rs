@@ -238,9 +238,8 @@ impl super::UserGrant {
 // grant graphs cause latency, replace bfs_reach with a manual BFS that keys
 // visited state on object_role alone and prunes dominated capability subsets.
 //
-// The capability mask what is reachable by attenuating the capabilities of a
-// node against those of the mask. So the mask removes capabilities from nodes
-// that are not inside of the mask.
+// The mask bounds what any edge may convey, including what Assume restores,
+// so a node's restricted capabilities also decide its own later expansion.
 fn next_neighbors<'a>(
     from: super::NodeRef<'a>,
     role_edges: &'a [super::RoleGrant],
@@ -1815,8 +1814,8 @@ mod test {
 
     #[test]
     fn test_masked_walk_empty_mask_denies_all() {
-        // An identity-only token: every node is emitted fully attenuated,
-        // so no authorization can succeed anywhere and no prefix surfaces.
+        // An empty mask leaves only direct-grant nodes, with no capabilities;
+        // the walk stops there and no prefix is listed.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
         let mask = authz::CapabilityMask::new(EnumSet::empty());
         let subject = authz::Subject {

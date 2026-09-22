@@ -22,11 +22,11 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
-    // This is the set of capabilities that the claims are limited to. The
-    // capabilities within this mask do not add privilege, but instead just
-    // enable a users privilege if they are set, and disabled if not. If no mask
-    // is present, the token is not a "capability masked token", and is treated
-    // as usual.
+    // Capability bundles limiting which granted capabilities the token may use.
+    // Omitted or null means no mask; an empty list means identity only.
+    // Bundles are unioned, and unknown names are ignored so that tokens minted
+    // by a newer service still verify. Only capability bits are masked; a
+    // grant's legacy `capability` value is not attenuated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capability_mask: Option<Vec<String>>,
 }
