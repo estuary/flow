@@ -363,7 +363,6 @@ async fn walk_derivation(
                 transform,
                 collection,
                 built_collections,
-                data_plane_id,
                 noop_derivations || shards.disable,
                 &live_transforms_model,
                 &live_transforms_spec,
@@ -782,7 +781,6 @@ fn walk_derive_transform<'a>(
     mut model: models::TransformDef,
     catalog_name: &models::Collection,
     built_collections: &'a tables::BuiltCollections,
-    data_plane_id: models::Id,
     disable: bool,
     live_transforms_model: &BTreeMap<&models::Transform, &models::TransformDef>,
     live_transforms_spec: &LiveTransforms,
@@ -824,7 +822,7 @@ fn walk_derive_transform<'a>(
             (name, partitions.as_ref())
         }
     };
-    let Some((source_spec, source_built)) = reference::walk_reference(
+    let Some((source_spec, _)) = reference::walk_reference(
         scope,
         "transform",
         || model.name.to_string(),
@@ -916,7 +914,6 @@ fn walk_derive_transform<'a>(
         models::Shuffle::Any => (Vec::new(), String::new()),
     };
 
-    super::temporary_cross_data_plane_read_check(scope, source_built, data_plane_id, errors);
     let reads_from_self = source_name == catalog_name;
 
     // The transform inlines its source while it's detached from a request:

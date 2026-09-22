@@ -592,23 +592,6 @@ driver:
 }
 
 #[test]
-fn test_cronut_migration_errors() {
-    let errors = common::run_errors(
-        MODEL_YAML,
-        r#"
-driver:
-  dataPlanes:
-    "0e:8e:17:d0:4f:ac:d4:00": {} # Cronut ID.
-
-  liveCollections:
-    the/collection:
-      dataPlaneId: "0e:8e:17:d0:4f:ac:d4:00"
-    "#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_group_by_migration() {
     let outcome = common::run(
         MODEL_YAML,

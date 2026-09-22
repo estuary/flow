@@ -870,33 +870,6 @@ mod test {
     }
 }
 
-fn temporary_cross_data_plane_read_check<'a>(
-    scope: Scope<'a>,
-    source: &tables::BuiltCollection,
-    task_data_plane_id: models::Id,
-    errors: &mut tables::Errors,
-) {
-    // ID of the legacy public data-plane ("cronut") in Estuary's production environment.
-    // This is here temporarily, to power an error regarding cross-data-plane reads.
-    const CRONUT_ID: models::Id = models::Id::new([0x0e, 0x8e, 0x17, 0xd0, 0x4f, 0xac, 0xd4, 0x00]);
-
-    if task_data_plane_id != CRONUT_ID && source.data_plane_id == CRONUT_ID {
-        let detail = anyhow::anyhow!(
-            concat!(
-                "Collection {} is in the legacy public data-plane (GCP:us-central1-c1),\n",
-                "but this task is in a different data-plane.\n",
-                "\n",
-                "At the moment, Estuary does not support cross-data-plane reads from the legacy public data-plane.\n",
-                "As a work-around either 1) delete and re-create your task in GCP:us-central1-c1,\n",
-                "or 2) delete and re-create your collection in a different data-plane.\n",
-            ),
-            source.collection,
-        );
-
-        Error::Connector { detail }.push(scope, errors);
-    }
-}
-
 /// Issue a unary Validate `kind` to the task's connector (or to the permissive
 /// no-op connector when `no_op`). Errors are pushed to `errors` under `scope`.
 /// Returns the Validated response and the connector's network ports.
