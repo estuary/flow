@@ -105,6 +105,8 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     image: String,
     sealed_config: models::RawValue,
     policy: &crate::policy::Image,
+    env: BTreeMap<String, String>,
+    mount: &std::path::Path,
     secrets: &std::collections::BTreeMap<String, String>,
     connector_type: i32,   // TODO(johnny): remove with V1 derivations.
     spec_on_own_rpc: bool, // TODO(johnny): remove.
@@ -160,9 +162,10 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
     let running = crate::container::run(
         inspected,
         crate::container::RunParams {
+            env,
             labels,
-            log_level: ctx.log_level,
             log_sink: ctx.log_sink.clone(),
+            mount: mount.to_owned(),
             network: ctx.container_network.clone(),
             publish_ports: matches!(ctx.plane, crate::Plane::Local),
         },
@@ -200,7 +203,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
         connector_rx: connector_rx.boxed(),
         container: Some(container),
         codec,
-        guard: Some(running.guard),
+        process: Some(running.process),
         sealed_config,
         spec,
     })
