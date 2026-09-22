@@ -1,0 +1,31 @@
+fragment SelectDraftSpec on DraftSpec {
+    catalogName
+    catalogType
+    model @include(if: $includeModels)
+    expectPubId
+    lastPubId
+    detail
+    updatedAt
+    isUnchanged
+}
+
+query ListDraftSpecsQuery(
+    $draftId: Id!
+    $after: String
+    $first: Int
+    $includeModels: Boolean!
+) {
+    draft(id: $draftId) {
+        specs(after: $after, first: $first) {
+            pageInfo {
+                hasNextPage
+                endCursor
+            }
+            edges {
+                node {
+                    ...SelectDraftSpec
+                }
+            }
+        }
+    }
+}

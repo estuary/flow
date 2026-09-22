@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
+use crate::graphql::*;
 use crate::output::{CliOutput, JsonCell, to_table_row};
 use anyhow::Context;
-use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 
 mod author;
@@ -12,6 +12,67 @@ mod encrypt;
 pub use author::{author, upsert_draft_specs};
 pub use develop::develop;
 pub use encrypt::encrypt_configs;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/create-mutation.graphql"
+)]
+struct CreateDraftMutation;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/delete-mutation.graphql"
+)]
+struct DeleteDraftMutation;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/stage-specs-mutation.graphql",
+    variables_derives = "Debug",
+    extern_enums("CatalogType")
+)]
+struct StageDraftSpecsMutation;
+
+pub type DraftSpecInput = stage_draft_specs_mutation::DraftSpecInput;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/unstage-specs-mutation.graphql"
+)]
+struct UnstageDraftSpecsMutation;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/fetch-query.graphql"
+)]
+struct FetchDraftQuery;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/fetch-errors-query.graphql"
+)]
+struct FetchDraftErrorsQuery;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/list-query.graphql"
+)]
+struct ListDraftsQuery;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/list-specs-query.graphql",
+    extern_enums("CatalogType")
+)]
+struct ListDraftSpecsQuery;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -111,13 +172,11 @@ impl Draft {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize)]
 pub struct DraftRow {
     pub id: models::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<crate::Timestamp>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<crate::Timestamp>,
+    pub created_at: Option<DateTime>,
 }
 impl CliOutput for DraftRow {
     type TableAlt = ();
@@ -133,15 +192,17 @@ impl CliOutput for DraftRow {
 }
 
 pub async fn create_draft(ctx: &crate::CliContext) -> Result<DraftRow, anyhow::Error> {
-    let row: DraftRow = flow_client_next::postgrest::exec(
-        ctx.pg
-            .from("drafts")
-            .select("id, created_at")
-            .insert(serde_json::json!({"detail": "Created by flowctl"}).to_string())
-            .single(),
-        ctx.access_token().as_deref(),
-    )
-    .await?;
+    let vars = create_draft_mutation::Variables {
+        detail: Some("Created by flowctl".to_string()),
+    };
+    let draft = post_graphql::<CreateDraftMutation>(&ctx.rest, ctx.access_token().as_deref(), vars)
+        .await?
+        .create_draft;
+
+    let row = DraftRow {
+        id: draft.id,
+        created_at: Some(draft.created_at),
+    };
     tracing::info!(draft_id = %row.id, "created draft");
     Ok(row)
 }
@@ -150,18 +211,16 @@ pub async fn delete_draft(
     ctx: &crate::CliContext,
     draft_id: models::Id,
 ) -> Result<DraftRow, anyhow::Error> {
-    let row: DraftRow = flow_client_next::postgrest::exec(
-        ctx.pg
-            .from("drafts")
-            .select("id,created_at")
-            .delete()
-            .eq("id", draft_id.to_string())
-            .single(),
-        ctx.access_token().as_deref(),
-    )
-    .await?;
-    tracing::info!(draft_id = %row.id, "deleted draft");
-    Ok(row)
+    let vars = delete_draft_mutation::Variables { id: draft_id };
+    let id = post_graphql::<DeleteDraftMutation>(&ctx.rest, ctx.access_token().as_deref(), vars)
+        .await?
+        .delete_draft;
+
+    tracing::info!(draft_id = %id, "deleted draft");
+    Ok(DraftRow {
+        id,
+        created_at: None,
+    })
 }
 
 /// Prints any errors that were found for the given draft id
@@ -169,22 +228,132 @@ pub async fn print_draft_errors(
     ctx: &mut crate::CliContext,
     draft_id: models::Id,
 ) -> anyhow::Result<()> {
-    let errors: Vec<DraftError> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("draft_errors")
-            .select("scope,detail")
-            .eq("draft_id", draft_id.to_string()),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
+    let vars = fetch_draft_errors_query::Variables { id: draft_id };
+    let draft =
+        post_graphql::<FetchDraftErrorsQuery>(&ctx.rest, ctx.access_token().as_deref(), vars)
+            .await?
+            .draft;
+
+    // A successful publication deletes its draft, which leaves no errors.
+    let errors = draft.map(|draft| draft.errors).unwrap_or_default();
 
     // TODO(phil): respect the output format when printing errors
-    for DraftError { scope, detail } in errors {
-        tracing::error!(%scope, %detail);
+    for error in errors {
+        let scope = error.scope.unwrap_or_default();
+        tracing::error!(%scope, detail = %error.detail);
     }
     Ok(())
+}
+
+/// Stages `specs` into the draft, replacing any specs already staged under
+/// the same names.
+pub async fn stage_draft_specs(
+    ctx: &crate::CliContext,
+    draft_id: models::Id,
+    specs: Vec<DraftSpecInput>,
+) -> anyhow::Result<()> {
+    // Batches are sent one at a time, as each holds an agent database
+    // connection while it stages its specs.
+    for specs in batch_draft_specs(specs) {
+        let vars = stage_draft_specs_mutation::Variables { draft_id, specs };
+        post_graphql::<StageDraftSpecsMutation>(&ctx.rest, ctx.access_token().as_deref(), vars)
+            .await
+            .context("failed to stage draft specs")?;
+    }
+    Ok(())
+}
+
+/// Splits `specs` into batches of bounded model size, because the agent API
+/// rejects request bodies larger than 2MiB. A larger spec is batched on its own.
+fn batch_draft_specs(specs: Vec<DraftSpecInput>) -> Vec<Vec<DraftSpecInput>> {
+    const BATCH_SPECS: usize = 100;
+    const BATCH_MODEL_BYTES: usize = 1 << 20;
+
+    let mut batches = Vec::new();
+    let mut batch = Vec::new();
+    let mut batch_bytes = 0;
+
+    for spec in specs {
+        let spec_bytes = spec.model.as_ref().map_or(0, |model| model.get().len());
+
+        if batch.len() == BATCH_SPECS
+            || (!batch.is_empty() && batch_bytes + spec_bytes > BATCH_MODEL_BYTES)
+        {
+            batches.push(std::mem::take(&mut batch));
+            batch_bytes = 0;
+        }
+        batch.push(spec);
+        batch_bytes += spec_bytes;
+    }
+    if !batch.is_empty() {
+        batches.push(batch);
+    }
+    batches
+}
+
+/// Removes staged specs from the draft, and returns the names which were removed.
+async fn unstage_draft_specs(
+    ctx: &crate::CliContext,
+    draft_id: models::Id,
+    catalog_names: Vec<models::Name>,
+) -> anyhow::Result<Vec<models::Name>> {
+    // Bounds each request well under the agent API's 2MiB body limit.
+    const BATCH_NAMES: usize = 1000;
+
+    let mut removed = Vec::new();
+    for catalog_names in catalog_names.chunks(BATCH_NAMES) {
+        let vars = unstage_draft_specs_mutation::Variables {
+            draft_id,
+            catalog_names: catalog_names.to_vec(),
+        };
+        removed.extend(
+            post_graphql::<UnstageDraftSpecsMutation>(
+                &ctx.rest,
+                ctx.access_token().as_deref(),
+                vars,
+            )
+            .await?
+            .unstage_draft_specs,
+        );
+    }
+    Ok(removed)
+}
+
+/// Fetches all specs of the draft, in catalog-name order.
+async fn fetch_draft_specs(
+    ctx: &crate::CliContext,
+    draft_id: models::Id,
+    include_models: bool,
+) -> anyhow::Result<Vec<list_draft_specs_query::SelectDraftSpec>> {
+    // Use a smaller page size if we're including the models, since they can be quite large.
+    let page_size = if include_models { 50 } else { 200 };
+
+    let mut specs = Vec::new();
+    let mut after = None;
+
+    loop {
+        let vars = list_draft_specs_query::Variables {
+            draft_id,
+            after: after.take(),
+            first: Some(page_size),
+            include_models,
+        };
+        let resp =
+            post_graphql::<ListDraftSpecsQuery>(&ctx.rest, ctx.access_token().as_deref(), vars)
+                .await
+                .context("failed to fetch draft specs")?;
+
+        let Some(draft) = resp.draft else {
+            anyhow::bail!("draft {draft_id} does not exist");
+        };
+        specs.extend(draft.specs.edges.into_iter().map(|edge| edge.node));
+
+        if !draft.specs.page_info.has_next_page {
+            return Ok(specs);
+        }
+        after = draft.specs.page_info.end_cursor;
+        assert!(after.is_some(), "draft specs pageInfo missing endCursor");
+    }
 }
 
 async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
@@ -203,14 +372,14 @@ async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 }
 
 async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-    #[derive(Deserialize, Serialize)]
+    #[derive(Serialize)]
     struct Row {
         catalog_name: String,
         detail: Option<String>,
-        expect_pub_id: Option<String>,
-        last_pub_id: Option<String>,
-        spec_type: Option<String>,
-        updated_at: crate::Timestamp,
+        expect_pub_id: Option<models::Id>,
+        last_pub_id: Option<models::Id>,
+        spec_type: Option<CatalogType>,
+        updated_at: DateTime,
     }
     impl CliOutput for Row {
         type TableAlt = ();
@@ -223,11 +392,12 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
             vec![
                 self.catalog_name,
-                self.spec_type.unwrap_or_default(),
-                self.updated_at.to_string(),
+                self.spec_type.map(|t| t.to_string()).unwrap_or_default(),
+                self.updated_at
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 match (self.expect_pub_id, self.last_pub_id) {
                     (None, _) => "(any)".to_string(),
-                    (Some(expect), Some(last)) if expect == last => expect,
+                    (Some(expect), Some(last)) if expect == last => expect.to_string(),
                     (Some(expect), Some(last)) => format!("{expect}\n(stale; current is {last})"),
                     (Some(expect), None) => format!("{expect}\n(does not exist)"),
                 },
@@ -235,38 +405,30 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             ]
         }
     }
-    let rows: Vec<Row> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("draft_specs_ext")
-            .select(
-                vec![
-                    "catalog_name",
-                    "detail",
-                    "expect_pub_id",
-                    "last_pub_id",
-                    "spec_type",
-                    "updated_at",
-                ]
-                .join(","),
-            )
-            .eq("draft_id", ctx.config.selected_draft()?.to_string()),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
+    let draft_id = ctx.config.selected_draft()?;
+    let rows = fetch_draft_specs(ctx, draft_id, false)
+        .await?
+        .into_iter()
+        .map(|spec| Row {
+            catalog_name: spec.catalog_name.to_string(),
+            detail: spec.detail,
+            expect_pub_id: spec.expect_pub_id,
+            last_pub_id: spec.last_pub_id,
+            spec_type: spec.catalog_type,
+            updated_at: spec.updated_at,
+        });
 
     ctx.write_all(rows, ())
 }
 
 async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-    #[derive(Deserialize, Serialize)]
+    #[derive(Serialize)]
     struct Row {
-        created_at: crate::Timestamp,
+        created_at: DateTime,
         detail: Option<String>,
         id: String,
-        num_specs: u32,
-        updated_at: crate::Timestamp,
+        num_specs: i64,
+        updated_at: DateTime,
     }
     impl CliOutput for Row {
         type TableAlt = ();
@@ -283,15 +445,33 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             )
         }
     }
-    let rows: Vec<Row> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("drafts_ext")
-            .select("created_at,detail,id,num_specs,updated_at"),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
+    let mut rows = Vec::new();
+    let mut after = None;
+
+    loop {
+        let vars = list_drafts_query::Variables {
+            after: after.take(),
+        };
+        let drafts =
+            post_graphql::<ListDraftsQuery>(&ctx.rest, ctx.access_token().as_deref(), vars)
+                .await
+                .context("failed to list drafts")?
+                .drafts;
+
+        rows.extend(drafts.edges.into_iter().map(|edge| Row {
+            created_at: edge.node.created_at,
+            detail: edge.node.detail,
+            id: edge.node.id.to_string(),
+            num_specs: edge.node.num_specs,
+            updated_at: edge.node.updated_at,
+        }));
+
+        if !drafts.page_info.has_next_page {
+            break;
+        }
+        after = drafts.page_info.end_cursor;
+        assert!(after.is_some(), "drafts pageInfo missing endCursor");
+    }
 
     // Decorate the id to mark the selected draft, but only if we're outputting a table
     let cur_draft = ctx
@@ -311,47 +491,35 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     ctx.write_all(rows, ())
 }
 
-/// Invokes the `prune_unchanged_draft_specs` RPC (SQL function), which removes any draft specs
-/// that are identical to their live specs, accounting for changes to inferred schemas.
+/// Removes any draft specs that are textually identical to their live specs.
 /// Returns the set of specs that were removed from the draft (as a `BTreeSet` so they're ordered).
 pub async fn remove_unchanged(
     ctx: &crate::CliContext,
     draft_id: models::Id,
 ) -> anyhow::Result<BTreeSet<String>> {
-    #[derive(Deserialize)]
-    struct PrunedDraftSpec {
-        catalog_name: String,
-    }
+    let unchanged = fetch_draft_specs(ctx, draft_id, false)
+        .await?
+        .into_iter()
+        .filter(|spec| spec.is_unchanged)
+        .map(|spec| spec.catalog_name)
+        .collect();
 
-    let params = serde_json::to_string(&serde_json::json!({ "prune_draft_id": draft_id })).unwrap();
-    // We don't use an explicit select of `catalog_name` because we want the other fields to appear
-    // in the response when trace logging is enabled. This may be something we wish to change once
-    // we gain more confidence in the spec pruning feature.
-    let pruned: Vec<PrunedDraftSpec> = flow_client_next::postgrest::exec(
-        ctx.pg.rpc("prune_unchanged_draft_specs", params),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .context("pruning unchanged specs")?;
-    Ok(pruned.into_iter().map(|r| r.catalog_name).collect())
+    let pruned = unstage_draft_specs(ctx, draft_id, unchanged)
+        .await
+        .context("pruning unchanged specs")?;
+    Ok(pruned.into_iter().map(|name| name.to_string()).collect())
 }
 
 async fn do_select(
     ctx: &mut crate::CliContext,
     Select { id: select_id }: &Select,
 ) -> anyhow::Result<()> {
-    let matched: Vec<serde_json::Value> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("drafts")
-            .eq("id", select_id.to_string())
-            .select("id"),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
+    let vars = fetch_draft_query::Variables { id: *select_id };
+    let draft = post_graphql::<FetchDraftQuery>(&ctx.rest, ctx.access_token().as_deref(), vars)
+        .await?
+        .draft;
 
-    if matched.is_empty() {
+    if draft.is_none() {
         anyhow::bail!("draft {select_id} does not exist");
     }
 
@@ -372,12 +540,6 @@ async fn do_publish(
         ctx.config.draft.take();
     }
     Ok(())
-}
-
-#[derive(Deserialize, Debug)]
-struct DraftError {
-    scope: String,
-    detail: String,
 }
 
 pub async fn publish(
@@ -420,4 +582,53 @@ pub async fn publish(
     }
     tracing::info!(%id, %dry_run, "publication successful");
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_batch_draft_specs() {
+        fn spec(model_bytes: Option<usize>) -> DraftSpecInput {
+            let model = model_bytes.map(|n| {
+                models::RawValue::from_string(format!("\"{}\"", "x".repeat(n - 2))).unwrap()
+            });
+            DraftSpecInput {
+                catalog_name: models::Name::new("acmeCo/anvils"),
+                catalog_type: model.as_ref().map(|_| CatalogType::Collection),
+                model,
+                expect_pub_id: None,
+                detail: None,
+            }
+        }
+        fn batch_lens(specs: Vec<DraftSpecInput>) -> Vec<usize> {
+            batch_draft_specs(specs).iter().map(Vec::len).collect()
+        }
+
+        assert_eq!(batch_lens(Vec::new()), Vec::<usize>::new());
+
+        // Small specs and deletions are bounded by count.
+        assert_eq!(
+            batch_lens((0..250).map(|_| spec(Some(10))).collect()),
+            vec![100, 100, 50]
+        );
+        assert_eq!(
+            batch_lens((0..150).map(|_| spec(None)).collect()),
+            vec![100, 50]
+        );
+
+        // Larger specs are bounded by model bytes, and a spec larger than
+        // the bound is batched on its own.
+        assert_eq!(
+            batch_lens(vec![
+                spec(Some(600_000)),
+                spec(Some(400_000)),
+                spec(Some(600_000)),
+                spec(Some(3_000_000)),
+                spec(Some(10)),
+            ]),
+            vec![2, 1, 1, 1]
+        );
+    }
 }
