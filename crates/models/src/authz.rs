@@ -60,6 +60,7 @@ pub enum Capability {
     DecryptSecret,
     Delegate,
     Assume,
+    CreateSandbox,
 }
 
 impl std::fmt::Display for Capability {
@@ -153,6 +154,7 @@ impl CapabilityBundle {
                     | Self::TeamAdmin.capabilities()
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
+                    | CreateSandbox
             }
             Self::Billing => ViewBilling | EditBilling,
             Self::ManageServiceAccounts => {
@@ -185,5 +187,37 @@ pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
 impl From<super::Capability> for CapabilitySet {
     fn from(capability: super::Capability) -> Self {
         bits_for_legacy(capability)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn create_sandbox_requires_admin() {
+        let bundles = [
+            super::CapabilityBundle::Viewer,
+            super::CapabilityBundle::Writer,
+            super::CapabilityBundle::Editor,
+            super::CapabilityBundle::Admin,
+            super::CapabilityBundle::Billing,
+            super::CapabilityBundle::TeamAdmin,
+            super::CapabilityBundle::ManageServiceAccounts,
+            super::CapabilityBundle::ManageDataPlane,
+            super::CapabilityBundle::Delegate,
+            super::CapabilityBundle::Assume,
+        ];
+        for bundle in bundles {
+            assert_eq!(
+                bundle
+                    .capabilities()
+                    .contains(super::Capability::CreateSandbox),
+                bundle == super::CapabilityBundle::Admin,
+                "{bundle:?}",
+            );
+        }
+        assert!(
+            super::bits_for_legacy(crate::Capability::Admin)
+                .contains(super::Capability::CreateSandbox)
+        );
     }
 }

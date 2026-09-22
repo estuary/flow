@@ -1,0 +1,11 @@
+---
+source: crates/control-plane-api/src/sandboxes.rs
+expression: "cases.into_iter().map(render).collect::<Vec<_>>()"
+---
+[
+    "started=true",
+    "started=false",
+    "error: exec directory exists but the command's process group was never recorded",
+    "error: probing whether the command started failed with status 1",
+    "error: probing whether the command started reported \"maybe\"",
+]

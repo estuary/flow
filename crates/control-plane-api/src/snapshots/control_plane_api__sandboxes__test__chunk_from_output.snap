@@ -1,0 +1,11 @@
+---
+source: crates/control-plane-api/src/sandboxes.rs
+expression: "cases.into_iter().map(render).collect::<Vec<_>>()"
+---
+[
+    "\"hello\\n\" offset=16 exists=true",
+    "\"\" offset=20 exists=true",
+    "\"\" offset=0 exists=false",
+    "error: path is a directory",
+    "error: reading sandbox file failed with status 1",
+]

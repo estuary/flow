@@ -1,0 +1,9 @@
+---
+source: crates/control-plane-api/src/sandboxes.rs
+expression: "cases.into_iter().map(|file| file.path(id)).collect::<Vec<_>>()"
+---
+[
+    ".estuary/exec/0102030405060708/stdout",
+    ".estuary/exec/0102030405060708/stderr",
+    ".estuary/exec/0102030405060708/exit",
+]

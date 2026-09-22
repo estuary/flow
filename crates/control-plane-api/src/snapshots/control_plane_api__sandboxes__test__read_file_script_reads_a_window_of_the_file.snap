@@ -1,0 +1,12 @@
+---
+source: crates/control-plane-api/src/sandboxes.rs
+expression: cases
+---
+[
+    "offset=0 limit=1024 status=Some(0) stdout=[111, 110, 101, 10, 116, 119, 111, 10, 0, 233, 155, 170, 10]",
+    "offset=0 limit=4 status=Some(0) stdout=[111, 110, 101, 10]",
+    "offset=4 limit=1024 status=Some(0) stdout=[116, 119, 111, 10, 0, 233, 155, 170, 10]",
+    "offset=10 limit=1024 status=Some(0) stdout=[155, 170, 10]",
+    "offset=13 limit=1024 status=Some(0) stdout=[]",
+    "offset=4096 limit=1024 status=Some(0) stdout=[]",
+]

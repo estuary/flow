@@ -1,0 +1,10 @@
+---
+source: crates/control-plane-api/src/sprites.rs
+expression: errors
+---
+[
+    "truncated before exit: sprite closed the exec response without an exit status",
+    "empty body: sprite closed the exec response without an exit status",
+    "exit frame without a code: sprite closed the exec response without an exit status",
+    "unknown stream tag: sprite sent an exec frame with unknown stream tag 9",
+]

@@ -19,7 +19,9 @@ pub mod live_specs;
 pub mod logs;
 pub mod proxy_connectors;
 pub mod publications;
+pub mod sandboxes;
 pub mod server;
+pub mod sprites;
 pub mod storage_mappings;
 mod text_json;
 

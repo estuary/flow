@@ -107,6 +107,7 @@ pub(crate) mod test_util {
             test_server::snapshot(pool.clone(), true).await,
             Some(provider),
             models::AlertConfig::default(),
+            None,
         )
         .await;
         let token = server.make_access_token(user_id, Some(&format!("{tenant}@example.test")));
@@ -177,6 +178,7 @@ mod tests {
             test_server::snapshot(pool, true).await,
             Some(provider.clone()),
             models::AlertConfig::default(),
+            None,
         )
         .await;
         let token = server.make_access_token(user_id, Some(&format!("{tenant}@example.test")));

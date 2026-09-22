@@ -80,6 +80,24 @@ impl TestServer {
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
             models::AlertConfig::default(),
+            None,
+        )
+        .await
+    }
+
+    /// A server whose sandbox operations reach `sprites`, for tests that drive
+    /// the sandbox GraphQL surface against a stand-in for the Sprites API.
+    pub async fn start_with_sprites(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        sprites: Arc<crate::sprites::Client>,
+    ) -> Self {
+        Self::start_with_config(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            models::AlertConfig::default(),
+            Some(sprites),
         )
         .await
     }
@@ -94,6 +112,7 @@ impl TestServer {
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
             alert_config_defaults,
+            None,
         )
         .await
     }
@@ -103,6 +122,7 @@ impl TestServer {
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         alert_config_defaults: models::AlertConfig,
+        sprites: Option<Arc<crate::sprites::Client>>,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         // TODO(johnny): Aggregate into a sink?
@@ -125,6 +145,7 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
+            sprites,
             Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();

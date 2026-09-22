@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/sandboxes.rs
+expression: outcomes
+---
+[
+    "started \"echo one\"",
+    "error: failed to start command: no such sprite state (HTTP 400 Bad Request)",
+    "error: command failed to start: mkdir: cannot create directory",
+    "error: command wrapper exited with status 125 before starting",
+    "error: the command did not start: exec stream ended before the command started",
+    "started \"echo six\"",
+    "error: could not determine whether the command started: probing whether the command started: failed to start command: boom (HTTP 500 Internal Server Error): exec stream ended before the command started",
+]

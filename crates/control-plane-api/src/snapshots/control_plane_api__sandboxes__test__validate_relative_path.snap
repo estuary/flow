@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/sandboxes.rs
+expression: "cases.iter().map(|path| render(path)).collect::<Vec<_>>()"
+---
+[
+    "\".estuary/flow-token\": ok",
+    "\"dev\": ok",
+    "\"/etc/passwd\": path must not be absolute",
+    "\"../escape\": path must not contain '..' components",
+    "\"a/../b\": path must not contain '..' components",
+    "\"a/..b\": ok",
+    "\"..a/b\": ok",
+    "\"trailing/\": path must not end with '/'",
+    "\"\": path must not be empty",
+]

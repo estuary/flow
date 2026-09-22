@@ -409,6 +409,7 @@ enum CapabilityBit {
 	DecryptSecret
 	Delegate
 	Assume
+	CreateSandbox
 }
 
 type CardPaymentMethodDetails {
@@ -1046,9 +1047,75 @@ type Error {
 	detail: String!
 }
 
+"""
+A command run in a sandbox: what ran, when it was requested, and where the
+sandbox holds its output. Read output with `sandboxFileRead` and poll
+`sandbox.execs` for the exit result.
+"""
+type ExecEvent {
+	"""
+	Server-generated identifier of this command execution.
+	"""
+	execId: Id!
+	"""
+	The bash command that ran.
+	"""
+	command: String!
+	"""
+	When the command was requested. It started shortly after.
+	"""
+	requestedAt: DateTime!
+	"""
+	Path of the file the command's stdout is written to, to pass as `path`
+	to `sandboxFileRead`.
+	"""
+	stdoutPath: String!
+	"""
+	Path of the file the command's stderr is written to, to pass as `path`
+	to `sandboxFileRead`.
+	"""
+	stderrPath: String!
+	"""
+	Exit code observed when listing execs, or null if completion has not
+	been observed. Zero means success. The initial `sandboxExec` response
+	returns null because it acknowledges startup without waiting for exit.
+	"""
+	exitResult: Int
+}
+
 type FieldProvenance {
 	path: String!
 	source: String
+}
+
+"""
+A read of a sandbox file.
+"""
+type FileRead {
+	"""
+	Byte offset into the file after this chunk. Pass it as `offset` on the next
+	read. It is the requested offset when the file does not exist.
+	"""
+	offset: Int!
+	"""
+	Whether the file was there. A file the sandbox writes later, such as a
+	running command's output, reports `false` until it appears, so this
+	is an answer rather than a failure.
+	"""
+	exists: Boolean!
+	"""
+	Raw file bytes encoded as standard padded base64. Empty when the file
+	does not exist. Offset and limit count raw bytes, not encoded characters.
+	"""
+	data: String!
+	"""
+	File bytes decoded as UTF-8, replacing invalid sequences with U+FFFD.
+	Byte offsets and limits may split a multi-byte character, so replacements
+	can appear at chunk boundaries even for valid UTF-8 files. For lossless
+	text across reads, use `data` with a streaming UTF-8 decoder.
+	Empty when the file does not exist.
+	"""
+	text: String!
 }
 
 type GCPPrivateServiceConnect {
@@ -1550,6 +1617,42 @@ type MutationRoot {
 	via createApiKey and revokeApiKey.
 	"""
 	revokeRefreshToken(id: Id!): Boolean!
+	"""
+	Create a sandbox for the authenticated user at `catalogName`.
+	Requires CreateSandbox on that catalog name, which must differ from the
+	caller's other live sandboxes. A deleted sandbox frees its catalog name.
+	
+	When this returns the sandbox is ready to use: it accepts commands,
+	and flowctl is installed.
+	
+	Users hold a limited number of sandboxes, one today, so this fails when
+	the caller is at that limit.
+	"""
+	sandboxCreate(catalogName: Name!): Sandbox!
+	"""
+	Run a bash command in the authenticated user's sandbox `catalogName`.
+	This returns once the command is running, without waiting for it to
+	finish, and the command then runs for as long as it takes. The returned
+	`ExecEvent` carries the paths its result lands at: read `stdoutPath`
+	and `stderrPath` with `sandboxFileRead` while the command runs or
+	afterwards, and poll `sandbox.execs` for `exitResult`. A command that
+	fails to start is not recorded, and this returns the failure instead.
+	
+	The command is passed to `bash -lc`, so it may use shell syntax such as
+	pipes and redirection. The server generates a new `execId` for each call.
+	"""
+	sandboxExec(		catalogName: Name!,		command: String!,
+		"""
+		Complete UTF-8 stdin (at most 1 MiB), followed by EOF. Omitted or empty input gives immediate EOF. Sent in the request body, not stored in the exec record.
+		"""
+		stdin: String
+	): ExecEvent!
+	"""
+	Delete the authenticated user's sandbox `catalogName`, including its
+	filesystem and the record of commands run in it. The deleted sandbox no
+	longer counts against the user's limit.
+	"""
+	sandboxDelete(catalogName: Name!): Boolean!
 	"""
 	Create a service account homed at the specified catalog name, seeded
 	with the given user_grants.
@@ -2165,6 +2268,46 @@ type QueryRoot {
 	The caller's own drafts, in stable ID order.
 	"""
 	drafts(after: String, first: Int): DraftConnection!
+	"""
+	Look up one of the authenticated user's sandboxes by `catalogName`.
+	
+	A sandbox that is not theirs, and one since deleted, are both null: the
+	answer says nothing about whether the catalog name names anything at all.
+	"""
+	sandbox(catalogName: Name!): Sandbox
+	"""
+	List the authenticated user's sandboxes, newest first.
+	"""
+	sandboxes: [Sandbox!]!
+	"""
+	Read `path` in the authenticated user's sandbox `catalogName`, resolved
+	against the sandbox user's home directory, from byte `offset` onwards.
+	`path` must be relative and must not contain `..` components. A read
+	returns at most `limit` bytes, and never more than 1 MiB, so continue a
+	longer file from the `offset` you are handed.
+	Offset and limit count raw file bytes for both `data` and `text`, before
+	base64 encoding or UTF-8 decoding.
+	
+	A path that does not exist returns `exists: false` rather than an
+	error, because a sandbox writes files while a client watches for them.
+	
+	This reads a command's result too. An `ExecEvent` carries
+	`stdoutPath` and `stderrPath`; read them while the command runs or
+	afterwards, and poll `sandbox.execs` for a non-null `exitResult`.
+	The wrapper records that result after the command's last output, so once
+	you see it, read output through EOF from your current offset to get the
+	remainder.
+	"""
+	sandboxFileRead(		catalogName: Name!,		path: String!,
+		"""
+		Byte offset to read from
+		"""
+		offset: Int! = 0,
+		"""
+		Most bytes to return. Omitted, or larger than the 1 MiB ceiling, reads up to that ceiling.
+		"""
+		limit: Int
+	): FileRead!
 }
 
 """
@@ -2241,6 +2384,30 @@ type RepublishRequested {
 	and complete.
 	"""
 	lastBuildId: Id!
+}
+
+"""
+A user's sandbox: a persistent Linux VM that runs their shell commands.
+
+The provider's own name for the VM stays internal: clients address a
+sandbox by its `catalogName`, scoped to the authenticated user. Creation
+is authorized on that catalog name.
+"""
+type Sandbox {
+	"""
+	Catalog name used to address this sandbox in queries and mutations.
+	"""
+	catalogName: Name!
+	"""
+	When the sandbox was created.
+	"""
+	createdAt: DateTime!
+	"""
+	Commands run in this sandbox, newest first. Each is the record of a
+	command that started, with its observed exit result. Deletion
+	discards them along with their output.
+	"""
+	execs: [ExecEvent!]!
 }
 
 """
