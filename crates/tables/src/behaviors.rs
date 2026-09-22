@@ -709,13 +709,12 @@ mod test {
     fn assert_reachable(
         role_grants: &RoleGrants,
         user_grants: &UserGrants,
-        user_id: uuid::Uuid,
+        subject: &Subject,
         expected: Vec<(&str, EnumSet<Capability>)>,
     ) {
-        let mut nodes: Vec<_> =
-            UserGrant::reachable_nodes(role_grants, user_grants, &Subject::unrestricted(user_id))
-                .map(|n| (n.object_role.to_string(), n.capabilities))
-                .collect();
+        let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, subject)
+            .map(|n| (n.object_role.to_string(), n.capabilities))
+            .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.as_u32().cmp(&b.1.as_u32())));
         nodes.dedup();
 
@@ -804,7 +803,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/",
@@ -845,7 +844,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/",
@@ -870,7 +869,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![("acmeCo/", CapabilityBundle::Viewer.capabilities())],
         );
         assert_not_authorized(
@@ -909,7 +908,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 ("acmeCo/", EnumSet::from(Assume)),
                 (
@@ -994,7 +993,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/",
@@ -1029,7 +1028,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/",
@@ -1059,7 +1058,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 ("acmeCo/", CapabilityBundle::Writer.capabilities() | Assume),
                 (
@@ -1094,7 +1093,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 ("acmeCo/", CapabilityBundle::Viewer.capabilities()),
                 (
@@ -1128,7 +1127,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 ("acmeCo/", CapabilityBundle::Viewer.capabilities()),
                 (
@@ -1170,7 +1169,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/interns/",
@@ -1225,7 +1224,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/",
@@ -1388,7 +1387,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
                 (
@@ -1432,7 +1431,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/",
@@ -1497,7 +1496,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
                 (
@@ -1541,7 +1540,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
                 ("bobCo/", CapabilityBundle::Viewer.capabilities() | Delegate),
@@ -1743,26 +1742,6 @@ mod test {
         );
     }
 
-    fn assert_reachable_masked(
-        role_grants: &RoleGrants,
-        user_grants: &UserGrants,
-        subject: &authz::Subject,
-        expected: Vec<(&str, EnumSet<Capability>)>,
-    ) {
-        let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, subject)
-            .map(|n| (n.object_role.to_string(), n.capabilities))
-            .collect();
-        nodes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.as_u32().cmp(&b.1.as_u32())));
-        nodes.dedup();
-
-        let expected: Vec<(String, EnumSet<Capability>)> = expected
-            .into_iter()
-            .map(|(prefix, caps)| (prefix.to_string(), caps))
-            .collect();
-
-        assert_eq!(nodes, expected);
-    }
-
     /// A scenario exercising every traversal mode at once: a direct grant
     /// carrying Delegate, a multi-hop role chain beneath it, and a direct
     /// grant carrying only Assume whose role edge is an identity takeover.
@@ -1795,7 +1774,7 @@ mod test {
         assert_reachable(
             &role_grants,
             &user_grants,
-            user_id,
+            &Subject::unrestricted(user_id),
             vec![
                 (
                     "acmeCo/",
@@ -1848,7 +1827,7 @@ mod test {
             capability_mask: Some(mask),
         };
 
-        assert_reachable_masked(
+        assert_reachable(
             &role_grants,
             &user_grants,
             &subject,
@@ -1881,7 +1860,7 @@ mod test {
             capability_mask: Some(mask),
         };
 
-        assert_reachable_masked(
+        assert_reachable(
             &role_grants,
             &user_grants,
             &subject,
@@ -1923,7 +1902,7 @@ mod test {
             capability_mask: Some(mask),
         };
 
-        assert_reachable_masked(
+        assert_reachable(
             &role_grants,
             &user_grants,
             &subject,
@@ -2001,7 +1980,7 @@ mod test {
             capability_mask: Some(mask),
         };
 
-        assert_reachable_masked(
+        assert_reachable(
             &role_grants,
             &user_grants,
             &subject,
@@ -2018,7 +1997,7 @@ mod test {
             user_id,
             capability_mask: Some(mask),
         };
-        assert_reachable_masked(
+        assert_reachable(
             &role_grants,
             &user_grants,
             &subject_no_delegate,
