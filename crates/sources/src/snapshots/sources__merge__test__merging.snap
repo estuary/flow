@@ -8,6 +8,7 @@ DraftCatalog {
             capture: acmeCo/captures/exists,
             scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists,
             expect_pub_id: "8866775533009900",
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -23,6 +24,7 @@ DraftCatalog {
             capture: acmeCo/one/new,
             scope: test://example/acmeCo/one/flow.yaml#/captures/acmeCo~1one~1new,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -40,6 +42,7 @@ DraftCatalog {
             collection: acmeCo/collections/exists,
             scope: test://example/catalog.yaml#/collections/acmeCo~1collections~1exists,
             expect_pub_id: "1100220033004400",
+            data_plane_id: "0000000000000000",
             model: {
               "schema": {"const":["updated-value"]},
               "key": [
@@ -52,6 +55,7 @@ DraftCatalog {
             collection: acmeCo/one/new,
             scope: test://example/acmeCo/one/flow.yaml#/collections/acmeCo~1one~1new,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": true,
               "key": [
@@ -66,6 +70,7 @@ DraftCatalog {
             materialization: acmeCo/materializations/exists,
             scope: test://example/catalog.yaml#/materializations/acmeCo~1materializations~1exists,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -81,6 +86,7 @@ DraftCatalog {
             materialization: acmeCo/two/new,
             scope: test://example/acmeCo/two/flow.yaml#/materializations/acmeCo~1two~1new,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {

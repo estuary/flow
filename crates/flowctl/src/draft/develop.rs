@@ -112,6 +112,7 @@ fn collect_specs(
                     models::Capture::new(row.catalog_name()),
                     &scope,
                     row.expect_pub_id(),
+                    models::Id::zero(), // Local drafts make no placement.
                     parse::<models::CaptureDef>(row.spec())?,
                     false, // !is_touch
                 );
@@ -121,6 +122,7 @@ fn collect_specs(
                     models::Collection::new(row.catalog_name()),
                     &scope,
                     row.expect_pub_id(),
+                    models::Id::zero(), // Local drafts make no placement.
                     parse::<models::CollectionDef>(row.spec())?,
                     false, // !is_touch
                 );
@@ -130,6 +132,7 @@ fn collect_specs(
                     models::Materialization::new(row.catalog_name()),
                     &scope,
                     row.expect_pub_id(),
+                    models::Id::zero(), // Local drafts make no placement.
                     parse::<models::MaterializationDef>(row.spec())?,
                     false, // !is_touch
                 );

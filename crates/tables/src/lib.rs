@@ -99,6 +99,10 @@ tables!(
         val scope: url::Url,
         // Expected last publication ID of this capture.
         val expect_pub_id: Option<models::Id>,
+        // Data plane into which a new spec is placed, chosen by the control
+        // plane at publication. Zero if the spec already exists (it keeps
+        // its live plane), or if placement is deferred, as in local builds.
+        val data_plane_id: models::Id,
         // Model of this capture, or None if the capture is being deleted.
         val model: Option<models::CaptureDef>,
         // This draft is a "touch" which intends to refresh
@@ -114,6 +118,10 @@ tables!(
         val scope: url::Url,
         // Expected last publication ID of this collection.
         val expect_pub_id: Option<models::Id>,
+        // Data plane into which a new spec is placed, chosen by the control
+        // plane at publication. Zero if the spec already exists (it keeps
+        // its live plane), or if placement is deferred, as in local builds.
+        val data_plane_id: models::Id,
         // Model of this collection, or None if the collection is being deleted.
         val model: Option<models::CollectionDef>,
         // This draft is a "touch" which intends to refresh
@@ -129,6 +137,10 @@ tables!(
         val scope: url::Url,
         // Expected last publication ID of this materialization.
         val expect_pub_id: Option<models::Id>,
+        // Data plane into which a new spec is placed, chosen by the control
+        // plane at publication. Zero if the spec already exists (it keeps
+        // its live plane), or if placement is deferred, as in local builds.
+        val data_plane_id: models::Id,
         // Model of this materialization, or None if the materialization is being deleted.
         val model: Option<models::MaterializationDef>,
         // This draft is a "touch" which intends to refresh

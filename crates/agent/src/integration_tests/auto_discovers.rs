@@ -339,6 +339,7 @@ async fn test_auto_discovers_add_new_bindings() {
         capture: models::Capture::new("marmots/capture"),
         scope: tables::synthetic_scope("capture", "marmots/capture"),
         expect_pub_id: None,
+        data_plane_id: models::Id::zero(),
         model: Some(model),
         is_touch: false,
     });

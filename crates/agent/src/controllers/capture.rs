@@ -94,6 +94,7 @@ pub async fn update<C: ControlPlane>(
                         capture: capture_name.clone(),
                         scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
                         expect_pub_id: Some(state.last_pub_id),
+                        data_plane_id: models::Id::zero(),
                         model: Some(updated_model.clone()),
                         is_touch: false,
                     });

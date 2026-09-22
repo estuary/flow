@@ -69,6 +69,7 @@ pub async fn update<C: ControlPlane>(
                             &materialization_name,
                         ),
                         expect_pub_id: Some(state.last_pub_id),
+                        data_plane_id: models::Id::zero(),
                         model: Some(updated_model.clone()),
                         is_touch: false,
                     });

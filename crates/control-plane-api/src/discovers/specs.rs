@@ -265,6 +265,7 @@ pub fn merge_collections(
                     collection: live_collection.collection.clone(),
                     scope: tables::synthetic_scope(models::CatalogType::Collection, &target),
                     expect_pub_id: Some(live_collection.last_pub_id),
+                    data_plane_id: models::Id::zero(),
                     model: Some(live_collection.model.clone()),
                     is_touch: true, // we might negate this later if we modify
                 }
@@ -286,6 +287,7 @@ pub fn merge_collections(
                     collection: target.clone(),
                     scope: tables::synthetic_scope(models::CatalogType::Collection, &target),
                     expect_pub_id: Some(models::Id::zero()),
+                    data_plane_id: models::Id::zero(),
                     model: Some(model),
                     is_touch: false, // This is a new collection
                 }
@@ -813,12 +815,13 @@ mod tests {
             true,
         );
 
-        insta::assert_debug_snapshot!(draft.collections, @r###"
+        insta::assert_debug_snapshot!(draft.collections, @r#"
         [
             DraftCollection {
                 collection: case/1,
                 scope: flow://collection/case/1,
                 expect_pub_id: "0000000000000000",
+                data_plane_id: "0000000000000000",
                 model: {
                   "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
@@ -832,6 +835,7 @@ mod tests {
                 collection: case/10,
                 scope: flow://collection/case/10,
                 expect_pub_id: NULL,
+                data_plane_id: "0000000000000000",
                 model: {
                   "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id": {"type": "integer"}, "foo_id": {"type": "integer"}, "bar_id": {"type": "integer"}},"required":["id", "foo_id", "bar_id"],"type":"object"}},"$ref":"flow://connector-schema"},
                   "key": [
@@ -844,6 +848,7 @@ mod tests {
                 collection: case/2,
                 scope: flow://collection/case/2,
                 expect_pub_id: NULL,
+                data_plane_id: "0000000000000000",
                 model: {
                   "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
@@ -872,6 +877,7 @@ mod tests {
                 collection: case/3,
                 scope: flow://collection/case/3,
                 expect_pub_id: NULL,
+                data_plane_id: "0000000000000000",
                 model: {
                   "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
@@ -885,6 +891,7 @@ mod tests {
                 collection: case/4,
                 scope: flow://collection/case/4,
                 expect_pub_id: NULL,
+                data_plane_id: "0000000000000000",
                 model: {
                   "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
                   "readSchema": {"const":"read!"},
@@ -899,6 +906,7 @@ mod tests {
                 collection: case/5,
                 scope: flow://collection/case/5,
                 expect_pub_id: "0000000000000000",
+                data_plane_id: "0000000000000000",
                 model: {
                   "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
                   "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]}},"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
@@ -912,6 +920,7 @@ mod tests {
                 collection: case/6,
                 scope: flow://collection/case/6,
                 expect_pub_id: "0000000000000000",
+                data_plane_id: "0000000000000000",
                 model: {
                   "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-infer-schema":true}},"$ref":"flow://connector-schema"},
                   "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]}},"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
@@ -925,6 +934,7 @@ mod tests {
                 collection: case/7,
                 scope: flow://collection/case/7,
                 expect_pub_id: NULL,
+                data_plane_id: "0000000000000000",
                 model: {
                   "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":42}},"$ref":"flow://connector-schema"},
                   "key": [
@@ -938,6 +948,7 @@ mod tests {
                 collection: case/8,
                 scope: flow://collection/case/8,
                 expect_pub_id: "0000000000000000",
+                data_plane_id: "0000000000000000",
                 model: {
                   "writeSchema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","const":"write!","x-initial-read-schema":{"type": "object", "properties": {"id": {"type": "string"}}}}},"$ref":"flow://connector-schema"},
                   "readSchema": {"properties":{"id":{"type":"string"}},"type":"object"},
@@ -951,6 +962,7 @@ mod tests {
                 collection: case/9,
                 scope: flow://collection/case/9,
                 expect_pub_id: NULL,
+                data_plane_id: "0000000000000000",
                 model: {
                   "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"foo_id": {"type": "integer"}, "bar_id": {"type": "integer"}},"required":["foo_id", "bar_id"],"type":"object"}},"$ref":"flow://connector-schema"},
                   "key": [
@@ -962,7 +974,7 @@ mod tests {
                 is_touch: 0,
             },
         ]
-        "###);
+        "#);
 
         insta::assert_debug_snapshot!(modified, @r#"
         Ok(

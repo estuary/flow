@@ -345,6 +345,7 @@ async fn prepare_discover<'a>(
                 capture: capture.clone(),
                 model: Some(model),
                 expect_pub_id: Some(last_pub_id),
+                data_plane_id: models::Id::zero(),
                 scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
                 is_touch: true, // This will get updated if the discover returns any changes
             });
@@ -369,6 +370,7 @@ async fn prepare_discover<'a>(
                 capture: capture_name.clone(),
                 model: Some(new_model),
                 expect_pub_id: Some(Id::zero()),
+                data_plane_id: models::Id::zero(),
                 scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
                 is_touch: false,
             });

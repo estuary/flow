@@ -8,6 +8,7 @@ DraftCatalog {
             collection: d1/collection,
             scope: test://example/catalog.yaml#/collections/d1~1collection,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": "collection.schema.yaml",
               "key": [
@@ -58,6 +59,7 @@ DraftCatalog {
             collection: d2/collection,
             scope: test://example/catalog.yaml#/collections/d2~1collection,
             expect_pub_id: "0011223344556677",
+            data_plane_id: "0000000000000000",
             model: {
               "schema": "collection.schema.yaml",
               "key": [
@@ -101,6 +103,7 @@ DraftCatalog {
             collection: d3/collection,
             scope: test://example/catalog.yaml#/collections/d3~1collection,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "writeSchema": "collection.write.schema.yaml",
               "readSchema": "collection.read.schema.yaml",
@@ -138,6 +141,7 @@ DraftCatalog {
             collection: d4/local,
             scope: test://example/catalog.yaml#/collections/d4~1local,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": "local.schema.yaml",
               "key": [
@@ -162,6 +166,7 @@ DraftCatalog {
             collection: d5/python,
             scope: test://example/catalog.yaml#/collections/d5~1python,
             expect_pub_id: NULL,
+            data_plane_id: "0000000000000000",
             model: {
               "schema": "python.schema.yaml",
               "key": [

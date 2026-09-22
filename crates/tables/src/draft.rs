@@ -100,6 +100,7 @@ impl DraftCatalog {
                 capture: models::Capture::new(catalog_name),
                 scope,
                 expect_pub_id,
+                data_plane_id: models::Id::zero(),
                 model: None,
                 is_touch: false,
             }),
@@ -107,6 +108,7 @@ impl DraftCatalog {
                 collection: models::Collection::new(catalog_name),
                 scope,
                 expect_pub_id,
+                data_plane_id: models::Id::zero(),
                 model: None,
                 is_touch: false,
             }),
@@ -115,6 +117,7 @@ impl DraftCatalog {
                     materialization: models::Materialization::new(catalog_name),
                     scope,
                     expect_pub_id,
+                    data_plane_id: models::Id::zero(),
                     model: None,
                     is_touch: false,
                 })
@@ -142,6 +145,7 @@ impl DraftCatalog {
                 capture: models::Capture::new(catalog_name),
                 scope,
                 expect_pub_id,
+                data_plane_id: models::Id::zero(),
                 model: Some(c),
                 is_touch,
             }),
@@ -149,6 +153,7 @@ impl DraftCatalog {
                 collection: models::Collection::new(catalog_name),
                 scope,
                 expect_pub_id,
+                data_plane_id: models::Id::zero(),
                 model: Some(c),
                 is_touch,
             }),
@@ -157,6 +162,7 @@ impl DraftCatalog {
                     materialization: models::Materialization::new(catalog_name),
                     scope,
                     expect_pub_id,
+                    data_plane_id: models::Id::zero(),
                     model: Some(m),
                     is_touch,
                 })
@@ -197,6 +203,7 @@ impl DraftCatalog {
                     capture: models::Capture::new(catalog_name),
                     scope,
                     expect_pub_id,
+                    data_plane_id: models::Id::zero(),
                     model,
                     is_touch,
                 });
@@ -216,6 +223,7 @@ impl DraftCatalog {
                     collection: models::Collection::new(catalog_name),
                     scope,
                     expect_pub_id,
+                    data_plane_id: models::Id::zero(),
                     model,
                     is_touch,
                 });
@@ -235,6 +243,7 @@ impl DraftCatalog {
                     materialization: models::Materialization::new(catalog_name),
                     scope,
                     expect_pub_id,
+                    data_plane_id: models::Id::zero(),
                     model,
                     is_touch,
                 });
@@ -272,6 +281,7 @@ impl DraftCatalog {
                 capture: capture.capture,
                 scope,
                 expect_pub_id: Some(capture.last_pub_id),
+                data_plane_id: models::Id::zero(),
                 model: Some(capture.model),
                 is_touch: true,
             });
@@ -283,6 +293,7 @@ impl DraftCatalog {
                 collection: collection.collection,
                 scope,
                 expect_pub_id: Some(collection.last_pub_id),
+                data_plane_id: models::Id::zero(),
                 model: Some(collection.model),
                 is_touch: true,
             });
@@ -296,6 +307,7 @@ impl DraftCatalog {
                 materialization: materialization.materialization,
                 scope,
                 expect_pub_id: Some(materialization.last_pub_id),
+                data_plane_id: models::Id::zero(),
                 model: Some(materialization.model),
                 is_touch: true,
             });
@@ -353,6 +365,7 @@ impl From<models::Catalog> for DraftCatalog {
                         capture: name,
                         model: Some(spec),
                         expect_pub_id,
+                        data_plane_id: models::Id::zero(),
                         is_touch: false,
                     }
                 })
@@ -367,6 +380,7 @@ impl From<models::Catalog> for DraftCatalog {
                         collection: name,
                         model: Some(spec),
                         expect_pub_id,
+                        data_plane_id: models::Id::zero(),
                         is_touch: false,
                     }
                 })
@@ -381,6 +395,7 @@ impl From<models::Catalog> for DraftCatalog {
                         materialization: name,
                         model: Some(spec),
                         expect_pub_id,
+                        data_plane_id: models::Id::zero(),
                         is_touch: false,
                     }
                 })
@@ -495,6 +510,10 @@ pub trait DraftRow: crate::Row {
     fn scope(&self) -> &url::Url;
     /// Expected last publication ID of this specification.
     fn expect_pub_id(&self) -> Option<models::Id>;
+    /// Data plane into which a new specification is placed, or None for
+    /// tests, which have no placement. Zero if the specification already
+    /// exists, or if its placement is deferred (as in local builds).
+    fn data_plane_id(&self) -> Option<models::Id>;
     /// Model of this specification.
     fn model(&self) -> Option<&Self::ModelDef>;
     /// Whether this represents a touch operation.
@@ -517,6 +536,7 @@ impl DraftRow for crate::DraftCapture {
             capture,
             scope,
             expect_pub_id,
+            data_plane_id: models::Id::zero(),
             model,
             is_touch,
         }
@@ -549,6 +569,9 @@ impl DraftRow for crate::DraftCapture {
     fn expect_pub_id(&self) -> Option<models::Id> {
         self.expect_pub_id
     }
+    fn data_plane_id(&self) -> Option<models::Id> {
+        Some(self.data_plane_id)
+    }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
@@ -574,6 +597,7 @@ impl DraftRow for crate::DraftCollection {
             collection,
             scope,
             expect_pub_id,
+            data_plane_id: models::Id::zero(),
             model,
             is_touch,
         }
@@ -606,6 +630,9 @@ impl DraftRow for crate::DraftCollection {
     fn expect_pub_id(&self) -> Option<models::Id> {
         self.expect_pub_id
     }
+    fn data_plane_id(&self) -> Option<models::Id> {
+        Some(self.data_plane_id)
+    }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
@@ -631,6 +658,7 @@ impl DraftRow for crate::DraftMaterialization {
             materialization,
             scope,
             expect_pub_id,
+            data_plane_id: models::Id::zero(),
             model,
             is_touch,
         }
@@ -662,6 +690,9 @@ impl DraftRow for crate::DraftMaterialization {
     }
     fn expect_pub_id(&self) -> Option<models::Id> {
         self.expect_pub_id
+    }
+    fn data_plane_id(&self) -> Option<models::Id> {
+        Some(self.data_plane_id)
     }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
@@ -719,6 +750,9 @@ impl DraftRow for crate::DraftTest {
     }
     fn expect_pub_id(&self) -> Option<models::Id> {
         self.expect_pub_id
+    }
+    fn data_plane_id(&self) -> Option<models::Id> {
+        None // Tests have no data-plane placement.
     }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()

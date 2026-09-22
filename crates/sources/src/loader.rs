@@ -722,6 +722,7 @@ impl<F: Fetcher> Loader<F> {
             catalog_name,
             scope.flatten(),
             spec.expect_pub_id.take(),
+            models::Id::zero(), // Placed by the control plane at publication.
             (!spec.delete).then_some(spec),
             false, // !is_touch
         )
@@ -920,6 +921,7 @@ impl<F: Fetcher> Loader<F> {
             catalog_name,
             scope.flatten(),
             spec.expect_pub_id.take(),
+            models::Id::zero(), // Placed by the control plane at publication.
             (!spec.delete).then_some(spec),
             false, // !is_touch
         );
@@ -1017,6 +1019,7 @@ impl<F: Fetcher> Loader<F> {
             catalog_name,
             scope.flatten(),
             spec.expect_pub_id.take(),
+            models::Id::zero(), // Placed by the control plane at publication.
             (!spec.delete).then_some(spec),
             false, // !is_touch
         );

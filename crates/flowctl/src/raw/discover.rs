@@ -137,6 +137,7 @@ pub async fn do_discover(
             collection,
             &scope,
             None,
+            models::Id::zero(), // Local drafts make no placement.
             Some(models::CollectionDef {
                 schema: Some(models::Schema::new(serde_json::from_slice::<
                     models::RawValue,
