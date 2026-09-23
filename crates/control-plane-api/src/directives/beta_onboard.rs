@@ -85,6 +85,11 @@ pub enum ProvisionError {
     /// isn't public, or has been closed to new selection.
     #[error("{0} is not a selectable public data-plane")]
     PlaneNotSelectable(String),
+    /// Every public plane is closed (or none exist). This is an operator
+    /// misconfiguration, not a problem with the signup: a storage mapping
+    /// without data_planes is invalid, so refuse rather than write one.
+    #[error("there are no open public data-planes to place a new tenant on")]
+    NoSelectablePlanes,
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
 }
@@ -161,6 +166,10 @@ pub async fn provision_tenant(
     .fetch_all(&mut **txn)
     .await?;
 
+    if public_planes.is_empty() {
+        return Err(ProvisionError::NoSelectablePlanes);
+    }
+
     // The requested plane is untrusted client input, and this is the only
     // place that knows the authoritative candidate set — so validate here
     // rather than leaving it to callers.
@@ -172,6 +181,19 @@ pub async fn provision_tenant(
 
     // The first entry of the ordered list is the tenant's default data-plane.
     let default_plane = requested_data_plane.unwrap_or(DEFAULT_PUBLIC_DATA_PLANE);
+
+    // Closing a plane is a data change but the default is a constant, so the
+    // two can disagree. This isn't an error: test and local-stack databases
+    // never contain the production default, and blocking every signup is
+    // worse than placing tenants on the newest open plane. It does mean the
+    // constant is stale and should be updated.
+    if !public_planes.iter().any(|plane| plane == default_plane) {
+        tracing::warn!(
+            %default_plane,
+            fallback = %public_planes[0],
+            "default public data-plane is not open for new tenants; falling back to the newest open plane",
+        );
+    }
     let public_planes = order_public_planes(public_planes, default_plane);
     let (tenant_spec, recovery_spec) = storage_specs(&public_planes, colocate_trial_bucket);
 
@@ -383,5 +405,35 @@ mod test {
                 "case: {planes:?} colocate={colocate}",
             );
         }
+    }
+
+    // A storage mapping without data_planes is invalid, so provisioning must
+    // refuse outright when every public plane has been closed.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes"))
+    )]
+    async fn provision_tenant_refuses_when_no_public_plane_is_open(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        sqlx::query("update data_planes set closed = true where starts_with(data_plane_name, 'ops/dp/public/')")
+            .execute(&mut *txn)
+            .await
+            .unwrap();
+
+        let result = super::provision_tenant(
+            "support@estuary.dev",
+            None,
+            "acmeCo",
+            uuid::Uuid::new_v4(),
+            None,
+            false,
+            &mut txn,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(super::ProvisionError::NoSelectablePlanes)),
+            "{result:?}",
+        );
     }
 }

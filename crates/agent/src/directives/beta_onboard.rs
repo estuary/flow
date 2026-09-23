@@ -98,7 +98,7 @@ pub async fn apply(
         Err(err @ ProvisionError::PlaneNotSelectable(_)) => {
             return Ok(JobStatus::invalid_claims(anyhow::anyhow!("{err}")));
         }
-        Err(ProvisionError::Sqlx(err)) => {
+        Err(err @ (ProvisionError::NoSelectablePlanes | ProvisionError::Sqlx(_))) => {
             return Err(anyhow::Error::from(err).context("provision_tenant"));
         }
     }
