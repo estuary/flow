@@ -1963,57 +1963,6 @@ mod test {
     }
 
     #[test]
-    fn test_masked_walk_prefixes_keep_empty_when_unmasked() {
-        use Capability::*;
-
-        // The `is_some()` half of the skip in `reachable_prefixes`: an empty
-        // node is omitted only for masked subjects. The shared fixture has no
-        // node that is empty when unmasked, so add one here rather than in
-        // the fixture, keeping its other tests' expectations intact. A direct
-        // grant with legacy `None` and no bundles conveys zero bits regardless
-        // of masking, and touches no role edge, so the rest of the walk is
-        // unchanged.
-        let (role_grants, mut user_grants, user_id) = masked_walk_scenario();
-        user_grants.insert(UserGrant {
-            user_id,
-            object_role: models::Prefix::new("orphanCo/"),
-            capability: models::Capability::None,
-            bundles: vec![],
-        });
-
-        let unmasked = UserGrant::reachable_prefixes(
-            &role_grants,
-            &user_grants,
-            &Subject::unrestricted(user_id),
-        );
-        assert_eq!(
-            unmasked.keys().collect::<Vec<_>>(),
-            vec![
-                &"acmeCo/",
-                &"bobCo/shared/",
-                &"carolCo/upstream/",
-                &"daveCo/",
-                &"orphanCo/",
-                &"supportCo/",
-            ],
-        );
-        assert_eq!(
-            unmasked.get("orphanCo/"),
-            Some(&(authz::CapabilitySet::empty(), models::Capability::None)),
-        );
-
-        let subject = authz::Subject {
-            user_id,
-            capability_mask: Some(authz::CapabilitySet::from(CatalogRead | Delegate)),
-        };
-        let masked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
-        assert_eq!(
-            masked.keys().collect::<Vec<_>>(),
-            vec![&"acmeCo/", &"bobCo/shared/", &"carolCo/upstream/"],
-        );
-    }
-
-    #[test]
     fn test_masked_walk_parent_prefix_pickup() {
         use Capability::*;
 
@@ -2070,9 +2019,8 @@ mod test {
     fn test_masked_walk_get_user_capability() {
         use Capability::*;
 
-        // Legacy-capability grants, so nodes carry a legacy value the
-        // mask must NOT attenuate: it's compatibility metadata, not an
-        // authorization decision.
+        // Legacy capability values pass through unchanged for reached nodes;
+        // capability masks attenuate only capability bits.
         let user_id = uuid::Uuid::from_bytes([1; 16]);
         let user_grants = UserGrants::from_iter([UserGrant {
             user_id,

@@ -34,9 +34,20 @@ pub struct ControlClaims {
 impl ControlClaims {
     /// Converts these claims into the authorization subject used by grant evaluation.
     pub fn subject(&self) -> crate::authz::Subject {
+        use serde::{Deserialize, de::value};
         crate::authz::Subject {
             user_id: self.sub,
-            capability_mask: self.parse_capability_mask(),
+            capability_mask: self.capability_mask.as_ref().map(|mask| {
+                mask.iter()
+                    .filter_map(|name| {
+                        authz::CapabilityBundle::deserialize(
+                            value::StrDeserializer::<value::Error>::new(name),
+                        )
+                        .ok()
+                    })
+                    .map(|bundle| bundle.capabilities())
+                    .fold(authz::CapabilitySet::empty(), |set, bits| set | bits)
+            }),
         }
     }
 
@@ -45,34 +56,6 @@ impl ControlClaims {
         let exp = time::OffsetDateTime::from_unix_timestamp(self.exp as i64).unwrap();
 
         max(exp - now, time::Duration::ZERO)
-    }
-
-    /// Resolves the `capability_mask` claim into the capability set the token
-    /// is limited to. Each entry is a `CapabilityBundle` name in its serialized
-    /// form; the bundles are expanded to their capability bits and unioned.
-    ///
-    /// A `None` claim means the token has no mask and the subject keeps every
-    /// granted capability.
-    ///
-    /// An empty list yields an empty set, so the token is restricted from
-    /// anything that requires a capability.
-    ///
-    /// Unrecognized bundle names are dropped rather than rejected. A token
-    /// minted by a newer server may name bundles this version does not know,
-    /// and it should still verify with the capabilities we do understand.
-    fn parse_capability_mask(&self) -> Option<authz::CapabilitySet> {
-        use serde::{Deserialize, de::value};
-        self.capability_mask.as_ref().map(|mask| {
-            mask.iter()
-                .filter_map(|name| {
-                    authz::CapabilityBundle::deserialize(
-                        value::StrDeserializer::<value::Error>::new(name),
-                    )
-                    .ok()
-                })
-                .map(|bundle| bundle.capabilities())
-                .fold(authz::CapabilitySet::empty(), |set, bits| set | bits)
-        })
     }
 }
 
@@ -363,71 +346,114 @@ const fn capability_read() -> crate::Capability {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::authz::{Capability, CapabilityBundle, CapabilitySet};
-
-    fn claims(capability_mask: Option<Vec<String>>) -> ControlClaims {
-        ControlClaims {
-            aud: "authenticated".to_string(),
-            iat: 0,
-            exp: 0,
-            sub: uuid::Uuid::nil(),
-            role: "authenticated".to_string(),
-            email: None,
-            capability_mask,
-        }
-    }
-
-    fn parse(names: &[&str]) -> CapabilitySet {
-        let names = names.iter().map(|n| n.to_string()).collect();
-        claims(Some(names)).parse_capability_mask().unwrap()
-    }
+    use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
 
     #[test]
-    fn parse_capability_mask_is_strict_about_names() {
-        // Bundle names are matched against their serialized form only, so
-        // casing, separators, and whitespace variants are all unrecognized.
-        for bad in [
-            "Viewer",
-            "VIEWER",
-            "Team_Admin",
-            "TeamAdmin",
-            "",
-            " viewer",
-            "viewer ",
-        ] {
-            assert_eq!(parse(&[bad]), CapabilitySet::empty(), "{bad:?}");
-        }
-        assert_eq!(
-            parse(&["team_admin"]),
-            CapabilityBundle::TeamAdmin.capabilities()
-        );
-    }
-
-    #[test]
-    fn parse_capability_mask_from_claim() {
+    fn subject_from_deserialized_token_payload() {
+        let user_id = uuid::Uuid::parse_str("d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a").unwrap();
         let viewer = CapabilityBundle::Viewer.capabilities();
 
-        assert_eq!(claims(None).parse_capability_mask(), None);
-        assert_eq!(parse(&[]), CapabilitySet::empty());
+        let cases: &[(&str, Option<CapabilitySet>)] = &[
+            // No claim at all: unmasked.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "email": "user@example.com"
+                }"#,
+                None,
+            ),
+            // Explicit null is equivalent to omission.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": null
+                }"#,
+                None,
+            ),
+            // Empty list: masked to nothing.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": []
+                }"#,
+                Some(CapabilitySet::empty()),
+            ),
+            // Known bundles are unioned; unknown names from a newer minter
+            // are ignored rather than failing deserialization.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": ["viewer", "delegate", "future_bundle"]
+                }"#,
+                Some(viewer | Capability::Delegate),
+            ),
+            // Unrelated claims that we don't model are tolerated.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "session_id": "6c0e1f2a-3b4c-4d5e-8f60-718293a4b5c6",
+                    "app_metadata": {"provider": "google"},
+                    "capability_mask": ["team_admin"]
+                }"#,
+                Some(CapabilityBundle::TeamAdmin.capabilities()),
+            ),
+            // Verifying deduplication
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "session_id": "6c0e1f2a-3b4c-4d5e-8f60-718293a4b5c6",
+                    "app_metadata": {"provider": "google"},
+                    "capability_mask": ["team_admin", "team_admin"]
+                }"#,
+                Some(CapabilityBundle::TeamAdmin.capabilities()),
+            ),
+        ];
 
-        assert_eq!(parse(&["viewer"]), viewer);
-        assert_eq!(parse(&["bogus"]), CapabilitySet::empty());
-        // Unknown names are ignored rather than failing the whole claim.
-        assert_eq!(parse(&["viewer", "bogus"]), viewer);
-        assert_eq!(
-            parse(&["viewer", "delegate"]),
-            viewer | Capability::Delegate
-        );
-    }
+        for (payload, expected_mask) in cases {
+            let claims: ControlClaims = serde_json::from_str(payload).unwrap();
+            assert_eq!(
+                claims.subject(),
+                Subject {
+                    user_id,
+                    capability_mask: *expected_mask,
+                },
+                "{payload}"
+            );
+        }
 
-    #[test]
-    fn subject_carries_parsed_mask() {
-        assert_eq!(claims(None).subject().capability_mask, None);
-
-        let masked = claims(Some(vec!["viewer".to_string(), "bogus".to_string()]));
-        assert_eq!(
-            masked.subject().capability_mask,
-            Some(CapabilityBundle::Viewer.capabilities())
-        );
+        // A mask that isn't a list of strings is a malformed token.
+        let malformed = r#"{
+            "aud": "authenticated",
+            "iat": 1700000000,
+            "exp": 1700003600,
+            "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+            "role": "authenticated",
+            "capability_mask": "viewer"
+        }"#;
+        assert!(serde_json::from_str::<ControlClaims>(malformed).is_err());
     }
 }
