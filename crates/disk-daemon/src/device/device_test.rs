@@ -162,14 +162,16 @@ privileged_test! {
         let scenario = Scenario::new(dir);
         let (mut disk, captured) = scenario.disk(QUEUE_DEPTH, NO_COMPACTION);
 
-        // One thread a write, so that more are in flight than the channel holds.
+        // One thread a write, so that more are in flight than the channel holds. The
+        // writes skip a block apiece, because the block layer would merge writes which
+        // abut, and fewer requests could fit the channel whole.
         let writers: Vec<_> = (0..WRITES)
             .map(|block| {
                 let block_path = disk.block_path();
 
                 std::thread::spawn(move || {
                     let device = device::open_direct(&block_path);
-                    let offset = block as u64 * BLOCK_SIZE as u64;
+                    let offset = 2 * block as u64 * BLOCK_SIZE as u64;
 
                     std::os::unix::fs::FileExt::write_all_at(&device, device::aligned_block(0x42), offset)
                 })
@@ -188,13 +190,7 @@ privileged_test! {
         for writer in writers {
             () = writer.join().expect("writer panicked").unwrap();
         }
-        // Writes which abut may merge into one request while they wait for a tag.
-        let written: usize = mutations
-            .iter()
-            .flatten()
-            .map(|chunk| chunk::covered_blocks(chunk).len())
-            .sum();
-        assert_eq!(written, WRITES as usize, "the capture lost a write");
+        assert_eq!(mutations.len(), WRITES as usize, "the capture lost a write");
         assert_eq!(image.allocated().count_ones(), WRITES, "the image lost a write");
     }
 }
@@ -211,13 +207,14 @@ privileged_test! {
         let scenario = Scenario::new(dir);
         let (mut disk, captured) = scenario.disk(QUEUE_DEPTH, NO_COMPACTION);
 
+        // Every other block, so that no two writes merge into one request.
         let writers: Vec<_> = (0..WRITES)
             .map(|block| {
                 let block_path = disk.block_path();
 
                 std::thread::spawn(move || {
                     let device = device::open_direct(&block_path);
-                    let offset = block as u64 * BLOCK_SIZE as u64;
+                    let offset = 2 * block as u64 * BLOCK_SIZE as u64;
 
                     std::os::unix::fs::FileExt::write_all_at(&device, device::aligned_block(0x24), offset)
                 })
