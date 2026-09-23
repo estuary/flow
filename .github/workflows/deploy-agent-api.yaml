@@ -40,10 +40,12 @@ jobs:
           image: ${{ steps.image-tag.outputs.image }}
           timeout: 10m
           # Egress via a dedicated subnet on the data-plane-controller VPC (its own NAT IP) for a stable outbound IP.
-          flags: '--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic'
+          flags: "--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic"
 
           env_vars: |-
             BUILDS_ROOT=gs://estuary-control/builds/
+            BIGTABLE_PROJECT=estuary-control
+            BIGTABLE_INSTANCE=catalog-stats
             DATABASE_CA=/etc/db-ca.crt
             DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             NO_COLOR=1

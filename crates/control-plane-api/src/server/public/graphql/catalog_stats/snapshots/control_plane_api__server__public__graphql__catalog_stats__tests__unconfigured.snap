@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/catalog_stats/mod.rs
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 13,
+          "line": 3
+        }
+      ],
+      "message": "catalog stats are not configured",
+      "path": [
+        "catalogStats"
+      ]
+    }
+  ]
+}

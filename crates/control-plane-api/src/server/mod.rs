@@ -37,6 +37,7 @@ pub enum Rejection {
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+    pub catalog_stats: Option<Arc<catalog_stats::Client>>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -52,6 +53,7 @@ impl App {
     pub fn new(
         id_generator: models::IdGenerator,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
         jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
@@ -61,6 +63,7 @@ impl App {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
+            catalog_stats,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,

@@ -106,6 +106,7 @@ pub(crate) mod test_util {
             pool.clone(),
             test_server::snapshot(pool.clone(), true).await,
             Some(provider),
+            None,
             models::AlertConfig::default(),
         )
         .await;
@@ -176,6 +177,7 @@ mod tests {
             pool.clone(),
             test_server::snapshot(pool, true).await,
             Some(provider.clone()),
+            None,
             models::AlertConfig::default(),
         )
         .await;
