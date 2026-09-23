@@ -10,11 +10,12 @@
 //! addressed by an outstanding entry stay pinned until `reap` sees their completion;
 //! `pending` counts them, and the thread does not release the image until it is zero.
 //!
-//! An operation the kernel cannot complete without blocking — in practice, the data
-//! copies through the character device — runs on one of `io_uring`'s worker
-//! threads. Those belong to the thread which submitted the operation, so each owner
-//! has a pool of its own, at the kernel's default size. Its queue depth bounds how
-//! many of them are busy at once. Nothing bounds the total across disks.
+//! None of it needs `io_uring`'s worker threads. The driver holds the fetches, the
+//! wake is polled, and the data copies are issued inline in `submit_and_wait`,
+//! because the character device is opened `O_NONBLOCK`: see `open_char_device`. An
+//! operation which could not be issued inline would run on a worker thread of the
+//! owner's own, in a pool of the kernel's default size, which nothing caps across
+//! disks.
 
 use super::Owner;
 use crate::ublk::sys;

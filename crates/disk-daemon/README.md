@@ -192,12 +192,14 @@ device accepts discards of at most 16 MiB, so a large one reaches the owner as
 pieces it serves other requests between.
 
 The ring carries what remains: the queue's fetch and commit commands, the data
-each request moves through the character device, and the owner's wake. An
-operation there which cannot complete without blocking, in practice a data copy,
-runs on one of `io_uring`'s kernel worker threads. Those belong to the thread which
-submitted the operation, so each owner has its own pool at the kernel's default
-size; queue depth bounds how many are busy at once, and nothing bounds the total
-across disks.
+each request moves through the character device, and the owner's wake. None of it
+needs `io_uring`'s kernel worker threads. The character device is opened
+`O_NONBLOCK`, so each data copy is issued inline in the owner's own wait, while the
+driver holds the fetches and the wake is polled. Without that flag every copy would
+run on a worker thread, in a pool which belongs to the owner's thread and which
+nothing caps across disks. `ublk`'s control commands, which the driver will not
+issue without blocking, are the one thing of the daemon's that reaches a worker, and
+they are rare.
 
 The writer takes one mutation at a time and hands it to the appender as one
 record, returning to its requests in between, so a disk under sustained write

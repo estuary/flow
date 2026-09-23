@@ -214,16 +214,22 @@ impl Drop for Device {
 ///
 /// Nothing here changes the node's ownership. The crate README says how a daemon
 /// which does not run as root is granted it.
+///
+/// `O_NONBLOCK` is what lets `io_uring` issue a request's data copy inline, in the
+/// owner's own `submit_and_wait`. A character device which neither is opened
+/// `O_NONBLOCK` nor declares non-blocking support, as `ublk`'s does not, has every
+/// read and write handed to an `io_uring` worker thread instead. The copy waits on
+/// nothing but faults on the owner's buffers, so issuing it inline is safe.
 fn open_char_device(dev_id: u32) -> anyhow::Result<std::fs::File> {
     let path = ublk::char_path(dev_id);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
 
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true);
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+
     loop {
-        match std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-        {
+        match options.open(&path) {
             Ok(file) => return Ok(file),
             // Userspace sees the node slightly after the command which added the
             // device completes.
