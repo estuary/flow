@@ -250,6 +250,120 @@ privileged_test! {
 }
 
 privileged_test! {
+    /// A mount which stalls on its device is released rather than killed, and one
+    /// which then lands is unmounted before [`Mount::new`] fails. A mount killed
+    /// within the kernel could land after its caller had given up on it, and a device
+    /// still mounted can never be deleted.
+    ///
+    /// [`Mount::new`]: crate::filesystem::Mount::new
+    fn test_a_stalled_mount_is_released_rather_than_killed(dir) {
+        const QUEUE_DEPTH: u16 = 2;
+        const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
+        let scenario = Scenario::new(dir);
+        let (mut disk, captured) = scenario.disk(QUEUE_DEPTH, NO_COMPACTION);
+        let block_path = disk.block_path();
+
+        // Format while the channel drains, and then empty it and stop draining.
+        let draining = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let drainer = {
+            let draining = draining.clone();
+
+            std::thread::spawn(move || {
+                let mut captured = captured;
+
+                while draining.load(std::sync::atomic::Ordering::Relaxed) {
+                    if captured.try_recv().is_none() {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+                while captured.try_recv().is_some() {}
+                captured
+            })
+        };
+        () = device::format(&block_path);
+        draining.store(false, std::sync::atomic::Ordering::Relaxed);
+        let captured = drainer.join().expect("drainer panicked");
+
+        // Rewriting a block with its own content changes nothing the filesystem
+        // holds, and fills the channel, so the mount's first write parks.
+        let block = device::aligned_buffer(1);
+        let last = BLOCKS - 1;
+        () = std::os::unix::fs::FileExt::read_exact_at(
+            &std::fs::File::open(&block_path).unwrap(),
+            block,
+            last as u64 * BLOCK_SIZE as u64,
+        )
+        .unwrap();
+
+        // From another thread, because a rewrite which parked would otherwise hold
+        // this one, and a process whose own write is parked cannot exit.
+        let (filled, is_filled) = std::sync::mpsc::channel();
+        let filler = std::thread::spawn(move || {
+            let device = device::open_direct(&block_path);
+
+            for _ in 0..QUEUE_DEPTH {
+                () = device::write_blocks(&device, last, block);
+            }
+            _ = filled.send(());
+        });
+        if is_filled.recv_timeout(5 * TIMEOUT).is_err() {
+            // Dropping the consumer frees what parked.
+            drop(captured);
+            _ = filler.join();
+            panic!("the channel held more than the rewrites");
+        }
+        () = filler.join().expect("filler panicked");
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let path = scenario.dir.join("mnt");
+        let collector = std::cell::RefCell::new(None);
+        let release = || *collector.borrow_mut() = Some(collect(captured));
+
+        let mounted = runtime.block_on(crate::filesystem::Mount::new(
+            &disk.block_path(),
+            path.clone(),
+            None,
+            TIMEOUT,
+            release,
+        ));
+        let err = format!("{:#}", mounted.err().expect("a mount behind a full channel finished"));
+
+        // Whatever released or dropped the consumer, a command wakes the owner once
+        // more, so no write of the mount stays parked. One which did would keep its
+        // mount from ever exiting, and this runtime waits on its exit as it drops.
+        () = disk.resume_admission().unwrap();
+
+        // A mount which was killed rather than awaited may land after `Mount::new`
+        // has returned. One left behind would keep the stop below from ever
+        // returning, so it is unmounted before anything is asserted.
+        let is_mounted = || {
+            std::fs::read_to_string("/proc/self/mountinfo")
+                .unwrap()
+                .contains(&format!(" {} ", path.display()))
+        };
+        let deadline = std::time::Instant::now() + 2 * TIMEOUT;
+        let mut left = is_mounted();
+
+        while !left && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            left = is_mounted();
+        }
+        if left {
+            _ = device::run(std::process::Command::new("umount").arg(&path));
+        }
+        assert!(!left, "a mount which landed late was left behind: {err}");
+
+        let collector = collector.into_inner().expect("the stalled mount was never released");
+        _ = disk.stop().unwrap().expect("the disk was live");
+        _ = collector.join().expect("collector panicked");
+    }
+}
+
+privileged_test! {
     /// A device whose start fails is stopped without ever having started. Stopping
     /// it still aborts its queue's fetches, which is what ends its owner, so that
     /// teardown does not wait on the owner forever.

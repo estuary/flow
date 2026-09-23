@@ -463,7 +463,10 @@ clients.
 EOF, cancellation, and terminal errors converge on tenure teardown. A tenure
 which ends while standing by has no device or mount, and its replay stops with
 it. A promotion which fails after creating its device takes apart what it built
-in the same order, rather than dropping it. The writer abandons appends but keeps draining mutations, because unmount
+in the same order, rather than dropping it. Its mount, if that stalls on the
+device, is released by abandoning the writer and awaited rather than killed: a
+mount which landed after the tenure gave up on it would keep the device from
+ever being deleted. The writer abandons appends but keeps draining mutations, because unmount
 itself writes and would otherwise deadlock on capture backpressure. The tenure
 unmounts before stopping and deleting the device, then drops the anonymous image.
 Stopping waits for every request in flight, parked ones included, so the writer

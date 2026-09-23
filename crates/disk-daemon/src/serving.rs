@@ -84,7 +84,18 @@ impl Serving {
             if !recovered {
                 () = filesystem::format(&block_path, owner, filesystem::MKFS_TIMEOUT).await?;
             }
-            Mount::new(&block_path, mount_path, owner, filesystem::MOUNT_TIMEOUT).await
+            // A mount which stalls waits on the writer, which may be retrying a
+            // broker it cannot reach. Abandoning it frees the mount to land or fail.
+            let release = || writer.abandon();
+
+            Mount::new(
+                &block_path,
+                mount_path,
+                owner,
+                filesystem::MOUNT_TIMEOUT,
+                release,
+            )
+            .await
         }
         .await;
 

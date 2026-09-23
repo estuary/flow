@@ -90,11 +90,19 @@ impl Mount {
     ///
     /// The change is conditional because it is a write. A recovered disk is already
     /// serving, so that write joins its next delta.
+    ///
+    /// A mount which outlasts `timeout` is waiting on its device, which waits on a
+    /// capture channel nothing takes from. It is not killed, because a mount killed
+    /// within the kernel may land after this has given up on it, and nothing would
+    /// unmount it. A device still mounted can never be deleted. `release` instead
+    /// frees what the device waits on, and the mount is awaited as long again, then
+    /// unmounted if it landed. It fails either way.
     pub async fn new(
         device: &Path,
         path: std::path::PathBuf,
         owner: Option<(u32, u32)>,
         timeout: std::time::Duration,
+        release: impl FnOnce(),
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&path).with_context(|| format!("creating {path:?}"))?;
 
@@ -104,7 +112,30 @@ impl Mount {
             .arg(device)
             .arg(&path);
 
-        () = run(command, timeout).await?;
+        let what = format!("{command:?}");
+        let mut mounting = std::pin::pin!(async_process::output(&mut command));
+
+        let output = match tokio::time::timeout(timeout, &mut mounting).await {
+            Ok(output) => output,
+            Err(_elapsed) => {
+                () = release();
+                let stalled = format!("{what} did not finish within {timeout:?}");
+
+                return Err(match tokio::time::timeout(timeout, &mut mounting).await {
+                    // Returning drops `mounting`, which kills the mount. It may
+                    // land yet, and nothing more can be done about it here.
+                    Err(_elapsed) => anyhow::anyhow!("{stalled}, nor once released"),
+                    Ok(output) => match succeeded(&what, output) {
+                        Err(err) => err.context(stalled),
+                        Ok(()) => match unmount(&path, timeout).await {
+                            Ok(()) => anyhow::anyhow!("{stalled}, and was undone once it had"),
+                            Err(err) => err.context(format!("{stalled}, and landed late")),
+                        },
+                    },
+                });
+            }
+        };
+        () = succeeded(&what, output)?;
 
         // Built before the change below, so that a failure of it still unmounts.
         let mount = Self {
@@ -210,14 +241,19 @@ async fn run(
     mut command: async_process::Command,
     timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
-    let output = match tokio::time::timeout(timeout, async_process::output(&mut command)).await {
+    match tokio::time::timeout(timeout, async_process::output(&mut command)).await {
         Err(_elapsed) => anyhow::bail!("{command:?} did not finish within {timeout:?}"),
-        Ok(output) => output.with_context(|| format!("running {command:?}"))?,
-    };
+        Ok(output) => succeeded(&format!("{command:?}"), output),
+    }
+}
+
+/// Whether the command `what` names ran and exited successfully, per `output`.
+fn succeeded(what: &str, output: std::io::Result<async_process::Output>) -> anyhow::Result<()> {
+    let output = output.with_context(|| format!("running {what}"))?;
 
     anyhow::ensure!(
         output.status.success(),
-        "{command:?} failed ({}): {}{}",
+        "{what} failed ({}): {}{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
