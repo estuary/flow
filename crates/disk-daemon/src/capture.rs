@@ -114,6 +114,20 @@ impl Captured {
     }
 }
 
+impl Drop for Captured {
+    /// A parked request is retried only on a wake, and the owner offers nothing
+    /// past one. Once the consumer is gone the channel accepts every offer, so
+    /// without this wake a request already parked would never be offered again,
+    /// and a stop would wait on it forever.
+    fn drop(&mut self) {
+        // Closed ahead of the wake, which it would otherwise race: the receiver
+        // closes only as its field drops, after this. A retry which found the
+        // channel still full would park its request again, with no wake to come.
+        self.receiver.close();
+        self.waker.wake();
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{Capture, Captured, channel};

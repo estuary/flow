@@ -200,6 +200,56 @@ privileged_test! {
 }
 
 privileged_test! {
+    /// A consumer which goes away frees the writes parked behind it. The channel then
+    /// accepts every offer, but a parked request is offered again only on a wake,
+    /// which dropping the consumer sends.
+    fn test_a_dropped_consumer_frees_parked_writes(dir) {
+        const QUEUE_DEPTH: u16 = 2;
+        const WRITES: u32 = 4;
+        const STALL: std::time::Duration = std::time::Duration::from_millis(500);
+
+        let scenario = Scenario::new(dir);
+        let (mut disk, captured) = scenario.disk(QUEUE_DEPTH, NO_COMPACTION);
+
+        let writers: Vec<_> = (0..WRITES)
+            .map(|block| {
+                let block_path = disk.block_path();
+
+                std::thread::spawn(move || {
+                    let device = device::open_direct(&block_path);
+                    let offset = block as u64 * BLOCK_SIZE as u64;
+
+                    std::os::unix::fs::FileExt::write_all_at(&device, device::aligned_block(0x24), offset)
+                })
+            })
+            .collect();
+        std::thread::sleep(STALL);
+        assert!(writers.iter().any(|writer| !writer.is_finished()), "nothing parked");
+
+        drop(captured);
+        let deadline = std::time::Instant::now() + 4 * STALL;
+
+        while writers.iter().any(|writer| !writer.is_finished())
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let freed = writers.iter().all(|writer| writer.is_finished());
+
+        // A command wakes the owner too. Sending one before asserting keeps a failed
+        // case from leaving its stop waiting on parked writes forever.
+        () = disk.resume_admission().unwrap();
+        assert!(freed, "dropping the consumer left writes parked");
+
+        for writer in writers {
+            () = writer.join().expect("writer panicked").unwrap();
+        }
+        let image = disk.stop().unwrap().expect("the disk was live");
+        assert_eq!(image.allocated().count_ones(), WRITES, "the image lost a write");
+    }
+}
+
+privileged_test! {
     /// A device whose start fails is stopped without ever having started. Stopping
     /// it still aborts its queue's fetches, which is what ends its owner, so that
     /// teardown does not wait on the owner forever.

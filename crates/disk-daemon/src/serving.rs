@@ -4,7 +4,8 @@
 //! [`Serving::open`] builds a disk from a claimed journal and the playback which
 //! rebuilt its image, and commits the daemon's own setup writes before the client
 //! sees it. [`Serving::prepare`] cuts the disk at a point in time. [`Serving::teardown`]
-//! takes it apart again, in the one order which cannot deadlock.
+//! takes it apart again, in the one order which cannot deadlock, and so does an
+//! `open` which fails partway.
 
 use crate::device::Device;
 use crate::filesystem::{self, Mount};
@@ -75,11 +76,25 @@ impl Serving {
         // true of a fresh disk's `mkfs` as much as of a recovered disk's mount.
         let writer = promoted.serve(captured, Some(compactor));
 
-        if !recovered {
-            () = filesystem::format(&block_path, owner, filesystem::MKFS_TIMEOUT).await?;
+        // A failure from here on tears the disk down as `teardown` does. Dropping it
+        // instead would stop the device on this runtime's thread, without the
+        // abandon which cancels a broker call the writer may be retrying, and a
+        // stop waits for every request that writer would otherwise take.
+        let mounted = async {
+            if !recovered {
+                () = filesystem::format(&block_path, owner, filesystem::MKFS_TIMEOUT).await?;
+            }
+            Mount::new(&block_path, mount_path, owner, filesystem::MOUNT_TIMEOUT).await
         }
-        let mount = Mount::new(&block_path, mount_path, owner, filesystem::MOUNT_TIMEOUT).await?;
+        .await;
 
+        let mount = match mounted {
+            Ok(mount) => mount,
+            Err(err) => {
+                () = tear_down(None, device, writer).await;
+                return Err(err);
+            }
+        };
         let mut serving = Self {
             mount,
             device,
@@ -90,8 +105,17 @@ impl Serving {
         // whatever the format and the mount wrote is committed state of the journal
         // before the client is told the disk exists. A mount which wrote nothing is
         // an empty delta, and owes nothing.
-        if let Some(ack) = serving.prepare().await? {
-            () = serving.writer.acknowledge(ack).await?;
+        let committed = async {
+            if let Some(ack) = serving.prepare().await? {
+                () = serving.writer.acknowledge(ack).await?;
+            }
+            anyhow::Ok(())
+        }
+        .await;
+
+        if let Err(err) = committed {
+            () = serving.teardown().await;
+            return Err(err);
         }
 
         tracing::info!(
@@ -136,28 +160,40 @@ impl Serving {
     /// Unmount, destroy the device, and drop the image.
     pub async fn teardown(self) {
         let Self {
-            mut mount,
-            mut device,
+            mount,
+            device,
             writer,
         } = self;
 
-        // This tenure prepares nothing more. The writer takes what the unmount
-        // mutates and then discards it.
-        () = writer.abandon();
-
-        let dev_id = device.dev_id();
-
-        if let Err(err) = mount.unmount(filesystem::MOUNT_TIMEOUT).await {
-            tracing::error!(?err, dev_id, "failed to unmount a disk");
-        }
-
-        match tokio::task::spawn_blocking(move || device.stop()).await {
-            Ok(Ok(_image)) => (),
-            Ok(Err(err)) => tracing::error!(?err, dev_id, "failed to stop a device"),
-            Err(panic) => tracing::error!(?panic, dev_id, "panicked stopping a device"),
-        }
-        drop(writer);
-
-        tracing::info!(dev_id, "closed a disk");
+        tear_down(Some(mount), device, writer).await
     }
+}
+
+/// Take a disk apart in the one order which cannot deadlock. `mount` is `None` for
+/// a disk which failed before it was mounted.
+///
+/// The writer outlives both the unmount and the stop, taking whatever the device
+/// mutates. An unmount writes, and a stop waits for every request in flight,
+/// parked ones included.
+async fn tear_down(mount: Option<Mount>, mut device: Device, writer: Writer) {
+    // This tenure prepares nothing more. The writer takes what the unmount
+    // mutates and then discards it.
+    () = writer.abandon();
+
+    let dev_id = device.dev_id();
+
+    if let Some(mut mount) = mount
+        && let Err(err) = mount.unmount(filesystem::MOUNT_TIMEOUT).await
+    {
+        tracing::error!(?err, dev_id, "failed to unmount a disk");
+    }
+
+    match tokio::task::spawn_blocking(move || device.stop()).await {
+        Ok(Ok(_image)) => (),
+        Ok(Err(err)) => tracing::error!(?err, dev_id, "failed to stop a device"),
+        Err(panic) => tracing::error!(?panic, dev_id, "panicked stopping a device"),
+    }
+    drop(writer);
+
+    tracing::info!(dev_id, "closed a disk");
 }
