@@ -73,7 +73,13 @@ pub async fn tenant_exists(
 }
 
 /// The plane new tenants default to when signup carries no data-plane choice.
-pub const DEFAULT_PUBLIC_DATA_PLANE: &str = "ops/dp/public/aws-us-east-1-c1";
+///
+/// Temporary: this only covers signups from UI builds that predate the
+/// data-plane picker, which can't send `requestedDataPlane` until this agent
+/// is deployed (agents reject unknown claim keys). Once the picker ships,
+/// `requestedDataPlane` becomes required and this constant is removed, so
+/// don't bother keeping it current as planes are retired.
+pub const DEFAULT_PUBLIC_DATA_PLANE: &str = "ops/dp/public/aws-us-east-1-c2";
 
 /// Prefix identifying a data-plane's catalog name as public.
 pub const PUBLIC_DATA_PLANE_PREFIX: &str = "ops/dp/public/";
