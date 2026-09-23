@@ -208,6 +208,67 @@ privileged_test! {
 }
 
 privileged_test! {
+    /// An image write the host has no room for fails its own request, and then every
+    /// cut of the disk which follows. Its mutation reached the capture channel before
+    /// the image refused it, so the delta holding it must never commit.
+    ///
+    /// The disk keeps serving meanwhile. Admission stays open for the unmount a
+    /// teardown makes, and the device still stops.
+    fn test_a_failed_image_write_fails_every_later_cut(dir) {
+        /// Room on the host for a few blocks of the image, and no more.
+        const HOST_BYTES: u64 = 16 * BLOCK_SIZE as u64;
+
+        let scenario = Scenario::new(dir);
+        let host = Mount::tmpfs(&scenario.dir.join("host"), HOST_BYTES);
+        let image = Image::create(&host.path, BLOCKS).unwrap();
+
+        let (mut disk, captured) =
+            super::Device::create(&scenario.control, image, ublk::QUEUE_DEPTH, None, NO_COMPACTION)
+                .unwrap();
+        let collector = collect(captured);
+
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let device = device::open_direct(&disk.block_path());
+        let block = device::aligned_block(0x3c);
+
+        let mut written = 0;
+        let refused = loop {
+            let offset = written as u64 * BLOCK_SIZE as u64;
+
+            match std::os::unix::fs::FileExt::write_all_at(&device, block, offset) {
+                Ok(()) => written += 1,
+                Err(err) => break err,
+            }
+            assert!(written < BLOCKS, "the host never ran out of space");
+        };
+        assert!(written > 0, "the host took no block at all");
+        assert_eq!(refused.raw_os_error(), Some(libc::EIO), "the write failed with {refused}");
+
+        for _ in 0..2 {
+            let err = runtime.block_on(disk.close_admission()).unwrap_err();
+            let err = format!("{err:#}");
+
+            assert!(err.contains("No space left on device"), "the cut failed with {err}");
+        }
+
+        // A block the image holds already takes a rewrite without more room. Were
+        // admission closed, this would park rather than complete.
+        () = device::write_blocks(&device, 0, device::aligned_block(0x5d));
+        drop(device);
+
+        let image = disk.stop().unwrap().expect("the disk was live");
+        _ = collector.join().expect("collector panicked");
+
+        let mut rewritten = vec![0; BLOCK_SIZE as usize];
+        () = image.read_at(0, &mut rewritten).unwrap();
+        assert!(rewritten.iter().all(|&byte| byte == 0x5d), "the rewrite never landed");
+
+        // The image lives on the host, which unmounts only once it is closed.
+        drop((image, host));
+    }
+}
+
+privileged_test! {
     /// A disk's owner is an I/O flusher, so the kernel throttles its image writes
     /// against the host device alone, and its allocations never wait on I/O.
     fn test_the_owner_is_an_io_flusher(dir) {

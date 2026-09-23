@@ -73,14 +73,14 @@ impl Owner {
     /// can land between its read and its offer.
     pub(super) fn compact(&mut self) {
         // Room the channel frees goes to a parked request first, which the wake of
-        // the take that freed it retries.
-        if !self.admitting || !self.parked.is_empty() {
+        // the take that freed it retries. A failed disk's delta will never
+        // commit, so a copy would discharge nothing.
+        if !self.admitting || !self.parked.is_empty() || self.failed.is_some() {
             return;
         }
         // Destructured because a copy reads the image while it discharges the
         // horizon, and the two are separate fields of this owner.
         let Self {
-            dev_id,
             image,
             capture,
             horizon,
@@ -96,9 +96,14 @@ impl Owner {
             let chunks = match horizon.copy(image, policy, run_blocks) {
                 Ok(Some(chunks)) => chunks,
                 Ok(None) => return,
+                // A copy which failed captured nothing. But no request asked for
+                // it, so none can be told, and the horizon cannot complete
+                // without the run: every trip around the loop would fail it
+                // again.
                 Err(err) => {
-                    tracing::error!(dev_id = *dev_id, ?err, "failed to copy a horizon run");
-                    return;
+                    return self.fail_disk(
+                        anyhow::Error::new(err).context("copying a horizon run out of the image"),
+                    );
                 }
             };
             let Ok(()) = capture.offer(chunks) else {

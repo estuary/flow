@@ -133,10 +133,16 @@ impl Owner {
 
         match applied {
             Ok(()) => self.complete(tag, result),
-            // A failed image write, which in practice means ENOSPC, errors only
-            // its own request. Ext4's default `errors=remount-ro` then contains
-            // the failure to this one disk.
-            Err(err) => self.fail(tag, "applying a mutation to the image", err),
+            // In practice this is the host filesystem out of space. The capture
+            // channel holds the mutation already, so the delta now open holds what
+            // the image lacks. The request fails, and so does the next cut, which
+            // ends the tenure before that delta can commit. A replay drops a delta
+            // which never commits, and the image goes with the tenure.
+            Err(err) => {
+                () = self
+                    .fail_disk(anyhow::Error::new(err).context("applying a mutation to the image"));
+                self.complete(tag, -libc::EIO);
+            }
         }
     }
 
@@ -157,6 +163,20 @@ impl Owner {
     fn fail(&mut self, tag: u16, what: &str, err: std::io::Error) {
         tracing::error!(dev_id = self.dev_id, tag, ?err, "{what} failed");
         self.complete(tag, -libc::EIO);
+    }
+
+    /// Fail every later cut of this disk with `err`. Only the first failure is
+    /// kept, because the tenure ends at the next cut whichever it reports.
+    pub(super) fn fail_disk(&mut self, err: anyhow::Error) {
+        if self.failed.is_some() {
+            return;
+        }
+        tracing::error!(
+            dev_id = self.dev_id,
+            ?err,
+            "a disk failed, so its next cut will"
+        );
+        self.failed = Some(err);
     }
 
     pub(super) fn io_command(&self, tag: u16, cmd_op: u32, result: i32) -> io_uring::squeue::Entry {

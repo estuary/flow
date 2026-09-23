@@ -103,7 +103,7 @@ pub fn privileged(module_path: &str, name: &str, body: impl FnOnce(&std::path::P
 /// The working directory and control device of one case.
 pub struct Scenario {
     pub dir: std::path::PathBuf,
-    control: std::sync::Arc<Control>,
+    pub control: std::sync::Arc<Control>,
 }
 
 impl Scenario {
@@ -142,11 +142,20 @@ pub struct Mount {
 
 impl Mount {
     pub fn new(device: &std::path::Path, path: &std::path::Path) -> Self {
+        Self::mount("ext4", crate::filesystem::MOUNT_OPTIONS, device, path)
+    }
+
+    /// A tmpfs of `bytes`, which a case fills to run a disk's host out of space.
+    pub fn tmpfs(path: &std::path::Path, bytes: u64) -> Self {
+        Self::mount("tmpfs", &format!("size={bytes}"), "tmpfs".as_ref(), path)
+    }
+
+    fn mount(kind: &str, options: &str, source: &std::path::Path, path: &std::path::Path) -> Self {
         std::fs::create_dir_all(path).unwrap();
 
         run(std::process::Command::new("mount")
-            .args(["-t", "ext4", "-o", crate::filesystem::MOUNT_OPTIONS])
-            .arg(device)
+            .args(["-t", kind, "-o", options])
+            .arg(source)
             .arg(path))
         .unwrap();
 

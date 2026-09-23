@@ -155,12 +155,17 @@ impl Device {
     /// a mutation in one step, so each one falls entirely before or after the cut.
     /// Reads continue. A mutation which arrives while admission is closed waits
     /// for [`Device::resume_admission`] rather than failing.
+    ///
+    /// This fails, and admission stays open, once the disk has failed to apply a
+    /// mutation or to copy a horizon run. The delta then open holds what the image
+    /// lacks, so it must never commit, and the teardown which follows unmounts,
+    /// which writes.
     pub async fn close_admission(&self) -> anyhow::Result<()> {
         let commands = self.commands()?;
         let (closed, is_closed) = tokio::sync::oneshot::channel();
         () = commands.send(Command::CloseAdmission(closed))?;
 
-        is_closed.await.map_err(|_| commands.stopped())
+        is_closed.await.map_err(|_| commands.stopped())?
     }
 
     pub fn resume_admission(&self) -> anyhow::Result<()> {
@@ -288,7 +293,7 @@ struct Commands {
 }
 
 enum Command {
-    CloseAdmission(tokio::sync::oneshot::Sender<()>),
+    CloseAdmission(tokio::sync::oneshot::Sender<anyhow::Result<()>>),
     ResumeAdmission,
     OpenHorizon(u64, tokio::sync::oneshot::Sender<Option<u32>>),
     HorizonPending(tokio::sync::oneshot::Sender<u32>),
@@ -335,6 +340,9 @@ struct Owner {
     parked: std::collections::VecDeque<u16>,
     /// Whether mutations may be captured. The cut of a prepare closes this.
     admitting: bool,
+    /// Why this disk may never be cut again, once an image write or a horizon copy
+    /// has failed. Either leaves the delta then open unfit to commit.
+    failed: Option<anyhow::Error>,
     /// The kernel has aborted the queue, so fetches are not re-armed.
     stopping: bool,
     /// Set once the disk is to be released, and replied to when it is quiet.

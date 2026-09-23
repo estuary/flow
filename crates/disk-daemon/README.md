@@ -233,6 +233,14 @@ The device advertises no volatile write cache and implements no flush or FUA
 requests: local device completion is not the durability boundary. `Prepare`
 establishes durability through Gazette.
 
+An image write the host refuses, in practice for want of space, fails its request
+and every later cut of the disk. Its mutation was captured before the image
+refused it, so the delta then open holds what the image lacks. The failed cut ends
+the tenure before that delta can commit, a replay drops it, and the image goes with
+the tenure. A horizon run the owner cannot read out of the image fails later cuts
+the same way. A failed cut leaves admission open, because the teardown which
+follows unmounts, and an unmount writes.
+
 The transport uses `UBLK_F_USER_COPY`: descriptors are mapped, and request data
 moves through the character device with `pread`/`pwrite`. The crate drives the
 ABI directly so it can own the queue and completion state machine.

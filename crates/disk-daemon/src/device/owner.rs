@@ -168,6 +168,7 @@ impl Owner {
             pending: 0,
             parked: std::collections::VecDeque::new(),
             admitting: true,
+            failed: None,
             stopping: false,
             release: None,
         })
@@ -180,14 +181,22 @@ impl Owner {
                 // Every mutation admitted before this is in the image already,
                 // because each is applied as it is admitted. The cut is therefore
                 // reached as soon as admission closes.
-                Ok(Command::CloseAdmission(closed)) => {
-                    self.admitting = false;
-                    _ = closed.send(());
-
-                    if let Some(horizon) = &mut self.horizon {
-                        () = horizon.cut();
+                Ok(Command::CloseAdmission(closed)) => match &self.failed {
+                    // Admission stays open, because the teardown which follows
+                    // this failure unmounts, and an unmount writes.
+                    Some(failed) => {
+                        let failed = anyhow::anyhow!("device {} failed: {failed:#}", self.dev_id);
+                        _ = closed.send(Err(failed));
                     }
-                }
+                    None => {
+                        self.admitting = false;
+                        _ = closed.send(Ok(()));
+
+                        if let Some(horizon) = &mut self.horizon {
+                            () = horizon.cut();
+                        }
+                    }
+                },
                 Ok(Command::ResumeAdmission) => {
                     self.admitting = true;
                     self.retry_parked();
