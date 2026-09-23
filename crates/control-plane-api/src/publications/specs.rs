@@ -728,7 +728,8 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
 
 pub struct ResolvedLiveCatalog {
     pub live: tables::LiveCatalog,
-    pub default_data_plane: Option<validation::DefaultDataPlane>,
+    /// Ordered data-plane names of each of `live.storage_mappings`.
+    pub mapping_planes: BTreeMap<models::Prefix, Vec<String>>,
 }
 
 pub async fn resolve_live_specs(
@@ -737,7 +738,6 @@ pub async fn resolve_live_specs(
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
     verify_user_authz: bool,
-    explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<ResolvedLiveCatalog> {
     // We're expecting to get a row for each catalog name that's either drafted or
     // referenced by a drafted spec, even if the live spec does not exist.
@@ -911,78 +911,56 @@ pub async fn resolve_live_specs(
     tenant_names.dedup();
 
     let storage_rows = db::resolve_storage_mappings(tenant_names, db).await?;
-    for row in storage_rows {
-        let scope = tables::synthetic_scope("storageMapping", &row.catalog_prefix);
-
-        let store: models::StorageDef = match serde_json::from_value(row.spec) {
-            Ok(s) => s,
-            Err(err) => {
-                live.errors.push(tables::Error {
-                    scope,
-                    error: anyhow::Error::from(err).context("deserializing storage mapping spec"),
-                });
-                continue;
-            }
-        };
-
-        // Map data-plane names to IDs, accruing mapping errors as we go.
-        // An unauthorized and missing plane have the same diagnostic.
-        let mut data_plane_ids = Vec::with_capacity(store.data_planes.len());
-        for name in &store.data_planes {
-            let data_plane = snapshot
-                .is_user_authorized(subject, name, Capability::Read)
-                .then(|| snapshot.data_plane_by_catalog_name(name))
-                .flatten();
-
-            if let Some(data_plane) = data_plane {
-                data_plane_ids.push(data_plane.control_id);
-            } else {
-                snapshot.request_refresh();
-                live.errors.push(tables::Error {
-                    scope: scope.clone(),
-                    error: anyhow::anyhow!("data plane '{name}' was not found"),
-                });
-            }
-        }
-        if data_plane_ids.len() != store.data_planes.len() {
-            continue;
-        }
-
-        live.storage_mappings.insert(tables::StorageMapping {
-            control_id: row.id.into(),
-            catalog_prefix: models::Prefix::new(row.catalog_prefix),
-            stores: store.stores,
-            data_plane_ids,
-        });
-    }
-
-    // Resolve the request-scoped default independently of storage mappings.
-    // An unauthorized and missing plane have the same diagnostic.
-    let default_data_plane = explicit_plane_name.and_then(|name| {
-        snapshot
-            .is_user_authorized(subject, name, Capability::Read)
-            .then(|| snapshot.data_plane_by_catalog_name(name))
-            .flatten()
-            .map(|data_plane| validation::DefaultDataPlane {
-                id: data_plane.control_id,
-                name: data_plane.data_plane_name.clone(),
-            })
-            .or_else(|| {
-                snapshot.request_refresh();
-                live.errors.push(tables::Error {
-                    scope: tables::synthetic_scope("dataPlane", name),
-                    error: anyhow::anyhow!("data plane '{name}' was not found"),
-                });
-                None
-            })
-    });
+    let (storage_mappings, mapping_planes) = join_storage_mappings(storage_rows)?;
+    live.storage_mappings = storage_mappings;
 
     resolve_inferred_schemas(draft, &mut live, db).await?;
 
     Ok(ResolvedLiveCatalog {
         live,
-        default_data_plane,
+        mapping_planes,
     })
+}
+
+/// Build `tables::StorageMappings` from fetched `storage_mappings` rows, where
+/// each row pairs the partition and recovery stores of a prefix. Also returns
+/// the ordered data-plane names of each mapping, which are used for placement.
+///
+/// A spec which doesn't deserialize, or a mapping without its `recovery/` twin,
+/// is an internal error: both are control-plane invariants which users can't
+/// provoke.
+fn join_storage_mappings(
+    rows: Vec<db::StorageRow>,
+) -> anyhow::Result<(
+    tables::StorageMappings,
+    BTreeMap<models::Prefix, Vec<String>>,
+)> {
+    let mut mappings = tables::StorageMappings::default();
+    let mut mapping_planes = BTreeMap::new();
+
+    for db::StorageRow {
+        id,
+        catalog_prefix,
+        spec,
+        recovery_spec,
+    } in rows
+    {
+        let spec: models::StorageDef = serde_json::from_value(spec)
+            .with_context(|| format!("deserializing storage mapping {catalog_prefix}"))?;
+        let recovery_spec = recovery_spec.ok_or_else(|| {
+            anyhow::anyhow!(
+                "storage mapping {catalog_prefix} has no paired recovery/{catalog_prefix} mapping"
+            )
+        })?;
+        let recovery: models::StorageDef = serde_json::from_value(recovery_spec)
+            .with_context(|| format!("deserializing storage mapping recovery/{catalog_prefix}"))?;
+        let prefix = models::Prefix::new(catalog_prefix);
+
+        mappings.insert_row(&prefix, id, spec.stores, recovery.stores);
+        mapping_planes.insert(prefix, spec.data_planes);
+    }
+
+    Ok((mappings, mapping_planes))
 }
 
 /// Returns an option because `catalog_name` is from a drafted spec, and we've yet to
@@ -1161,5 +1139,75 @@ mod test {
                 panic!("expected success for example: {example}, but got error: {error:?}");
             }
         }
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn test_resolve_and_join_storage_mappings(pool: sqlx::PgPool) {
+        sqlx::query(
+            r#"
+            insert into storage_mappings (id, catalog_prefix, spec) values
+              ('00:00:00:00:00:00:00:01', 'aliceCo/', '{"stores":[{"provider":"S3","bucket":"alice"}]}'),
+              ('00:00:00:00:00:00:00:02', 'recovery/aliceCo/', '{"stores":[{"provider":"S3","bucket":"alice"}]}'),
+              ('00:00:00:00:00:00:00:03', 'bobCo/', '{"stores":[{"provider":"S3","bucket":"bob","prefix":"collection-data/"}],"data_planes":["ops/dp/public/one"]}'),
+              ('00:00:00:00:00:00:00:04', 'recovery/bobCo/', '{"stores":[{"provider":"S3","bucket":"bob"}]}'),
+              ('00:00:00:00:00:00:00:05', 'daveCo/', '{"stores":[{"provider":"S3","bucket":"dave"}]}'),
+              ('00:00:00:00:00:00:00:06', 'recovery/orphanCo/', '{"stores":[{"provider":"S3","bucket":"orphan"}]}'),
+              ('00:00:00:00:00:00:00:07', 'carolCo/', '{"stores":[{"provider":"S3","bucket":"carol"}]}'),
+              ('00:00:00:00:00:00:00:08', 'recovery/carolCo/', '{"stores":42}');
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // A drafted `recovery/...` name yields a `recovery/` tenant, which must
+        // not select the recovery mappings of other tenants.
+        let rows = db::resolve_storage_mappings(vec!["bobCo/", "recovery/"], &pool)
+            .await
+            .unwrap();
+        insta::assert_debug_snapshot!(join_storage_mappings(rows).unwrap(), @r#"
+        (
+            [
+                StorageMapping {
+                    catalog_prefix: bobCo/,
+                    control_id: "0000000000000003",
+                    stores: [
+                      {
+                        "provider": "S3",
+                        "bucket": "bob",
+                        "prefix": "collection-data/",
+                        "region": null
+                      }
+                    ],
+                    recovery_stores: [
+                      {
+                        "provider": "S3",
+                        "bucket": "bob",
+                        "prefix": null,
+                        "region": null
+                      }
+                    ],
+                },
+            ],
+            {
+                Prefix(
+                    "bobCo/",
+                ): [
+                    "ops/dp/public/one",
+                ],
+            },
+        )
+        "#);
+
+        let rows = db::resolve_storage_mappings(vec!["carolCo/"], &pool)
+            .await
+            .unwrap();
+        insta::assert_snapshot!(format!("{:#}", join_storage_mappings(rows).unwrap_err()), @"deserializing storage mapping recovery/carolCo/: invalid type: integer `42`, expected a sequence");
+
+        // A mapping without its `recovery/` twin is an error.
+        let rows = db::resolve_storage_mappings(vec!["daveCo/"], &pool)
+            .await
+            .unwrap();
+        insta::assert_snapshot!(format!("{:#}", join_storage_mappings(rows).unwrap_err()), @"storage mapping daveCo/ has no paired recovery/daveCo/ mapping");
     }
 }

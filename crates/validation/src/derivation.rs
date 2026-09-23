@@ -450,17 +450,14 @@ async fn walk_derivation(
     .collect();
 
     // Determine storage mappings for task recovery logs.
-    let recovery_stores = match crate::storage_mapping::lookup_mapping(
-        "derivation",
-        &format!("recovery/{collection}"),
-        storage_mappings,
-    ) {
-        Ok(mapping) => mapping.stores.as_slice(),
-        Err(err) => {
-            err.push(scope, errors);
-            &[]
-        }
-    };
+    let recovery_stores =
+        match crate::storage_mapping::lookup_mapping("derivation", collection, storage_mappings) {
+            Ok(mapping) => mapping.recovery_stores.as_slice(),
+            Err(err) => {
+                err.push(scope, errors);
+                &[]
+            }
+        };
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.

@@ -56,15 +56,7 @@ fn walk_test(
         _live_model,
         live_spec,
         is_touch,
-    ) = match walk_transition(
-        pub_id,
-        build_id,
-        "test",
-        None,
-        eob,
-        storage_mappings,
-        errors,
-    ) {
+    ) = match walk_transition(pub_id, build_id, "test", eob, storage_mappings, errors) {
         Ok(ok) => ok,
         Err(built) => return built,
     };

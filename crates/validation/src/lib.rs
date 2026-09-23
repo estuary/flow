@@ -19,13 +19,6 @@ mod test_step;
 pub use derivation::derive_spec_request;
 pub use errors::Error;
 
-/// A resolved data-plane used as the default placement of newly created specs.
-#[derive(Clone, Debug)]
-pub struct DefaultDataPlane {
-    pub id: models::Id,
-    pub name: String,
-}
-
 /// Portion of the binding namespace reserved for runtime-internal bindings
 /// (today: the capture connector-state pseudo-binding). Internal additions must
 /// not move the user-visible binding ceilings.
@@ -69,7 +62,6 @@ pub async fn validate(
     build_id: models::Id,
     project_root: &url::Url,
     connectors: &Connectors<'_>,
-    default_data_plane: Option<&DefaultDataPlane>,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
     fail_fast: bool,
@@ -89,7 +81,6 @@ pub async fn validate(
         &draft.collections,
         &live.inferred_schemas,
         &live.collections,
-        default_data_plane,
         &live.storage_mappings,
         &mut errors,
     );
@@ -141,7 +132,6 @@ pub async fn validate(
         &live.captures,
         &built_collections,
         connectors,
-        default_data_plane,
         &dependencies,
         noop_captures,
         &live.storage_mappings,
@@ -174,7 +164,6 @@ pub async fn validate(
         &live.materializations,
         &built_collections,
         connectors,
-        default_data_plane,
         &dependencies,
         noop_materializations,
         &live.storage_mappings,
@@ -237,102 +226,10 @@ pub async fn validate(
     }
 }
 
-fn walk_prefix<'a>(
-    scope: Scope<'a>,
-    entity: &'static str,
-    name: &str,
-    default_data_plane: Option<&DefaultDataPlane>,
-    storage_mappings: &'a [tables::StorageMapping],
-    errors: &mut tables::Errors,
-) -> Option<(
-    &'a [models::Store], // Partition stores.
-    &'a [models::Store], // Recovery stores.
-    models::Id,          // Data-plane for task initialization.
-)> {
-    let partition = match storage_mapping::lookup_mapping(entity, name, storage_mappings) {
-        Ok(m) => m,
-        Err(err) => {
-            err.push(scope, errors);
-            return None; // Cannot continue.
-        }
-    };
-    let recovery = match storage_mapping::lookup_mapping(
-        entity,
-        &format!("recovery/{name}"),
-        storage_mappings,
-    ) {
-        Ok(m) => m,
-        Err(err) => {
-            err.push(scope, errors);
-            return None; // Cannot continue.
-        }
-    };
-
-    // Require that `partition` and `recovery` mapping prefixes match one another.
-    // This is not absolutely required, but a) is true today and b) holds open
-    // a future refactor that composes partition stores, recovery stores,
-    // and data-planes into a single "Prefix" concept.
-    if Some(partition.catalog_prefix.as_str()) == recovery.catalog_prefix.strip_prefix("recovery/")
-    {
-        // OK: recovery prefix is "recovery/" + partition prefix.
-    } else if partition.catalog_prefix.is_empty() && recovery.catalog_prefix.is_empty() {
-        // OK: support for offline test and flowctl builds.
-    } else {
-        Error::StorageMappingPrefixMismatch {
-            entity,
-            name: name.to_string(),
-            partition_mapping: partition.catalog_prefix.clone(),
-            recovery_mapping: recovery.catalog_prefix.clone(),
-        }
-        .push(scope, errors);
-    }
-
-    // Similarly, require that data-planes of `partition` and `recovery` align.
-    if !recovery.data_plane_ids.is_empty() && recovery.data_plane_ids != partition.data_plane_ids {
-        Error::StorageMappingDataPlanesMismatch {
-            entity,
-            name: name.to_string(),
-            partition_mapping: partition.catalog_prefix.clone(),
-        }
-        .push(scope, errors);
-    }
-
-    // Determine the data plane into which `name` should be initialized.
-    let init_data_plane = if let Some(default_data_plane) = default_data_plane {
-        if !partition.data_plane_ids.contains(&default_data_plane.id)
-            && partition.catalog_prefix.as_str() != "ops/"
-        {
-            Error::DataPlaneNotInStorageMapping {
-                entity,
-                name: name.to_string(),
-                partition_mapping: partition.catalog_prefix.clone(),
-                data_plane: default_data_plane.name.clone(),
-            }
-            .push(scope, errors);
-        }
-        default_data_plane.id
-    } else if let Some(default_plane_id) = partition.data_plane_ids.first() {
-        // Default to using the first data-plane attached to the storage mapping.
-        *default_plane_id
-    } else {
-        // Admissible data-planes must be attached to every storage mapping.
-        Error::StorageMappingMissingDataPlanes {
-            entity,
-            name: name.to_string(),
-            partition_mapping: partition.catalog_prefix.clone(),
-        }
-        .push(scope, errors);
-        return None; // Cannot continue.
-    };
-
-    Some((&partition.stores, &recovery.stores, init_data_plane))
-}
-
 fn walk_transition<'a, D, L, B>(
     pub_id: models::Id,
     build_id: models::Id,
     entity: &'static str,
-    default_data_plane: Option<&DefaultDataPlane>,
     eob: EOB<&'a L, &'a D>,
     storage_mappings: &'a tables::StorageMappings,
     errors: &mut tables::Errors,
@@ -407,25 +304,28 @@ where
                 return Err(None);
             };
 
-            let Some((partition_stores, recovery_stores, assigned_data_plane)) = walk_prefix(
-                Scope::new(draft.scope()),
+            let mapping = match storage_mapping::lookup_mapping(
                 entity,
                 draft.catalog_name().as_ref(),
-                default_data_plane,
                 storage_mappings,
-                errors,
-            ) else {
-                return Err(None); // Cannot continue without mapped stores.
+            ) {
+                Ok(mapping) => mapping,
+                Err(err) => {
+                    err.push(Scope::new(draft.scope()), errors);
+                    return Err(None); // Cannot continue without mapped stores.
+                }
             };
+            // Zero if placement is deferred, used by local `flowctl` builds.
+            let data_plane_id = draft.data_plane_id().unwrap_or(models::Id::zero());
 
             Ok((
                 draft.catalog_name(),
                 draft.scope(),
                 model.clone(),
-                models::Id::zero(),  // Has no control-plane ID.
-                assigned_data_plane, // Assign default data-plane.
-                partition_stores,
-                recovery_stores,
+                models::Id::zero(), // Has no control-plane ID.
+                data_plane_id,
+                &mapping.stores,
+                &mapping.recovery_stores,
                 models::Id::zero(), // Never published.
                 models::Id::zero(), // Never built.
                 None,               // Has no live model.
@@ -492,41 +392,17 @@ where
                 Error::TouchModelIsNotEqual.push(Scope::new(draft.scope()), errors);
             }
 
-            let default_data_plane = if !draft.catalog_name().as_ref().starts_with("ops/") {
-                // If we used `default_data_plane` here, we'd error if that plane was
-                // intended for a different, initializing spec and not this one.
-                //
-                // If we used `data_plane_id`, we'd error if the data-plane is
-                // no longer listed in its storage mapping (ex it was removed).
-                //
-                // So, we pass None and let walk_prefix use the first storage
-                // mapping plane as init_data_plane, which is a no-op placeholder
-                // (because the spec already exists).
-                None
-            } else {
-                // The ops/ prefix is special: it has no data-planes because it's
-                // in all data-planes, and if we didn't pass data_plane_id here
-                // we'd error about its lack of planes.
-                Some(DefaultDataPlane {
-                    id: data_plane_id,
-                    name: String::new(),
-                })
-            };
-
-            let Some((partition_stores, recovery_stores, init_data_plane)) = walk_prefix(
-                Scope::new(draft.scope()),
+            let mapping = match storage_mapping::lookup_mapping(
                 entity,
                 draft.catalog_name().as_ref(),
-                default_data_plane.as_ref(),
                 storage_mappings,
-                errors,
-            ) else {
-                return Err(None); // Cannot continue without mapped stores.
+            ) {
+                Ok(mapping) => mapping,
+                Err(err) => {
+                    err.push(Scope::new(draft.scope()), errors);
+                    return Err(None); // Cannot continue without mapped stores.
+                }
             };
-
-            // For entities with a data plane (captures, collections, materializations),
-            // use the assigned data plane. For tests, use the initialization data plane.
-            let data_plane_id = live.data_plane_id().unwrap_or(init_data_plane);
 
             Ok((
                 draft.catalog_name(),
@@ -534,8 +410,8 @@ where
                 model.clone(),
                 live.control_id(),
                 data_plane_id,
-                partition_stores,
-                recovery_stores,
+                &mapping.stores,
+                &mapping.recovery_stores,
                 live.last_pub_id(),
                 live.last_build_id(),
                 Some(live.model()),
@@ -737,7 +613,6 @@ mod test {
             pub_id,
             build_id,
             "collection",
-            None,
             EOB::Right(&draft),
             &storage_mappings,
             &mut errors,
@@ -808,7 +683,6 @@ mod test {
             pub_id,
             build_id,
             "collection",
-            None,
             EOB::Both(&live, &draft),
             &storage_mappings,
             &mut errors,
@@ -827,7 +701,6 @@ mod test {
             pub_id,
             build_id,
             "collection",
-            None,
             EOB::Both(&live, &draft),
             &storage_mappings,
             &mut errors,
@@ -842,7 +715,6 @@ mod test {
             pub_id,
             build_id,
             "collection",
-            None,
             EOB::Both(&live, &draft),
             &storage_mappings,
             &mut errors,
@@ -854,19 +726,12 @@ mod test {
     }
 
     fn prefix_fixture() -> tables::StorageMappings {
-        let data_plane_id = models::Id::new([0, 0, 0, 0, 0, 0, 2, 2]);
         let mut storage_mappings = tables::StorageMappings::new();
         storage_mappings.insert_row(
             models::Prefix::new("test/"),
             models::Id::zero(),
             vec![],
-            vec![data_plane_id],
-        );
-        storage_mappings.insert_row(
-            models::Prefix::new("recovery/test/"),
-            models::Id::zero(),
             vec![],
-            vec![data_plane_id],
         );
         storage_mappings
     }

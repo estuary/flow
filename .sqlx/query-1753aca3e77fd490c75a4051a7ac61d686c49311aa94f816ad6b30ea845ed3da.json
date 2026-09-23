@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        with tenants(name) as (\n          select unnest($1::text[])\n        ),\n        prefixes as (\n          select name as prefix from tenants\n          union all select 'recovery/' || name from tenants\n        )\n        select\n            m.id as \"id: Id\",\n            m.catalog_prefix,\n            m.spec\n        from prefixes p\n        join storage_mappings m on starts_with(m.catalog_prefix, p.prefix);\n        ",
+  "query": "\n        select\n            m.id as \"id: Id\",\n            m.catalog_prefix,\n            m.spec,\n            r.spec as \"recovery_spec?\"\n        from unnest($1::text[]) t(name)\n        join storage_mappings m on starts_with(m.catalog_prefix, t.name)\n        left join storage_mappings r on r.catalog_prefix = 'recovery/' || m.catalog_prefix\n        where not starts_with(m.catalog_prefix, 'recovery/');\n        ",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "spec"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "recovery_spec?",
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "storage_mappings",
+            "name": "spec"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "dec4908ba6fae5f4bb5e363c378fc92a2318afc6882cb8489859f9a0fca485dc"
+  "hash": "1753aca3e77fd490c75a4051a7ac61d686c49311aa94f816ad6b30ea845ed3da"
 }

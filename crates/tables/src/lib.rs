@@ -53,14 +53,15 @@ tables!(
 
     table StorageMappings (row StorageMapping, sql "storage_mappings") {
         // Catalog prefix to which this storage mapping applies.
+        // Recovery mappings are *not* separate rows: each row pairs the
+        // partition and recovery stores of its prefix.
         key catalog_prefix: models::Prefix,
         // Control-plane ID of this storage mapping.
         val control_id: models::Id,
-        // Stores for journal fragments under this prefix.
+        // Stores for journal fragments of collections under this prefix.
         val stores: Vec<models::Store>,
-        // Control-plane IDs of data planes into which covered tasks may be created.
-        // Order is significant: the first is the default placement.
-        val data_plane_ids: Vec<models::Id>,
+        // Stores for recovery logs of tasks under this prefix.
+        val recovery_stores: Vec<models::Store>,
     }
 
     table InferredSchemas (row InferredSchema, sql "inferred_schemas") {
@@ -245,7 +246,8 @@ tables!(
         val scope: url::Url,
         // Control-plane ID of this capture, or zero if un-assigned.
         val control_id: models::Id,
-        // Data-plane assignment for this capture.
+        // Data-plane assignment for this capture, or zero if a new
+        // capture's placement is deferred (as in local builds).
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
@@ -277,7 +279,8 @@ tables!(
         val scope: url::Url,
         // Control-plane ID of this collection, or zero if un-assigned.
         val control_id: models::Id,
-        // Data-plane assignment for this collection.
+        // Data-plane assignment for this collection, or zero if a new
+        // collection's placement is deferred (as in local builds).
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
@@ -309,7 +312,8 @@ tables!(
         val scope: url::Url,
         // Control-plane ID of this materialization, or zero if un-assigned.
         val control_id: models::Id,
-        // Data-plane assignment for this materialization.
+        // Data-plane assignment for this materialization, or zero if a new
+        // materialization's placement is deferred (as in local builds).
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,

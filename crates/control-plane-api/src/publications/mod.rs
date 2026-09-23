@@ -14,9 +14,9 @@ mod commit;
 mod db;
 mod finalize;
 mod initialize;
-mod retry;
-
+mod placement;
 mod quotas;
+mod retry;
 pub mod specs;
 
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
@@ -368,7 +368,7 @@ impl Publisher {
         subject: &models::authz::Subject,
         publication_id: models::Id,
         detail: Option<String>,
-        draft: tables::DraftCatalog,
+        mut draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
         explicit_plane_name: Option<&str>,
         snapshot: &crate::Snapshot,
@@ -415,17 +415,33 @@ impl Publisher {
         }
 
         let specs::ResolvedLiveCatalog {
-            live: live_catalog,
-            default_data_plane,
-        } = specs::resolve_live_specs(
-            subject,
-            &draft,
-            &self.db,
-            snapshot,
-            verify_user_authz,
+            live: mut live_catalog,
+            mapping_planes,
+        } = specs::resolve_live_specs(subject, &draft, &self.db, snapshot, verify_user_authz)
+            .await?;
+
+        // Resolve a data-plane name to its user-authorized Id.
+        let resolve = |data_plane_name: &str| {
+            if let Some(data_plane) = snapshot
+                .is_user_authorized(subject, data_plane_name, models::Capability::Read)
+                .then(|| snapshot.data_plane_by_catalog_name(data_plane_name))
+                .flatten()
+            {
+                Some(data_plane.control_id)
+            } else {
+                snapshot.request_refresh(); // Snapshot may be stale (unlikely).
+                None
+            }
+        };
+
+        let placement_errors = placement::assign(
+            &mut draft,
+            &live_catalog,
+            &mapping_planes,
             explicit_plane_name,
-        )
-        .await?;
+            &resolve,
+        );
+        live_catalog.errors.extend(placement_errors.into_iter());
 
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
@@ -466,9 +482,34 @@ impl Publisher {
                 tmpdir,
                 self.logs_tx.clone(),
                 logs_token,
-                default_data_plane.as_ref(),
             )
             .await?;
+
+        // Placement either assigned a plane to every created spec, or failed
+        // the publication before its build. Anything else is a placement bug.
+        if built.errors().next().is_none() {
+            for r in &built.built.built_captures {
+                assert!(
+                    !r.is_insert() || !r.data_plane_id.is_zero(),
+                    "unplaced capture: {}",
+                    r.capture
+                );
+            }
+            for r in &built.built.built_collections {
+                assert!(
+                    !r.is_insert() || !r.data_plane_id.is_zero(),
+                    "unplaced collection: {}",
+                    r.collection
+                );
+            }
+            for r in &built.built.built_materializations {
+                assert!(
+                    !r.is_insert() || !r.data_plane_id.is_zero(),
+                    "unplaced materialization: {}",
+                    r.materialization
+                );
+            }
+        }
 
         // If there are any tests, run them now as long as there's no build errors
         let test_errors = if built.built.built_tests.len() > 0

@@ -22,7 +22,6 @@ pub async fn walk_all_captures(
     live_captures: &tables::LiveCaptures,
     built_collections: &tables::BuiltCollections,
     connectors: &Connectors<'_>,
-    default_data_plane: Option<&super::DefaultDataPlane>,
     dependencies: &tables::Dependencies<'_>,
     noop_captures: bool,
     storage_mappings: &tables::StorageMappings,
@@ -50,7 +49,6 @@ pub async fn walk_all_captures(
                 eob,
                 built_collections,
                 connectors,
-                default_data_plane,
                 dependencies,
                 noop_captures,
                 storage_mappings,
@@ -81,7 +79,6 @@ async fn walk_capture(
     eob: EOB<&tables::LiveCapture, &tables::DraftCapture>,
     built_collections: &tables::BuiltCollections,
     connectors: &Connectors<'_>,
-    default_data_plane: Option<&super::DefaultDataPlane>,
     dependencies: &tables::Dependencies<'_>,
     noop_captures: bool,
     storage_mappings: &tables::StorageMappings,
@@ -101,15 +98,7 @@ async fn walk_capture(
         live_model,
         live_spec,
         is_touch,
-    ) = match crate::walk_transition(
-        pub_id,
-        build_id,
-        "capture",
-        default_data_plane,
-        eob,
-        storage_mappings,
-        errors,
-    ) {
+    ) = match crate::walk_transition(pub_id, build_id, "capture", eob, storage_mappings, errors) {
         Ok(ok) => ok,
         Err(built) => return built,
     };

@@ -923,7 +923,7 @@ Outcome {
             collection: testing/constraints,
             scope: test://example/catalog.yaml#/collections/testing~1constraints,
             expect_pub_id: NULL,
-            data_plane_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1constraints/schema","properties":{"id":{"type":"string"},"naughty_f":{"type":"string"},"naughty_u":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [

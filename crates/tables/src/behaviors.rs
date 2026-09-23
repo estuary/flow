@@ -331,6 +331,21 @@ impl super::StorageMapping {
     }
 }
 
+impl super::StorageMappings {
+    /// Returns the StorageMapping having the longest `catalog_prefix` which is
+    /// also a prefix of `name`, or None if no such StorageMapping exists.
+    pub fn lookup(&self, name: &str) -> Option<&super::StorageMapping> {
+        // Mappings are ordered by prefix, so all candidate prefixes of `name`
+        // sort before it: scan them in reverse to find the longest match first.
+        let index = self.upper_bound_by_key(&name, |m| &m.catalog_prefix);
+
+        self[0..index]
+            .iter()
+            .rev()
+            .find(|mapping| name.starts_with(mapping.catalog_prefix.as_str()))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::{Import, Imports, RoleGrant, RoleGrants, UserGrant, UserGrants};
@@ -2037,5 +2052,51 @@ mod test {
             ),
             Some(models::Capability::Read),
         );
+    }
+
+    #[test]
+    fn test_storage_mapping_lookup() {
+        let mut mappings = crate::StorageMappings::new();
+
+        for (prefix, id) in [
+            ("foo/", 1u8),
+            ("bar/", 2),
+            ("bar/one/", 3),
+            ("bar/two/", 4),
+            ("baz/a/", 5),
+            ("baz/b/", 6),
+        ] {
+            mappings.insert_row(
+                models::Prefix::new(prefix),
+                models::Id::new([id; 8]),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+
+        let expect = |name, id: Option<[u8; 8]>| {
+            assert_eq!(
+                mappings
+                    .lookup(name)
+                    .map(|mapping| mapping.control_id.as_array()),
+                id,
+                "expected {name} to match {id:?}"
+            )
+        };
+
+        expect("foo/foo", Some([1; 8]));
+        expect("fooo/foo", None);
+        expect("bar/other", Some([2; 8]));
+        expect("bar/one", Some([2; 8]));
+        expect("barr/one", None);
+        expect("bar/one/1", Some([3; 8]));
+        expect("bar/pne/2", Some([2; 8]));
+        expect("bar/two/3", Some([4; 8]));
+        expect("bar/uwo/3", Some([2; 8]));
+        expect("baz/a/3", Some([5; 8]));
+        expect("baz/b/4", Some([6; 8]));
+        expect("baz/c/5", None);
+        expect("baz/a", None);
+        expect("baz/other", None);
     }
 }

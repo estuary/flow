@@ -227,7 +227,7 @@ Outcome {
             collection: testing/collection-with-flow-document,
             scope: test://example/catalog.yaml#/collections/testing~1collection-with-flow-document,
             expect_pub_id: NULL,
-            data_plane_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection-with-flow-document/schema","properties":{"flow_document":{"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [

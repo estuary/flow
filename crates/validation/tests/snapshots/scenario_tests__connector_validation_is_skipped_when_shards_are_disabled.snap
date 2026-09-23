@@ -597,7 +597,7 @@ Outcome {
             capture: acmeCo/testCapture,
             scope: test://example/catalog.yaml#/captures/acmeCo~1testCapture,
             expect_pub_id: NULL,
-            data_plane_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {
@@ -623,7 +623,7 @@ Outcome {
             collection: acmeCo/foo,
             scope: test://example/catalog.yaml#/collections/acmeCo~1foo,
             expect_pub_id: NULL,
-            data_plane_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/acmeCo~1foo/schema","properties":{"id":{"type":"integer"},"val":{"type":"string"}},"required":["id","val"],"type":"object"},
               "key": [
@@ -647,7 +647,7 @@ Outcome {
             materialization: acmeCo/testMaterialization,
             scope: test://example/catalog.yaml#/materializations/acmeCo~1testMaterialization,
             expect_pub_id: NULL,
-            data_plane_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             model: {
               "endpoint": {
                 "connector": {

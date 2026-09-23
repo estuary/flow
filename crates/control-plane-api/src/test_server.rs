@@ -273,7 +273,6 @@ impl crate::publications::builds::Builder for NoopBuilder {
         _tmpdir: &std::path::Path,
         _logs_tx: crate::logs::Tx,
         _logs_token: sqlx::types::Uuid,
-        _default_data_plane: Option<&validation::DefaultDataPlane>,
     ) -> anyhow::Result<build::Output> {
         panic!("NoopBuilder::build called in test - this should not happen for authorization tests")
     }

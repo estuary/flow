@@ -277,57 +277,17 @@ impl Resolver {
             .await
             .context("failed to fetch storage mappings")?;
 
-        // Storage mappings name data planes in their user-facing model.
-        // Resolve those names into IDs before constructing `tables` instances.
-        #[derive(serde::Deserialize)]
-        struct DataPlaneRow {
-            id: models::Id,
-            data_plane_name: String,
-        }
-
-        let data_planes = flow_client_next::postgrest::exec::<Vec<DataPlaneRow>>(
-            self.pg.from("data_planes").select("id,data_plane_name"),
-            self.access_token.as_deref(),
-        )
-        .await
-        .context("failed to fetch data planes")?;
-
-        let data_plane_ids = data_planes
-            .into_iter()
-            .map(|row| (row.data_plane_name, row.id))
-            .collect::<std::collections::BTreeMap<_, _>>();
-
+        // Row-level security keeps `recovery/` mappings out of reach here,
+        // so local builds carry no recovery stores. Local builds also make no
+        // data-plane placement: that happens when a draft is published.
         for row in storage_mappings.into_iter().flatten() {
             if row.catalog_prefix.starts_with("recovery/") {
                 continue; // Does not actually happen in practice.
             }
-            let scope = tables::synthetic_scope("storageMapping", &row.catalog_prefix);
-
-            let mut resolved_ids = Vec::with_capacity(row.spec.data_planes.len());
-            for name in &row.spec.data_planes {
-                if let Some(id) = data_plane_ids.get(name) {
-                    resolved_ids.push(*id);
-                } else {
-                    live.errors.push(tables::Error {
-                        scope: scope.clone(),
-                        error: anyhow::anyhow!("data plane '{name}' was not found"),
-                    });
-                }
-            }
-            if resolved_ids.len() != row.spec.data_planes.len() {
-                continue;
-            }
-
             live.storage_mappings.insert_row(
                 &row.catalog_prefix,
                 row.id,
                 &row.spec.stores,
-                resolved_ids,
-            );
-            live.storage_mappings.insert_row(
-                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
-                models::Id::zero(),
-                Vec::new(),
                 Vec::new(),
             );
         }
@@ -448,6 +408,40 @@ impl Resolver {
             .next()
             .map(|row| row.data_plane_name)
             .with_context(|| format!("couldn't resolve data-plane {id}; you may not have access"))
+    }
+
+    /// Name of the default data plane of the storage mapping covering
+    /// `catalog_name`, which is where a publication will place it by default.
+    pub async fn default_data_plane_name(&self, catalog_name: &str) -> anyhow::Result<String> {
+        #[derive(serde::Deserialize)]
+        struct Row {
+            catalog_prefix: String,
+            spec: models::StorageDef,
+        }
+
+        let prefixes = catalog_name
+            .match_indices('/')
+            .map(|(index, _)| &catalog_name[..=index])
+            .collect::<Vec<_>>();
+
+        let rows = flow_client_next::postgrest::exec::<Vec<Row>>(
+            self.pg
+                .from("storage_mappings")
+                .select("catalog_prefix,spec")
+                .in_("catalog_prefix", prefixes),
+            self.access_token.as_deref(),
+        )
+        .await
+        .context("failed to fetch storage mappings")?;
+
+        rows.into_iter()
+            .max_by_key(|row| row.catalog_prefix.len())
+            .and_then(|row| row.spec.data_planes.into_iter().next())
+            .with_context(|| {
+                format!(
+                    "couldn't find a default data-plane for {catalog_name}; you may not have access"
+                )
+            })
     }
 
     async fn resolve_inferred_schemas(
