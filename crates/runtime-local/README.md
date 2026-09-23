@@ -37,7 +37,7 @@ runtime's equivalent and dies with V1 preview.)
 | `local_router` | The in-process `proto_grpc::connector::Router` of local contexts: one `Plane::Local` `connector::Service` over a throwaway key. |
 | `Controls<P, L>` | The publisher and logger factories installed on each shard, plus shard zero's optional connector-state seed and final-state request, both carried on its `SessionLoop`. `run_sessions` returns the reported final state. |
 | `materialize_driver` / `derive_driver` / `capture_driver` | `run_sessions` drives N shards of one materialization / derivation / capture through a sequence of sessions. |
-| `segments` | Writes documents directly as `shuffle::log` segments and builds the checkpoint `Frontier` that makes them visible — a whole transaction at a time, or document-by-document through a `TxnState`; plus the channel-fed `ShuffleSessionFactory` that relays those frontiers. |
+| `segments` | Writes documents directly as `shuffle::log` segments and builds the checkpoint `Frontier` that makes them visible and carries any backfill begin or complete markers — a whole transaction at a time, or document-by-document through a `TxnState`; plus the channel-fed `ShuffleSessionFactory` that relays those frontiers. |
 | `shards` | The synthetic shard topology — an even split of the `u32` key space, shared by the leader's join shards and the shuffle topology. |
 
 ## Non-obvious details
