@@ -106,10 +106,10 @@ impl Serving {
 
     /// Cut a point-in-time boundary of the disk and finish the delta before it.
     ///
-    /// The cut runs in this order. The mount flushes, admission closes, and every
-    /// mutation which was admitted lands. A mutation is captured before it is
-    /// applied, so each one then falls entirely before or after the boundary. The
-    /// writer can therefore finish exactly the delta which precedes it.
+    /// The cut runs in this order. The mount flushes, and admission closes. The
+    /// owner captures a mutation and applies it in one step, so each one falls
+    /// entirely before or after the boundary. The writer can therefore finish
+    /// exactly the delta which precedes it.
     ///
     /// Admission resumes as soon as the acknowledgement exists. The mutations
     /// admitted from then on belong to the next delta, which the writer holds back

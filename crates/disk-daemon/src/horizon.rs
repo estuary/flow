@@ -145,9 +145,8 @@ impl Horizon {
     /// A run is at most `limit` blocks long, so one copy is one mutation of the
     /// same order as a device request.
     ///
-    /// This reads the image directly rather than through the owner's ring. A copy
-    /// is selected, read, and offered without yielding, so no mutation of the same
-    /// blocks can land between the read and the offer.
+    /// A copy is selected, read, and offered without yielding, so no mutation of
+    /// the same blocks can land between the read and the offer.
     pub fn copy(
         &mut self,
         image: &crate::image::Image,

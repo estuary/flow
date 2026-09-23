@@ -151,6 +151,63 @@ privileged_test! {
 }
 
 privileged_test! {
+    /// Overlapping writes which are in flight together reach the image in the order
+    /// they were captured, so the captured stream rebuilds exactly the image served.
+    ///
+    /// At each step, every thread writes two blocks of the same four-block window,
+    /// starting one block apart, so the writes overlap partly as well as wholly. A
+    /// barrier releases them together, and each is `O_DIRECT`, so they are device
+    /// requests in flight at once, in no order the block layer promises. Windows do
+    /// not overlap one another, so every window's final content records the order its
+    /// own writes were applied in, and a later step cannot hide an earlier mistake.
+    fn test_overlapping_writes_replay_identically(dir) {
+        const THREADS: usize = 8;
+        const STEPS: usize = 256;
+
+        let scenario = Scenario::new(dir);
+        let (mut disk, captured) = scenario.disk(ublk::QUEUE_DEPTH, NO_COMPACTION);
+        let collector = collect(captured);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(THREADS));
+
+        let writers: Vec<_> = (0..THREADS)
+            .map(|thread| {
+                let (block_path, barrier) = (disk.block_path(), barrier.clone());
+
+                std::thread::spawn(move || {
+                    let device = device::open_direct(&block_path);
+                    let buf = device::aligned_buffer(2);
+
+                    for step in 0..STEPS {
+                        // Distinct among a step's writers, and never zero.
+                        buf.fill(1 + ((thread * STEPS + step) % 255) as u8);
+                        _ = barrier.wait();
+                        () = device::write_blocks(&device, (4 * step + thread % 3) as u32, buf);
+                    }
+                })
+            })
+            .collect();
+
+        for writer in writers {
+            () = writer.join().expect("writer panicked");
+        }
+        let image = disk.stop().unwrap().expect("the disk was live");
+        let mutations = collector.join().expect("collector panicked");
+
+        // The block layer may merge writes which abut into one request, so the
+        // capture is checked by the blocks it covers rather than by its requests.
+        let written: usize = mutations
+            .iter()
+            .flatten()
+            .map(|chunk| chunk::covered_blocks(chunk).len())
+            .sum();
+        assert_eq!(written, THREADS * STEPS * 2, "the capture lost a write");
+
+        let (replayed, allocated) = replay(&scenario.dir, &mutations);
+        () = assert_replays_identically(&image, &replayed, &allocated);
+    }
+}
+
+privileged_test! {
     /// Open a horizon over a disk's cold blocks, discharge it with the budget a hot
     /// region's rewrites earn, and hold the invariant the whole scheme rests on: the
     /// mutations from the horizon onward rebuild the entire disk by themselves.

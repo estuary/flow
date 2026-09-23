@@ -89,7 +89,6 @@ fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {
             }
         }
         owner.reap();
-        owner.report_quiet();
     }
 
     let Owner {
@@ -126,7 +125,7 @@ impl Owner {
         Ok(Self {
             descs: ublk::IoDescs::map(&cdev, ublk::QUEUE_ID, queue_depth)?,
             dev_id,
-            ring: super::ring::ring()?,
+            ring: io_uring::IoUring::new(super::ring::RING_ENTRIES)?,
             waker,
             wake_buf: Box::new([0; 8]),
             cdev,
@@ -134,15 +133,12 @@ impl Owner {
             capture,
             horizon,
             policy,
-            inflight: super::InFlight::default(),
             slots: (0..queue_depth).map(|_| super::Slot::Idle).collect(),
             backlog: super::Backlog::new(),
             reaped: Vec::new(),
             pending: 0,
             parked: std::collections::VecDeque::new(),
             admitting: true,
-            admitted: 0,
-            quiet: None,
             stopping: false,
             release: None,
         })
@@ -152,10 +148,12 @@ impl Owner {
     fn drain_commands(&mut self, commands: &std::sync::mpsc::Receiver<Command>) -> Option<()> {
         loop {
             match commands.try_recv() {
-                Ok(Command::CloseAdmission(quiet)) => {
+                // Every mutation admitted before this is in the image already,
+                // because each is applied as it is admitted. The cut is therefore
+                // reached as soon as admission closes.
+                Ok(Command::CloseAdmission(closed)) => {
                     self.admitting = false;
-                    self.quiet = Some(quiet);
-                    self.report_quiet();
+                    _ = closed.send(());
 
                     if let Some(horizon) = &mut self.horizon {
                         () = horizon.cut();
@@ -199,8 +197,7 @@ impl Owner {
 
                     // A request whose chunks the capture channel never accepted
                     // changed nothing, and the stopped device has already
-                    // errored it. A request whose chunks were accepted is still
-                    // waiting on the image, and it must still apply.
+                    // errored it.
                     for tag in std::mem::take(&mut self.parked) {
                         self.slots[tag as usize] = super::Slot::Idle;
                     }

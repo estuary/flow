@@ -33,7 +33,7 @@ rest belongs to the daemon and is private. Everything below is `src/`.
 | `tenure.rs` | `Service` and `Tenure`: the RPC state machine. |
 | `failure.rs` | `Failure`, and the gRPC code each tenure failure ends its stream with. |
 | `serving.rs` | `Serving`: one open disk's mount, device, and writer — its bootstrap commit, the cut order of `prepare`, and its teardown. |
-| `device/` | `Device`: one `ublk` device's life from `add_dev` to `del_dev`, and the `Owner` thread which serves it. `owner.rs` is that thread, `ring.rs` its `io_uring`, `request.rs` the per-tag path of one request, `admission.rs` the cut and the horizon copies, `inflight.rs` the serialization of overlapping mutations. |
+| `device/` | `Device`: one `ublk` device's life from `add_dev` to `del_dev`, and the `Owner` thread which serves it. `owner.rs` is that thread, `ring.rs` its `io_uring`, `request.rs` the per-tag path of one request, `admission.rs` the cut and the horizon copies. |
 | `ublk/` | The `ublk` ABI: `control.rs` is the host-wide control device, `sys.rs` the generated bindings. |
 | `image.rs` | `Image`: the sparse file and the bitmap of what it has allocated. |
 | `bitmap.rs` | `Bitmap`: a fixed set of block indices. |
@@ -123,16 +123,16 @@ buffers or infer which writes belong to a checkpoint.
 Preparation establishes the boundary in this order:
 
 1. Call `syncfs` on the mount.
-2. Close mutation admission and wait for every admitted image operation.
+2. Close mutation admission. Every admitted mutation is already in the image.
 3. Take every remaining captured mutation, then flush and wait for the broker to
    confirm every record of the delta.
 4. Sample compaction progress and build the acknowledgement.
 5. Reopen admission and return `Prepared`.
 
-Closing admission is the exact device cut. A mutation is captured before its image
-operation is submitted, so it falls wholly before or after that cut. The client
-then commits its state together with the acknowledgement, sends `Acknowledge`,
-and releases the workload for its next transaction.
+Closing admission is the exact device cut. The owner captures a mutation and then
+applies it to the image in one step, so it falls wholly before or after that cut.
+The client then commits its state together with the acknowledgement, sends
+`Acknowledge`, and releases the workload for its next transaction.
 
 Recovery preserves filesystem contents at the committed boundary. Mounting and
 ext4 journal replay can change filesystem bookkeeping, so the recovered block
@@ -176,13 +176,28 @@ A disk has one `ublk` queue and one owner thread with an `io_uring`. Queue depth
 provides concurrency. The dedicated thread is required because `ublk` binds a
 queue to the thread that arms its first fetch; a Tokio task could migrate between
 workers. Single ownership also keeps image and bitmap updates free of locks.
-The rings share a bounded kernel worker pool, avoiding a separate pool per disk.
 
 Reads come from the image. Each write, discard, or write-zeroes request first
-offers its complete mutation to the bounded capture channel, then submits the
-image operation. A full channel parks the request. Overlapping mutations are
-serialized, so journal order reproduces their effect on the image even though
-disjoint I/O can complete concurrently. A mutation never splits across deltas.
+offers its complete mutation to the bounded capture channel. A full channel parks
+the request. Once the channel accepts the mutation, the owner applies it to the
+image at once, so the image takes mutations in exactly the order the journal does,
+overlapping or not. A mutation never splits across deltas.
+
+The owner reads and writes the image directly, as blocking calls on its own
+thread, rather than through its ring. That keeps the request path simple, and it
+has a cost: while the host filesystem makes one call wait, every other request of
+the disk waits too. The likely waits are a large punch, a read the host page cache
+misses, and the host throttling a writer when it holds too much unwritten data. The
+device accepts discards of at most 16 MiB, so a large one reaches the owner as
+pieces it serves other requests between.
+
+The ring carries what remains: the queue's fetch and commit commands, the data
+each request moves through the character device, and the owner's wake. An
+operation there which cannot complete without blocking, in practice a data copy,
+runs on one of `io_uring`'s kernel worker threads. Those belong to the thread which
+submitted the operation, so each owner has its own pool at the kernel's default
+size; queue depth bounds how many are busy at once, and nothing bounds the total
+across disks.
 
 The writer takes one mutation at a time and hands it to the appender as one
 record, returning to its requests in between, so a disk under sustained write
@@ -201,7 +216,7 @@ takes no mutation while it waits. The capture channel fills behind it and the
 device parks: that channel remains the single seam at which a workload writing
 faster than its brokers accept is slowed down.
 
-Mutation requests complete when their image operations complete. This keeps normal
+Mutation requests complete once they are applied to the image. This keeps normal
 block I/O independent of broker latency until capture backpressure applies.
 The device advertises no volatile write cache and implements no flush or FUA
 requests: local device completion is not the durability boundary. `Prepare`

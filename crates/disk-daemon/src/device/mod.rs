@@ -11,12 +11,13 @@
 //!
 //! It is a thread rather than a task because `ublk` binds a device's queue to the
 //! thread which arms its first fetch. It rejects every later command from any
-//! other thread with `EINVAL`. The thread blocks in `submit_and_wait`. A
+//! other thread with `EINVAL`. The thread waits in `submit_and_wait`. A
 //! [`Waker`] armed on the ring interrupts it when a command arrives or capture
 //! capacity frees.
 //!
-//! An owner never blocks anywhere else. It submits image and character-device
-//! I/O to the ring and reaps it later. A disk whose capture channel is full parks
+//! The owner submits character-device I/O to the ring and reaps it later. It reads
+//! and writes the image directly, so a call the host filesystem makes wait also
+//! waits every other request of the disk. A disk whose capture channel is full parks
 //! only the requests which need that channel.
 //!
 //! The files of this directory are:
@@ -31,19 +32,16 @@
 //!   hands it over to the completion which hands it back.
 //! - `admission.rs` — what may be captured now: the cut, the requests parked behind a
 //!   full capture channel, and the horizon copies a delta's budget pays for.
-//! - `inflight.rs` — serialization of overlapping mutations.
 
 use crate::capture::{Capture, Captured};
 use crate::horizon::{Horizon, Policy};
 use crate::image::Image;
 use crate::ublk::{self, Control};
 use crate::wake::Waker;
-use inflight::InFlight;
 use request::Slot;
 use ring::Backlog;
 
 mod admission;
-mod inflight;
 mod owner;
 mod request;
 mod ring;
@@ -152,16 +150,16 @@ impl Device {
     /// Stop admitting mutations, and return once the image holds every mutation
     /// which was admitted.
     ///
-    /// This is the point-in-time cut of a prepare. A mutation is captured
-    /// before it is applied, so each one falls entirely before or after the cut.
+    /// This is the point-in-time cut of a prepare. The owner captures and applies
+    /// a mutation in one step, so each one falls entirely before or after the cut.
     /// Reads continue. A mutation which arrives while admission is closed waits
     /// for [`Device::resume_admission`] rather than failing.
     pub async fn close_admission(&self) -> anyhow::Result<()> {
         let commands = self.commands()?;
-        let (quiet, quieted) = tokio::sync::oneshot::channel();
-        () = commands.send(Command::CloseAdmission(quiet))?;
+        let (closed, is_closed) = tokio::sync::oneshot::channel();
+        () = commands.send(Command::CloseAdmission(closed))?;
 
-        quieted.await.map_err(|_| commands.stopped())
+        is_closed.await.map_err(|_| commands.stopped())
     }
 
     pub fn resume_admission(&self) -> anyhow::Result<()> {
@@ -324,7 +322,6 @@ struct Owner {
     /// part of it, so the owner holds it beside the image.
     horizon: Option<Horizon>,
     policy: Policy,
-    inflight: InFlight,
     slots: Vec<Slot>,
     backlog: Backlog,
     /// Completions of one pass. They are all taken before any is handled, because
@@ -337,11 +334,6 @@ struct Owner {
     parked: std::collections::VecDeque<u16>,
     /// Whether mutations may be captured. The cut of a prepare closes this.
     admitting: bool,
-    /// Mutations captured but not yet applied to the image. The cut is reached
-    /// once this is zero.
-    admitted: usize,
-    /// Answered once admission is closed and nothing is admitted.
-    quiet: Option<tokio::sync::oneshot::Sender<()>>,
     /// The kernel has aborted the queue, so fetches are not re-armed.
     stopping: bool,
     /// Set once the disk is to be released, and replied to when it is quiet.

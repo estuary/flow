@@ -1,8 +1,8 @@
 //! The seam between an accepted device mutation and its durable copy.
 //!
-//! An owner offers each mutation's chunks here before it issues that mutation
-//! against the image. Chunks are therefore queued in the order the image is
-//! modified, which makes journal order equal replay order. A mutation is queued
+//! An owner offers each mutation's chunks here, and applies that mutation to the
+//! image once they are accepted. Chunks are therefore queued in the order the image
+//! is modified, which makes journal order equal replay order. A mutation is queued
 //! whole, so backpressure never splits a device request across two deltas.
 //!
 //! The channel is bounded, and that bound is the device's backpressure. A

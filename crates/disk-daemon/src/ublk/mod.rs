@@ -28,6 +28,14 @@ pub const QUEUE_DEPTH: u16 = 32;
 /// retaining queue concurrency.
 pub const MAX_IO_BUF_BYTES: u32 = 128 * 1024;
 
+/// Largest discard or write-zeroes request the device accepts.
+///
+/// The owner punches the image as a blocking call, and every other request of the
+/// disk waits while a punch runs. Bounding one request lets the kernel split a large
+/// discard, such as a big file's deletion, into pieces the owner serves other
+/// requests between.
+pub const MAX_DISCARD_BYTES: u32 = 16 << 20;
+
 pub fn char_path(dev_id: u32) -> std::path::PathBuf {
     format!("/dev/ublkc{dev_id}").into()
 }
@@ -65,8 +73,8 @@ pub fn params(blocks: u32) -> sys::UblkParams {
             // Aligned to the tracking granularity, so a discard clears whole
             // allocated bits.
             discard_granularity: crate::BLOCK_SIZE,
-            max_discard_sectors: sectors.try_into().unwrap_or(u32::MAX),
-            max_write_zeroes_sectors: sectors.try_into().unwrap_or(u32::MAX),
+            max_discard_sectors: MAX_DISCARD_BYTES / sys::SECTOR_SIZE as u32,
+            max_write_zeroes_sectors: MAX_DISCARD_BYTES / sys::SECTOR_SIZE as u32,
             // ublk carries one range per request, and the kernel rejects params
             // which advertise more.
             max_discard_segments: 1,

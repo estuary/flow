@@ -1,10 +1,11 @@
 //! What an owner may capture now, and what it does with a mutation it cannot.
 //!
-//! A mutation is offered to the capture channel before its image operation is
-//! submitted, so journal order is the order the image is modified and every mutation
-//! falls wholly on one side of a cut. A mutation the channel refuses — because it is
-//! full, or because a prepare has closed admission — parks its request in arrival
-//! order, and `retry_parked` offers those again without reordering them.
+//! A mutation is offered to the capture channel, and applied to the image as soon as
+//! the channel accepts it, per `Owner::apply`. Journal order is therefore the order
+//! the image is modified, and every mutation falls wholly on one side of a cut. A
+//! mutation the channel refuses — because it is full, or because a prepare has closed
+//! admission — parks its request in arrival order, and `retry_parked` offers those
+//! again without reordering them.
 //!
 //! Compaction is here for the same reason: a horizon copy is a mutation the owner
 //! offers itself, out of the budget the delta's own traffic earned.
@@ -15,26 +16,14 @@ use crate::proto::Chunk;
 use crate::ublk;
 
 impl Owner {
-    /// Answer the cut once admission is closed and everything admitted has been
-    /// applied.
-    pub(super) fn report_quiet(&mut self) {
-        if self.admitted != 0 {
-            return;
-        }
-        if let Some(quiet) = self.quiet.take() {
-            _ = quiet.send(());
-        }
-    }
-
-    /// Hand `chunks` to the capture channel. A mutation is captured before it is
-    /// applied, so journal order is application order. A mutation waits here when
-    /// the channel is full. It is never dropped or refused.
+    /// Hand `chunks` to the capture channel, and apply them once it accepts them. A
+    /// mutation waits here when the channel is full. It is never dropped or refused.
     ///
     /// A closed admission parks a mutation exactly as a full channel does, which
     /// places it after the cut.
     ///
-    /// `data` is the write's, and empty for a punch. It is held either way, because
-    /// the image operation which applies the mutation reads from it.
+    /// `data` is the write's, and empty for a punch. A parked mutation holds it,
+    /// because applying the mutation writes it to the image.
     pub(super) fn offer(
         &mut self,
         tag: u16,
@@ -50,10 +39,7 @@ impl Owner {
         };
 
         match offered {
-            Ok(()) => {
-                self.slots[tag as usize] = Slot::Admitted { range, data };
-                self.admit(tag, changed);
-            }
+            Ok(()) => self.admit(tag, range, data, changed),
             Err(chunks) => {
                 self.slots[tag as usize] = Slot::Parked {
                     range,
@@ -66,19 +52,16 @@ impl Owner {
     }
 
     /// Take the mutation at `tag`, whose chunks the capture channel has
-    /// accepted.
+    /// accepted, and apply it.
     ///
     /// A mutation publishes the blocks it covers, so it discharges them from any
     /// open horizon. The `changed` bytes it carries earn the budget a copy spends.
-    fn admit(&mut self, tag: u16, changed: u64) {
-        let range = self.slots[tag as usize].range();
-
+    fn admit(&mut self, tag: u16, range: std::ops::Range<u32>, data: bytes::Bytes, changed: u64) {
         if let Some(horizon) = &mut self.horizon {
-            () = horizon.published(range);
+            () = horizon.published(range.clone());
             () = horizon.changed(changed);
         }
-        self.admitted += 1;
-        self.begin_mutation(tag);
+        self.apply(tag, range, data);
     }
 
     /// Spend this delta's copy budget on the open horizon, interleaving
@@ -129,8 +112,8 @@ impl Owner {
                 return;
             };
             // Taken out rather than borrowed, because an offer which is accepted
-            // moves the slot on. A parked tag has no operation in flight, so the
-            // slot holds nothing an SQE addresses meanwhile.
+            // completes the request. A parked tag has no operation in flight, so
+            // the slot holds nothing an SQE addresses meanwhile.
             let Slot::Parked {
                 range,
                 data,
@@ -144,8 +127,7 @@ impl Owner {
             match self.capture.offer(chunks) {
                 Ok(()) => {
                     _ = self.parked.pop_front();
-                    self.slots[tag as usize] = Slot::Admitted { range, data };
-                    self.admit(tag, changed);
+                    self.admit(tag, range, data, changed);
                 }
                 Err(chunks) => {
                     self.slots[tag as usize] = Slot::Parked {
@@ -156,14 +138,6 @@ impl Owner {
                     return;
                 }
             }
-        }
-    }
-
-    fn begin_mutation(&mut self, tag: u16) {
-        let range = self.slots[tag as usize].range();
-
-        if self.inflight.begin(tag, range) {
-            self.mutate(tag);
         }
     }
 }

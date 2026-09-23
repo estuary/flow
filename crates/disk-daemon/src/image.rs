@@ -14,10 +14,8 @@ use crate::bitmap::Bitmap;
 
 /// An image and the bitmap which tracks what it has allocated.
 ///
-/// Only the disk's owner mutates this, so nothing here is synchronized. On the
-/// serving path the owner submits image I/O to its ring rather than through this
-/// type. It then records the effect with [`Image::allocate`] or
-/// [`Image::deallocate`].
+/// Only the disk's owner mutates this, so nothing here is synchronized. The owner
+/// serves its disk through these methods, as blocking calls on its own thread.
 pub struct Image {
     file: std::fs::File,
     allocated: Bitmap,
@@ -42,6 +40,8 @@ impl Image {
         })
     }
 
+    /// The file itself, for a case which compares or replays images byte for byte.
+    #[cfg(test)]
     pub fn file(&self) -> &std::fs::File {
         &self.file
     }
@@ -51,7 +51,7 @@ impl Image {
     }
 
     /// Byte offset at which `block` begins.
-    pub fn offset(&self, block: u32) -> u64 {
+    fn offset(&self, block: u32) -> u64 {
         block as u64 * crate::BLOCK_SIZE as u64
     }
 
@@ -59,18 +59,15 @@ impl Image {
         &self.allocated
     }
 
-    /// Read blocks back.
-    ///
-    /// The owner reads through its ring, so this is not the serving path. It is
-    /// what a horizon copies out of the image with, and what a test inspects an
-    /// image with.
+    /// Read blocks back, which serves a device read, copies a horizon run out of the
+    /// image, and lets a test inspect one.
     pub fn read_at(&self, block: u32, buf: &mut [u8]) -> std::io::Result<()> {
         std::os::unix::fs::FileExt::read_exact_at(&self.file, buf, self.offset(block))
     }
 
-    /// Write whole blocks. A partial block would leave the bitmap describing
-    /// less than the image holds.
-    #[cfg(test)]
+    /// Write whole blocks, and record them allocated. This applies a device write.
+    ///
+    /// A partial block would leave the bitmap describing less than the image holds.
     pub fn write_at(&mut self, block: u32, data: &[u8]) -> std::io::Result<()> {
         let blocks = data.len() / crate::BLOCK_SIZE as usize;
         assert_eq!(
@@ -81,29 +78,20 @@ impl Image {
         );
 
         std::os::unix::fs::FileExt::write_all_at(&self.file, data, self.offset(block))?;
-        self.allocate(block..block + blocks as u32);
+        self.allocated.set_range(block..block + blocks as u32);
         Ok(())
     }
 
-    #[cfg(test)]
+    /// Deallocate `blocks` blocks from `block`, and record them unallocated. This
+    /// applies a device discard or write-zeroes.
     pub fn punch(&mut self, block: u32, blocks: u32) -> std::io::Result<()> {
         punch_hole(
             &self.file,
             self.offset(block),
             blocks as u64 * crate::BLOCK_SIZE as u64,
         )?;
-        self.deallocate(block..block + blocks);
+        self.allocated.clear_range(block..block + blocks);
         Ok(())
-    }
-
-    /// Record that `range` now occupies space in the image.
-    pub fn allocate(&mut self, range: std::ops::Range<u32>) {
-        self.allocated.set_range(range);
-    }
-
-    /// Record that `range` no longer occupies space in the image.
-    pub fn deallocate(&mut self, range: std::ops::Range<u32>) {
-        self.allocated.clear_range(range);
     }
 
     /// Apply a journal chunk. This is how replay rebuilds an image.
@@ -136,7 +124,7 @@ pub(crate) fn punch_hole(file: &std::fs::File, offset: u64, len: u64) -> std::io
     let rc = unsafe {
         libc::fallocate(
             std::os::fd::AsRawFd::as_raw_fd(file),
-            PUNCH_MODE,
+            libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
             offset as libc::off_t,
             len as libc::off_t,
         )
@@ -146,10 +134,6 @@ pub(crate) fn punch_hole(file: &std::fs::File, offset: u64, len: u64) -> std::io
     }
     Ok(())
 }
-
-/// `fallocate` mode which punches a hole. The owner's ring submissions use it
-/// too, so both paths deallocate identically.
-pub(crate) const PUNCH_MODE: i32 = libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE;
 
 #[cfg(test)]
 mod test {
