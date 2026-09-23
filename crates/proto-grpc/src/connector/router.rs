@@ -8,6 +8,12 @@ pub trait Router: Send + Sync + 'static {
     /// `request_rx` must set `start` and a protocol request of `task_type`.
     /// Authentication and connection failures are returned as the response
     /// channel's first and only item.
+    ///
+    /// The session and its connector are torn down once the caller has both
+    /// dropped `request_rx`'s sender and dropped the returned receiver.
+    /// Holding either keeps the connector running: a unary caller sends EOF
+    /// and then patiently awaits its response. An implementation may tear
+    /// down sooner, when only the returned receiver is dropped.
     fn open(
         &self,
         task_type: ops::TaskType,
@@ -115,7 +121,15 @@ impl Router for EndpointRouter {
                 Ok(())
             };
 
-            if let Err(status) = crate::catch_panic(forward).await {
+            // A silent connector parks `forward`, and with it the tonic stream,
+            // indefinitely. Abandon `forward` when the caller drops its receiver:
+            // releasing the stream (after request EOF) resets the HTTP/2 stream,
+            // which is what tears down the remote connector.
+            let result = tokio::select! {
+                result = crate::catch_panic(forward) => result,
+                () = error_tx.closed() => Ok(()),
+            };
+            if let Err(status) = result {
                 _ = error_tx.send(Err(status)).await;
             }
         });
