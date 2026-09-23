@@ -191,6 +191,14 @@ misses, and the host throttling a writer when it holds too much unwritten data. 
 device accepts discards of at most 16 MiB, so a large one reaches the owner as
 pieces it serves other requests between.
 
+The owner is also the one thread which cleans its disk's dirty pages, so it marks
+itself an I/O flusher (`PR_SET_IO_FLUSHER`). Dirty-page throttling then judges its
+image writes against the host device alone, rather than against the host-wide
+dirty limit. Without that, a disk whose writeback stalls behind a slow journal
+fills the host's dirty budget with pages only its owner can clean, and every other
+disk's owner is throttled for them. Its memory allocations also never wait on I/O,
+which could be I/O to its own disk.
+
 The ring carries what remains: the queue's fetch and commit commands, the data
 each request moves through the character device, and the owner's wake. None of it
 needs `io_uring`'s kernel worker threads. The character device is opened
@@ -422,7 +430,8 @@ Advancing the floor bounds recovery work; deletion is what bounds retained stora
 The daemon needs Linux with the required `ublk` support, e2fsprogs that can
 leave prezeroed regions untouched, and an image filesystem supporting
 `O_TMPFILE` and hole punching. Device and mount operations require
-`CAP_SYS_ADMIN`, and reassignment of a recovered mount root requires
+`CAP_SYS_ADMIN`, marking each disk's owner thread an I/O flusher requires
+`CAP_SYS_RESOURCE`, and reassignment of a recovered mount root requires
 `CAP_CHOWN`.
 
 Clients receive a mounted directory owned by their Unix-socket peer UID/GID and

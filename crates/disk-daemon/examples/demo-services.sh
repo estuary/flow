@@ -116,8 +116,9 @@ start() {
     wait_ready gazette "${BROKER_PORT}" "${STATE}/gazette.log"
 
     # The daemon needs CAP_SYS_ADMIN to serve a ublk device and to mount a
-    # filesystem. It gives each mount to the client which opened the disk, so an
-    # example needs no privilege.
+    # filesystem, and CAP_SYS_RESOURCE to mark its owner threads I/O flushers. It
+    # gives each mount to the client which opened the disk, so an example needs no
+    # privilege.
     #
     # The daemon signs its own broker tokens, so it needs a data-plane key. This
     # broker runs without `--broker.auth-keys`, which is gazette's noop authorizer:

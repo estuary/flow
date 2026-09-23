@@ -1,9 +1,11 @@
 //! `flow-disk-daemon`: serves block devices whose durable state lives in
 //! Gazette journals.
 //!
-//! It needs `CAP_SYS_ADMIN` to serve a `ublk` device and to mount a filesystem. It
-//! also needs to own `/dev/ublk-control` and the `/dev/ublkc*` nodes it opens.
-//! Running as root grants both. A dedicated UID needs a udev rule instead.
+//! It needs `CAP_SYS_ADMIN` to serve a `ublk` device and to mount a filesystem, and
+//! `CAP_SYS_RESOURCE` to mark each disk's owner thread an I/O flusher. It also needs
+//! to own `/dev/ublk-control` and the `/dev/ublkc*` nodes it opens. Running as root
+//! grants all of these. A dedicated UID needs the capabilities and a udev rule
+//! instead.
 
 use clap::Parser;
 

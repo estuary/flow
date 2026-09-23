@@ -1,6 +1,15 @@
 //! The thread which serves one disk, and how it takes the commands its [`Device`]
 //! and [`Compactor`] send it.
 //!
+//! The thread is an I/O flusher, per `prctl(PR_SET_IO_FLUSHER)`, because it is the
+//! one thread which cleans its disk's dirty pages, and it writes the host's page
+//! cache to do it. Dirty-page throttling therefore judges its writes against the
+//! host device it writes to, rather than against the host-wide dirty limit. Without
+//! that, one disk whose writeback has stalled, as behind a slow journal, fills the
+//! host's dirty budget with pages only its owner can clean, and every other owner is
+//! throttled for them. Its memory allocations also never wait on I/O, which may be
+//! I/O to the very disk it serves.
+//!
 //! [`Device`]: super::Device
 //! [`Compactor`]: super::Compactor
 
@@ -10,6 +19,10 @@ use crate::horizon::{Horizon, Policy};
 use crate::image::Image;
 use crate::ublk;
 use crate::wake::Waker;
+
+/// `prctl` option which marks the calling thread an I/O flusher. `libc` defines it
+/// only for Android.
+const PR_SET_IO_FLUSHER: libc::c_int = 57;
 
 /// Stack of an owner thread. Its frames are a reap and a submission. The platform
 /// default would reserve far more address space than one uses, for every disk on
@@ -47,7 +60,8 @@ pub(super) fn spawn(inputs: Inputs) -> anyhow::Result<Commands> {
         .name(format!("disk-{dev_id}"))
         .stack_size(STACK_BYTES)
         .spawn(move || {
-            match Owner::new(inputs).and_then(|mut owner| {
+            match io_flusher(dev_id).and_then(|()| {
+                let mut owner = Owner::new(inputs)?;
                 owner.arm()?;
                 anyhow::Ok(owner)
             }) {
@@ -68,6 +82,21 @@ pub(super) fn spawn(inputs: Inputs) -> anyhow::Result<Commands> {
         sender: commands,
         waker,
     })
+}
+
+/// Mark the calling thread, which is disk `dev_id`'s owner, an I/O flusher.
+fn io_flusher(dev_id: u32) -> anyhow::Result<()> {
+    // SAFETY: this `prctl` option reads no user memory.
+    let rc = unsafe { libc::prctl(PR_SET_IO_FLUSHER, 1, 0, 0, 0) };
+
+    if rc != 0 {
+        anyhow::bail!(
+            "marking the owner of device {dev_id} an I/O flusher, which requires \
+             CAP_SYS_RESOURCE: {}",
+            std::io::Error::last_os_error(),
+        );
+    }
+    Ok(())
 }
 
 fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {

@@ -208,6 +208,45 @@ privileged_test! {
 }
 
 privileged_test! {
+    /// A disk's owner is an I/O flusher, so the kernel throttles its image writes
+    /// against the host device alone, and its allocations never wait on I/O.
+    fn test_the_owner_is_an_io_flusher(dir) {
+        /// Bits of a task's `/proc` flags word which `PR_SET_IO_FLUSHER` sets:
+        /// `PF_MEMALLOC_NOIO` and `PF_LOCAL_THROTTLE`, per the kernel's
+        /// `include/linux/sched.h`.
+        const IO_FLUSHER: u64 = 0x0008_0000 | 0x0010_0000;
+
+        let scenario = Scenario::new(dir);
+        let (mut disk, captured) = scenario.disk(ublk::QUEUE_DEPTH, NO_COMPACTION);
+        let collector = collect(captured);
+
+        let name = format!("disk-{}", disk.dev_id());
+        let owner = std::fs::read_dir("/proc/self/task")
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|task| std::fs::read_to_string(task.join("comm")).unwrap().trim() == name)
+            .expect("the owner thread is named for its device");
+
+        // The flags word is the seventh field after the parenthesized command name.
+        let stat = std::fs::read_to_string(owner.join("stat")).unwrap();
+        let flags: u64 = stat
+            .rsplit_once(')')
+            .unwrap()
+            .1
+            .split_whitespace()
+            .nth(6)
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        _ = disk.stop().unwrap();
+        _ = collector.join().unwrap();
+
+        assert_eq!(flags & IO_FLUSHER, IO_FLUSHER, "the owner's flags are {flags:#x}");
+    }
+}
+
+privileged_test! {
     /// Open a horizon over a disk's cold blocks, discharge it with the budget a hot
     /// region's rewrites earn, and hold the invariant the whole scheme rests on: the
     /// mutations from the horizon onward rebuild the entire disk by themselves.
