@@ -78,26 +78,19 @@ impl Device {
         policy: Policy,
     ) -> anyhow::Result<(Self, Captured)> {
         let info = control.add_dev(queue_depth, ublk::MAX_IO_BUF_BYTES)?;
+        let dev_id = info.dev_id;
 
-        let served = Self::serve(control, image, queue_depth, horizon, policy, info.dev_id);
-
-        let (disk, captured) = match served {
-            Ok(served) => served,
-            Err(err) => {
-                // No owner took the device, so nothing else will delete it.
-                if let Err(err) = control.del_dev(info.dev_id) {
-                    tracing::error!(
-                        dev_id = info.dev_id,
-                        ?err,
-                        "failed to delete a device which could not be served"
-                    );
-                }
-                return Err(err);
-            }
-        };
+        // No owner took the device, so nothing else will delete it.
+        let (disk, captured) = Self::serve(control, image, queue_depth, horizon, policy, dev_id)
+            .map_err(|err| match control.del_dev(dev_id) {
+                Ok(()) => err,
+                Err(deleted) => err.context(format!(
+                    "device {dev_id} could not be served, nor deleted ({deleted:#})"
+                )),
+            })?;
 
         // A failure here tears the device down by dropping `disk`.
-        () = control.start_dev(info.dev_id)?;
+        () = control.start_dev(dev_id)?;
 
         Ok((disk, captured))
     }
