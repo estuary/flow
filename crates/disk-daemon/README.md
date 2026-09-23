@@ -173,7 +173,8 @@ storing their acknowledgements in one decision.
 ## Serving the local disk
 
 A disk has one `ublk` queue and one owner thread with an `io_uring`. Queue depth
-provides concurrency. The dedicated thread is required because `ublk` binds a
+lets requests wait at the device while the owner is busy, and lets it take and
+return them in batches. The dedicated thread is required because `ublk` binds a
 queue to the thread that arms its first fetch; a Tokio task could migrate between
 workers. Single ownership also keeps image and bitmap updates free of locks.
 

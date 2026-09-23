@@ -20,8 +20,15 @@ pub use control::Control;
 /// the rate at which a delta can be appended.
 pub const QUEUE_ID: u16 = 0;
 
-/// Depth of that queue, which the daemon configures per device.
-pub const QUEUE_DEPTH: u16 = 32;
+/// Depth of that queue: how many requests the kernel may hand the owner at once.
+///
+/// The owner serves requests one at a time, so depth buys batching rather than
+/// parallelism. Each wake reaps, and each submission carries, more requests per trip
+/// into the kernel, and that trip is what bounds small requests. Measured, random
+/// 4 KiB throughput rises with depth up to 16, and 32 adds nothing. Depth also
+/// bounds what one disk buffers, which is a request buffer per tag and a capture
+/// channel of as many mutations, so it is no deeper than that.
+pub const QUEUE_DEPTH: u16 = 16;
 
 /// Largest request the device accepts. Its data may outlive device I/O in the
 /// capture queue or an append, so smaller requests bound all three stages while
