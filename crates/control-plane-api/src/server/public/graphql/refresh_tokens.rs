@@ -132,7 +132,11 @@ impl RefreshTokensMutation {
     ) -> async_graphql::Result<RefreshTokenResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
-
+        if claims.capability_mask.is_some() {
+            return Err(async_graphql::Error::new(
+                "tokens with a capability mask set cannot create refresh tokens.",
+            ));
+        }
         super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
 
         // ISO 8601 durations begin with 'P'; considering this cheap and good enough validation for now.
@@ -246,6 +250,65 @@ mod test {
         use base64::Engine;
         base64::engine::general_purpose::STANDARD
             .encode(serde_json::json!({ "id": id, "secret": secret }).to_string())
+    }
+
+    /// A token carrying a `capability_mask` is scoped down from the user's
+    /// full authority. Letting it mint a refresh token would let the holder
+    /// exchange that for an unmasked access token, escaping the mask, so the
+    /// mutation is refused before any row is written.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_masked_token_cannot_create_refresh_token(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let masked_token = server.make_masked_access_token(
+            alice,
+            Some("alice@example.test"),
+            Some(vec!["admin".to_string()]),
+        );
+
+        let create: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createRefreshToken(validFor: "P30D") { id }
+                    }"#
+                }),
+                Some(&masked_token),
+            )
+            .await;
+        assert_eq!(
+            create["errors"][0]["message"],
+            "tokens with a capability mask set cannot create refresh tokens.",
+            "a masked token must be refused: {create}"
+        );
+
+        // The refusal happens before the insert, so the user's unmasked view
+        // shows no token was created.
+        let unmasked_token = server.make_access_token(alice, Some("alice@example.test"));
+        let list: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"query { refreshTokens { edges { node { id } } } }"#
+                }),
+                Some(&unmasked_token),
+            )
+            .await;
+        assert_eq!(
+            list["data"]["refreshTokens"]["edges"],
+            serde_json::json!([]),
+            "no refresh token should exist: {list}"
+        );
     }
 
     /// Covers the refresh-token GraphQL surface (create → list → revoke, plus
