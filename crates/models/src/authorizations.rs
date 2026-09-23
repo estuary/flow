@@ -1,6 +1,8 @@
 use std::cmp::max;
 use validator::Validate;
 
+use crate::authz;
+
 /// ControlClaims are claims encoded within control-plane access tokens.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ControlClaims {
@@ -20,12 +22,33 @@ pub struct ControlClaims {
     // Authorized user email, if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    // Capability bundles limiting which granted capabilities the token may use.
+    // Omitted or null means no mask; an empty list means identity only.
+    // Bundles are unioned, and unknown names are ignored so that tokens minted
+    // by a newer service still verify. Only capability bits are masked; a
+    // grant's legacy `capability` value is not attenuated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_mask: Option<Vec<String>>,
 }
 
 impl ControlClaims {
     /// Converts these claims into the authorization subject used by grant evaluation.
     pub fn subject(&self) -> crate::authz::Subject {
-        crate::authz::Subject { user_id: self.sub }
+        use serde::{Deserialize, de::value};
+        crate::authz::Subject {
+            user_id: self.sub,
+            capability_mask: self.capability_mask.as_ref().map(|mask| {
+                mask.iter()
+                    .filter_map(|name| {
+                        authz::CapabilityBundle::deserialize(
+                            value::StrDeserializer::<value::Error>::new(name),
+                        )
+                        .ok()
+                    })
+                    .map(|bundle| bundle.capabilities())
+                    .fold(authz::CapabilitySet::empty(), |set, bits| set | bits)
+            }),
+        }
     }
 
     pub fn time_remaining(&self) -> time::Duration {
@@ -318,4 +341,119 @@ pub struct DekafAuthResponse {
 
 const fn capability_read() -> crate::Capability {
     crate::Capability::Read
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
+
+    #[test]
+    fn subject_from_deserialized_token_payload() {
+        let user_id = uuid::Uuid::parse_str("d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a").unwrap();
+        let viewer = CapabilityBundle::Viewer.capabilities();
+
+        let cases: &[(&str, Option<CapabilitySet>)] = &[
+            // No claim at all: unmasked.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "email": "user@example.com"
+                }"#,
+                None,
+            ),
+            // Explicit null is equivalent to omission.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": null
+                }"#,
+                None,
+            ),
+            // Empty list: masked to nothing.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": []
+                }"#,
+                Some(CapabilitySet::empty()),
+            ),
+            // Known bundles are unioned; unknown names from a newer minter
+            // are ignored rather than failing deserialization.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "capability_mask": ["viewer", "delegate", "future_bundle"]
+                }"#,
+                Some(viewer | Capability::Delegate),
+            ),
+            // Unrelated claims that we don't model are tolerated.
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "session_id": "6c0e1f2a-3b4c-4d5e-8f60-718293a4b5c6",
+                    "app_metadata": {"provider": "google"},
+                    "capability_mask": ["team_admin"]
+                }"#,
+                Some(CapabilityBundle::TeamAdmin.capabilities()),
+            ),
+            // Verifying deduplication
+            (
+                r#"{
+                    "aud": "authenticated",
+                    "iat": 1700000000,
+                    "exp": 1700003600,
+                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+                    "role": "authenticated",
+                    "session_id": "6c0e1f2a-3b4c-4d5e-8f60-718293a4b5c6",
+                    "app_metadata": {"provider": "google"},
+                    "capability_mask": ["team_admin", "team_admin"]
+                }"#,
+                Some(CapabilityBundle::TeamAdmin.capabilities()),
+            ),
+        ];
+
+        for (payload, expected_mask) in cases {
+            let claims: ControlClaims = serde_json::from_str(payload).unwrap();
+            assert_eq!(
+                claims.subject(),
+                Subject {
+                    user_id,
+                    capability_mask: *expected_mask,
+                },
+                "{payload}"
+            );
+        }
+
+        // A mask that isn't a list of strings is a malformed token.
+        let malformed = r#"{
+            "aud": "authenticated",
+            "iat": 1700000000,
+            "exp": 1700003600,
+            "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
+            "role": "authenticated",
+            "capability_mask": "viewer"
+        }"#;
+        assert!(serde_json::from_str::<ControlClaims>(malformed).is_err());
+    }
 }

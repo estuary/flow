@@ -6,12 +6,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Subject {
     pub user_id: uuid::Uuid,
+    pub capability_mask: Option<CapabilitySet>,
 }
 
 impl Subject {
     /// Creates a Subject covering the entirety of a user's grants, with no additional restrictions.
     pub fn unrestricted(user_id: uuid::Uuid) -> Self {
-        Self { user_id }
+        Self {
+            user_id,
+            capability_mask: None,
+        }
     }
 }
 
@@ -68,6 +72,9 @@ impl std::fmt::Display for Capability {
     }
 }
 
+/// A stable, named bundle of capability bits. Grants and token capability
+/// masks name bundles rather than bits, so bits may be added, split, or
+/// merged without changing stored grants or minted tokens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(
