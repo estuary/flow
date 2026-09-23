@@ -62,7 +62,7 @@ impl Serving {
         })
         .await??;
 
-        let compactor = device.compactor()?;
+        let compactor = device.compactor();
         let block_path = device.block_path();
         let mount_path = daemon.mount_dir.join(format!(
             "{}{}",

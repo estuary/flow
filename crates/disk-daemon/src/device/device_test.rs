@@ -151,6 +151,83 @@ privileged_test! {
 }
 
 privileged_test! {
+    /// Stopping a device waits for every request in flight, parked ones included, and
+    /// those complete once the capture channel drains. Its owner therefore never
+    /// exits holding a parked request.
+    fn test_stopping_waits_for_parked_writes(dir) {
+        const QUEUE_DEPTH: u16 = 2;
+        const WRITES: u32 = 4;
+        const STALL: std::time::Duration = std::time::Duration::from_millis(500);
+
+        let scenario = Scenario::new(dir);
+        let (mut disk, captured) = scenario.disk(QUEUE_DEPTH, NO_COMPACTION);
+
+        // One thread a write, so that more are in flight than the channel holds.
+        let writers: Vec<_> = (0..WRITES)
+            .map(|block| {
+                let block_path = disk.block_path();
+
+                std::thread::spawn(move || {
+                    let device = device::open_direct(&block_path);
+                    let offset = block as u64 * BLOCK_SIZE as u64;
+
+                    std::os::unix::fs::FileExt::write_all_at(&device, device::aligned_block(0x42), offset)
+                })
+            })
+            .collect();
+        std::thread::sleep(STALL);
+
+        let stopper = std::thread::spawn(move || disk.stop());
+        std::thread::sleep(STALL);
+        assert!(!stopper.is_finished(), "the device stopped with writes parked");
+
+        let collector = collect(captured);
+        let image = stopper.join().expect("stopper panicked").unwrap().expect("the disk was live");
+        let mutations = collector.join().expect("collector panicked");
+
+        for writer in writers {
+            () = writer.join().expect("writer panicked").unwrap();
+        }
+        // Writes which abut may merge into one request while they wait for a tag.
+        let written: usize = mutations
+            .iter()
+            .flatten()
+            .map(|chunk| chunk::covered_blocks(chunk).len())
+            .sum();
+        assert_eq!(written, WRITES as usize, "the capture lost a write");
+        assert_eq!(image.allocated().count_ones(), WRITES, "the image lost a write");
+    }
+}
+
+privileged_test! {
+    /// A device whose start fails is stopped without ever having started. Stopping
+    /// it still aborts its queue's fetches, which is what ends its owner, so that
+    /// teardown does not wait on the owner forever.
+    fn test_a_device_which_never_started_still_stops(dir) {
+        let scenario = Scenario::new(dir);
+        let image = Image::create(&scenario.dir, BLOCKS).unwrap();
+        let info = scenario.control.add_dev(ublk::QUEUE_DEPTH, ublk::MAX_IO_BUF_BYTES).unwrap();
+
+        let (mut disk, captured) = super::Device::serve(
+            &scenario.control,
+            image,
+            ublk::QUEUE_DEPTH,
+            None,
+            NO_COMPACTION,
+            info.dev_id,
+        )
+        .unwrap();
+        let collector = collect(captured);
+
+        let image = disk.stop().unwrap().expect("the device was served");
+        let mutations = collector.join().expect("collector panicked");
+
+        assert_eq!(image.allocated().count_ones(), 0, "an unstarted device allocated");
+        assert!(mutations.is_empty(), "an unstarted device captured a mutation");
+    }
+}
+
+privileged_test! {
     /// Overlapping writes which are in flight together reach the image in the order
     /// they were captured, so the captured stream rebuilds exactly the image served.
     ///
@@ -338,7 +415,7 @@ privileged_test! {
             .enable_all()
             .build()
             .unwrap();
-        let compactor = disk.compactor().unwrap();
+        let compactor = disk.compactor();
         let hot = COLD_BLOCKS - HOT_BLOCKS;
 
         for run in 0..COLD_BLOCKS / HOT_BLOCKS {

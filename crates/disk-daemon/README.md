@@ -465,6 +465,9 @@ which ends while standing by has no device or mount, and its replay stops with
 it. The writer abandons appends but keeps draining mutations, because unmount
 itself writes and would otherwise deadlock on capture backpressure. The tenure
 unmounts before stopping and deleting the device, then drops the anonymous image.
+Stopping waits for every request in flight, parked ones included, so the writer
+drains through the stop as well. Only then does the kernel abort the queue's
+fetches, and that abort is what ends the disk's owner thread.
 In-flight broker calls are cancellable so teardown does not wait for an outage to
 end. Ending or failing a tenure drops its appender, aborting any background append
 which would otherwise keep retrying. Tenure failure leaves other disks running.

@@ -8,13 +8,16 @@ fn main() {
     println!("cargo:rerun-if-changed=ublk_cmd.h");
     println!("cargo:rerun-if-changed=build.rs");
 
-    // The `UBLK_U_*` opcodes are `_IOWR` macros, which bindgen cannot evaluate.
-    // Assigning each one to a constant lets the C compiler fold it into a value
-    // bindgen does emit. Each name differs from the macro it wraps, because a macro
-    // expands on both sides of its own definition.
+    // The `UBLK_U_*` opcodes are `_IOWR` macros, which bindgen cannot evaluate, and
+    // `UBLK_IO_RES_ABORT` is an errno. Assigning each one to a constant lets the C
+    // compiler fold it into a value bindgen does emit. Each name differs from the
+    // macro it wraps, because a macro expands on both sides of its own definition.
     const SHIM: &str = r#"
 #include <asm/ioctl.h>
+#include <errno.h>
 #include "ublk_cmd.h"
+
+const int UBLK_RESULT_ABORT = UBLK_IO_RES_ABORT;
 
 #define ENCODED(macro, name) const unsigned int name = macro;
 

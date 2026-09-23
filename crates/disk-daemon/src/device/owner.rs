@@ -51,37 +51,42 @@ pub(super) struct Inputs {
 
 /// Serve `inputs` from a thread of its own. This returns once every tag of the
 /// queue has a fetch in flight. The caller then starts the device.
-pub(super) fn spawn(inputs: Inputs) -> anyhow::Result<Commands> {
+///
+/// The thread returns the image once the device has stopped.
+pub(super) fn spawn(
+    inputs: Inputs,
+) -> anyhow::Result<(Commands, std::thread::JoinHandle<anyhow::Result<Image>>)> {
     let (dev_id, waker) = (inputs.dev_id, inputs.waker.clone());
     let (commands, received) = std::sync::mpsc::channel();
     let (armed, is_armed) = std::sync::mpsc::channel();
 
-    _ = std::thread::Builder::new()
+    let owner = std::thread::Builder::new()
         .name(format!("disk-{dev_id}"))
         .stack_size(STACK_BYTES)
         .spawn(move || {
-            match io_flusher(dev_id).and_then(|()| {
-                let mut owner = Owner::new(inputs)?;
-                owner.arm()?;
-                anyhow::Ok(owner)
-            }) {
-                Ok(owner) => {
-                    _ = armed.send(Ok(()));
-                    run(owner, received)
-                }
-                Err(err) => _ = armed.send(Err(err)),
-            }
+            () = io_flusher(dev_id)?;
+            let mut owner = Owner::new(inputs)?;
+            () = owner.arm()?;
+
+            _ = armed.send(());
+            run(owner, received)
         })?;
 
-    () = is_armed
-        .recv()
-        .map_err(|_| anyhow::anyhow!("device {dev_id} stopped before it was served"))??;
-
-    Ok(Commands {
+    // A thread which fails before its queue is fetching drops `armed` unsent, and
+    // returns why.
+    if let Err(std::sync::mpsc::RecvError) = is_armed.recv() {
+        return Err(match owner.join() {
+            Ok(Err(err)) => err,
+            Ok(Ok(_image)) => panic!("the owner of device {dev_id} returned without serving it"),
+            Err(_panic) => anyhow::anyhow!("the owner of device {dev_id} panicked"),
+        });
+    }
+    let commands = Commands {
         dev_id,
         sender: commands,
         waker,
-    })
+    };
+    Ok((commands, owner))
 }
 
 /// Mark the calling thread, which is disk `dev_id`'s owner, an I/O flusher.
@@ -99,13 +104,12 @@ fn io_flusher(dev_id: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {
-    // A disconnect means every handle is gone. Nothing is left to serve this
-    // disk for, and nothing will ask for its image.
-    while let Some(()) = owner.drain_commands(&commands) {
-        if owner.release.is_some() && owner.pending == 0 {
-            break;
-        }
+/// Serve the disk until its device has stopped, and return its image.
+fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) -> anyhow::Result<Image> {
+    // The kernel aborts every tag's fetch once the device has stopped, which is
+    // only after every request has completed. That alone ends an owner.
+    while owner.aborted < owner.slots.len() {
+        owner.drain_commands(&commands);
         owner.compact();
         owner.flush();
 
@@ -113,29 +117,22 @@ fn run(mut owner: Owner, commands: std::sync::mpsc::Receiver<Command>) {
             Ok(_) => (),
             Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(err) => {
-                tracing::error!(dev_id = owner.dev_id, ?err, "a disk's ring failed");
-                break;
+                let dev_id = owner.dev_id;
+                return Err(anyhow::Error::new(err).context(format!("serving device {dev_id}")));
             }
         }
         owner.reap();
     }
+    assert!(
+        owner.parked.is_empty(),
+        "device {} stopped with requests parked",
+        owner.dev_id,
+    );
 
-    let Owner {
-        image,
-        release,
-        cdev,
-        descs,
-        ..
-    } = owner;
-
-    // Dropping these closes the character device and unmaps its descriptors, so
-    // the kernel may delete the device. Dropping the capture channel with them
-    // tells the journal writer the disk is gone.
-    drop((descs, cdev));
-
-    if let Some(reply) = release {
-        _ = reply.send(image);
-    }
+    // Returning drops the character device and unmaps its descriptors, so the
+    // kernel may delete the device. Dropping the capture channel with them tells
+    // the journal writer the disk is gone.
+    Ok(owner.image)
 }
 
 impl Owner {
@@ -165,17 +162,15 @@ impl Owner {
             slots: (0..queue_depth).map(|_| super::Slot::Idle).collect(),
             backlog: super::Backlog::new(),
             reaped: Vec::new(),
-            pending: 0,
+            aborted: 0,
             parked: std::collections::VecDeque::new(),
             admitting: true,
             failed: None,
-            stopping: false,
-            release: None,
         })
     }
 
-    /// Take every queued command, or `None` if every handle is gone.
-    fn drain_commands(&mut self, commands: &std::sync::mpsc::Receiver<Command>) -> Option<()> {
+    /// Take every queued command.
+    fn drain_commands(&mut self, commands: &std::sync::mpsc::Receiver<Command>) {
         loop {
             match commands.try_recv() {
                 // Every mutation admitted before this is in the image already,
@@ -230,18 +225,13 @@ impl Owner {
                     _ = reply.send(self.horizon.as_ref().map_or(0, Horizon::pending))
                 }
                 Ok(Command::CloseHorizon) => self.horizon = None,
-                Ok(Command::Release(reply)) => {
-                    self.release = Some(reply);
-
-                    // A request whose chunks the capture channel never accepted
-                    // changed nothing, and the stopped device has already
-                    // errored it.
-                    for tag in std::mem::take(&mut self.parked) {
-                        self.slots[tag as usize] = super::Slot::Idle;
-                    }
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => return Some(()),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => return None,
+                // Every handle may be gone while the device is still stopping, or
+                // while one which failed to stop still serves. The kernel ends an
+                // owner, and its handles do not.
+                Err(
+                    std::sync::mpsc::TryRecvError::Empty
+                    | std::sync::mpsc::TryRecvError::Disconnected,
+                ) => return,
             }
         }
     }

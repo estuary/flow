@@ -121,7 +121,9 @@ impl Control {
         Ok(())
     }
 
-    /// Remove `/dev/ublkbN` and abort the queue's outstanding fetches.
+    /// Remove `/dev/ublkbN`, and abort the queue's fetches once every request in
+    /// flight has completed. The server must go on completing them until then,
+    /// or this never returns.
     pub fn stop_dev(&self, dev_id: u32) -> anyhow::Result<()> {
         self.issue(
             sys::UBLK_U_CMD_STOP_DEV,

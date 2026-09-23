@@ -2,9 +2,9 @@
 //! owns that device's queue.
 //!
 //! [`Device`] is the device's life, in the order the kernel forces: add, set
-//! parameters, hand the queue to an owner, start — then stop, release, delete. A
-//! tenure cuts the disk through it, and its journal writer compacts the disk through
-//! a [`Compactor`]. Both are commands to the owner.
+//! parameters, hand the queue to an owner, start — then stop, join the owner,
+//! delete. A tenure cuts the disk through it, and its journal writer compacts the
+//! disk through a [`Compactor`]. Both are commands to the owner.
 //!
 //! Exactly one thread owns a disk, and only that thread mutates its image and
 //! bitmaps. Every decision about a block is therefore serialized without a lock.
@@ -53,8 +53,10 @@ mod device_test;
 /// A `ublk` device over one disk's image, and the owner thread which serves it.
 pub struct Device {
     control: std::sync::Arc<Control>,
+    commands: Commands,
+    /// The owner's thread, which returns the image once the device has stopped.
     /// Taken by the first teardown, so `stop` and `drop` cannot both run it.
-    commands: Option<Commands>,
+    owner: Option<std::thread::JoinHandle<anyhow::Result<Image>>>,
     dev_id: u32,
 }
 
@@ -118,7 +120,7 @@ impl Device {
         let waker = Waker::new()?;
         let (capture, captured) = crate::capture::channel(queue_depth as usize, waker.clone());
 
-        let commands = owner::spawn(owner::Inputs {
+        let (commands, owner) = owner::spawn(owner::Inputs {
             dev_id,
             cdev,
             image,
@@ -132,7 +134,8 @@ impl Device {
         Ok((
             Self {
                 control: control.clone(),
-                commands: Some(commands),
+                commands,
+                owner: Some(owner),
                 dev_id,
             },
             captured,
@@ -161,50 +164,53 @@ impl Device {
     /// lacks, so it must never commit, and the teardown which follows unmounts,
     /// which writes.
     pub async fn close_admission(&self) -> anyhow::Result<()> {
-        let commands = self.commands()?;
         let (closed, is_closed) = tokio::sync::oneshot::channel();
-        () = commands.send(Command::CloseAdmission(closed))?;
+        () = self.commands.send(Command::CloseAdmission(closed))?;
 
-        is_closed.await.map_err(|_| commands.stopped())?
+        is_closed.await.map_err(|_| self.commands.stopped())?
     }
 
     pub fn resume_admission(&self) -> anyhow::Result<()> {
-        self.commands()?.send(Command::ResumeAdmission)
+        self.commands.send(Command::ResumeAdmission)
     }
 
     /// A handle with which the journal writer opens and completes this disk's
     /// recovery horizons.
-    pub fn compactor(&self) -> anyhow::Result<Compactor> {
-        Ok(Compactor(self.commands()?.clone()))
+    pub fn compactor(&self) -> Compactor {
+        Compactor(self.commands.clone())
     }
 
     /// Tear the device down and take back the image. This is idempotent. `Drop`
     /// runs it if the caller has not, so no device node is left behind.
+    ///
+    /// Stopping waits for every request the device has in flight, parked ones
+    /// included, so it returns only while something takes from the capture
+    /// channel. The kernel then aborts the queue's fetches, which ends the owner.
+    /// Deleting waits for every reference to the device, which the owner's
+    /// character device held until it exited.
     pub fn stop(&mut self) -> anyhow::Result<Option<Image>> {
-        let Some(commands) = self.commands.take() else {
+        let Some(owner) = self.owner.take() else {
             return Ok(None);
         };
-        // Stopping aborts the queue's fetches, which is how the owner learns to
-        // quiesce. Deleting then waits for every reference to the device, so the
-        // owner must have closed the character device first, which it does before
-        // it hands back the image.
+        // A device which did not stop keeps its owner serving, so neither a join
+        // nor a delete could return.
         () = self.control.stop_dev(self.dev_id)?;
 
-        let (reply, replied) = std::sync::mpsc::channel();
-        () = commands.send(Command::Release(reply))?;
+        let served = match owner.join() {
+            Ok(served) => served,
+            Err(_panic) => Err(anyhow::anyhow!(
+                "the owner of device {} panicked",
+                self.dev_id
+            )),
+        };
+        // The owner is gone whatever it returned, and its character device with
+        // it, so the device is deleted either way.
+        let deleted = self.control.del_dev(self.dev_id);
 
-        let image = replied.recv().map_err(|_| {
-            anyhow::anyhow!("device {} was torn down without its image", self.dev_id)
-        })?;
-        () = self.control.del_dev(self.dev_id)?;
+        let image = served?;
+        () = deleted?;
 
         Ok(Some(image))
-    }
-
-    fn commands(&self) -> anyhow::Result<&Commands> {
-        self.commands
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("device {} is stopped", self.dev_id))
     }
 }
 
@@ -298,7 +304,6 @@ enum Command {
     OpenHorizon(u64, tokio::sync::oneshot::Sender<Option<u32>>),
     HorizonPending(tokio::sync::oneshot::Sender<u32>),
     CloseHorizon,
-    Release(std::sync::mpsc::Sender<Image>),
 }
 
 impl Commands {
@@ -333,9 +338,9 @@ struct Owner {
     /// Completions of one pass. They are all taken before any is handled, because
     /// handling one submits more.
     reaped: Vec<(u64, i32)>,
-    /// Ring operations outstanding. Buffers and descriptors stay alive until this
-    /// reaches zero.
-    pending: usize,
+    /// Tags whose fetch the kernel has aborted. It aborts every tag's once the
+    /// device has stopped, and the owner then exits.
+    aborted: usize,
     /// Tags whose chunks the capture channel refused, in arrival order.
     parked: std::collections::VecDeque<u16>,
     /// Whether mutations may be captured. The cut of a prepare closes this.
@@ -343,8 +348,4 @@ struct Owner {
     /// Why this disk may never be cut again, once an image write or a horizon copy
     /// has failed. Either leaves the delta then open unfit to commit.
     failed: Option<anyhow::Error>,
-    /// The kernel has aborted the queue, so fetches are not re-armed.
-    stopping: bool,
-    /// Set once the disk is to be released, and replied to when it is quiet.
-    release: Option<std::sync::mpsc::Sender<Image>>,
 }

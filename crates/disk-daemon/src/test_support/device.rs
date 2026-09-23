@@ -183,7 +183,7 @@ impl Drop for Mount {
     }
 }
 
-/// Take every mutation of a disk until its owner releases it.
+/// Take every mutation of a disk until its owner exits.
 ///
 /// A case drives its device from synchronous code and joins this handle, so the
 /// thread carries a runtime of its own to await the channel on.

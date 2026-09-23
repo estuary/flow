@@ -45,9 +45,15 @@ impl Owner {
         match step {
             Step::Wake => unreachable!("a wake is handled by the reap"),
 
-            // A negative fetch tells the owner that the kernel has aborted the
-            // queue. The kernel does that when the device stops.
-            Step::Fetch if result < 0 => self.stopping = true,
+            // The kernel aborts a tag's fetch once the device has stopped, which
+            // is only after every request has completed. Nothing re-arms it.
+            Step::Fetch if result == sys::UBLK_IO_RES_ABORT => self.aborted += 1,
+            // Anything else is the kernel refusing a command this owner built.
+            Step::Fetch if result < 0 => panic!(
+                "device {} refused a command for tag {tag}: {}",
+                self.dev_id,
+                std::io::Error::from_raw_os_error(-result),
+            ),
             Step::Fetch => self.serve(tag),
         }
     }
@@ -152,12 +158,8 @@ impl Owner {
     fn complete(&mut self, tag: u16, result: i32) {
         self.slots[tag as usize] = Slot::Idle;
 
-        // A stopped device has already errored every request it had outstanding.
-        if self.stopping {
-            return;
-        }
         let entry = self.io_command(tag, sys::UBLK_U_IO_COMMIT_AND_FETCH_REQ, result);
-        self.submit(entry);
+        self.backlog.push_back(entry);
     }
 
     fn fail(&mut self, tag: u16, what: &str, err: std::io::Error) {

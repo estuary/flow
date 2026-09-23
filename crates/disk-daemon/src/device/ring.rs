@@ -8,9 +8,9 @@
 //! owner, and commits and fetches which travel in batches.
 //!
 //! Every operation an owner issues goes through the backlog, so a full submission
-//! queue costs a later trip around the loop rather than a dropped operation.
-//! `pending` counts the operations outstanding, and the thread releases the image
-//! only once it is zero, when the stopped device has aborted every fetch.
+//! queue costs a later trip around the loop rather than a dropped operation. Each
+//! tag has one fetch in flight whenever the owner is not holding its request, and
+//! the kernel aborts every one of them once the device has stopped.
 //!
 //! None of it needs `io_uring`'s worker threads: the driver holds the fetches, and
 //! the wake is polled. An operation handed to one would run in a pool which belongs
@@ -58,7 +58,7 @@ impl Owner {
 
         for tag in 0..self.slots.len() as u16 {
             let entry = self.io_command(tag, sys::UBLK_U_IO_FETCH_REQ, 0);
-            self.submit(entry);
+            self.backlog.push_back(entry);
         }
         while !self.backlog.is_empty() {
             self.flush();
@@ -114,14 +114,8 @@ impl Owner {
                 self.retry_parked();
                 continue;
             }
-            self.pending -= 1;
             self.advance(tag, step, result);
         }
-    }
-
-    pub(super) fn submit(&mut self, entry: io_uring::squeue::Entry) {
-        self.pending += 1;
-        self.backlog.push_back(entry);
     }
 }
 
