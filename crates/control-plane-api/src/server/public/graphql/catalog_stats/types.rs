@@ -66,17 +66,19 @@ pub struct CatalogStatsSummary {
     pub written_by_me: DocsAndBytes,
     /// Documents written into a collection by the tasks that produce it.
     pub written_to_me: DocsAndBytes,
-    /// Warnings logged.
+    /// Total number of logged warnings.
     pub warnings: UInt64,
-    /// Errors logged.
+    /// Total number of logged errors.
     pub errors: UInt64,
-    /// Times a task shard failed.
+    /// Total number of shard failures.
     pub failures: UInt64,
-    /// Metered seconds of task usage, which is what usage billing is drawn
-    /// from.
+    /// Cumulative number of metered seconds of task usage, which is what
+    /// usage billing is drawn from.
     pub usage_seconds: UInt64,
-    /// Transactions processed successfully.
+    /// Total number of transactions that have been successfully processed.
     pub txn_count: UInt64,
+    /// The most recent publish timestamp of documents in this collection.
+    pub last_published_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl From<ops::catalog_stats::StatsSummary> for CatalogStatsSummary {
@@ -91,6 +93,7 @@ impl From<ops::catalog_stats::StatsSummary> for CatalogStatsSummary {
             failures: v.failures.into(),
             usage_seconds: v.usage_seconds.into(),
             txn_count: v.txn_count.into(),
+            last_published_at: v.last_published_at.into(),
         }
     }
 }
@@ -426,6 +429,7 @@ mod tests {
                 failures: 3,
                 usage_seconds: 4,
                 txn_count: 5,
+                last_published_at: Some(chrono::Utc::now()),
             },
             task_stats,
         }

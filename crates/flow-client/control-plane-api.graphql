@@ -556,26 +556,30 @@ type CatalogStatsSummary {
 	"""
 	writtenToMe: DocsAndBytes!
 	"""
-	Warnings logged.
+	Total number of logged warnings.
 	"""
 	warnings: UInt64!
 	"""
-	Errors logged.
+	Total number of logged errors.
 	"""
 	errors: UInt64!
 	"""
-	Times a task shard failed.
+	Total number of shard failures.
 	"""
 	failures: UInt64!
 	"""
-	Metered seconds of task usage, which is what usage billing is drawn
-	from.
+	Cumulative number of metered seconds of task usage, which is what
+	usage billing is drawn from.
 	"""
 	usageSeconds: UInt64!
 	"""
-	Transactions processed successfully.
+	Total number of transactions that have been successfully processed.
 	"""
 	txnCount: UInt64!
+	"""
+	The most recent publish timestamp of documents in this collection.
+	"""
+	lastPublishedAt: DateTime
 }
 
 """

@@ -57,6 +57,8 @@ pub struct StatsSummary {
     pub usage_seconds: u64,
     #[serde(default)]
     pub txn_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_published_at: Option<DateTime<Utc>>,
 }
 
 /// Per-task-kind breakouts: maps keyed by collection name for
