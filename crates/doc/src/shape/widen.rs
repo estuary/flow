@@ -1363,6 +1363,73 @@ mod test {
     }
 
     #[test]
+    fn test_widening_enum_of_forbidden_location_from_sourced_schema() {
+        // Mirrors how the capture runtime folds a connector's SourcedSchema
+        // into inference (`apply_sourced_schemas` in runtime-next's capture
+        // drain, and runtime's capture serve): intersect the sourced shape with
+        // the collection's write shape, union it into the inferred shape, then
+        // widen from captured documents.
+
+        // A closed SourcedSchema naming only the key. Every other location is
+        // forbidden until a document shows it exists.
+        let sourced = shape_from(
+            r#"
+            type: object
+            additionalProperties: false
+            required: [id]
+            properties:
+                id: {type: integer}
+            "#,
+        );
+        // The collection's write schema. `state` is an enum; `count` is a
+        // plain field with no enum.
+        let write = shape_from(
+            r#"
+            type: object
+            required: [id, state, count]
+            properties:
+                id: {type: integer}
+                state:
+                    type: string
+                    enum: [Draft, Finished, Scheduled]
+                count: {type: integer}
+            "#,
+        );
+
+        // A freshly reset inference.
+        let mut inferred = Shape::union(Shape::nothing(), Shape::intersect(sourced, write));
+
+        let doc = json!({"id": 1, "state": "Finished", "count": 3});
+        assert!(inferred.widen(&doc));
+
+        // `count` has no enum, so widening adds `integer` to its type as expected.
+        let (count, _) = inferred.locate(&json::Pointer::from_str("/count"));
+        assert_eq!(count.type_, types::INTEGER);
+
+        // `state` should have been widened just like `count`. Instead, widening
+        // takes the enum path, which adds "Finished" to the enum but never adds
+        // `string` to the type. A shape with no type serializes as `false`.
+        let (state, _) = inferred.locate(&json::Pointer::from_str("/state"));
+        assert_eq!(
+            state.type_,
+            types::STRING,
+            "state was widened by a string but its type is still empty (enum: {:?})",
+            state.enum_,
+        );
+
+        // The inferred schema must accept the document it was widened from.
+        let schema = serde_json::to_value(schema::to_schema(inferred)).unwrap();
+        let schema =
+            json::schema::build(&url::Url::parse("flow://inferred-schema").unwrap(), &schema)
+                .unwrap();
+        let mut validator = crate::Validator::new(schema).unwrap();
+        assert!(
+            validator.is_valid(&doc),
+            "inferred schema rejects the document it was widened from",
+        );
+    }
+
+    #[test]
     fn test_widening_tuples() {
         let schema = r#"
             type: array
