@@ -812,6 +812,96 @@ async fn a_dropped_response_stream_ends_a_starting_connector() {
         .expect("the starting connector is released with its client");
 }
 
+/// Over the wire, a caller which drops both halves of its session releases a
+/// connector which is still starting and has gone silent. Only the relay of
+/// `EndpointRouter` observes the caller leaving, and it must pass that on as
+/// an HTTP/2 stream reset.
+#[tokio::test]
+async fn a_wire_caller_which_leaves_ends_a_silent_starting_connector() {
+    // As in `a_dropped_response_stream_ends_a_starting_connector`.
+    let responses =
+        leave_a_silent_wire_connector("echo 'connector is up' >&2; exec sleep 60").await;
+    assert!(responses[0].starts_with("Log("), "{responses:?}");
+}
+
+/// As above, for a connector which has `Started` and then gone silent.
+#[tokio::test]
+async fn a_wire_caller_which_leaves_ends_a_silent_started_connector() {
+    let responses = leave_a_silent_wire_connector(
+        r#"echo '{"spec":{"protocol":3032023,"configSchema":{},"resourceConfigSchema":{}}}'; exec sleep 60"#,
+    )
+    .await;
+    assert!(
+        responses.last().unwrap().starts_with("Started("),
+        "{responses:?}"
+    );
+}
+
+/// Run `script` as a Local derive connector behind a loopback `EndpointRouter`,
+/// read responses until it logs to stderr or reports `Started`, and then
+/// drop both halves of the session. Returns the rendered responses read,
+/// after asserting that the connector's handler exits.
+async fn leave_a_silent_wire_connector(script: &str) -> Vec<String> {
+    _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let registry = service_kit::Registry::new();
+    let (service, router) = crate::Service::new_local(String::new(), registry.clone());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(
+        tonic::transport::Server::builder()
+            .add_service(service.into_tonic_service())
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener)),
+    );
+    let router = proto_grpc::connector::EndpointRouter::new(endpoint, router.signer().clone());
+
+    let config = serde_json::json!({
+        "command": ["/bin/sh", "-c", script],
+        "config": {},
+    });
+    let (request_tx, request_rx) = mpsc::channel(1);
+    request_tx
+        .try_send(proto::Request {
+            start: Some(start("")),
+            kind: Some(proto::request::Kind::Derive(derive::Request {
+                kind: Some(derive::request::Kind::Spec(derive::request::Spec {
+                    connector_type: flow::collection_spec::derivation::ConnectorType::Local as i32,
+                    config_json: config.to_string().into(),
+                })),
+                ..Default::default()
+            })),
+        })
+        .unwrap();
+    let mut response_rx = router.open(ops::TaskType::Derivation, "acmeCo/derivation", request_rx);
+
+    let mut responses = Vec::new();
+    while !responses
+        .last()
+        .is_some_and(|r: &String| r.starts_with("Log(") || r.starts_with("Started("))
+    {
+        let response = tokio::time::timeout(std::time::Duration::from_secs(10), response_rx.recv())
+            .await
+            .expect("the connector responds")
+            .expect("the stream is open");
+        responses.extend(render(vec![response]));
+    }
+    assert_eq!(registry.snapshot().live.len(), 1, "{responses:?}");
+
+    std::mem::drop(request_tx);
+    std::mem::drop(response_rx);
+
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !registry.snapshot().live.is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the silent connector is released with its caller");
+
+    server.abort();
+    responses
+}
+
 /// `start` on a request after the first is rejected, and the rejection lands
 /// after `Started` (the connector was already running).
 #[tokio::test]
