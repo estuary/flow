@@ -338,8 +338,8 @@ fn is_aligned(grain: CatalogStatsGrain, ts: chrono::DateTime<chrono::Utc>) -> bo
 }
 
 /// Collects the rows of a `ReadRows` stream into buckets. Returns an error if the number
-/// of rows in th stream exceed the specified `max_buckets`. Will attempt to retry on transient
-/// error up to `max_attempts` times.
+/// of rows in the stream exceeds the specified `max_buckets`. Will attempt to retry on
+/// transient error up to `max_attempts` times.
 pub async fn collect_buckets(
     stream: impl futures::Stream<Item = catalog_stats::RetryResult<ops::catalog_stats::CatalogStats>>,
     grain: CatalogStatsGrain,
@@ -429,7 +429,7 @@ mod tests {
                 failures: 3,
                 usage_seconds: 4,
                 txn_count: 5,
-                last_published_at: Some(chrono::Utc::now()),
+                last_published_at: Some(ts(18)),
             },
             task_stats,
         }

@@ -474,7 +474,7 @@ type CatalogStats {
 input CatalogStatsBy {
 	"""
 	Exact catalog names. A prefix rollup is addressed by its own
-	trailing-slash name, such as `acmeCo/`. A minimum of of 1 name is
+	trailing-slash name, such as `acmeCo/`. A minimum of 1 name is
 	required. A maximum of 100 names are supported.
 	"""
 	names: [String!]!

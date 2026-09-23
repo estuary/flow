@@ -2,6 +2,7 @@
 
 mod types;
 
+use anyhow::Context;
 use async_graphql::connection;
 use base64::Engine as _;
 
@@ -30,6 +31,9 @@ const MAX_BUCKETS: usize = 10_000;
 /// request someone is waiting on; past that, retrying the whole query is the
 /// better trade.
 const MAX_ATTEMPTS: usize = 3;
+/// The maximum duration a request can remain inflight before it is timed out
+/// by the resolver.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Default)]
 pub struct CatalogStatsQuery;
@@ -37,7 +41,7 @@ pub struct CatalogStatsQuery;
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct CatalogStatsBy {
     /// Exact catalog names. A prefix rollup is addressed by its own
-    /// trailing-slash name, such as `acmeCo/`. A minimum of of 1 name is
+    /// trailing-slash name, such as `acmeCo/`. A minimum of 1 name is
     /// required. A maximum of 100 names are supported.
     #[graphql(validator(min_items = 1, max_items = 100))]
     pub names: Vec<String>,
@@ -90,7 +94,10 @@ impl CatalogStatsQuery {
         // An error is raised (closing the stream) if the number of buckets exceeds the maximum,
         // in order to limit response sizes.
         let stream = client.fetch_range_for_names(&names, grain.into(), start..end);
-        let buckets = types::collect_buckets(stream, grain, MAX_BUCKETS, MAX_ATTEMPTS).await?;
+        let fut = types::collect_buckets(stream, grain, MAX_BUCKETS, MAX_ATTEMPTS);
+        let buckets = tokio::time::timeout(REQUEST_TIMEOUT, fut)
+            .await
+            .context("timed out fetching catalog stats")??;
 
         // For now, only a single page of stats is ever returned. Cursor-based pagination
         // can be added if required in the future.
