@@ -253,6 +253,12 @@ expression: trace.lock().unwrap().as_slice()
   },
   {
     "Cmd": [
+      "pulumi-stack-output",
+      "pulumi stack output --stack test-stack --json --non-interactive --show-secrets"
+    ]
+  },
+  {
+    "Cmd": [
       "pulumi-stack-history",
       "pulumi stack history --stack test-stack --json --page-size 1"
     ]
