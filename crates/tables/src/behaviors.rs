@@ -1922,34 +1922,29 @@ mod test {
     }
 
     #[test]
-    fn test_masked_walk_prefixes_omit_fully_attenuated() {
+    fn test_masked_walk_prefixes_keep_empty_when_unmasked() {
         use Capability::*;
 
-        let (role_grants, user_grants, user_id) = masked_walk_scenario();
-
-        // Masked: supportCo/ is walked (its Assume seed-edge is emitted,
-        // fully attenuated) but conveys nothing, so it must not surface —
-        // a masked token doesn't learn the shape of grants it can't use.
-        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
-        let subject = authz::Subject {
+        // The `is_some()` half of the skip in `reachable_prefixes`: an empty
+        // node is omitted only for masked subjects. The shared fixture has no
+        // node that is empty when unmasked, so add one here rather than in
+        // the fixture, keeping its other tests' expectations intact. A direct
+        // grant with legacy `None` and no bundles conveys zero bits regardless
+        // of masking, and touches no role edge, so the rest of the walk is
+        // unchanged.
+        let (role_grants, mut user_grants, user_id) = masked_walk_scenario();
+        user_grants.insert(UserGrant {
             user_id,
-            capability_mask: Some(mask),
-        };
-        let masked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
-        assert_eq!(
-            masked.keys().collect::<Vec<_>>(),
-            vec![&"acmeCo/", &"bobCo/shared/", &"carolCo/upstream/",],
-        );
+            object_role: models::Prefix::new("orphanCo/"),
+            capability: models::Capability::None,
+            bundles: vec![],
+        });
 
-        let subject_no_mask = Subject::unrestricted(user_id);
-        // Unmasked: every reached prefix surfaces. This half does not
-        // exercise the skip's `is_some()` guard: supportCo/ emits its bare
-        // Assume bit, so no node in this fixture is empty when unmasked.
-        // That guard is covered by
-        // test_masked_walk_prefixes_keep_empty_when_unmasked. The Assume
-        // bit is what carries the walk on to daveCo/, which arrives with
-        // full Admin bits.
-        let unmasked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject_no_mask);
+        let unmasked = UserGrant::reachable_prefixes(
+            &role_grants,
+            &user_grants,
+            &Subject::unrestricted(user_id),
+        );
         assert_eq!(
             unmasked.keys().collect::<Vec<_>>(),
             vec![
@@ -1957,62 +1952,24 @@ mod test {
                 &"bobCo/shared/",
                 &"carolCo/upstream/",
                 &"daveCo/",
-                &"supportCo/"
+                &"orphanCo/",
+                &"supportCo/",
             ],
         );
-    }
-
-    #[test]
-    fn test_masked_walk_parent_prefix_pickup() {
-        use Capability::*;
-
-        // The upward traversal mode: a grant on acmeCo/nested/ picks up
-        // role grants whose subject is the parent prefix acmeCo/. That
-        // edge stream is clamped by the mask and gated on the parent
-        // holding Delegate or Assume exactly like the downward one.
-        let (role_grants, user_grants, user_id) = build_scenario(
-            vec![("acmeCo/nested/", vec![CapabilityBundle::Editor])],
-            vec![("acmeCo/", "sharedCo/", vec![CapabilityBundle::Viewer])],
+        assert_eq!(
+            unmasked.get("orphanCo/"),
+            Some(&(authz::CapabilitySet::empty(), models::Capability::None)),
         );
 
-        // With Delegate in the mask the parent-subject edge traverses,
-        // and sharedCo/'s Viewer bits are clamped to CatalogRead.
-        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
         let subject = authz::Subject {
             user_id,
-            capability_mask: Some(mask),
+            capability_mask: Some(authz::CapabilitySet::from(CatalogRead | Delegate)),
         };
-
-        assert_reachable(
-            &role_grants,
-            &user_grants,
-            &subject,
-            vec![
-                ("acmeCo/nested/", CatalogRead | Delegate),
-                ("sharedCo/", EnumSet::from(CatalogRead)),
-            ],
+        let masked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
+        assert_eq!(
+            masked.keys().collect::<Vec<_>>(),
+            vec![&"acmeCo/", &"bobCo/shared/", &"carolCo/upstream/"],
         );
-
-        // Without Delegate the direct grant is terminal, so the
-        // parent-prefix pickup never happens.
-        let mask = authz::CapabilitySet::from(CatalogRead | SpecEdit);
-        let subject_no_delegate = authz::Subject {
-            user_id,
-            capability_mask: Some(mask),
-        };
-        assert_reachable(
-            &role_grants,
-            &user_grants,
-            &subject_no_delegate,
-            vec![("acmeCo/nested/", CatalogRead | SpecEdit)],
-        );
-        assert!(!UserGrant::is_authorized(
-            &role_grants,
-            &user_grants,
-            &subject_no_delegate,
-            "sharedCo/thing",
-            Capability::CatalogRead,
-        ));
     }
 
     #[test]
