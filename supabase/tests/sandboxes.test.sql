@@ -1,34 +1,23 @@
 -- Tests for internal.sandboxes (20260908120000_sandboxes.sql).
--- Covers: retired handles remain reserved and catalog names are unique among
--- each user's live sandboxes. The control plane enforces catalog name validation
--- and the per-user live-sandbox limit.
+-- Covers: handles and catalog names are globally unique, and deletion frees names.
+-- The control plane enforces catalog name validation.
 
-create function tests.test_sandbox_handles_are_never_reused()
+create function tests.test_sandbox_handles_are_unique()
 returns setof text as $$
-declare
-  alice uuid := '11111111-1111-1111-1111-111111111111';
-  first_id flowid;
 begin
   set role postgres;
-
-  insert into internal.sandboxes (user_id, handle, catalog_name) values (alice, 'sbx-first', 'dev')
-    returning id into first_id;
-  update internal.sandboxes set deleted_at = now() where id = first_id;
-
-  return query select lives_ok(
-    $q$ insert into internal.sandboxes (user_id, handle, catalog_name)
-        values ('11111111-1111-1111-1111-111111111111', 'sbx-second', 'dev') $q$,
-    'a retired sandbox leaves room for a fresh one under a new handle');
+  insert into internal.sandboxes (user_id, handle, catalog_name)
+    values ('11111111-1111-1111-1111-111111111111', 'sbx-first', 'dev');
 
   return query select throws_ok(
     $q$ insert into internal.sandboxes (user_id, handle, catalog_name)
-        values ('22222222-2222-2222-2222-222222222222', 'sbx-first', 'dev') $q$,
-    '23505', null, 'a retired handle is never reused');
+        values ('22222222-2222-2222-2222-222222222222', 'sbx-first', 'other') $q$,
+    '23505', null, 'two sandboxes cannot share a provider handle');
 end;
 $$ language plpgsql;
 
 
-create function tests.test_sandbox_names_are_unique_among_a_users_live_sandboxes()
+create function tests.test_sandbox_names_are_globally_unique()
 returns setof text as $$
 declare
   alice uuid := '11111111-1111-1111-1111-111111111111';
@@ -44,16 +33,19 @@ begin
         values ('11111111-1111-1111-1111-111111111111', 'sbx-n2', 'staging') $q$,
     '23505', null, 'a user cannot have two live sandboxes of one catalog name');
 
-  return query select lives_ok(
+  return query select throws_ok(
     $q$ insert into internal.sandboxes (user_id, handle, catalog_name)
         values ('22222222-2222-2222-2222-222222222222', 'sbx-n3', 'staging') $q$,
-    'another user may use the same catalog name');
+    '23505', null, 'another user cannot use an existing live catalog name');
 
-  update internal.sandboxes set deleted_at = now() where id = first_id;
+  delete from internal.sandboxes where id = first_id;
+
+  return query select is((select count(*) from internal.sandboxes where id = first_id),
+    0::bigint, 'deletion removes the sandbox record');
 
   return query select lives_ok(
     $q$ insert into internal.sandboxes (user_id, handle, catalog_name)
-        values ('11111111-1111-1111-1111-111111111111', 'sbx-n4', 'staging') $q$,
-    'a retired sandbox frees its catalog name');
+        values ('22222222-2222-2222-2222-222222222222', 'sbx-n4', 'staging') $q$,
+    'a deleted sandbox frees its catalog name for any user');
 end;
 $$ language plpgsql;

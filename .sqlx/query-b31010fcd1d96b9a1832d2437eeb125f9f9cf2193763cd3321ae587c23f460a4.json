@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        select id as \"id!: models::Id\", user_id, handle, catalog_name, created_at\n        from internal.sandboxes\n        where catalog_name = $1 and user_id = $2 and deleted_at is null\n        ",
+  "query": "\n        select id as \"id!: models::Id\", user_id, handle, catalog_name, created_at\n        from internal.sandboxes\n        where user_id = $1\n        order by created_at desc\n        ",
   "describe": {
     "columns": [
       {
@@ -31,7 +31,6 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
         "Uuid"
       ]
     },
@@ -43,5 +42,5 @@
       false
     ]
   },
-  "hash": "2f4d6d1cf4e811958c08e2a68fdf17d41b63d5512eb03f59ec64b9b901dcb02e"
+  "hash": "b31010fcd1d96b9a1832d2437eeb125f9f9cf2193763cd3321ae587c23f460a4"
 }

@@ -220,14 +220,11 @@ pub struct SandboxesMutation;
 #[async_graphql::Object]
 impl SandboxesMutation {
     /// Create a sandbox for the authenticated user at `catalogName`.
-    /// Requires CreateSandbox on that catalog name, which must differ from the
-    /// caller's other live sandboxes. A deleted sandbox frees its catalog name.
+    /// Requires CreateSandbox on that catalog name, which must differ from all
+    /// other live sandboxes. A deleted sandbox frees its catalog name.
     ///
     /// When this returns the sandbox is ready to use: it accepts commands,
     /// and flowctl is installed.
-    ///
-    /// Users hold a limited number of sandboxes, one today, so this fails when
-    /// the caller is at that limit.
     async fn sandbox_create(
         &self,
         ctx: &Context<'_>,
@@ -245,7 +242,7 @@ impl SandboxesMutation {
         .await?;
         let client = sprites_client(ctx)?;
 
-        // A refused name or limit is the caller's to fix and says so in its
+        // A refused name is the caller's to fix and says so in its
         // message; only a failure of the control plane or provider is logged.
         let sandbox =
             crate::sandboxes::create(&client, &env.pg_pool, claims.sub, catalog_name.as_str())
@@ -307,8 +304,8 @@ impl SandboxesMutation {
     }
 
     /// Delete the authenticated user's sandbox `catalogName`, including its
-    /// filesystem and the record of commands run in it. The deleted sandbox no
-    /// longer counts against the user's limit.
+    /// filesystem and the record of commands run in it. Its catalog name becomes
+    /// available for reuse.
     async fn sandbox_delete(
         &self,
         ctx: &Context<'_>,
@@ -543,7 +540,7 @@ mod test {
                 requests.load(std::sync::atomic::Ordering::SeqCst),
                 expected_requests
             );
-            // Authorization must fail before consuming a slot. Only the allowed
+            // Authorization must fail before inserting a record. Only the allowed
             // create leaves a record when this provider refuses provisioning.
             assert_eq!(
                 crate::sandboxes::list(&pool, ALICE).await.unwrap().len(),
@@ -822,28 +819,16 @@ mod test {
         assert!(response["data"]["sandbox"].is_null(), "{response}");
         assert!(response["errors"].is_null(), "{response}");
 
-        // Identical catalog names identify separate per-user sandboxes.
-        let bobs = crate::sandboxes::insert_record(&pool, BOB, &alices.catalog_name)
+        // Name conflicts are global even though reads remain owner-scoped.
+        let conflict = crate::sandboxes::insert_record(&pool, BOB, &alices.catalog_name)
             .await
-            .unwrap();
-        let response = fetch(&bobs_token, &bobs.catalog_name).await;
-        assert_eq!(
-            serde_json::from_value::<chrono::DateTime<chrono::Utc>>(
-                response["data"]["sandbox"]["createdAt"].clone()
-            )
-            .unwrap(),
-            bobs.created_at
-        );
-        let response = fetch(&alices_token, &alices.catalog_name).await;
-        assert_eq!(
-            serde_json::from_value::<chrono::DateTime<chrono::Utc>>(
-                response["data"]["sandbox"]["createdAt"].clone()
-            )
-            .unwrap(),
-            alices.created_at
+            .unwrap_err();
+        assert!(
+            matches!(conflict, crate::sandboxes::CreateError::NameTaken(ref name)
+            if name == &alices.catalog_name)
         );
 
-        sqlx::query("UPDATE internal.sandboxes SET deleted_at = now() WHERE id = $1")
+        sqlx::query("DELETE FROM internal.sandboxes WHERE id = $1")
             .bind(alices.id)
             .execute(&pool)
             .await
@@ -852,10 +837,10 @@ mod test {
         assert!(response["data"]["sandbox"].is_null(), "{response}");
         assert!(response["errors"].is_null(), "{response}");
 
-        let replacement = crate::sandboxes::insert_record(&pool, ALICE, &alices.catalog_name)
+        let replacement = crate::sandboxes::insert_record(&pool, BOB, &alices.catalog_name)
             .await
             .unwrap();
-        let response = fetch(&alices_token, &alices.catalog_name).await;
+        let response = fetch(&bobs_token, &alices.catalog_name).await;
         assert_eq!(
             serde_json::from_value::<chrono::DateTime<chrono::Utc>>(
                 response["data"]["sandbox"]["createdAt"].clone()
@@ -863,6 +848,9 @@ mod test {
             .unwrap(),
             replacement.created_at
         );
+        let response = fetch(&alices_token, &alices.catalog_name).await;
+        assert!(response["data"]["sandbox"].is_null(), "{response}");
+        assert!(response["errors"].is_null(), "{response}");
     }
 
     /// Arguments the sandbox could never serve are refused in the control

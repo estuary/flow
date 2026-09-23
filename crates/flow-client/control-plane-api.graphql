@@ -1619,14 +1619,11 @@ type MutationRoot {
 	revokeRefreshToken(id: Id!): Boolean!
 	"""
 	Create a sandbox for the authenticated user at `catalogName`.
-	Requires CreateSandbox on that catalog name, which must differ from the
-	caller's other live sandboxes. A deleted sandbox frees its catalog name.
+	Requires CreateSandbox on that catalog name, which must differ from all
+	other live sandboxes. A deleted sandbox frees its catalog name.
 	
 	When this returns the sandbox is ready to use: it accepts commands,
 	and flowctl is installed.
-	
-	Users hold a limited number of sandboxes, one today, so this fails when
-	the caller is at that limit.
 	"""
 	sandboxCreate(catalogName: Name!): Sandbox!
 	"""
@@ -1649,8 +1646,8 @@ type MutationRoot {
 	): ExecEvent!
 	"""
 	Delete the authenticated user's sandbox `catalogName`, including its
-	filesystem and the record of commands run in it. The deleted sandbox no
-	longer counts against the user's limit.
+	filesystem and the record of commands run in it. Its catalog name becomes
+	available for reuse.
 	"""
 	sandboxDelete(catalogName: Name!): Boolean!
 	"""

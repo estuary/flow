@@ -16,15 +16,12 @@ Fly organization, and reports that sandboxes are not configured until then.
 
 `internal.sandboxes` records each sandbox: its owner, and the `handle` the
 provider knows it by. Callers address a sandbox by `catalogName`, resolved
-against the caller, so an unknown, retired, or foreign sandbox is simply not found. The handle is the sprite's name, `sbx-<id>`, so
+against the caller, so an unknown, deleted, or foreign sandbox is simply not found. The handle is the sprite's name, `sbx-<id>`, so
 the provider never sees a user identifier; clients never see the handle, since
 the GraphQL `Sandbox` type exposes `catalogName` as its identity. Creation requires
 `CreateSandbox` on that catalog name, included in the Admin bundle. The provider
-never sees the catalog name, and it is unique among a user's live
-sandboxes, so a deleted sandbox frees it. A user holds at most `SANDBOX_LIMIT`
-live records, one today. `crate::sandboxes` enforces that when it inserts a
-record: the count and the insert run in one transaction under a per-user
-advisory lock, so raising the limit is a change to that constant alone.
+never sees the catalog name, and it is globally unique among live
+sandboxes, so a deleted sandbox frees it.
 
 Each started command has a `metadata.json` file under
 `.estuary/exec/<execId>/` containing its id, command, and `requested_at`, beside
@@ -47,8 +44,7 @@ and authorization.
   installs flowctl before returning a sandbox that is ready to use,
   in a few seconds. A sprite that does not bootstrap is
   deleted and the error returned, leaving the record for its next command to
-  provision. It refuses an invalid catalog name, a name one of the caller's
-  live sandboxes already has, and a caller at their limit.
+  provision. It refuses an invalid catalog name, a name any live sandbox already has.
 - `sandboxes` lists the caller's live sandboxes, newest first. Each carries its
   `execs`: the commands run in it, with the time each was requested and the
   output paths and observed exit result.
@@ -69,10 +65,10 @@ and authorization.
   that polling itself, which lets it choose its own timeout and keep partial
   output. If nobody polls, the command still runs and its results wait in the
   sandbox.
-- `sandboxDelete(catalogName)` deletes the sprite and its storage, then retires
-  the record (`deleted_at`). The provider call goes first, so a failure leaves
-  a retryable record rather than an orphan sprite. A retired record frees a
-  slot under the limit; its handle is never reused.
+- `sandboxDelete(catalogName)` deletes the sprite and its storage, then deletes
+  its database record. The provider call goes first, so a failure leaves
+  a retryable record rather than an orphan sprite. Deleting the record frees its catalog name.
+  New sandboxes receive fresh IDs and handles.
 - `sandboxFileRead(catalogName, path, offset, limit)` reads `path` relative to the
   sandbox user's home directory, from a byte offset onwards. Paths must be
   relative and contain no `..` components or trailing slash. `limit`

@@ -19,10 +19,6 @@ use futures::StreamExt;
 /// Estuary provisions for other purposes.
 const HANDLE_PREFIX: &str = "sbx-";
 
-/// How many live sandboxes a user may hold. Raising it is the only change the
-/// limit needs: every operation already names its sandbox by id.
-pub const SANDBOX_LIMIT: i64 = 1;
-
 /// Directory under the sandbox user's home directory that holds one
 /// subdirectory per exec. [`EXEC_WRAPPER`] and [`PROBE_START`]
 /// spell the same path in shell, and [`ExecFile::path`] builds the paths
@@ -249,10 +245,7 @@ pub fn handle(id: models::Id) -> String {
 /// Why a sandbox was not created.
 #[derive(Debug, thiserror::Error)]
 pub enum CreateError {
-    /// The caller already holds [`SANDBOX_LIMIT`] live sandboxes.
-    #[error("sandbox limit reached")]
-    LimitReached,
-    /// The caller already has a live sandbox of that name.
+    /// A live sandbox already has that name, regardless of owner.
     #[error("a sandbox named {0:?} already exists")]
     NameTaken(String),
     /// The name is not a valid catalog name.
@@ -312,8 +305,8 @@ fn validate_relative_path(path: &str) -> Result<(), PathError> {
 /// Creates a sandbox named `catalog_name` for `user_id` and returns once it accepts
 /// commands.
 ///
-/// Refuses an invalid catalog name, one the user's live sandboxes
-/// already use, and a user at [`SANDBOX_LIMIT`]. The sandbox is fully prepared
+/// Refuses an invalid catalog name, one any live sandbox
+/// already uses. The sandbox is fully prepared
 /// when this returns: it runs commands and flowctl is installed. If creating
 /// the sprite fails the record stays, and the sandbox's first command
 /// provisions the sprite instead.
@@ -342,7 +335,7 @@ pub async fn create(
 
 /// Fetches sandbox `id` if it is live and `user_id` owns it.
 ///
-/// An unknown, retired, or foreign id all resolve to `None`, so a caller learns
+/// An unknown, deleted, or foreign id all resolve to `None`, so a caller learns
 /// nothing about sandboxes that are not theirs.
 pub async fn fetch(
     pool: &sqlx::PgPool,
@@ -354,7 +347,7 @@ pub async fn fetch(
         r#"
         select id as "id!: models::Id", user_id, handle, catalog_name, created_at
         from internal.sandboxes
-        where id = $1 and user_id = $2 and deleted_at is null
+        where id = $1 and user_id = $2
         "#,
         id as models::Id,
         user_id,
@@ -366,7 +359,7 @@ pub async fn fetch(
 
 /// Fetches sandbox `catalog_name` if it is live and `user_id` owns it.
 ///
-/// An unknown, retired, or foreign name all resolve to `None`, so a caller learns
+/// An unknown, deleted, or foreign name all resolve to `None`, so a caller learns
 /// nothing about sandboxes that are not theirs.
 pub async fn fetch_by_catalog_name(
     pool: &sqlx::PgPool,
@@ -378,7 +371,7 @@ pub async fn fetch_by_catalog_name(
         r#"
         select id as "id!: models::Id", user_id, handle, catalog_name, created_at
         from internal.sandboxes
-        where catalog_name = $1 and user_id = $2 and deleted_at is null
+        where catalog_name = $1 and user_id = $2
         "#,
         catalog_name,
         user_id,
@@ -395,7 +388,7 @@ pub async fn list(pool: &sqlx::PgPool, user_id: uuid::Uuid) -> anyhow::Result<Ve
         r#"
         select id as "id!: models::Id", user_id, handle, catalog_name, created_at
         from internal.sandboxes
-        where user_id = $1 and deleted_at is null
+        where user_id = $1
         order by created_at desc
         "#,
         user_id,
@@ -447,11 +440,8 @@ fn execs_from_metadata(data: &[u8]) -> anyhow::Result<Vec<ExecEvent>> {
 
 /// Inserts a live sandbox record named `catalog_name` for `user_id`.
 ///
-/// The count and the insert run in one transaction under an advisory lock on
-/// the user, so two concurrent creates cannot both pass the count and both
-/// commit, nor both take a name. The lock releases with the transaction. The
-/// live-name index enforces the name's uniqueness regardless, and its
-/// violation is read back as [`CreateError::NameTaken`].
+/// The catalog-name index arbitrates concurrent creates across all users.
+/// Its violation is read back as [`CreateError::NameTaken`].
 pub(crate) async fn insert_record(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
@@ -459,36 +449,6 @@ pub(crate) async fn insert_record(
 ) -> Result<Sandbox, CreateError> {
     validator::Validate::validate(&models::Name::new(catalog_name))
         .map_err(|err| CreateError::InvalidName(err.to_string()))?;
-
-    let mut txn = pool
-        .begin()
-        .await
-        .context("beginning sandbox transaction")?;
-
-    // The first key namespaces the lock away from other advisory-lock users.
-    sqlx::query!(
-        "select pg_advisory_xact_lock(hashtext('internal.sandboxes'), hashtext($1))",
-        user_id.to_string(),
-    )
-    .execute(&mut *txn)
-    .await
-    .context("locking sandbox records")?;
-
-    let live = sqlx::query_scalar!(
-        r#"
-        select count(*) as "count!"
-        from internal.sandboxes
-        where user_id = $1 and deleted_at is null
-        "#,
-        user_id,
-    )
-    .fetch_one(&mut *txn)
-    .await
-    .context("counting live sandboxes")?;
-
-    if live >= SANDBOX_LIMIT {
-        return Err(CreateError::LimitReached);
-    }
 
     // The handle derives from the generated id, so both come from one statement.
     // A flowid renders as sixteen hex characters; `replace` strips the colons
@@ -505,37 +465,17 @@ pub(crate) async fn insert_record(
         HANDLE_PREFIX,
         catalog_name,
     )
-    .fetch_one(&mut *txn)
+    .fetch_one(pool)
     .await
     .map_err(|err| match err.as_database_error() {
-        Some(db) if db.constraint() == Some("sandboxes_live_user_catalog_name_idx") => {
+        Some(db) if db.constraint() == Some("sandboxes_catalog_name_idx") => {
             CreateError::NameTaken(catalog_name.to_string())
         }
         _ => CreateError::Other(anyhow::Error::new(err).context("creating sandbox record")),
     })?;
 
-    txn.commit().await.context("committing sandbox record")?;
-
     tracing::info!(%sandbox.id, %sandbox.handle, %user_id, "created sandbox record");
     Ok(sandbox)
-}
-
-/// Retires record `id`: it stops resolving for callers and frees a slot under
-/// [`SANDBOX_LIMIT`], while reserving its handle against reuse.
-async fn retire_record(pool: &sqlx::PgPool, id: models::Id) -> anyhow::Result<()> {
-    sqlx::query!(
-        r#"
-        update internal.sandboxes
-        set deleted_at = now(), updated_at = now()
-        where id = $1 and deleted_at is null
-        "#,
-        id as models::Id,
-    )
-    .execute(pool)
-    .await
-    .context("retiring sandbox record")?;
-
-    Ok(())
 }
 
 /// Starts `command` in `sandbox` and returns its exec event once the command
@@ -991,7 +931,7 @@ async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
 /// (exec metadata is deleted with the storage).
 ///
 /// The provider call goes first. If it fails the record stays live and the
-/// caller can retry; the reverse order could retire a record while leaving an
+/// caller can retry; the reverse order could delete a record while leaving an
 /// orphan sprite that nothing references.
 pub async fn delete(
     client: &crate::sprites::Client,
@@ -1002,7 +942,16 @@ pub async fn delete(
         .delete_sprite(&sandbox.handle)
         .await
         .context("deleting sprite")?;
-    retire_record(pool, sandbox.id).await?;
+    sqlx::query!(
+        r#"
+        delete from internal.sandboxes
+        where id = $1
+        "#,
+        sandbox.id as models::Id,
+    )
+    .execute(pool)
+    .await
+    .context("deleting sandbox record")?;
 
     tracing::info!(%sandbox.handle, %sandbox.id, "deleted sandbox");
     Ok(())
@@ -1431,16 +1380,11 @@ mod test {
         fixtures(path = "fixtures", scripts("data_planes", "alice"))
     )]
     async fn test_sandbox_records(pool: sqlx::PgPool) {
-        // The first insert creates alice's record under her name, and the
-        // handle SQL derives agrees with the Rust derivation. At the limit, a
-        // second is refused whatever its name.
+        // One user can hold multiple sandboxes, each with a distinct identity.
         let first = insert_record(&pool, ALICE, "dev").await.unwrap();
         assert_eq!((first.user_id, first.catalog_name.as_str()), (ALICE, "dev"));
         assert_eq!(first.handle, handle(first.id));
-        assert!(matches!(
-            insert_record(&pool, ALICE, "other").await,
-            Err(CreateError::LimitReached)
-        ));
+        let second = insert_record(&pool, ALICE, "other").await.unwrap();
 
         // The record resolves for its owner only, and lists for its owner only.
         assert_eq!(
@@ -1448,24 +1392,60 @@ mod test {
             first.id
         );
         assert!(fetch(&pool, first.id, BOB).await.unwrap().is_none());
-        assert_eq!(list(&pool, ALICE).await.unwrap().len(), 1);
+        assert_eq!(list(&pool, ALICE).await.unwrap().len(), 2);
         assert!(list(&pool, BOB).await.unwrap().is_empty());
 
-        // Retiring frees the owner's slot and name.
-        retire_record(&pool, first.id).await.unwrap();
+        // A failed provider deletion must retain the record for a retry.
+        let succeed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let response = succeed.clone();
+        let router = axum::Router::new().route(
+            "/v1/sprites/{name}",
+            axum::routing::delete(move || {
+                let response = response.clone();
+                async move {
+                    if response.load(std::sync::atomic::Ordering::SeqCst) {
+                        axum::http::StatusCode::NO_CONTENT
+                    } else {
+                        axum::http::StatusCode::BAD_GATEWAY
+                    }
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = crate::sprites::Client::with_base_url(
+            "token".to_string(),
+            url::Url::parse(&format!("http://{addr}")).unwrap(),
+        );
+        assert!(delete(&client, &pool, &first).await.is_err());
+        assert!(fetch(&pool, first.id, ALICE).await.unwrap().is_some());
+
+        // Successful deletion removes the row and frees its catalog name.
+        succeed.store(true, std::sync::atomic::Ordering::SeqCst);
+        delete(&client, &pool, &first).await.unwrap();
+        server.abort();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM internal.sandboxes WHERE id = $1")
+                .bind(first.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
         assert!(fetch(&pool, first.id, ALICE).await.unwrap().is_none());
 
         let fresh = insert_record(&pool, ALICE, "dev").await.unwrap();
         assert_ne!(fresh.id, first.id);
         assert_ne!(fresh.handle, first.handle);
         assert_eq!(fresh.catalog_name, first.catalog_name);
-        let live: Vec<models::Id> = list(&pool, ALICE)
+        let remaining: std::collections::BTreeSet<models::Id> = list(&pool, ALICE)
             .await
             .unwrap()
             .into_iter()
             .map(|sandbox| sandbox.id)
             .collect();
-        assert_eq!(live, vec![fresh.id]);
+        assert_eq!(remaining, [fresh.id, second.id].into_iter().collect());
     }
 
     /// A stand-in for the Sprites exec endpoint. It answers each request with
