@@ -1,6 +1,7 @@
 use super::Task;
 use crate::Logger as _;
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
 use futures::StreamExt;
 use prost::Message;
@@ -19,17 +20,17 @@ pub async fn dial_and_join(
 )> {
     let leader_endpoint = join.leader_endpoint.clone();
 
-    let channel = gazette::dial_channel(&leader_endpoint).context("failed to dial leader")?;
+    let channel = proto_grpc::dial_channel(&leader_endpoint).context("failed to dial leader")?;
     let shard_id = &join.shards[join.shard_index as usize].id;
     let metadata = crate::shard::leader_bearer(signer, shard_id)?;
     let mut leader_client =
         proto_grpc::runtime::leader_client::LeaderClient::with_interceptor(channel, metadata)
-            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+            .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX);
 
     // Start the materialize RPC. We use an unbounded sender because we never
     // pump messages to the leader (strictly request / response).
-    let (leader_tx, leader_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (leader_tx, leader_rx) = mpsc::unbounded_channel();
     let mut leader_rx = leader_client
         .materialize(tokio_stream::wrappers::UnboundedReceiverStream::new(
             leader_rx,
@@ -66,8 +67,8 @@ pub async fn dial_and_join(
 
 pub(super) struct Startup {
     pub accumulator: crate::Accumulator,
-    pub connector_rx: futures::stream::BoxStream<'static, tonic::Result<materialize::Response>>,
-    pub connector_tx: mpsc::Sender<materialize::Request>,
+    pub connector_rx: mpsc::Receiver<tonic::Result<connector::proto::Response>>,
+    pub connector_tx: mpsc::Sender<connector::proto::Request>,
     pub db: crate::shard::RocksDB,
     pub disable_load_optimization: bool,
     pub codec: connector_init::Codec,
@@ -185,17 +186,7 @@ where
                     state_json: connector_state_json,
                     version,
                 };
-                _ = leader_tx.send(
-                    super::handler::serve_unary(
-                        service,
-                        materialize::Request {
-                            apply: Some(apply),
-                            ..Default::default()
-                        },
-                        log_level,
-                    )
-                    .await?,
-                );
+                _ = leader_tx.send(super::handler::serve_apply(service, apply, log_level).await?);
             }
             proto::Materialize {
                 persist: Some(persist),
@@ -234,25 +225,45 @@ where
         flow::MaterializationSpec::decode(spec.as_ref()).context("invalid current Apply spec")?;
 
     let initial = materialize::Request {
-        open: Some(materialize::request::Open {
-            materialization: Some(spec),
-            version,
-            state_json: connector_state_json,
-            range,
-            // Populated by `connector::start` with the matched endpoint's inner
-            // sealed configuration, which is not yet extracted from `spec` here.
-            sealed_config_json: Default::default(),
-        }),
+        kind: Some(materialize::request::Kind::Open(Box::new(
+            materialize::request::Open {
+                materialization: Some(spec),
+                version,
+                state_json: connector_state_json,
+                range,
+                // Populated by `connector::start` with the matched endpoint's inner
+                // sealed configuration, which is not yet extracted from `spec` here.
+                sealed_config_json: Default::default(),
+            },
+        ))),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container, codec, token_restart_at) =
-        super::connector::start(service, logger, log_level, initial).await?;
+    let (
+        connector_tx,
+        mut connector_rx,
+        connector::Started {
+            container,
+            codec,
+            token_restart_at,
+        },
+    ) = connector::start(
+        &*service.connector_router,
+        logger,
+        &labeling.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri: String::new(),
+        },
+        connector::proto::request::Kind::Materialize(initial),
+    )
+    .await?;
 
     // Read C:Opened from the connector.
     let verify = crate::verify("Materialize", "Opened", "connector");
-    let opened = match verify.not_eof(connector_rx.next().await)? {
+    let next = connector::next(&mut connector_rx, logger, connector::unwrap_materialize);
+    let opened = match verify.not_eof(next.await)? {
         materialize::Response {
-            opened: Some(opened),
+            kind: Some(materialize::response::Kind::Opened(opened)),
             ..
         } => opened,
         other => return Err(verify.fail_msg(other)),

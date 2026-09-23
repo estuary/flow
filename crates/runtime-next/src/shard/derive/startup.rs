@@ -1,12 +1,10 @@
 use super::Task;
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
-use futures::{StreamExt, stream::BoxStream};
+use futures::StreamExt;
 use prost::Message;
-use proto_flow::{
-    derive, flow,
-    runtime::{DeriveRequestExt, derive_request_ext},
-};
+use proto_flow::{derive, flow};
 use tokio::sync::mpsc;
 
 pub async fn dial_and_join(
@@ -21,16 +19,16 @@ pub async fn dial_and_join(
 )> {
     let leader_endpoint = join.leader_endpoint.clone();
 
-    let channel = gazette::dial_channel(&leader_endpoint).context("failed to dial leader")?;
+    let channel = proto_grpc::dial_channel(&leader_endpoint).context("failed to dial leader")?;
     let shard_id = &join.shards[join.shard_index as usize].id;
     let metadata = crate::shard::leader_bearer(signer, shard_id)?;
     let mut leader_client =
         proto_grpc::runtime::leader_client::LeaderClient::with_interceptor(channel, metadata)
-            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+            .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX);
 
     // Unbounded: we never pump messages to the leader (strictly request / response).
-    let (leader_tx, leader_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (leader_tx, leader_rx) = mpsc::unbounded_channel();
     let mut leader_rx = leader_client
         .derive(tokio_stream::wrappers::UnboundedReceiverStream::new(
             leader_rx,
@@ -64,8 +62,8 @@ pub async fn dial_and_join(
 pub(super) struct Startup<P: crate::Publisher> {
     pub accumulator: crate::Accumulator,
     pub codec: connector_init::Codec,
-    pub connector_rx: BoxStream<'static, tonic::Result<derive::Response>>,
-    pub connector_tx: mpsc::Sender<derive::Request>,
+    pub connector_rx: mpsc::Receiver<tonic::Result<connector::proto::Response>>,
+    pub connector_tx: mpsc::Sender<connector::proto::Request>,
     pub db: crate::shard::RocksDB,
     pub leader_rx: tonic::Streaming<proto::Derive>,
     pub leader_tx: mpsc::UnboundedSender<proto::Derive>,
@@ -195,30 +193,43 @@ where
     let open_spec = flow::CollectionSpec::decode(open_spec.as_ref())
         .context("invalid CollectionSpec in L:Open")?;
 
-    let mut initial = derive::Request {
-        open: Some(derive::request::Open {
-            collection: Some(open_spec),
-            version,
-            range,
-            state_json: connector_state_json,
-        }),
+    let initial = derive::Request {
+        kind: Some(derive::request::Kind::Open(Box::new(
+            derive::request::Open {
+                collection: Some(open_spec),
+                version,
+                range,
+                state_json: connector_state_json,
+            },
+        ))),
         ..Default::default()
     };
-    // Thread the recorded SQLite VFS to derive-sqlite (which requires it to be
-    // set; absent it uses an in-memory database). Harmless for other connectors.
-    if !sqlite_vfs_uri.is_empty() {
-        initial.set_internal(|ext: &mut DeriveRequestExt| {
-            ext.open = Some(derive_request_ext::Open { sqlite_vfs_uri });
-        });
-    }
 
-    let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, logger, log_level, initial).await?;
+    // `sqlite_vfs_uri` threads this shard's recorded SQLite VFS to a
+    // derive-sqlite connector; it's empty (and rejected) for every other type.
+    let (
+        connector_tx,
+        mut connector_rx,
+        connector::Started {
+            container, codec, ..
+        },
+    ) = connector::start(
+        &*service.connector_router,
+        logger,
+        &labeling.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri,
+        },
+        connector::proto::request::Kind::Derive(initial),
+    )
+    .await?;
 
     let verify = crate::verify("Derive", "Opened", "connector");
-    let opened = match verify.not_eof(connector_rx.next().await)? {
+    let next = connector::next(&mut connector_rx, logger, connector::unwrap_derive);
+    let opened = match verify.not_eof(next.await)? {
         derive::Response {
-            opened: Some(opened),
+            kind: Some(derive::response::Kind::Opened(opened)),
             ..
         } => opened,
         other => return Err(verify.fail_msg(other)),

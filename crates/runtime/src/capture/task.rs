@@ -6,17 +6,23 @@ use std::collections::BTreeMap;
 
 impl Task {
     pub fn new(open: &Request, opened: &Response) -> anyhow::Result<Self> {
+        let Some(request::Kind::Open(open)) = open.kind.clone() else {
+            anyhow::bail!("expected Open");
+        };
         let request::Open {
             capture: spec,
             range,
             state_json: _,
             sealed_config_json: _,
             version,
-        } = open.clone().open.context("expected Open")?;
+        } = *open;
 
-        let response::Opened {
+        let Some(response::Kind::Opened(response::Opened {
             explicit_acknowledgements,
-        } = opened.clone().opened.context("expected Opened")?;
+        })) = opened.kind
+        else {
+            anyhow::bail!("expected Opened");
+        };
 
         let spec = spec.as_ref().context("missing capture")?;
 

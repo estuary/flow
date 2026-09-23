@@ -194,11 +194,14 @@ pub struct MaterializationBinding {
     /// However, when one binding has a higher priority than others,
     /// then *all* ready documents are processed through the binding
     /// before *any* documents of other bindings are processed.
+    ///
+    /// Priority may be negative, which de-prioritizes a binding with
+    /// respect to bindings having the default priority of zero.
     #[serde(
         default,
         skip_serializing_if = "MaterializationBinding::priority_is_zero"
     )]
-    pub priority: u32,
+    pub priority: i32,
     /// # Selected projections for this materialization.
     #[serde(default)]
     pub fields: MaterializationFields,
@@ -307,7 +310,7 @@ impl MaterializationBinding {
         }
     }
 
-    fn priority_is_zero(p: &u32) -> bool {
+    fn priority_is_zero(p: &i32) -> bool {
         *p == 0
     }
 }

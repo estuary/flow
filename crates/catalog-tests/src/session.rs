@@ -4,7 +4,7 @@
 //! It is a generalization of preview's `derive_driver`: it hosts the leader plus
 //! N synthetic shards over one long-lived SessionLoop — so a connector container
 //! (or in-process derive-sqlite) starts at most once per derivation per run and
-//! stays warm — but instead of running to a fixed transaction budget it keeps the
+//! stays warm and keeps the session resident across test steps while the
 //! session open and runs exactly one transaction per
 //! [`read`](DerivationSession::read), awaiting its commit.
 //!
@@ -29,7 +29,7 @@ use crate::publish::TestPublisherFactory;
 use crate::store::CollectionStore;
 use anyhow::Context;
 use prost::Message;
-use proto_flow::{flow, runtime as cruntime};
+use proto_flow::flow;
 use proto_gazette::uuid;
 use runtime_local::segments;
 use runtime_next::proto;
@@ -93,13 +93,10 @@ pub struct DerivationSession {
 impl DerivationSession {
     /// Start a derivation session: host the leader plus `n_shards` shards, open
     /// the SessionLoop / Join / Task, and block until every shard has Opened.
-    ///
-    /// `logger_factory` is the run's shared logger seam (see
-    /// [`crate::run::Options`]), opened once by the leader and once per shard.
     pub async fn start<L: runtime_next::LoggerFactory>(
         spec: &flow::CollectionSpec,
         n_shards: u32,
-        network: String,
+        connector_router: Arc<dyn proto_grpc::connector::Router>,
         registry: service_kit::Registry,
         store: Arc<Mutex<CollectionStore>>,
         logger_factory: L,
@@ -134,7 +131,7 @@ impl DerivationSession {
         let publisher_factory = TestPublisherFactory::new(store.clone(), commit_tx);
 
         let run = runtime_local::services::Run::start_with_shuffle_leader(
-            network.clone(),
+            connector_router,
             n_shards,
             None,
             registry.clone(),
@@ -181,8 +178,7 @@ impl DerivationSession {
             let (request_tx, request_rx) =
                 mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
             let shard_svc = runtime_next::shard::Service::new(
-                cruntime::Plane::Local,
-                network.clone(),
+                run.connector_router.clone(),
                 None,
                 derivation.clone(),
                 publisher_factory.clone(),

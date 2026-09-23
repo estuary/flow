@@ -37,10 +37,11 @@ pub struct SliceActor {
     /// Previous journal name sent to each Log shard, for delta encoding.
     pub log_prev_journal: Vec<String>,
     /// Pending Journal read-start probes for newly started reads.
-    /// Each resolves to `(start_offset, read)`, where `start_offset` is the
-    /// read's fast-forwarded starting offset used to seed its `ReadState`.
+    /// Each resolves to `(offset, start_offset, read)`: the offset requested of
+    /// the broker, and the read's fast-forwarded starting offset used to seed
+    /// its `ReadState`.
     pub pending_probes: stream::FuturesUnordered<
-        future::BoxFuture<'static, anyhow::Result<(i64, super::ReadLines)>>,
+        future::BoxFuture<'static, anyhow::Result<(i64, i64, super::ReadLines)>>,
     >,
     /// Reads that are awaiting more data from Gazette brokers.
     pub pending_reads: stream::FuturesUnordered<stream::StreamFuture<super::ReadLines>>,
@@ -116,18 +117,13 @@ impl SliceActor {
             .collect();
 
         // Await Start from the Session RPC.
-        let verify = crate::verify(
-            "SliceRequest",
-            "Start",
-            &self.topology.shards[0].endpoint,
-            0,
-        );
+        let verify = proto_grpc::verify("SliceRequest", "Start", &self.topology.shards[0].endpoint);
         match verify.not_eof(slice_request_rx.next().await)? {
             shuffle::SliceRequest {
                 start: Some(shuffle::slice_request::Start {}),
                 ..
             } => (),
-            request => return Err(verify.fail(request)),
+            request => return Err(verify.fail_msg(request)),
         };
 
         // Spawn tasks that watch journal listings of assigned bindings.
@@ -196,17 +192,19 @@ impl SliceActor {
 
                 // Lowest priority is processing journal listings and reads.
                 Some(probe_result) = self.pending_probes.next() => {
-                    let (start_offset, read) = match probe_result {
+                    let (offset, start_offset, read) = match probe_result {
                         Ok(ok) => ok,
                         Err(err) => {
                             self.metrics.reads_stopped.increment(1);
                             return Err(err);
                         }
                     };
+                    let read_state = &mut self.reads[read.id() as usize];
+                    read_state.pending_gap = start_offset > offset;
                     // Seed the ReadState's offsets at the probe's resolved start
                     // before parking, so byte deltas exclude the filtered range
                     // the read skipped.
-                    self.reads[read.id() as usize].start_at(start_offset);
+                    read_state.start_at(start_offset);
                     self.park_or_process(read)?;
                 }
                 Some(listing_result) = listing_tasks.next() => {
@@ -242,11 +240,10 @@ impl SliceActor {
 
         // Read clean EOF from all Log RPCs.
         while let Some((shard_index, slice_response, rx)) = log_response_rx.next().await {
-            let verify = crate::verify(
+            let verify = proto_grpc::verify(
                 "LogResponse",
                 "EOF",
                 &self.topology.shards[shard_index].endpoint,
-                shard_index,
             );
             match slice_response {
                 None => (), // Clean EOF.
@@ -299,11 +296,10 @@ impl SliceActor {
         &mut self,
         slice_request: tonic::Result<shuffle::SliceRequest>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify(
+        let verify = proto_grpc::verify(
             "SliceRequest",
             "InitialReadsStarted, Progress, or StartRead",
             &self.topology.shards[0].endpoint,
-            0,
         );
 
         match verify.ok(slice_request)? {
@@ -337,7 +333,7 @@ impl SliceActor {
                 ..
             } => self.on_start_read(start_read),
 
-            request => Err(verify.fail(request)),
+            request => Err(verify.fail_msg(request)),
         }
     }
 
@@ -461,6 +457,7 @@ impl SliceActor {
             );
 
             Ok((
+                offset,
                 start_offset,
                 Box::pin(gazette::journal::read::ReadLines::new(
                     client.read(request).boxed(),
@@ -698,11 +695,10 @@ impl SliceActor {
         shard_index: usize,
         log_response: Option<tonic::Result<shuffle::LogResponse>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify(
+        let verify = proto_grpc::verify(
             "LogResponse",
             "Flushed",
             &self.topology.shards[shard_index].endpoint,
-            shard_index,
         );
         let log_response = verify.not_eof(log_response)?;
 
@@ -719,7 +715,7 @@ impl SliceActor {
                 Ok(())
             }
 
-            response => Err(verify.fail(response)),
+            response => Err(verify.fail_msg(response)),
         }
     }
 
@@ -862,6 +858,8 @@ impl SliceActor {
             read_state.backfill_complete = read_state
                 .backfill_complete
                 .max(sequenced.backfill_complete);
+
+            read_state.sample_gap_floor(clock);
 
             _ = read_state
                 .unreported

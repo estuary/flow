@@ -165,7 +165,8 @@ impl Collection {
 
         let collection_spec = binding
             .collection
-            .clone()
+            .as_deref()
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("missing collection in materialization binding"))?;
 
         let collection_name = &auth.get_collection_for_topic(topic_name).await?;

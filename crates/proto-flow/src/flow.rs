@@ -355,8 +355,8 @@ pub struct CollectionSpec {
     /// Template for partitions of this collection.
     #[prost(message, optional, tag = "9")]
     pub partition_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
-    #[prost(message, optional, tag = "12")]
-    pub derivation: ::core::option::Option<collection_spec::Derivation>,
+    #[prost(message, optional, boxed, tag = "12")]
+    pub derivation: ::core::option::Option<::prost::alloc::boxed::Box<collection_spec::Derivation>>,
 }
 /// Nested message and enum types in `CollectionSpec`.
 pub mod collection_spec {
@@ -435,15 +435,18 @@ pub mod collection_spec {
             /// Source collection which is read by this transform.
             /// Unset if the derivation uses `linked_collections`, in which case
             /// `collection_index` identifies the source collection instead.
-            #[prost(message, optional, tag = "2")]
-            pub collection: ::core::option::Option<super::super::CollectionSpec>,
+            #[prost(message, optional, boxed, tag = "2")]
+            pub collection:
+                ::core::option::Option<::prost::alloc::boxed::Box<super::super::CollectionSpec>>,
             /// Selector of collection partitions which this materialization reads.
             #[prost(message, optional, tag = "3")]
             pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
             /// Priority of this transform, with respect to other transforms of the derivation.
-            /// Higher values imply higher priority.
-            #[prost(uint32, tag = "4")]
-            pub priority: u32,
+            /// Higher values imply higher priority, and negative values are allowed.
+            /// `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+            /// encoding used before negative priorities were allowed.
+            #[prost(int32, tag = "4")]
+            pub priority: i32,
             /// Number of seconds for which documents of this transformed are delayed
             /// while reading, relative to other documents (when back-filling) and the
             /// present wall-clock time (when tailing).
@@ -672,8 +675,8 @@ pub mod capture_spec {
         /// Collection to be captured into.
         /// Unset if the capture uses `linked_collections`, in which case
         /// `collection_index` identifies the bound collection instead.
-        #[prost(message, optional, tag = "3")]
-        pub collection: ::core::option::Option<super::CollectionSpec>,
+        #[prost(message, optional, boxed, tag = "3")]
+        pub collection: ::core::option::Option<::prost::alloc::boxed::Box<super::CollectionSpec>>,
         /// Backfill counter for this binding.
         /// Every increment of this counter results in a new backfill.
         #[prost(uint32, tag = "4")]
@@ -808,15 +811,17 @@ pub mod materialization_spec {
         /// Collection to be materialized.
         /// Unset if the materialization uses `linked_collections`, in which case
         /// `collection_index` identifies the bound collection instead.
-        #[prost(message, optional, tag = "3")]
-        pub collection: ::core::option::Option<super::CollectionSpec>,
+        #[prost(message, optional, boxed, tag = "3")]
+        pub collection: ::core::option::Option<::prost::alloc::boxed::Box<super::CollectionSpec>>,
         /// Selector of collection partitions which this materialization reads.
         #[prost(message, optional, tag = "7")]
         pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
         /// Priority of this binding, with respect to other bindings of the materialization.
-        /// Higher values imply higher priority.
-        #[prost(uint32, tag = "9")]
-        pub priority: u32,
+        /// Higher values imply higher priority, and negative values are allowed.
+        /// `int32` (not `sint32`) preserves wire compatibility with the `uint32`
+        /// encoding used before negative priorities were allowed.
+        #[prost(int32, tag = "9")]
+        pub priority: i32,
         /// Resolved fields selected for materialization.
         #[prost(message, optional, tag = "4")]
         pub field_selection: ::core::option::Option<super::FieldSelection>,

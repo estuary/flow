@@ -3,7 +3,7 @@ use models::draft_error::Error;
 use models::{CatalogType, Id};
 
 mod db;
-pub use db::{add_built_spec, delete_errors, delete_specs, touch, upsert_spec};
+pub use db::{add_built_spec, delete_errors, delete_specs, replace_spec, touch, upsert_spec};
 
 pub async fn load_draft(
     draft_id: Id,

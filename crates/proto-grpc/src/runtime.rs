@@ -1343,14 +1343,8 @@ pub mod shard_client {
     /// sidecar's Leader service, translating between the two and the
     /// connector RPC.
     ///
-    /// Stream modes are determined by the first message:
-    ///
-    /// * Session mode: first message is `SessionLoop`. Then any number of
-    ///  leader sessions cycle through Join → ... → Stopped, terminated by
-    ///  controller EOF.
-    /// * Unary mode: first message is `spec` or `validate`. The leader is
-    ///  not involved; the handler dials a transient connector and streams
-    ///  the response back. A Validate may follow a Spec on the same stream.
+    /// A stream begins with `SessionLoop`. Then any number of leader sessions
+    /// cycle through Join → ... → Stopped, terminated by controller EOF.
     #[derive(Debug, Clone)]
     pub struct ShardClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -1532,14 +1526,8 @@ pub mod shard_server {
     /// sidecar's Leader service, translating between the two and the
     /// connector RPC.
     ///
-    /// Stream modes are determined by the first message:
-    ///
-    /// * Session mode: first message is `SessionLoop`. Then any number of
-    ///  leader sessions cycle through Join → ... → Stopped, terminated by
-    ///  controller EOF.
-    /// * Unary mode: first message is `spec` or `validate`. The leader is
-    ///  not involved; the handler dials a transient connector and streams
-    ///  the response back. A Validate may follow a Spec on the same stream.
+    /// A stream begins with `SessionLoop`. Then any number of leader sessions
+    /// cycle through Join → ... → Stopped, terminated by controller EOF.
     #[derive(Debug)]
     pub struct ShardServer<T> {
         inner: Arc<T>,

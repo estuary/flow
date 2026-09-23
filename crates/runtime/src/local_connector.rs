@@ -26,11 +26,11 @@ where
 
     connector.env("LOG_LEVEL", log_level.or(ops::LogLevel::Info).as_str_name());
 
-    let container_rx = connector_init::rpc::bidi::<Request, Response, _, _>(
+    let container_rx = connector_init::rpc::bidi::<Request, Response, _, _, _>(
         connector,
         codec,
         request_rx.map(Result::Ok),
-        log_handler.clone().as_fn(),
+        connector_init::rpc::sync_log_handler(log_handler.clone().as_fn()),
     )?;
     let container_rx = crate::stream_status_to_error(container_rx);
 

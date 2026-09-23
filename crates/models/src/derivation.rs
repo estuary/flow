@@ -97,8 +97,11 @@ pub struct TransformDef {
     /// However, when one transform has a higher priority than others,
     /// then *all* ready documents are processed through the transform
     /// before *any* documents of other transforms are processed.
+    ///
+    /// Priority may be negative, which de-prioritizes a transform with
+    /// respect to transforms having the default priority of zero.
     #[serde(default, skip_serializing_if = "TransformDef::priority_is_zero")]
-    pub priority: u32,
+    pub priority: i32,
     /// # Delay applied to documents processed by this transform.
     /// Delays are applied as an adjustment to the UUID clock encoded within each
     /// document, which is then used to impose a relative ordering of all documents
@@ -177,7 +180,7 @@ impl TransformDef {
         .unwrap()
     }
 
-    fn priority_is_zero(p: &u32) -> bool {
+    fn priority_is_zero(p: &i32) -> bool {
         *p == 0
     }
 }

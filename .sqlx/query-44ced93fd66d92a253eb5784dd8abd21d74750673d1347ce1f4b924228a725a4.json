@@ -6,7 +6,13 @@
       {
         "ordinal": 0,
         "name": "stats: sqlx::types::Json<CatalogStats>",
-        "type_info": "Json"
+        "type_info": "Json",
+        "origin": {
+          "Table": {
+            "table": "catalog_stats",
+            "name": "flow_document"
+          }
+        }
       }
     ],
     "parameters": {

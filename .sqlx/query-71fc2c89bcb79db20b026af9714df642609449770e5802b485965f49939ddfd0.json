@@ -6,22 +6,46 @@
       {
         "ordinal": 0,
         "name": "tenant!",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "tenant"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "billing_email",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "billing_email"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "billing_name",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "billing_name"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "billing_address",
-        "type_info": "Jsonb"
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "billing_address"
+          }
+        }
       },
       {
         "ordinal": 4,
@@ -35,6 +59,12 @@
                 "external"
               ]
             }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "tenants",
+            "name": "payment_provider"
           }
         }
       }

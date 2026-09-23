@@ -6,17 +6,20 @@
       {
         "ordinal": 0,
         "name": "prior_id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": "Expression"
       },
       {
         "ordinal": 1,
         "name": "prior_document: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": "Expression"
       },
       {
         "ordinal": 2,
         "name": "written_id: models::Id",
-        "type_info": "Macaddr8"
+        "type_info": "Macaddr8",
+        "origin": "Expression"
       }
     ],
     "parameters": {

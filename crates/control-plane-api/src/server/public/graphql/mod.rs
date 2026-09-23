@@ -29,6 +29,7 @@ mod authorized_prefixes;
 pub(crate) mod billing;
 mod connectors;
 mod data_planes;
+mod drafts;
 mod filters;
 pub mod id;
 mod invite_links;
@@ -67,7 +68,7 @@ fn may_access(
     Ok(tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        env.claims()?.sub,
+        &env.claims()?.subject(),
         name,
         capability,
     ))
@@ -126,6 +127,7 @@ pub struct QueryRoot(
     refresh_tokens::RefreshTokensQuery,
     service_accounts::ServiceAccountsQuery,
     secrets::SecretsQuery,
+    drafts::DraftsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -140,6 +142,7 @@ pub struct MutationRoot(
     refresh_tokens::RefreshTokensMutation,
     service_accounts::ServiceAccountsMutation,
     secrets::SecretsMutation,
+    drafts::DraftsMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {

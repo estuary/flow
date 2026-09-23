@@ -84,7 +84,7 @@ mod state;
 pub mod writer;
 
 pub use block::BlockMeta;
-pub use reader::{FrontierScan, Reader, Remainder};
+pub use reader::{FrontierScan, Reader, Remainder, pinned_segments};
 pub use writer::Writer;
 
 pub(crate) use handler::serve_log;

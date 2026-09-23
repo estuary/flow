@@ -24,7 +24,7 @@ type shuffle struct {
 	// Path metadata suffix attached to journals read by this shuffle.
 	journalReadSuffix string
 	// Priority of this shuffle with respect to others of the derivation.
-	priority uint32
+	priority int32
 	// Projections of the shuffled source collection.
 	projections []pf.Projection
 	// Read delay of this shuffle with respect to others of the derivation.

@@ -35,7 +35,7 @@ async fn test_publication_concurrent_commits() {
 
         let build_1 = publisher_1
             .build(
-                user_id,
+                &models::authz::Subject::unrestricted(user_id),
                 Id::new([test_iteration, 1, 1, 1, 1, 1, 1, 1]),
                 Some("build_1".to_string()),
                 draft.clone_specs(),
@@ -50,7 +50,7 @@ async fn test_publication_concurrent_commits() {
 
         let build_2 = publisher_2
             .build(
-                user_id,
+                &models::authz::Subject::unrestricted(user_id),
                 Id::new([test_iteration, 1, 1, 1, 1, 1, 1, 2]),
                 Some("build_2".to_string()),
                 draft.clone_specs(),
@@ -64,7 +64,7 @@ async fn test_publication_concurrent_commits() {
             .unwrap();
         let build_3 = publisher_3
             .build(
-                user_id,
+                &models::authz::Subject::unrestricted(user_id),
                 Id::new([test_iteration, 1, 1, 1, 1, 1, 1, 3]),
                 Some("build_3".to_string()),
                 draft.clone_specs(),
@@ -123,7 +123,7 @@ async fn test_publication_optimistic_locking_failures() {
     let result = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             naughty_pub_id,
             Some("wrong expect_pub_ids".to_string()),
             wrong_expect_pub_ids,
@@ -170,7 +170,7 @@ async fn test_publication_optimistic_locking_failures() {
     let will_fail_build = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             will_fail_pub,
             Some("pub a".to_string()),
             draft_catalog(initial_catalog.clone()),
@@ -187,7 +187,7 @@ async fn test_publication_optimistic_locking_failures() {
     let will_commit_build = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             will_commit_pub,
             Some("pub b".to_string()),
             draft_catalog(initial_catalog.clone()),
@@ -241,7 +241,7 @@ async fn test_publication_optimistic_locking_failures() {
     let will_fail_build = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             will_fail_pub_id,
             Some("cheese pub".to_string()),
             cheese_draft,
@@ -267,7 +267,7 @@ async fn test_publication_optimistic_locking_failures() {
     let will_commit_build = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             will_commit_pub,
             Some("seeds pub".to_string()),
             will_commit_draft,
@@ -420,7 +420,7 @@ async fn test_injected_ops_collections_are_not_locked() {
     let build = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             Id::new([21; 8]),
             Some("owls pub".to_string()),
             draft,
@@ -520,7 +520,7 @@ async fn test_injected_ops_collections_are_not_locked() {
     let reader_build = harness
         .publisher
         .build(
-            user_id,
+            &models::authz::Subject::unrestricted(user_id),
             Id::new([22; 8]),
             Some("ops reader pub".to_string()),
             reader_draft,

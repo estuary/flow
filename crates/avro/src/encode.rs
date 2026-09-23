@@ -150,7 +150,9 @@ fn maybe_encode<'s, 'n, N: AsNode>(
         }
 
         (Schema::Date, Node::String(s)) => {
-            let Ok(date) = time::Date::parse(s, &TIME_FORMAT_DATE) else {
+            let Ok(date) =
+                time::Date::parse(s, time::macros::format_description!("[year]-[month]-[day]"))
+            else {
                 return Ok(false);
             };
             let primitive_date_time = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
@@ -332,7 +334,6 @@ fn zig_zag(b: &mut Vec<u8>, z: i64) {
 lazy_static::lazy_static! {
     // The set of allowed characters in an AVRO field name.
     static ref ISO8601_DURATION : regex::Regex = regex::Regex::new(r"P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?").unwrap();
-    static ref TIME_FORMAT_DATE : Vec<time::format_description::FormatItem<'static>> = time::format_description::parse("[year]-[month]-[day]").unwrap();
 }
 
 #[cfg(test)]

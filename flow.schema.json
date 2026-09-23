@@ -635,6 +635,13 @@
           },
           "default": {}
         },
+        "environment": {
+          "title": "Environment variables made available to the Python module.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "module": {
           "title": "Python module implementing this derivation.",
           "description": "Module is either a relative URL of a Python module file,\nor is an inline representation of a Python module.\nThe module must have an exported Derivation class which\nextends the generated IDerivation base class.",
@@ -689,6 +696,13 @@
     "DeriveUsingTypescript": {
       "type": "object",
       "properties": {
+        "environment": {
+          "title": "Environment variables made available to the TypeScript module.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "module": {
           "title": "TypeScript module implementing this derivation.",
           "description": "Module is either a relative URL of a TypeScript module file,\nor is an inline representation of a Typescript module.\nThe module must have a exported Derivation variable which\nis an instance implementing the corresponding Derivation\ninterface.",
@@ -924,10 +938,9 @@
         },
         "priority": {
           "title": "Priority applied to documents processed by this binding.",
-          "description": "When all bindings are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one binding has a higher priority than others,\nthen *all* ready documents are processed through the binding\nbefore *any* documents of other bindings are processed.",
+          "description": "When all bindings are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one binding has a higher priority than others,\nthen *all* ready documents are processed through the binding\nbefore *any* documents of other bindings are processed.\n\nPriority may be negative, which de-prioritizes a binding with\nrespect to bindings having the default priority of zero.",
           "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+          "format": "int32"
         },
         "resource": {
           "title": "Endpoint resource to materialize into.",
@@ -1872,10 +1885,9 @@
         },
         "priority": {
           "title": "Priority applied to documents processed by this transform.",
-          "description": "When all transforms are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one transform has a higher priority than others,\nthen *all* ready documents are processed through the transform\nbefore *any* documents of other transforms are processed.",
+          "description": "When all transforms are of equal priority, Flow processes documents\naccording to their associated publishing time, as encoded in the\ndocument UUID.\n\nHowever, when one transform has a higher priority than others,\nthen *all* ready documents are processed through the transform\nbefore *any* documents of other transforms are processed.\n\nPriority may be negative, which de-prioritizes a transform with\nrespect to transforms having the default priority of zero.",
           "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+          "format": "int32"
         },
         "readDelay": {
           "title": "Delay applied to documents processed by this transform.",

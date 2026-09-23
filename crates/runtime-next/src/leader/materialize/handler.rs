@@ -231,6 +231,9 @@ where
         };
         let tail = fsm::Tail::Begin(fsm::TailBegin { pending });
 
+        // Seed from the durable floors: a Persist overwrites each `GF:` row.
+        let gap_floors = committed_frontier.binding_gap_floors.clone();
+
         // Maintain the legacy V1 `consumer.Checkpoint` from the recovered
         // committed Frontier, unless the task has opted out of V1 rollback via
         // `drop-runtime-v1-rollback`.
@@ -243,6 +246,7 @@ where
         let mut actor = actor::Actor::new(
             backfill_begin,
             backfill_complete,
+            gap_floors,
             service.http_client.clone(),
             legacy_checkpoint,
             metrics,

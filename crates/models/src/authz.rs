@@ -1,6 +1,20 @@
 use enumset::{EnumSet, EnumSetType};
 use serde::{Deserialize, Serialize};
 
+/// The subject of an authorization check: whose grants to evaluate and any
+/// restrictions on their use.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Subject {
+    pub user_id: uuid::Uuid,
+}
+
+impl Subject {
+    /// Creates a Subject covering the entirety of a user's grants, with no additional restrictions.
+    pub fn unrestricted(user_id: uuid::Uuid) -> Self {
+        Self { user_id }
+    }
+}
+
 /// A set of fine-grained authorization capabilities. Used throughout the
 /// authorization BFS and at authorization-check call sites.
 pub type CapabilitySet = EnumSet<Capability>;

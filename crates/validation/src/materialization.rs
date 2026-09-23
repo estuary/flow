@@ -199,10 +199,12 @@ async fn walk_materialization<C: Connectors>(
     _ = request_tx
         .send(
             materialize::Request {
-                spec: Some(materialize::request::Spec {
-                    connector_type,
-                    config_json: config_json.clone(),
-                }),
+                kind: Some(materialize::request::Kind::Spec(
+                    materialize::request::Spec {
+                        connector_type,
+                        config_json: config_json.clone(),
+                    },
+                )),
                 ..Default::default()
             }
             .with_internal(|internal| {
@@ -221,7 +223,12 @@ async fn walk_materialization<C: Connectors>(
     } = super::expect_response(
         scope,
         &mut response_rx,
-        |response| Ok(response.spec.take()),
+        |response| match &mut response.kind {
+            Some(materialize::response::Kind::Spec(spec)) => {
+                Ok(Some(std::mem::take(spec.as_mut())))
+            }
+            _ => Ok(None),
+        },
         errors,
     )
     .await?;
@@ -343,7 +350,9 @@ async fn walk_materialization<C: Connectors>(
     _ = request_tx
         .send(
             materialize::Request {
-                validate: Some(validate_request),
+                kind: Some(materialize::request::Kind::Validate(Box::new(
+                    validate_request,
+                ))),
                 ..Default::default()
             }
             .with_internal(|internal| {
@@ -362,7 +371,12 @@ async fn walk_materialization<C: Connectors>(
                 Ok(internal) => internal.container.unwrap_or_default().network_ports,
                 Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
             };
-            Ok(response.validated.take().map(|v| (v, network_ports)))
+            match &mut response.kind {
+                Some(materialize::response::Kind::Validated(v)) => {
+                    Ok(Some((std::mem::take(v), network_ports)))
+                }
+                _ => Ok(None),
+            }
         },
         errors,
     )
@@ -596,7 +610,7 @@ async fn walk_materialization<C: Connectors>(
             backfill: model.backfill,
             state_key,
             ser_policy: *ser_policy,
-            collection_index: interner.intern(collection),
+            collection_index: interner.intern(*collection),
         };
 
         bindings_path.push(path);
@@ -947,7 +961,7 @@ fn walk_materialization_binding<'a>(
     // interning happens in `walk_materialization`, which holds the shared table.
     let validate = materialize::request::validate::Binding {
         resource_config_json: super::strip_resource_meta(&model.resource),
-        collection: Some(source_spec),
+        collection: Some(Box::new(source_spec)),
         field_config_json_map,
         backfill: model.backfill,
         group_by: group_by_fields,

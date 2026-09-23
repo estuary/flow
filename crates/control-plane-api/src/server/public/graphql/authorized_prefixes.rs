@@ -11,7 +11,7 @@
 pub(super) fn authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
-    user_id: uuid::Uuid,
+    subject: &models::authz::Subject,
     min_capability: impl Into<models::authz::CapabilitySet>,
     prefix_filter: Option<&str>,
 ) -> Vec<String> {
@@ -19,7 +19,7 @@ pub(super) fn authorized_prefixes(
 
     // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
     // so the parent-prune step below can run directly on it.
-    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, user_id)
+    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, subject)
         .into_iter()
         .filter(|(prefix, _)| {
             prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
@@ -52,7 +52,7 @@ pub(super) fn authorized_prefixes(
 pub(super) fn filtered_authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
-    user_id: uuid::Uuid,
+    subject: &models::authz::Subject,
     min_capability: impl Into<models::authz::CapabilitySet>,
     filter: Option<super::filters::PrefixFilter>,
     field: &str,
@@ -64,7 +64,7 @@ pub(super) fn filtered_authorized_prefixes(
     let mut prefixes = authorized_prefixes(
         role_grants,
         user_grants,
-        user_id,
+        subject,
         min_capability,
         starts_with.as_deref(),
     );
@@ -78,30 +78,8 @@ pub(super) fn filtered_authorized_prefixes(
 mod tests {
     use super::super::filters::PrefixFilter;
     use super::{authorized_prefixes, filtered_authorized_prefixes};
+    use crate::test_server::make_grants;
     use models::Capability::{Admin, Read, Write};
-
-    fn make_grants(
-        user_grants: &[(uuid::Uuid, &str, models::Capability)],
-        role_grants: &[(&str, &str, models::Capability)],
-    ) -> (tables::UserGrants, tables::RoleGrants) {
-        let ug = tables::UserGrants::from_iter(user_grants.iter().map(|(id, obj, cap)| {
-            tables::UserGrant {
-                user_id: *id,
-                object_role: models::Prefix::new(*obj),
-                capability: *cap,
-                bundles: vec![],
-            }
-        }));
-        let rg = tables::RoleGrants::from_iter(role_grants.iter().map(|(sub, obj, cap)| {
-            tables::RoleGrant {
-                subject_role: models::Prefix::new(*sub),
-                object_role: models::Prefix::new(*obj),
-                capability: *cap,
-                bundles: vec![],
-            }
-        }));
-        (ug, rg)
-    }
 
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
@@ -116,13 +94,31 @@ mod tests {
             &[],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/"]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Write,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/", "widgets/"]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Read, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Read,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/", "readonly/", "widgets/"]);
     }
 
@@ -132,7 +128,13 @@ mod tests {
         // the filter, so "acmeCo/" is included.
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/data/"));
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            Some("acmeCo/data/"),
+        );
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -142,7 +144,13 @@ mod tests {
         // with the filter, so "acmeCo/data/" is included.
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/data/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/"));
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            Some("acmeCo/"),
+        );
         assert_eq!(result, vec!["acmeCo/data/"]);
     }
 
@@ -150,7 +158,13 @@ mod tests {
     fn filter_excludes_non_overlapping() {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "other/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, Some("acmeCo/"));
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            Some("acmeCo/"),
+        );
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -158,7 +172,13 @@ mod tests {
     fn no_grants_returns_empty() {
         let (ug, rg) = make_grants(&[], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            None,
+        );
         assert!(result.is_empty());
     }
 
@@ -170,11 +190,23 @@ mod tests {
             &[("acmeCo/", "shared/", Write)],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Write,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/", "shared/"]);
 
         // Admin threshold excludes the transitive Write grant.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -187,7 +219,13 @@ mod tests {
             &[],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -200,7 +238,13 @@ mod tests {
             &[("acmeCo/", "acmeCo/team/", Write)],
         );
 
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Write,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -209,7 +253,13 @@ mod tests {
         let bob = uuid::Uuid::from_bytes([0x22; 16]);
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
-        let result = authorized_prefixes(&rg, &ug, bob, Read, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(bob),
+            Read,
+            None,
+        );
         assert!(result.is_empty());
     }
 
@@ -237,7 +287,11 @@ mod tests {
         ]);
         let rg = tables::RoleGrants::new();
 
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        let reachable = tables::UserGrant::reachable_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+        );
         assert_eq!(
             reachable["acmeCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -274,7 +328,11 @@ mod tests {
             },
         ]);
 
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        let reachable = tables::UserGrant::reachable_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+        );
         assert_eq!(
             reachable["sharedCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -308,11 +366,23 @@ mod tests {
         // child of the qualifying parent. If the union were across
         // ancestors, acmeCo/data/ would qualify on its own (Writer +
         // inherited Admin bits) — it does not.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/"]);
 
         // min=Write: both qualify on their own bits; parent prunes child.
-        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        let result = authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Write,
+            None,
+        );
         assert_eq!(result, vec!["acmeCo/"]);
     }
 
@@ -320,9 +390,15 @@ mod tests {
     fn filtered_no_filter_returns_all_prefixes_and_no_parts() {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
-        let (prefixes, starts_with, r#in) =
-            filtered_authorized_prefixes(&rg, &ug, ALICE, Admin, None, "filter.catalogPrefix")
-                .unwrap();
+        let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
+            &rg,
+            &ug,
+            &models::authz::Subject::unrestricted(ALICE),
+            Admin,
+            None,
+            "filter.catalogPrefix",
+        )
+        .unwrap();
         assert_eq!(prefixes, vec!["acmeCo/", "beta/"]);
         assert_eq!(starts_with, None);
         assert_eq!(r#in, None);
@@ -339,7 +415,7 @@ mod tests {
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
             &rg,
             &ug,
-            ALICE,
+            &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some(filter),
             "filter.catalogPrefix",
@@ -364,7 +440,7 @@ mod tests {
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
             &rg,
             &ug,
-            ALICE,
+            &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some(filter),
             "filter.catalogPrefix",
@@ -386,7 +462,7 @@ mod tests {
         let err = filtered_authorized_prefixes(
             &rg,
             &ug,
-            ALICE,
+            &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some(filter),
             "filter.catalogPrefix",

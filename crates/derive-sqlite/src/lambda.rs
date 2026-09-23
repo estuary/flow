@@ -34,7 +34,10 @@ impl<'db> Lambda<'db> {
         query: &str,
         params: &[Param],
     ) -> Result<Self, Error> {
-        let stmt = db.prepare(query)?;
+        let stmt = db.prepare(query).map_err(|err| Error::Prepare {
+            query: query.to_string(),
+            err,
+        })?;
 
         // Extract bindings and map each into a Param.
         let mut bindings = Vec::new();

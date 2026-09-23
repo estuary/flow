@@ -90,7 +90,7 @@ impl ServiceAccountsQuery {
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            env.claims()?.sub,
+            &env.claims()?.subject(),
             models::authz::Capability::QueryServiceAccounts,
             None,
         );

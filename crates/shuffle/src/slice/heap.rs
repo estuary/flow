@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 /// We keep this struct small to optimize heap sift operations.
 pub struct ReadyReadEntry {
     /// Binding priority (higher = more urgent).
-    pub priority: u32,
+    pub priority: i32,
     /// Adjusted clock of the document (publication + read_delay).
     pub adjusted_clock: uuid::Clock,
     /// The actual document data, accessed by pointer indirection.
@@ -73,7 +73,7 @@ mod test {
     use std::cmp::Ordering;
     use std::collections::BinaryHeap;
 
-    fn test_entry(priority: u32, clock: u64) -> ReadyReadEntry {
+    fn test_entry(priority: i32, clock: u64) -> ReadyReadEntry {
         ReadyReadEntry {
             priority,
             adjusted_clock: uuid::Clock::from_u64(clock),
@@ -102,6 +102,11 @@ mod test {
             Ordering::Equal,
             "equal"
         );
+        assert_eq!(
+            test_entry(0, 100).cmp(&test_entry(-1, 50)),
+            Ordering::Greater,
+            "default priority beats a negative priority"
+        );
 
         // Verify pop order from a real BinaryHeap.
         let mut heap = BinaryHeap::new();
@@ -109,6 +114,7 @@ mod test {
         heap.push(test_entry(2, 100));
         heap.push(test_entry(1, 50));
         heap.push(test_entry(2, 300));
+        heap.push(test_entry(-1, 10));
 
         let pops: Vec<_> = std::iter::from_fn(|| heap.pop())
             .map(|e| (e.priority, e.adjusted_clock.as_u64()))
@@ -121,6 +127,7 @@ mod test {
                 (2, 300), // high priority, late clock
                 (1, 50),  // low priority, early clock
                 (1, 200), // low priority, late clock
+                (-1, 10), // negative priority is drained last
             ]
         );
     }

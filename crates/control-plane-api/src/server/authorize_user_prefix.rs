@@ -75,6 +75,7 @@ fn evaluate_authorization(
         String,                // Reactor address.
     ),
 )> {
+    let subject = claims.subject();
     let models::authorizations::ControlClaims {
         sub: user_id,
         email: user_email,
@@ -85,7 +86,7 @@ fn evaluate_authorization(
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        *user_id,
+        &subject,
         prefix,
         capability,
     ) {
@@ -99,7 +100,7 @@ fn evaluate_authorization(
         let has_support_access = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            *user_id,
+            &subject,
             "estuary_support/",
             models::Capability::Admin,
         );
@@ -114,7 +115,7 @@ fn evaluate_authorization(
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        *user_id,
+        &subject,
         data_plane_name,
         models::Capability::Read,
     ) {

@@ -137,6 +137,17 @@ message Frontier {
   // Populated only on a terminal (empty-journals) frontier of a Progressed
   // or NextCheckpoint sequence. Empty otherwise.
   repeated BackfillComplete latest_backfill_complete = 4;
+
+  // BindingGapFloor is a binding's gap floor: a clock below which its causal
+  // hints are unreachable, raised by a byte gap at read start.
+  message BindingGapFloor {
+    // Binding index within this task version.
+    uint32 binding = 1;
+    // Gap floor clock of this binding.
+    fixed64 clock = 2;
+  }
+  // Gap floors, sorted and unique on binding.
+  repeated BindingGapFloor binding_gap_floors = 5;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.
@@ -342,8 +353,9 @@ message LogRequest {
     string journal_name_suffix = 2;
     // Binding index for this document.
     uint32 binding = 3;
-    // Priority of this binding.
-    uint32 priority = 4;
+    // Priority of this binding. Higher values imply higher priority,
+    // and negative values are allowed.
+    int32 priority = 4;
     // Read delay of the binding, as a uuid::Clock duration.
     // The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
     // Zero (the common case) means no delay.

@@ -1,5 +1,5 @@
 import jsonpointer from "npm:jsonpointer";
-import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
+import { compileTemplate, renderValidatedTemplateUrl, returnPostgresError } from "../_shared/helpers.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
@@ -28,25 +28,28 @@ export async function accessToken(req: Record<string, any>) {
             .single();
 
         if (error != null) {
-            returnPostgresError(error);
+            return returnPostgresError(error);
         }
-        // TODO - check for empty data
+        if (output_data == null) {
+            return returnPostgresError(`no connector with id ${connector_id}`);
+        }
         data = output_data;
     }
 
     const { oauth2_spec, oauth2_client_id, oauth2_injected_values, oauth2_client_secret } = data as OauthSettings;
 
-    const url = compileTemplate(
+    const url = renderValidatedTemplateUrl(
         oauth2_spec.accessTokenUrlTemplate,
-        {
-            redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
+        oauth2_spec.provider,
+        (fromCaller) => ({
+            redirect_uri: fromCaller(redirect_uri ?? "https://dashboard.estuary.dev/oauth"),
             client_id: oauth2_client_id,
             client_secret: oauth2_client_secret,
-            config,
-            code_verifier,
+            config: fromCaller(config),
+            code_verifier: fromCaller(code_verifier),
             ...oauth2_injected_values,
-            ...params,
-        },
+            ...fromCaller(params),
+        }),
     );
 
     let body = null;
@@ -105,8 +108,9 @@ export async function accessToken(req: Record<string, any>) {
     const responseText = await response.text();
 
     if (response.status >= 400) {
+        const { origin, pathname } = new URL(url);
         console.log("access token request failed");
-        console.log("request: POST ", url);
+        console.log("request: POST ", origin + pathname);
         console.log(
             "response: ",
             response.status,

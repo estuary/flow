@@ -298,6 +298,9 @@ impl HeadIdle {
                 self.combiner_usage_bytes = vec![0; task.n_shards];
             }
             self.extents.frontier = self.extents.frontier.reduce(frontier.clone());
+            if frontier.unresolved_hints == 0 {
+                self.extents.frontier.clear_discharged_hints();
+            }
 
             return (
                 Action::Load { frontier },

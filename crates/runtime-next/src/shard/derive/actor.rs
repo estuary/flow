@@ -1,4 +1,5 @@
 use super::{Task, drain, scan};
+use crate::shard::connector;
 use crate::{patches, proto};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, future::BoxFuture};
@@ -25,7 +26,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // `connector_tx` as channel capacity permits.
     connector_pending: Vec<derive::Request>,
     // Bounded channel out to the connector.
-    connector_tx: mpsc::Sender<derive::Request>,
+    connector_tx: mpsc::Sender<connector::proto::Request>,
     // Wire codec negotiated with the connector.
     codec: connector_init::Codec,
     // Channel for sending to the controller. Used only to answer the test-only
@@ -68,7 +69,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         codec: connector_init::Codec,
-        connector_tx: mpsc::Sender<derive::Request>,
+        connector_tx: mpsc::Sender<connector::proto::Request>,
         controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
@@ -102,17 +103,17 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<Ctrl, Conn, Ldr>(
+    pub async fn serve<Ctrl, Ldr>(
         mut self,
         accumulator: crate::Accumulator,
-        connector_rx: &mut Conn,
+        connector_rx: &mut mpsc::Receiver<tonic::Result<connector::proto::Response>>,
         controller_rx: &mut Ctrl,
         leader_rx: &mut Ldr,
+        max_pinned_segments: usize,
         shuffle_reader: shuffle::log::Reader,
     ) -> anyhow::Result<crate::shard::RocksDB>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
-        Conn: futures::Stream<Item = tonic::Result<derive::Response>> + Send + Unpin + 'static,
         Ldr: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
     {
         // Source-document validators, indexed by transform. Built once and lent
@@ -131,6 +132,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             shuffle_remainders: VecDeque::new(),
         };
         let mut loop_count: u64 = 0;
+        let mut pinned_stop_sent = false;
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -188,6 +190,18 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         }),
                         ..Default::default()
                     });
+
+                    if crate::shard::stop_for_pinned_segments(
+                        &mut pinned_stop_sent,
+                        shuffle::log::pinned_segments(&shuffle_remainders),
+                        max_pinned_segments,
+                    ) {
+                        _ = self.leader_tx.send(proto::Derive {
+                            stop: Some(proto::Stop {}),
+                            ..Default::default()
+                        });
+                    }
+
                     phase = Phase::Idle {
                         shuffle_reader,
                         shuffle_remainders,
@@ -199,15 +213,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             tokio::select! {
                 biased;
 
-                // Prioritize moving connector messages (high volume).
-                msg = connector_rx.next() => {
+                // Prioritize moving connector messages and logs (high volume).
+                msg = connector::next(connector_rx, &self.logger, connector::unwrap_derive) => {
                     self.on_connector_response(&mut accumulator, msg)?;
                 }
                 // Next, a leader message.
                 msg = leader_rx.next() => {
                     let (next, stopped) = self
                         .on_leader_message(phase, &mut accumulator, &mut accumulator_idle, msg)
-                        .map_err(|err| prefer_connector_error(connector_rx, err))?;
+                        .map_err(|err| connector::prefer_error(connector_rx, &self.logger, "Derive", err))?;
                     phase = next;
 
                     if stopped {
@@ -322,7 +336,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             .try_reserve_many(self.connector_pending.len())
         {
             for (request, permit) in self.connector_pending.drain(..).zip(permits) {
-                permit.send(request);
+                permit.send(connector::wrap_derive(request));
             }
             return idle;
         }
@@ -338,7 +352,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         match self.connector_tx.try_reserve_many(n) {
             Ok(permits) => {
                 for (request, permit) in self.connector_pending.drain(..n).zip(permits) {
-                    permit.send(request);
+                    permit.send(connector::wrap_derive(request));
                 }
             }
             // Sends to the connector are best-effort: a Closed channel means the
@@ -391,9 +405,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         }) = msg.flush
         {
             self.connector_pending.push(derive::Request {
-                flush: Some(derive::request::Flush {
+                kind: Some(derive::request::Kind::Flush(derive::request::Flush {
                     state_patches_json: connector_patches_json,
-                }),
+                })),
                 ..Default::default()
             });
         } else if let Some(proto::derive::Store {}) = msg.store {
@@ -440,9 +454,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         }) = msg.start_commit
         {
             self.connector_pending.push(derive::Request {
-                start_commit: Some(derive::request::StartCommit {
-                    runtime_checkpoint: connector_checkpoint,
-                }),
+                kind: Some(derive::request::Kind::StartCommit(
+                    derive::request::StartCommit {
+                        runtime_checkpoint: connector_checkpoint,
+                    },
+                )),
                 ..Default::default()
             });
         } else if let Some(persist) = msg.persist {
@@ -517,7 +533,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let verify = crate::verify("Derive", "connector response", "connector");
         let resp = verify.not_eof(resp)?;
 
-        if let Some(derive::response::Published { doc_json }) = resp.published {
+        if let Some(derive::response::Kind::Published(derive::response::Published { doc_json })) =
+            resp.kind
+        {
             let (memtable, alloc, mut doc) = accumulator
                 .parse_json_doc(&doc_json)
                 .context("couldn't parse derived document as JSON")?;
@@ -540,7 +558,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             self.metrics
                 .published_bytes
                 .increment(doc_json.len() as u64);
-        } else if let Some(derive::response::Flushed { state, more }) = resp.flushed {
+        } else if let Some(derive::response::Kind::Flushed(derive::response::Flushed {
+            state,
+            more,
+        })) = resp.kind
+        {
             _ = self.leader_tx.send(proto::Derive {
                 flushed: Some(proto::derive::Flushed {
                     connector_patches_json: patches::encode_connector_state(state),
@@ -548,7 +570,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }),
                 ..Default::default()
             });
-        } else if let Some(derive::response::StartedCommit { state }) = resp.started_commit {
+        } else if let Some(derive::response::Kind::StartedCommit(
+            derive::response::StartedCommit { state },
+        )) = resp.kind
+        {
             // V2 connectors report state via Flushed; StartedCommit.state is the
             // deprecated V1 path and must be empty here.
             if let Some(state) = &state {
@@ -587,7 +612,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             });
         } else if matches!(msg.reset, Some(proto::Reset {})) {
             self.connector_pending.push(derive::Request {
-                reset: Some(derive::request::Reset {}),
+                kind: Some(derive::request::Kind::Reset(derive::request::Reset {})),
                 ..Default::default()
             });
             _ = self.controller_tx.send(Ok(proto::Derive {
@@ -598,21 +623,6 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             return Err(verify.fail_msg(msg));
         }
         Ok(())
-    }
-}
-
-/// Replace a leader-stream failure with the connector's own terminal error,
-/// if the connector has already failed and its error is immediately ready.
-/// See the materialize twin for why this is needed.
-fn prefer_connector_error<Conn>(connector_rx: &mut Conn, err: anyhow::Error) -> anyhow::Error
-where
-    Conn: futures::Stream<Item = tonic::Result<derive::Response>> + Unpin,
-{
-    match connector_rx.next().now_or_never() {
-        Some(Some(Err(status))) => {
-            crate::verify("Derive", "connector response", "connector").fail_status(status)
-        }
-        _ => err,
     }
 }
 
@@ -631,8 +641,25 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
 mod tests {
     use super::super::{Source, Transform};
     use super::*;
-    use proto_flow::derive::response;
-    use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+    use proto_flow::derive::{request, response};
+    use tokio_stream::wrappers::UnboundedReceiverStream;
+
+    /// Wrap a connector response as the Connector RPC delivers it.
+    fn wrap(response: derive::Response) -> tonic::Result<connector::proto::Response> {
+        Ok(connector::proto::Response {
+            kind: Some(connector::proto::response::Kind::Derive(response)),
+        })
+    }
+
+    /// Unwrap a request the actor sent to its connector.
+    fn unwrap(request: connector::proto::Request) -> derive::Request {
+        let connector::proto::request::Kind::Derive(request) =
+            request.kind.expect("wrapped request")
+        else {
+            panic!("actor sent a non-derive request")
+        };
+        request
+    }
 
     fn test_task() -> Task {
         Task {
@@ -660,7 +687,8 @@ mod tests {
     /// terminal `ignore` set.
     #[tokio::test]
     async fn observe_throttle_split_dispatch() {
-        let (actor_to_conn_tx, _conn_rx) = mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
+        let (actor_to_conn_tx, _conn_rx) =
+            mpsc::channel::<connector::proto::Request>(proto_grpc::CHANNEL_BUFFER);
         let (actor_to_leader_tx, _leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
         let (actor_to_controller_tx, _controller_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
@@ -753,9 +781,9 @@ mod tests {
     #[tokio::test]
     async fn full_lifecycle_round_trip() {
         let (actor_to_conn_tx, mut actor_to_conn_rx) =
-            mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
-        let (conn_to_actor_tx, conn_to_actor_rx) =
-            mpsc::channel::<tonic::Result<derive::Response>>(crate::CHANNEL_BUFFER);
+            mpsc::channel::<connector::proto::Request>(proto_grpc::CHANNEL_BUFFER);
+        let (conn_to_actor_tx, mut conn_to_actor_rx) =
+            mpsc::channel::<tonic::Result<connector::proto::Response>>(proto_grpc::CHANNEL_BUFFER);
         let (actor_to_leader_tx, mut actor_to_leader_rx) =
             mpsc::unbounded_channel::<proto::Derive>();
         let (leader_to_actor_tx, leader_to_actor_rx) =
@@ -786,15 +814,15 @@ mod tests {
         );
 
         let serve_handle = tokio::spawn(async move {
-            let mut conn_stream = ReceiverStream::new(conn_to_actor_rx);
             let mut leader_stream = UnboundedReceiverStream::new(leader_to_actor_rx);
             let mut controller_stream = UnboundedReceiverStream::new(controller_to_actor_rx);
             actor
                 .serve(
                     accumulator,
-                    &mut conn_stream,
+                    &mut conn_to_actor_rx,
                     &mut controller_stream,
                     &mut leader_stream,
+                    crate::shard::max_pinned_segments(&Default::default()),
                     shuffle_reader,
                 )
                 .await
@@ -802,10 +830,10 @@ mod tests {
 
         // 1) The connector publishes one derived document into the combiner.
         conn_to_actor_tx
-            .send(Ok(derive::Response {
-                published: Some(response::Published {
+            .send(wrap(derive::Response {
+                kind: Some(response::Kind::Published(response::Published {
                     doc_json: bytes::Bytes::from_static(br#"{"id":"a","_meta":{"uuid":""}}"#),
-                }),
+                })),
                 ..Default::default()
             }))
             .await
@@ -824,8 +852,11 @@ mod tests {
                 }))
                 .unwrap();
 
-            let req = actor_to_conn_rx.recv().await.unwrap();
-            assert!(req.reset.is_some(), "connector receives C:Reset");
+            let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
+            assert!(
+                matches!(req.kind, Some(request::Kind::Reset(_))),
+                "connector receives C:Reset"
+            );
 
             let done = actor_to_controller_rx.recv().await.unwrap().unwrap();
             assert!(done.reset_done.is_some(), "controller receives ResetDone");
@@ -845,18 +876,21 @@ mod tests {
             }))
             .unwrap();
 
-        let req = actor_to_conn_rx.recv().await.unwrap();
+        let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
+        let Some(request::Kind::Flush(flush)) = req.kind else {
+            panic!("connector receives C:Flush, got {req:?}")
+        };
         assert_eq!(
-            req.flush.unwrap().state_patches_json,
+            flush.state_patches_json,
             bytes::Bytes::from_static(br#"[{"f":1}]"#),
         );
 
         conn_to_actor_tx
-            .send(Ok(derive::Response {
-                flushed: Some(response::Flushed {
+            .send(wrap(derive::Response {
+                kind: Some(response::Kind::Flushed(response::Flushed {
                     state: None,
                     more: false,
-                }),
+                })),
                 ..Default::default()
             }))
             .await
@@ -891,12 +925,17 @@ mod tests {
             }))
             .unwrap();
 
-        let req = actor_to_conn_rx.recv().await.unwrap();
-        assert!(req.start_commit.unwrap().runtime_checkpoint.is_some());
+        let req = unwrap(actor_to_conn_rx.recv().await.unwrap());
+        let Some(request::Kind::StartCommit(start_commit)) = req.kind else {
+            panic!("connector receives C:StartCommit, got {req:?}")
+        };
+        assert!(start_commit.runtime_checkpoint.is_some());
 
         conn_to_actor_tx
-            .send(Ok(derive::Response {
-                started_commit: Some(response::StartedCommit { state: None }),
+            .send(wrap(derive::Response {
+                kind: Some(response::Kind::StartedCommit(response::StartedCommit {
+                    state: None,
+                })),
                 ..Default::default()
             }))
             .await

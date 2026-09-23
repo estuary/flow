@@ -5,7 +5,7 @@ mod reader;
 pub use reader::{ReadBlock, Reader};
 
 mod scan;
-pub use scan::{BlockScan, Entry, FrontierScan, Remainder};
+pub use scan::{BlockScan, Entry, FrontierScan, Remainder, pinned_segments};
 
 #[cfg(test)]
 pub(crate) mod test_support {

@@ -5,14 +5,19 @@ use proto_flow::flow;
 
 impl Task {
     pub fn new(open: &Request, opened: &Response) -> anyhow::Result<Self> {
+        let Some(request::Kind::Open(open)) = open.kind.clone() else {
+            anyhow::bail!("expected Open");
+        };
         let request::Open {
             collection,
             range,
             state_json: _,
             version,
-        } = open.clone().open.context("expected Open")?;
+        } = *open;
 
-        let response::Opened { .. } = opened.opened.as_ref().context("expected Opened")?;
+        let Some(response::Kind::Opened(response::Opened { .. })) = &opened.kind else {
+            anyhow::bail!("expected Opened");
+        };
 
         let flow::CollectionSpec {
             ack_template_json: _,
@@ -34,7 +39,7 @@ impl Task {
         let collection_generation_id =
             assemble::extract_generation_id_suffix(&partition_template.name);
 
-        let derivation = derivation.as_ref().context("missing derivation")?;
+        let derivation = derivation.as_deref().context("missing derivation")?;
 
         let flow::collection_spec::Derivation {
             config_json: _,

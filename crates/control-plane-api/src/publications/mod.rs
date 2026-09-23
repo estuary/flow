@@ -36,8 +36,8 @@ pub struct DraftPublication<
     Ret: RetryPolicy,
     C: WithCommit,
 > {
-    /// The id of the user that is publishing the draft.
-    pub user_id: Uuid,
+    /// Authorization subject used when evaluating this publication.
+    pub subject: models::authz::Subject,
     /// Write logs to `internal.log_lines` using this token.
     pub logs_token: Uuid,
     /// Whether to stop after building. If `dry_run` is `true`, then the build will not be
@@ -273,7 +273,7 @@ impl Publisher {
     /// Publishs the given `DraftPublication`, using the provided `Initialize`, `FinalizeBuild`,
     /// and `RetryPolicy`.
     #[tracing::instrument(err, skip_all, fields(
-        user_id = %publication.user_id,
+        user_id = %publication.subject.user_id,
         logs_token = %publication.logs_token,
     ))]
     pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
@@ -305,7 +305,7 @@ impl Publisher {
         publication_id: models::Id,
         retry_count: u32,
         DraftPublication {
-            user_id,
+            subject,
             logs_token,
             dry_run,
             draft: raw_draft,
@@ -321,14 +321,14 @@ impl Publisher {
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
         initialize
-            .initialize(&self.db, *user_id, &mut draft)
+            .initialize(&self.db, subject, &mut draft)
             .await
             .context("initializing draft")?;
         // It's important that we generate the pub id inside the retry loop so that we can
         // retry `PublicationSuperseded` errors.
         let mut built = self
             .build(
-                *user_id,
+                subject,
                 publication_id,
                 detail.clone(),
                 draft,
@@ -360,10 +360,14 @@ impl Publisher {
 
     /// Build and verify the given draft. This is `pub` only because we have existing tests that
     /// use it. If you want to publish something, use the `Publisher::publish` function instead.
-    #[tracing::instrument(level = "info", skip(self, draft, snapshot))]
+    #[tracing::instrument(
+        level = "info",
+        skip(self, subject, draft, snapshot),
+        fields(user_id = ?subject.user_id)
+    )]
     pub async fn build(
         &self,
-        user_id: Uuid,
+        subject: &models::authz::Subject,
         publication_id: models::Id,
         detail: Option<String>,
         draft: tables::DraftCatalog,
@@ -375,6 +379,7 @@ impl Publisher {
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = tokens::now();
         let build_id = self.id_gen.lock().unwrap().next();
+        let user_id = subject.user_id;
 
         // Ensure that all the connector images are allowed. It's critical that we do this before
         // calling `build_catalog` in order to prevent the user from running arbitrary images
@@ -412,7 +417,7 @@ impl Publisher {
         }
 
         let live_catalog = specs::resolve_live_specs(
-            user_id,
+            subject,
             &draft,
             &self.db,
             snapshot,

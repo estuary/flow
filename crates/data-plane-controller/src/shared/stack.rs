@@ -1,5 +1,12 @@
 use itertools::{EitherOrBoth, Itertools};
 
+/// Status is persisted inside `internal.tasks.inner_state`, which makes it a
+/// wire format between the two data-plane-controller deployments: a plane moved
+/// from the dev deployment back to the primary one is resumed from state the
+/// dev build wrote. A deployment which cannot deserialize a status errors every
+/// poll and the task makes no further progress, so a plane should only be moved
+/// between deployments while `Idle`, and a newly-added variant needs to reach
+/// the primary deployment before any plane using it moves back to it.
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Status {
     Idle,
@@ -127,7 +134,7 @@ pub struct DataPlane {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gcp_byoc: Option<GCPBYOC>,
     pub gcp_project: String,
-    pub ssh_subnets: Vec<sqlx::types::ipnetwork::IpNetwork>,
+    pub ssh_subnets: Vec<ipnetwork::IpNetwork>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allow_cidrs: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -175,7 +182,7 @@ pub struct ConnectorLimits {
 /// Mirrors est_dry_dock's `ExtraRoute` model; passed through to Pulumi.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExtraRoute {
-    pub cidr_block: sqlx::types::ipnetwork::IpNetwork,
+    pub cidr_block: ipnetwork::IpNetwork,
     pub gateway_id: String,
 }
 
@@ -346,7 +353,7 @@ pub struct ControlExports {
     pub azure_application_name: String,
     pub azure_link_endpoints: Vec<serde_json::Value>,
     pub bastion_tunnel_private_key: Option<String>,
-    pub cidr_blocks: Vec<sqlx::types::ipnetwork::IpNetwork>,
+    pub cidr_blocks: Vec<ipnetwork::IpNetwork>,
     pub gcp_psc_endpoints: Vec<serde_json::Value>,
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,

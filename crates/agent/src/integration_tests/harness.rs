@@ -291,7 +291,7 @@ impl HarnessBuilder {
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
         let directive_exec =
-            crate::directives::DirectiveHandler::new("support@estuary.test".to_string(), &logs_tx);
+            crate::directives::DirectiveHandler::new("support@estuary.test".to_string());
 
         let mut harness = TestHarness {
             test_name,
@@ -2302,7 +2302,7 @@ impl ControlPlane for TestControlPlane {
         let refresh = self.inner.snapshot_watch.token();
 
         let publication = DraftPublication {
-            user_id: self.inner.system_user_id,
+            subject: models::authz::Subject::unrestricted(self.inner.system_user_id),
             detail,
             draft,
             logs_token,

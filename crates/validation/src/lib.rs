@@ -17,6 +17,7 @@ mod schema;
 mod storage_mapping;
 mod test_step;
 
+pub use derivation::derive_spec_request;
 pub use errors::Error;
 pub use noop::NoOpConnectors;
 
@@ -242,7 +243,7 @@ pub async fn validate<C: Connectors>(
         row.is_touch = row.is_touch && model_fixes.is_empty();
         row.model.as_mut().unwrap().derive = Some(model);
         row.model_fixes.extend(model_fixes.into_iter());
-        row.spec.as_mut().unwrap().derivation = Some(derivation);
+        row.spec.as_mut().unwrap().derivation = Some(Box::new(derivation));
         row.validated = Some(validated);
     }
 

@@ -106,7 +106,7 @@ macro_rules! indirect {
             let mut table: Vec<flow::CollectionSpec> = Vec::new();
 
             for binding in spec.bindings.iter_mut() {
-                let collection = binding.collection.take().unwrap();
+                let collection = *binding.collection.take().unwrap();
 
                 binding.collection_index = match table.iter().position(|c| *c == collection) {
                     Some(index) => index as u32,
@@ -190,14 +190,14 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             .bindings
             .iter()
             .map(|binding| flow::capture_spec::Binding {
-                collection: Some(flow::CollectionSpec {
+                collection: Some(Box::new(flow::CollectionSpec {
                     name: binding.target.to_string(),
                     partition_template: Some(proto_gazette::broker::JournalSpec {
                         name: format!("{}/0000000000000001", binding.target),
                         ..Default::default()
                     }),
                     ..Default::default()
-                }),
+                })),
                 resource_path: validation::load_resource_meta_path(
                     binding.resource.get().as_bytes(),
                 ),
@@ -276,20 +276,20 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 .iter()
                 .map(|transform| flow::collection_spec::derivation::Transform {
                     name: transform.name.to_string(),
-                    collection: Some(flow::CollectionSpec {
+                    collection: Some(Box::new(flow::CollectionSpec {
                         name: transform.source.collection().to_string(),
                         partition_template: Some(proto_gazette::broker::JournalSpec {
                             name: format!("{}/0000000000000001", transform.source.collection()),
                             ..Default::default()
                         }),
                         ..Default::default()
-                    }),
+                    })),
                     backfill: transform.backfill,
                     ..Default::default()
                 })
                 .collect();
 
-            Some(flow::collection_spec::Derivation {
+            Some(Box::new(flow::collection_spec::Derivation {
                 config_json: bytes::Bytes::new(),
                 connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
                 network_ports: Vec::new(),
@@ -301,7 +301,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 redact_salt: b"pass-through-derivation-salt".as_slice().into(),
                 linked_collections: Vec::new(),
                 secrets: Default::default(),
-            })
+            }))
         } else {
             None
         };
@@ -358,14 +358,14 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             .iter()
             .enumerate()
             .map(|(index, binding)| flow::materialization_spec::Binding {
-                collection: Some(flow::CollectionSpec {
+                collection: Some(Box::new(flow::CollectionSpec {
                     name: binding.source.collection().to_string(),
                     partition_template: Some(proto_gazette::broker::JournalSpec {
                         name: format!("{}/0000000000000001", binding.source.collection()),
                         ..Default::default()
                     }),
                     ..Default::default()
-                }),
+                })),
                 resource_path: validation::load_resource_meta_path(
                     binding.resource.get().as_bytes(),
                 ),
@@ -742,35 +742,37 @@ impl validation::Connectors for MockDriverCalls {
     {
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if let Some(_spec) = request.spec {
+                if let Some(capture::request::Kind::Spec(_spec)) = request.kind {
                     () = co
                         .yield_(capture::Response {
-                            spec: Some(capture::response::Spec {
-                                config_schema_json: serde_json::json!({
-                                    "type": "object",
-                                })
-                                .to_string()
-                                .into(),
-                                resource_config_schema_json: serde_json::json!({
-                                    "type": "object",
-                                    "properties": {
-                                        "schema": {"type": "string"},
-                                        "source": {"type": "string"},
-                                    },
-                                    "required": ["source"]
-                                })
-                                .to_string()
-                                .into(),
-                                resource_path_pointers: Vec::new(),
-                                ..Default::default()
-                            }),
+                            kind: Some(capture::response::Kind::Spec(Box::new(
+                                capture::response::Spec {
+                                    config_schema_json: serde_json::json!({
+                                        "type": "object",
+                                    })
+                                    .to_string()
+                                    .into(),
+                                    resource_config_schema_json: serde_json::json!({
+                                        "type": "object",
+                                        "properties": {
+                                            "schema": {"type": "string"},
+                                            "source": {"type": "string"},
+                                        },
+                                        "required": ["source"]
+                                    })
+                                    .to_string()
+                                    .into(),
+                                    resource_path_pointers: Vec::new(),
+                                    ..Default::default()
+                                },
+                            ))),
                             ..Default::default()
                         })
                         .await;
                     continue;
                 }
 
-                let Some(validate) = request.validate else {
+                let Some(capture::request::Kind::Validate(validate)) = request.kind else {
                     anyhow::bail!("expected Spec or Validate")
                 };
 
@@ -816,7 +818,9 @@ impl validation::Connectors for MockDriverCalls {
                 () = co
                     .yield_(
                         capture::Response {
-                            validated: Some(capture::response::Validated { bindings }),
+                            kind: Some(capture::response::Kind::Validated(
+                                capture::response::Validated { bindings },
+                            )),
                             ..Default::default()
                         }
                         .with_internal(|internal| {
@@ -845,21 +849,23 @@ impl validation::Connectors for MockDriverCalls {
     {
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if let Some(_spec) = request.spec {
+                if let Some(derive::request::Kind::Spec(_spec)) = request.kind {
                     () = co
                         .yield_(derive::Response {
-                            spec: Some(derive::response::Spec {
-                                config_schema_json: "true".into(),
-                                resource_config_schema_json: "true".into(),
-                                ..Default::default()
-                            }),
+                            kind: Some(derive::response::Kind::Spec(Box::new(
+                                derive::response::Spec {
+                                    config_schema_json: "true".into(),
+                                    resource_config_schema_json: "true".into(),
+                                    ..Default::default()
+                                },
+                            ))),
                             ..Default::default()
                         })
                         .await;
                     continue;
                 }
 
-                let Some(validate) = request.validate else {
+                let Some(derive::request::Kind::Validate(validate)) = request.kind else {
                     anyhow::bail!("expected Spec or Validate")
                 };
 
@@ -918,10 +924,12 @@ impl validation::Connectors for MockDriverCalls {
                 () = co
                     .yield_(
                         derive::Response {
-                            validated: Some(derive::response::Validated {
-                                transforms,
-                                generated_files: call.generated_files.clone(),
-                            }),
+                            kind: Some(derive::response::Kind::Validated(
+                                derive::response::Validated {
+                                    transforms,
+                                    generated_files: call.generated_files.clone(),
+                                },
+                            )),
                             ..Default::default()
                         }
                         .with_internal(|internal| {
@@ -950,34 +958,36 @@ impl validation::Connectors for MockDriverCalls {
     {
         coroutines::try_coroutine(|mut co| async move {
             while let Some(request) = request_rx.next().await {
-                if let Some(_spec) = request.spec {
+                if let Some(materialize::request::Kind::Spec(_spec)) = request.kind {
                     () = co
                         .yield_(materialize::Response {
-                            spec: Some(materialize::response::Spec {
-                                config_schema_json: serde_json::json!({
-                                    "type": "object",
-                                })
-                                .to_string()
-                                .into(),
-                                resource_config_schema_json: serde_json::json!({
-                                    "type": "object",
-                                    "properties": {
-                                        "schema": {"type": "string", "x-schema-name": true},
-                                        "target": {"type": "string", "x-collection-name": true},
-                                    },
-                                    "required": ["target"]
-                                })
-                                .to_string()
-                                .into(),
-                                ..Default::default()
-                            }),
+                            kind: Some(materialize::response::Kind::Spec(Box::new(
+                                materialize::response::Spec {
+                                    config_schema_json: serde_json::json!({
+                                        "type": "object",
+                                    })
+                                    .to_string()
+                                    .into(),
+                                    resource_config_schema_json: serde_json::json!({
+                                        "type": "object",
+                                        "properties": {
+                                            "schema": {"type": "string", "x-schema-name": true},
+                                            "target": {"type": "string", "x-collection-name": true},
+                                        },
+                                        "required": ["target"]
+                                    })
+                                    .to_string()
+                                    .into(),
+                                    ..Default::default()
+                                },
+                            ))),
                             ..Default::default()
                         })
                         .await;
                     continue;
                 }
 
-                let Some(validate) = request.validate else {
+                let Some(materialize::request::Kind::Validate(validate)) = request.kind else {
                     anyhow::bail!("expected Spec or Validate")
                 };
 
@@ -1046,7 +1056,9 @@ impl validation::Connectors for MockDriverCalls {
                 () = co
                     .yield_(
                         materialize::Response {
-                            validated: Some(materialize::response::Validated { bindings }),
+                            kind: Some(materialize::response::Kind::Validated(
+                                materialize::response::Validated { bindings },
+                            )),
                             ..Default::default()
                         }
                         .with_internal(|internal| {

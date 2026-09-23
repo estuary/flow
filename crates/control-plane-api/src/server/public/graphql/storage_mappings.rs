@@ -1,5 +1,5 @@
 use super::filters;
-use crate::directives::storage_mappings::{
+use crate::storage_mappings::{
     collection_and_recovery_spec_from, insert_storage_mapping, update_storage_mapping,
     upsert_storage_mapping,
 };
@@ -523,10 +523,9 @@ fn check_authorization(
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> crate::AuthZResult<()> {
+    let subject = claims.subject();
     let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
+        email: user_email, ..
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
@@ -534,7 +533,7 @@ fn check_authorization(
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
-        *user_id,
+        &subject,
         catalog_prefix,
         models::Capability::Admin,
     ) {
@@ -706,7 +705,7 @@ impl StorageMappingsQuery {
             super::authorized_prefixes::filtered_authorized_prefixes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                env.claims()?.sub,
+                &env.claims()?.subject(),
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -777,7 +776,7 @@ impl StorageMappingsQuery {
                 let user_capability = tables::UserGrant::get_user_capability(
                     &snapshot.role_grants,
                     &snapshot.user_grants,
-                    claims.sub,
+                    &claims.subject(),
                     &row.catalog_prefix,
                 )
                 .ok_or_else(|| {

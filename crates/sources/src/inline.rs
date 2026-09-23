@@ -182,7 +182,7 @@ fn inline_derivation(
                 );
             }
         }
-        models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module }) => {
+        models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module, .. }) => {
             inline_config(
                 Scope::new(scope)
                     .push_prop("derive")

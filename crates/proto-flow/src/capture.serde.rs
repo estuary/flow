@@ -6,50 +6,39 @@ impl serde::Serialize for Request {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.spec.is_some() {
-            len += 1;
-        }
-        if self.discover.is_some() {
-            len += 1;
-        }
-        if self.validate.is_some() {
-            len += 1;
-        }
-        if self.apply.is_some() {
-            len += 1;
-        }
-        if self.open.is_some() {
-            len += 1;
-        }
-        if self.acknowledge.is_some() {
-            len += 1;
-        }
         if !self.internal.is_empty() {
             len += 1;
         }
+        if self.kind.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request", len)?;
-        if let Some(v) = self.spec.as_ref() {
-            struct_ser.serialize_field("spec", v)?;
-        }
-        if let Some(v) = self.discover.as_ref() {
-            struct_ser.serialize_field("discover", v)?;
-        }
-        if let Some(v) = self.validate.as_ref() {
-            struct_ser.serialize_field("validate", v)?;
-        }
-        if let Some(v) = self.apply.as_ref() {
-            struct_ser.serialize_field("apply", v)?;
-        }
-        if let Some(v) = self.open.as_ref() {
-            struct_ser.serialize_field("open", v)?;
-        }
-        if let Some(v) = self.acknowledge.as_ref() {
-            struct_ser.serialize_field("acknowledge", v)?;
-        }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
+        }
+        if let Some(v) = self.kind.as_ref() {
+            match v {
+                request::Kind::Spec(v) => {
+                    struct_ser.serialize_field("spec", v)?;
+                }
+                request::Kind::Discover(v) => {
+                    struct_ser.serialize_field("discover", v)?;
+                }
+                request::Kind::Validate(v) => {
+                    struct_ser.serialize_field("validate", v)?;
+                }
+                request::Kind::Apply(v) => {
+                    struct_ser.serialize_field("apply", v)?;
+                }
+                request::Kind::Open(v) => {
+                    struct_ser.serialize_field("open", v)?;
+                }
+                request::Kind::Acknowledge(v) => {
+                    struct_ser.serialize_field("acknowledge", v)?;
+                }
+            }
         }
         struct_ser.end()
     }
@@ -61,25 +50,25 @@ impl<'de> serde::Deserialize<'de> for Request {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "internal",
+            "$internal",
             "spec",
             "discover",
             "validate",
             "apply",
             "open",
             "acknowledge",
-            "internal",
-            "$internal",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Internal,
             Spec,
             Discover,
             Validate,
             Apply,
             Open,
             Acknowledge,
-            Internal,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -102,13 +91,13 @@ impl<'de> serde::Deserialize<'de> for Request {
                         E: serde::de::Error,
                     {
                         match value {
+                            "$internal" | "internal" => Ok(GeneratedField::Internal),
                             "spec" => Ok(GeneratedField::Spec),
                             "discover" => Ok(GeneratedField::Discover),
                             "validate" => Ok(GeneratedField::Validate),
                             "apply" => Ok(GeneratedField::Apply),
                             "open" => Ok(GeneratedField::Open),
                             "acknowledge" => Ok(GeneratedField::Acknowledge),
-                            "$internal" | "internal" => Ok(GeneratedField::Internal),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -128,51 +117,10 @@ impl<'de> serde::Deserialize<'de> for Request {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut spec__ = None;
-                let mut discover__ = None;
-                let mut validate__ = None;
-                let mut apply__ = None;
-                let mut open__ = None;
-                let mut acknowledge__ = None;
                 let mut internal__ = None;
+                let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Spec => {
-                            if spec__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("spec"));
-                            }
-                            spec__ = map_.next_value()?;
-                        }
-                        GeneratedField::Discover => {
-                            if discover__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("discover"));
-                            }
-                            discover__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validate => {
-                            if validate__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validate"));
-                            }
-                            validate__ = map_.next_value()?;
-                        }
-                        GeneratedField::Apply => {
-                            if apply__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("apply"));
-                            }
-                            apply__ = map_.next_value()?;
-                        }
-                        GeneratedField::Open => {
-                            if open__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("open"));
-                            }
-                            open__ = map_.next_value()?;
-                        }
-                        GeneratedField::Acknowledge => {
-                            if acknowledge__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("acknowledge"));
-                            }
-                            acknowledge__ = map_.next_value()?;
-                        }
                         GeneratedField::Internal => {
                             if internal__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("$internal"));
@@ -181,19 +129,62 @@ impl<'de> serde::Deserialize<'de> for Request {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Spec => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("spec"));
+                                }
+                                kind__ = Some(request::Kind::Spec(v));
+                            }
+                        }
+                        GeneratedField::Discover => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("discover"));
+                                }
+                                kind__ = Some(request::Kind::Discover(v));
+                            }
+                        }
+                        GeneratedField::Validate => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("validate"));
+                                }
+                                kind__ = Some(request::Kind::Validate(v));
+                            }
+                        }
+                        GeneratedField::Apply => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("apply"));
+                                }
+                                kind__ = Some(request::Kind::Apply(v));
+                            }
+                        }
+                        GeneratedField::Open => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("open"));
+                                }
+                                kind__ = Some(request::Kind::Open(v));
+                            }
+                        }
+                        GeneratedField::Acknowledge => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("acknowledge"));
+                                }
+                                kind__ = Some(request::Kind::Acknowledge(v));
+                            }
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
                 Ok(Request {
-                    spec: spec__,
-                    discover: discover__,
-                    validate: validate__,
-                    apply: apply__,
-                    open: open__,
-                    acknowledge: acknowledge__,
                     internal: internal__.unwrap_or_default(),
+                    kind: kind__,
                 })
             }
         }
@@ -1325,74 +1316,51 @@ impl serde::Serialize for Response {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.spec.is_some() {
-            len += 1;
-        }
-        if self.discovered.is_some() {
-            len += 1;
-        }
-        if self.validated.is_some() {
-            len += 1;
-        }
-        if self.applied.is_some() {
-            len += 1;
-        }
-        if self.opened.is_some() {
-            len += 1;
-        }
-        if self.captured.is_some() {
-            len += 1;
-        }
-        if self.sourced_schema.is_some() {
-            len += 1;
-        }
-        if self.checkpoint.is_some() {
-            len += 1;
-        }
-        if self.backfill_begin.is_some() {
-            len += 1;
-        }
-        if self.backfill_complete.is_some() {
-            len += 1;
-        }
         if !self.internal.is_empty() {
             len += 1;
         }
+        if self.kind.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Response", len)?;
-        if let Some(v) = self.spec.as_ref() {
-            struct_ser.serialize_field("spec", v)?;
-        }
-        if let Some(v) = self.discovered.as_ref() {
-            struct_ser.serialize_field("discovered", v)?;
-        }
-        if let Some(v) = self.validated.as_ref() {
-            struct_ser.serialize_field("validated", v)?;
-        }
-        if let Some(v) = self.applied.as_ref() {
-            struct_ser.serialize_field("applied", v)?;
-        }
-        if let Some(v) = self.opened.as_ref() {
-            struct_ser.serialize_field("opened", v)?;
-        }
-        if let Some(v) = self.captured.as_ref() {
-            struct_ser.serialize_field("captured", v)?;
-        }
-        if let Some(v) = self.sourced_schema.as_ref() {
-            struct_ser.serialize_field("sourcedSchema", v)?;
-        }
-        if let Some(v) = self.checkpoint.as_ref() {
-            struct_ser.serialize_field("checkpoint", v)?;
-        }
-        if let Some(v) = self.backfill_begin.as_ref() {
-            struct_ser.serialize_field("backfillBegin", v)?;
-        }
-        if let Some(v) = self.backfill_complete.as_ref() {
-            struct_ser.serialize_field("backfillComplete", v)?;
-        }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
+        }
+        if let Some(v) = self.kind.as_ref() {
+            match v {
+                response::Kind::Spec(v) => {
+                    struct_ser.serialize_field("spec", v)?;
+                }
+                response::Kind::Discovered(v) => {
+                    struct_ser.serialize_field("discovered", v)?;
+                }
+                response::Kind::Validated(v) => {
+                    struct_ser.serialize_field("validated", v)?;
+                }
+                response::Kind::Applied(v) => {
+                    struct_ser.serialize_field("applied", v)?;
+                }
+                response::Kind::Opened(v) => {
+                    struct_ser.serialize_field("opened", v)?;
+                }
+                response::Kind::Captured(v) => {
+                    struct_ser.serialize_field("captured", v)?;
+                }
+                response::Kind::SourcedSchema(v) => {
+                    struct_ser.serialize_field("sourcedSchema", v)?;
+                }
+                response::Kind::Checkpoint(v) => {
+                    struct_ser.serialize_field("checkpoint", v)?;
+                }
+                response::Kind::BackfillBegin(v) => {
+                    struct_ser.serialize_field("backfillBegin", v)?;
+                }
+                response::Kind::BackfillComplete(v) => {
+                    struct_ser.serialize_field("backfillComplete", v)?;
+                }
+            }
         }
         struct_ser.end()
     }
@@ -1404,6 +1372,8 @@ impl<'de> serde::Deserialize<'de> for Response {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "internal",
+            "$internal",
             "spec",
             "discovered",
             "validated",
@@ -1417,12 +1387,11 @@ impl<'de> serde::Deserialize<'de> for Response {
             "backfillBegin",
             "backfill_complete",
             "backfillComplete",
-            "internal",
-            "$internal",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Internal,
             Spec,
             Discovered,
             Validated,
@@ -1433,7 +1402,6 @@ impl<'de> serde::Deserialize<'de> for Response {
             Checkpoint,
             BackfillBegin,
             BackfillComplete,
-            Internal,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1456,6 +1424,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                         E: serde::de::Error,
                     {
                         match value {
+                            "$internal" | "internal" => Ok(GeneratedField::Internal),
                             "spec" => Ok(GeneratedField::Spec),
                             "discovered" => Ok(GeneratedField::Discovered),
                             "validated" => Ok(GeneratedField::Validated),
@@ -1466,7 +1435,6 @@ impl<'de> serde::Deserialize<'de> for Response {
                             "checkpoint" => Ok(GeneratedField::Checkpoint),
                             "backfillBegin" | "backfill_begin" => Ok(GeneratedField::BackfillBegin),
                             "backfillComplete" | "backfill_complete" => Ok(GeneratedField::BackfillComplete),
-                            "$internal" | "internal" => Ok(GeneratedField::Internal),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1486,79 +1454,10 @@ impl<'de> serde::Deserialize<'de> for Response {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut spec__ = None;
-                let mut discovered__ = None;
-                let mut validated__ = None;
-                let mut applied__ = None;
-                let mut opened__ = None;
-                let mut captured__ = None;
-                let mut sourced_schema__ = None;
-                let mut checkpoint__ = None;
-                let mut backfill_begin__ = None;
-                let mut backfill_complete__ = None;
                 let mut internal__ = None;
+                let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Spec => {
-                            if spec__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("spec"));
-                            }
-                            spec__ = map_.next_value()?;
-                        }
-                        GeneratedField::Discovered => {
-                            if discovered__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("discovered"));
-                            }
-                            discovered__ = map_.next_value()?;
-                        }
-                        GeneratedField::Validated => {
-                            if validated__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("validated"));
-                            }
-                            validated__ = map_.next_value()?;
-                        }
-                        GeneratedField::Applied => {
-                            if applied__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("applied"));
-                            }
-                            applied__ = map_.next_value()?;
-                        }
-                        GeneratedField::Opened => {
-                            if opened__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("opened"));
-                            }
-                            opened__ = map_.next_value()?;
-                        }
-                        GeneratedField::Captured => {
-                            if captured__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("captured"));
-                            }
-                            captured__ = map_.next_value()?;
-                        }
-                        GeneratedField::SourcedSchema => {
-                            if sourced_schema__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sourcedSchema"));
-                            }
-                            sourced_schema__ = map_.next_value()?;
-                        }
-                        GeneratedField::Checkpoint => {
-                            if checkpoint__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("checkpoint"));
-                            }
-                            checkpoint__ = map_.next_value()?;
-                        }
-                        GeneratedField::BackfillBegin => {
-                            if backfill_begin__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("backfillBegin"));
-                            }
-                            backfill_begin__ = map_.next_value()?;
-                        }
-                        GeneratedField::BackfillComplete => {
-                            if backfill_complete__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("backfillComplete"));
-                            }
-                            backfill_complete__ = map_.next_value()?;
-                        }
                         GeneratedField::Internal => {
                             if internal__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("$internal"));
@@ -1567,23 +1466,94 @@ impl<'de> serde::Deserialize<'de> for Response {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Spec => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("spec"));
+                                }
+                                kind__ = Some(response::Kind::Spec(v));
+                            }
+                        }
+                        GeneratedField::Discovered => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("discovered"));
+                                }
+                                kind__ = Some(response::Kind::Discovered(v));
+                            }
+                        }
+                        GeneratedField::Validated => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("validated"));
+                                }
+                                kind__ = Some(response::Kind::Validated(v));
+                            }
+                        }
+                        GeneratedField::Applied => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("applied"));
+                                }
+                                kind__ = Some(response::Kind::Applied(v));
+                            }
+                        }
+                        GeneratedField::Opened => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("opened"));
+                                }
+                                kind__ = Some(response::Kind::Opened(v));
+                            }
+                        }
+                        GeneratedField::Captured => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("captured"));
+                                }
+                                kind__ = Some(response::Kind::Captured(v));
+                            }
+                        }
+                        GeneratedField::SourcedSchema => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("sourcedSchema"));
+                                }
+                                kind__ = Some(response::Kind::SourcedSchema(v));
+                            }
+                        }
+                        GeneratedField::Checkpoint => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("checkpoint"));
+                                }
+                                kind__ = Some(response::Kind::Checkpoint(v));
+                            }
+                        }
+                        GeneratedField::BackfillBegin => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("backfillBegin"));
+                                }
+                                kind__ = Some(response::Kind::BackfillBegin(v));
+                            }
+                        }
+                        GeneratedField::BackfillComplete => {
+                            if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
+                                if kind__.is_some() {
+                                    return Err(serde::de::Error::duplicate_field("backfillComplete"));
+                                }
+                                kind__ = Some(response::Kind::BackfillComplete(v));
+                            }
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
                 Ok(Response {
-                    spec: spec__,
-                    discovered: discovered__,
-                    validated: validated__,
-                    applied: applied__,
-                    opened: opened__,
-                    captured: captured__,
-                    sourced_schema: sourced_schema__,
-                    checkpoint: checkpoint__,
-                    backfill_begin: backfill_begin__,
-                    backfill_complete: backfill_complete__,
                     internal: internal__.unwrap_or_default(),
+                    kind: kind__,
                 })
             }
         }
@@ -3014,5 +2984,81 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
             }
         }
         deserializer.deserialize_struct("capture.Response.Validated.Binding", FIELDS, GeneratedVisitor)
+    }
+}
+
+impl serde::Serialize for request::Kind {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut struct_ser = serializer.serialize_struct("capture.Request", 1)?;
+        match self {
+            request::Kind::Spec(v) => {
+                struct_ser.serialize_field("spec", v)?;
+            }
+            request::Kind::Discover(v) => {
+                struct_ser.serialize_field("discover", v)?;
+            }
+            request::Kind::Validate(v) => {
+                struct_ser.serialize_field("validate", v)?;
+            }
+            request::Kind::Apply(v) => {
+                struct_ser.serialize_field("apply", v)?;
+            }
+            request::Kind::Open(v) => {
+                struct_ser.serialize_field("open", v)?;
+            }
+            request::Kind::Acknowledge(v) => {
+                struct_ser.serialize_field("acknowledge", v)?;
+            }
+        }
+        struct_ser.end()
+    }
+}
+
+impl serde::Serialize for response::Kind {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut struct_ser = serializer.serialize_struct("capture.Response", 1)?;
+        match self {
+            response::Kind::Spec(v) => {
+                struct_ser.serialize_field("spec", v)?;
+            }
+            response::Kind::Discovered(v) => {
+                struct_ser.serialize_field("discovered", v)?;
+            }
+            response::Kind::Validated(v) => {
+                struct_ser.serialize_field("validated", v)?;
+            }
+            response::Kind::Applied(v) => {
+                struct_ser.serialize_field("applied", v)?;
+            }
+            response::Kind::Opened(v) => {
+                struct_ser.serialize_field("opened", v)?;
+            }
+            response::Kind::Captured(v) => {
+                struct_ser.serialize_field("captured", v)?;
+            }
+            response::Kind::SourcedSchema(v) => {
+                struct_ser.serialize_field("sourcedSchema", v)?;
+            }
+            response::Kind::Checkpoint(v) => {
+                struct_ser.serialize_field("checkpoint", v)?;
+            }
+            response::Kind::BackfillBegin(v) => {
+                struct_ser.serialize_field("backfillBegin", v)?;
+            }
+            response::Kind::BackfillComplete(v) => {
+                struct_ser.serialize_field("backfillComplete", v)?;
+            }
+        }
+        struct_ser.end()
     }
 }

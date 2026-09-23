@@ -103,11 +103,10 @@ impl SessionActor {
 
         // Read clean EOF from all Slice RPCs.
         while let Some((shard_index, slice_response, rx)) = slice_response_rx.next().await {
-            let verify = crate::verify(
+            let verify = proto_grpc::verify(
                 "SliceResponse",
                 "EOF",
                 &self.topology.shards[shard_index].endpoint,
-                shard_index,
             );
             match slice_response {
                 None => (), // Clean EOF.
@@ -226,7 +225,7 @@ impl SessionActor {
         &mut self,
         session_request: tonic::Result<shuffle::SessionRequest>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("SessionRequest", "NextCheckpoint", "coordinator", 0);
+        let verify = proto_grpc::verify("SessionRequest", "NextCheckpoint", "coordinator");
 
         match verify.ok(session_request)? {
             shuffle::SessionRequest {
@@ -240,7 +239,7 @@ impl SessionActor {
                 );
                 self.checkpoint.request()
             }
-            request => Err(verify.fail(request)),
+            request => Err(verify.fail_msg(request)),
         }
     }
 
@@ -249,11 +248,10 @@ impl SessionActor {
         shard_index: usize,
         slice_response: Option<tonic::Result<shuffle::SliceResponse>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify(
+        let verify = proto_grpc::verify(
             "SliceResponse",
             "ListingAdded, ListingSnapshotComplete, or ProgressDelta",
             &self.topology.shards[shard_index].endpoint,
-            shard_index,
         );
         let slice_response = verify.not_eof(slice_response)?;
 
@@ -313,7 +311,7 @@ impl SessionActor {
                 Ok(())
             }
 
-            response => Err(verify.fail(response)),
+            response => Err(verify.fail_msg(response)),
         }
     }
 }

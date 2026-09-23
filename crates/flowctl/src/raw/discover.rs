@@ -1,5 +1,4 @@
-use crate::local_specs;
-use anyhow::Context;
+use crate::{local_connector, local_specs};
 use proto_flow::{capture, flow};
 
 #[derive(Debug, clap::Args)]
@@ -19,18 +18,14 @@ pub struct Discover {
     /// Rather than updating the filesystem with the discovered specs
     #[clap(long)]
     emit_raw: bool,
-    /// Docker network to run the connector.
-    #[clap(long, default_value = "bridge")]
-    network: String,
 }
 
 pub async fn do_discover(
-    _ctx: &mut crate::CliContext,
+    ctx: &mut crate::CliContext,
     Discover {
         source,
         capture,
         flat,
-        network,
         emit_raw,
     }: &Discover,
 ) -> anyhow::Result<()> {
@@ -87,27 +82,25 @@ pub async fn do_discover(
             secrets,
         },
     };
-    let discover = capture::Request {
-        discover: Some(discover),
-        ..Default::default()
-    }
-    .with_internal(|internal| {
-        if let Some(s) = &model_clone.shards.log_level {
-            internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
-        }
-    });
 
-    let capture::response::Discovered { bindings } = runtime::Runtime::new(
-        runtime::Plane::Local,
-        network.clone(),
-        ops::tracing_log_handler,
-        None,
-        format!("discover/{}", capture.capture),
+    let router = ctx.local_connector_router();
+    let response = local_connector::unary(
+        &*router,
+        model_clone.shards.log_level.as_deref(),
+        proto_flow::connector::request::Kind::Capture(capture::Request {
+            kind: Some(capture::request::Kind::Discover(Box::new(discover))),
+            ..Default::default()
+        }),
     )
-    .unary_capture(discover)
-    .await?
-    .discovered
-    .context("connector didn't send expected Discovered response")?;
+    .await?;
+
+    let Some(capture::Response {
+        kind: Some(capture::response::Kind::Discovered(capture::response::Discovered { bindings })),
+        ..
+    }) = proto_grpc::connector::unwrap_capture(response)
+    else {
+        anyhow::bail!("connector didn't send expected Discovered response");
+    };
 
     if *emit_raw {
         for binding in bindings {

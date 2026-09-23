@@ -1,7 +1,7 @@
-use super::connector;
 use crate::Logger as _;
 use crate::leader::capture::fsm;
 use crate::proto;
+use crate::shard::connector;
 use anyhow::Context;
 use futures::StreamExt;
 use prost::Message;
@@ -18,11 +18,7 @@ pub(crate) async fn serve<R, P: crate::PublisherFactory, L: crate::LoggerFactory
 where
     R: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
 {
-    let verify = crate::verify(
-        "Capture",
-        "SessionLoop, Spec, Discover, or Validate",
-        "controller",
-    );
+    let verify = crate::verify("Capture", "SessionLoop", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Capture {
@@ -38,108 +34,10 @@ where
                 .await;
             }
 
-            proto::Capture {
-                spec: Some(spec),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    capture::Request {
-                        spec: Some(spec),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
-            proto::Capture {
-                discover: Some(discover),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    capture::Request {
-                        discover: Some(discover),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
-            proto::Capture {
-                validate: Some(validate),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let response = serve_unary(
-                    &service,
-                    capture::Request {
-                        validate: Some(validate),
-                        ..Default::default()
-                    },
-                    log_level,
-                )
-                .await?;
-                _ = controller_tx.send(Ok(response));
-            }
             request => return Err(verify.fail_msg(request)),
         }
     }
     Ok(())
-}
-
-async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    request: capture::Request,
-    log_level: ops::LogLevel,
-) -> anyhow::Result<proto::Capture> {
-    let is_spec = request.spec.is_some();
-    let is_discover = request.discover.is_some();
-    let is_validate = request.validate.is_some();
-    let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _token_restart_at) =
-        connector::start(service, &logger, log_level, request).await?;
-    std::mem::drop(connector_tx);
-
-    let verify = crate::verify("Capture", "unary response", "connector");
-    let response = match verify.not_eof(connector_rx.next().await)? {
-        capture::Response {
-            spec: Some(spec), ..
-        } if is_spec => proto::Capture {
-            spec_response: Some(spec),
-            ..Default::default()
-        },
-        capture::Response {
-            discovered: Some(discovered),
-            ..
-        } if is_discover => proto::Capture {
-            discovered: Some(discovered),
-            ..Default::default()
-        },
-        capture::Response {
-            validated: Some(validated),
-            ..
-        } if is_validate => proto::Capture {
-            validated: Some(validated),
-            ..Default::default()
-        },
-        response => return Err(verify.fail_msg(response)),
-    };
-    verify.eof(connector_rx.next().await)?;
-    Ok(response)
 }
 
 async fn serve_session_loop<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
@@ -337,6 +235,7 @@ where
         service,
         &logger,
         db,
+        &labeling.task_name,
         &binding_state_keys,
         &last_applied,
         &next_applied,
@@ -347,26 +246,46 @@ where
     .await?;
 
     let open = capture::Request {
-        open: Some(capture::request::Open {
-            capture: Some(spec.clone()),
-            version: version.clone(),
-            range: Some(range.clone()),
-            state_json: connector_state_json,
-            // Populated by `connector::start` with the matched endpoint's inner
-            // sealed configuration, which is not yet extracted from `spec` here.
-            sealed_config_json: Default::default(),
-        }),
+        kind: Some(capture::request::Kind::Open(Box::new(
+            capture::request::Open {
+                capture: Some(spec.clone()),
+                version: version.clone(),
+                range: Some(range.clone()),
+                state_json: connector_state_json,
+                // Populated by `connector::start` with the matched endpoint's inner
+                // sealed configuration, which is not yet extracted from `spec` here.
+                sealed_config_json: Default::default(),
+            },
+        ))),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container, token_restart_at) =
-        connector::start(service, &logger, log_level, open.clone()).await?;
+    let (
+        connector_tx,
+        mut connector_rx,
+        connector::Started {
+            container,
+            token_restart_at,
+            ..
+        },
+    ) = connector::start(
+        &*service.connector_router,
+        &logger,
+        &labeling.task_name,
+        connector::proto::request::Start {
+            log_level: log_level as i32,
+            sqlite_vfs_uri: String::new(),
+        },
+        connector::proto::request::Kind::Capture(open.clone()),
+    )
+    .await?;
     let verify = crate::verify("Capture", "Opened", "connector");
-    let opened = match verify.not_eof(connector_rx.next().await)? {
+    let next = connector::next(&mut connector_rx, &logger, connector::unwrap_capture);
+    let opened = match verify.not_eof(next.await)? {
         capture::Response {
-            opened: Some(opened),
+            kind: Some(capture::response::Kind::Opened(opened)),
             ..
         } => capture::Response {
-            opened: Some(opened),
+            kind: Some(capture::response::Kind::Opened(opened)),
             ..Default::default()
         },
         response => return Err(verify.fail_msg(response)),
@@ -473,6 +392,7 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     service: &crate::shard::Service<P, L>,
     logger: &L::Logger,
     mut db: crate::shard::RocksDB,
+    task_name: &str,
     binding_state_keys: &[String],
     last_applied: &bytes::Bytes,
     next_applied: &bytes::Bytes,
@@ -514,35 +434,40 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             state_json: connector_state_json.clone(),
         };
 
-        let (connector_tx, mut connector_rx, _container, _token_restart_at) = connector::start(
-            service,
+        let (connector_tx, mut connector_rx, _started) = connector::start(
+            &*service.connector_router,
             logger,
-            log_level,
-            capture::Request {
-                apply: Some(apply),
-                ..Default::default()
+            task_name,
+            connector::proto::request::Start {
+                log_level: log_level as i32,
+                sqlite_vfs_uri: String::new(),
             },
+            connector::proto::request::Kind::Capture(capture::Request {
+                kind: Some(capture::request::Kind::Apply(Box::new(apply))),
+                ..Default::default()
+            }),
         )
         .await?;
         std::mem::drop(connector_tx);
 
         let verify = crate::verify("Capture", "Applied", "connector");
-        let (action_description, applied_patches_json) =
-            match verify.not_eof(connector_rx.next().await)? {
-                capture::Response {
-                    applied:
-                        Some(capture::response::Applied {
-                            action_description,
-                            state,
-                        }),
-                    ..
-                } => (
-                    action_description,
-                    crate::patches::encode_connector_state(state),
-                ),
-                response => return Err(verify.fail_msg(response)),
-            };
-        verify.eof(connector_rx.next().await)?;
+        let next = connector::next(&mut connector_rx, logger, connector::unwrap_capture);
+        let (action_description, applied_patches_json) = match verify.not_eof(next.await)? {
+            capture::Response {
+                kind:
+                    Some(capture::response::Kind::Applied(capture::response::Applied {
+                        action_description,
+                        state,
+                    })),
+                ..
+            } => (
+                action_description,
+                crate::patches::encode_connector_state(state),
+            ),
+            response => return Err(verify.fail_msg(response)),
+        };
+        let next = connector::next(&mut connector_rx, logger, connector::unwrap_capture);
+        verify.eof(next.await)?;
 
         logger.event(crate::LogEvent::Applied {
             action_description: &action_description,
@@ -615,14 +540,16 @@ mod test {
 
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let registry = service_kit::Registry::new();
+        let (_connector_svc, connector_router) =
+            ::connector::Service::new_local(String::new(), registry.clone());
         let service = crate::shard::Service::new(
-            crate::Plane::Local,
-            String::new(),
+            std::sync::Arc::new(connector_router),
             None,
             "test/task".to_string(),
             crate::publish::RecordingPublisherFactory,
             crate::TracingLoggerFactory,
-            service_kit::Registry::new(),
+            registry,
             None,
         );
 

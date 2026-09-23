@@ -128,8 +128,11 @@ impl super::UserGrant {
     pub fn reachable_nodes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        user_id: uuid::Uuid,
+        subject: &authz::Subject,
     ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
+        // Copy out what the walk needs so the returned iterator borrows only
+        // the grant tables, not `subject`.
+        let user_id = subject.user_id;
         let seed = super::NodeRef {
             object_role: "",
             capabilities: EnumSet::from(authz::Capability::Assume),
@@ -141,7 +144,7 @@ impl super::UserGrant {
         .skip(1)
     }
 
-    /// Returns each prefix reachable from `user_id` mapped to the union
+    /// Returns each prefix reachable for `subject`, mapped to the union
     /// of capability bits granted at that prefix across every path
     /// through the grant graph, paired with the max legacy `capability`
     /// column value among grants directly emitting that prefix.
@@ -153,13 +156,13 @@ impl super::UserGrant {
     pub fn reachable_prefixes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        user_id: uuid::Uuid,
+        subject: &authz::Subject,
     ) -> std::collections::BTreeMap<&'a str, (authz::CapabilitySet, models::Capability)> {
         let mut out: std::collections::BTreeMap<
             &'a str,
             (authz::CapabilitySet, models::Capability),
         > = Default::default();
-        for node in Self::reachable_nodes(role_grants, user_grants, user_id) {
+        for node in Self::reachable_nodes(role_grants, user_grants, subject) {
             let entry = out
                 .entry(node.object_role)
                 .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
@@ -174,10 +177,10 @@ impl super::UserGrant {
     pub fn get_user_capability<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        user_id: uuid::Uuid,
+        subject: &authz::Subject,
         object_role_or_name: &str,
     ) -> Option<models::Capability> {
-        Self::reachable_nodes(role_grants, user_grants, user_id)
+        Self::reachable_nodes(role_grants, user_grants, subject)
             .filter(|n| object_role_or_name.starts_with(n.object_role))
             .map(|n| n.legacy)
             .filter(|c| *c != models::Capability::None)
@@ -187,12 +190,12 @@ impl super::UserGrant {
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject_user_id: uuid::Uuid,
+        subject: &authz::Subject,
         object_role_or_name: &'a str,
         capability: impl Into<authz::CapabilitySet>,
     ) -> bool {
         any_path_satisfies(
-            Self::reachable_nodes(role_grants, user_grants, subject_user_id),
+            Self::reachable_nodes(role_grants, user_grants, subject),
             object_role_or_name,
             capability,
         )
@@ -306,7 +309,7 @@ impl super::StorageMapping {
 mod test {
     use crate::{Import, Imports, RoleGrant, RoleGrants, UserGrant, UserGrants};
     use enumset::EnumSet;
-    use models::authz::{Capability, CapabilityBundle};
+    use models::authz::{Capability, CapabilityBundle, Subject};
 
     #[test]
     fn test_transitive_imports() {
@@ -444,21 +447,21 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::nil(),
+            &Subject::unrestricted(uuid::Uuid::nil()),
             "bobCo/thing",
             models::Capability::Read,
         ));
         assert!(!UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::nil(),
+            &Subject::unrestricted(uuid::Uuid::nil()),
             "bobCo/thing",
             models::Capability::Write,
         ));
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::nil(),
+            &Subject::unrestricted(uuid::Uuid::nil()),
             "carolCo/hidden/thing",
             models::Capability::Read,
         ));
@@ -467,7 +470,7 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::max(),
+            &Subject::unrestricted(uuid::Uuid::max()),
             "bobCo/burgers/thing",
             models::Capability::Admin,
         ));
@@ -581,7 +584,7 @@ mod test {
             UserGrant::get_user_capability(
                 &role_grants,
                 &user_grants,
-                user1,
+                &Subject::unrestricted(user1),
                 "ops/private/dp/acmeCo/foooo"
             )
         );
@@ -590,7 +593,7 @@ mod test {
             UserGrant::get_user_capability(
                 &role_grants,
                 &user_grants,
-                user2,
+                &Subject::unrestricted(user2),
                 "ops/private/dp/acmeCo/foooo"
             )
         );
@@ -599,7 +602,7 @@ mod test {
             UserGrant::get_user_capability(
                 &role_grants,
                 &user_grants,
-                user1,
+                &Subject::unrestricted(user1),
                 "different/co/altogether"
             )
         );
@@ -640,7 +643,7 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::from_bytes([1; 16]),
+            &Subject::unrestricted(uuid::Uuid::from_bytes([1; 16])),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
         ));
@@ -649,7 +652,7 @@ mod test {
         assert!(UserGrant::is_authorized(
             &role_grants,
             &user_grants,
-            uuid::Uuid::from_bytes([2; 16]),
+            &Subject::unrestricted(uuid::Uuid::from_bytes([2; 16])),
             "ops/private/dp/acmeCo/foo",
             models::Capability::Read,
         ));
@@ -683,9 +686,10 @@ mod test {
         user_id: uuid::Uuid,
         expected: Vec<(&str, EnumSet<Capability>)>,
     ) {
-        let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, user_id)
-            .map(|n| (n.object_role.to_string(), n.capabilities))
-            .collect();
+        let mut nodes: Vec<_> =
+            UserGrant::reachable_nodes(role_grants, user_grants, &Subject::unrestricted(user_id))
+                .map(|n| (n.object_role.to_string(), n.capabilities))
+                .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.as_u32().cmp(&b.1.as_u32())));
         nodes.dedup();
 
@@ -705,7 +709,13 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                &Subject::unrestricted(user_id),
+                name,
+                required,
+            ),
             "expected {user_id} to have {required:?} on {name}",
         );
     }
@@ -718,7 +728,13 @@ mod test {
         required: EnumSet<Capability>,
     ) {
         assert!(
-            !UserGrant::is_authorized(role_grants, user_grants, user_id, name, required),
+            !UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                &Subject::unrestricted(user_id),
+                name,
+                required,
+            ),
             "expected {user_id} NOT to have {required:?} on {name}",
         );
     }
@@ -1306,7 +1322,8 @@ mod test {
         let role_grants = RoleGrants::new();
 
         let nodes: Vec<_> =
-            UserGrant::reachable_nodes(&role_grants, &user_grants, user_id).collect();
+            UserGrant::reachable_nodes(&role_grants, &user_grants, &Subject::unrestricted(user_id))
+                .collect();
 
         assert_eq!(nodes.len(), 1);
         let node = &nodes[0];

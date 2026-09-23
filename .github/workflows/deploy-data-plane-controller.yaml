@@ -1,17 +1,21 @@
 name: Deploy data-plane-controller
 
+# Deployed manually rather than on every master build, so a candidate image can
+# be validated by the dev deployment (deploy-data-plane-controller-dev.yaml)
+# against test data-planes before it reaches the rest of the fleet. Both
+# deployments take the same tag, so what gets promoted is the same artifact that
+# was tested. Mirrors deploy-agent-api.yaml.
 on:
-  workflow_run:
-    workflows: ["Platform Build"]
-    types:
-      - completed
-    branches: [master]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Container image tag to deploy, e.g. v0.6.13-71-g08a2aa1ef11 (must already exist in Artifact Registry)"
+        required: true
+        type: string
 
 jobs:
   deploy-service:
     runs-on: ubuntu-24.04
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     permissions:
       contents: read
       id-token: write
@@ -21,18 +25,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 0  # Required for git describe to find tags
 
       - name: Get image tag
         id: image-tag
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="dev-next"
-          else
-            TAG=$(git describe --tags --always)
-          fi
+          TAG="${{ inputs.tag }}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/data-plane-controller:${TAG}" >> $GITHUB_OUTPUT
 
@@ -86,7 +83,6 @@ jobs:
   deploy-job:
     runs-on: ubuntu-24.04
     needs: deploy-service
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     permissions:
       contents: read
       id-token: write
@@ -94,18 +90,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 0  # Required for git describe to find tags
 
       - name: Get image tag
         id: image-tag
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="dev-next"
-          else
-            TAG=$(git describe --tags --always)
-          fi
+          TAG="${{ inputs.tag }}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "image=us-central1-docker.pkg.dev/estuary-control/ghcr/estuary/data-plane-controller:${TAG}" >> $GITHUB_OUTPUT
 

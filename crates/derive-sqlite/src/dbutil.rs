@@ -7,15 +7,94 @@ use rusqlite::Connection;
 pub fn open(uri: &str, migrations: &[String]) -> anyhow::Result<(Connection, RuntimeCheckpoint)> {
     let conn = Connection::open(uri)?;
 
-    // TODO(johnny): Lock it down.
-
     let () = set_optimal_journal_mode(&conn)?;
     run_script(&conn, BOOTSTRAP, "bootstrap").context("failed to bootstrap the database")?;
+
+    // Everything from here on is user-authored SQL, or is derived from it.
+    conn.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_ATTACHED, 0)
+        .context("failed to set attached-database limit")?;
+    let _prior = conn
+        .set_db_config(rusqlite::config::DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
+        .context("failed to set defensive mode")?;
+    set_authorizer(&conn)?;
+
     apply_migrations(&conn, migrations)?;
     let runtime_checkpoint = query_checkpoint(&conn)?;
 
     Ok((conn, runtime_checkpoint))
 }
+
+fn set_authorizer(conn: &Connection) -> anyhow::Result<()> {
+    conn.authorizer(Some(authorize))
+        .context("failed to install SQLite authorizer")
+}
+
+fn authorize(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization {
+    use rusqlite::hooks::{AuthAction, Authorization::*};
+
+    match context.action {
+        // `VACUUM INTO` opens its output file through an internal ATTACH,
+        // and is denied here rather than as an action of its own.
+        AuthAction::Attach { .. } | AuthAction::Detach { .. } => Deny,
+        AuthAction::Function {
+            function_name: "load_extension",
+        } => Deny,
+        AuthAction::Pragma { pragma_name, .. } if !is_allowed_pragma(pragma_name) => Deny,
+        // SAVEPOINT is not denied: it nests within the enclosing transaction.
+        AuthAction::Transaction { .. } => Deny,
+        // Action codes added by a future SQLite release.
+        AuthAction::Unknown { .. } => Deny,
+        _ => Allow,
+    }
+}
+
+// SQLite passes the pragma name as the user spelled it, and pragma names are
+// case-insensitive.
+fn is_allowed_pragma(name: &str) -> bool {
+    ALLOWED_PRAGMAS
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(name))
+}
+
+// Pragmas which are scoped to this database and connection.
+// A name is allowed in both its getter and setter form, as SQLite does not
+// distinguish them: `PRAGMA table_info('t')` and `PRAGMA foreign_keys=OFF`
+// both arrive as a name with an argument.
+//
+// Migrations run once, so a connection-scoped pragma set by one of them does
+// not survive a restart of the task.
+const ALLOWED_PRAGMAS: &[&str] = &[
+    "analysis_limit",
+    "application_id",
+    "case_sensitive_like",
+    "collation_list",
+    "compile_options",
+    "data_version",
+    "database_list",
+    "defer_foreign_keys",
+    // Foreign keys are enforced by default (SQLITE_DEFAULT_FOREIGN_KEYS=1),
+    // so this pragma can only ever relax enforcement.
+    "foreign_keys",
+    "foreign_key_check",
+    "foreign_key_list",
+    "freelist_count",
+    "function_list",
+    "index_info",
+    "index_list",
+    "index_xinfo",
+    "integrity_check",
+    "legacy_alter_table",
+    "module_list",
+    "optimize",
+    "page_count",
+    "pragma_list",
+    "quick_check",
+    "recursive_triggers",
+    "table_info",
+    "table_list",
+    "table_xinfo",
+    "user_version",
+];
 
 fn apply_migrations(conn: &Connection, migrations: &[String]) -> anyhow::Result<()> {
     let max_applied: Option<usize> = conn
@@ -127,16 +206,25 @@ pub fn update_checkpoint(conn: &Connection, checkpoint: RuntimeCheckpoint) -> an
 }
 
 pub fn commit_and_begin(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch(
-        r#"
+    conn.authorizer(NO_AUTHORIZER)
+        .context("failed to remove SQLite authorizer")?;
+
+    let result = conn
+        .execute_batch(
+            r#"
                 COMMIT;
                 BEGIN EXCLUSIVE;
                 "#,
-    )
-    .context("failed to commit transaction")?;
+        )
+        .context("failed to commit transaction");
 
-    Ok(())
+    set_authorizer(conn)?;
+    result
 }
+
+const NO_AUTHORIZER: Option<
+    fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization,
+> = None;
 
 // Map a block of SQL into its constituent statements.
 pub fn sql_block_to_statements(mut block: &str) -> Result<Vec<&str>, Error> {
@@ -331,6 +419,133 @@ mod test {
             )
             .unwrap();
         insta::assert_snapshot!(fixture_content, @r###"[{"id":4,"value":"hello"},{"id":5,"value":"updated"},{"thing":"hi","other":32},{"thing":"there","other":32},{"thing":"bye","other":42}]"###);
+    }
+
+    // Run each `block` as a user migration over a temporary database,
+    // returning the error message if any of them failed. Blocks are newline
+    // terminated because a block without whitespace is a URL to be generated.
+    fn try_migrations(blocks: &[&str]) -> Result<(), String> {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let blocks: Vec<String> = blocks.iter().map(|b| format!("{b}\n")).collect();
+
+        open(tmp.path().to_str().unwrap(), &blocks)
+            .map(|_| ())
+            .map_err(|err| format!("{err:#}"))
+    }
+
+    #[test]
+    fn attach_is_denied() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let side = tmp.path().join("side.db");
+        let side = side.to_str().unwrap();
+
+        let plain = try_migrations(&[&format!("ATTACH DATABASE '{side}' AS other;")]).unwrap_err();
+        insta::assert_snapshot!(plain.replace(side, "<SIDE>"), @"failed to apply database migration at index 0: failed to prepare query for invocation: ATTACH DATABASE '<SIDE>' AS other;: not authorized: Error code 23: authorization denied");
+
+        let uri = try_migrations(&[&format!(
+            "ATTACH DATABASE 'file:{side}?vfs=unix&mode=rwc' AS other;"
+        )])
+        .unwrap_err();
+        insta::assert_snapshot!(uri.replace(side, "<SIDE>"), @"failed to apply database migration at index 0: failed to prepare query for invocation: ATTACH DATABASE 'file:<SIDE>?vfs=unix&mode=rwc' AS other;: not authorized: Error code 23: authorization denied");
+
+        assert!(!std::path::Path::new(side).exists());
+    }
+
+    // The bootstrap leaves an exclusive transaction open, so VACUUM is rejected
+    // before it reaches the authorizer. Pinned because the authorizer's Attach
+    // deny is the backstop if that ever changes.
+    #[test]
+    fn vacuum_into_is_denied() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let side = tmp.path().join("vacuumed.db");
+        let side = side.to_str().unwrap();
+
+        let err = try_migrations(&[&format!("VACUUM INTO '{side}';")]).unwrap_err();
+        insta::assert_snapshot!(err.replace(side, "<SIDE>"), @"failed to apply database migration at index 0: cannot VACUUM from within a transaction: Error code 1: SQL logic error");
+        assert!(!std::path::Path::new(side).exists());
+    }
+
+    #[test]
+    fn denied_statements() {
+        let denied = [
+            "SELECT load_extension('/tmp/evil.so');",
+            "PRAGMA writable_schema=ON;",
+            "PRAGMA trusted_schema=ON;",
+            "PRAGMA temp_store_directory='/tmp';",
+            "PRAGMA hard_heap_limit=1;",
+            "PRAGMA soft_heap_limit=1;",
+            "PRAGMA threads=8;",
+            "PRAGMA synchronous=OFF;",
+            "PRAGMA journal_mode=MEMORY;",
+            "PRAGMA JOURNAL_MODE=MEMORY;",
+            "PRAGMA journal_size_limit=0;",
+            "PRAGMA wal_checkpoint(TRUNCATE);",
+            "PRAGMA wal_autocheckpoint=0;",
+            "PRAGMA locking_mode=NORMAL;",
+            "PRAGMA page_size=512;",
+            "PRAGMA auto_vacuum=FULL;",
+            "PRAGMA secure_delete=OFF;",
+            "PRAGMA temp_store=FILE;",
+            "PRAGMA cell_size_check=OFF;",
+            "PRAGMA cache_size=-1048576;",
+            "PRAGMA mmap_size=0;",
+            "PRAGMA cache_spill=OFF;",
+            "DETACH DATABASE main;",
+            "COMMIT;",
+            "ROLLBACK;",
+            "BEGIN;",
+        ];
+
+        for statement in denied {
+            let err = try_migrations(&[statement]).expect_err(statement);
+            assert!(err.contains("not authorized"), "{statement}: {err}");
+        }
+    }
+
+    #[test]
+    fn allowed_statements() {
+        let allowed = [
+            "PRAGMA table_info('flow_migrations');",
+            "PRAGMA TABLE_INFO('flow_migrations');",
+            "PRAGMA main.table_info('flow_migrations');",
+            "SELECT * FROM pragma_table_info('flow_migrations');",
+            "PRAGMA foreign_keys=ON;",
+            "PRAGMA Foreign_Keys=ON;",
+            "PRAGMA user_version=7;",
+            "PRAGMA integrity_check;",
+            "SELECT compile_options FROM pragma_compile_options;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);",
+            "INSERT INTO t (id, v) VALUES (1, 'hello');",
+            "SELECT v FROM t;",
+            // Shadow-table writes of a virtual table module, under DEFENSIVE.
+            "CREATE VIRTUAL TABLE ft USING fts5(body);",
+            "INSERT INTO ft (body) VALUES ('hello world');",
+            "SELECT body FROM ft WHERE ft MATCH 'hello';",
+            // SAVEPOINT nests within the enclosing exclusive transaction.
+            "SAVEPOINT sp;",
+            "RELEASE sp;",
+            "SAVEPOINT sp2;",
+            "ROLLBACK TO sp2;",
+            "RELEASE sp2;",
+        ];
+
+        try_migrations(&allowed).expect("all statements are allowed");
+    }
+
+    #[test]
+    fn authorizer_survives_commit_and_begin() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let (conn, _checkpoint) = open(tmp.path().to_str().unwrap(), &[]).unwrap();
+
+        commit_and_begin(&conn).unwrap();
+
+        for statement in ["PRAGMA journal_mode=MEMORY;", "COMMIT;"] {
+            let err = run_script(&conn, statement, "after commit").unwrap_err();
+            assert!(
+                format!("{err:#}").contains("not authorized"),
+                "{statement}: {err:#}"
+            );
+        }
     }
 
     #[test]

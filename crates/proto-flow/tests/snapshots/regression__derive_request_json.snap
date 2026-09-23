@@ -1,12 +1,17 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-expression: json_test(msg)
+expression: json_catalogue(ex_derive_requests())
 ---
+// spec
 {
   "spec": {
     "connectorType": "SQLITE",
     "config": {"spec":"config"}
-  },
+  }
+}
+
+// validate
+{
   "validate": {
     "connectorType": "SQLITE",
     "config": {"validate":"config"},
@@ -207,7 +212,11 @@ expression: json_test(msg)
       "": "acmeCo/whole-config",
       "/credentials/password": "acmeCo/password"
     }
-  },
+  }
+}
+
+// open
+{
   "open": {
     "collection": {
       "name": "acmeCo/collection",
@@ -305,7 +314,11 @@ expression: json_test(msg)
       "rClockEnd": 3437096703
     },
     "state": {"connector":{"state":42}}
-  },
+  }
+}
+
+// read
+{
   "read": {
     "transform": 2,
     "uuid": {
@@ -318,10 +331,18 @@ expression: json_test(msg)
       "hash": 44556677
     },
     "doc": {"read":"doc"}
-  },
+  }
+}
+
+// flush
+{
   "flush": {
     "statePatches": [{"flush":true}]
-  },
+  }
+}
+
+// start_commit
+{
   "startCommit": {
     "runtimeCheckpoint": {
       "sources": {
@@ -349,7 +370,15 @@ expression: json_test(msg)
         "an/ack/journal": "AwQCBQ=="
       }
     }
-  },
-  "reset": {},
+  }
+}
+
+// reset
+{
+  "reset": {}
+}
+
+// internal
+{
   "$internal": "EgJIaRgB"
 }

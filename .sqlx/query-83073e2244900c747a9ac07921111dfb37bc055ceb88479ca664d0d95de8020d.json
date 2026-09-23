@@ -6,7 +6,13 @@
       {
         "ordinal": 0,
         "name": "catalog_prefix!: String",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.invite_links",
+            "name": "catalog_prefix"
+          }
+        }
       }
     ],
     "parameters": {

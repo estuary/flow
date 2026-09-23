@@ -33,9 +33,10 @@ pub struct Binding {
     /// Used to uniquely identify journal read checkpoints.
     pub journal_read_suffix: String,
     /// Priority of this binding with respect to others of the task.
-    /// Higher values imply higher priority. Documents are ordered by
+    /// Higher values imply higher priority, and negative values de-prioritize
+    /// with respect to the default of zero. Documents are ordered by
     /// (priority DESC, adjusted_clock ASC).
-    pub priority: u32,
+    pub priority: i32,
     /// Read delay as a relative Clock delta.
     /// Applied to document clocks to impose ordering across transforms
     /// and gate documents until wall-time catches up.
@@ -435,7 +436,7 @@ fn guard_index_width(entity: &str, count: usize) -> anyhow::Result<()> {
 /// (priority, read_delay) tuple belong to the same cohort. Cohorts are
 /// assigned ascending integers by walking bindings in index order.
 fn assign_cohorts(bindings: &mut [Binding]) {
-    let mut seen: Vec<(u32, uuid::Clock)> = Vec::new();
+    let mut seen: Vec<(i32, uuid::Clock)> = Vec::new();
 
     for binding in bindings.iter_mut() {
         let key = (binding.priority, binding.read_delay);
@@ -698,10 +699,10 @@ mod test {
                 ..Default::default()
             }),
             shuffle::task::Task::Derivation(flow::CollectionSpec {
-                derivation: Some(flow::collection_spec::Derivation {
+                derivation: Some(Box::new(flow::collection_spec::Derivation {
                     transforms: vec![Default::default(); over],
                     ..Default::default()
-                }),
+                })),
                 ..Default::default()
             }),
         ] {

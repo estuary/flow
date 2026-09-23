@@ -278,11 +278,10 @@ impl LogActor {
             return Ok(Err(false)); // Clean EOF of this shard's Slice Log RPC.
         };
 
-        let verify = crate::verify(
+        let verify = proto_grpc::verify(
             "LogRequest",
             "Append or Flush",
             &self.topology.shards[shard_index].endpoint,
-            shard_index,
         );
         let log_request = verify.ok(log_request)?;
 
@@ -313,7 +312,7 @@ impl LogActor {
                 Ok(Ok(rx))
             }
 
-            request => Err(verify.fail(request)),
+            request => Err(verify.fail_msg(request)),
         }
     }
 

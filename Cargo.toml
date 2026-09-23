@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.94"
 authors = ["Estuary developers <engineering@estuary.dev>"]
 readme = "./README.md"
 homepage = "https://estuary.dev/"
@@ -92,10 +92,11 @@ graphql_client = "*"
 handlebars = "6"
 hex = "0"
 hexdump = "0"
-hmac = "0"
+hmac = "0.12"
 humantime = "2"
 humantime-serde = "1"
 itertools = "0"
+ipnetwork = { version = "0.21", features = ["serde"] }
 indexmap = { version = "1", features = ["serde"] }
 highway = "1"
 iri-string = "0"
@@ -160,7 +161,7 @@ rsasl = { version = "2", default-features = false, features = [
     "oauthbearer",
     "plain",
 ] }
-rusqlite = { version = "0", features = ["bundled-full"] }
+rusqlite = { version = "0.39", features = ["bundled-full", "fallible_uint"] }
 rustyline = "17"
 schemars = { version = "1", features = ["chrono04"] }
 serde = { version = "1", features = ["derive"] }
@@ -168,20 +169,21 @@ serde_json = { version = "1", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0"
 serde-transcode = "1"
 serde-wasm-bindgen = "0"
-sha2 = "0"
+sha2 = "0.10"
 size = "0"
 socket2 = "0"
 strsim = "0"
 strum = { version = "0", features = ["derive"] }
 strum_macros = "0"
 superslice = "1"
-sqlx = { version = "0", features = [
+sqlx = { version = "0.9", features = [
     "chrono",
     "ipnetwork",
     "json",
     "macros",
     "postgres",
-    "runtime-tokio-native-tls",
+    "runtime-tokio",
+    "tls-native-tls",
     "uuid",
 ] }
 
@@ -283,6 +285,7 @@ wasm-bindgen-test = "0"
 cbindgen = "0"
 pbjson-build = "0"
 prost-build = "0"
+prost-types = "0"
 tonic-build = "0"
 tonic-prost-build = "0"
 

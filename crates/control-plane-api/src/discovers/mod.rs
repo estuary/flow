@@ -22,8 +22,8 @@ pub struct Discover<'a> {
     /// that is not required.
     pub data_plane: tables::DataPlane,
     pub logs_token: Uuid,
-    /// The id of the user that is performing the discover.
-    pub user_id: Uuid,
+    /// Authorization subject used when evaluating this discover.
+    pub subject: models::authz::Subject,
     /// Whether to apply authorization policies to restrict the specs that are visible
     /// to the user. If `false` then no authorization policies will be applied, so be careful.
     pub filter_user_authz: bool,
@@ -161,7 +161,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
     #[tracing::instrument(skip_all, fields(
         capture_name = %req.capture_name,
         data_plane_name = %req.data_plane.data_plane_name,
-        user_id = %req.user_id,
+        user_id = %req.subject.user_id,
         update_only = %req.update_only,
         image
     ))]
@@ -170,7 +170,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             capture_name,
             data_plane,
             logs_token,
-            user_id,
+            subject,
             filter_user_authz,
             update_only,
             reset_on_key_change,
@@ -213,13 +213,15 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .unwrap_or(ops::LogLevel::Info);
 
         let request = capture::Request {
-            discover: Some(capture::request::Discover {
-                name: capture_name.to_string(),
-                connector_type: capture_spec::ConnectorType::Image as i32,
-                config_json: serde_json::to_string(connector_cfg).unwrap().into(),
-                created_at,
-                secrets,
-            }),
+            kind: Some(capture::request::Kind::Discover(Box::new(
+                capture::request::Discover {
+                    name: capture_name.to_string(),
+                    connector_type: capture_spec::ConnectorType::Image as i32,
+                    config_json: serde_json::to_string(connector_cfg).unwrap().into(),
+                    created_at,
+                    secrets,
+                },
+            ))),
             ..Default::default()
         }
         .with_internal(|internal| {
@@ -239,7 +241,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
         let output = Self::build_merged_catalog(
             capture_name,
-            user_id,
+            &subject,
             filter_user_authz,
             update_only,
             draft,
@@ -268,7 +270,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
     async fn build_merged_catalog(
         capture_name: models::Capture,
-        user_id: uuid::Uuid,
+        subject: &models::authz::Subject,
         filter_user_authz: bool,
         update_only: bool,
         mut draft: tables::DraftCatalog,
@@ -327,7 +329,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
         let live = if filter_user_authz {
             crate::live_specs::get_live_specs_filtered(
-                user_id,
+                subject,
                 &collection_names,
                 models::authz::Capability::CatalogRead,
                 snapshot,

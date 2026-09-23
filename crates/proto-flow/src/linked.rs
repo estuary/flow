@@ -51,7 +51,7 @@ impl flow::CaptureSpec {
     ) -> Option<Resolved<'a>> {
         resolve(
             &self.linked_collections,
-            binding.collection.as_ref(),
+            binding.collection.as_deref(),
             binding.collection_index,
         )
     }
@@ -92,7 +92,7 @@ impl flow::MaterializationSpec {
     ) -> Option<Resolved<'a>> {
         resolve(
             &self.linked_collections,
-            binding.collection.as_ref(),
+            binding.collection.as_deref(),
             binding.collection_index,
         )
     }
@@ -136,7 +136,7 @@ impl flow::collection_spec::Derivation {
     ) -> Option<Resolved<'a>> {
         resolve(
             &self.linked_collections,
-            transform.collection.as_ref(),
+            transform.collection.as_deref(),
             transform.collection_index,
         )
     }
@@ -192,7 +192,7 @@ impl capture::request::Validate {
     ) -> Option<Resolved<'a>> {
         resolve(
             &self.linked_collections,
-            binding.collection.as_ref(),
+            binding.collection.as_deref(),
             binding.collection_index,
         )
     }
@@ -215,7 +215,7 @@ impl materialize::request::Validate {
     ) -> Option<Resolved<'a>> {
         resolve(
             &self.linked_collections,
-            binding.collection.as_ref(),
+            binding.collection.as_deref(),
             binding.collection_index,
         )
     }
@@ -246,7 +246,7 @@ impl derive::request::Validate {
     ) -> Option<Resolved<'a>> {
         resolve(
             &self.linked_collections,
-            transform.collection.as_ref(),
+            transform.collection.as_deref(),
             transform.collection_index,
         )
     }
@@ -289,12 +289,12 @@ mod test {
         let spec = flow::CaptureSpec {
             bindings: vec![
                 flow::capture_spec::Binding {
-                    collection: Some(collection("acmeCo/one")),
+                    collection: Some(Box::new(collection("acmeCo/one"))),
                     ..Default::default()
                 },
                 // A stray `collection_index` is ignored in inline form.
                 flow::capture_spec::Binding {
-                    collection: Some(collection("acmeCo/two")),
+                    collection: Some(Box::new(collection("acmeCo/two"))),
                     collection_index: 7,
                     ..Default::default()
                 },
@@ -302,7 +302,7 @@ mod test {
                 flow::capture_spec::Binding::default(),
             ],
             inactive_bindings: vec![flow::capture_spec::Binding {
-                collection: Some(collection("acmeCo/gone")),
+                collection: Some(Box::new(collection("acmeCo/gone"))),
                 ..Default::default()
             }],
             ..Default::default()
@@ -342,7 +342,7 @@ mod test {
                 // An inlined collection is shadowed by the table: the form is
                 // a property of the message, not of the binding.
                 flow::capture_spec::Binding {
-                    collection: Some(collection("acmeCo/ignored")),
+                    collection: Some(Box::new(collection("acmeCo/ignored"))),
                     collection_index: 0,
                     ..Default::default()
                 },
@@ -374,7 +374,7 @@ mod test {
     fn materialization_spec_both_forms() {
         let inline = flow::MaterializationSpec {
             bindings: vec![flow::materialization_spec::Binding {
-                collection: Some(collection("acmeCo/one")),
+                collection: Some(Box::new(collection("acmeCo/one"))),
                 ..Default::default()
             }],
             inactive_bindings: vec![flow::materialization_spec::Binding::default()],
@@ -421,7 +421,7 @@ mod test {
     fn derivation_both_forms() {
         let inline = flow::collection_spec::Derivation {
             transforms: vec![flow::collection_spec::derivation::Transform {
-                collection: Some(collection("acmeCo/src")),
+                collection: Some(Box::new(collection("acmeCo/src"))),
                 ..Default::default()
             }],
             inactive_transforms: vec![flow::collection_spec::derivation::Transform::default()],
@@ -458,7 +458,7 @@ mod test {
     fn validate_requests_both_forms() {
         let inline = capture::request::Validate {
             bindings: vec![capture::request::validate::Binding {
-                collection: Some(collection("acmeCo/one")),
+                collection: Some(Box::new(collection("acmeCo/one"))),
                 ..Default::default()
             }],
             ..Default::default()
@@ -499,7 +499,7 @@ mod test {
 
         let inline = materialize::request::Validate {
             bindings: vec![materialize::request::validate::Binding {
-                collection: Some(collection("acmeCo/two")),
+                collection: Some(Box::new(collection("acmeCo/two"))),
                 ..Default::default()
             }],
             ..Default::default()
@@ -530,7 +530,7 @@ mod test {
 
         let inline = derive::request::Validate {
             transforms: vec![derive::request::validate::Transform {
-                collection: Some(collection("acmeCo/src")),
+                collection: Some(Box::new(collection("acmeCo/src"))),
                 ..Default::default()
             }],
             ..Default::default()

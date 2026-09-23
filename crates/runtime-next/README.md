@@ -58,18 +58,18 @@ communicate solely by gRPC; no shared memory.
 
 ```
 src/
-├── lib.rs             # crate root, shared helpers (Verify, Accumulator)
-├── task_service.rs    # CGO entry point: binds UDS, serves Shard service
+├── lib.rs             # crate root and Accumulator
+├── task_service.rs    # CGO entry point: binds UDS, serves the Shard and
+│                       #   Connector services; installs a ServiceRouter
 ├── publish.rs         # Publisher / PublisherFactory traits + JournalPublisher
 │                       #   (journal-IO) impls; leader & shard are monomorphized over
 │                       #   the factory (preview installs its own from flowctl, so this
 │                       #   crate is preview-agnostic); RecordingPublisher for tests.
 ├── logger.rs          # Logger / LoggerFactory traits: the task's log + event stream
 │                       #   (connector log sink + structured Events — persist / applied /
-│                       #   spec-update / inferred-schema / container lifecycle — which
-│                       #   flatten to logs via LogEvent::to_log). Production shards install
-│                       #   FnLoggerFactory (→ task-log file); leaders & tests install
-│                       #   TracingLogger
+│                       #   spec-update / inferred-schema — which flatten to logs via
+│                       #   LogEvent::to_log). Production shards install FnLoggerFactory
+│                       #   (→ task-log file); leaders & tests install TracingLogger
 ├── patches.rs         # wire format for connector-state patch streams
 │
 ├── leader/            # sidecar Leader service
@@ -100,20 +100,20 @@ src/
 │
 └── shard/             # per-shard controller-facing service
     ├── service.rs       # gRPC entry, dispatches by task type
+    ├── connector.rs     # client of the `connector` crate: route, start, and read
+    │                     #   its stream, sinking interleaved connector logs
     ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan-time FC: pruning
     ├── rocksdb.rs       # single Persist application path
     ├── split_policy.rs  # append-rate throttling which drives partition splits
     ├── capture/
     │   ├── handler.rs       # startup, apply/open, recovery scan, publisher setup;
     │   │                     #   stows inferred shapes by collection across sessions
-    │   ├── connector.rs     # capture connector RPC bridging
     │   ├── actor.rs         # independent per-shard capture transaction loop
     │   └── drain.rs         # combiner drain: publish documents, widen inference
     ├── derive/
     │   ├── handler.rs       # gRPC stream handler
     │   ├── startup.rs       # join leader, scan RocksDB, open connector
     │   ├── scan.rs          # frontier scan: source documents out as C:Read
-    │   ├── connector.rs     # connector RPC bridging
     │   ├── actor.rs         # per-shard transaction loop
     │   ├── drain.rs         # output combiner drain: publish derived documents
     │   └── task.rs          # Task + Transform + Source: the shard's data model
@@ -122,7 +122,6 @@ src/
         ├── startup.rs       # join leader, scan RocksDB, open connector
         ├── scan.rs          # frontier scan: source documents into the combiner,
         │                     #   unseen keys out as C:Load
-        ├── connector.rs     # connector RPC bridging
         ├── actor.rs         # per-shard transaction loop
         ├── drain.rs         # combiner drain: C:Store to the connector
         ├── boundaries.rs    # per-binding backfill-truncation boundaries
@@ -141,8 +140,11 @@ types.
 
 - **`TaskService::new`** (`task_service.rs`) — CGO constructor invoked by Go
   on shard assignment. Wires the data-plane environment (FQDN, control API,
-  signing key), constructs a `shard::Service`, and serves it over a per-shard
-  Unix domain socket.
+  signing and verification keys), constructs a `connector::Service` and the
+  `shard::Service` which routes to it, and serves both over a per-shard Unix
+  domain socket. Each shard gets its own tokio runtime of
+  `FLOW_RUNTIME_WORKER_THREADS` workers (default one), so raising it multiplies
+  by the reactor's shard count.
 - **`leader::Service::new`** (`leader/service.rs`) — sidecar process builds
   one of these and registers it on the sidecar port alongside `shuffle::Service`.
 - **`shard::Service`** (`shard/service.rs`) — implements the controller-facing
@@ -246,6 +248,24 @@ the *clock* horizon is `shuffle::PRODUCER_STALENESS_HORIZON`, shared with the
 session's `shuffle::Completed`. Pruning forgets a producer, so only the
 session's matching horizon rule can still discharge a later backfill's causal
 hints naming it. Read both doc comments before touching either.
+
+## Binding gap floors (`GF:`)
+
+Shard zero holds one `GF:{state_key}` row per binding: the shuffle Session's
+*binding gap floor* (see `crates/shuffle/README.md`). A floor is not transaction
+state: it rides either `Persist` Frontier, restores onto the committed Frontier,
+and neither `delete_*_frontier` clears it.
+
+For that same reason the leader's actor folds floors from unresolved peeks as
+well as resolved `Load`s, unlike `BB:`/`BC:`. Materialize's hinted `Persist`
+precedes StartCommit, so a floor is durable before the transaction which
+observed the gap commits. Derive's only `Persist` follows StartCommit, so a
+remote-authoritative derivation which crashes in between loses the floors of
+that one transaction.
+
+A Head reduces every `Load` into its extents, then on a resolved `Load` calls
+`Frontier::clear_discharged_hints`, so a hint the Session discharges rather
+than resolves cannot pin the transaction open.
 
 ## Idempotent recovery (materialize)
 

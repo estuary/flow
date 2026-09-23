@@ -136,7 +136,7 @@ pub fn spawn_listing(
                         );
                     } else {
                         return match err {
-                            gazette::Error::Grpc(status) => crate::status_to_anyhow(status),
+                            gazette::Error::Grpc(status) => proto_grpc::status_to_anyhow(status),
                             err => anyhow::anyhow!(err),
                         }
                         .context(format!(

@@ -113,10 +113,9 @@ where
     S: AsRef<str> + std::fmt::Display,
     C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
+    let subject = claims.subject();
     let models::authorizations::ControlClaims {
-        sub: user_id,
-        email: user_email,
-        ..
+        email: user_email, ..
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
@@ -124,7 +123,7 @@ where
         if !tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
-            *user_id,
+            &subject,
             prefix_or_name.as_ref(),
             min_capability,
         ) {
@@ -149,13 +148,14 @@ where
     I: IntoIterator<Item = String>,
     F: FnMut(String, Option<models::Capability>) -> Option<T>,
 {
+    let subject = claims.subject();
     prefixes_or_names
         .into_iter()
         .flat_map(|prefix| {
             let capability = tables::UserGrant::get_user_capability(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
-                claims.sub,
+                &subject,
                 &prefix,
             );
             attach(prefix, capability)
@@ -405,5 +405,50 @@ const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
                 | proto_gazette::capability::APPEND
                 | proto_gazette::capability::APPLY
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_server::snapshot_of_grants;
+
+    fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
+        models::authorizations::ControlClaims {
+            iat: 0,
+            exp: u64::MAX,
+            sub: user_id,
+            role: "authenticated".to_string(),
+            aud: "authenticated".to_string(),
+            email: Some("user@example.test".to_string()),
+        }
+    }
+
+    /// The `ops/` admin gate of the /admin/* endpoints, expressed as
+    /// evaluate_names_authorization over the Snapshot's grant walk.
+    #[test]
+    fn test_evaluate_ops_admin_gate() {
+        use models::Capability::{Admin, Read};
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let evaluate = |snapshot: &Snapshot| {
+            evaluate_names_authorization(snapshot, &claims(user), Admin, ["ops/"])
+        };
+
+        // A direct admin grant to `ops/` is authorized.
+        let snapshot = snapshot_of_grants(&[(user, "ops/", Admin)], &[]);
+        assert!(evaluate(&snapshot).is_ok());
+
+        // Admin of an unrelated tenant is denied.
+        let snapshot = snapshot_of_grants(&[(user, "acmeCo/", Admin)], &[]);
+        let status = evaluate(&snapshot).unwrap_err();
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+        assert_eq!(
+            status.message(),
+            "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
+        );
+
+        // A read grant to `ops/` is not admin.
+        let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
+        assert!(evaluate(&snapshot).is_err());
     }
 }

@@ -52,18 +52,17 @@ impl DiscoverConnectors for DataPlaneConnectors {
         logs_token: Uuid,
         request: capture::Request,
     ) -> anyhow::Result<(capture::response::Spec, capture::response::Discovered)> {
-        let discover = request
-            .discover
-            .as_ref()
-            .expect("expected a discover request");
+        let Some(capture::request::Kind::Discover(discover)) = &request.kind else {
+            panic!("expected a discover request")
+        };
 
         // Start an RPC which requests a Spec followed by a Discover.
         let request_rx = futures::stream::iter([
             capture::Request {
-                spec: Some(capture::request::Spec {
+                kind: Some(capture::request::Kind::Spec(capture::request::Spec {
                     connector_type: discover.connector_type,
                     config_json: discover.config_json.clone(),
-                }),
+                })),
                 internal: request.internal.clone(), // Use same log level.
                 ..Default::default()
             },
@@ -82,8 +81,9 @@ impl DiscoverConnectors for DataPlaneConnectors {
 
         let spec = match response_rx.try_next().await? {
             Some(capture::Response {
-                spec: Some(spec), ..
-            }) => spec,
+                kind: Some(capture::response::Kind::Spec(spec)),
+                ..
+            }) => *spec,
             response => anyhow::bail!(
                 "expected connector to send a Response.Spec, but got {}",
                 serde_json::to_string(&response).unwrap()
@@ -91,7 +91,7 @@ impl DiscoverConnectors for DataPlaneConnectors {
         };
         let discovered = match response_rx.try_next().await? {
             Some(capture::Response {
-                discovered: Some(discovered),
+                kind: Some(capture::response::Kind::Discovered(discovered)),
                 ..
             }) => discovered,
             response => anyhow::bail!(
@@ -139,7 +139,7 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
                 proto_grpc::capture::connector_client::ConnectorClient::with_interceptor(
                     channel, metadata,
                 )
-                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
 
             Self::drive_proxy_rpc(co, logs, client.capture(request_rx).await).await
         })
@@ -166,7 +166,7 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
                 proto_grpc::derive::connector_client::ConnectorClient::with_interceptor(
                     channel, metadata,
                 )
-                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
 
             Self::drive_proxy_rpc(co, logs, client.derive(request_rx).await).await
         })
@@ -193,7 +193,7 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
                 proto_grpc::materialize::connector_client::ConnectorClient::with_interceptor(
                     channel, metadata,
                 )
-                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE);
 
             Self::drive_proxy_rpc(co, logs, client.materialize(request_rx).await).await
         })
@@ -250,7 +250,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
 
         let mut proxy_client =
             proto_grpc::runtime::connector_proxy_client::ConnectorProxyClient::with_interceptor(
-                gazette::dial_channel(&reactor_address)?,
+                proto_grpc::dial_channel(&reactor_address)?,
                 metadata.clone(),
             );
         let mut proxy_responses = proxy_client
@@ -288,7 +288,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         };
 
         Ok((
-            gazette::dial_channel(&address)?,
+            proto_grpc::dial_channel(&address)?,
             metadata,
             (cancel_tx, log_loop),
         ))

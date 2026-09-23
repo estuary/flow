@@ -53,7 +53,7 @@ where
         .next()
         .await
         .context("expected Open request")?
-        .map_err(crate::status_to_anyhow)?;
+        .map_err(proto_grpc::status_to_anyhow)?;
 
     let shuffle::log_request::Open {
         session_id,

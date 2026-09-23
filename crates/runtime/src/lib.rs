@@ -15,6 +15,7 @@ mod tokio_context;
 mod unary;
 pub mod uuid;
 
+pub use ::ops::LogHandler;
 pub use ::proto_flow::runtime::Plane; // Re-export.
 pub use container::flow_runtime_protocol;
 pub use task_service::TaskService;
@@ -23,13 +24,6 @@ pub use tokio_context::TokioContext;
 // This constant is shared between Rust and Go code.
 // See go/protocols/flow/document_extensions.go.
 pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
-
-/// CHANNEL_BUFFER is the standard buffer size used for holding documents in an
-/// asynchronous processing pipeline. User documents can be large -- up to 64MB --
-/// so this value should be small. At the same time, processing steps such as
-/// schema validation are greatly accelerated when they can loop over multiple
-/// documents without yielding, so it should not be *too* small.
-pub const CHANNEL_BUFFER: usize = 16;
 
 /// X_GENERATION_ID is a JSON-Schema annotation added to every inferred schema,
 /// which documents the generation ID of its associated collection.
@@ -115,20 +109,6 @@ fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
     s: S,
 ) -> impl futures::Stream<Item = anyhow::Result<T>> {
     s.map_err(status_to_anyhow)
-}
-
-pub trait LogHandler: Send + Sync + Clone + 'static {
-    fn log(&self, log: &ops::Log);
-
-    fn as_fn(self) -> impl Fn(&ops::Log) + Send + Sync + 'static {
-        move |log| self.log(log)
-    }
-}
-//pub trait LogHandler: Fn(&ops::Log) + Send + Sync + Clone + 'static {}
-impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
-    fn log(&self, log: &ops::Log) {
-        self(log)
-    }
 }
 
 /// Runtime implements the various services that constitute the Flow Runtime.
@@ -324,6 +304,3 @@ mod test {
         assert_eq!(truncate_chars(s, 100), s);
     }
 }
-
-// Maximum accepted message size.
-pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.

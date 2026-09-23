@@ -1,4 +1,6 @@
-use super::{connector, startup};
+use super::startup;
+use crate::Logger as _;
+use crate::shard::connector;
 use crate::{patches, proto};
 use anyhow::Context;
 use futures::StreamExt;
@@ -14,11 +16,7 @@ pub(crate) async fn serve<R, P: crate::PublisherFactory, L: crate::LoggerFactory
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
-    let verify = crate::verify(
-        "Materialize",
-        "SessionLoop, Spec, or Validate",
-        "controller",
-    );
+    let verify = crate::verify("Materialize", "SessionLoop", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Materialize {
@@ -34,93 +32,63 @@ where
                 .await;
             }
 
-            proto::Materialize {
-                spec: Some(spec),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let request = materialize::Request {
-                    spec: Some(spec),
-                    ..Default::default()
-                };
-                let response = serve_unary(&service, request, log_level).await?;
-                _ = controller_tx.send(Ok(response));
-            }
-
-            proto::Materialize {
-                validate: Some(validate),
-                log_level,
-                ..
-            } => {
-                let log_level =
-                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
-                service.set_log_level(log_level);
-                let request = materialize::Request {
-                    validate: Some(validate),
-                    ..Default::default()
-                };
-                let response = serve_unary(&service, request, log_level).await?;
-                _ = controller_tx.send(Ok(response));
-            }
-
             request => return Err(verify.fail_msg(request)),
         }
     }
     Ok(())
 }
 
-pub async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+/// Drive a one-shot connector Apply, returning the connector's Applied.
+/// Apply is the only connector RPC of a materialization session which runs
+/// outside the session's long-lived connector stream.
+pub async fn serve_apply<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     service: &crate::shard::Service<P, L>,
-    request: materialize::Request,
+    apply: materialize::request::Apply,
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
-    let is_spec = request.spec.is_some();
-    let is_validate = request.validate.is_some();
-    let is_apply = request.apply.is_some();
-
     let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) =
-        connector::start(service, &logger, log_level, request).await?;
-    std::mem::drop(connector_tx); // Send EOF.
+    let (_started, response) = proto_grpc::connector::unary(
+        &*service.connector_router,
+        &|log| logger.log(log),
+        connector::proto::Request {
+            start: Some(connector::proto::request::Start {
+                log_level: log_level as i32,
+                sqlite_vfs_uri: String::new(),
+            }),
+            kind: Some(connector::proto::request::Kind::Materialize(
+                materialize::Request {
+                    kind: Some(materialize::request::Kind::Apply(Box::new(apply))),
+                    ..Default::default()
+                },
+            )),
+        },
+        std::time::Duration::MAX,
+        std::time::Duration::MAX,
+    )
+    .await?;
 
-    // Read connector response, and verify it matches the request type.
-    let verify = crate::verify("Materialize", "unary response", "connector");
-    let response = match verify.not_eof(connector_rx.next().await)? {
-        materialize::Response {
-            spec: Some(spec), ..
-        } if is_spec => proto::Materialize {
-            spec_response: Some(spec),
-            ..Default::default()
-        },
-        materialize::Response {
-            validated: Some(validated),
-            ..
-        } if is_validate => proto::Materialize {
-            validated: Some(validated),
-            ..Default::default()
-        },
-        materialize::Response {
-            applied:
-                Some(materialize::response::Applied {
+    let verify = crate::verify("Materialize", "Applied", "connector");
+    let response = match response {
+        connector::proto::response::Kind::Materialize(materialize::Response {
+            kind:
+                Some(materialize::response::Kind::Applied(materialize::response::Applied {
                     action_description,
                     state,
-                }),
+                })),
             ..
-        } if is_apply => proto::Materialize {
+        }) => proto::Materialize {
             applied: Some(proto::Applied {
                 action_description,
                 connector_patches_json: patches::encode_connector_state(state),
             }),
             ..Default::default()
         },
-        response => return Err(verify.fail_msg(response)),
+        response => {
+            return Err(verify.fail_msg(connector::proto::Response {
+                kind: Some(response),
+            }));
+        }
     };
-
-    // Expect EOF after the single response.
-    () = verify.eof(connector_rx.next().await)?;
 
     Ok(response)
 }
@@ -244,6 +212,7 @@ where
 
     let labeling = labeling.as_ref().context("missing shard labeling")?.clone();
     let log_level = labeling.log_level();
+    let max_pinned_segments = crate::shard::max_pinned_segments(&labeling);
     let shard_id = shard_id.clone();
     let shard_index = join.shard_index;
     let shuffle_directory = join.shuffle_directory.clone();
@@ -335,6 +304,8 @@ where
         &mut connector_rx,
         controller_rx,
         &mut leader_rx,
+        &logger,
+        max_pinned_segments,
         shuffle_reader,
     )
     .await;
@@ -365,14 +336,16 @@ mod test {
 
     #[tokio::test]
     async fn stop_awaiting_join_leaves_the_session_loop_serving() {
+        let registry = service_kit::Registry::new();
+        let (_connector_svc, connector_router) =
+            ::connector::Service::new_local(String::new(), registry.clone());
         let service = crate::shard::Service::new(
-            crate::Plane::Local,
-            String::new(),
+            std::sync::Arc::new(connector_router),
             None,
             "test/task".to_string(),
             crate::publish::RecordingPublisherFactory,
             crate::TracingLoggerFactory,
-            service_kit::Registry::new(),
+            registry,
             None,
         );
 

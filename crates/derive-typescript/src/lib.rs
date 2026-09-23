@@ -14,45 +14,55 @@ pub fn run() -> anyhow::Result<()> {
 
     // Handle Spec and Validate requests, breaking upon an Open.
     let open = loop {
+        line.clear();
         if bin.read_line(&mut line)? == 0 {
             return Ok(()); // Clean EOF.
         };
         let request: proto_flow::derive::Request = serde_json::from_str(&line)?;
 
-        if let Some(_) = request.spec {
-            stdout.write(
-                &serde_json::to_vec(&derive::Response {
-                    spec: Some(derive::response::Spec {
-                        protocol: 3032023,
-                        config_schema_json: "{}".to_string().into(),
-                        resource_config_schema_json: "{}".to_string().into(),
-                        documentation_url: "https://docs.estuary.dev".to_string(),
-                        oauth2: None,
-                    }),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )?;
-        } else if let Some(request) = request.validate {
-            stdout.write(
-                &serde_json::to_vec(&derive::Response {
-                    validated: Some(validate(request)?),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )?;
-        } else if let Some(_) = request.open {
-            break request;
-        } else {
-            anyhow::bail!("unexpected request {request:?}")
+        match &request.kind {
+            Some(derive::request::Kind::Spec(_)) => {
+                stdout.write(
+                    &serde_json::to_vec(&derive::Response {
+                        kind: Some(derive::response::Kind::Spec(Box::new(
+                            derive::response::Spec {
+                                protocol: 3032023,
+                                config_schema_json: "{}".to_string().into(),
+                                resource_config_schema_json: "{}".to_string().into(),
+                                documentation_url: "https://docs.estuary.dev".to_string(),
+                                oauth2: None,
+                            },
+                        ))),
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )?;
+            }
+            Some(derive::request::Kind::Validate(request)) => {
+                stdout.write(
+                    &serde_json::to_vec(&derive::Response {
+                        kind: Some(derive::response::Kind::Validated(validate(request)?)),
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )?;
+            }
+            Some(derive::request::Kind::Open(_)) => break request,
+            _ => anyhow::bail!("unexpected request {request:?}"),
         }
         stdout.write("\n".as_bytes())?;
     };
 
-    let collection = open.open.as_ref().unwrap().collection.as_ref().unwrap();
+    let Some(derive::request::Kind::Open(open_kind)) = &open.kind else {
+        unreachable!("loop breaks only on an Open request");
+    };
+    let collection = open_kind.collection.as_ref().unwrap();
     let derivation = collection.derivation.as_ref().unwrap();
 
-    let config = serde_json::from_slice::<Config>(&derivation.config_json).unwrap();
+    let config = serde_json::from_slice::<Config>(&derivation.config_json)
+        .context("failed to parse derivation config")?;
+    connector_environment::validate_deno(&config.environment)
+        .context("invalid derivation environment")?;
     let transforms = derivation
         .resolved_transforms()
         .map(|(transform, resolved)| {
@@ -88,11 +98,17 @@ pub fn run() -> anyhow::Result<()> {
     std::fs::write(temp_dir.join(MODULE_NAME), config.module)?;
     std::fs::write(temp_dir.join(MAIN_NAME), codegen::main_ts(&transforms))?;
 
-    let mut child = std::process::Command::new("deno")
-        .stdin(Stdio::piped())
-        .current_dir(temp_dir)
-        .args(["run", "--allow-net=api.openai.com", MAIN_NAME])
-        .spawn()?;
+    tracing::debug!(
+        environment = ?config.environment.keys().collect::<Vec<_>>(),
+        "starting TypeScript derivation"
+    );
+
+    let mut command = deno_command(temp_dir, &config.environment);
+    command.args(["run", "--allow-net=api.openai.com"]);
+    if let Some(permission) = deno_environment_permission(&config.environment) {
+        command.arg(permission);
+    }
+    let mut child = command.stdin(Stdio::piped()).arg(MAIN_NAME).spawn()?;
 
     // Forward `open` and the remainder of stdin to `deno`.
     let mut child_stdin = child.stdin.take().unwrap();
@@ -115,6 +131,8 @@ pub fn run() -> anyhow::Result<()> {
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     module: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    environment: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -123,7 +141,7 @@ pub struct LambdaConfig {
     read_only: bool,
 }
 
-fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::response::Validated> {
+fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::response::Validated> {
     let derive::request::Validate {
         connector_type: _,
         collection,
@@ -133,12 +151,14 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         project_root,
         import_map,
         ..
-    } = &validate;
+    } = validate;
 
     let collection = collection.as_ref().unwrap();
 
     let config = serde_json::from_slice::<Config>(config_json)
-        .with_context(|| format!("invalid derivation configuration: {config_json:?}"))?;
+        .context("invalid derivation configuration")?;
+    connector_environment::validate_deno(&config.environment)
+        .context("invalid derivation environment")?;
 
     let transforms = validate
         .resolved_transforms()
@@ -218,8 +238,12 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
     std::fs::write(temp_dir.join(MODULE_NAME), config.module)?;
     std::fs::write(temp_dir.join(MAIN_NAME), codegen::main_ts(&transforms))?;
 
-    let output = std::process::Command::new("deno")
-        .current_dir(temp_dir)
+    tracing::debug!(
+        environment = ?config.environment.keys().collect::<Vec<_>>(),
+        "validating TypeScript derivation"
+    );
+
+    let output = deno_command(temp_dir, &config.environment)
         .args(["check", MAIN_NAME])
         .output()
         .expect("The Deno runtime is a prerequisite for TypeScript but could not be found. Please install Deno from https://deno.com");
@@ -266,6 +290,71 @@ fn rewrite_deno_stderr(
     );
 
     stderr
+}
+
+fn deno_command(
+    project_dir: &std::path::Path,
+    environment: &std::collections::BTreeMap<String, String>,
+) -> std::process::Command {
+    let mut command = std::process::Command::new("deno");
+    command.current_dir(project_dir).envs(environment);
+    command
+}
+
+fn deno_environment_permission(
+    environment: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    (!environment.is_empty()).then(|| {
+        format!(
+            "--allow-env={}",
+            environment.keys().cloned().collect::<Vec<_>>().join(",")
+        )
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use super::{deno_command, deno_environment_permission};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn deno_command_applies_environment() {
+        let environment = BTreeMap::from([
+            ("API_KEY".to_string(), "secret-value".to_string()),
+            ("REGION".to_string(), "us-east-1".to_string()),
+        ]);
+        let command = deno_command(std::path::Path::new("/tmp/project"), &environment);
+        let actual: BTreeMap<_, _> = command
+            .get_envs()
+            .map(|(name, value)| {
+                (
+                    name.to_str().unwrap(),
+                    value.and_then(std::ffi::OsStr::to_str).unwrap(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            actual,
+            BTreeMap::from([("API_KEY", "secret-value"), ("REGION", "us-east-1"),])
+        );
+        assert_eq!(
+            command.get_current_dir(),
+            Some(std::path::Path::new("/tmp/project"))
+        );
+    }
+
+    #[test]
+    fn deno_permission_is_an_exact_sorted_allowlist() {
+        assert_eq!(deno_environment_permission(&BTreeMap::new()), None);
+        assert_eq!(
+            deno_environment_permission(&BTreeMap::from([
+                ("REGION".to_string(), "us-east-1".to_string()),
+                ("API_KEY".to_string(), "secret-value".to_string()),
+            ])),
+            Some("--allow-env=API_KEY,REGION".to_string())
+        );
+    }
 }
 
 const DENO_NAME: &str = "deno.json";

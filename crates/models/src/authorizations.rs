@@ -23,6 +23,11 @@ pub struct ControlClaims {
 }
 
 impl ControlClaims {
+    /// Converts these claims into the authorization subject used by grant evaluation.
+    pub fn subject(&self) -> crate::authz::Subject {
+        crate::authz::Subject { user_id: self.sub }
+    }
+
     pub fn time_remaining(&self) -> time::Duration {
         let now = time::OffsetDateTime::now_utc();
         let exp = time::OffsetDateTime::from_unix_timestamp(self.exp as i64).unwrap();

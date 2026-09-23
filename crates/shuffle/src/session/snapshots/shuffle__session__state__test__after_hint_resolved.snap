@@ -26,6 +26,7 @@ PipelineSnapshot {
         ],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
+        binding_gap_floors: {},
         unresolved_hints: 0,
     },
     unresolved: Frontier {
@@ -33,6 +34,7 @@ PipelineSnapshot {
         flushed_lsn: [],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
+        binding_gap_floors: {},
         unresolved_hints: 0,
     },
     unresolved_count: 0,
@@ -72,6 +74,7 @@ PipelineSnapshot {
         ],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
+        binding_gap_floors: {},
         unresolved_hints: 0,
     },
 }

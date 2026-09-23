@@ -5,6 +5,12 @@ on:
   release:
     types: [published]
 
+# `actions/upload-release-asset` writes the built binaries back to the release,
+# which needs contents:write. Everything else the org-wide write-all default
+# would grant is dropped.
+permissions:
+  contents: write
+
 jobs:
   release_binaries:
     name: Release binaries

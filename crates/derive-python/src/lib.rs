@@ -14,46 +14,50 @@ pub fn run() -> anyhow::Result<()> {
 
     // Handle Spec and Validate requests, breaking upon an Open.
     let open = loop {
+        line.clear();
         if bin.read_line(&mut line)? == 0 {
             return Ok(()); // Clean EOF.
         };
         let request: proto_flow::derive::Request = serde_json::from_str(&line)?;
 
-        if let Some(_) = request.spec {
-            stdout.write(
-                &serde_json::to_vec(&derive::Response {
-                    spec: Some(derive::response::Spec {
-                        protocol: 3032023,
-                        config_schema_json: "{}".to_string().into(),
-                        resource_config_schema_json: "{}".to_string().into(),
-                        documentation_url: "https://docs.estuary.dev".to_string(),
-                        oauth2: None,
-                    }),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )?;
-        } else if let Some(request) = request.validate {
-            stdout.write(
-                &serde_json::to_vec(&derive::Response {
-                    validated: Some(validate(request)?),
-                    ..Default::default()
-                })
-                .unwrap(),
-            )?;
-        } else if let Some(_) = request.open {
-            break request;
-        } else {
-            anyhow::bail!("unexpected request {request:?}")
+        match &request.kind {
+            Some(derive::request::Kind::Spec(_)) => {
+                stdout.write(
+                    &serde_json::to_vec(&derive::Response {
+                        kind: Some(derive::response::Kind::Spec(Box::new(
+                            derive::response::Spec {
+                                protocol: 3032023,
+                                config_schema_json: "{}".to_string().into(),
+                                resource_config_schema_json: "{}".to_string().into(),
+                                documentation_url: "https://docs.estuary.dev".to_string(),
+                                oauth2: None,
+                            },
+                        ))),
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )?;
+            }
+            Some(derive::request::Kind::Validate(request)) => {
+                stdout.write(
+                    &serde_json::to_vec(&derive::Response {
+                        kind: Some(derive::response::Kind::Validated(validate(request)?)),
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )?;
+            }
+            Some(derive::request::Kind::Open(_)) => break request,
+            _ => anyhow::bail!("unexpected request {request:?}"),
         }
         stdout.write("\n".as_bytes())?;
     };
 
     // Extract collection and derivation from Open message
-    let collection = open
-        .open
-        .as_ref()
-        .unwrap()
+    let Some(derive::request::Kind::Open(open_kind)) = &open.kind else {
+        unreachable!("loop breaks only on an Open request");
+    };
+    let collection = open_kind
         .collection
         .as_ref()
         .context("Open request missing collection")?;
@@ -64,6 +68,8 @@ pub fn run() -> anyhow::Result<()> {
 
     let config = serde_json::from_slice::<Config>(&derivation.config_json)
         .context("Failed to parse derivation config")?;
+    connector_environment::validate_python(&config.environment)
+        .context("invalid derivation environment")?;
 
     let transforms = derivation
         .resolved_transforms()
@@ -101,10 +107,14 @@ pub fn run() -> anyhow::Result<()> {
         "wrote generated files to temp directory"
     );
 
-    let mut child = std::process::Command::new("uv")
+    tracing::debug!(
+        environment = ?config.environment.keys().collect::<Vec<_>>(),
+        "starting Python derivation"
+    );
+
+    let mut command = uv_command(temp.path(), &gen_dir, &config.environment);
+    let mut child = command
         .stdin(Stdio::piped())
-        .current_dir(temp.path())
-        .env("PYTHONPATH", gen_dir.to_str().unwrap())
         .args(["run", MAIN_NAME])
         .spawn()?;
 
@@ -131,6 +141,8 @@ pub struct Config {
     module: String,
     #[serde(default)]
     dependencies: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    environment: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -139,7 +151,7 @@ pub struct LambdaConfig {
     read_only: bool,
 }
 
-fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::response::Validated> {
+fn validate(validate: &derive::request::Validate) -> anyhow::Result<derive::response::Validated> {
     let derive::request::Validate {
         connector_type: _,
         collection,
@@ -149,12 +161,14 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         project_root,
         import_map,
         ..
-    } = &validate;
+    } = validate;
 
     let collection = collection.as_ref().unwrap();
 
     let config = serde_json::from_slice::<Config>(config_json)
-        .with_context(|| format!("invalid derivation configuration: {config_json:?}"))?;
+        .context("invalid derivation configuration")?;
+    connector_environment::validate_python(&config.environment)
+        .context("invalid derivation environment")?;
 
     let transforms = validate
         .resolved_transforms()
@@ -242,9 +256,12 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         &config.dependencies,
     )?;
 
-    let syntax_check = std::process::Command::new("uv")
-        .current_dir(temp.path())
-        .env("PYTHONPATH", gen_dir.to_str().unwrap())
+    tracing::debug!(
+        environment = ?config.environment.keys().collect::<Vec<_>>(),
+        "validating Python derivation"
+    );
+
+    let syntax_check = uv_command(temp.path(), &gen_dir, &config.environment)
         .args(["run", "-m", "py_compile", "module.py", "main.py"])
         .output()?;
 
@@ -256,9 +273,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         );
     }
 
-    let type_check = std::process::Command::new("uv")
-        .current_dir(temp.path())
-        .env("PYTHONPATH", gen_dir.to_str().unwrap())
+    let type_check = uv_command(temp.path(), &gen_dir, &config.environment)
         .args(["run", "pyright", MODULE_NAME, MAIN_NAME])
         .output()?;
 
@@ -425,6 +440,60 @@ enabled = true
     );
 
     result
+}
+
+fn uv_command(
+    project_dir: &std::path::Path,
+    gen_dir: &std::path::Path,
+    environment: &std::collections::BTreeMap<String, String>,
+) -> std::process::Command {
+    let mut command = std::process::Command::new("uv");
+    command
+        .current_dir(project_dir)
+        .envs(environment)
+        .env("PYTHONPATH", gen_dir);
+    command
+}
+
+#[cfg(test)]
+mod test {
+    use super::uv_command;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn uv_command_applies_environment_and_generated_module_path() {
+        let environment = BTreeMap::from([
+            ("API_KEY".to_string(), "secret-value".to_string()),
+            ("REGION".to_string(), "us-east-1".to_string()),
+        ]);
+        let command = uv_command(
+            std::path::Path::new("/tmp/project"),
+            std::path::Path::new("/tmp/generated"),
+            &environment,
+        );
+        let actual: BTreeMap<_, _> = command
+            .get_envs()
+            .map(|(name, value)| {
+                (
+                    name.to_str().unwrap(),
+                    value.and_then(std::ffi::OsStr::to_str).unwrap(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            actual,
+            BTreeMap::from([
+                ("API_KEY", "secret-value"),
+                ("PYTHONPATH", "/tmp/generated"),
+                ("REGION", "us-east-1"),
+            ])
+        );
+        assert_eq!(
+            command.get_current_dir(),
+            Some(std::path::Path::new("/tmp/project"))
+        );
+    }
 }
 
 const GENERATED_PREFIX: &str = "flow_generated/python";

@@ -245,3 +245,39 @@ impl crate::publications::builds::Builder for NoopBuilder {
         panic!("NoopBuilder::build called in test - this should not happen for authorization tests")
     }
 }
+
+/// Build grant tables from compact (subject, object, capability) tuples,
+/// shared by tests which pin grant-walk authorization semantics.
+pub fn make_grants(
+    user_grants: &[(uuid::Uuid, &str, models::Capability)],
+    role_grants: &[(&str, &str, models::Capability)],
+) -> (tables::UserGrants, tables::RoleGrants) {
+    let user_grants =
+        tables::UserGrants::from_iter(user_grants.iter().map(|(id, obj, cap)| tables::UserGrant {
+            user_id: *id,
+            object_role: models::Prefix::new(*obj),
+            capability: *cap,
+            bundles: Vec::new(),
+        }));
+    let role_grants = tables::RoleGrants::from_iter(role_grants.iter().map(|(sub, obj, cap)| {
+        tables::RoleGrant {
+            subject_role: models::Prefix::new(*sub),
+            object_role: models::Prefix::new(*obj),
+            capability: *cap,
+            bundles: Vec::new(),
+        }
+    }));
+    (user_grants, role_grants)
+}
+
+/// Build a Snapshot holding only the given user and role grants.
+pub fn snapshot_of_grants(
+    user_grants: &[(uuid::Uuid, &str, models::Capability)],
+    role_grants: &[(&str, &str, models::Capability)],
+) -> Snapshot {
+    let (user_grants, role_grants) = make_grants(user_grants, role_grants);
+    let mut snapshot = Snapshot::empty();
+    snapshot.user_grants = user_grants;
+    snapshot.role_grants = role_grants;
+    snapshot
+}

@@ -2,8 +2,6 @@ use super::{Config, Lambda, Param, Transform, dbutil, do_validate, parse_validat
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
-use prost::Message;
-use proto_flow::runtime::{DeriveRequestExt, derive_request_ext};
 use proto_flow::{
     RuntimeCheckpoint,
     derive::{Request, Response, request, response},
@@ -34,7 +32,15 @@ impl Database {
     }
 }
 
-pub fn connector<R>(request_rx: R) -> mpsc::Receiver<anyhow::Result<Response>>
+/// Serve a derivation over an in-process SQLite database.
+///
+/// `vfs_uri` names a recovery-log-recorded SQLite VFS: it's threaded by an
+/// in-process shard hosting one, and `None` (or [`MEMORY_URI`]) elsewhere,
+/// which runs a stateless session-scoped database.
+pub fn connector<R>(
+    request_rx: R,
+    vfs_uri: Option<String>,
+) -> mpsc::Receiver<anyhow::Result<Response>>
 where
     R: futures::stream::Stream<Item = Request> + Send + 'static,
 {
@@ -42,7 +48,7 @@ where
 
     tokio::runtime::Handle::current().spawn_blocking(move || {
         futures::executor::block_on(async move {
-            if let Err(status) = serve(request_rx, &mut response_tx).await {
+            if let Err(status) = serve(request_rx, vfs_uri, &mut response_tx).await {
                 _ = response_tx.send(Err(status)).await;
             }
         })
@@ -53,6 +59,7 @@ where
 
 async fn serve<R>(
     request_rx: R,
+    vfs_uri: Option<String>,
     response_tx: &mut mpsc::Sender<anyhow::Result<Response>>,
 ) -> anyhow::Result<()>
 where
@@ -71,14 +78,15 @@ where
     let mut alloc = doc::Allocator::new();
 
     loop {
-        match request_rx.next().await {
-            None => return Ok(()),
-            Some(Request {
-                spec: Some(_spec), ..
-            }) => {
+        let Some(request) = request_rx.next().await else {
+            return Ok(());
+        };
+
+        match request.kind {
+            Some(request::Kind::Spec(_spec)) => {
                 let _ = response_tx
                     .send(Ok(Response {
-                        spec: Some(response::Spec {
+                        kind: Some(response::Kind::Spec(Box::new(response::Spec {
                             protocol: 3032023,
                             documentation_url:
                                 "https://docs.estuary.dev/concepts/derivations/#sqlite".to_string(),
@@ -99,32 +107,25 @@ where
                             .to_string()
                             .into(),
                             oauth2: None,
-                        }),
+                        }))),
                         ..Default::default()
                     }))
                     .await;
             }
-            Some(Request {
-                validate: Some(validate),
-                ..
-            }) => {
-                let validated = parse_validate(validate)
+            Some(request::Kind::Validate(validate)) => {
+                let validated = parse_validate(*validate)
                     .and_then(|(migrations, transforms)| do_validate(&migrations, &transforms))?;
 
                 let _ = response_tx
                     .send(Ok(Response {
-                        validated: Some(validated),
+                        kind: Some(response::Kind::Validated(validated)),
                         ..Default::default()
                     }))
                     .await;
             }
-            Some(Request {
-                open: Some(open),
-                internal,
-                ..
-            }) => {
+            Some(request::Kind::Open(open)) => {
                 let database: Database;
-                (database, migrations, transforms) = parse_open(open, internal)?;
+                (database, migrations, transforms) = parse_open(*open, vfs_uri.as_deref())?;
 
                 // Drop to close an open Database.
                 // This is required if we're re-opening the same database.
@@ -139,16 +140,16 @@ where
 
                 let _ = response_tx
                     .send(Ok(Response {
-                        opened: Some(response::Opened { runtime_checkpoint }),
+                        kind: Some(response::Kind::Opened(response::Opened {
+                            runtime_checkpoint,
+                        })),
                         ..Default::default()
                     }))
                     .await;
 
                 maybe_handle = Some(handle);
             }
-            Some(Request {
-                read: Some(read), ..
-            }) => {
+            Some(request::Kind::Read(read)) => {
                 let handle = maybe_handle.as_mut().context("Read without Open")?;
 
                 do_read(
@@ -160,27 +161,21 @@ where
                     &tokio_handle,
                 )?;
             }
-            Some(Request {
-                flush: Some(request::Flush { .. }),
-                ..
-            }) => {
+            Some(request::Kind::Flush(request::Flush { .. })) => {
                 // Send Flushed to runtime. derive-sqlite is remote-authoritative
                 // (its state lives in SQLite, committed at StartCommit), so it
                 // reports no Flushed.state and `more` is always false.
                 let _ = response_tx
                     .send(Ok(Response {
-                        flushed: Some(response::Flushed {
+                        kind: Some(response::Kind::Flushed(response::Flushed {
                             state: None,
                             more: false,
-                        }),
+                        })),
                         ..Default::default()
                     }))
                     .await;
             }
-            Some(Request {
-                start_commit: Some(request::StartCommit { runtime_checkpoint }),
-                ..
-            }) => {
+            Some(request::Kind::StartCommit(request::StartCommit { runtime_checkpoint })) => {
                 let handle = maybe_handle.as_ref().context("StartCommit without Open")?;
 
                 let started_commit = do_commit(handle.conn, runtime_checkpoint)?;
@@ -188,21 +183,18 @@ where
                 // Send StartedCommit to runtime.
                 let _ = response_tx
                     .send(Ok(Response {
-                        started_commit: Some(started_commit),
+                        kind: Some(response::Kind::StartedCommit(started_commit)),
                         ..Default::default()
                     }))
                     .await;
             }
-            Some(Request {
-                reset: Some(request::Reset {}),
-                ..
-            }) => {
+            Some(request::Kind::Reset(request::Reset {})) => {
                 // Replace with a new :memory: database with the same configuration.
                 let (db, _runtime_checkpoint) = Handle::new(MEMORY_URI, &migrations, &transforms)?;
                 maybe_handle = Some(db);
             }
-            Some(malformed) => Err(tonic::Status::invalid_argument(format!(
-                "invalid request {malformed:?}"
+            None => Err(tonic::Status::invalid_argument(format!(
+                "invalid request {request:?}"
             )))?,
         }
     }
@@ -210,7 +202,7 @@ where
 
 fn parse_open(
     open: request::Open,
-    internal: bytes::Bytes,
+    vfs_uri: Option<&str>,
 ) -> anyhow::Result<(Database, Vec<String>, Vec<Transform>)> {
     let request::Open {
         collection,
@@ -219,28 +211,17 @@ fn parse_open(
         version: _,
     } = open;
 
-    let database = if internal.is_empty() {
-        // If DeriveRequestExt was not sent, then use a :memory: DB.
-        Database::Ephemeral
-    } else {
-        // If it was sent, *require* that `sqlite_vfs_uri` is populated.
-        let DeriveRequestExt { open: open_ext, .. } =
-            Message::decode(internal).context("internal is a DeriveRequestExt")?;
-        let derive_request_ext::Open { sqlite_vfs_uri, .. } =
-            open_ext.context("expected DeriveRequestExt.open to be set")?;
-
-        if sqlite_vfs_uri.is_empty() {
-            anyhow::bail!("DeriveRequestExt.open.sqlite_vfs_uri is not set and must be");
-        } else if sqlite_vfs_uri == MEMORY_URI {
-            Database::Ephemeral
-        } else {
-            Database::Durable(sqlite_vfs_uri)
-        }
+    let database = match vfs_uri {
+        // The runtime threaded no VFS: run a stateless :memory: DB.
+        None => Database::Ephemeral,
+        Some(MEMORY_URI) => Database::Ephemeral,
+        Some("") => anyhow::bail!("sqlite_vfs_uri is empty and must not be"),
+        Some(uri) => Database::Durable(uri.to_string()),
     };
 
     let flow::CollectionSpec { derivation, .. } = collection.unwrap();
 
-    let derivation = derivation.as_ref().unwrap();
+    let derivation = derivation.as_deref().unwrap();
 
     let flow::collection_spec::Derivation {
         config_json,
@@ -316,9 +297,9 @@ fn do_read<'db>(
 
         let it = it.map(|published| match published {
             Ok(published) => Ok(Ok(Response {
-                published: Some(response::Published {
+                kind: Some(response::Kind::Published(response::Published {
                     doc_json: published.to_string().into(),
-                }),
+                })),
                 ..Default::default()
             })),
             Err(err) => Ok(Err(anyhow::anyhow!(
@@ -384,53 +365,49 @@ impl Drop for Handle {
 mod test {
     use super::{MEMORY_URI, connector};
     use futures::StreamExt;
-    use proto_flow::runtime::{DeriveRequestExt, derive_request_ext};
     use proto_flow::{
-        derive::{Request, request},
+        derive::{Request, request, response},
         flow,
     };
 
     /// The minimal derivation a `parse_open` will accept: a SQLite config with
     /// no migrations and no transforms.
-    fn open_request(sqlite_vfs_uri: Option<&str>) -> Request {
+    fn open_request() -> Request {
         let collection = flow::CollectionSpec {
             name: "acmeCo/thing".to_string(),
-            derivation: Some(flow::collection_spec::Derivation {
+            derivation: Some(Box::new(flow::collection_spec::Derivation {
                 config_json: r#"{"migrations":[]}"#.into(),
                 ..Default::default()
-            }),
+            })),
             ..Default::default()
         };
-        let mut request = Request {
-            open: Some(request::Open {
+        Request {
+            kind: Some(request::Kind::Open(Box::new(request::Open {
                 collection: Some(collection),
                 ..Default::default()
-            }),
+            }))),
             ..Default::default()
-        };
-        if let Some(sqlite_vfs_uri) = sqlite_vfs_uri {
-            request.set_internal(|ext: &mut DeriveRequestExt| {
-                ext.open = Some(derive_request_ext::Open {
-                    sqlite_vfs_uri: sqlite_vfs_uri.to_string(),
-                });
-            });
         }
-        request
     }
 
     async fn opened_checkpoint(
         sqlite_vfs_uri: Option<&str>,
     ) -> Option<proto_flow::RuntimeCheckpoint> {
-        let request = open_request(sqlite_vfs_uri);
-        let mut responses = connector(futures::stream::once(async move { request }));
+        let request = open_request();
+        let mut responses = connector(
+            futures::stream::once(async move { request }),
+            sqlite_vfs_uri.map(str::to_string),
+        );
 
-        let opened = responses
+        let response = responses
             .next()
             .await
             .expect("connector responds to Open")
-            .expect("Open succeeds")
-            .opened
-            .expect("response is Opened");
+            .expect("Open succeeds");
+
+        let Some(response::Kind::Opened(opened)) = response.kind else {
+            panic!("expected Opened, got {response:?}");
+        };
 
         opened.runtime_checkpoint
     }

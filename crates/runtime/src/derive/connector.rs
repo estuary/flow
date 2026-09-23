@@ -2,7 +2,7 @@ use crate::{LogHandler, Runtime};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, channel::mpsc, stream::BoxStream};
 use proto_flow::{
-    derive::{Request, Response},
+    derive::{Request, Response, request},
     flow::collection_spec::derivation::ConnectorType,
 };
 use unseal;
@@ -18,7 +18,7 @@ pub async fn start<L: LogHandler>(
 )> {
     let log_level = initial.get_internal()?.log_level();
     let (endpoint, config_json) = extract_endpoint(&mut initial)?;
-    let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
+    let (mut connector_tx, connector_rx) = mpsc::channel(proto_grpc::CHANNEL_BUFFER);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
         response.set_internal(|internal| {
@@ -32,7 +32,7 @@ pub async fn start<L: LogHandler>(
     ) -> crate::image_connector::StartRpcFuture<Response> {
         async move {
             proto_grpc::derive::connector_client::ConnectorClient::new(channel)
-                .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+                .max_decoding_message_size(proto_grpc::MAX_MESSAGE_SIZE)
                 .max_encoding_message_size(usize::MAX)
                 .derive(rx)
                 .await
@@ -90,8 +90,23 @@ pub async fn start<L: LogHandler>(
             .boxed()
         }
         models::DeriveUsing::Sqlite(_) => {
+            // Open carries an internal `sqlite_vfs_uri`: extract and thread to the connector.
+            // Other requests (Spec, Validate) omit it.
+            let is_open = matches!(initial.kind, Some(request::Kind::Open(_)));
+            let vfs_uri = if !is_open || initial.internal.is_empty() {
+                None
+            } else {
+                let ext: proto_flow::runtime::DeriveRequestExt =
+                    prost::Message::decode(initial.internal.clone())
+                        .context("internal is a DeriveRequestExt")?;
+                Some(
+                    ext.open
+                        .context("expected DeriveRequestExt.open to be set")?
+                        .sqlite_vfs_uri,
+                )
+            };
             connector_tx.try_send(initial).unwrap();
-            ::derive_sqlite::connector(connector_rx).boxed()
+            ::derive_sqlite::connector(connector_rx, vfs_uri).boxed()
         }
         models::DeriveUsing::Typescript(_) => unreachable!(),
         models::DeriveUsing::Python(_) => unreachable!(),
@@ -103,17 +118,18 @@ pub async fn start<L: LogHandler>(
 fn extract_endpoint<'r>(
     request: &'r mut Request,
 ) -> anyhow::Result<(models::DeriveUsing, &'r mut bytes::Bytes)> {
-    let (connector_type, config_json) = match request {
-        Request {
-            spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json),
-        Request {
-            validate: Some(validate),
-            ..
-        } => (validate.connector_type, &mut validate.config_json),
-        Request {
-            open: Some(open), ..
-        } => {
+    let verify = crate::verify("client", "valid first request");
+
+    // The mutable borrow of `kind` lives as long as the returned references,
+    // so an absent `kind` is reported before taking it, and a mis-matched
+    // variant reports only itself rather than the request.
+    if request.kind.is_none() {
+        return verify.fail(&request);
+    }
+    let (connector_type, config_json) = match request.kind.as_mut().expect("checked above") {
+        request::Kind::Spec(spec) => (spec.connector_type, &mut spec.config_json),
+        request::Kind::Validate(validate) => (validate.connector_type, &mut validate.config_json),
+        request::Kind::Open(open) => {
             let inner = open
                 .collection
                 .as_mut()
@@ -124,7 +140,7 @@ fn extract_endpoint<'r>(
 
             (inner.connector_type, &mut inner.config_json)
         }
-        request => return crate::verify("client", "valid first request").fail(request),
+        other => return verify.fail(other),
     };
 
     if connector_type == ConnectorType::Image as i32 {

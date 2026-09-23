@@ -423,7 +423,7 @@ async fn push_back_alert_first_ts(
          and status->'alerts'->'{alert_key}'->>'first_ts' is not null"
     );
     tracing::debug!(%catalog_name, %alert_key, %new_ts, %query, "pushing back alert first_ts");
-    let result = sqlx::query(&query)
+    let result = sqlx::query(sqlx::AssertSqlSafe(query.as_str()))
         .bind(catalog_name)
         .bind(&new_ts)
         .execute(&harness.pool)
@@ -452,7 +452,7 @@ async fn set_alert_disable_at(
          and status->'alerts'->'{alert_key}'->>'disable_at' is not null"
     );
     tracing::debug!(%catalog_name, %alert_key, %date, "setting alert disable_at");
-    let result = sqlx::query(&query)
+    let result = sqlx::query(sqlx::AssertSqlSafe(query.as_str()))
         .bind(catalog_name)
         .bind(&date)
         .execute(&harness.pool)
