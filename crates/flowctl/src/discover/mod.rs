@@ -57,8 +57,12 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
 
-    // Data-plane to which the discover will be submitted.
-    // Use an explicit plane if provided, otherwise use the plane of the built capture.
+    // Data-plane to which the discover will be submitted: an explicit plane if
+    // provided, or else the plane of the live capture, or else (if the capture
+    // is unpublished) the plane its first publication will place it into.
+    //
+    // TODO(johnny): Remove the storage-mapping fallback once discovers move to
+    // a GraphQL mutation, which will resolve the mapping itself.
     let data_plane_name = if let Some(data_plane) = &args.data_plane {
         data_plane.to_string()
     } else {
@@ -68,12 +72,15 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
             .expect("capture validated")
             .data_plane_id;
 
-        super::local_specs::Resolver {
+        let resolver = super::local_specs::Resolver {
             pg: ctx.pg.clone(),
             access_token: ctx.access_token(),
+        };
+        if data_plane_id.is_zero() {
+            resolver.default_data_plane_name(needle).await?
+        } else {
+            resolver.data_plane_name(data_plane_id).await?
         }
-        .data_plane_name(data_plane_id)
-        .await?
     };
     tracing::info!(%data_plane_name, "using data-plane for discovery");
 

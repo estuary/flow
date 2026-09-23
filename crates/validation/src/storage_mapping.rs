@@ -3,7 +3,6 @@ use models::{
     AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, CATALOG_PREFIX_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
     Store, TOKEN_RE,
 };
-use superslice::Ext;
 
 pub fn walk_all_storage_mappings(
     storage_mappings: &tables::StorageMappings,
@@ -14,133 +13,15 @@ pub fn walk_all_storage_mappings(
         let scope = Scope::new(&scope);
 
         for (index, store) in m.stores.iter().enumerate() {
-            let scope = scope.push_item(index);
-
-            // Disallow specifying custom storage endpoints for the 'default/' prefix and empty prefix.
-            // See: https://github.com/estuary/flow/issues/892#issuecomment-1403873100
-            if let Store::Custom(cfg) = store {
-                let scope = scope.push_prop("custom");
-
-                indexed::walk_name(
-                    scope.push_prop("endpoint"),
-                    "custom storage endpoint",
-                    &cfg.endpoint,
-                    models::StorageEndpoint::regex(),
-                    errors,
-                );
-
-                let scope = scope.push_prop("prefix");
-                if m.catalog_prefix.is_empty() {
-                    Error::InvalidCustomStoragePrefix {
-                        prefix: m.catalog_prefix.to_string(),
-                        disallowed: "empty",
-                    }
-                    .push(scope, errors);
-                } else if m.catalog_prefix.starts_with("default/") {
-                    Error::InvalidCustomStoragePrefix {
-                        prefix: m.catalog_prefix.to_string(),
-                        disallowed: "'default/'",
-                    }
-                    .push(scope, errors);
-                } else if m.catalog_prefix.starts_with("recovery/default/") {
-                    Error::InvalidCustomStoragePrefix {
-                        prefix: m.catalog_prefix.to_string(),
-                        disallowed: "'recovery/default/'",
-                    }
-                    .push(scope, errors);
-                }
-            }
-
-            match store {
-                Store::S3(cfg) => {
-                    indexed::walk_name(
-                        scope.push_prop("bucket"),
-                        "storage mapping bucket",
-                        &cfg.bucket,
-                        &S3_BUCKET_RE,
-                        errors,
-                    );
-                    if let Some(prefix) = &cfg.prefix {
-                        indexed::walk_name(
-                            scope.push_prop("prefix"),
-                            "storage mapping prefix",
-                            prefix,
-                            &CATALOG_PREFIX_RE,
-                            errors,
-                        );
-                    }
-                }
-                Store::Gcs(cfg) => {
-                    indexed::walk_name(
-                        scope.push_prop("bucket"),
-                        "storage mapping bucket",
-                        &cfg.bucket,
-                        &GCS_BUCKET_RE,
-                        errors,
-                    );
-                    if let Some(prefix) = &cfg.prefix {
-                        indexed::walk_name(
-                            scope.push_prop("prefix"),
-                            "storage mapping prefix",
-                            prefix,
-                            &CATALOG_PREFIX_RE,
-                            errors,
-                        );
-                    }
-                }
-                Store::Custom(cfg) => {
-                    // The GCS bucket naming rules are the most permissive, so we use those for any custom storage providers
-                    indexed::walk_name(
-                        scope.push_prop("bucket"),
-                        "custom storage mapping bucket",
-                        &cfg.bucket,
-                        &GCS_BUCKET_RE,
-                        errors,
-                    );
-                    if let Some(prefix) = &cfg.prefix {
-                        indexed::walk_name(
-                            scope.push_prop("prefix"),
-                            "custom storage mapping prefix",
-                            prefix,
-                            &CATALOG_PREFIX_RE,
-                            errors,
-                        )
-                    }
-                }
-                Store::Azure(cfg) => {
-                    indexed::walk_name(
-                        scope.push_prop("storage_account_name"),
-                        "azure storage account name",
-                        &cfg.storage_account_name,
-                        &AZURE_STORAGE_ACCOUNT_RE,
-                        errors,
-                    );
-                    indexed::walk_name(
-                        scope.push_prop("account_tenant_id"),
-                        "azure storage account tenant",
-                        &cfg.account_tenant_id,
-                        &TOKEN_RE,
-                        errors,
-                    );
-                    indexed::walk_name(
-                        scope.push_prop("container_name"),
-                        "azure storage container name",
-                        &cfg.container_name,
-                        &AZURE_CONTAINER_RE,
-                        errors,
-                    );
-
-                    if let Some(prefix) = &cfg.prefix {
-                        indexed::walk_name(
-                            scope.push_prop("prefix"),
-                            "azure storage path prefix",
-                            prefix,
-                            &CATALOG_PREFIX_RE,
-                            errors,
-                        )
-                    }
-                }
-            }
+            walk_store(scope.push_item(index), &m.catalog_prefix, store, errors);
+        }
+        for (index, store) in m.recovery_stores.iter().enumerate() {
+            walk_store(
+                scope.push_prop("recoveryStores").push_item(index),
+                &m.catalog_prefix,
+                store,
+                errors,
+            );
         }
 
         if m.catalog_prefix.is_empty() {
@@ -177,19 +58,142 @@ pub fn walk_all_storage_mappings(
     );
 }
 
-// lookup_mapping returns the StorageMapping having the longest `catalog_prefix`
-// which is also a prefix of `name`, or None if no such StorageMapping exists.
+fn walk_store(
+    scope: Scope<'_>,
+    catalog_prefix: &models::Prefix,
+    store: &Store,
+    errors: &mut tables::Errors,
+) {
+    // Disallow specifying custom storage endpoints for the 'default/' prefix and empty prefix.
+    // See: https://github.com/estuary/flow/issues/892#issuecomment-1403873100
+    if let Store::Custom(cfg) = store {
+        let scope = scope.push_prop("custom");
+
+        indexed::walk_name(
+            scope.push_prop("endpoint"),
+            "custom storage endpoint",
+            &cfg.endpoint,
+            models::StorageEndpoint::regex(),
+            errors,
+        );
+
+        let scope = scope.push_prop("prefix");
+        if catalog_prefix.is_empty() {
+            Error::InvalidCustomStoragePrefix {
+                prefix: catalog_prefix.to_string(),
+                disallowed: "empty",
+            }
+            .push(scope, errors);
+        } else if catalog_prefix.starts_with("default/") {
+            Error::InvalidCustomStoragePrefix {
+                prefix: catalog_prefix.to_string(),
+                disallowed: "'default/'",
+            }
+            .push(scope, errors);
+        }
+    }
+
+    match store {
+        Store::S3(cfg) => {
+            indexed::walk_name(
+                scope.push_prop("bucket"),
+                "storage mapping bucket",
+                &cfg.bucket,
+                &S3_BUCKET_RE,
+                errors,
+            );
+            if let Some(prefix) = &cfg.prefix {
+                indexed::walk_name(
+                    scope.push_prop("prefix"),
+                    "storage mapping prefix",
+                    prefix,
+                    &CATALOG_PREFIX_RE,
+                    errors,
+                );
+            }
+        }
+        Store::Gcs(cfg) => {
+            indexed::walk_name(
+                scope.push_prop("bucket"),
+                "storage mapping bucket",
+                &cfg.bucket,
+                &GCS_BUCKET_RE,
+                errors,
+            );
+            if let Some(prefix) = &cfg.prefix {
+                indexed::walk_name(
+                    scope.push_prop("prefix"),
+                    "storage mapping prefix",
+                    prefix,
+                    &CATALOG_PREFIX_RE,
+                    errors,
+                );
+            }
+        }
+        Store::Custom(cfg) => {
+            // The GCS bucket naming rules are the most permissive, so we use those for any custom storage providers
+            indexed::walk_name(
+                scope.push_prop("bucket"),
+                "custom storage mapping bucket",
+                &cfg.bucket,
+                &GCS_BUCKET_RE,
+                errors,
+            );
+            if let Some(prefix) = &cfg.prefix {
+                indexed::walk_name(
+                    scope.push_prop("prefix"),
+                    "custom storage mapping prefix",
+                    prefix,
+                    &CATALOG_PREFIX_RE,
+                    errors,
+                )
+            }
+        }
+        Store::Azure(cfg) => {
+            indexed::walk_name(
+                scope.push_prop("storage_account_name"),
+                "azure storage account name",
+                &cfg.storage_account_name,
+                &AZURE_STORAGE_ACCOUNT_RE,
+                errors,
+            );
+            indexed::walk_name(
+                scope.push_prop("account_tenant_id"),
+                "azure storage account tenant",
+                &cfg.account_tenant_id,
+                &TOKEN_RE,
+                errors,
+            );
+            indexed::walk_name(
+                scope.push_prop("container_name"),
+                "azure storage container name",
+                &cfg.container_name,
+                &AZURE_CONTAINER_RE,
+                errors,
+            );
+
+            if let Some(prefix) = &cfg.prefix {
+                indexed::walk_name(
+                    scope.push_prop("prefix"),
+                    "azure storage path prefix",
+                    prefix,
+                    &CATALOG_PREFIX_RE,
+                    errors,
+                )
+            }
+        }
+    }
+}
+
+/// Returns the StorageMapping covering `name`, or an Error which suggests a
+/// near-miss prefix that the user may have intended.
 pub fn lookup_mapping<'a>(
     entity: &'static str,
     name: &str,
-    storage_mappings: &'a [tables::StorageMapping],
+    storage_mappings: &'a tables::StorageMappings,
 ) -> Result<&'a tables::StorageMapping, Error> {
-    let index = storage_mappings.upper_bound_by_key(&name, |m| &m.catalog_prefix);
-
-    for mapping in storage_mappings[0..index].iter().rev() {
-        if name.starts_with(mapping.catalog_prefix.as_str()) {
-            return Ok(mapping);
-        }
+    if let Some(mapping) = storage_mappings.lookup(name) {
+        return Ok(mapping);
     }
 
     if let Some((_, suggest_prefix)) = storage_mappings
@@ -212,77 +216,5 @@ pub fn lookup_mapping<'a>(
             this_entity: entity,
             this_name: name.to_string(),
         })
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::lookup_mapping;
-    use models::Prefix;
-
-    #[test]
-    fn test_matched_mapping() {
-        let mut mappings = tables::StorageMappings::new();
-
-        mappings.insert_row(
-            Prefix::new("foo/"),
-            models::Id::new([1; 8]),
-            Vec::new(),
-            Vec::new(),
-        );
-        mappings.insert_row(
-            Prefix::new("bar/"),
-            models::Id::new([2; 8]),
-            Vec::new(),
-            Vec::new(),
-        );
-        mappings.insert_row(
-            Prefix::new("bar/one/"),
-            models::Id::new([3; 8]),
-            Vec::new(),
-            Vec::new(),
-        );
-        mappings.insert_row(
-            Prefix::new("bar/two/"),
-            models::Id::new([4; 8]),
-            Vec::new(),
-            Vec::new(),
-        );
-        mappings.insert_row(
-            Prefix::new("baz/a/"),
-            models::Id::new([5; 8]),
-            Vec::new(),
-            Vec::new(),
-        );
-        mappings.insert_row(
-            Prefix::new("baz/b/"),
-            models::Id::new([6; 8]),
-            Vec::new(),
-            Vec::new(),
-        );
-
-        let expect = |name, id: Option<[u8; 8]>| {
-            assert_eq!(
-                (lookup_mapping("foo", name, &mappings).ok())
-                    .map(|mapping| mapping.control_id.as_array()),
-                id,
-                "expected {name} to match {id:?}"
-            )
-        };
-
-        expect("foo/foo", Some([1; 8]));
-        expect("fooo/foo", None);
-        expect("bar/other", Some([2; 8]));
-        expect("bar/one", Some([2; 8]));
-        expect("barr/one", None);
-        expect("bar/one/1", Some([3; 8]));
-        expect("bar/pne/2", Some([2; 8]));
-        expect("bar/two/3", Some([4; 8]));
-        expect("bar/uwo/3", Some([2; 8]));
-        expect("baz/a/3", Some([5; 8]));
-        expect("baz/b/4", Some([6; 8]));
-        expect("baz/c/5", None);
-        expect("baz/a", None);
-        expect("baz/other", None);
     }
 }

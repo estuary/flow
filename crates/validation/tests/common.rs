@@ -421,25 +421,11 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
-        let data_plane_ids = storage
-            .data_planes
-            .iter()
-            .map(|name| {
-                mock_calls
-                    .data_planes
-                    .keys()
-                    .find(|id| name == &format!("ops/dp/public/test-{id}"))
-                    .copied()
-                    .unwrap_or_else(|| {
-                        panic!("storage mapping {prefix} names unknown data plane {name}")
-                    })
-            })
-            .collect::<Vec<_>>();
         live.storage_mappings.insert_row(
             prefix,
             models::Id::zero(),
             &storage.stores,
-            data_plane_ids,
+            &storage.recovery_stores,
         );
     }
     // Allow fixtures to omit a storage mapping by providing a default.
@@ -449,13 +435,40 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             prefix: None,
             region: None,
         });
-        let data_plane_ids = mock_calls.data_planes.keys().copied().collect::<Vec<_>>();
         live.storage_mappings.insert_row(
             models::Prefix::new(""),
             models::Id::zero(),
+            vec![store.clone()],
             vec![store],
-            data_plane_ids,
         );
+    }
+
+    // Mirror `control-plane-api` placement, which stamps a data plane onto
+    // each created spec: those with a model, and no live row.
+    let default_plane = mock_calls.data_planes.keys().next().copied();
+    let place = |name: &str| {
+        mock_calls
+            .draft_data_planes
+            .get(name)
+            .copied()
+            .or(default_plane)
+            .unwrap_or(models::Id::zero())
+    };
+    for row in draft.captures.iter_mut() {
+        if row.model.is_some() && live.captures.get_by_key(&row.capture).is_none() {
+            row.data_plane_id = place(&row.capture);
+        }
+    }
+    for row in draft.collections.iter_mut() {
+        if row.model.is_some() && live.collections.get_by_key(&row.collection).is_none() {
+            row.data_plane_id = place(&row.collection);
+        }
+    }
+    for row in draft.materializations.iter_mut() {
+        let name = &row.materialization;
+        if row.model.is_some() && live.materializations.get_by_key(name).is_none() {
+            row.data_plane_id = place(name);
+        }
     }
 
     // Use a constant initialization vector for deterministic test output.
@@ -467,7 +480,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         models::Id::new([33; 8]),
         &url::Url::parse("file:///project/root").unwrap(),
         &connectors,
-        None, // No default data plane name.
         &draft,
         &live,
         false, // Don't fail-fast.
@@ -652,7 +664,22 @@ struct MockDriverCalls {
     #[serde(default)]
     live_tests: BTreeMap<models::Test, MockLiveTest>,
     #[serde(default)]
-    storage_mappings: BTreeMap<models::Prefix, models::StorageDef>,
+    storage_mappings: BTreeMap<models::Prefix, MockStorageMapping>,
+    /// Data-plane placement of specific drafted specs, overriding the
+    /// harness default of the first `data_planes` entry.
+    #[serde(default)]
+    draft_data_planes: BTreeMap<String, models::Id>,
+}
+
+/// Storage mapping fixture: unlike the user-facing `models::StorageDef`,
+/// partition and recovery stores are columns of one mapping.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MockStorageMapping {
+    #[serde(default)]
+    stores: Vec<models::Store>,
+    #[serde(default)]
+    recovery_stores: Vec<models::Store>,
 }
 
 #[derive(serde::Deserialize)]

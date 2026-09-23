@@ -1278,26 +1278,10 @@ async fn test_publication_storage_mapping_unreadable_plane() {
         }))
     };
 
-    // Resolution requires every plane of the mapping, so the unreadable entry
-    // fails the publication whether or not anything would have been placed in it.
+    // Falling back to the mapping default selects its leading plane, which is
+    // the unreadable one, so the publication fails.
     let result = harness
         .user_publication_in_plane(user_id, "mapping default plane", draft(), "")
-        .await;
-    assert!(!result.status.is_success());
-    insta::assert_debug_snapshot!(result.errors, @r#"
-    [
-        (
-            "flow://storageMapping/lynx/",
-            "data plane 'ops/dp/private/other' was not found",
-        ),
-    ]
-    "#);
-
-    // Naming a readable plane explicitly does not rescue the mapping: the
-    // entry is checked up front, before anything selects a plane, so the
-    // publication fails identically.
-    let result = harness
-        .user_publication(user_id, "explicit readable plane", draft())
         .await;
     assert!(!result.status.is_success());
     insta::assert_debug_snapshot!(result.errors, @r#"
@@ -1316,6 +1300,157 @@ async fn test_publication_storage_mapping_unreadable_plane() {
         snapshot.result().unwrap().revoke.is_cancelled(),
         "expected the denied mapping plane to cancel the Snapshot's revoke token"
     );
+
+    // Naming the readable plane explicitly succeeds: only the plane which is
+    // actually selected is resolved, and the mapping's other entries are
+    // never looked up, let alone authorized.
+    let result = harness
+        .user_publication(user_id, "explicit readable plane", draft())
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed with status {:?}: {:?}",
+        result.status,
+        result.errors
+    );
+}
+
+// Insert a storage mapping and its `recovery/` twin, as the control plane
+// does whenever it provisions a mapping.
+async fn add_storage_mapping(harness: &TestHarness, catalog_prefix: &str, data_planes: &[&str]) {
+    let (collection_spec, recovery_spec) =
+        control_plane_api::storage_mappings::collection_and_recovery_spec_from(
+            models::StorageDef {
+                data_planes: data_planes.iter().map(|n| n.to_string()).collect(),
+                stores: vec![models::Store::Gcs(models::GcsBucketAndPrefix {
+                    bucket: "a-bucket".to_string(),
+                    prefix: None,
+                })],
+            },
+        );
+
+    let mut txn = harness.pool.begin().await.unwrap();
+    for (prefix, spec) in [
+        (catalog_prefix.to_string(), collection_spec),
+        (format!("recovery/{catalog_prefix}"), recovery_spec),
+    ] {
+        control_plane_api::storage_mappings::upsert_storage_mapping(
+            Some("test mapping"),
+            &prefix,
+            spec,
+            &mut txn,
+        )
+        .await
+        .expect("failed to upsert storage mapping");
+    }
+    txn.commit().await.unwrap();
+}
+
+// A tenant whose two teams publish into different planes. Placement resolves
+// only the plane which a drafted spec is actually placed into, so a sibling
+// team's unreadable plane must not fail an unrelated publication.
+//
+// Uses its own `puma` tenant: `storage_mappings` is not reset between tests.
+#[tokio::test]
+async fn test_publication_sibling_mapping_unreadable_plane() {
+    let mut harness = TestHarness::init("test_publication_sibling_mapping_unreadable_plane").await;
+    let user_id = harness.setup_tenant("puma").await;
+
+    add_private_plane(&mut harness).await;
+    // A readable plane which no mapping lists.
+    harness
+        .add_data_plane(
+            "ops/dp/public/unlisted",
+            "ops-dp-public-unlisted.dp.test",
+            vec!["c2VjcmV0".to_string()],
+        )
+        .await;
+
+    add_storage_mapping(&harness, "puma/team-a/", &["ops/dp/public/test"]).await;
+    add_storage_mapping(&harness, "puma/team-b/", &["ops/dp/private/other"]).await;
+
+    // Each case drafts a distinct pair of novel collections: a re-publication
+    // of live specs is an update, which makes no placement at all.
+    let draft = |team: &str, name: &str| {
+        draft_catalog(serde_json::json!({
+            "collections": {
+                format!("puma/{team}/{name}"): {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+                    "key": ["/id"]
+                },
+                format!("puma/{team}/{name}-clean"): {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+                    "key": ["/id"],
+                    "derive": {
+                        "using": { "sqlite": { "migrations": [] } },
+                        "transforms": [
+                            { "name": "fromSource", "source": format!("puma/{team}/{name}"), "shuffle": "any", "lambda": "select $id;" }
+                        ]
+                    }
+                }
+            }
+        }))
+    };
+
+    // team-a's mapping names a readable plane, and team-b's unreadable plane
+    // is never consulted.
+    let result = harness
+        .user_publication_in_plane(
+            user_id,
+            "team-a mapping default",
+            draft("team-a", "paws"),
+            "",
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "pub failed with status {:?}: {:?}",
+        result.status,
+        result.errors
+    );
+
+    // team-b's own mapping names the unreadable plane, which does fail.
+    let result = harness
+        .user_publication_in_plane(
+            user_id,
+            "team-b mapping default",
+            draft("team-b", "paws"),
+            "",
+        )
+        .await;
+    assert!(!result.status.is_success());
+    insta::assert_debug_snapshot!(result.errors, @r#"
+    [
+        (
+            "flow://storageMapping/puma/team-b/",
+            "data plane 'ops/dp/private/other' was not found",
+        ),
+    ]
+    "#);
+
+    // An explicit plane which resolves, but which the covering mapping does
+    // not list, is reported per-spec and at the spec's own scope.
+    let result = harness
+        .user_publication_in_plane(
+            user_id,
+            "explicit unlisted plane",
+            draft("team-a", "claws"),
+            "ops/dp/public/unlisted",
+        )
+        .await;
+    assert!(!result.status.is_success());
+    insta::assert_debug_snapshot!(result.errors, @r#"
+    [
+        (
+            "flow://collection/puma/team-a/claws",
+            "collection puma/team-a/claws storage mapping puma/team-a/ doesn't permit data plane ops/dp/public/unlisted",
+        ),
+        (
+            "flow://collection/puma/team-a/claws-clean",
+            "collection puma/team-a/claws-clean storage mapping puma/team-a/ doesn't permit data plane ops/dp/public/unlisted",
+        ),
+    ]
+    "#);
 }
 
 // Unlike the characterization tests above, this asserts new Snapshot-only

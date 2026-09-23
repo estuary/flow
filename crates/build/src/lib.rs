@@ -133,7 +133,6 @@ pub async fn local(
         build_id,
         project_root,
         &connectors,
-        None, // No explicit data-plane name.
         &draft,
         &live,
         true, // Fail-fast.
@@ -435,14 +434,17 @@ impl sources::Fetcher for Fetcher {
 pub fn no_op_live_catalog() -> tables::LiveCatalog {
     let mut live = tables::LiveCatalog::default();
 
+    let store = models::Store::Gcs(models::GcsBucketAndPrefix {
+        bucket: "example-bucket".to_string(),
+        prefix: None,
+    });
+    // An empty prefix matches every collection and task, and the same store
+    // backs both partitions and recovery logs.
     live.storage_mappings.insert_row(
         models::Prefix::new(""),
         models::Id::zero(),
-        vec![models::Store::Gcs(models::GcsBucketAndPrefix {
-            bucket: "example-bucket".to_string(),
-            prefix: None,
-        })],
-        vec![models::Id::zero()],
+        vec![store.clone()],
+        vec![store],
     );
 
     live

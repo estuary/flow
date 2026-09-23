@@ -1284,13 +1284,9 @@ fn test_storage_mappings_not_found() {
 driver:
   storageMappings:
     testing/: null
-    recovery/testing/: null
     TestinG/:
       stores: [{provider: S3, bucket: data-bucket}]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
-    RecoverY/TestinG/:
-      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
+      recoveryStores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1306,7 +1302,7 @@ driver:
     "":
       # This is allowed, and matches for all journals and tasks.
       stores: [{provider: S3, bucket: a-bucket}]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
+      recoveryStores: [{provider: S3, bucket: a-bucket}]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1419,54 +1415,6 @@ driver:
     testing/from-array-key:
       generatedFiles:
         "this is not a URL! ": generated content
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_prefix_mismatch() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  storageMappings:
-    recovery/testing/: null
-    recovery/:
-      stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1d"]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_data_planes_do_not_align() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  dataPlanes:
-    "1d:1d:1d:1d:1d:1d:1d:1e": {}
-  storageMappings:
-    recovery/testing/:
-      data_planes: ["ops/dp/public/test-1d1d1d1d1d1d1d1e"]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mapping_omits_data_planes() {
-    let errors = common::run_errors(
-        &MODEL_YAML,
-        r#"
-driver:
-  storageMappings:
-    testing/:
-      data_planes: []
-    recovery/testing/:
-      data_planes: []
 "#,
     );
     insta::assert_debug_snapshot!(errors);

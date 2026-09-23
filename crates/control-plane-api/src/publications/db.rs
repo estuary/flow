@@ -513,10 +513,15 @@ pub struct StorageRow {
     pub id: Id,
     pub catalog_prefix: String,
     pub spec: serde_json::Value,
+    pub recovery_spec: Option<serde_json::Value>,
 }
 
-/// Returns the storage mappings for the given set of tenants.
-/// Mappings for `recovery/{tenant}` will also be returned.
+/// Returns the storage mappings for the given set of tenants,
+/// each joined with its `recovery/` twin.
+///
+/// `recovery/` mappings are omitted as rows in their own right: drafted names
+/// are unvalidated, and a drafted `recovery/...` name would otherwise select
+/// the recovery mappings of every tenant on the platform.
 pub async fn resolve_storage_mappings(
     tenant_names: Vec<&str>,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
@@ -524,19 +529,15 @@ pub async fn resolve_storage_mappings(
     sqlx::query_as!(
         StorageRow,
         r#"
-        with tenants(name) as (
-          select unnest($1::text[])
-        ),
-        prefixes as (
-          select name as prefix from tenants
-          union all select 'recovery/' || name from tenants
-        )
         select
             m.id as "id: Id",
             m.catalog_prefix,
-            m.spec
-        from prefixes p
-        join storage_mappings m on starts_with(m.catalog_prefix, p.prefix);
+            m.spec,
+            r.spec as "recovery_spec?"
+        from unnest($1::text[]) t(name)
+        join storage_mappings m on starts_with(m.catalog_prefix, t.name)
+        left join storage_mappings r on r.catalog_prefix = 'recovery/' || m.catalog_prefix
+        where not starts_with(m.catalog_prefix, 'recovery/');
         "#,
         tenant_names as Vec<&str>,
     )

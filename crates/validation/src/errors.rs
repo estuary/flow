@@ -340,41 +340,6 @@ pub enum Error {
         limit: usize,
     },
 
-    #[error(
-        "{entity} {name} maps to storage mapping {partition_mapping}, implying it must have an aligned recovery mapping recovery/{partition_mapping}, but it actually maps to {recovery_mapping}"
-    )]
-    StorageMappingPrefixMismatch {
-        entity: &'static str,
-        name: String,
-        partition_mapping: models::Prefix,
-        recovery_mapping: models::Prefix,
-    },
-    #[error(
-        "{entity} {name} storage mapping {partition_mapping} is missing associated data planes"
-    )]
-    StorageMappingMissingDataPlanes {
-        entity: &'static str,
-        name: String,
-        partition_mapping: models::Prefix,
-    },
-    #[error(
-        "{entity} {name} recovery storage mapping recovery/{partition_mapping} has data planes which don't match mapping {partition_mapping}"
-    )]
-    StorageMappingDataPlanesMismatch {
-        entity: &'static str,
-        name: String,
-        partition_mapping: models::Prefix,
-    },
-    #[error(
-        "{entity} {name} storage mapping {partition_mapping} doesn't permit data plane {data_plane}"
-    )]
-    DataPlaneNotInStorageMapping {
-        entity: &'static str,
-        name: String,
-        partition_mapping: models::Prefix,
-        data_plane: String,
-    },
-
     #[error("trigger {index}: invalid URL: {detail}")]
     TriggerInvalidUrl { index: usize, detail: String },
     #[error("trigger {index}: timeout must be greater than 0")]
