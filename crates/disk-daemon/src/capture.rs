@@ -95,12 +95,14 @@ impl Captured {
     /// Wake an owner which may be parked behind a full queue.
     ///
     /// The owner blocks in `submit_and_wait` with a read of the waker's eventfd
-    /// armed, and parks a request only when an offer was refused — which happens
-    /// only on a full queue. Nothing but this consumer removes a mutation, so the
-    /// queue stays full from that refusal until the next take, and this take is
-    /// therefore the one which must wake. The queue held `capacity` an instant ago
-    /// exactly when it holds `capacity - 1` now, up to further offers the owner has
-    /// already slipped in, so waking at `capacity - 1` or more cannot miss it.
+    /// armed. While it admits, whatever it has parked waits behind one offer the
+    /// full queue refused, because it offers nothing past a parked request. Nothing
+    /// but this consumer removes a mutation, so the queue stays full from that
+    /// refusal until the next take, and this take is therefore the one which must
+    /// wake. The queue held `capacity` an instant ago exactly when it holds
+    /// `capacity - 1` now, up to further offers the owner has already slipped in,
+    /// so waking at `capacity - 1` or more cannot miss it. A request which a closed
+    /// admission parked is retried by the owner itself, when admission resumes.
     ///
     /// The other direction is free: an eventfd counts rather than latches, so a
     /// wake which lands before the owner parks is still there when it looks, and a

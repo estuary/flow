@@ -180,7 +180,8 @@ workers. Single ownership also keeps image and bitmap updates free of locks.
 
 Reads come from the image. Each write, discard, or write-zeroes request first
 offers its complete mutation to the bounded capture channel. A full channel parks
-the request. Once the channel accepts the mutation, the owner applies it to the
+the request, and every later mutation queues behind it in arrival order, ahead of
+any horizon copy. Once the channel accepts the mutation, the owner applies it to the
 image at once, so the image takes mutations in exactly the order the journal does,
 overlapping or not. A mutation never splits across deltas.
 
