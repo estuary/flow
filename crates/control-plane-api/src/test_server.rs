@@ -79,6 +79,7 @@ impl TestServer {
             pg_pool,
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
             models::AlertConfig::default(),
         )
         .await
@@ -93,7 +94,25 @@ impl TestServer {
             pg_pool,
             snapshot,
             Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
             alert_config_defaults,
+        )
+        .await
+    }
+
+    /// Starts a server wired to a BigTable catalog stats client, for the tests
+    /// that exercise the `catalogStats` query against the emulator.
+    pub async fn start_with_catalog_stats(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        catalog_stats: Arc<catalog_stats::Client>,
+    ) -> Self {
+        Self::start_with_config(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            Some(catalog_stats),
+            models::AlertConfig::default(),
         )
         .await
     }
@@ -102,6 +121,7 @@ impl TestServer {
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -121,6 +141,7 @@ impl TestServer {
         let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
             billing_provider,
+            catalog_stats,
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),
             publisher,
@@ -161,6 +182,17 @@ impl TestServer {
     /// Create a valid access token for a test user.
     /// The token includes all required claims for the server's JWT validation.
     pub fn make_access_token(&self, user_id: uuid::Uuid, email: Option<&str>) -> String {
+        self.make_masked_access_token(user_id, email, None)
+    }
+
+    /// Like `make_access_token`, but with a `capability_mask` claim naming
+    /// the given capability bundles, as a scoped token minted for CI would.
+    pub fn make_masked_access_token(
+        &self,
+        user_id: uuid::Uuid,
+        email: Option<&str>,
+        capability_mask: Option<Vec<String>>,
+    ) -> String {
         let now = tokens::now();
         let claims = models::authorizations::ControlClaims {
             iat: now.timestamp() as u64,
@@ -169,6 +201,7 @@ impl TestServer {
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: email.map(String::from),
+            capability_mask,
         };
 
         jsonwebtoken::encode(

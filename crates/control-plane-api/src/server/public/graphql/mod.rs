@@ -27,6 +27,7 @@ mod alert_types;
 mod alerts;
 mod authorized_prefixes;
 pub(crate) mod billing;
+mod catalog_stats;
 mod connectors;
 mod data_planes;
 mod drafts;
@@ -45,7 +46,7 @@ pub mod status;
 mod storage_mappings;
 mod tenant;
 
-pub(crate) use scalars::Sensitive;
+pub(crate) use scalars::{Sensitive, UInt64};
 
 /// Whether the current user holds `capability` on `name`, as a pure check
 /// against the request's authorization Snapshot.
@@ -128,6 +129,7 @@ pub struct QueryRoot(
     service_accounts::ServiceAccountsQuery,
     secrets::SecretsQuery,
     drafts::DraftsQuery,
+    catalog_stats::CatalogStatsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -193,6 +195,12 @@ pub(crate) async fn graphql_handler(
                 billing::CustomerDataLoader(billing_provider.clone()),
                 tokio::spawn,
             ));
+    }
+
+    if let Some(ref catalog_stats) = app.catalog_stats {
+        // No DataLoader (batching) is needed because a whole `catalogStats`
+        // query is served using one Bigtable scan.
+        request = request.data(catalog_stats.clone());
     }
 
     let response = schema.execute(request).await;

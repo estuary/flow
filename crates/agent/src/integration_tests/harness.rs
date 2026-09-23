@@ -1711,6 +1711,7 @@ impl TestHarness {
             exp: (req_start + chrono::Duration::hours(1)).timestamp() as u64,
             role: "authenticated".to_string(),
             email: Some("user@example.com".to_string()),
+            capability_mask: None,
         };
 
         let token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)
@@ -1804,6 +1805,7 @@ impl TestHarness {
 
         let app = Arc::new(control_plane_api::App::new(
             id_gen,
+            None,
             None,
             &jwt_secret,
             self.pool.clone(),

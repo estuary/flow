@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/catalog_stats/mod.rs
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 13,
+          "line": 3
+        }
+      ],
+      "message": "`start` (2026-05-05T18:30:00+00:00) is not aligned to the hourly grain; a bucket that straddles it would be omitted from the results",
+      "path": [
+        "catalogStats"
+      ]
+    }
+  ]
+}

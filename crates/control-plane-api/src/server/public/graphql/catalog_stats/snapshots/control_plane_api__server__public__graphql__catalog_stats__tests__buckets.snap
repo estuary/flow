@@ -1,0 +1,62 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/catalog_stats/mod.rs
+expression: response
+---
+{
+  "data": {
+    "catalogStats": {
+      "edges": [
+        {
+          "cursor": "YWxpY2VDby9jdGVzdC1jYXRhbG9nLXN0YXRzLwAyMDI2LTA1LTA1VDE4OjAwOjAwKzAwOjAw",
+          "node": {
+            "catalogName": "aliceCo/ctest-catalog-stats/",
+            "grain": "HOURLY",
+            "statsSummary": {
+              "usageSeconds": "60",
+              "writtenByMe": {
+                "bytesTotal": "200",
+                "docsTotal": "2"
+              }
+            },
+            "taskStats": null,
+            "timestamp": "2026-05-05T18:00:00+00:00"
+          }
+        },
+        {
+          "cursor": "YWxpY2VDby9jdGVzdC1jYXRhbG9nLXN0YXRzL2luL2NhcHR1cmUtZXZlbnRzADIwMjYtMDUtMDVUMTg6MDA6MDArMDA6MDA",
+          "node": {
+            "catalogName": "aliceCo/ctest-catalog-stats/in/capture-events",
+            "grain": "HOURLY",
+            "statsSummary": {
+              "usageSeconds": "60",
+              "writtenByMe": {
+                "bytesTotal": "200",
+                "docsTotal": "2"
+              }
+            },
+            "taskStats": {
+              "capture": [
+                {
+                  "collection": "aliceCo/ctest-catalog-stats/data/events",
+                  "out": {
+                    "docsTotal": "2"
+                  },
+                  "right": {
+                    "docsTotal": "2"
+                  }
+                }
+              ],
+              "derive": null,
+              "materialize": []
+            },
+            "timestamp": "2026-05-05T18:00:00+00:00"
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "hasPreviousPage": false
+      }
+    }
+  }
+}

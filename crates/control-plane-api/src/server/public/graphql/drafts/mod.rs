@@ -103,6 +103,10 @@ impl Draft {
             None,
             |after, _, first, _| async move {
                 let limit = first.unwrap_or(DEFAULT_PAGE_SIZE);
+                // `is_unchanged` repeats the `unchanged_draft_specs` comparison rather
+                // than joining that view: its `draft_specs_ext` and `live_specs_ext`
+                // authorize by `auth.uid()`, which this pool never sets, unless the
+                // connecting role has `rolbypassrls`. CatalogRead is checked below.
                 let rows = sqlx::query!(
                     r#"
                     SELECT
@@ -113,13 +117,10 @@ impl Draft {
                         ls.last_pub_id AS "last_pub_id?: models::Id",
                         ds.detail,
                         ds.updated_at,
-                        (uds.catalog_name IS NOT NULL) AS "is_unchanged!"
+                        COALESCE(ls.md5 = md5(trim(ds.spec::text)), false) AS "is_unchanged!"
                     FROM draft_specs ds
                     JOIN drafts d ON d.id = ds.draft_id
                     LEFT JOIN live_specs ls ON ls.catalog_name = ds.catalog_name
-                    LEFT JOIN unchanged_draft_specs uds
-                      ON uds.draft_id = ds.draft_id
-                     AND uds.catalog_name = ds.catalog_name
                     WHERE ds.draft_id = $1
                       AND d.user_id = $2
                       AND ($3::text IS NULL OR ds.catalog_name::text > $3)
