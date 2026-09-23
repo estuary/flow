@@ -113,6 +113,8 @@ pub(crate) async fn start(
         inspect_image_and_copy(image, tmp_docker_inspect.path(), &log_sink),
     )?;
 
+    validate_runtime_protocol(image_inspection.runtime_protocol, task_type)?;
+
     // Close our open files but retain a deletion guard.
     let tmp_connector_init = tmp_connector_init.into_temp_path();
     let tmp_docker_inspect = tmp_docker_inspect.into_temp_path();
@@ -353,6 +355,23 @@ pub(crate) async fn start(
         },
         codec,
     ))
+}
+
+fn validate_runtime_protocol(
+    runtime_protocol: RuntimeProtocol,
+    task_type: ops::TaskType,
+) -> anyhow::Result<()> {
+    if !matches!(
+        (runtime_protocol, task_type),
+        (RuntimeProtocol::Capture, ops::TaskType::Capture)
+            | (RuntimeProtocol::Derive, ops::TaskType::Derivation)
+            | (RuntimeProtocol::Materialize, ops::TaskType::Materialization)
+    ) {
+        anyhow::bail!(
+            "connector protocol {runtime_protocol:?} does not match requested type {task_type:?}"
+        );
+    }
+    Ok(())
 }
 
 /// Validates that a connector image is allowed to run in this data-plane.
@@ -986,6 +1005,21 @@ mod test {
             source: ParseBoolError,
         }
         "###);
+    }
+
+    #[test]
+    fn test_validate_runtime_protocol() {
+        use crate::RuntimeProtocol;
+        use proto_flow::ops::TaskType;
+
+        assert!(
+            super::validate_runtime_protocol(RuntimeProtocol::Capture, TaskType::Capture).is_ok()
+        );
+        insta::assert_snapshot!(
+            super::validate_runtime_protocol(RuntimeProtocol::Capture, TaskType::Materialization)
+                .unwrap_err(),
+            @"connector protocol Capture does not match requested type Materialization"
+        );
     }
 
     #[test]
