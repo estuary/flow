@@ -99,10 +99,6 @@ pub struct IoDescs {
     depth: u16,
 }
 
-// SAFETY: the mapping is read-only, and it lives until `IoDescs` is dropped. It is
-// therefore sound to move it to the owner thread which reads it.
-unsafe impl Send for IoDescs {}
-
 impl IoDescs {
     pub fn map(cdev: &std::fs::File, q_id: u16, depth: u16) -> std::io::Result<Self> {
         let len = sys::io_desc_map_len(depth);
