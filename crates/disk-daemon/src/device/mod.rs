@@ -15,8 +15,9 @@
 //! [`Waker`] armed on the ring interrupts it when a command arrives or capture
 //! capacity frees.
 //!
-//! The owner submits character-device I/O to the ring and reaps it later. It reads
-//! and writes the image directly, so a call the host filesystem makes wait also
+//! The owner submits the queue's fetches and commits to the ring and reaps them
+//! later. Everything in between, from the copies through the character device to the
+//! image's I/O, it does directly, so a call the host filesystem makes wait also
 //! waits every other request of the disk. A disk whose capture channel is full parks
 //! only the requests which need that channel.
 //!
@@ -214,22 +215,16 @@ impl Drop for Device {
 ///
 /// Nothing here changes the node's ownership. The crate README says how a daemon
 /// which does not run as root is granted it.
-///
-/// `O_NONBLOCK` is what lets `io_uring` issue a request's data copy inline, in the
-/// owner's own `submit_and_wait`. A character device which neither is opened
-/// `O_NONBLOCK` nor declares non-blocking support, as `ublk`'s does not, has every
-/// read and write handed to an `io_uring` worker thread instead. The copy waits on
-/// nothing but faults on the owner's buffers, so issuing it inline is safe.
 fn open_char_device(dev_id: u32) -> anyhow::Result<std::fs::File> {
     let path = ublk::char_path(dev_id);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
 
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true).write(true);
-    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
-
     loop {
-        match options.open(&path) {
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+        {
             Ok(file) => return Ok(file),
             // Userspace sees the node slightly after the command which added the
             // device completes.

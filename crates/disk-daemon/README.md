@@ -185,7 +185,8 @@ image at once, so the image takes mutations in exactly the order the journal doe
 overlapping or not. A mutation never splits across deltas.
 
 The owner reads and writes the image directly, as blocking calls on its own
-thread, rather than through its ring. That keeps the request path simple, and it
+thread, rather than through its ring, and it copies each request's data through
+the character device the same way. That keeps the request path simple, and it
 has a cost: while the host filesystem makes one call wait, every other request of
 the disk waits too. The likely waits are a large punch, a read the host page cache
 misses, and the host throttling a writer when it holds too much unwritten data. The
@@ -200,15 +201,13 @@ fills the host's dirty budget with pages only its owner can clean, and every oth
 disk's owner is throttled for them. Its memory allocations also never wait on I/O,
 which could be I/O to its own disk.
 
-The ring carries what remains: the queue's fetch and commit commands, the data
-each request moves through the character device, and the owner's wake. None of it
-needs `io_uring`'s kernel worker threads. The character device is opened
-`O_NONBLOCK`, so each data copy is issued inline in the owner's own wait, while the
-driver holds the fetches and the wake is polled. Without that flag every copy would
-run on a worker thread, in a pool which belongs to the owner's thread and which
-nothing caps across disks. `ublk`'s control commands, which the driver will not
-issue without blocking, are the one thing of the daemon's that reaches a worker, and
-they are rare.
+The ring carries what remains: the queue's fetch and commit commands, and the
+owner's wake. It is one wait for everything which can wake the owner, and it
+carries commits and fetches in batches, which is what small requests are bound by.
+None of it needs `io_uring`'s kernel worker threads: the driver holds the fetches,
+and the wake is polled. `ublk`'s control commands, which the driver will not issue
+without blocking, are the one thing of the daemon's that reaches a worker, and they
+are rare.
 
 The writer takes one mutation at a time and hands it to the appender as one
 record, returning to its requests in between, so a disk under sustained write

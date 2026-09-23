@@ -112,8 +112,7 @@ impl Owner {
                 return;
             };
             // Taken out rather than borrowed, because an offer which is accepted
-            // completes the request. A parked tag has no operation in flight, so
-            // the slot holds nothing an SQE addresses meanwhile.
+            // completes the request.
             let Slot::Parked {
                 range,
                 data,

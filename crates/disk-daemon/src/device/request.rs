@@ -4,46 +4,30 @@
 //! A read is served from the image and then copied to the character device. A write
 //! takes its data from the character device, is captured, and is then applied to the
 //! image. A discard or write-zeroes carries no data at all: it is captured as a punch
-//! and applied as one. Whichever it is, the tag's [`Slot`] holds what the next step
-//! needs, and `complete` returns it to the kernel and re-arms its fetch.
+//! and applied as one. `complete` returns the tag to the kernel and re-arms its fetch.
 //!
-//! The image is read and written directly, as blocking calls on the owner's thread,
-//! rather than through the ring. A mutation is applied the moment the capture
-//! channel accepts it, so the image takes mutations in exactly the order the journal
-//! does, with nothing to track in between. The price is that a slow call into the
-//! host filesystem holds up every other request of the disk while it runs, which the
-//! crate README weighs.
+//! Every step between the fetch and the commit is a blocking call on the owner's
+//! thread: the copies through the character device, and the image's reads and writes
+//! alike. Only the fetch and the commit ride the ring, which batches them. A mutation
+//! is applied the moment the capture channel accepts it, so the image takes mutations
+//! in exactly the order the journal does, with nothing to track in between. The
+//! price is that a slow call into the host filesystem holds up every other request of
+//! the disk while it runs, which the crate README weighs.
 
 use super::Owner;
-use super::ring::{Step, transferred, user_data};
+use super::ring::{Step, user_data};
 use crate::proto::Chunk;
 use crate::ublk::{self, sys};
 
-/// What an owner holds for one device request tag, and which phase of that
-/// request's path the tag is on.
+/// What an owner holds for one device request tag.
 ///
-/// The phases are one value rather than a bag of fields because the pinning
-/// discipline turns on them: a buffer which an outstanding SQE addresses must not
-/// be dropped before that SQE's completion is reaped. A slot therefore returns to
-/// [`Slot::Idle`] in exactly two places. [`Owner::complete`] runs once a request has
-/// no operation left on the ring. The `Release` command resets the *parked* tags,
-/// which have none either.
-///
-/// Moving a slot from one phase to the next is safe wherever its buffer moves with
-/// it. `Vec` and `Bytes` are handles: moving one leaves its heap allocation, which
-/// is what an SQE addresses, exactly where it was.
+/// Serving a request runs to completion on the owner's thread, so a tag holds
+/// nothing while that happens. It holds a mutation only while the capture channel
+/// refuses it. No ring operation ever addresses a slot, so one may be replaced at
+/// any time.
 pub(super) enum Slot {
-    /// No request holds this tag.
+    /// No mutation waits at this tag.
     Idle,
-    /// A device read, whose image content in `buf` is being handed to the
-    /// character device.
-    Reading { buf: Vec<u8> },
-    /// A device write, whose data is being taken from the character device into
-    /// `buf`.
-    Receiving {
-        range: std::ops::Range<u32>,
-        buf: Vec<u8>,
-    },
     /// A mutation the capture channel refused, because it was full or because a
     /// prepare had closed admission. It is offered again in arrival order.
     Parked {
@@ -64,41 +48,12 @@ impl Owner {
             // A negative fetch tells the owner that the kernel has aborted the
             // queue. The kernel does that when the device stops.
             Step::Fetch if result < 0 => self.stopping = true,
-            Step::Fetch => self.begin(tag),
-
-            Step::DeviceWrite => {
-                let Slot::Reading { buf } = &self.slots[tag as usize] else {
-                    panic!("only a reading tag hands data to the device");
-                };
-                let bytes = buf.len();
-
-                match transferred(result, bytes) {
-                    Err(err) => self.fail(tag, "handing read data to the device", err),
-                    Ok(()) => self.complete(tag, bytes as i32),
-                }
-            }
-            Step::DeviceRead => {
-                let Slot::Receiving { range, buf } = &mut self.slots[tag as usize] else {
-                    panic!("only a receiving tag takes data from the device");
-                };
-
-                match transferred(result, buf.len()) {
-                    Err(err) => self.fail(tag, "taking write data from the device", err),
-                    Ok(()) => {
-                        let range = range.clone();
-                        let data = bytes::Bytes::from(std::mem::take(buf));
-                        let chunks = crate::chunk::encode_write(range.start, &data);
-
-                        self.offer(tag, range, data, chunks);
-                    }
-                }
-            }
+            Step::Fetch => self.serve(tag),
         }
     }
 
-    /// Decode the request the kernel handed back at `tag` and take its first
-    /// step.
-    fn begin(&mut self, tag: u16) {
+    /// Serve the request the kernel handed over at `tag`.
+    fn serve(&mut self, tag: u16) {
         let desc = self.descs.get(tag);
         let block_size = crate::BLOCK_SIZE as u64;
 
@@ -116,6 +71,10 @@ impl Owner {
             range.end <= self.image.blocks(),
             "device request covers blocks {range:?}, beyond the device",
         );
+        // Under `UBLK_F_USER_COPY`, a request's data moves through the character
+        // device, at an offset which names the queue and tag.
+        let data_offset = sys::io_buf_offset(ublk::QUEUE_ID, tag);
+
         match sys::io_desc_op(&desc) {
             sys::UBLK_IO_OP_READ => {
                 let mut buf = vec![0; bytes as usize];
@@ -123,17 +82,23 @@ impl Owner {
                 if let Err(err) = self.image.read_at(range.start, &mut buf) {
                     return self.fail(tag, "reading the image", err);
                 }
-                self.slots[tag as usize] = Slot::Reading { buf };
-                let entry = self.write_device(tag);
-                self.submit(entry);
+                match std::os::unix::fs::FileExt::write_all_at(&self.cdev, &buf, data_offset) {
+                    Ok(()) => self.complete(tag, bytes as i32),
+                    Err(err) => self.fail(tag, "handing read data to the device", err),
+                }
             }
             sys::UBLK_IO_OP_WRITE => {
-                self.slots[tag as usize] = Slot::Receiving {
-                    range,
-                    buf: vec![0; bytes as usize],
-                };
-                let entry = self.read_device(tag);
-                self.submit(entry);
+                let mut buf = vec![0; bytes as usize];
+
+                if let Err(err) =
+                    std::os::unix::fs::FileExt::read_exact_at(&self.cdev, &mut buf, data_offset)
+                {
+                    return self.fail(tag, "taking write data from the device", err);
+                }
+                let data = bytes::Bytes::from(buf);
+                let chunks = crate::chunk::encode_write(range.start, &data);
+
+                self.offer(tag, range, data, chunks);
             }
             // Both deallocate, per `chunk::encode_punch`. A punch carries no data,
             // which is how `apply` tells the two apart.
@@ -192,39 +157,6 @@ impl Owner {
     fn fail(&mut self, tag: u16, what: &str, err: std::io::Error) {
         tracing::error!(dev_id = self.dev_id, tag, ?err, "{what} failed");
         self.complete(tag, -libc::EIO);
-    }
-
-    /// Hand a read's image content to the character device. This is how request
-    /// data moves under `UBLK_F_USER_COPY`.
-    fn write_device(&mut self, tag: u16) -> io_uring::squeue::Entry {
-        let fd = io_uring::types::Fd(std::os::fd::AsRawFd::as_raw_fd(&self.cdev));
-        let offset = sys::io_buf_offset(ublk::QUEUE_ID, tag);
-
-        let Slot::Reading { buf } = &self.slots[tag as usize] else {
-            panic!("only a reading tag hands data to the device");
-        };
-        let (buf, len) = (buf.as_ptr(), buf.len() as u32);
-
-        io_uring::opcode::Write::new(fd, buf, len)
-            .offset(offset)
-            .build()
-            .user_data(user_data(tag, Step::DeviceWrite))
-    }
-
-    /// Take a write's incoming data from the character device.
-    fn read_device(&mut self, tag: u16) -> io_uring::squeue::Entry {
-        let fd = io_uring::types::Fd(std::os::fd::AsRawFd::as_raw_fd(&self.cdev));
-        let offset = sys::io_buf_offset(ublk::QUEUE_ID, tag);
-
-        let Slot::Receiving { buf, .. } = &mut self.slots[tag as usize] else {
-            panic!("only a receiving tag takes data from the device");
-        };
-        let (buf, len) = (buf.as_mut_ptr(), buf.len() as u32);
-
-        io_uring::opcode::Read::new(fd, buf, len)
-            .offset(offset)
-            .build()
-            .user_data(user_data(tag, Step::DeviceRead))
     }
 
     pub(super) fn io_command(&self, tag: u16, cmd_op: u32, result: i32) -> io_uring::squeue::Entry {

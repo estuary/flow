@@ -1,21 +1,21 @@
 //! The `io_uring` one owner drives, and the encoding by which a completion names
 //! the request and step it belongs to.
 //!
-//! The ring carries the queue's fetch and commit commands, the data each request
-//! moves through the character device, and the read which wakes the owner. The image
-//! is not on it: the owner reads and writes that directly, per `request.rs`.
+//! The ring carries the queue's fetch and commit commands, and the read which wakes
+//! the owner. Everything else a request does, from its data copies through the
+//! character device to its image I/O, is a blocking call on the owner's thread, per
+//! `request.rs`. What the ring buys is one wait for everything which can wake the
+//! owner, and commits and fetches which travel in batches.
 //!
 //! Every operation an owner issues goes through the backlog, so a full submission
-//! queue costs a later trip around the loop rather than a dropped operation. Buffers
-//! addressed by an outstanding entry stay pinned until `reap` sees their completion;
-//! `pending` counts them, and the thread does not release the image until it is zero.
+//! queue costs a later trip around the loop rather than a dropped operation.
+//! `pending` counts the operations outstanding, and the thread releases the image
+//! only once it is zero, when the stopped device has aborted every fetch.
 //!
-//! None of it needs `io_uring`'s worker threads. The driver holds the fetches, the
-//! wake is polled, and the data copies are issued inline in `submit_and_wait`,
-//! because the character device is opened `O_NONBLOCK`: see `open_char_device`. An
-//! operation which could not be issued inline would run on a worker thread of the
-//! owner's own, in a pool of the kernel's default size, which nothing caps across
-//! disks.
+//! None of it needs `io_uring`'s worker threads: the driver holds the fetches, and
+//! the wake is polled. An operation handed to one would run in a pool which belongs
+//! to the owner's thread, at the kernel's default size, and which nothing caps
+//! across disks.
 
 use super::Owner;
 use crate::ublk::sys;
@@ -33,8 +33,6 @@ pub(super) type Backlog = std::collections::VecDeque<io_uring::squeue::Entry>;
 pub(super) enum Step {
     Wake = 0,
     Fetch = 1,
-    DeviceWrite = 2,
-    DeviceRead = 3,
 }
 
 pub(super) fn user_data(tag: u16, step: Step) -> u64 {
@@ -45,8 +43,6 @@ fn parse_user_data(user_data: u64) -> (u16, Step) {
     let step = match user_data as u8 {
         0 => Step::Wake,
         1 => Step::Fetch,
-        2 => Step::DeviceWrite,
-        3 => Step::DeviceRead,
         other => panic!("completion carries unknown step {other}"),
     };
     ((user_data >> 8) as u16, step)
@@ -129,30 +125,13 @@ impl Owner {
     }
 }
 
-/// Interpret an `io_uring` result which should have moved `expected` bytes.
-pub(super) fn transferred(result: i32, expected: usize) -> Result<(), std::io::Error> {
-    if result < 0 {
-        return Err(std::io::Error::from_raw_os_error(-result));
-    }
-    if result as usize != expected {
-        return Err(std::io::Error::other(format!(
-            "moved {result} of {expected} bytes",
-        )));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod test {
     use super::{Step, parse_user_data, user_data};
 
     #[test]
     fn test_user_data_round_trips() {
-        for (tag, step) in [
-            (0, Step::Fetch),
-            (31, Step::DeviceWrite),
-            (u16::MAX, Step::DeviceRead),
-        ] {
+        for (tag, step) in [(0, Step::Wake), (15, Step::Fetch), (u16::MAX, Step::Fetch)] {
             assert_eq!(parse_user_data(user_data(tag, step)), (tag, step));
         }
     }
