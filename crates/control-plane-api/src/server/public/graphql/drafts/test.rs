@@ -1216,3 +1216,43 @@ async fn stage_rolls_back_after_database_error(pool: sqlx::PgPool) {
             .unwrap();
     assert_eq!(updated_at, created_at);
 }
+
+/// `Draft.specs` hides `lastPubId` and `isUnchanged` for specs the mask cannot CatalogRead.
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts")
+    )
+)]
+async fn test_draft_specs_capability_mask(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let draft_id = id(0x90);
+    insert_draft(&pool, draft_id, ALICE, "mask", ts("2024-03-01T00:00:00Z")).await;
+    sqlx::query(
+        r#"
+        INSERT INTO draft_specs (draft_id, catalog_name, spec_type, spec, expect_pub_id, detail, updated_at)
+        VALUES ($1, 'aliceCo/data/foo', 'collection', '{"masked":true}', null, 'staged over live', '2024-03-01T01:00:00Z')
+        "#,
+    )
+    .bind(draft_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let server = start(&pool).await;
+
+    let request = serde_json::json!({
+        "query": DRAFT_SPECS_QUERY,
+        "variables": { "id": draft_id.to_string() }
+    });
+
+    let response = server
+        .graphql_capability_mask_request(ALICE, Some("alice@example.com"), &request, &["viewer"])
+        .await;
+    insta::assert_json_snapshot!("mask_draft_specs_viewer", response);
+
+    let response = server
+        .graphql_capability_mask_request(ALICE, Some("alice@example.com"), &request, &["billing"])
+        .await;
+    insta::assert_json_snapshot!("mask_draft_specs_billing", response);
+}
