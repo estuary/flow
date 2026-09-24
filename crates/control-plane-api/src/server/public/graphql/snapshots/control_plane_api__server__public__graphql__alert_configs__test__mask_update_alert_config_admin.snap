@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+assertion_line: 1193
+expression: response
+---
+{
+  "data": {
+    "updateAlertConfig": {
+      "catalogPrefixOrName": "aliceCo/",
+      "created": true,
+      "id": "[id]"
+    }
+  },
+  "errors": null
+}

@@ -247,6 +247,34 @@ impl TestServer {
             .await
             .unwrap()
     }
+
+    /// Run one GraphQL `request` as `user_id` under a token whose
+    /// `capability_mask` claim names the given bundles. An empty slice is
+    /// the empty mask (present but holding nothing), not an unmasked token.
+    pub async fn graphql_capability_mask_request(
+        &self,
+        user_id: uuid::Uuid,
+        email: Option<&str>,
+        request: &serde_json::Value,
+        capability_mask: &[&str],
+    ) -> serde_json::Value {
+        let token = self.make_masked_access_token(
+            user_id,
+            email,
+            Some(capability_mask.iter().map(|b| b.to_string()).collect()),
+        );
+        let mut response: serde_json::Value = self.graphql(request, Some(&token)).await;
+
+        // Error `locations` are line/column offsets into the query text,
+        // so they change whenever a test reindents its query. Strip them
+        // so snapshots pin the error's message and path, not formatting.
+        if let Some(errors) = response["errors"].as_array_mut() {
+            for error in errors {
+                error.as_object_mut().map(|e| e.remove("locations"));
+            }
+        }
+        response
+    }
 }
 
 /// A no-op Builder for integration testing.

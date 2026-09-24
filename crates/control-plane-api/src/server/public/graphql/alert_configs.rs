@@ -1030,4 +1030,178 @@ mod test {
             .await;
         insta::assert_json_snapshot!("query_effective_denied", response);
     }
+
+    /// `alertConfigs` narrows on legacy Read.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_alert_configs_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+
+        // Seed a config row so the listing has something to narrow.
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        updateAlertConfig(catalogPrefixOrName: "aliceCo/", config: {}) { id }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            seeded["errors"].is_null(),
+            "seeding should succeed: {seeded}"
+        );
+
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                alertConfigs {
+                    edges { node { catalogPrefixOrName } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_alert_configs_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_alert_configs_billing", response);
+
+        let response = server
+            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
+            .await;
+        insta::assert_json_snapshot!("mask_alert_configs_empty", response);
+    }
+
+    /// `effectiveAlertConfig` requires CatalogRead.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_effective_alert_config_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                effectiveAlertConfig(catalogPrefixOrName: "aliceCo/") {
+                    config
+                    provenance { path source }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_effective_alert_config_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_effective_alert_config_billing", response);
+
+        let response = server
+            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
+            .await;
+        insta::assert_json_snapshot!("mask_effective_alert_config_empty", response);
+    }
+
+    /// `updateAlertConfig` requires legacy Admin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_update_alert_config_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                updateAlertConfig(catalogPrefixOrName: "aliceCo/", config: {}) {
+                    id
+                    catalogPrefixOrName
+                    created
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_update_alert_config_admin", response, {
+            ".data.updateAlertConfig.id" => "[id]"
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_update_alert_config_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
+            .await;
+        insta::assert_json_snapshot!("mask_update_alert_config_empty", response);
+    }
 }

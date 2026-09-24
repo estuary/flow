@@ -798,4 +798,277 @@ mod test {
         }
         "#);
     }
+
+    /// `createAlertSubscription` requires legacy Admin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_alert_subscription_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                createAlertSubscription(prefix: "aliceCo/", email: "alice@example.test") {
+                    catalogPrefix
+                    email
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_alert_subscription_admin", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_alert_subscription_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
+            .await;
+        insta::assert_json_snapshot!("mask_create_alert_subscription_empty", response);
+    }
+
+    /// `alertSubscriptions` requires legacy Admin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_alert_subscriptions_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+
+        // Seed the subscription with alice's unmasked token.
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createAlertSubscription(prefix: "aliceCo/", email: "alice@example.test") {
+                            email
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            seeded["errors"].is_null(),
+            "seeding should succeed: {seeded}"
+        );
+
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                alertSubscriptions(by: {prefix: "aliceCo/"}) {
+                    catalogPrefix
+                    email
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_alert_subscriptions_admin", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_alert_subscriptions_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
+            .await;
+        insta::assert_json_snapshot!("mask_alert_subscriptions_empty", response);
+    }
+
+    /// `updateAlertSubscription` requires legacy Admin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_update_alert_subscription_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+
+        // Seed the subscription with alice's unmasked token.
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createAlertSubscription(prefix: "aliceCo/", email: "alice@example.test") {
+                            email
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            seeded["errors"].is_null(),
+            "seeding should succeed: {seeded}"
+        );
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                updateAlertSubscription(
+                    prefix: "aliceCo/"
+                    email: "alice@example.test"
+                    detail: "masked"
+                ) {
+                    catalogPrefix
+                    email
+                    detail
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_update_alert_subscription_admin", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_update_alert_subscription_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
+            .await;
+        insta::assert_json_snapshot!("mask_update_alert_subscription_empty", response);
+    }
+
+    /// `deleteAlertSubscription` requires legacy Admin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_delete_alert_subscription_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+
+        // Seed the subscription with alice's unmasked token.
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createAlertSubscription(prefix: "aliceCo/", email: "alice@example.test") {
+                            email
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            seeded["errors"].is_null(),
+            "seeding should succeed: {seeded}"
+        );
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                deleteAlertSubscription(prefix: "aliceCo/", email: "alice@example.test") {
+                    catalogPrefix
+                    email
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_alert_subscription_admin", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_alert_subscription_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
+            .await;
+        insta::assert_json_snapshot!("mask_delete_alert_subscription_empty", response);
+    }
 }

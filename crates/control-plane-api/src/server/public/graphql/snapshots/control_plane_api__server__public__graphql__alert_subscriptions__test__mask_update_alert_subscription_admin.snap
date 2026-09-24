@@ -1,0 +1,14 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_subscriptions.rs
+expression: response
+---
+{
+  "data": {
+    "updateAlertSubscription": {
+      "catalogPrefix": "aliceCo/",
+      "detail": "masked",
+      "email": "alice@example.test"
+    }
+  },
+  "errors": null
+}

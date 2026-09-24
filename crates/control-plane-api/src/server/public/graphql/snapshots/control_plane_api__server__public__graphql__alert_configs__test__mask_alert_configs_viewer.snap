@@ -1,0 +1,18 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+expression: response
+---
+{
+  "data": {
+    "alertConfigs": {
+      "edges": [
+        {
+          "node": {
+            "catalogPrefixOrName": "aliceCo/"
+          }
+        }
+      ]
+    }
+  },
+  "errors": null
+}

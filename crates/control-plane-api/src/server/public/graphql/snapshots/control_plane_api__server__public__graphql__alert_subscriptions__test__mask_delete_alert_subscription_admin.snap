@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_subscriptions.rs
+expression: response
+---
+{
+  "data": {
+    "deleteAlertSubscription": {
+      "catalogPrefix": "aliceCo/",
+      "email": "alice@example.test"
+    }
+  },
+  "errors": null
+}
