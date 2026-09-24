@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/prefixes.rs
+assertion_line: 285
+expression: response
+---
+{
+  "data": {
+    "prefixes": {
+      "edges": []
+    }
+  },
+  "errors": null
+}

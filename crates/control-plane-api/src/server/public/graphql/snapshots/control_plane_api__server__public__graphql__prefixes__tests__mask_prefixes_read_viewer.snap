@@ -1,0 +1,24 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/prefixes.rs
+assertion_line: 246
+expression: response
+---
+{
+  "data": {
+    "prefixes": {
+      "edges": [
+        {
+          "node": {
+            "capabilities": [
+              "CatalogRead",
+              "JournalRead",
+              "ViewDataPlanePrivateNetworking"
+            ],
+            "prefix": "aliceCo/"
+          }
+        }
+      ]
+    }
+  },
+  "errors": null
+}

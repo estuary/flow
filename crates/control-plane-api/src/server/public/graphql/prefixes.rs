@@ -208,4 +208,80 @@ mod tests {
         }
         "#);
     }
+
+    /// `prefixes` lists only prefixes whose masked bits cover `by.minCapability`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_prefixes_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // `gate: false`: an empty grant set lists nothing without a denial
+        // that would advance a gated snapshot past its initial empty state.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                prefixes(by: { minCapability: read }) {
+                    edges { node { prefix capabilities } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_prefixes_read_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_prefixes_read_billing", response);
+
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                prefixes(by: { minCapability: admin }) {
+                    edges { node { prefix capabilities } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_prefixes_admin_admin", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_prefixes_admin_viewer", response);
+    }
 }

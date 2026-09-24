@@ -1,0 +1,40 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/prefixes.rs
+assertion_line: 275
+expression: response
+---
+{
+  "data": {
+    "prefixes": {
+      "edges": [
+        {
+          "node": {
+            "capabilities": [
+              "CatalogRead",
+              "JournalRead",
+              "JournalAppend",
+              "SpecEdit",
+              "CreateGrant",
+              "DeleteGrant",
+              "CreateInviteLink",
+              "ViewDataPlanePrivateNetworking",
+              "ModifyDataPlanePrivateNetworking",
+              "ViewBilling",
+              "EditBilling",
+              "QueryServiceAccounts",
+              "CreateServiceAccount",
+              "CreateApiKey",
+              "RevokeApiKey",
+              "ViewSecret",
+              "EditSecret",
+              "DecryptSecret",
+              "Delegate"
+            ],
+            "prefix": "aliceCo/"
+          }
+        }
+      ]
+    }
+  },
+  "errors": null
+}
