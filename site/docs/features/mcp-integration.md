@@ -107,19 +107,21 @@ Add to your Claude Desktop config file:
 **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+Prerequisites for Windows: Install Node.js if you don't have it (includes npx).
 
 ```json
 {
   "mcpServers": {
     "estuary": {
-      "type": "http",
-      "url": "https://estuary.mcp.kapa.ai"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://estuary.mcp.kapa.ai"]
     }
   }
 }
 ```
 
-Restart Claude Desktop for changes to take effect.
+Restart Claude Desktop for changes to take effect. On first use, it will open a browser window for the Google sign-in.
+To open the config file quickly, in Claude Desktop go to **Settings → Developer → Edit Config**.
 
 For more details, see the [Claude Desktop documentation](https://support.anthropic.com/en/articles/9487310-desktop-app).
 
