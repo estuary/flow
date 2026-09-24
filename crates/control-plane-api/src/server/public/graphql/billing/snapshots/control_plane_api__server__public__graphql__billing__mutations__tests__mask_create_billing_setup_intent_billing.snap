@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+assertion_line: 571
+expression: response
+---
+{
+  "data": {
+    "createBillingSetupIntent": {
+      "clientSecret": "seti_mock_1_secret_test"
+    }
+  },
+  "errors": null
+}

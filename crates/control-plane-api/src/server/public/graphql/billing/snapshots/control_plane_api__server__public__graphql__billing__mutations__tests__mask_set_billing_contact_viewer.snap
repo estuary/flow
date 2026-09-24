@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+assertion_line: 665
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "message": "PermissionDenied: masktenant@example.test is not authorized to access prefix or name 'masktenant/' with required capability EditBilling",
+      "path": [
+        "setBillingContact"
+      ]
+    }
+  ]
+}

@@ -509,4 +509,199 @@ mod tests {
             cross_tenant_response
         );
     }
+
+    /// Provision `masktenant/` with an in-memory Stripe customer holding one
+    /// card, and start a server over it. Returns the server and the tenant's
+    /// user id.
+    async fn start_mask_tenant(pool: &sqlx::PgPool) -> (test_server::TestServer, uuid::Uuid) {
+        let user_id = provision_test_tenant(pool, "masktenant").await;
+
+        let mock = billing::InMemoryBillingProvider::new();
+        mock.add_customer("masktenant/", "cus_mask", Some("pm_1"));
+        mock.add_payment_method(
+            "cus_mask",
+            "pm_1",
+            stripe::PaymentMethodType::Card,
+            stripe::BillingDetails {
+                name: Some("Mask".to_string()),
+                ..Default::default()
+            },
+            Some(stripe::CardDetails {
+                brand: "visa".to_string(),
+                last4: "4242".to_string(),
+                ..Default::default()
+            }),
+            None,
+        );
+
+        let server = test_server::TestServer::start_with_config(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            Some(Arc::new(mock)),
+            models::AlertConfig::default(),
+        )
+        .await;
+        (server, user_id)
+    }
+
+    /// `createBillingSetupIntent` requires EditBilling on the tenant.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_billing_setup_intent_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let (server, user_id) = start_mask_tenant(&pool).await;
+
+        let request = json!({
+            "query": r#"
+            mutation {
+                createBillingSetupIntent(tenant: "masktenant/") { clientSecret }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_billing_setup_intent_billing", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_billing_setup_intent_viewer", response);
+    }
+
+    /// `setBillingPaymentMethod` requires EditBilling on the tenant.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_set_billing_payment_method_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let (server, user_id) = start_mask_tenant(&pool).await;
+
+        let request = json!({
+            "query": r#"
+            mutation {
+                setBillingPaymentMethod(tenant: "masktenant/", paymentMethodId: "pm_1") {
+                    primaryPaymentMethod { id }
+                    paymentMethods { id }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_set_billing_payment_method_billing", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_set_billing_payment_method_viewer", response);
+    }
+
+    /// `setBillingContact` requires EditBilling on the tenant.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_set_billing_contact_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let (server, user_id) = start_mask_tenant(&pool).await;
+
+        let request = json!({
+            "query": r#"
+            mutation {
+                setBillingContact(
+                    tenant: "masktenant/"
+                    email: "billing@example.test"
+                    name: "Mask Corp"
+                    address: { line1: "1 Main St", city: "Springfield", state: "IL", postalCode: "62704", country: "US" }
+                ) {
+                    contact { email name }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_set_billing_contact_billing", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_set_billing_contact_viewer", response);
+    }
+
+    /// `deleteBillingPaymentMethod` requires EditBilling on the tenant.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_delete_billing_payment_method_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let (server, user_id) = start_mask_tenant(&pool).await;
+
+        let request = json!({
+            "query": r#"
+            mutation {
+                deleteBillingPaymentMethod(tenant: "masktenant/", paymentMethodId: "pm_1") {
+                    primaryPaymentMethod { id }
+                    paymentMethods { id }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_billing_payment_method_billing", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_billing_payment_method_viewer", response);
+    }
 }

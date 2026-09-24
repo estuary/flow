@@ -1,0 +1,14 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+assertion_line: 695
+expression: response
+---
+{
+  "data": {
+    "deleteBillingPaymentMethod": {
+      "paymentMethods": [],
+      "primaryPaymentMethod": null
+    }
+  },
+  "errors": null
+}

@@ -1,0 +1,20 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+assertion_line: 611
+expression: response
+---
+{
+  "data": {
+    "setBillingPaymentMethod": {
+      "paymentMethods": [
+        {
+          "id": "pm_1"
+        }
+      ],
+      "primaryPaymentMethod": {
+        "id": "pm_1"
+      }
+    }
+  },
+  "errors": null
+}

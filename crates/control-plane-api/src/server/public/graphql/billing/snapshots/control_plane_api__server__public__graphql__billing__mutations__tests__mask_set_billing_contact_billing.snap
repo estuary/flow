@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+assertion_line: 655
+expression: response
+---
+{
+  "data": {
+    "setBillingContact": {
+      "contact": {
+        "email": "billing@example.test",
+        "name": "Mask Corp"
+      }
+    }
+  },
+  "errors": null
+}

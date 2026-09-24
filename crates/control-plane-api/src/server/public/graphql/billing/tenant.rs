@@ -171,4 +171,49 @@ mod tests {
         assert_eq!(unauthorized["data"]["tenant"], serde_json::Value::Null);
         assert_eq!(unauthorized["errors"].as_array().map(Vec::len), Some(1));
     }
+
+    /// `Tenant.billing` requires ViewBilling, beneath `tenant`'s legacy Read.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_tenant_billing_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let user_id = provision_test_tenant(&pool, "masktenant").await;
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let request = json!({
+            "query": r#"
+            query {
+                tenant(name: "masktenant/") {
+                    billing { contact { email name } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["viewer", "billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_tenant_billing_viewer_billing", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                user_id,
+                Some("masktenant@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_tenant_billing_viewer", response);
+    }
 }

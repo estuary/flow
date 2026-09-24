@@ -1,0 +1,19 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/tenant.rs
+assertion_line: 217
+expression: response
+---
+{
+  "data": {
+    "tenant": null
+  },
+  "errors": [
+    {
+      "message": "PermissionDenied: masktenant@example.test is not authorized to access prefix or name 'masktenant/' with required capability ViewBilling",
+      "path": [
+        "tenant",
+        "billing"
+      ]
+    }
+  ]
+}

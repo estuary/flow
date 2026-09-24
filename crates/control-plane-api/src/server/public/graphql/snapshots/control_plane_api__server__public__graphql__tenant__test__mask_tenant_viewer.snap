@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/tenant.rs
+assertion_line: 80
+expression: response
+---
+{
+  "data": {
+    "tenant": {
+      "name": "masktenant/"
+    }
+  },
+  "errors": null
+}
