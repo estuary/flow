@@ -494,4 +494,112 @@ mod test {
             @"Unable to mint a new token from a token with a capability mask"
         );
     }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../fixtures",
+            scripts("sso_tenant", "data_planes", "bob_co", "bob_co2")
+        )
+    )]
+    async fn test_unheld_mask_bundles_are_inert(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let bob = uuid::Uuid::from_bytes([0x22; 16]);
+        let carol = uuid::Uuid::from_bytes([0x33; 16]);
+
+        // Bob, a genuine admin of `bobCo2/`, seeds a config row so that a
+        // Viewer read below has something to return.
+        let bob_token = server.make_access_token(bob, Some("bob@example.test"));
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        updateAlertConfig(catalogPrefixOrName: "bobCo2/", config: {}) {
+                            catalogPrefixOrName
+                        }
+                    }"#
+                }),
+                Some(&bob_token),
+            )
+            .await;
+        assert!(
+            seeded["errors"].is_null(),
+            "bob should be able to seed the config: {seeded}"
+        );
+
+        // === Minting accepts a bundle the caller does not hold ===
+        let carol_token = server.make_access_token(carol, Some("carol@example.test"));
+        let minted = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({
+                    "grant_type": "capability_token",
+                    "capability_mask": ["admin"],
+                }),
+                Some(&carol_token),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            minted.status(),
+            reqwest::StatusCode::OK,
+            "a mask wider than the caller's grants is still minted"
+        );
+        let body: serde_json::Value = minted.json().await.unwrap();
+        let masked_token = body["access_token"].as_str().unwrap();
+
+        // === The unheld admin bit confers nothing ===
+        let denied: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        updateAlertConfig(catalogPrefixOrName: "bobCo2/", config: {}) {
+                            catalogPrefixOrName
+                        }
+                    }"#
+                }),
+                Some(masked_token),
+            )
+            .await;
+        assert!(denied["data"].is_null(), "mutation must not run: {denied}");
+        assert_eq!(
+            denied["errors"][0]["message"],
+            "PermissionDenied: carol@example.test is not authorized to access prefix or name 'bobCo2/' with required capability admin",
+            "the mask cannot grant admin carol lacks: {denied}"
+        );
+
+        // === The Viewer bits carol does hold keep working ===
+        // `admin` includes Viewer, and carol's grant is Viewer, so the
+        // intersection is exactly her real authority.
+        let read: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        alertConfigs(filter: { catalogPrefixOrName: { startsWith: "bobCo2/" } }) {
+                            edges { node { catalogPrefixOrName } }
+                        }
+                    }"#
+                }),
+                Some(masked_token),
+            )
+            .await;
+        assert!(read["errors"].is_null(), "the read must succeed: {read}");
+        assert_eq!(
+            read["data"]["alertConfigs"]["edges"],
+            serde_json::json!([{ "node": { "catalogPrefixOrName": "bobCo2/" } }]),
+            "carol still reads what Viewer allows: {read}"
+        );
+    }
 }
