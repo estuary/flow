@@ -493,6 +493,10 @@ pub async fn exec(
 
     match launch(client, sandbox, &argv, stdin).await {
         Ok(session_id) => {
+            // TODO: The command is already running here. If this write fails,
+            // the caller gets an error and no exec id, yet the exec is listed
+            // and runs to completion, cannot be cancelled without its session
+            // ID, and runs again if the caller retries.
             client
                 .write_file(
                     &sandbox.handle,

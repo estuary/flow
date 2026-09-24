@@ -55,6 +55,10 @@ impl Client {
     pub async fn create_sprite(&self, name: &str) -> anyhow::Result<Sprite> {
         let url = self.url(["v1", "sprites"]);
 
+        // TODO: This request has no timeout, and `http` sets no default. With
+        // `wait_for_capacity`, it can block `sandboxCreate` without bound. A
+        // client that disconnects meanwhile leaves an unready record holding
+        // its catalog name.
         let response = self
             .http
             .post(url)
