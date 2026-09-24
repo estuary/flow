@@ -39,6 +39,7 @@ aide = { workspace = true }
 anyhow = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
@@ -67,6 +68,7 @@ tempfile = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
