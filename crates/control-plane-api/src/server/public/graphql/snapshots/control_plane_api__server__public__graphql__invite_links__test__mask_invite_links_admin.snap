@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+assertion_line: 2021
+expression: response
+---
+{
+  "data": {
+    "inviteLinks": {
+      "edges": [
+        {
+          "node": {
+            "capability": "read",
+            "catalogPrefix": "aliceCo/",
+            "singleUse": true
+          }
+        }
+      ]
+    }
+  },
+  "errors": null
+}

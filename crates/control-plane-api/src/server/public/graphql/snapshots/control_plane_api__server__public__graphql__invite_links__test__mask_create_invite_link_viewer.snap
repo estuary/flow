@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+assertion_line: 1968
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'aliceCo/' with required capability admin",
+      "path": [
+        "createInviteLink"
+      ]
+    }
+  ]
+}

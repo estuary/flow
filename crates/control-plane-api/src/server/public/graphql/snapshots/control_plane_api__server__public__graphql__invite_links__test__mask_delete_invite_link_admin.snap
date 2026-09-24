@@ -1,0 +1,11 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+assertion_line: 2095
+expression: response
+---
+{
+  "data": {
+    "deleteInviteLink": true
+  },
+  "errors": null
+}

@@ -1,0 +1,13 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+assertion_line: 2031
+expression: response
+---
+{
+  "data": {
+    "inviteLinks": {
+      "edges": []
+    }
+  },
+  "errors": null
+}

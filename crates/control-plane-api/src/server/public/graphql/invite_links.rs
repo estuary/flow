@@ -1918,4 +1918,180 @@ mod test {
             "matching SSO user should redeem single-use invite after prior SSO rejection"
         );
     }
+
+    /// `createInviteLink` requires legacy Admin on `catalogPrefix`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_invite_link_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                createInviteLink(catalogPrefix: "aliceCo/", capability: read) {
+                    token
+                    catalogPrefix
+                    capability
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_invite_link_admin", response, {
+            ".data.createInviteLink.token" => "[token]"
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_invite_link_viewer", response);
+    }
+
+    /// `inviteLinks` narrows on legacy Admin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_invite_links_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createInviteLink(catalogPrefix: "aliceCo/", capability: read) { token }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            seeded["errors"].is_null(),
+            "seeding should succeed: {seeded}"
+        );
+
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                inviteLinks {
+                    edges { node { catalogPrefix capability singleUse } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_invite_links_admin", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_invite_links_viewer", response);
+    }
+
+    /// `deleteInviteLink` requires legacy Admin on the invite's prefix.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_delete_invite_link_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createInviteLink(catalogPrefix: "aliceCo/", capability: read) { token }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        let invite_token = seeded["data"]["createInviteLink"]["token"]
+            .as_str()
+            .expect("seeding should succeed");
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation($token: UUID!) {
+                deleteInviteLink(token: $token)
+            }"#,
+            "variables": { "token": invite_token }
+        });
+
+        // The invite is looked up before authorization, so `viewer` must be
+        // denied while the row still exists: after `admin` deletes it, the
+        // same call would fail as "Invalid invite link" instead.
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_invite_link_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_invite_link_admin", response);
+    }
 }
