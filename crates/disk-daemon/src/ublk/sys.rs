@@ -38,6 +38,8 @@ pub const UBLK_F_USER_COPY: u64 = bindings::UBLK_F_USER_COPY as u64;
 /// confirm that the kernel accepts ioctl-encoded opcodes.
 pub const UBLK_F_CMD_IOCTL_ENCODE: u64 = bindings::UBLK_F_CMD_IOCTL_ENCODE as u64;
 
+/// The result of a fetch which hands a request over.
+pub const UBLK_IO_RES_OK: i32 = bindings::UBLK_IO_RES_OK as i32;
 /// The result of every fetch the kernel aborts, which it does once the device has
 /// stopped.
 pub use bindings::UBLK_RESULT_ABORT as UBLK_IO_RES_ABORT;

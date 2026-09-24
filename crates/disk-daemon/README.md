@@ -7,7 +7,7 @@ recovering those files alongside their checkpoint after a failure or
 reassignment.
 
 Each disk is a sparse local image, exposed through Linux `ublk` and mounted as
-ext4. The daemon captures block mutations into a Gazette journal and lets a
+ext4. The daemon records block mutations into a Gazette journal and lets a
 client decide which transaction commits them. Recording below the filesystem
 keeps the daemon independent of the application's storage engine and file
 operations; the host kernel provides the filesystem semantics. The local image
@@ -33,16 +33,16 @@ rest belongs to the daemon and is private. Everything below is `src/`.
 | `tenure.rs` | `Service` and `Tenure`: the RPC state machine. |
 | `failure.rs` | `Failure`, and the gRPC code each tenure failure ends its stream with. |
 | `serving.rs` | `Serving`: one open disk's mount, device, and writer — its bootstrap commit, the cut order of `prepare`, and its teardown. |
-| `device/` | `Device`: one `ublk` device's life from `add_dev` to `del_dev`, and the `Owner` thread which serves it. `owner.rs` is that thread, `ring.rs` its `io_uring`, `request.rs` the per-tag path of one request, `admission.rs` the cut and the horizon copies. |
+| `device/` | `Device`: one `ublk` device's life from `add_dev` to `del_dev`, and the `Owner` thread which serves it. `owner.rs` is that thread, which passes each request from the queue to the backend and each reply back, and decides nothing. `queue.rs` is the `ublk` queue over its `io_uring`, and every copy through the character device, so it hands over requests and completes replies as plain data. `backend.rs` is everything decided about a request, over the image and knowing nothing of the ring: answering it, applying each mutation admission lets through, reading horizon copies, and commands; its cases need no device. `admission.rs` is the gate in front of the recording channel and the horizon its recorded mutations discharge: the cut, parked mutations, the copy budget a delta earns and the runs it copies, and the chunks a request's change is recorded as. |
 | `ublk/` | The `ublk` ABI: `control.rs` is the host-wide control device, `sys.rs` the generated bindings. |
 | `image.rs` | `Image`: the sparse file and the bitmap of what it has allocated. |
 | `bitmap.rs` | `Bitmap`: a fixed set of block indices. |
 | `chunk.rs` | The durable chunk codec, and applying a chunk to an image. |
 | `horizon.rs` | `Horizon` and `Policy`: when a recovery horizon opens, and how it discharges. |
-| `capture.rs` | The bounded channel between an accepted mutation and the writer. |
-| `wake.rs` | `Waker`: the eventfd which interrupts an owner parked on its ring. |
+| `recording.rs` | The bounded channel between an accepted mutation and the writer: a Tokio channel, whose room the owner polls through `tokio_util`'s `PollSender`. |
+| `wake.rs` | `Waker`: the eventfd which interrupts an owner parked on its ring, and the `std::task::Waker` a refused reservation leaves with the recording channel. |
 | `filesystem.rs` | `mkfs`, `Mount`, and `syncfs`. The only file which knows it is ext4. |
-| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `fence.rs` claims it, `writer.rs` appends its deltas, `playback.rs` replays it, `replay.rs` holds the rules, `buffer.rs` stores the unacknowledged delta. |
+| `journal/` | One tenure's journal. `spec.rs` validates it and stores the floor, `fence.rs` claims it, `writer.rs` appends its deltas as `ledger.rs` decides them, `playback.rs` replays it, `replay.rs` holds the rules, `reassembly.rs` turns a read's content into records, `sequencer.rs` decides what each record does to the delta held, and `held.rs` holds that unacknowledged delta. `ledger.rs`, `reassembly.rs` and `sequencer.rs` do no I/O. |
 
 ## Architecture
 
@@ -58,7 +58,7 @@ transaction client ── Tenure RPC ──► tenure task
        ▼                                  ▼
     workload ──► ext4 ──► ublk ──► owner thread + io_uring
                                       │              │
-                                 image I/O      captured mutations
+                                 image I/O      recorded mutations
                                       │              │
                                       ▼              ▼
                                sparse image     journal writer ──► Gazette
@@ -73,7 +73,7 @@ The responsibilities follow these ownership boundaries:
   image and destroys as it tears down.
 - **Owner** serves that device's queue and is the only thread that mutates the
   live image, its allocated bitmap, and its open recovery horizon.
-- **Writer** takes captured mutations, appends them as records, prepares
+- **Writer** takes recorded mutations, appends them as records, prepares
   acknowledgements, and advances recovery floors. Broker I/O runs independently
   of the owner.
 
@@ -124,27 +124,27 @@ Preparation establishes the boundary in this order:
 
 1. Call `syncfs` on the mount.
 2. Close mutation admission. Every admitted mutation is already in the image.
-3. Take every remaining captured mutation, then flush and wait for the broker to
+3. Take every remaining recorded mutation, then flush and wait for the broker to
    confirm every record of the delta.
 4. Sample compaction progress and build the acknowledgement.
 5. Reopen admission and return `Prepared`.
 
-Closing admission is the exact device cut. The owner captures a mutation and then
+Closing admission is the exact device cut. The owner records a mutation and then
 applies it to the image in one step, so it falls wholly before or after that cut.
 The client then commits its state together with the acknowledgement, sends
 `Acknowledge`, and releases the workload for its next transaction.
 
-Recovery preserves filesystem contents at the committed boundary. Mounting and
-ext4 journal replay can change filesystem bookkeeping, so the recovered block
-image need not be byte-for-byte identical. Aligning that boundary with the
+Recovery preserves filesystem contents at the committed boundary. Mounting, and
+ext4's recovery from its own internal journal, can change filesystem bookkeeping,
+so the recovered block image need not be byte-for-byte identical. Aligning that boundary with the
 application's transaction remains the client's responsibility.
 
 ### One pending delta
 
 There is at most one prepared delta awaiting acknowledgement. The writer stops
-taking captured mutations until that acknowledgement is appended and confirmed.
+taking recorded mutations until that acknowledgement is appended and confirmed.
 Device admission has already reopened, so subsequent writes can fill the bounded
-capture channel and then stall. Reads may also wait if parked writes occupy every
+recording channel and then stall. Reads may also wait if parked writes occupy every
 queue tag.
 
 This barrier follows from Gazette sequencing. A tenure uses one producer for all
@@ -179,7 +179,7 @@ queue to the thread that arms its first fetch; a Tokio task could migrate betwee
 workers. Single ownership also keeps image and bitmap updates free of locks.
 
 Reads come from the image. Each write, discard, or write-zeroes request first
-offers its complete mutation to the bounded capture channel. A full channel parks
+offers its complete mutation to the bounded recording channel. A full channel parks
 the request, and every later mutation queues behind it in arrival order, ahead of
 any horizon copy. Once the channel accepts the mutation, the owner applies it to the
 image at once, so the image takes mutations in exactly the order the journal does,
@@ -214,7 +214,7 @@ The writer takes one mutation at a time and hands it to the appender as one
 record, returning to its requests in between, so a disk under sustained write
 load stays serviceable and the writer never accumulates a batch of its own.
 
-What a live disk holds is therefore the device queue, the capture queue, the one
+What a live disk holds is therefore the device queue, the recording queue, the one
 append in flight, and the batch accumulating behind it. Queue capacity and the
 maximum device request size bound the first two; the appender's byte threshold
 bounds the last two, approximately. Records are never split, so a batch ends
@@ -223,18 +223,18 @@ record. None of this bounds a delta, whose size is the workload's, nor the
 process's resident memory.
 
 A writer whose batch is over the threshold waits for the append in flight, and
-takes no mutation while it waits. The capture channel fills behind it and the
+takes no mutation while it waits. The recording channel fills behind it and the
 device parks: that channel remains the single seam at which a workload writing
 faster than its brokers accept is slowed down.
 
 Mutation requests complete once they are applied to the image. This keeps normal
-block I/O independent of broker latency until capture backpressure applies.
+block I/O independent of broker latency until recording backpressure applies.
 The device advertises no volatile write cache and implements no flush or FUA
 requests: local device completion is not the durability boundary. `Prepare`
 establishes durability through Gazette.
 
 An image write the host refuses, in practice for want of space, fails its request
-and every later cut of the disk. Its mutation was captured before the image
+and every later cut of the disk. Its mutation was recorded before the image
 refused it, so the delta then open holds what the image lacks. The failed cut ends
 the tenure before that delta can commit, a replay drops it, and the image goes with
 the tenure. A horizon run the owner cannot read out of the image fails later cuts
@@ -252,7 +252,7 @@ requested device size, and unwritten regions are holes.
 Discards and write-zeroes punch holes, allowing freed filesystem space to return
 to the host. An allocated bitmap tracks this exactly at the device's 4 KiB
 granularity; host `st_blocks` accounting can lag writes. There is no dirty bitmap,
-because mutations are captured as they arrive.
+because mutations are recorded as they arrive.
 
 The block size is fixed at 4 KiB, avoiding another per-disk parameter that
 recovery would have to reproduce. Device size is supplied by the caller and must
@@ -266,9 +266,9 @@ as well as content, which recovery horizons depend on.
 
 ### Filesystem choice
 
-ext4 is the only filesystem implementation. Its metadata journaling and
-`assume_storage_prezeroed` support keep journal traffic and initial allocation
-small: unused inode tables and the filesystem journal can remain holes.
+ext4 is the only filesystem implementation. Its metadata-only journaling and
+`assume_storage_prezeroed` support keep the disk's Gazette appends and initial
+allocation small: unused inode tables and ext4's internal journal can remain holes.
 The durable format records blocks and contains no ext4-specific operations.
 
 The mount uses `noatime,nodev,nosuid,noexec,discard`. `noatime` keeps reads from
@@ -412,7 +412,7 @@ committed allocation before applying that record, and reconstructs horizon
 progress from subsequent committed chunks. A horizon therefore survives tenure
 replacement without a separate checkpoint or manifest.
 
-The live owner clears pending bits as chunks are captured, ahead of commit.
+The live owner clears pending bits as chunks are recorded, ahead of commit.
 That state cannot outlive a failed tenure. `Prepare` samples whether the horizon
 is complete at the cut, and only acknowledgement of that delta advances the floor
 to the opening record. Sampling at acknowledgement time would incorrectly include
@@ -467,7 +467,7 @@ in the same order, rather than dropping it. Its mount, if that stalls on the
 device, is released by abandoning the writer and awaited rather than killed: a
 mount which landed after the tenure gave up on it would keep the device from
 ever being deleted. The writer abandons appends but keeps draining mutations, because unmount
-itself writes and would otherwise deadlock on capture backpressure. The tenure
+itself writes and would otherwise deadlock on recording backpressure. The tenure
 unmounts before stopping and deleting the device, then drops the anonymous image.
 Stopping waits for every request in flight, parked ones included, so the writer
 drains through the stop as well. Only then does the kernel abort the queue's
@@ -504,18 +504,18 @@ plane and reads its journals, the `Daemon` which runs the shipped binary, a raw
 `Tenure` stream for requests the client cannot express, and the `Tree` a case
 holds the disk to.
 
-Unit, property, broker, and device tests live beside the code they cover, in
-`src/`, as `mod test`, `mod broker_test`, and `mod device_test`. A module whose
-tests outgrew it keeps them in a sibling file of the same path, such as
-`chunk.rs` with `chunk/test.rs`, so the test names do not move. `src/test_support/`
-holds what those need: a privileged child process for a real device, and a data
-plane for a real broker. `e2e-support` holds the journal helpers both trees use.
+Unit, property, and broker tests live beside the code they cover, in `src/`, as
+`mod test` and `mod broker_test`. None serves a device or needs privilege: the
+device's decisions are `device/backend.rs`'s, which its cases drive over an ordinary
+file. A module's `mod test` is inline in the module's own file.
+`src/test_support/` holds what those need: a data plane for a real broker, and the
+replay an image is held to. `e2e-support` holds the journal helpers both trees use.
 
 ```console
 mise run build:gazette
 mise exec -- cargo nextest run -p disk-daemon
 ```
 
-Privileged tests use `sudo -n` child processes, leaving Cargo unprivileged. Run
-through nextest so its test groups serialize tests sharing the host's `ublk`
-control device. The suite requires the host prerequisites above.
+The black-box suite runs the daemon in a `sudo -n` child process, leaving Cargo
+unprivileged. Run through nextest so its test groups serialize the binaries sharing
+the host's `ublk` control device. The suite requires the host prerequisites above.

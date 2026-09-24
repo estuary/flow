@@ -91,13 +91,6 @@ filter = 'package(disk-daemon) and kind(test)'
 test-group = 'serial-ublk-tests'
 slow-timeout = { period = "60s", terminate-after = 6 }
 
-# The crate's own device-backed cases, which serve a real device from a privileged
-# child of the lib test binary. They live in the modules they cover, so the filter
-# names the module every one of them is in.
-[[profile.default.overrides]]
-filter = 'package(disk-daemon) and test(/::device_test::/)'
-test-group = 'serial-ublk-tests'
-
 # This `server::` filter is overly broad, as not all the tests there actually
 # need the database. But I gave up on listing all the tests individually, as
 # that seems pretty fragile. Probably best to find a different way of grouping

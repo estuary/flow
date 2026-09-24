@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
 /// stderr. The base `EnvFilter` (`RUST_LOG`, default `info`) is composed with
 /// `service_kit::trace`'s per-handler override filter, so an operator can raise
 /// a handler's verbosity at runtime via the admin dashboard; `service_kit::event`
-/// additionally captures opt-in `event!` breadcrumbs into per-handler tracks
+/// additionally records opt-in `event!` breadcrumbs into per-handler tracks
 /// shown on the dashboard's handler drill-down page.
 fn install_tracing(log_format: disk_daemon::args::LogFormat, registry: service_kit::Registry) {
     use tracing_subscriber::Layer;

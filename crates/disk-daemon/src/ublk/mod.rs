@@ -23,15 +23,15 @@ pub const QUEUE_ID: u16 = 0;
 /// Depth of that queue: how many requests the kernel may hand the owner at once.
 ///
 /// The owner serves requests one at a time, so depth buys batching rather than
-/// parallelism. Each wake reaps, and each submission carries, more requests per trip
+/// parallelism. Each wake collects, and each submission carries, more requests per trip
 /// into the kernel, and that trip is what bounds small requests. Measured, random
 /// 4 KiB throughput rises with depth up to 16, and 32 adds nothing. Depth also
-/// bounds what one disk buffers, which is a request buffer per tag and a capture
-/// channel of as many mutations, so it is no deeper than that.
+/// bounds what one disk buffers, which is a request buffer per tag and a
+/// recording channel of as many mutations, so it is no deeper than that.
 pub const QUEUE_DEPTH: u16 = 16;
 
 /// Largest request the device accepts. Its data may outlive device I/O in the
-/// capture queue or an append, so smaller requests bound all three stages while
+/// recording queue or an append, so smaller requests bound all three stages while
 /// retaining queue concurrency.
 pub const MAX_IO_BUF_BYTES: u32 = 128 * 1024;
 
@@ -55,7 +55,7 @@ pub fn block_path(dev_id: u32) -> std::path::PathBuf {
 ///
 /// `attrs` leaves `UBLK_ATTR_VOLATILE_CACHE` clear, so the kernel issues no flush
 /// or force-unit-access requests. This crate implements neither. The local image is
-/// disposable, and durability belongs to the journal, so a delta captures exactly
+/// disposable, and durability belongs to the journal, so a delta records exactly
 /// the writes which completed.
 pub fn params(blocks: u32) -> sys::UblkParams {
     let sectors = blocks as u64 * crate::BLOCK_SIZE as u64 / sys::SECTOR_SIZE;
@@ -143,5 +143,42 @@ impl Drop for IoDescs {
         // SAFETY: `base` and `len` are the mapping this type created. No reference
         // into it outlives the drop.
         unsafe { libc::munmap(self.base as *mut libc::c_void, self.len) };
+    }
+}
+
+#[cfg(test)]
+mod test {
+    /// The kernel sends a device only the requests its parameters advertise. A disk
+    /// whose frees are to return space to the host must advertise discards and
+    /// write-zeroes at the block granularity, and one without a volatile cache is
+    /// sent no flush.
+    #[test]
+    fn test_params_advertise_block_discards_and_no_cache() {
+        let params = super::params(32768);
+
+        insta::assert_debug_snapshot!((params.types, params.basic, params.discard), @"
+        (
+            3,
+            ublk_param_basic {
+                attrs: 0,
+                logical_bs_shift: 12,
+                physical_bs_shift: 12,
+                io_opt_shift: 12,
+                io_min_shift: 12,
+                max_sectors: 256,
+                chunk_sectors: 0,
+                dev_sectors: 262144,
+                virt_boundary_mask: 0,
+            },
+            ublk_param_discard {
+                discard_alignment: 0,
+                discard_granularity: 4096,
+                max_discard_sectors: 32768,
+                max_write_zeroes_sectors: 32768,
+                max_discard_segments: 1,
+                reserved0: 0,
+            },
+        )
+        ");
     }
 }

@@ -40,6 +40,17 @@ impl Image {
         })
     }
 
+    /// An image of `blocks` over `file`, for a case which needs the host to refuse
+    /// it: `/dev/full` refuses every write, and a file opened only for writing
+    /// refuses every read.
+    #[cfg(test)]
+    pub fn from_file(file: std::fs::File, blocks: u32) -> Self {
+        Self {
+            file,
+            allocated: Bitmap::new(blocks),
+        }
+    }
+
     /// The file itself, for a case which compares or replays images byte for byte.
     #[cfg(test)]
     pub fn file(&self) -> &std::fs::File {
@@ -97,7 +108,7 @@ impl Image {
     /// Apply a journal chunk. This is how replay rebuilds an image.
     ///
     /// Discharging the horizon the chunk publishes belongs to whoever holds that
-    /// horizon, which is [`crate::journal::buffer::Buffer::drain`] here.
+    /// horizon, which is [`crate::journal::held::HeldDelta::drain`] here.
     pub fn apply(&mut self, chunk: &crate::proto::Chunk) -> std::io::Result<()> {
         crate::chunk::apply(chunk, &self.file, &mut self.allocated)
     }

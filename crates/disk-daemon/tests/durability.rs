@@ -69,7 +69,7 @@ async fn a_committed_disk_reopens_with_its_contents(
 /// A fresh disk's journal holds the whole formatted filesystem, because the daemon
 /// commits the `mkfs` and mount itself. What that costs is bounded by what the format
 /// allocated rather than by the size of the device: a prezeroed format leaves the
-/// inode tables and the ext4 journal as holes, which nothing captures.
+/// inode tables and the ext4 journal as holes, which nothing records.
 async fn a_formatted_disk_costs_a_bounded_journal(
     fixture: &support::Fixture,
     daemon: &support::Daemon,

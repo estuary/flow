@@ -17,7 +17,7 @@
 //! at `1 + copy_ratio`. A disk nothing writes therefore copies nothing. Its
 //! journal stops growing at the same time, so an open horizon simply pauses.
 //!
-//! A block is discharged when its chunks are captured. That is ahead of the
+//! A block is discharged when its chunks are recorded. That is ahead of the
 //! image write which applies them, and ahead of the commit of the delta which
 //! carries them. A copy therefore never races a mutation of the same block. The
 //! mutation supersedes the copy, because it discharges the block before its own
@@ -109,7 +109,7 @@ impl Horizon {
 
     /// The next run of at most `limit` blocks to copy, or `None` when this
     /// delta's budget is spent or the horizon is discharged.
-    fn next_copy(&mut self, policy: &Policy, limit: u32) -> Option<std::ops::Range<u32>> {
+    pub fn next_copy(&mut self, policy: &Policy, limit: u32) -> Option<std::ops::Range<u32>> {
         let budget = policy.budget(self.changed).saturating_sub(self.copied);
         let limit = std::cmp::min(limit as u64, budget / crate::BLOCK_SIZE as u64) as u32;
 
@@ -132,37 +132,10 @@ impl Horizon {
     }
 
     /// Discharge `range`, which has been copied at a cost of `bytes`.
-    fn copied(&mut self, range: std::ops::Range<u32>, bytes: u64) {
+    pub fn copied(&mut self, range: std::ops::Range<u32>, bytes: u64) {
         self.copied += bytes;
         self.cursor = range.end;
         self.published(range);
-    }
-
-    /// Read the next run of this horizon's blocks out of `image`, as the chunks
-    /// which publish and so discharge them. `None` when the delta's copy budget is
-    /// spent or the horizon is discharged.
-    ///
-    /// A run is at most `limit` blocks long, so one copy is one mutation of the
-    /// same order as a device request.
-    ///
-    /// A copy is selected, read, and offered without yielding, so no mutation of
-    /// the same blocks can land between the read and the offer.
-    pub fn copy(
-        &mut self,
-        image: &crate::image::Image,
-        policy: &Policy,
-        limit: u32,
-    ) -> std::io::Result<Option<Vec<crate::proto::Chunk>>> {
-        let Some(run) = self.next_copy(policy, limit) else {
-            return Ok(None);
-        };
-        let mut data = vec![0u8; run.len() * crate::BLOCK_SIZE as usize];
-        () = image.read_at(run.start, &mut data)?;
-
-        let chunks = crate::chunk::encode_write(run.start, &data.into());
-        () = self.copied(run, crate::chunk::data_bytes(&chunks));
-
-        Ok(Some(chunks))
     }
 }
 
@@ -258,57 +231,6 @@ mod test {
 
         assert_eq!(horizon.pending(), 0);
         assert_eq!(horizon.next_copy(&policy, 8), None);
-    }
-
-    /// A horizon opens over what an image holds. Its copies then read those
-    /// blocks back out of the image until every one is discharged.
-    #[test]
-    fn test_a_horizon_copies_the_image_back() {
-        const BLOCKS: u32 = 64;
-
-        let dir = tempfile::tempdir().unwrap();
-        let mut image = crate::image::Image::create(dir.path(), BLOCKS).unwrap();
-
-        let policy = Policy {
-            open_ratio: 2.0,
-            copy_ratio: 1.0,
-            minimum_bytes: 0,
-        };
-
-        image
-            .write_at(2, &vec![0xab; 3 * BLOCK_SIZE as usize])
-            .unwrap();
-        image.write_at(30, &vec![0; BLOCK_SIZE as usize]).unwrap();
-
-        let mut horizon = Horizon::open(image.allocated());
-        assert_eq!(horizon.pending(), 4);
-
-        // What the delta changed rations its copies. A device write discharges
-        // its own blocks without a copy.
-        assert!(horizon.copy(&image, &policy, 4).unwrap().is_none());
-        horizon.changed(8 * BLOCK_SIZE as u64);
-        horizon.published(2..3);
-
-        let mut copied = Vec::new();
-        while let Some(chunks) = horizon.copy(&image, &policy, 2).unwrap() {
-            copied.extend(chunks);
-        }
-        assert_eq!(horizon.pending(), 0);
-
-        // The zeroed block copies as an empty-data chunk, so a replay keeps it
-        // allocated without carrying its bytes.
-        let mut replayed = crate::image::Image::create(dir.path(), BLOCKS).unwrap();
-        for chunk in &copied {
-            () = replayed.apply(chunk).unwrap();
-        }
-        assert_eq!(
-            replayed.allocated().iter().collect::<Vec<_>>(),
-            vec![3, 4, 30]
-        );
-
-        let mut buf = vec![0; BLOCK_SIZE as usize];
-        replayed.read_at(3, &mut buf).unwrap();
-        assert!(buf.iter().all(|&b| b == 0xab));
     }
 
     /// The cursor only moves forward. A horizon therefore costs one pass over

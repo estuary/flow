@@ -472,6 +472,41 @@ impl Daemon {
             .await
     }
 
+    /// Each thread of the daemon, by name, with the flags word the kernel keeps for
+    /// it. `/proc` shows a root process's threads and their flags to anyone.
+    pub fn threads(&self) -> Vec<(String, u64)> {
+        let output = std::process::Command::new("pgrep")
+            .arg("-f")
+            .arg(self.pattern())
+            .output()
+            .expect("spawning pgrep");
+        let pid = String::from_utf8_lossy(&output.stdout);
+        let pid = pid.trim();
+        assert!(!pid.is_empty(), "no process matches {:?}", self.pattern());
+
+        std::fs::read_dir(format!("/proc/{pid}/task"))
+            .unwrap()
+            .map(|task| {
+                let task = task.unwrap().path();
+                let name = std::fs::read_to_string(task.join("comm")).unwrap();
+                let stat = std::fs::read_to_string(task.join("stat")).unwrap();
+
+                // The flags word is the seventh field after the parenthesized name.
+                let flags = stat
+                    .rsplit_once(')')
+                    .unwrap()
+                    .1
+                    .split_whitespace()
+                    .nth(6)
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+
+                (name.trim().to_string(), flags)
+            })
+            .collect()
+    }
+
     /// Signal the daemon. It runs as root, so only `sudo` can reach it.
     fn signal(&self, signal: &str) {
         _ = std::process::Command::new("sudo")
@@ -602,6 +637,46 @@ pub async fn wait_unmounted(mount: &std::path::Path) {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     panic!("{mount:?} was not torn down");
+}
+
+/// Wait until writes are parked at the device mounted at `mount`: some are in flight
+/// there, and none completes. A disk parks its writes once its recording channel is
+/// full, as it is while its brokers answer nothing.
+pub async fn wait_for_parked_writes(mount: &std::path::Path) {
+    let mount = mount.to_str().expect("paths of a tempdir are UTF-8");
+    let device = std::fs::read_to_string("/proc/mounts")
+        .unwrap()
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.split_whitespace();
+            let device = fields.next()?;
+            (fields.next()? == mount).then(|| device.trim_start_matches("/dev/").to_string())
+        })
+        .unwrap_or_else(|| panic!("nothing is mounted at {mount}"));
+
+    // Writes completed, and requests in flight, per the kernel's
+    // `Documentation/block/stat.rst`.
+    let stat = || {
+        let stat = std::fs::read_to_string(format!("/sys/block/{device}/stat")).unwrap();
+        let fields: Vec<u64> = stat
+            .split_whitespace()
+            .map(|field| field.parse().unwrap())
+            .collect();
+        (fields[4], fields[8])
+    };
+    let deadline = std::time::Instant::now() + TEARDOWN;
+    let mut last = stat();
+
+    while std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        let now = stat();
+
+        if now.1 != 0 && last.1 != 0 && now.0 == last.0 {
+            return;
+        }
+        last = now;
+    }
+    panic!("no write parked at {device}");
 }
 
 /// Run a command without blocking the runtime, and require that it succeeded.

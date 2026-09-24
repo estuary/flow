@@ -6,7 +6,7 @@
 //! a promotion is an action on top of it.
 //!
 //! The task holds the image and applies committed records to it. It holds an
-//! unacknowledged delta rather than applying it, per [`super::buffer`], so the image
+//! unacknowledged delta rather than applying it, per [`super::held`], so the image
 //! it hands over is at the committed edge and never ahead of it.
 //!
 //! A backfill reads the history of the journal. A tail then follows new records as
@@ -14,7 +14,7 @@
 //! is reported as `Opened`, and a promotion from there costs a fence, the records
 //! which arrive after it, and a mount.
 
-use super::buffer::Buffer;
+use super::held::HeldDelta;
 use super::replay::{self, Extent, Pass};
 use crate::failure;
 use crate::image::Image;
@@ -29,55 +29,6 @@ use anyhow::Context;
 /// becoming ready.
 const RESTART_LIMIT: usize = 3;
 
-/// What a playback hands to the tenure which promotes it.
-pub(super) struct Handoff {
-    pub(super) image: Image,
-    /// Sequencing state of the read, which the promotion's own read continues.
-    ///
-    /// It must continue rather than start again. It holds each producer's clocks and
-    /// the delta this playback is holding, so a fresh pass would not recognise the
-    /// acknowledgement of that delta when the promotion reads it.
-    pub(super) pass: Pass,
-    /// Offset through which committed state is applied. The promotion reads from
-    /// here, so nothing is read twice and nothing is skipped.
-    pub(super) applied: i64,
-}
-
-/// The journal a playback reads, and the tenure whose end stops it.
-///
-/// These three are carried together because every read a playback makes needs all
-/// three: the client and the name to issue it, and the token to give it up on.
-/// [`super::Journal`] holds the same facts for the writer side.
-pub(super) struct Source {
-    pub(super) client: gazette::journal::Client,
-    pub(super) journal: String,
-    /// Cancelled once the tenure is over, which ends the playback wherever it is.
-    pub(super) ended: tokio_util::sync::CancellationToken,
-}
-
-/// Where one pass over the journal begins, and the one transition it reports.
-struct Progress {
-    /// Offset the backfill seeks from. A restart after a [`replay::Gap`] moves it to
-    /// the journal's current floor.
-    floor: i64,
-    /// Head the backfill reads to. It is the one a tenure's `Open` resolved, and
-    /// zero for a journal with no content at all.
-    head: i64,
-    /// Taken when the backfill first reaches `head`. A playback which restarts does
-    /// not retract that: `Opened` is sent once.
-    caught_up: Option<tokio::sync::oneshot::Sender<()>>,
-}
-
-impl Progress {
-    /// Tell the tenure that the backfill has reached the head, if it has not been
-    /// told already.
-    fn report_caught_up(&mut self) {
-        if let Some(signal) = self.caught_up.take() {
-            _ = signal.send(());
-        }
-    }
-}
-
 /// A playback which is running.
 pub struct Playback {
     /// Resolves when the backfill reaches the head. It is taken once it does, so a
@@ -88,13 +39,13 @@ pub struct Playback {
 }
 
 impl Playback {
-    /// Start a playback of `source` from `floor` into `image`.
+    /// Start a playback of `reading` from `floor` into `image`.
     pub(super) fn start(
-        source: Source,
+        reading: Reading,
         floor: i64,
         head: i64,
         image: Image,
-        buffer: Buffer,
+        held: HeldDelta,
     ) -> Self {
         let (signal, caught_up) = tokio::sync::oneshot::channel();
         let stop = tokio_util::sync::CancellationToken::new();
@@ -104,7 +55,7 @@ impl Playback {
             head,
             caught_up: Some(signal),
         };
-        let task = tokio::spawn(run(source, progress, image, buffer, stop.clone()));
+        let task = tokio::spawn(run(reading, progress, image, held, stop.clone()));
 
         Self {
             caught_up: Some(caught_up),
@@ -131,18 +82,6 @@ impl Playback {
         Err(self.failure().await)
     }
 
-    /// The error a playback ended with.
-    ///
-    /// A playback which was not promoted cannot end well: a tail does not finish on
-    /// its own, and only a promotion stops one.
-    async fn failure(&mut self) -> anyhow::Error {
-        match (&mut self.task).await {
-            Ok(Ok(_handoff)) => anyhow::anyhow!("a playback ended without being promoted"),
-            Ok(Err(err)) => err,
-            Err(panic) => anyhow::anyhow!("the playback task panicked: {panic}"),
-        }
-    }
-
     /// Stop the playback at the head, and take what it holds.
     ///
     /// This is legal while the playback still backfills. The read is cancelled where
@@ -156,25 +95,86 @@ impl Playback {
             Err(panic) => Err(anyhow::anyhow!("the playback task panicked: {panic}")),
         }
     }
+
+    /// The error a playback ended with.
+    ///
+    /// A playback which was not promoted cannot end well: a tail does not finish on
+    /// its own, and only a promotion stops one.
+    async fn failure(&mut self) -> anyhow::Error {
+        match (&mut self.task).await {
+            Ok(Ok(_handoff)) => anyhow::anyhow!("a playback ended without being promoted"),
+            Ok(Err(err)) => err,
+            Err(panic) => anyhow::anyhow!("the playback task panicked: {panic}"),
+        }
+    }
 }
 
-/// Read the journal of `source` into `image` until the tenure promotes or ends.
+/// The journal a playback reads, and the tenure whose end stops it.
+///
+/// These three are carried together because every read a playback makes needs all
+/// three: the client and the name to issue it, and the token to give it up on.
+/// [`super::Journal`] holds the same facts for the writer side.
+pub(super) struct Reading {
+    pub(super) client: gazette::journal::Client,
+    pub(super) journal: String,
+    /// Cancelled once the tenure is over, which ends the playback wherever it is.
+    pub(super) ended: tokio_util::sync::CancellationToken,
+}
+
+/// What a playback hands to the tenure which promotes it.
+pub(super) struct Handoff {
+    pub(super) image: Image,
+    /// Sequencing state of the read, which the promotion's own read continues.
+    ///
+    /// It must continue rather than start again. It holds each producer's clocks and
+    /// the delta this playback is holding, so a fresh pass would not recognise the
+    /// acknowledgement of that delta when the promotion reads it.
+    pub(super) pass: Pass,
+    /// Offset through which committed state is applied. The promotion reads from
+    /// here, so nothing is read twice and nothing is skipped.
+    pub(super) applied: i64,
+}
+
+/// Where one pass over the journal begins, and the one transition it reports.
+struct Progress {
+    /// Offset the backfill seeks from. A restart after a [`replay::Gap`] moves it to
+    /// the journal's current floor.
+    floor: i64,
+    /// Head the backfill reads to. It is the one a tenure's `Open` resolved, and
+    /// zero for a journal with no content at all.
+    head: i64,
+    /// Taken when the backfill first reaches `head`. A playback which restarts does
+    /// not retract that: `Opened` is sent once.
+    caught_up: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl Progress {
+    /// Tell the tenure that the backfill has reached the head, if it has not been
+    /// told already.
+    fn report_caught_up(&mut self) {
+        if let Some(signal) = self.caught_up.take() {
+            _ = signal.send(());
+        }
+    }
+}
+
+/// Read the journal of `reading` into `image` until the tenure promotes or ends.
 ///
 /// A read gap discards the image and starts again from the journal's current floor.
 /// That floor guarantees a read from it rebuilds the whole disk, so it is the only
 /// repair, and it is always available. A partial image cannot be patched: a block
 /// which was deallocated below the gap has no record above it to punch.
 async fn run(
-    source: Source,
+    reading: Reading,
     mut progress: Progress,
     mut image: Image,
-    mut buffer: Buffer,
+    mut held: HeldDelta,
     stop: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<Handoff> {
     for restart in 0..=RESTART_LIMIT {
-        let mut pass = Pass::new(buffer);
+        let mut pass = Pass::new(held);
 
-        let outcome = play(&source, &mut progress, &mut image, &mut pass, &stop).await;
+        let outcome = play(&reading, &mut progress, &mut image, &mut pass, &stop).await;
 
         match outcome {
             Ok(()) => {
@@ -189,11 +189,11 @@ async fn run(
                     restart != RESTART_LIMIT,
                     "the playback of {} read a deleted range {} times, so it cannot \
                      keep up with the writer of that journal: {err:#}",
-                    source.journal,
+                    reading.journal,
                     RESTART_LIMIT + 1,
                 );
                 tracing::warn!(
-                    journal = source.journal,
+                    journal = reading.journal,
                     restart,
                     ?err,
                     "restarting a playback of a deleted range"
@@ -203,11 +203,10 @@ async fn run(
                 // the disk, but only onto an image which holds nothing else.
                 () = image.reset().context("discarding a playback's image")?;
 
-                let (held, _floor, _horizon) = pass.into_parts();
-                buffer = held;
-                () = buffer.clear()?;
+                (held, _, _) = pass.into_parts();
+                () = held.clear()?;
                 progress.floor =
-                    super::spec::current_floor(&source.client, &source.journal).await?;
+                    super::spec::current_floor(&reading.client, &reading.journal).await?;
             }
             Err(err) => return Err(err),
         }
@@ -217,17 +216,17 @@ async fn run(
 
 /// Backfill to the head, then follow the journal until the tenure stops it.
 async fn play(
-    source: &Source,
+    reading: &Reading,
     progress: &mut Progress,
     image: &mut Image,
     pass: &mut Pass,
     stop: &tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
-    let Source {
+    let Reading {
         client,
         journal,
         ended,
-    } = source;
+    } = reading;
 
     // An empty journal holds nothing to replay, and reading one would wake a journal
     // which Gazette suspended: a disk which is never written must cost an etcd entry

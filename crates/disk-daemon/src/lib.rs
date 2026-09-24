@@ -16,7 +16,6 @@ pub mod client;
 pub mod daemon;
 
 mod bitmap;
-mod capture;
 mod chunk;
 mod device;
 mod failure;
@@ -24,13 +23,14 @@ mod filesystem;
 mod horizon;
 mod image;
 mod journal;
+mod recording;
 mod serving;
 mod tenure;
 mod ublk;
 mod wake;
 
-/// Prerequisites of the crate's own tests: a real `ublk` device, and a real broker.
-/// The cases which use them live beside the code they cover.
+/// What the crate's own tests share: a real broker, and a replay to hold an image
+/// to. The cases which use them live beside the code they cover.
 #[cfg(test)]
 mod test_support;
 

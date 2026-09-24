@@ -9,8 +9,10 @@ async fn disk_resilience() {
     let fixture = support::Fixture::start().await;
     let daemon = support::Daemon::start(&fixture, "resilience").await;
 
+    a_disks_owner_is_an_io_flusher(&fixture, &daemon).await;
     a_broker_outage_delays_commit_confirmation(&fixture, &daemon).await;
     an_abrupt_disconnect_tears_the_disk_down(&fixture, &daemon).await;
+    a_disk_torn_down_in_a_broker_outage_releases_its_parked_writes(&fixture, &daemon).await;
 
     daemon.drain().await;
     () = fixture.assert_no_leaks();
@@ -19,6 +21,61 @@ async fn disk_resilience() {
     a_sigterm_under_load_tears_every_disk_down(&fixture).await;
 
     fixture.stop().await;
+}
+
+/// Stops every broker, and resumes them however the case which holds it ends, or
+/// nothing could tear down.
+struct Outage<'a>(&'a support::Fixture);
+
+impl<'a> Outage<'a> {
+    fn start(fixture: &'a support::Fixture) -> Self {
+        () = fixture.signal_brokers(libc::SIGSTOP);
+        Self(fixture)
+    }
+}
+
+impl Drop for Outage<'_> {
+    fn drop(&mut self) {
+        self.0.signal_brokers(libc::SIGCONT);
+    }
+}
+
+/// A disk's owner is an I/O flusher, per `PR_SET_IO_FLUSHER`. The host then throttles
+/// its image writes against the host device alone, rather than against the host-wide
+/// dirty limit, and its allocations never wait on I/O, which could be I/O to its own
+/// disk. Without that, one disk whose writeback stalls behind its journal fills the
+/// host's dirty budget with pages only its owner can clean, and throttles every other.
+async fn a_disks_owner_is_an_io_flusher(fixture: &support::Fixture, daemon: &support::Daemon) {
+    /// Bits of a task's `/proc` flags word which `PR_SET_IO_FLUSHER` sets:
+    /// `PF_MEMALLOC_NOIO` and `PF_LOCAL_THROTTLE`, per the kernel's
+    /// `include/linux/sched.h`.
+    const IO_FLUSHER: u64 = 0x0008_0000 | 0x0010_0000;
+
+    let client = daemon.client().await;
+    let (disk, _mount) = client
+        .open(fixture.open("acmeCo/disk/flusher").await, Vec::new())
+        .await
+        .unwrap();
+
+    // Each disk is served by a thread of the daemon named for its device.
+    let owners: Vec<_> = daemon
+        .threads()
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("disk-"))
+        .collect();
+    assert!(
+        !owners.is_empty(),
+        "no thread of the daemon serves the disk"
+    );
+
+    for (name, flags) in owners {
+        assert_eq!(
+            flags & IO_FLUSHER,
+            IO_FLUSHER,
+            "{name}'s flags are {flags:#x}"
+        );
+    }
+    () = disk.close().await.unwrap();
 }
 
 /// An acknowledgement is confirmed only once its append is durable. Brokers which
@@ -38,15 +95,7 @@ async fn a_broker_outage_delays_commit_confirmation(
     () = support::Tree::generation(1).write(&mount.join("data"));
     let ack = support::cut(&mut disk).await;
 
-    // Resumes the brokers however this case ends, or nothing could tear down.
-    struct Outage<'a>(&'a support::Fixture);
-    impl Drop for Outage<'_> {
-        fn drop(&mut self) {
-            self.0.signal_brokers(libc::SIGCONT);
-        }
-    }
-    () = fixture.signal_brokers(libc::SIGSTOP);
-    let outage = Outage(fixture);
+    let outage = Outage::start(fixture);
 
     () = disk.acknowledge(ack).await.unwrap();
     {
@@ -86,6 +135,37 @@ async fn an_abrupt_disconnect_tears_the_disk_down(
 
     _ = support::abandon_writer(&mut writer).await;
     () = fixture.wait_for_teardown().await;
+}
+
+/// A disk torn down while its brokers answer nothing, with its writes parked, still
+/// tears down, and leaves nothing behind.
+///
+/// Its writer is stuck in an append no broker answers, and a stopping device waits
+/// for every write it has in flight, parked ones included. The teardown must
+/// therefore abandon that append, and discard what the parked writes and the unmount
+/// record, before it stops the device.
+async fn a_disk_torn_down_in_a_broker_outage_releases_its_parked_writes(
+    fixture: &support::Fixture,
+    daemon: &support::Daemon,
+) {
+    let client = daemon.client().await;
+
+    let (disk, mount) = client
+        .open(fixture.open("acmeCo/disk/parked").await, Vec::new())
+        .await
+        .unwrap();
+    let outage = Outage::start(fixture);
+
+    // Far more than the recording channel and the appender's buffer hold, so the
+    // writeback parks at the device once the writer stops taking.
+    let mut writer = support::spawn_writer(&mount.join("parked"), 64 << 20, true);
+    () = support::wait_for_parked_writes(&mount).await;
+
+    drop(disk);
+    () = fixture.wait_for_teardown().await;
+    drop(outage);
+
+    _ = support::abandon_writer(&mut writer).await;
 }
 
 /// A daemon signalled while a disk is being written ends its tenures, tears down what

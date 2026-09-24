@@ -39,7 +39,7 @@ impl Serving {
     pub async fn open(
         daemon: &crate::daemon::Config,
         control: &std::sync::Arc<Control>,
-        owner: Option<(u32, u32)>,
+        peer: Option<(u32, u32)>,
         claimed: journal::Claimed,
         playback: journal::playback::Playback,
         recovered_acks: Vec<bytes::Bytes>,
@@ -48,7 +48,7 @@ impl Serving {
             promoted,
             journal::Recovered {
                 image,
-                recovered,
+                fresh,
                 horizon,
             },
         ) = claimed.promote(playback, recovered_acks).await?;
@@ -58,31 +58,30 @@ impl Serving {
 
         // Creating a device is a handshake with the kernel and with the thread
         // which will own it. Neither handshake is async.
-        let (device, captured) = tokio::task::spawn_blocking(move || {
+        let (device, recorded, compactor) = tokio::task::spawn_blocking(move || {
             Device::create(&control, image, crate::ublk::QUEUE_DEPTH, horizon, policy)
         })
         .await??;
 
-        let compactor = device.compactor();
-        let block_path = device.block_path();
+        let block_path = crate::ublk::block_path(device.dev_id());
         let mount_path = daemon.mount_dir.join(format!(
             "{}{}",
             crate::daemon::MOUNT_PREFIX,
             device.dev_id()
         ));
 
-        // The writer runs before anything writes to the device, because the capture
-        // channel is bounded and a mutation nothing takes parks the device. That is
+        // The writer runs before anything writes to the device, because the
+        // recording channel is bounded and a mutation nothing takes parks the device. That is
         // true of a fresh disk's `mkfs` as much as of a recovered disk's mount.
-        let writer = promoted.serve(captured, Some(compactor));
+        let writer = promoted.serve(recorded, compactor);
 
         // A failure from here on tears the disk down as `teardown` does. Dropping it
         // instead would stop the device on this runtime's thread, without the
         // abandon which cancels a broker call the writer may be retrying, and a
         // stop waits for every request that writer would otherwise take.
         let mounted = async {
-            if !recovered {
-                () = filesystem::format(&block_path, owner, filesystem::MKFS_TIMEOUT).await?;
+            if fresh {
+                () = filesystem::format(&block_path, peer, filesystem::MKFS_TIMEOUT).await?;
             }
             // A mount which stalls waits on the writer, which may be retrying a
             // broker it cannot reach. Abandoning it frees the mount to land or fail.
@@ -91,7 +90,7 @@ impl Serving {
             Mount::new(
                 &block_path,
                 mount_path,
-                owner,
+                peer,
                 filesystem::MOUNT_TIMEOUT,
                 release,
             )
@@ -132,7 +131,7 @@ impl Serving {
         tracing::info!(
             dev_id = serving.device.dev_id(),
             mount = ?serving.mount.path(),
-            recovered,
+            fresh,
             "opened a disk",
         );
 
@@ -142,7 +141,7 @@ impl Serving {
     /// Cut a point-in-time boundary of the disk and finish the delta before it.
     ///
     /// The cut runs in this order. The mount flushes, and admission closes. The
-    /// owner captures a mutation and applies it in one step, so each one falls
+    /// owner records a mutation and applies it in one step, so each one falls
     /// entirely before or after the boundary. The writer can therefore finish
     /// exactly the delta which precedes it.
     ///
@@ -200,7 +199,7 @@ async fn tear_down(mount: Option<Mount>, mut device: Device, writer: Writer) {
     }
 
     match tokio::task::spawn_blocking(move || device.stop()).await {
-        Ok(Ok(_image)) => (),
+        Ok(Ok(())) => (),
         Ok(Err(err)) => tracing::error!(?err, dev_id, "failed to stop a device"),
         Err(panic) => tracing::error!(?panic, dev_id, "panicked stopping a device"),
     }

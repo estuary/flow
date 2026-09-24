@@ -9,12 +9,11 @@
 //! The operations which are about journals rather than about disks — creating one,
 //! probing it, reading a register of it — are `e2e_support::journals`'.
 
-use crate::capture::{self, Capture};
 use crate::image::Image;
-use crate::journal::buffer;
+use crate::journal::held;
 use crate::journal::{Opening, Promoted, Writer};
 use crate::proto;
-use crate::wake::Waker;
+use crate::recording::{self, Recorder};
 use proto_gazette::{broker, fixed_framing, uuid};
 
 /// Blocks of the images these scenarios replay into. A journal scenario asserts which
@@ -65,10 +64,10 @@ impl Fixture {
 
     /// Open, claim, and promote `journal` as a tenure does, and serve a writer from
     /// it which compacts nothing.
-    pub async fn open(&self, journal: &str) -> anyhow::Result<(Capture, Writer)> {
-        let (capture, writer, _blocks) = self.recover(journal, Vec::new()).await?;
+    pub async fn open(&self, journal: &str) -> anyhow::Result<(Recorder, Writer)> {
+        let (recorder, writer, _blocks) = self.recover(journal, Vec::new()).await?;
 
-        Ok((capture, writer))
+        Ok((recorder, writer))
     }
 
     /// [`Fixture::open`], reporting the fill byte of every block the replay left
@@ -77,11 +76,11 @@ impl Fixture {
         &self,
         journal: &str,
         acks: Vec<bytes::Bytes>,
-    ) -> anyhow::Result<(Capture, Writer, Vec<(u32, u8)>)> {
+    ) -> anyhow::Result<(Recorder, Writer, Vec<(u32, u8)>)> {
         let (promoted, blocks) = self.promote(journal, acks).await?;
-        let (capture, captured) = capture::channel(64, Waker::new().unwrap());
+        let (recorder, recorded) = recording::channel(64, std::task::Waker::noop().clone());
 
-        Ok((capture, promoted.serve(captured, None), blocks))
+        Ok((recorder, promoted.serve_uncompacted(recorded), blocks))
     }
 
     /// Open, claim, and promote `journal` as a tenure does, repairing `acks`, and
@@ -96,9 +95,9 @@ impl Fixture {
         // The image outlives its directory, having no directory entry of its own.
         let dir = tempfile::tempdir()?;
         let image = Image::create(dir.path(), BLOCKS)?;
-        let buffer = buffer::Buffer::create(dir.path())?;
+        let held = held::HeldDelta::create(dir.path())?;
 
-        let playback = opening.play(image, buffer);
+        let playback = opening.play(image, held);
 
         // A tenure claims when it reads `Promote`, and finishes the promotion after.
         let claimed = opening.claim_journal().await?;

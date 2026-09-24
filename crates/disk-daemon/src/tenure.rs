@@ -70,7 +70,7 @@ impl proto_grpc::disk::disk_server::Disk for Service {
         // daemon, so that a client needs no privilege of its own. A Unix socket
         // carries the peer's credential, which is the one identity a client cannot
         // claim falsely.
-        let owner = request
+        let peer = request
             .extensions()
             .get::<tonic::transport::server::UdsConnectInfo>()
             .and_then(|info| info.peer_cred)
@@ -82,7 +82,7 @@ impl proto_grpc::disk::disk_server::Disk for Service {
         let tenure = Tenure {
             daemon,
             control,
-            owner,
+            peer,
             journal: String::new(),
             ended,
             state: State::Fresh,
@@ -98,9 +98,9 @@ impl proto_grpc::disk::disk_server::Disk for Service {
 struct Tenure {
     daemon: std::sync::Arc<crate::daemon::Config>,
     control: std::sync::Arc<Control>,
-    /// User and group which own the mount this tenure serves, taken from the
-    /// credential of its stream.
-    owner: Option<(u32, u32)>,
+    /// User and group of the client, from the peer credential of its stream. They
+    /// own the mount this tenure serves.
+    peer: Option<(u32, u32)>,
     /// Journal of the disk this tenure opened, and empty before `Open`. A daemon
     /// serves many tenures at once, so a failure names the disk it ended.
     journal: String,
@@ -158,7 +158,7 @@ impl Tenure {
         // "The tenure is over" now means one thing, whatever state it ended in. A
         // tenure which was still standing by has nothing to tear down, and its
         // playback would otherwise go on tailing the journal — holding the image and
-        // the delta buffer open — until the daemon itself exits. A serving tenure's
+        // the held delta open — until the daemon itself exits. A serving tenure's
         // teardown cancels this token anyway, through `Writer::abandon`.
         () = self.ended.cancel();
 
@@ -316,7 +316,7 @@ impl Tenure {
                 let serving = Serving::open(
                     &self.daemon,
                     &self.control,
-                    self.owner,
+                    self.peer,
                     claimed,
                     playback,
                     recovered_acks,
@@ -378,9 +378,9 @@ impl Tenure {
         let image = Image::create(&self.daemon.image_dir, blocks)
             .with_context(|| format!("creating an image in {:?}", self.daemon.image_dir))?;
 
-        let buffer = journal::buffer::Buffer::create(&self.daemon.image_dir)
-            .with_context(|| format!("creating a delta buffer in {:?}", self.daemon.image_dir,))?;
-        let playback = opening.play(image, buffer);
+        let held = journal::held::HeldDelta::create(&self.daemon.image_dir)
+            .with_context(|| format!("creating a held delta in {:?}", self.daemon.image_dir))?;
+        let playback = opening.play(image, held);
 
         Ok(Standing {
             opening,
