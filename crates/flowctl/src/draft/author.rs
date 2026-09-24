@@ -1,7 +1,6 @@
 use crate::{catalog::SpecSummaryItem, draft::encrypt, local_specs};
 use anyhow::Context;
-use futures::{StreamExt, stream::FuturesOrdered};
-use serde::Serialize;
+use models::CatalogType;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -13,15 +12,15 @@ pub struct Author {
 
 pub async fn clear_draft(ctx: &crate::CliContext, draft_id: models::Id) -> anyhow::Result<()> {
     tracing::info!(%draft_id, "clearing existing specs from draft");
-    flow_client_next::postgrest::exec::<Vec<serde_json::Value>>(
-        ctx.pg
-            .from("draft_specs")
-            .eq("draft_id", draft_id.to_string())
-            .delete(),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .context("failed to clear existing draft specs")?;
+    let catalog_names = super::fetch_draft_specs(ctx, draft_id, false)
+        .await?
+        .into_iter()
+        .map(|spec| spec.catalog_name)
+        .collect();
+
+    super::unstage_draft_specs(ctx, draft_id, catalog_names)
+        .await
+        .context("failed to clear existing draft specs")?;
     Ok(())
 }
 
@@ -49,100 +48,71 @@ pub async fn upsert_draft_specs(
         ..
     } = draft;
 
-    // Build up the array of `draft_specs` to upsert.
-    #[derive(Serialize, Debug)]
-    struct DraftSpec<'a, P: serde::Serialize> {
-        draft_id: models::Id,
-        catalog_name: String,
-        spec_type: &'static str,
-        spec: &'a P,
-        expect_pub_id: Option<models::Id>,
-    }
+    let mut specs = Vec::new();
+    let mut summary = Vec::new();
 
-    // Serialize DraftSpecs directly to JSON without going through
-    // serde_json::Value in order to avoid re-ordering fields which
-    // breaks sops hmac hashes.
-    let mut draft_specs: Vec<String> = vec![];
+    let mut push = |catalog_name: &str,
+                    spec_type: CatalogType,
+                    model: Option<models::RawValue>,
+                    expect_pub_id: Option<models::Id>| {
+        specs.push(super::DraftSpecInput {
+            catalog_name: models::Name::new(catalog_name),
+            // A drafted deletion has neither a model nor a type.
+            catalog_type: model.is_some().then_some(spec_type),
+            model,
+            expect_pub_id,
+            detail: None,
+        });
+        summary.push(SpecSummaryItem {
+            catalog_name: catalog_name.to_string(),
+            spec_type,
+        });
+    };
 
     for row in collections.iter() {
-        draft_specs.push(
-            serde_json::to_string(&DraftSpec {
-                draft_id,
-                catalog_name: row.collection.to_string(),
-                spec_type: "collection",
-                spec: &row.model,
-                expect_pub_id: row.expect_pub_id,
-            })
-            .unwrap(),
+        push(
+            &row.collection,
+            CatalogType::Collection,
+            to_raw_model(&row.model),
+            row.expect_pub_id,
         );
     }
     for row in captures.iter() {
-        draft_specs.push(
-            serde_json::to_string(&DraftSpec {
-                draft_id,
-                catalog_name: row.capture.to_string(),
-                spec_type: "capture",
-                spec: &row.model,
-                expect_pub_id: row.expect_pub_id,
-            })
-            .unwrap(),
+        push(
+            &row.capture,
+            CatalogType::Capture,
+            to_raw_model(&row.model),
+            row.expect_pub_id,
         );
     }
     for row in materializations.iter() {
-        draft_specs.push(
-            serde_json::to_string(&DraftSpec {
-                draft_id,
-                catalog_name: row.materialization.to_string(),
-                spec_type: "materialization",
-                spec: &row.model,
-                expect_pub_id: row.expect_pub_id,
-            })
-            .unwrap(),
+        push(
+            &row.materialization,
+            CatalogType::Materialization,
+            to_raw_model(&row.model),
+            row.expect_pub_id,
         );
     }
     for row in tests.iter() {
-        draft_specs.push(
-            serde_json::to_string(&DraftSpec {
-                draft_id,
-                catalog_name: row.test.to_string(),
-                spec_type: "test",
-                spec: &row.model,
-                expect_pub_id: row.expect_pub_id,
-            })
-            .unwrap(),
+        push(
+            &row.test,
+            CatalogType::Test,
+            to_raw_model(&row.model),
+            row.expect_pub_id,
         );
     }
 
-    const BATCH_SIZE: usize = 100;
+    super::stage_draft_specs(ctx, draft_id, specs).await?;
 
-    // Upsert draft specs in batches
-    let mut futures = draft_specs
-        .chunks(BATCH_SIZE)
-        .map(|batch| {
-            let builder = ctx
-                .pg
-                .from("draft_specs")
-                .select("catalog_name,spec_type")
-                .upsert(format!("[{}]", batch.join(",")))
-                .on_conflict("draft_id,catalog_name");
-            let access_token = ctx.access_token();
-            async move {
-                flow_client_next::postgrest::exec::<Vec<SpecSummaryItem>>(
-                    builder,
-                    access_token.as_deref(),
-                )
-                .await
-            }
-        })
-        .collect::<FuturesOrdered<_>>();
+    Ok(summary)
+}
 
-    let mut rows = Vec::new();
-
-    while let Some(result) = futures.next().await {
-        rows.extend(result.context("executing live_specs_ext fetch")?);
-    }
-
-    Ok(rows)
+/// Serialize models directly to JSON without going through serde_json::Value
+/// in order to avoid re-ordering fields which breaks sops hmac hashes.
+fn to_raw_model<M: serde::Serialize>(model: &Option<M>) -> Option<models::RawValue> {
+    model
+        .as_ref()
+        .map(|model| serde_json::value::to_raw_value(model).unwrap().into())
 }
 
 pub async fn do_author(
