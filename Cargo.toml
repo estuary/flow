@@ -213,7 +213,8 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
+# Public API connections must not inherit the local stack's SSL_CERT_FILE override.
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0", features = ["io", "compat", "rt"] }
 tokio-stream = { version = "0" }
 tonic = { version = "0", features = ["tls-native-roots"] }

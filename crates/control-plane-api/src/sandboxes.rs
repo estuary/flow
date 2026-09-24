@@ -692,8 +692,21 @@ pub async fn cancel_exec(
             SPRITE_HOME,
             &format!("{EXEC_DIR}/{exec_id}/session_id"),
         )
-        .await?
-        .context("exec has no saved cancellation session ID")?;
+        .await?;
+    let Some(session_id) = session_id else {
+        let metadata = client
+            .read_file(
+                &sandbox.handle,
+                SPRITE_HOME,
+                &format!("{EXEC_DIR}/{exec_id}/metadata.json"),
+            )
+            .await?;
+        anyhow::ensure!(
+            metadata.is_some(),
+            "exec {exec_id} not found in this sandbox"
+        );
+        anyhow::bail!("exec {exec_id} has no saved cancellation session ID");
+    };
     let session_id = std::str::from_utf8(&session_id).context("invalid exec session ID")?;
     let Some(exit_code) = client.kill_exec(&sandbox.handle, session_id.trim()).await? else {
         return Ok(false);
