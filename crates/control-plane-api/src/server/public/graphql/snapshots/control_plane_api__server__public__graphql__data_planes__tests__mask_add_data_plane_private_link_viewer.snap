@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+assertion_line: 2269
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
+      "path": [
+        "addDataPlanePrivateLink"
+      ]
+    }
+  ]
+}

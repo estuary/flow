@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+assertion_line: 2356
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "message": "private link '0000000000000a01' not found",
+      "path": [
+        "removeDataPlanePrivateLink"
+      ]
+    }
+  ]
+}

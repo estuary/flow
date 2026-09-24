@@ -1,0 +1,64 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+assertion_line: 2215
+expression: response
+---
+{
+  "data": {
+    "dataPlanes": {
+      "edges": [
+        {
+          "node": {
+            "awsLinkEndpoints": [
+              {
+                "dns_entries": [
+                  {
+                    "dns_name": "vpce-0123abc.vpce-svc-abc123.us-east-1.vpce.amazonaws.com",
+                    "hosted_zone_id": "Z7HUB22EVRPK5"
+                  }
+                ],
+                "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-abc123"
+              }
+            ],
+            "azureLinkEndpoints": [],
+            "gcpPscEndpoints": [],
+            "name": "ops/dp/private/aliceCo/aws-us-east-1-c1",
+            "privateLinks": [
+              {
+                "id": "0000000000000a01",
+                "status": "PROVISIONED"
+              },
+              {
+                "id": "0000000000000a02",
+                "status": "PENDING"
+              },
+              {
+                "id": "0000000000000a03",
+                "status": "PENDING"
+              }
+            ]
+          }
+        },
+        {
+          "node": {
+            "awsLinkEndpoints": [],
+            "azureLinkEndpoints": [],
+            "gcpPscEndpoints": [],
+            "name": "ops/dp/public/aws-us-west-2-c1",
+            "privateLinks": []
+          }
+        },
+        {
+          "node": {
+            "awsLinkEndpoints": [],
+            "azureLinkEndpoints": [],
+            "gcpPscEndpoints": [],
+            "name": "ops/dp/public/gcp-us-central1-c2",
+            "privateLinks": []
+          }
+        }
+      ]
+    }
+  },
+  "errors": null
+}

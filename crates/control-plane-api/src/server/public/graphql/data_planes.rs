@@ -2118,4 +2118,254 @@ mod tests {
         // Non-numeric cluster
         assert!(parse_data_plane_name("ops/dp/public/aws-us-east-1-ca").is_none());
     }
+
+    /// `dataPlanes` narrows on legacy Read per plane.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_data_planes_capability_mask(pool: sqlx::PgPool) {
+        // `gate: false`: an empty grant set lists nothing without a denial
+        // that would advance a gated snapshot past its initial empty state.
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                dataPlanes { edges { node { name } } }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer", "delegate"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_data_planes_viewer_delegate", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_data_planes_billing", response);
+    }
+
+    /// `DataPlane.privateLinks` and the endpoint fields require ViewDataPlanePrivateNetworking.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_data_plane_private_links_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                dataPlanes {
+                    edges {
+                        node {
+                            name
+                            privateLinks { id status }
+                            awsLinkEndpoints
+                            azureLinkEndpoints
+                            gcpPscEndpoints
+                        }
+                    }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer", "delegate"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_data_plane_private_links_viewer_delegate", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_data_plane_private_links_billing", response);
+    }
+
+    /// `addDataPlanePrivateLink` requires ModifyDataPlanePrivateNetworking on the data plane.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_add_data_plane_private_link_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let request = add_mutation("ops/dp/private/aliceCo/aws-us-east-1-c1", NEW_AWS_INPUT);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_data_plane", "delegate"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_add_data_plane_private_link_manage_data_plane_delegate", response, {
+            ".data.addDataPlanePrivateLink.id" => "[id]"
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_add_data_plane_private_link_viewer", response);
+    }
+
+    /// `updateDataPlanePrivateLink` requires ModifyDataPlanePrivateNetworking, with denial hidden as not-found.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_update_data_plane_private_link_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // `gate: false`: the link is resolved through `may_access`, which hides
+        // a denial as not-found without refreshing, so a gated snapshot would
+        // never advance past its initial empty state.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let request = update_link_mutation("0000000000000a01", NEW_AWS_INPUT);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_data_plane", "delegate"],
+            )
+            .await;
+        insta::assert_json_snapshot!(
+            "mask_update_data_plane_private_link_manage_data_plane_delegate",
+            response
+        );
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_update_data_plane_private_link_viewer", response);
+    }
+
+    /// `removeDataPlanePrivateLink` requires ModifyDataPlanePrivateNetworking, with denial hidden as not-found.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_remove_data_plane_private_link_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // `gate: false`: the link is resolved through `may_access`, which hides
+        // a denial as not-found without refreshing, so a gated snapshot would
+        // never advance past its initial empty state.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let request = remove_link_mutation("0000000000000a01");
+
+        // The link is looked up before authorization, so `viewer` runs while
+        // the row still exists: after `manage_data_plane` removes it, the
+        // same call would be not-found for a different reason.
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_remove_data_plane_private_link_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_data_plane", "delegate"],
+            )
+            .await;
+        insta::assert_json_snapshot!(
+            "mask_remove_data_plane_private_link_manage_data_plane_delegate",
+            response
+        );
+    }
 }

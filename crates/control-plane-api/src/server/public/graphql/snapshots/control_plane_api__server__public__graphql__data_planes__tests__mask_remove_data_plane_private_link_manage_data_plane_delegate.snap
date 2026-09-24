@@ -1,0 +1,11 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+assertion_line: 2366
+expression: response
+---
+{
+  "data": {
+    "removeDataPlanePrivateLink": "0000000000000a01"
+  },
+  "errors": null
+}

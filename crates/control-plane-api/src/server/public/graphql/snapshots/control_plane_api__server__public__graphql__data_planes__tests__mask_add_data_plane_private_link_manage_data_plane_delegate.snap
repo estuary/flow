@@ -1,0 +1,18 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+assertion_line: 2257
+expression: response
+---
+{
+  "data": {
+    "addDataPlanePrivateLink": {
+      "config": {
+        "__typename": "AWSPrivateLink",
+        "serviceName": "com.amazonaws.vpce.us-east-1.vpce-svc-new999"
+      },
+      "id": "[id]",
+      "status": "PENDING"
+    }
+  },
+  "errors": null
+}
