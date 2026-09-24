@@ -1,0 +1,8 @@
+---
+source: crates/flowctl/src/raw/graphql/mod.rs
+expression: "build_variables(Some(r#\"{\"first\": 5, \"prefix\": \"wileyCo/\"}\"#),\n&[var(\"first\", \"10\")]).unwrap()"
+---
+{
+  "first": 10,
+  "prefix": "wileyCo/"
+}
