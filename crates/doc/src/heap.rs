@@ -158,6 +158,9 @@ impl<'alloc> HeapNode<'alloc> {
 
     /// Try to set `value` at the designated Pointer within this HeapNode,
     /// creating intermediate objects and arrays along the way as necessary.
+    /// Creates at most [`json::ptr::MAX_CREATED_NODES`] child nodes across the
+    /// whole pointer; exceeding that bound also returns Err. The supplied value
+    /// and existing nodes do not consume this budget.
     /// Returns Ok on success with the tape-length delta, or Err if unable to
     /// set `value`, also with the tape-length delta.
     /// Note this routine may modify self even if the operation fails
@@ -173,6 +176,7 @@ impl<'alloc> HeapNode<'alloc> {
         let mut tail = ptr.0.as_slice();
         let mut stack = Vec::new();
         let mut node = self;
+        let mut remaining = json::ptr::MAX_CREATED_NODES;
 
         let (matched, mut built_delta) = loop {
             let Some((token, new_tail)) = tail.split_first() else {
@@ -210,6 +214,10 @@ impl<'alloc> HeapNode<'alloc> {
                         match fields.binary_search_by(|l| l.property.cmp(&property)) {
                             Ok(index) => (0i32, index),
                             Err(index) => {
+                                let Some(budget) = remaining.checked_sub(1) else {
+                                    break (false, 0);
+                                };
+                                remaining = budget;
                                 let value = HeapField {
                                     property,
                                     value: HeapNode::Null,
@@ -229,7 +237,14 @@ impl<'alloc> HeapNode<'alloc> {
                         Token::NextProperty | Token::Property(_) => break (false, 0),
                     };
                     // Create any required indices [0..ind) as HeapNode::Null.
-                    let local_delta = (1 + index).saturating_sub(items.len());
+                    let Some(length) = index.checked_add(1) else {
+                        break (false, 0);
+                    };
+                    let local_delta = length.saturating_sub(items.len());
+                    let Some(budget) = remaining.checked_sub(local_delta) else {
+                        break (false, 0);
+                    };
+                    remaining = budget;
                     items.extend(
                         std::iter::repeat_with(|| HeapNode::Null).take(local_delta),
                         alloc,
@@ -456,6 +471,83 @@ mod test {
             assert!(ptr.query(&heap_doc).is_none());
             assert!(ptr.query(arch_doc).is_none());
         }
+    }
+
+    #[test]
+    fn pointer_creation_budget() {
+        // Exercise both representations with the same boundary cases, including
+        // partial failures whose heap tape-length deltas must remain accurate.
+        let mut outcomes = Vec::new();
+        for (label, initial, pointer) in [
+            ("at limit", json!(null), "/1023".to_string()),
+            ("over limit", json!(null), "/1024".to_string()),
+            (
+                "huge index",
+                json!({}),
+                "/credentials/1000000000".to_string(),
+            ),
+            ("overflow", json!([]), format!("/{}", usize::MAX)),
+            ("nested at limit", json!(null), "/511/511".to_string()),
+            ("nested over limit", json!(null), "/511/512".to_string()),
+            ("property at limit", json!({}), "/a/1022".to_string()),
+            ("property over limit", json!({}), "/a/1023".to_string()),
+            ("property after budget", json!(null), "/1023/a".to_string()),
+            (
+                "existing large array",
+                json!(vec![0; 2048]),
+                "/2047".to_string(),
+            ),
+            (
+                "extend large array",
+                json!(vec![0; 2048]),
+                "/3071".to_string(),
+            ),
+            ("append large array", json!(vec![0; 2048]), "/-".to_string()),
+            ("numeric property", json!({}), format!("/{}", usize::MAX)),
+        ] {
+            let alloc = HeapNode::new_allocator();
+            let mut heap = HeapNode::from_serde(&initial, &alloc).unwrap();
+            let before = heap.tape_length();
+            // Parsed '-' is an object property; array append is an explicit token.
+            let pointer = if pointer == "/-" {
+                Pointer::from_iter([json::ptr::Token::NextIndex])
+            } else {
+                Pointer::from(pointer)
+            };
+            let result = heap.try_set(&pointer, HeapNode::Bool(true), &alloc);
+
+            let mut value = initial;
+            let created = json::ptr::create_value(&pointer, &mut value);
+            assert_eq!(result.is_ok(), created.is_some(), "{label}");
+            if let Some(created) = created {
+                *created = json!(true);
+            }
+            assert_eq!(compare(&heap, &value), Ordering::Equal, "{label}");
+            assert_eq!(heap.tape_length(), value.tape_length(), "{label}");
+            let delta = match result {
+                Ok(delta) | Err(delta) => delta,
+            };
+            assert_eq!(heap.tape_length() - before, delta, "{label}");
+            outcomes.push(format!(
+                "{label}: success={}, delta={delta}",
+                result.is_ok()
+            ));
+        }
+        insta::assert_snapshot!(outcomes.join("\n"), @r###"
+        at limit: success=true, delta=1024
+        over limit: success=false, delta=0
+        huge index: success=false, delta=1
+        overflow: success=false, delta=0
+        nested at limit: success=true, delta=1024
+        nested over limit: success=false, delta=512
+        property at limit: success=true, delta=1024
+        property over limit: success=false, delta=1
+        property after budget: success=false, delta=1024
+        existing large array: success=true, delta=0
+        extend large array: success=true, delta=1024
+        append large array: success=true, delta=1
+        numeric property: success=true, delta=1
+        "###);
     }
 
     #[test]

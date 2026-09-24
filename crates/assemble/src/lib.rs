@@ -589,14 +589,14 @@ pub fn encode_state_key(resource_path: &[impl AsRef<str>], backfill: u32) -> Str
 
 /// secrets maps a task's model `secrets` stanza into the representation carried
 /// by its built spec and by the Validate / Discover requests of its connector:
-/// a JSON pointer into the endpoint configuration, mapped to the catalog name
-/// of the secret which the runtime resolves and merge-patches at that location.
+/// a catalog secret name mapped to the JSON pointer where the runtime resolves
+/// and merge-patches it into the endpoint configuration.
 pub fn secrets(
-    stanza: &std::collections::BTreeMap<models::JsonPointer, models::Secret>,
+    stanza: &std::collections::BTreeMap<models::Secret, models::JsonPointer>,
 ) -> std::collections::BTreeMap<String, String> {
     stanza
         .iter()
-        .map(|(pointer, secret)| (pointer.to_string(), secret.to_string()))
+        .map(|(secret, pointer)| (secret.to_string(), pointer.to_string()))
         .collect()
 }
 

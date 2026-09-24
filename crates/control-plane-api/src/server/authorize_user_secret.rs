@@ -42,7 +42,17 @@ pub async fn authorize_user_secret(
         Err(err) => return Err(err),
     }
 
-    Ok(axum::Json(super::fetch_secret(&env.pg_pool, &name).await?))
+    // Absence is terminal: unlike a grant, a secret is read at its current
+    // value, so a later read cannot turn this answer around.
+    let Some(secret) = crate::secrets::fetch(&env.pg_pool, &name).await? else {
+        return Err(tonic::Status::not_found(format!("secret '{name}' does not exist")).into());
+    };
+
+    Ok(axum::Json(Response {
+        document: Some(secret.document),
+        secret_id: Some(secret.secret_id),
+        retry_millis: 0,
+    }))
 }
 
 #[cfg(test)]
@@ -95,29 +105,10 @@ mod tests {
     /// otherwise mint one.
     async fn run(server: &test_server::TestServer, user: Option<uuid::Uuid>, name: &str) -> String {
         let started = tokens::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        summarize(get(server, user, &format!("name={name}&started={started}")).await).await
-    }
-
-    /// Reduce a response to a snapshot-able summary.
-    async fn summarize(response: reqwest::Response) -> String {
-        let status = response.status().as_u16();
-        let body = response.text().await.unwrap();
-
-        // Errors are a bare status message rather than JSON, so only a success
-        // is parsed. The wrapped document itself is elided: its content is
-        // opaque ciphertext, and only its presence is what a route decides.
-        if status != 200 {
-            return format!("{status} {body}");
-        }
-        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
-
-        match body.get("document") {
-            Some(_) => format!(
-                "200 secretId={}",
-                body["secretId"].as_str().unwrap_or("<missing>")
-            ),
-            None => format!("200 retryMillis={}", body["retryMillis"]),
-        }
+        test_server::summarize_secret(
+            get(server, user, &format!("name={name}&started={started}")).await,
+        )
+        .await
     }
 
     #[sqlx::test(
@@ -158,7 +149,8 @@ mod tests {
             // to repeat a request whose start time it re-mints each time.
             (
                 "alice/no-started",
-                summarize(get(&server, ALICE, "name=aliceCo/in/token").await).await,
+                test_server::summarize_secret(get(&server, ALICE, "name=aliceCo/in/token").await)
+                    .await,
             ),
         ];
 

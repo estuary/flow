@@ -21,7 +21,6 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 - `overlay::decrypt_with_overlay()` - As above, additionally applying a
   `sops.overlay` which is first validated to touch only `nonsensitive: true`
   schema locations.
-- `secrets::is_sops()` - The sniff which chooses between the two forms.
 - `secrets::resolve()` - Resolve a `secrets` stanza into a plaintext
   configuration, generic over an async decrypt callback. This crate holds no
   transport and no tokens: callers supply the callback.
@@ -29,8 +28,10 @@ A configuration takes exactly one of two forms, and they are mutually exclusive:
 ## Non-obvious Details
 
 - Decryption shells out to the `sops` binary, located via `locate-bin`.
-- `secrets::resolve` merge-patches (RFC 7396) each entry in lexicographic
-  pointer order, so a deeper pointer wins wherever two entries overlap, and a
-  `null` leaf deletes its property. Pointer tokens are always object property
-  names -- never array indices.
+- `secrets::resolve` builds each location with `json::ptr::create_value` and
+  then merge-patches (RFC 7396) the resolved value there. Consequences, all
+  intended: a numeric token indexes an array and pads it with `null`; a `null`
+  secret *sets* its location to `null` rather than deleting it (the merge patch
+  is rooted at the location, not at its parent); and the empty pointer
+  merge-patches the document root.
 - Error messages never carry secret material.

@@ -33,6 +33,20 @@ impl RawValue {
     pub fn to_value(&self) -> serde_json::Value {
         serde_json::from_str(self.get()).unwrap()
     }
+    /// Does this document have a top-level `sops` property?
+    ///
+    /// A task's endpoint configuration takes one of two mutually exclusive
+    /// forms: wrapped as a whole by `sops` (the legacy path), or plaintext with
+    /// its secrets supplied through a `secrets` stanza. `sops` is a reserved
+    /// property of the latter, so this sniff is what chooses between them.
+    pub fn is_sops(&self) -> bool {
+        #[derive(serde::Deserialize)]
+        struct Sniff {
+            #[allow(dead_code)]
+            sops: serde::de::IgnoredAny,
+        }
+        serde_json::from_str::<Sniff>(self.get()).is_ok()
+    }
 }
 
 impl<'de> serde::Deserialize<'de> for RawValue {
@@ -107,6 +121,34 @@ impl schemars::JsonSchema for RawValue {
 
 #[cfg(test)]
 mod test {
+    use serde_json::json;
+
+    #[test]
+    fn sops_sniff() {
+        let cases = [
+            json!({"sops": {"mac": "..."}}),
+            json!({"sops": null}),
+            json!({"address": "db:5432"}),
+            json!({}),
+            json!("not an object"),
+            json!(null),
+        ];
+        let sniffed: Vec<bool> = cases
+            .iter()
+            .map(|case| super::RawValue::from_value(case).is_sops())
+            .collect();
+
+        insta::assert_debug_snapshot!(sniffed, @r###"
+        [
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+        ]
+        "###);
+    }
 
     #[test]
     fn test_newlines_are_removed() {

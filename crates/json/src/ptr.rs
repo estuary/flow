@@ -163,14 +163,21 @@ impl Pointer {
     }
 }
 
+/// Maximum number of child nodes a single pointer operation may create.
+/// Bounds amplification from sparse array indices, including across nested arrays,
+/// without restricting traversal or replacement of existing document nodes.
+pub const MAX_CREATED_NODES: usize = 1024;
+
 /// Query a mutable existing value at the pointer location within the document,
 /// recursively creating the location if it doesn't exist. Existing parent locations
 /// which are Null are instantiated as an Object or Array, depending on the type of
 /// Token at that location (Property or Index/NextIndex). An existing Array is
 /// extended with Nulls as required to instantiate a specified Index.
-/// Returns a mutable Value at the pointed location, or None only if the document
-/// structure is incompatible with the pointer (eg, because a parent location is
-/// a scalar type, or attempts to index an array by-property).
+/// Creates at most [`MAX_CREATED_NODES`] child nodes across the whole pointer.
+/// Returns a mutable Value at the pointed location, or None if this limit is
+/// exceeded or the document structure is incompatible with the pointer
+/// (eg, a parent is a scalar, or the pointer indexes an array by property).
+/// Failure may leave intermediate nodes in the document.
 pub fn create_value<'v>(
     ptr: &Pointer,
     value: &'v mut serde_json::Value,
@@ -178,6 +185,7 @@ pub fn create_value<'v>(
     use serde_json::Value;
 
     let mut v = value;
+    let mut remaining = MAX_CREATED_NODES;
 
     for token in ptr.iter() {
         // If the current value is null but more tokens remain in the pointer,
@@ -197,20 +205,35 @@ pub fn create_value<'v>(
         v = match v {
             Value::Object(map) => match token {
                 // Create or modify existing entry.
-                Token::Index(ind) => map.entry(ind.to_string()).or_insert(Value::Null),
-                Token::Property(prop) => map.entry(prop).or_insert(Value::Null),
+                Token::Index(_) | Token::Property(_) => {
+                    let property = match token {
+                        Token::Index(ind) => ind.to_string(),
+                        Token::Property(prop) => prop.clone(),
+                        _ => unreachable!(),
+                    };
+                    match map.entry(property) {
+                        serde_json::map::Entry::Occupied(entry) => entry.into_mut(),
+                        serde_json::map::Entry::Vacant(entry) => {
+                            remaining = remaining.checked_sub(1)?;
+                            entry.insert(Value::Null)
+                        }
+                    }
+                }
                 Token::NextProperty | Token::NextIndex => return None,
             },
             Value::Array(arr) => match token {
                 Token::Index(ind) => {
                     // Create any required indices [0..ind) as Null.
                     if *ind >= arr.len() {
-                        arr.extend(std::iter::repeat(Value::Null).take(1 + ind - arr.len()));
+                        let length = ind.checked_add(1)?;
+                        remaining = remaining.checked_sub(length - arr.len())?;
+                        arr.resize(length, Value::Null);
                     }
                     // Create or modify |ind| entry.
                     &mut arr[*ind]
                 }
                 Token::NextIndex => {
+                    remaining = remaining.checked_sub(1)?;
                     // Append and return a Null.
                     arr.push(Value::Null);
                     arr.last_mut().unwrap()
@@ -454,6 +477,35 @@ mod test {
 
         let res = create_value(&next_index_ptr, &mut root_value);
         assert_eq!(res, None);
+
+        // Creation may consume the full budget, including across nested arrays.
+        let half_budget_index = (MAX_CREATED_NODES / 2) - 1;
+        let at_budget = Pointer::from_iter([
+            Token::Index(half_budget_index),
+            Token::Index(half_budget_index),
+        ]);
+        let mut root_value = json!(null);
+        assert!(create_value(&at_budget, &mut root_value).is_some());
+        assert_eq!(
+            root_value[half_budget_index].as_array().unwrap().len(),
+            MAX_CREATED_NODES / 2
+        );
+
+        // One additional node fails after retaining intermediate creations.
+        let over_budget = Pointer::from_iter([
+            Token::Index(half_budget_index),
+            Token::Index(half_budget_index + 1),
+        ]);
+        let mut root_value = json!(null);
+        assert!(create_value(&over_budget, &mut root_value).is_none());
+        assert_eq!(root_value.as_array().unwrap().len(), MAX_CREATED_NODES / 2);
+        assert_eq!(root_value[half_budget_index], json!([]));
+
+        // Existing nodes are traversable even when their index exceeds the budget.
+        let existing_index = MAX_CREATED_NODES + 1;
+        let mut root_value = json!(vec![serde_json::Value::Null; existing_index + 1]);
+        let existing = Pointer::from_iter([Token::Index(existing_index)]);
+        assert!(create_value(&existing, &mut root_value).is_some());
     }
 
     #[test]

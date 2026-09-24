@@ -33,7 +33,8 @@ pub async fn authorize_dekaf(
     mut env: crate::Envelope,
     super::Request(Request { token }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
-    let unverified = super::parse_untrusted_data_plane_claims(&token)?;
+    let unverified =
+        super::parse_untrusted_data_plane_claims(&token, proto_flow::capability::AUTHORIZE)?;
 
     // Use the `iat` claim to establish the logical start of the request,
     // rounded up to the next second (as it was round down when encoded).
@@ -125,6 +126,9 @@ struct AuthorizationResult {
     redirect_dekaf_registry_address: Option<String>,
 }
 
+// TODO(johnny): Refactor this route onto
+// `task_residency::resolve_catalog_task_location`, mapping `Elsewhere` to the
+// existing redirect response while keeping Dekaf-specific type and ops checks.
 fn evaluate_authorization(
     snapshot: &crate::Snapshot,
     task_name: &str,

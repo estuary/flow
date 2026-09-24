@@ -14,6 +14,8 @@ mod create_data_plane;
 mod error;
 pub mod public;
 pub mod snapshot;
+mod task_residency;
+mod task_update;
 mod update_l2_reporting;
 
 pub use error::{ApiError, AuthZRetry};
@@ -231,6 +233,8 @@ pub fn build_router(
             "/authorize/user/task",
             post(authorize_user_task::authorize_user_task).options(preflight_handler),
         )
+        .route("/task/set-secret", post(task_update::task_set_secret))
+        .route("/task/update-config", post(task_update::task_update_config))
         .route(
             "/admin/create-data-plane",
             post(create_data_plane::create_data_plane),
@@ -317,6 +321,7 @@ pub async fn exchange_refresh_token(
 /// Returns an `Unverified` wrapper to make clear the claims have not been verified.
 fn parse_untrusted_data_plane_claims(
     token: &str,
+    required_capability: u32,
 ) -> tonic::Result<tokens::jwt::Unverified<proto_gazette::Claims>> {
     let unverified = tokens::jwt::parse_unverified::<proto_gazette::Claims>(token.as_bytes())?;
     let claims = unverified.claims();
@@ -333,47 +338,18 @@ fn parse_untrusted_data_plane_claims(
             "missing required JWT `iss` claim (data-plane FQDN)",
         ));
     }
-    if claims.cap & proto_flow::capability::AUTHORIZE == 0 {
-        return Err(tonic::Status::unauthenticated(
-            "missing required AUTHORIZE capability",
-        ));
+    if claims.cap & required_capability != required_capability {
+        let required_capability = match required_capability {
+            proto_flow::capability::AUTHORIZE => "AUTHORIZE".to_string(),
+            proto_flow::capability::TASK_UPDATE => "TASK_UPDATE".to_string(),
+            other => format!("{other:#x}"),
+        };
+        return Err(tonic::Status::unauthenticated(format!(
+            "missing required {required_capability} capability"
+        )));
     }
 
     Ok(unverified)
-}
-
-/// Read the wrapped document of `name` from the DB, for a caller already
-/// authorized to have it. Note `/authorize/task/decrypt-secret` also implements
-/// a variant of this query which performs additional storage-mapping AuthZ,
-/// for Discover / Validate cases of novel tasks.
-async fn fetch_secret(
-    pg_pool: &sqlx::PgPool,
-    name: &models::Name,
-) -> Result<models::authorizations::DecryptAuthorization, ApiError> {
-    let row = sqlx::query!(
-        r#"
-        SELECT
-            document AS "document!: models::RawValue",
-            id AS "secret_id!: models::Id"
-        FROM internal.secrets
-        WHERE catalog_name = $1::text::catalog_name
-        "#,
-        name.as_str(),
-    )
-    .fetch_optional(pg_pool)
-    .await?;
-
-    // Absence is terminal: unlike a grant, a secret is read at its current
-    // value, so a later read cannot turn this answer around.
-    let Some(row) = row else {
-        return Err(tonic::Status::not_found(format!("secret '{name}' does not exist")).into());
-    };
-
-    Ok(models::authorizations::DecryptAuthorization {
-        document: Some(row.document),
-        secret_id: Some(row.secret_id),
-        retry_millis: 0,
-    })
 }
 
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
