@@ -953,4 +953,132 @@ mod test {
         }
         insta::assert_snapshot!("secrets_pagination", transcript);
     }
+
+    /// `secrets` narrows on ViewSecret.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice", "secrets"))
+    )]
+    async fn test_secrets_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // `gate: false`: the listing short-circuits to an empty connection
+        // when the snapshot holds no grants, without a denial that would
+        // advance a gated snapshot past its initial empty state.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = json!({ "query": LIST_SECRETS });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["editor"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_secrets_editor", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_secrets_viewer", response);
+    }
+
+    /// `setSecret` requires EditSecret on `catalogName`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_set_secret_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = json!({
+            "query": SET_SECRET,
+            "variables": {
+                "catalogName": "aliceCo/db/password",
+                "document": wrapped("aliceCo/db/password", "aaa", "2026-08-18T10:00:00Z"),
+            },
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["editor"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_set_secret_editor", response, {
+            ".data.setSecret.secret.secretId" => "[secretId]"
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_set_secret_viewer", response);
+    }
+
+    /// `deleteSecret` requires EditSecret on `catalogName` or `prefix`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice", "secrets"))
+    )]
+    async fn test_delete_secret_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = json!({
+            "query": DELETE_SECRET,
+            "variables": { "prefix": "aliceCo/" },
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["editor"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_secret_editor", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_delete_secret_viewer", response);
+    }
 }
