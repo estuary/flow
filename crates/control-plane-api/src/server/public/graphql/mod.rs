@@ -41,7 +41,7 @@ mod publication_history;
 mod refresh_tokens;
 mod scalars;
 mod secrets;
-mod service_accounts;
+pub(crate) mod service_accounts;
 pub mod status;
 mod storage_mappings;
 mod tenant;
