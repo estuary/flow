@@ -439,6 +439,9 @@ impl Shape {
             // TODO(johnny): Support other scalars?
             (Err(index), Node::String(str)) => {
                 enums.insert(index, serde_json::json!(str));
+                // A forbidden location intersected with a string enum has an
+                // INVALID type until its first value is observed.
+                self.type_ = self.type_ | types::STRING;
                 true
             }
             // Remove `enums` and fold into Shape.
