@@ -368,4 +368,49 @@ mod tests {
         }
         "#);
     }
+
+    /// `liveSpecs` requires legacy Read on every name and prefix in `by`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_live_specs_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                liveSpecs(by: { prefix: "aliceCo/" }) {
+                    edges { node { catalogName } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_live_specs_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_live_specs_billing", response);
+    }
 }

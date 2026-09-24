@@ -1,0 +1,29 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/live_specs.rs
+assertion_line: 404
+expression: response
+---
+{
+  "data": {
+    "liveSpecs": {
+      "edges": [
+        {
+          "node": {
+            "catalogName": "aliceCo/data/foo"
+          }
+        },
+        {
+          "node": {
+            "catalogName": "aliceCo/in/capture-foo"
+          }
+        },
+        {
+          "node": {
+            "catalogName": "aliceCo/out/materialize-bar"
+          }
+        }
+      ]
+    }
+  },
+  "errors": null
+}

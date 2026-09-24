@@ -1,0 +1,16 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/live_specs.rs
+assertion_line: 414
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'aliceCo/' with required capability read",
+      "path": [
+        "liveSpecs"
+      ]
+    }
+  ]
+}
