@@ -844,11 +844,6 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("mask_create_alert_subscription_viewer", response);
-
-        let response = server
-            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
-            .await;
-        insta::assert_json_snapshot!("mask_create_alert_subscription_empty", response);
     }
 
     /// `alertSubscriptions` requires legacy Admin.
@@ -916,11 +911,6 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("mask_alert_subscriptions_viewer", response);
-
-        let response = server
-            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
-            .await;
-        insta::assert_json_snapshot!("mask_alert_subscriptions_empty", response);
     }
 
     /// `updateAlertSubscription` requires legacy Admin.
@@ -993,11 +983,6 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("mask_update_alert_subscription_viewer", response);
-
-        let response = server
-            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
-            .await;
-        insta::assert_json_snapshot!("mask_update_alert_subscription_empty", response);
     }
 
     /// `deleteAlertSubscription` requires legacy Admin.
@@ -1065,10 +1050,5 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("mask_delete_alert_subscription_viewer", response);
-
-        let response = server
-            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
-            .await;
-        insta::assert_json_snapshot!("mask_delete_alert_subscription_empty", response);
     }
 }

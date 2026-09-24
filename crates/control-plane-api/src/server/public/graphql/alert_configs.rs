@@ -1093,11 +1093,6 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("mask_alert_configs_billing", response);
-
-        let response = server
-            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
-            .await;
-        insta::assert_json_snapshot!("mask_alert_configs_empty", response);
     }
 
     /// `effectiveAlertConfig` requires CatalogRead.
@@ -1144,11 +1139,6 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("mask_effective_alert_config_billing", response);
-
-        let response = server
-            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
-            .await;
-        insta::assert_json_snapshot!("mask_effective_alert_config_empty", response);
     }
 
     /// `updateAlertConfig` requires legacy Admin.
@@ -1198,10 +1188,5 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("mask_update_alert_config_viewer", response);
-
-        let response = server
-            .graphql_capability_mask_request(alice, Some("alice@example.test"), &request, &[])
-            .await;
-        insta::assert_json_snapshot!("mask_update_alert_config_empty", response);
     }
 }

@@ -392,3 +392,62 @@ pub async fn live_spec_alert_history_no_authz(
     )
     .await
 }
+
+#[cfg(test)]
+mod test {
+    use crate::test_server;
+
+    /// `alerts` requires legacy Read on `by.prefix`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_alerts_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Seed one fired alert so the `viewer` listing has a row to return.
+        sqlx::query(
+            r#"insert into alert_history (id, catalog_name, alert_type, fired_at, arguments)
+            values ('000000000010', 'aliceCo/in/capture-foo', 'shard_failed', '2026-01-01T00:00:00Z', '{}')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                alerts(by: {prefix: "aliceCo/"}) {
+                    edges { node { alertType catalogName firedAt } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_alerts_viewer", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["billing"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_alerts_billing", response);
+    }
+}
