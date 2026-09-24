@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select id as \"id!: models::Id\", user_id, handle, catalog_name, created_at, baseline_checkpoint_id\n        from internal.sandboxes\n        where id = $1 and user_id = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "handle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "handle"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "catalog_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "catalog_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "baseline_checkpoint_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "baseline_checkpoint_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6585e4aa19ddce6e5a4ec95dbb305ec2db07d791de39ec2df8e9c52a6c215154"
+}

@@ -40,6 +40,7 @@ mod live_specs;
 mod prefixes;
 mod publication_history;
 mod refresh_tokens;
+mod sandboxes;
 mod scalars;
 mod secrets;
 mod service_accounts;
@@ -131,6 +132,7 @@ pub struct QueryRoot(
     secrets::SecretsQuery,
     drafts::DraftsQuery,
     catalog_stats::CatalogStatsQuery,
+    sandboxes::SandboxesQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -143,6 +145,7 @@ pub struct MutationRoot(
     invite_links::InviteLinksMutation,
     data_planes::DataPlanesMutation,
     refresh_tokens::RefreshTokensMutation,
+    sandboxes::SandboxesMutation,
     service_accounts::ServiceAccountsMutation,
     secrets::SecretsMutation,
     drafts::DraftsMutation,
@@ -174,12 +177,13 @@ pub(crate) async fn graphql_handler(
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
-    let mut request = req
-        .data(env)
-        .data(async_graphql::dataloader::DataLoader::new(
-            PgDataLoader(pg_pool),
-            tokio::spawn,
-        ));
+    let mut request =
+        req.data(app.clone())
+            .data(env)
+            .data(async_graphql::dataloader::DataLoader::new(
+                PgDataLoader(pg_pool),
+                tokio::spawn,
+            ));
 
     if let Some(ref billing_provider) = app.billing_provider {
         request = request

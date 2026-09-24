@@ -35,7 +35,7 @@ pub enum Rejection {
 
 /// App is the wired application state of the control-plane API.
 pub struct App {
-    pub _id_generator: std::sync::Mutex<models::IdGenerator>,
+    pub id_generator: std::sync::Mutex<models::IdGenerator>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     pub catalog_stats: Option<Arc<catalog_stats::Client>>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
@@ -43,6 +43,10 @@ pub struct App {
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
     pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    /// Client for the Fly.io Sprites API, which backs GraphQL sandboxes.
+    /// `None` when unconfigured, in which case the sandbox mutations fail
+    /// closed. See `server::public::graphql::sandboxes`.
+    pub sprites: Option<Arc<crate::sprites::Client>>,
     /// Signing secret for verifying inbound Stripe webhook deliveries. `None`
     /// when unconfigured, in which case the webhook endpoint fails closed rather
     /// than trusting any request. See `server::public::stripe_webhooks`.
@@ -58,10 +62,11 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        sprites: Option<Arc<crate::sprites::Client>>,
         stripe_webhook_secret: Option<String>,
     ) -> Self {
         Self {
-            _id_generator: std::sync::Mutex::new(id_generator),
+            id_generator: std::sync::Mutex::new(id_generator),
             billing_provider,
             catalog_stats,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
@@ -69,6 +74,7 @@ impl App {
             pg_pool,
             publisher,
             snapshot,
+            sprites,
             stripe_webhook_secret,
         }
     }
