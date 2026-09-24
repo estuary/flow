@@ -176,6 +176,7 @@ pub fn initial_state() -> stack::State {
         pending_refresh: false,
         pending_converge: false, // Start false, should be set by diffing
         pinned_links: Vec::new(),
+        publish_link_results: None,
         publish_exports: None,
         publish_stack: None,
     }
