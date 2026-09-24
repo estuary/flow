@@ -2125,4 +2125,463 @@ mod test {
             "seeding a grant beyond the team admin's CreateGrant must fail: {create_escalation}"
         );
     }
+
+    /// Create `aliceCo/mask-bot` with alice's unmasked token, holding the
+    /// given GraphQL `grants` literal.
+    async fn seed_mask_bot(server: &test_server::TestServer, alice_token: &str, grants: &str) {
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": format!(r#"
+                    mutation {{
+                        createServiceAccount(catalogName: "aliceCo/mask-bot", grants: {grants}) {{
+                            catalogName
+                        }}
+                    }}"#),
+                }),
+                Some(alice_token),
+            )
+            .await;
+        assert!(
+            seeded["errors"].is_null(),
+            "seeding should succeed: {seeded}"
+        );
+    }
+
+    /// Mint an API key for `aliceCo/mask-bot` with alice's unmasked token,
+    /// returning its id.
+    async fn seed_mask_bot_api_key(server: &test_server::TestServer, alice_token: &str) -> String {
+        let seeded: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createApiKey(catalogName: "aliceCo/mask-bot", detail: "seed", validFor: "P30D") {
+                            id
+                        }
+                    }"#,
+                }),
+                Some(alice_token),
+            )
+            .await;
+        seeded["data"]["createApiKey"]["id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("seeding should succeed: {seeded}"))
+            .to_string()
+    }
+
+    /// `serviceAccounts` narrows on QueryServiceAccounts.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_service_accounts_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        seed_mask_bot(&server, &alice_token, "[]").await;
+
+        let request = serde_json::json!({
+            "query": r#"
+            query {
+                serviceAccounts {
+                    edges { node { catalogName grants { prefix capability } } }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_service_accounts"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_service_accounts_manage_service_accounts", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_service_accounts_viewer", response);
+    }
+
+    /// `createServiceAccount` requires CreateServiceAccount on the account name.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_service_account_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                createServiceAccount(catalogName: "aliceCo/mask-bot", grants: []) {
+                    catalogName
+                    grants { prefix }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_service_accounts"],
+            )
+            .await;
+        insta::assert_json_snapshot!(
+            "mask_create_service_account_manage_service_accounts",
+            response
+        );
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_service_account_viewer", response);
+    }
+
+    /// `addServiceAccountGrant` requires CreateGrant on the account name and the grant prefix.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_add_service_account_grant_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        seed_mask_bot(&server, &alice_token, "[]").await;
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                addServiceAccountGrant(catalogName: "aliceCo/mask-bot", prefix: "aliceCo/", capability: read) {
+                    catalogName
+                    grants { prefix capability }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["team_admin"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_add_service_account_grant_team_admin", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_add_service_account_grant_viewer", response);
+    }
+
+    /// `removeServiceAccountGrant` requires CreateServiceAccount on the account name.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_remove_service_account_grant_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        seed_mask_bot(
+            &server,
+            &alice_token,
+            r#"[{ prefix: "aliceCo/", capability: read }]"#,
+        )
+        .await;
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                removeServiceAccountGrant(catalogName: "aliceCo/mask-bot", prefix: "aliceCo/") {
+                    catalogName
+                    grants { prefix }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_service_accounts"],
+            )
+            .await;
+        insta::assert_json_snapshot!(
+            "mask_remove_service_account_grant_manage_service_accounts",
+            response
+        );
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_remove_service_account_grant_viewer", response);
+    }
+
+    /// `removeAllServiceAccountGrants` requires CreateServiceAccount on the account name.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_remove_all_service_account_grants_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        seed_mask_bot(
+            &server,
+            &alice_token,
+            r#"[{ prefix: "aliceCo/", capability: read }]"#,
+        )
+        .await;
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                removeAllServiceAccountGrants(catalogName: "aliceCo/mask-bot") {
+                    catalogName
+                    grants { prefix }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_service_accounts"],
+            )
+            .await;
+        insta::assert_json_snapshot!(
+            "mask_remove_all_service_account_grants_manage_service_accounts",
+            response
+        );
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_remove_all_service_account_grants_viewer", response);
+    }
+
+    /// `createApiKey` requires CreateApiKey on the account name.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_create_api_key_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        seed_mask_bot(&server, &alice_token, "[]").await;
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                createApiKey(catalogName: "aliceCo/mask-bot", detail: "masked", validFor: "P30D") {
+                    id
+                    secret
+                    serviceAccount { catalogName }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_service_accounts"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_api_key_manage_service_accounts", response, {
+            ".data.createApiKey.id" => "[id]",
+            ".data.createApiKey.secret" => "[secret]"
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_create_api_key_viewer", response);
+    }
+
+    /// `revokeApiKey` requires RevokeApiKey on the owning account, with denial hidden as not-found.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_revoke_api_key_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        seed_mask_bot(&server, &alice_token, "[]").await;
+        let api_key_id = seed_mask_bot_api_key(&server, &alice_token).await;
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation($id: Id!) {
+                revokeApiKey(id: $id) {
+                    catalogName
+                    apiKeys { id }
+                }
+            }"#,
+            "variables": { "id": api_key_id },
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_service_accounts"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_revoke_api_key_manage_service_accounts", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_revoke_api_key_viewer", response);
+    }
+
+    /// `revokeAllApiKeys` requires RevokeApiKey on the account name.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_revoke_all_api_keys_capability_mask(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        seed_mask_bot(&server, &alice_token, "[]").await;
+        seed_mask_bot_api_key(&server, &alice_token).await;
+
+        let request = serde_json::json!({
+            "query": r#"
+            mutation {
+                revokeAllApiKeys(catalogName: "aliceCo/mask-bot") {
+                    catalogName
+                    apiKeys { id }
+                }
+            }"#
+        });
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["manage_service_accounts"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_revoke_all_api_keys_manage_service_accounts", response);
+
+        let response = server
+            .graphql_capability_mask_request(
+                alice,
+                Some("alice@example.test"),
+                &request,
+                &["viewer"],
+            )
+            .await;
+        insta::assert_json_snapshot!("mask_revoke_all_api_keys_viewer", response);
+    }
 }
