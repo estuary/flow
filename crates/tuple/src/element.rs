@@ -163,7 +163,7 @@ impl<'a> Element<'a> {
 
     pub fn as_str(&self) -> Option<&str> {
         match self {
-            Element::String(v) => Some(&v),
+            Element::String(v) => Some(v.as_ref()),
             _ => None,
         }
     }
