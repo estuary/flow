@@ -195,7 +195,13 @@ impl TestServer {
         capability_mask: Option<Vec<String>>,
         prefix_scope: Option<String>,
     ) -> String {
-        self.make_access_token_with(user_id, email, capability_mask, chrono::Duration::hours(1))
+        self.make_access_token_with(
+            user_id,
+            email,
+            capability_mask,
+            prefix_scope,
+            chrono::Duration::hours(1),
+        )
     }
 
     /// The fully-parameterized form of `make_access_token`: an unmasked or
@@ -206,6 +212,7 @@ impl TestServer {
         user_id: uuid::Uuid,
         email: Option<&str>,
         capability_mask: Option<Vec<String>>,
+        prefix_scope: Option<String>,
         ttl: chrono::Duration,
     ) -> String {
         let now = tokens::now();
@@ -217,13 +224,9 @@ impl TestServer {
             aud: "authenticated".to_string(),
             email: email.map(String::from),
             capability_mask,
-<<<<<<< HEAD
             prefix_scope,
-        };
-=======
         })
     }
->>>>>>> 16dd49218fb (Require the `authenticated` role to mint capability tokens, and cap lifetime to the bearer.)
 
     /// Sign arbitrary claims with the server's key. Tests use this to forge
     /// bearers that the `make_access_token*` helpers deliberately never

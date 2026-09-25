@@ -117,15 +117,14 @@ pub const CAPABILITY_TOKEN_DURATION: std::time::Duration = std::time::Duration::
 ///
 /// This creates a capability masked token, that has a mask limiting what the
 /// minted token is allowed to do.
-async fn mint_capability_token<'a>(
+async fn mint_capability_token(
     bearer_token_header: Result<
         TypedHeader<Authorization<Bearer>>,
         axum_extra::typed_header::TypedHeaderRejection,
     >,
     capability_mask: Vec<String>,
-    app: &'a Arc<crate::App>,
+    app: &Arc<crate::App>,
 ) -> Result<TokenResponse, crate::ApiError> {
-    // Reading the delayed header parsing.
     let maybe_claims = match bearer_token_header {
         Ok(bearer_header) => {
             crate::envelope::parse_authorization_header(bearer_header, app).await?
@@ -160,7 +159,7 @@ async fn mint_capability_token<'a>(
             "Unable to mint a new token from a token with a capability mask",
         )));
     }
-    if crate::server::public::graphql::service_accounts::verify_not_service_account(
+    if crate::server::public::graphql::service_accounts::is_not_service_account(
         &app.pg_pool,
         claims.sub,
     )
