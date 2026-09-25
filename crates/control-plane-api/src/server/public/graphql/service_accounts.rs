@@ -511,6 +511,11 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
+        if claims.capability_mask.is_some() {
+            return Err(async_graphql::Error::new(
+                "Unable to create a new API key using a token with a capability mask",
+            ));
+        }
         super::verify_authorization(
             env,
             catalog_name.as_str(),
@@ -1976,6 +1981,94 @@ mod test {
                 .len(),
             0,
             "still no grants on the second call: {remove_all_again}"
+        );
+    }
+
+    /// A token carrying a `capability_mask` is scoped down from the user's
+    /// full authority. An API key is an unmasked refresh token owned by the
+    /// service account, so letting a masked token mint one would let the
+    /// holder escape the mask through the account. The mutation is refused
+    /// before authorization runs, even for a mask as wide as `admin`.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_masked_token_cannot_create_api_key(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        let masked_token = server.make_masked_access_token(
+            alice,
+            Some("alice@example.test"),
+            Some(vec!["admin".to_string()]),
+        );
+
+        // The account itself is created with Alice's unmasked token so that
+        // the only thing under test is the mint.
+        let create: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createServiceAccount(catalogName: "aliceCo/masked-bot", grants: []) { catalogName }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            create["errors"].is_null(),
+            "creating the service account should succeed: {create}"
+        );
+
+        let mint: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createApiKey(catalogName: "aliceCo/masked-bot", detail: "ci", validFor: "P30D") { id secret }
+                    }"#
+                }),
+                Some(&masked_token),
+            )
+            .await;
+        assert_eq!(
+            mint["errors"][0]["message"],
+            "Unable to create a new API key using a token with a capability mask",
+            "a masked token must be refused: {mint}"
+        );
+        assert!(
+            mint["data"].is_null(),
+            "no key material should be returned: {mint}"
+        );
+
+        // The refusal happens before the insert, so the account's unmasked
+        // view shows no key was created.
+        let list: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"query { serviceAccounts { edges { node { catalogName apiKeys { id } } } } }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        let edges = list["data"]["serviceAccounts"]["edges"].as_array().unwrap();
+        assert_eq!(
+            edges.len(),
+            1,
+            "exactly the one account should exist: {list}"
+        );
+        assert_eq!(
+            edges[0]["node"]["apiKeys"],
+            serde_json::json!([]),
+            "no API key should exist on the account: {list}"
         );
     }
 
