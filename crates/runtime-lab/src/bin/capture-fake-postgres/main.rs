@@ -194,7 +194,10 @@ fn validated(validate: &request::Validate) -> anyhow::Result<response::Validated
             resource_path: vec![resource.namespace, resource.stream],
         });
     }
-    Ok(response::Validated { bindings })
+    Ok(response::Validated {
+        bindings,
+        ..Default::default()
+    })
 }
 
 /// The capture of an Open, and the SourcedSchema of each of its bindings.

@@ -105,6 +105,7 @@ expression: outcome.built_materializations
                     ],
                 },
             ],
+            generated_files: {},
         },
         spec: MaterializationSpec {
             name: "testing/materialize",
