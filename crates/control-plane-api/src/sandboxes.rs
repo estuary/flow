@@ -1,16 +1,10 @@
 //! Sandbox records and lifecycle.
 //!
 //! A sandbox is a Fly.io Sprite (see [`crate::sprites`]) that runs a user's
-//! shell commands. `internal.sandboxes` records each one: its owner, the
-//! handle the provider knows it by, and the catalog name the user gave it to tell
-//! their sandboxes apart. Callers name a sandbox by its catalog name, and every
-//! operation resolves that name against the caller, so a caller reaches only
-//! sandboxes whose record names them. Exec metadata, output, and exit status
-//! live together in the sandbox under `.estuary/exec/<id>`. Operations on an
-//! exec take both its id and its sandbox catalog name; authorization uses the sandbox.
-//! Reset and delete discard the metadata along with the output.
-//!
-//! GraphQL operations in `server::public::graphql::sandboxes` use this module.
+//! shell commands, recorded in `internal.sandboxes`. Every operation resolves
+//! a sandbox's catalog name against the caller, so a caller reaches only their
+//! own sandboxes. Exec metadata, output, and exit status live only in the
+//! sandbox under `.estuary/exec/<id>`, so reset and delete discard them.
 
 use anyhow::Context;
 use futures::StreamExt;
@@ -19,26 +13,20 @@ use futures::StreamExt;
 /// Estuary provisions for other purposes.
 const HANDLE_PREFIX: &str = "sbx-";
 
-/// Directory under the sandbox user's home directory that holds one
-/// subdirectory per exec. [`EXEC_WRAPPER`] and [`LIST_EXECS`]
-/// spell the same path in shell, and [`ExecFile::path`] builds the paths
-/// clients read.
+/// Relative to [`SPRITE_HOME`]. [`EXEC_WRAPPER`] and [`LIST_EXECS`] hardcode
+/// the same path.
 const EXEC_DIR: &str = ".estuary/exec";
 const SPRITE_HOME: &str = "/home/sprite";
 
 /// Runs a user's command with its output captured in the sandbox.
 ///
 /// Invoked as `bash -c EXEC_WRAPPER flow-exec <exec id> <command> <stdin bytes> <metadata JSON>`,
-/// so the exec id and command arrive as `$1` and `$2` and need no quoting.
-/// Input arrives on stdin. Before launching, the wrapper checks its
-/// length, opens the staged file, and unlinks it: the child keeps the descriptor
-/// after detachment without leaving credentials in a named input file.
-///
-/// The wrapper requires a new exec directory to avoid overwriting past output.
+/// so the arguments need no quoting. The wrapper stages stdin to a file, opens
+/// it, and unlinks it: the command keeps the descriptor after the client
+/// detaches, and no input (which can hold credentials) remains on disk.
 ///
 /// The command and wrapper share the exec session's process group so Fly's
-/// native kill endpoint can stop both. Output is redirected to files, while
-/// the wrapper announces startup and records the exit status on normal completion.
+/// native kill endpoint can stop both.
 const EXEC_WRAPPER: &str = r#"
 d="$HOME/.estuary/exec/$1"
 mkdir -p "$HOME/.estuary/exec" && mkdir "$d" || exit 125
@@ -49,8 +37,7 @@ trap 'rm -f "$d/stdin"' EXIT
 [ "$(wc -c < "$d/stdin")" -eq "${3:-0}" ] || exit 125
 exec 3< "$d/stdin" || exit 125
 rm "$d/stdin" || exit 125
-# Commands can carry secrets. Persist metadata before starting the job, and
-# expose it to listings only after the command has started.
+# Commands can carry secrets. Listings show the exec only once `started` exists.
 (umask 077; printf '%s\n' "${4:?missing exec metadata}" > "$d/metadata.json") || exit 125
 trap - EXIT
 bash -lc "$2" <&3 3<&- > "$d/stdout" 2> "$d/stderr" &
@@ -65,8 +52,9 @@ echo "$status" > "$d/exit.tmp" && mv "$d/exit.tmp" "$d/exit"
 exit "$status"
 "#;
 
-/// Only started commands belong in history: failed launches can leave directories. JSON is serialized by Rust, so command text is never
-/// interpreted by the shell and embedded newlines stay within a single record.
+/// Prints one `[metadata, exit status or null]` JSON line per started exec.
+/// Failed launches can leave directories without a `started` marker. Rust
+/// serializes the metadata, so newlines in a command stay escaped.
 const LIST_EXECS: &str = r#"
 for d in "$HOME"/.estuary/exec/*; do
     # Older execs used their process group file as the startup marker.
@@ -79,21 +67,12 @@ for d in "$HOME"/.estuary/exec/*; do
 done
 "#;
 
-/// Reads a file under the sandbox user's home directory from a byte offset,
-/// returning at most one chunk of it.
-///
-/// Invoked as `bash -c READ_FILE flow-read-file <relative path> <offset>
-/// <limit>`, so the path and the two numbers arrive as `$1`, `$2` and `$3` and
-/// need no quoting. Stdout contains base64-encoded file bytes; stderr says
-/// why it could not read them, and its exit status is the outcome: 0 for a
-/// read, 3 for a path that does not exist, and 1 for anything else.
-///
-/// A path that does not exist is an outcome rather than a failure because it
-/// is how a client sees a file that is not there yet, such as the `exit` file
-/// [`EXEC_WRAPPER`] writes only once the command has finished.
+/// Invoked as `bash -c READ_FILE flow-read-file <relative path> <offset> <limit>`,
+/// so the arguments need no quoting. Exits 0 for a read, 3 for a missing
+/// path, and 1 otherwise. A missing path is not an error, because clients
+/// poll for files that appear later, such as `exit`.
 ///
 /// Base64 keeps file bytes from being mistaken for exec stream tags.
-/// `dd` seeks and counts raw bytes; `pipefail` preserves read errors.
 const READ_FILE: &str = r#"
 set -o pipefail
 f="$HOME/$1"
@@ -102,30 +81,24 @@ f="$HOME/$1"
 dd if="$f" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=none | base64 --wrap=0
 "#;
 
-/// How long reading a sandbox file may take.
 const FILE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Bound finite input before sending it to Fly.
 const STDIN_MAX_BYTES: usize = 1024 * 1024;
 
-/// Most bytes one [`read_file`] returns. A file longer than this is read over
-/// several calls, each starting where the last one ended, which bounds the
-/// memory and the response a single read costs.
+/// Most bytes one [`read_file`] returns. Clients read longer files over
+/// several calls.
 pub const READ_MAX_BYTES: u64 = 1024 * 1024;
 
-/// How long a launch may wait for the wrapper's announcement. It bounds the
-/// request that starts a command, whose response is dropped once the
-/// announcement arrives, so the command's own duration is not bounded by it.
+/// Bounds only the wait for the wrapper's startup announcement, not the command.
 const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// A row of `internal.sandboxes`: the control plane's record of a sandbox.
+/// A row of `internal.sandboxes`.
 #[derive(Debug, Clone)]
 pub struct Sandbox {
     pub id: models::Id,
     pub user_id: uuid::Uuid,
-    /// The provider's name for the sandbox. It travels to Fly and appears in
-    /// the sprite's hostname, so it derives from `id` and carries no user
-    /// identifier.
+    /// The provider's name for the sandbox. It appears in the sprite's
+    /// hostname, so it derives from `id` and carries no user identifier.
     pub handle: String,
     /// Catalog name on which creation was authorized. The provider never sees it.
     pub catalog_name: String,
@@ -133,7 +106,7 @@ pub struct Sandbox {
     pub baseline_checkpoint_id: Option<String>,
 }
 
-/// Persisted exec metadata, enriched with the observed exit status when listed.
+/// Persisted exec metadata. `exit_code` is not persisted; listings fill it in.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExecEvent {
     pub id: models::Id,
@@ -143,20 +116,17 @@ pub struct ExecEvent {
     pub exit_code: Option<i32>,
 }
 
-/// A file [`EXEC_WRAPPER`] writes in an exec's directory, and the one place a
-/// command's output and exit status are recorded.
+/// A file [`EXEC_WRAPPER`] writes in an exec's directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecFile {
     Stdout,
     Stderr,
-    /// The recorded exit status. May remain absent after a wrapper failure.
+    /// May remain absent after a wrapper failure.
     Exit,
 }
 
 impl ExecFile {
-    /// Path of this file of exec `exec_id`, relative to the sandbox user's
-    /// home directory, as [`read_file`] takes a path. [`EXEC_WRAPPER`] builds
-    /// the same directory in shell.
+    /// Relative to [`SPRITE_HOME`], as [`read_file`] takes a path.
     pub fn path(self, exec_id: models::Id) -> String {
         let name = match self {
             ExecFile::Stdout => "stdout",
@@ -167,55 +137,41 @@ impl ExecFile {
     }
 }
 
-/// A read of a sandbox file.
 #[derive(Debug)]
 pub struct FileChunk {
-    /// Bytes of the file from the requested offset, at most [`READ_MAX_BYTES`]
-    /// of them. Empty when the file does not exist.
     pub bytes: Vec<u8>,
-    /// Byte offset after `bytes`. The next read continues from here.
+    /// Byte offset after `bytes`, where the next read continues.
     pub offset: u64,
-    /// Whether the file existed. A file may be created later, so `false` is an
-    /// answer rather than a failure.
     pub exists: bool,
 }
 
-/// Builds the provider handle from a sandbox ID.
 pub fn handle(id: models::Id) -> String {
     format!("{HANDLE_PREFIX}{id}")
 }
 
-/// Why a sandbox was not created.
 #[derive(Debug, thiserror::Error)]
 pub enum CreateError {
-    /// A live sandbox already has that name, regardless of owner.
+    /// Catalog names are unique across all users.
     #[error("a sandbox named {0:?} already exists")]
     NameTaken(String),
-    /// The name is not a valid catalog name.
     #[error("invalid catalog name: {0}")]
     InvalidName(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
-/// Why a path cannot name a file in a sandbox.
 #[derive(Debug, thiserror::Error)]
 pub enum PathError {
-    /// The path was empty.
     #[error("path must not be empty")]
     Empty,
-    /// The path started with `/`.
     #[error("path must not be absolute")]
     Absolute,
-    /// The path had a `..` component.
     #[error("path must not contain '..' components")]
     ParentComponent,
-    /// The path ended with `/`, so it cannot name a file.
     #[error("path must not end with '/'")]
     TrailingSlash,
 }
 
-/// Why a sandbox file read was refused.
 #[derive(Debug, thiserror::Error)]
 pub enum FileReadError {
     #[error(transparent)]
@@ -224,11 +180,7 @@ pub enum FileReadError {
     Other(#[from] anyhow::Error),
 }
 
-/// Checks that `path` names a file under the sandbox user's home directory:
-/// relative, with no `..` component, and not ending in `/`. Nothing wider is
-/// asked of it for v0. It is not checked against the sandbox itself, so a
-/// path that resolves to an existing directory is instead refused by
-/// [`READ_FILE`].
+/// A path to an existing directory passes this check; [`READ_FILE`] refuses it.
 fn validate_relative_path(path: &str) -> Result<(), PathError> {
     if path.is_empty() {
         return Err(PathError::Empty);
@@ -245,13 +197,9 @@ fn validate_relative_path(path: &str) -> Result<(), PathError> {
     Ok(())
 }
 
-/// Creates a sandbox named `catalog_name` for `user_id` and returns once it accepts
-/// commands.
-///
-/// Refuses an invalid catalog name or one any live sandbox already uses.
-/// The sandbox is fully prepared when this returns: it runs commands, flowctl
-/// is installed, and the baseline that [`reset`] restores exists. An unready
-/// record reserves the catalog name without holding a connection during provisioning.
+/// Returns once the sandbox has flowctl installed and the baseline that
+/// [`reset`] restores. An unready record reserves the catalog name during
+/// provisioning, so no database connection is held while it runs.
 pub async fn create(
     client: &crate::sprites::Client,
     pool: &sqlx::PgPool,
@@ -299,10 +247,6 @@ pub async fn create(
     Ok(sandbox)
 }
 
-/// Fetches sandbox `id` if it is live and `user_id` owns it.
-///
-/// An unknown, deleted, or foreign id all resolve to `None`, so a caller learns
-/// nothing about sandboxes that are not theirs.
 pub async fn fetch(
     pool: &sqlx::PgPool,
     id: models::Id,
@@ -323,10 +267,6 @@ pub async fn fetch(
     .context("fetching sandbox record")
 }
 
-/// Fetches sandbox `catalog_name` if it is live and `user_id` owns it.
-///
-/// An unknown, deleted, or foreign name all resolve to `None`, so a caller learns
-/// nothing about sandboxes that are not theirs.
 pub async fn fetch_by_catalog_name(
     pool: &sqlx::PgPool,
     catalog_name: &str,
@@ -347,7 +287,6 @@ pub async fn fetch_by_catalog_name(
     .context("fetching sandbox record")
 }
 
-/// Lists `user_id`'s live sandboxes, newest first.
 pub async fn list(pool: &sqlx::PgPool, user_id: uuid::Uuid) -> anyhow::Result<Vec<Sandbox>> {
     sqlx::query_as!(
         Sandbox,
@@ -364,7 +303,7 @@ pub async fn list(pool: &sqlx::PgPool, user_id: uuid::Uuid) -> anyhow::Result<Ve
     .context("listing sandbox records")
 }
 
-/// Lists started execs, newest first. The caller has authorized `sandbox`.
+/// Lists started execs, newest first.
 pub async fn list_execs(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
@@ -404,10 +343,7 @@ fn execs_from_metadata(data: &[u8]) -> anyhow::Result<Vec<ExecEvent>> {
     Ok(events)
 }
 
-/// Inserts a live sandbox record named `catalog_name` for `user_id`.
-///
-/// The catalog-name index arbitrates concurrent creates across all users.
-/// Its violation is read back as [`CreateError::NameTaken`].
+/// The global catalog-name index arbitrates concurrent creates.
 async fn persist_record(
     conn: &mut sqlx::PgConnection,
     user_id: uuid::Uuid,
@@ -417,8 +353,7 @@ async fn persist_record(
         .map_err(|err| CreateError::InvalidName(err.to_string()))?;
 
     // The handle derives from the generated id, so both come from one statement.
-    // A flowid renders as sixteen hex characters; `replace` strips the colons
-    // of Postgres's macaddr8 text form to match [`handle`].
+    // `replace` strips the colons of the macaddr8 text form to match [`handle`].
     let sandbox = sqlx::query_as!(
         Sandbox,
         r#"
@@ -443,19 +378,10 @@ async fn persist_record(
     Ok(sandbox)
 }
 
-/// Starts `command` in `sandbox` and returns its exec event once the command
-/// is running, without waiting for it to finish.
-///
-/// The wrapper persists metadata before launching the command and creates a
-/// startup marker for listings. Fly's session ID is saved alongside it for cancellation.
-///
-/// The connection to the sandbox closes once the announcement arrives, and
-/// nothing in the control plane follows the command afterwards. It runs for as
-/// long as it takes, the wrapper writes its output and exit status to the
-/// sandbox, and [`read_file`] reads them on request.
-///
-/// If the connection fails before startup is acknowledged, the command may
-/// still be running. Return that uncertainty without probing or replaying it.
+/// Returns once `command` is running. The control plane does not follow the
+/// command after that; clients read its output and exit status with
+/// [`read_file`]. If the connection fails before startup is acknowledged, the
+/// command may still be running, and this does not retry.
 pub async fn exec(
     client: &crate::sprites::Client,
     id: models::Id,
@@ -513,7 +439,6 @@ pub async fn exec(
     }
 }
 
-/// Why [`launch`] could not confirm that a command started.
 #[derive(Debug)]
 enum LaunchError {
     /// The command did not start: the API refused it, or the wrapper failed
@@ -539,16 +464,9 @@ impl From<crate::sprites::ExecError> for LaunchError {
     }
 }
 
-/// Starts the wrapped command `argv` in `sandbox` and returns once the wrapper
-/// announces that the command is running. The connection closes when this
-/// returns, and the command runs on without it.
-///
-/// The wrapper saves stdin to a file before announcing startup, so the command
-/// can read its input after this function closes the API connection.
-///
-/// A wrapper that writes to stderr or exits before announcing itself did not
-/// start the command: the only stderr it sends over the connection comes
-/// before it redirects that stream, from a directory it could not create.
+/// Returns the session ID once the wrapper announces that the command is
+/// running. Any stderr frame means the command did not start: the wrapper
+/// redirects stderr to a file right after it creates the exec directory.
 async fn launch(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
@@ -588,18 +506,8 @@ async fn launch(
     )))
 }
 
-/// Reads `path` in `sandbox`, resolved against the sandbox user's home
-/// directory, from byte `offset` onwards.
-///
-/// `path` must be relative and free of `..` components; see
-/// [`validate_relative_path`]. `limit` bounds the bytes one read returns, and
-/// is itself bounded by [`READ_MAX_BYTES`], which `None` asks for: a client
-/// reading a longer file continues from the offset it is handed. A path that
-/// does not exist is reported rather than raised: see [`READ_FILE`].
-///
-/// This is a file operation, not a command a user ran: unlike [`exec`],
-/// it creates no exec metadata. A command's
-/// output and exit status are read this way, at the paths [`ExecFile`] builds.
+/// Reads up to `limit` bytes of `path`, relative to [`SPRITE_HOME`], from
+/// `offset`. [`READ_MAX_BYTES`] caps `limit`.
 pub async fn read_file(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
@@ -610,8 +518,6 @@ pub async fn read_file(
     validate_relative_path(path)?;
 
     let offset_arg = offset.to_string();
-    // The ceiling holds whatever a caller asks for, so the bound on a response
-    // is this crate's and not the client's.
     let limit_arg = limit
         .unwrap_or(READ_MAX_BYTES)
         .min(READ_MAX_BYTES)
@@ -631,8 +537,6 @@ pub async fn read_file(
     chunk_from_output(offset, output)
 }
 
-/// Decodes successful [`READ_FILE`] output. Exit status 3 means the path is
-/// missing; other nonzero statuses report a read failure.
 fn chunk_from_output(
     offset: u64,
     output: crate::sprites::Output,
@@ -672,7 +576,8 @@ fn chunk_from_output(
     })
 }
 
-/// Stops the native session and records its final status alongside its output.
+/// Kills the exec's session and writes its `exit` file. Returns `false` if the
+/// exec had already exited or its session was gone.
 pub async fn cancel_exec(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
@@ -727,7 +632,6 @@ pub async fn cancel_exec(
     Ok(true)
 }
 
-/// Runs `argv` in `sandbox` and collects its output.
 async fn exec_output(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
@@ -741,13 +645,12 @@ async fn exec_output(
     client.exec(&sandbox.handle, argv, timeout).await
 }
 
-/// Creates and bootstraps `handle`'s sprite.
 async fn provision(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
     client.create_sprite(handle).await?;
     let result = bootstrap(client, handle).await;
 
-    // A timeout leaves the provider's state uncertain. Leave that sprite for
-    // orphan cleanup rather than racing an operation that may still be running.
+    // After a timeout, a provider operation may still be running, so a
+    // delete here could race it. The sprite is left for orphan cleanup.
     // TODO: Add an orphan reaper for sandbox sprites without database records.
     if let Err(err) = &result
         && !err.chain().any(|cause| {
@@ -763,11 +666,7 @@ async fn provision(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
     result
 }
 
-/// Prepares a just-provisioned sandbox by installing flowctl and capturing
-/// the baseline that [`reset`] restores.
-///
-/// Every step must succeed, since a caller hands its user a prepared sandbox or
-/// none at all.
+/// Installs flowctl and returns the ID of the baseline checkpoint.
 async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
     const INSTALL_FLOWCTL: &str = "mkdir -p $HOME/.local/bin \
         && curl -fsSL -o $HOME/.local/bin/flowctl.download \
@@ -813,11 +712,7 @@ async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
     Ok(baseline.id)
 }
 
-/// Resets `sandbox` to its provisioning baseline, returning once the restore
-/// has completed.
-///
-/// Restoring reverts the filesystem and restarts the sandbox's processes from
-/// the baseline, discarding exec metadata and output together.
+/// Restores the baseline checkpoint, which also restarts the sandbox's processes.
 pub async fn reset(client: &crate::sprites::Client, sandbox: &Sandbox) -> anyhow::Result<()> {
     let handle = sandbox.handle.as_str();
 
@@ -842,12 +737,9 @@ pub async fn reset(client: &crate::sprites::Client, sandbox: &Sandbox) -> anyhow
     Ok(())
 }
 
-/// Deletes `sandbox`: its sprite and storage at the provider, then its record
-/// (exec metadata is deleted with the storage).
-///
-/// Delete the sprite first. For ready sandboxes, provider failure preserves
-/// the record. For unready sandboxes, cleanup is best-effort so a stuck
-/// provisioning attempt cannot keep its catalog name reserved.
+/// Deletes the sprite, then the record. If the sprite delete fails, a ready
+/// sandbox keeps its record. An unready one loses it anyway, so a stuck
+/// provisioning attempt cannot hold its catalog name.
 pub async fn delete(
     client: &crate::sprites::Client,
     pool: &sqlx::PgPool,
