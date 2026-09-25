@@ -5,7 +5,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     80  capture::Request
     40  capture::request::Spec
    112  capture::request::Discover
-   824  capture::request::Validate
+   848  capture::request::Validate
     48  capture::request::validate::Binding
   1408  capture::request::Apply
    776  capture::request::Open
@@ -13,7 +13,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     96  capture::Response
    408  capture::response::Spec
     24  capture::response::Discovered
-    24  capture::response::Validated
+    48  capture::response::Validated
     64  capture::response::Applied
      1  capture::response::Opened
     40  capture::response::Captured
@@ -39,7 +39,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     40  derive::response::StartedCommit
    200  materialize::Request
     40  materialize::request::Spec
-   856  materialize::request::Validate
+   880  materialize::request::Validate
     96  materialize::request::validate::Binding
   1472  materialize::request::Apply
    808  materialize::request::Open
@@ -50,7 +50,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     32  materialize::request::Acknowledge
    104  materialize::Response
    384  materialize::response::Spec
-    24  materialize::response::Validated
+    48  materialize::response::Validated
     64  materialize::response::Applied
     64  materialize::response::Opened
     40  materialize::response::Loaded

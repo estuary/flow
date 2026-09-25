@@ -34,6 +34,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "testing/fully-disabled-capture",
@@ -219,6 +220,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "testing/partially-disabled-capture",
@@ -1824,6 +1826,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/fully-disabled-materialization",
@@ -2040,6 +2043,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/partially-disabled-materialization",
