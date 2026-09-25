@@ -586,36 +586,47 @@ enum Line {
     Item(TxnItem),
 }
 
+/// The JSON spelling of one fixture line.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum FixtureLine {
+    /// `["collection/name", { ...document... }]`
+    Doc(String, serde_json::Value),
+    /// `{"commit": true}`
+    Commit { commit: bool },
+    /// `{"backfillBegin": "collection/name"}`
+    BackfillBegin {
+        #[serde(rename = "backfillBegin")]
+        collection: String,
+    },
+    /// `{"backfillComplete": "collection/name"}`
+    BackfillComplete {
+        #[serde(rename = "backfillComplete")]
+        collection: String,
+    },
+}
+
 /// Parse a single fixture line (`None` for blank lines); `lineno` is 1-based.
 fn parse_line(line: &str, lineno: usize) -> anyhow::Result<Option<Line>> {
     let line = line.trim();
     if line.is_empty() {
         return Ok(None);
     }
-    if let Some(marker) = parse_marker(line) {
-        return Ok(Some(marker));
-    }
-    let (collection, doc): (String, serde_json::Value) = serde_json::from_str(line)
-        .with_context(|| format!("fixture line {lineno} is not [collection, document]: {line}"))?;
-    Ok(Some(Line::Item(TxnItem::Doc(collection, doc))))
-}
+    let not_a_line = || format!("fixture line {lineno} is not a document or marker: {line}");
 
-/// Parse `line` as a `{"commit": true}`, `{"backfillBegin": "collection/name"}`,
-/// or `{"backfillComplete": "collection/name"}` marker, or `None` if it's not one.
-fn parse_marker(line: &str) -> Option<Line> {
-    let serde_json::Value::Object(object) = serde_json::from_str(line).ok()? else {
-        return None;
-    };
-    if object.get("commit").and_then(|c| c.as_bool()) == Some(true) {
-        return Some(Line::Commit);
-    }
-    if let Some(serde_json::Value::String(collection)) = object.get("backfillBegin") {
-        return Some(Line::Item(TxnItem::BackfillBegin(collection.clone())));
-    }
-    if let Some(serde_json::Value::String(collection)) = object.get("backfillComplete") {
-        return Some(Line::Item(TxnItem::BackfillComplete(collection.clone())));
-    }
-    None
+    Ok(Some(
+        match serde_json::from_str(line).with_context(not_a_line)? {
+            FixtureLine::Doc(collection, doc) => Line::Item(TxnItem::Doc(collection, doc)),
+            FixtureLine::Commit { commit: true } => Line::Commit,
+            FixtureLine::Commit { commit: false } => anyhow::bail!(not_a_line()),
+            FixtureLine::BackfillBegin { collection } => {
+                Line::Item(TxnItem::BackfillBegin(collection))
+            }
+            FixtureLine::BackfillComplete { collection } => {
+                Line::Item(TxnItem::BackfillComplete(collection))
+            }
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -1197,20 +1208,44 @@ mod test {
     }
 
     #[test]
-    fn test_parse_marker() {
-        assert_eq!(parse_marker(r#"{"commit": true}"#), Some(Line::Commit));
+    fn test_parse_line() {
+        let parse = |line| parse_line(line, 7).map_err(|err| format!("{err:#}"));
+
+        assert_eq!(parse("  "), Ok(None));
+        assert_eq!(parse(r#"{"commit": true}"#), Ok(Some(Line::Commit)));
         assert_eq!(
-            parse_marker(r#"{"backfillBegin": "a/coll"}"#),
-            Some(Line::Item(TxnItem::BackfillBegin("a/coll".to_string())))
+            parse(r#"{"backfillBegin": "a/coll"}"#),
+            Ok(Some(Line::Item(TxnItem::BackfillBegin(
+                "a/coll".to_string()
+            ))))
         );
         assert_eq!(
-            parse_marker(r#"{"backfillComplete": "a/coll"}"#),
-            Some(Line::Item(TxnItem::BackfillComplete("a/coll".to_string())))
+            parse(r#"{"backfillComplete": "a/coll"}"#),
+            Ok(Some(Line::Item(TxnItem::BackfillComplete(
+                "a/coll".to_string()
+            ))))
         );
-        assert_eq!(parse_marker(r#"{"commit": false}"#), None);
-        assert_eq!(parse_marker(r#"{"backfillBegin": true}"#), None);
-        assert_eq!(parse_marker(r#"["a/coll", {"commit": true}]"#), None);
-        assert_eq!(parse_marker(r#"{"other": true}"#), None);
-        assert_eq!(parse_marker("not json"), None);
+        assert_eq!(
+            parse(r#"["a/coll", {"commit": true}]"#),
+            Ok(Some(Line::Item(TxnItem::Doc(
+                "a/coll".to_string(),
+                serde_json::json!({"commit": true})
+            ))))
+        );
+
+        for bad in [
+            r#"{"commit": false}"#,
+            r#"{"backfillBegin": true}"#,
+            r#"{"other": true}"#,
+            "not json",
+        ] {
+            let err = parse(bad).unwrap_err();
+            assert!(
+                err.starts_with(&format!(
+                    "fixture line 7 is not a document or marker: {bad}"
+                )),
+                "{err}"
+            );
+        }
     }
 }
