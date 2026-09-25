@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub struct Sandbox {
     pub catalog_name: models::Name,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    /// Whether flowctl installation and baseline checkpoint creation completed.
+    /// False until a new sandbox reaches its baseline state (flowctl installed).
     pub ready: bool,
 }
 
@@ -77,7 +77,6 @@ pub struct FileRead {
     #[graphql(skip)]
     pub data: Vec<u8>,
     pub offset: i32,
-    pub exists: bool,
 }
 
 #[async_graphql::ComplexObject]
@@ -127,11 +126,8 @@ impl SandboxesQuery {
         ctx: &Context<'_>,
         catalog_name: models::Name,
         path: String,
-        #[graphql(desc = "Byte offset to read from", default = 0)] offset: i32,
-        #[graphql(
-            desc = "Most bytes to return. Omitted, or larger than the 1 MiB ceiling, reads up to that ceiling."
-        )]
-        limit: Option<i32>,
+        #[graphql(desc = "Byte offset", default = 0)] offset: i32,
+        #[graphql(desc = "Max 1 MiB")] limit: Option<i32>,
     ) -> async_graphql::Result<FileRead> {
         let env = ctx.data::<crate::Envelope>()?;
         let client = sprites_client(ctx)?;
@@ -154,7 +150,6 @@ impl SandboxesQuery {
         Ok(FileRead {
             data: chunk.bytes,
             offset: i32::try_from(chunk.offset).unwrap_or(i32::MAX),
-            exists: chunk.exists,
         })
     }
 }
@@ -164,7 +159,7 @@ pub struct SandboxesMutation;
 
 #[async_graphql::Object]
 impl SandboxesMutation {
-    /// Returns once flowctl is installed and the baseline that `sandboxReset` restores exists.
+    /// Returns after flowctl is installed.
     async fn sandbox_create(
         &self,
         ctx: &Context<'_>,
@@ -195,13 +190,12 @@ impl SandboxesMutation {
         Ok(sandbox.into())
     }
 
-    /// Returns once the command has started - read its output by polling `sandboxFileRead`
-    /// and `sandbox.execs` for `exitCode`.
+    /// Returns once the command has started - read its output by polling `sandboxFileRead`.
     async fn sandbox_exec(
         &self,
         ctx: &Context<'_>,
         catalog_name: models::Name,
-        bash_command: String,
+        command: String,
         stdin: Option<String>,
     ) -> async_graphql::Result<ExecEvent> {
         let env = ctx.data::<crate::Envelope>()?;
@@ -215,13 +209,12 @@ impl SandboxesMutation {
             .unwrap()
             .next();
 
-        let event =
-            crate::sandboxes::exec(&client, exec_id, &sandbox, &bash_command, stdin.as_deref())
-                .await
-                .map_err(|err| {
-                    tracing::error!(?err, %sandbox.id, "failed to start sandbox command");
-                    async_graphql::Error::new(format!("failed to start command: {err:#}"))
-                })?;
+        let event = crate::sandboxes::exec(&client, exec_id, &sandbox, &command, stdin.as_deref())
+            .await
+            .map_err(|err| {
+                tracing::error!(?err, %sandbox.id, "failed to start sandbox command");
+                async_graphql::Error::new(format!("failed to start command: {err:#}"))
+            })?;
 
         tracing::info!(%sandbox.id, %event.id, "started sandbox command");
         Ok(event.into())

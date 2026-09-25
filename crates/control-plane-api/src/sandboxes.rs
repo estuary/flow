@@ -50,12 +50,9 @@ done
 "#;
 
 /// Invoked as `bash -c READ_FILE flow-read-file <path> <offset> <limit>`,
-/// so the arguments need no quoting. Exits 0 for a read, 3 for a missing
-/// path, and 1 otherwise. A missing path is not an error, because clients
-/// poll for files that appear later, such as `exit`.
+/// so the arguments need no quoting.
 const READ_FILE: &str = r#"
 cd "$HOME" || exit 1
-[ -e "$1" ] || exit 3
 dd if="$1" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=none
 "#;
 
@@ -113,7 +110,6 @@ impl ExecFile {
 pub struct FileChunk {
     pub bytes: Vec<u8>,
     pub offset: u64,
-    pub exists: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -147,7 +143,7 @@ pub async fn create(
     };
     let result = async {
         client.create_sprite(&sandbox.handle).await?;
-        let baseline_checkpoint_id = bootstrap(client, &sandbox.handle).await?;
+        let baseline_checkpoint_id = prepare_baseline(client, &sandbox.handle).await?;
         sqlx::query(
             "update internal.sandboxes set baseline_checkpoint_id = $2, updated_at = now() where id = $1",
         )
@@ -394,14 +390,6 @@ pub async fn read_file(
 }
 
 fn chunk_from_output(offset: u64, output: crate::sprites::Output) -> anyhow::Result<FileChunk> {
-    if output.exit_code == 3 {
-        return Ok(FileChunk {
-            bytes: Vec::new(),
-            offset,
-            exists: false,
-        });
-    }
-
     if output.exit_code != 0 {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stderr = stderr.trim();
@@ -422,7 +410,6 @@ fn chunk_from_output(offset: u64, output: crate::sprites::Output) -> anyhow::Res
     Ok(FileChunk {
         offset: offset + output.stdout.len() as u64,
         bytes: output.stdout,
-        exists: true,
     })
 }
 
@@ -482,7 +469,7 @@ async fn exec_output(
     client.exec(&sandbox.handle, argv, timeout).await
 }
 
-async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
+async fn prepare_baseline(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
     const INSTALL_FLOWCTL: &str = "mkdir -p $HOME/.local/bin \
         && curl -fsSL -o $HOME/.local/bin/flowctl \
         https://github.com/estuary/flow/releases/latest/download/flowctl-x86_64-linux \
@@ -516,7 +503,7 @@ async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
         .find(|checkpoint| checkpoint.id != "Current")
         .context("new sprite has no baseline checkpoint")?;
 
-    tracing::info!(%handle, "bootstrapped sandbox");
+    tracing::info!(%handle, "prepared sandbox baseline");
     Ok(baseline.id)
 }
 
