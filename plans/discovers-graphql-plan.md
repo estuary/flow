@@ -2,52 +2,73 @@
 
 Status: Draft
 
-Date: 2026-09-24
+Date: 2026-09-25
 
-This plan adds a GraphQL API for discovers to `control-plane-api`: a `createDiscover` mutation, a `discover(id)` query, and the discover's errors and logs. Discovery operates on a capture definition and merges the results into a draft.
+This plan adds `createDiscover` and `discover(id)` to the GraphQL API in `control-plane-api`, with fields for status, errors, and logs. A discover is an asynchronous job that runs discovery on a capture definition and merges the resulting capture and collection definitions into a draft. It does not publish the draft.
 
-The mutation uses the drafted capture if present. Otherwise, it copies a readable live capture into the draft. If neither exists, the mutation fails. The mutation commits any live-capture copy and the discover row in one transaction. The existing executor runs the discover, and clients poll for the result. The table and its RLS policies don't change, so existing PostgREST clients keep working.
+The mutation uses the capture definition in the draft if one exists. Otherwise, it copies the live capture of that name into the draft, provided the caller can read it. If neither definition is available, the mutation fails. One transaction writes the copied definition, if needed, and inserts the discover row. The existing database trigger creates the executor's task in that transaction. Clients poll for the result.
+
+The `discovers` table and its row-level security policies do not change. Existing PostgREST clients can continue to use them.
 
 ## What this builds on
 
-Discovery asks a connector for available resources, then merges the discovered bindings and collection definitions into a draft. The current asynchronous path records a job in `discovers`. A trigger queues a task for each new row. The executor ([`agent/src/discovers.rs`](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/agent/src/discovers.rs)) checks the request, runs discovery, and writes the outcome. These parts of that design shape the API:
+Discovery asks the connector for potential bindings. The executor uses the discovered bindings to update the drafted capture's bindings and create or update target collection in the draft. It records the job's outcome in `discovers`.
 
-- The executor prepares a capture from the draft, a readable live capture, or a starter definition. It replaces the endpoint's image and configuration with the values from the discover row, and takes `update_only` from that row ([L225-236](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/agent/src/discovers.rs#L225-L236), [L331-375](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/agent/src/discovers.rs#L331-L375)). GraphQL submissions ensure that a capture is staged when the mutation commits. The executor's existing preparation paths remain available to PostgREST callers.
-- The complete capture model carries any secret references. This API adds no separate secret inputs or changes to secret resolution.
-- Before running the connector, the executor checks the connector tag, `SpecEdit` on the capture name ([L172-202](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/agent/src/discovers.rs#L172-L202)), and legacy `read` on the data plane, which requires every Viewer bit ([L204-223](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/agent/src/discovers.rs#L204-L223)).
-- A discover belongs to its draft's owner: the table has no user column, and deleting a draft deletes its discovers. Reads of a discover are therefore authorized by draft ownership.
-- The connector's logs go to `internal.log_lines` under the row's `logs_token`, which `Discover.logs` reads.
+The new API uses this existing process:
+
+- The executor prepares a capture from the draft, a readable live capture, or an initial definition that it constructs. It replaces the endpoint's image and configuration with values from the discover row. It also takes `update_only` from that row. GraphQL requires a definition at submission and copies it into the draft when needed. PostgREST callers retain all three preparation paths.
+- The capture model carries secret references and the redaction salt. This API adds no separate inputs for them and does not change secret resolution.
+- Before running the connector, the executor checks the connector tag, `SpecEdit` on the capture name, and access to the data plane. Access to the plane requires legacy `read`, which includes every Viewer capability. The executor also needs the plane's first configured HMAC key to sign requests to its connector proxy.
+- A discover belongs to its draft's owner. The table has no user column, and deleting a draft deletes its discovers. Draft ownership therefore controls reads of a discover.
+- The log writer associates connector logs with the row's `logs_token`. `Discover.logs` uses that token internally.
 
 ## Capture configuration and discovery
 
-`CaptureDef` carries the capture configuration and discovery policy. Manual and automatic discovery use its `autoDiscover` settings. The mutation has no separate configuration arguments or policy overrides. Renaming or aliasing `autoDiscover` to `discovery` is separate work.
+`CaptureDef` combines two concerns today. Its endpoint, bindings, and runtime settings describe the capture itself. Its `autoDiscover` settings tell the control plane how discovery should modify that capture and its target collections.
+
+The name `autoDiscover` makes the second concern sound exclusive to automatic discovery. The field's presence enables periodic discovery, but its flags also affect manually requested discovery. For example, `flowctl discover` derives `update_only` from `addNewBindings`, and the discover executor uses `evolveIncompatibleCollections` when collection keys change. The field therefore combines whether discovery runs automatically with policy for applying discovery results.
+
+The [policy discussion](https://estuaryworkspace.slack.com/archives/C03QBN83GQ4/p1790200476989949) considered letting manual discovery use different settings from the capture's ongoing policy. A caller might want to enable new bindings during one manual discover while leaving automatic addition disabled. We chose to keep discovery policy on the capture and have discovers use it. This follows the broader decision to treat [discovery as an operation applied to a capture](https://estuaryworkspace.slack.com/archives/C03QBN83GQ4/p1790202935042549). It avoids a second set of endpoint, secret, and policy inputs that would duplicate parts of `CaptureDef` on each discover request.
+
+This API therefore uses the selected capture's configuration and `autoDiscover` settings, with the defaults described below. The mutation accepts no separate configuration arguments or policy overrides. Clients that want a different discovery policy must change it in the draft's capture definition.
+
+Renaming or aliasing `autoDiscover` to `discovery` would express this broader role: policy for discovery, whether initiated manually or automatically. The policy would remain part of `CaptureDef`. This API adopts that understanding while retaining the current field name and defaults. The rename or alias can follow separately.
+
+Here, a new capture means one with no live definition, even if the draft already contains a definition.
 
 `createDiscover` takes an existing draft, a capture name, and an optional data plane for this operation. It selects the definition as follows:
 
-1. If an entry exists under that name in the draft, it must contain a valid capture model. A deletion, another catalog type, or an invalid capture model is an error.
-2. If no entry exists under that name, the mutation uses a readable live capture of the same name. Unrelated specifications in the draft do not prevent this fallback.
+1. If an entry exists under that name in the draft, it must contain a capture model that deserializes as `CaptureDef`. A deletion, another catalog type, or a model that fails to deserialize is an error.
+2. If no entry exists under that name, the mutation uses a readable live capture of the same name. Other entries in the draft do not prevent the mutation from using the live capture.
 3. If neither definition is available, the mutation returns an error.
 
-For a new capture, the client stages an initial definition with `stageDraftSpecs` before requesting discovery. The definition can have empty bindings. For an existing capture, the client can stage edits or let the mutation copy the live definition. The copy and the discover row commit together. Once the mutation succeeds, the copied capture is visible in the draft even if discovery later fails.
+For a new capture, the client stages an initial definition with `stageDraftSpecs` before requesting discovery. The definition must include `bindings`, which may be `[]`. For an existing capture, the client can stage edits or let the mutation copy the live definition. Once the mutation commits, the copied definition is visible in the draft even if discovery later fails.
 
-The resolver derives `connector_tag_id`, `endpoint_config`, and `update_only` from the selected definition. These columns adapt the request to the existing executor. PostgREST clients continue to supply them directly. This API adds no capture-shaped columns or historical input snapshots. Clients read the current capture and collection definitions through the draft API.
+`createDiscover` derives `connector_tag_id`, `endpoint_config`, and `update_only` from the selected definition. The existing executor needs these columns. PostgREST clients continue to supply them directly. This API adds no columns for capture fields and does not store a complete copy of the job's inputs. Clients read the current capture and collection definitions through the draft API.
 
-This follows the [capture-selection decision](https://estuaryworkspace.slack.com/archives/C03QBN83GQ4/p1790202935042549) and the [shared discovery-policy decision](https://estuaryworkspace.slack.com/archives/C03QBN83GQ4/p1790200476989949).
+### Draft contents after submission
 
-Consequences:
+`Discover` describes the job. Clients read the current definitions through the `specs` connection on `draft(id)`.
 
-- `Discover` describes the operation and doesn't return a capture spec. Clients read the current specs with `draft(id) { specs }`.
-- The live copy retains the source's last publication ID as `expectPubId`. A later publication can therefore detect intervening changes to the live capture. Submission leaves existing staged entries and their publication preconditions unchanged.
-- The endpoint and `update_only` are fixed when the row is written. The rest of the drafted spec, including `autoDiscover.evolveIncompatibleCollections`, is read when the executor loads the draft to run the discover. This is existing behavior.
-- Concurrent edits or operations on the same draft can overwrite one another's changes. This risk exists today and isn't addressed by this API.
-- Copying the live definition during submission gives the executor that definition as its base instead of a later live version. It does not freeze the draft or guarantee a historical record of the inputs used by the executor.
-- The three columns stay while callers and the executor depend on them. This API does not remove the executor's existing fallback or endpoint-replacement behavior.
+When the mutation copies a live capture, it stores the capture's last publication ID as `expectPubId`. A later publication can then detect intervening changes to the live capture. Submission leaves existing draft entries and their publication preconditions unchanged.
+
+The discover row fixes the endpoint and `update_only` at submission. The executor uses these values even if the client subsequently edits the draft. It reads the other fields, including `autoDiscover.evolveIncompatibleCollections` and secret references, when it loads the draft. A successful discover writes its merged definitions into the draft, replacing any intervening endpoint edits.
+
+Copying the live definition during submission gives the executor that definition as its base, provided the draft entry remains unchanged until execution. Clients can still edit or unstage it. The executor retains its existing behavior if it later finds no capture in the draft, including constructing an initial definition when necessary.
+
+The draft is not a historical record of the inputs to a discover. Concurrent edits and jobs can overwrite each other's changes. This API does not serialize those operations. Clients should wait for a discover to finish before editing its draft or starting another operation on it.
 
 ### Client migration
 
-Existing PostgREST clients can still request discovery without a drafted or live capture. The executor constructs their starter definition from the row. GraphQL clients must stage a new capture first. The UI migration must include this step where it currently relies on the starter-definition behavior.
+Existing PostgREST clients can still request discovery without a draft entry or a live capture. The executor constructs an initial capture definition from the discover row. GraphQL clients must stage a new capture first. The UI migration must add this step wherever the UI currently relies on the executor to construct the capture.
 
-The UI must supply its intended `autoDiscover` settings in that definition. The executor's current starter sets both flags to `true` ([L353-368](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/agent/src/discovers.rs#L353-L368)). Clients that need those defaults must set them explicitly. Staging only an endpoint and empty bindings does not reproduce those settings.
+The UI must supply its intended `autoDiscover` settings in that definition. The executor currently sets both flags to `true` when it constructs a capture. Clients that need those defaults must set them explicitly. Staging only an endpoint and empty bindings does not reproduce those settings.
+
+When the executor constructs a capture, it also sets the draft entry's `expectPubId` to zero. Publication therefore fails if someone creates a live capture of that name in the meantime. To retain that protection, the client must set `expectPubId` to zero (`0000000000000000`) each time it stages the new capture. Omitting this field or passing null clears any previous precondition.
+
+When a user edits a capture and re-enables disabled capture bindings, the UI currently forces `update_only` for that discover. Through this API, the capture's `autoDiscover` settings determine the behavior instead. The merge adds new capture bindings with `disable: false` unless the policy or connector requires `disable: true`. These changes take effect only after publication.
+
+The UI reads discover logs through PostgREST today. It must use `Discover.logs` or continue to fetch `logs_token` from the discover row through PostgREST. The GraphQL response does not expose that token.
 
 ## Schema
 
@@ -62,20 +83,23 @@ extend type QueryRoot {
 extend type MutationRoot {
   """
   Discovery uses the capture in the draft if present.
-  Otherwise, the mutation copies the live capture with the same name into the draft.
-  The mutation fails if neither exists or the draft marks the capture for deletion.
+  Otherwise, the mutation copies a readable live capture of the same name into the draft.
+  The mutation fails if neither is available.
+  It also fails if the draft entry is a deletion or cannot be used as a capture.
 
-  Discovery merges the discovered bindings and collection definitions into
-  the draft. Read the resulting specifications through draft(id) { specs }.
+  Discovery uses the connector's discovered bindings to update the capture's bindings and target collection definitions in the draft.
+  Read the resulting definitions through the specs connection on draft(id).
   """
   createDiscover(
     draftId: Id!
     captureName: Name!
 
     """
-    When supplied, discovery uses this plane if the storage mapping permits it.
-    Otherwise, discovery uses the live capture's plane, or the mapping's primary plane for a new capture.
-    This choice applies only to discovery.
+    This argument selects the data plane for discovery, not for publication.
+    Omission and null have the same meaning.
+    A live capture uses its current plane. A supplied plane must match it.
+    A capture with no live definition uses the first plane in its storage mapping unless this argument selects another permitted plane.
+    Submission fails if the caller cannot use the selected plane.
     """
     dataPlane: String
   ): Discover!
@@ -91,15 +115,15 @@ type Discover {
   updatedAt: DateTime!
 
   """
-  Operations share the draft's current errors.
-  These errors may predate this discover or concern other specifications.
-  They do not provide a historical record of this discover.
+  These are the draft's current errors, which all jobs on the draft share.
+  They may predate this discover or concern other specifications.
+  Later jobs can replace them.
   """
   errors: [Error!]!
 
   """
-  Pagination follows timestamp order and is best effort.
-  Logs expire after two days.
+  Pagination follows timestamp order and can miss lines from delayed writes.
+  Cleanup deletes lines older than two days.
   More lines can arrive after discovery finishes.
   """
   logs(after: String, first: Int): LogLineConnection!
@@ -140,35 +164,42 @@ type LogLine {
 }
 ```
 
-`Id`, `Name`, `DateTime`, `Error`, and `PageInfo` reuse existing types. `Error` is the type that `Draft.errors` uses. `LogLineConnection` uses `loggedAt` as its cursor.
+`Id`, `Name`, `DateTime`, `Error`, and `PageInfo` reuse existing types. `Error` is the type that `Draft.errors` uses. Log cursors use the existing `TimestampCursor` representation of `loggedAt`.
 
 ## createDiscover
 
-`createDiscover` runs these steps in one transaction:
+All operations require authentication. `createDiscover` checks draft ownership before inspecting the capture. A draft owned by someone else gives the same "draft not found" error as a missing draft, matching the draft API. The mutation accepts or rejects the request in one transaction.
 
-1. Checks that the caller owns the draft. A draft owned by someone else gives the same "draft not found" error as a missing one, as in the draft API.
-2. Checks `SpecEdit` on `captureName`, using the caller's token.
-3. Selects the capture definition. An existing draft entry must have the capture type and a model that parses as `models::CaptureDef`. A null model, `delete: true`, another catalog type, or an invalid capture model is an error. Only the absence of an entry permits live fallback. The fallback requires `CatalogRead` on the live capture using the same token. A missing or unreadable live capture gives the same error. The selected endpoint must be a connector image.
-4. Chooses the data plane (below), and checks it the same way the executor does. A missing plane and an unauthorized one give the same error.
-5. Resolves the connector tag from the endpoint image. `models::split_image_tag` splits the image into its name and tag, and a query on `connectors` and `connector_tags` returns the tag's ID, protocol, and spec status. The tag must exist, must be a capture, and its spec must have succeeded. `connector_tags::fetch_connector_spec` makes the same lookup for publications but doesn't return the tag's ID, so this is a sibling query.
-6. If the definition came from live specs, inserts that capture into the draft with `expect_pub_id` set to its `last_pub_id`. The mutation copies the full definition and updates the draft's modification time. It does not replace existing staged entries or copy associated live collections at submission. The executor merges collections when discovery runs.
-7. Inserts the `discovers` row and commits the transaction. The existing trigger queues the task. The mutation returns the discover as queued.
+The mutation rejects the request without committing any changes in these cases:
 
-Any submission error rolls back the live copy, draft timestamp change, discover row, and queued task together. A later connector or merge failure leaves the submitted copy in the draft. Submission does not clear existing draft errors. The executor replaces them when it applies the outcome, as it does today.
+- The caller lacks `SpecEdit` on `captureName`.
+- The draft entry is a staged deletion, has `delete: true`, names another catalog type, or cannot deserialize as `CaptureDef`. A live capture of the same name does not replace an invalid draft entry.
+- The draft has no entry under `captureName`, and the caller cannot read a live capture of that name with `CatalogRead`. Missing and unreadable live captures give the same error.
+- The endpoint does not identify a connector image, or its configuration is not an inline JSON object. The `discovers.endpoint_config` column requires an object, even though `CaptureDef` also accepts references to configuration files.
+- The image reference does not identify a known connector tag with protocol `capture` and job status `success`.
+- No data plane satisfies the selection and authorization rules below. Missing and unauthorized planes give the same error.
 
-The server fills `connector_tag_id`, `endpoint_config`, and `update_only` as follows:
+On acceptance, the transaction inserts the discover row and any required capture definition. The existing trigger schedules discovery. The mutation returns the job with status `queued`:
 
-- `connector_tag_id` is the ID found in step 5.
-- `endpoint_config` is the selected definition's connector `config`. The connector config is a `models::RawValue`. JSON member order is preserved, which sops needs to verify an encrypted config. The same requirement applies when copying a live definition into the draft.
-- `update_only` is `!autoDiscover.addNewBindings`, and `false` when `autoDiscover` is missing or null. This matches [`flowctl discover`](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/flowctl/src/discover/mod.rs#L104-L108).
+- If the draft has no entry under `captureName`, the mutation copies the full live definition and updates the draft's modification time. It preserves the serialized definition and sets `expectPubId` to the live capture's last publication ID. It must not replace an entry that another request stages while submission is in progress. A conflicting insert can reject the request so the client can retry.
+- Existing draft entries do not change. The mutation does not copy associated live collections. The executor merges collections when discovery runs.
+- If the capture is already in the draft, submission leaves the draft's modification time unchanged.
+- The row records `connector_tag_id`, `endpoint_config`, and `update_only` as described below.
+- Existing draft errors remain until the executor applies its outcome.
 
-When the discover runs, the executor writes the image and config from these columns back into the drafted spec. `createDiscover` copied them from that spec, so the write-back changes the spec only if its endpoint was edited after the discover was submitted.
+An exact copy reports `isUnchanged: true` while it still matches the live definition and the reader has `CatalogRead`. A later live publication, draft edit, or permission change can make that field false.
 
-The mutation checks the capture, connector, and plane before accepting the job. The executor retains its existing checks. A successful mutation means the job was accepted. It does not establish that the endpoint configuration works. Connector and merge failures are asynchronous discover outcomes.
+`connector_tag_id` identifies the `connector_tags` row for the endpoint's image name and tag or digest. A connector tag job requests `Spec`, validates the returned metadata, and updates that row. `endpoint_config` contains the endpoint configuration from the capture definition. Staging and submission must preserve the order and values of encrypted configuration fields so SOPS can verify the document. Copying a live definition must preserve its JSON text as well, because `isUnchanged` compares serialized definitions.
+
+A rejection leaves the draft, its errors, its modification time, and the job queue unchanged. Acceptance does not validate endpoint credentials or guarantee that the connector can connect to the external endpoint. The executor rechecks the connector tag, `SpecEdit`, and access to the selected plane when it runs. It also needs the plane's first configured HMAC key to authenticate to the connector proxy. Changes to permissions, connector metadata, or the selected plane can therefore cause a later failure.
+
+The executor uses the plane named in the discover row. It does not repeat selection against the storage mapping.
+
+Connector and merge failures leave any definition copied during submission in the draft. An unrelated malformed definition in the draft can also cause discovery to fail. The executor loads the whole draft, and any errors in that loaded draft prevent it from committing the merged definitions.
 
 ### Discovery policy defaults
 
-The API preserves the existing manual-discovery defaults:
+The API derives `update_only` from `autoDiscover`, following `flowctl discover`. The executor derives the policy for changed keys from the capture it loads:
 
 | `autoDiscover` | `update_only` | Mark collections for reset when their keys change |
 | --- | --- | --- |
@@ -176,119 +207,131 @@ The API preserves the existing manual-discovery defaults:
 | `{}` | `true` | No |
 | Explicit flags | `!addNewBindings` | `evolveIncompatibleCollections` |
 
-When `update_only` is `true`, new bindings enter the draft disabled. When it is `false`, the connector can still recommend that a new binding be disabled. Missing or null `autoDiscover` also disables periodic automatic discovery. The API does not add the stanza, change its flags, or accept separate per-run overrides.
+When `update_only` is `true`, new capture bindings enter the draft disabled. When it is `false`, the connector can still recommend disabling a new binding. This flag does not prevent discovery from removing capture bindings whose resource paths are absent from the discovered bindings.
+
+The table describes how this API derives policy. PostgREST clients continue to supply `update_only` directly. Missing or null `autoDiscover` also disables periodic automatic discovery. The API does not insert the object, change its flags, or accept overrides for an individual job.
 
 ### Data plane
 
-The optional `dataPlane` argument selects the plane for this discovery operation. Omission and null have the same meaning. Selection follows the [agreed discovery-specific rules](https://estuaryworkspace.slack.com/archives/C03QBN83GQ4/p1790204987260919):
+The optional `dataPlane` argument selects the plane for this discovery operation. Omission and null have the same meaning:
 
-- If `dataPlane` is supplied, use it after checking that the storage mapping permits it. This applies to both new and existing captures.
-- Otherwise, an existing live capture uses its current plane, even when its definition is staged in the draft.
-- Otherwise, a new capture uses the primary plane, which is the first plane listed in its storage mapping.
+- An existing live capture uses its current plane, even when the draft contains an edited definition. This also applies when the caller lacks `CatalogRead` on the live capture. That permission controls copying the definition, not selecting the plane. A supplied `dataPlane` must name the current plane.
+- A new capture uses a supplied `dataPlane` if publication's rules for new specifications permit it under the applicable storage mapping.
+- Without an explicit selection, a new capture uses the mapping's primary plane: the first plane in its list.
 
-Reuse validation's storage-mapping lookup and explicit-plane checks, exposing the necessary helper rather than duplicating the rules. Preserve the existing `ops/` exception to explicit-plane membership checks ([`validation/src/lib.rs` L349-404](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/validation/src/lib.rs#L349-L404)). Do not apply publication's rule that keeps an existing task on its current plane when an explicit discovery plane was requested. Every selected plane must pass the executor's authorization and availability checks. If selection needs a primary plane and the mapping has none, submission fails. An invalid explicit selection also fails submission.
+The [earlier discussion](https://estuaryworkspace.slack.com/archives/C03QBN83GQ4/p1790204987260919) allowed an explicit selection from the storage mapping for either a new or an existing capture. This plan proposes a narrower rule for existing captures. Named secrets permit decryption only from the capture's current plane. An endpoint may also restrict connections to that plane's addresses. The proposed rule rejects a different plane at submission instead of accepting a job that can fail for these reasons.
 
-The resolver writes the selected plane to `discovers.data_plane_name`. `Discover.dataPlaneName` reports that selection. This choice does not move a live capture or set the plane for publication. A later publication makes its own placement decision.
+Publication ignores an explicit plane for an existing capture. Discovery instead rejects a different plane, so it does not silently substitute one the client did not request.
+
+For a new capture, submission fails if no storage mapping applies or the mapping does not permit the supplied plane. If selection needs a primary plane, the mapping must list one. Reuse publication's placement rules, including its exception for the `ops/` mapping, rather than implementing a separate membership check.
+
+At submission, every selected plane must pass the executor's checks for authorization and a usable signing key. This includes the current plane of an existing capture.
+
+The mutation stores the selected plane in `discovers.data_plane_name` and returns it as `Discover.dataPlaneName`. This does not set the plane for publication. A later publication independently selects the plane for a new capture. Clients that require the same plane must also select it when publishing.
 
 ## discover(id)
 
-`discover(id)` returns the row if the caller owns its draft, and `null` otherwise. It reads rows created through either GraphQL or PostgREST.
+For an authenticated caller, `discover(id)` returns the row if the caller owns its draft, and `null` otherwise. It reads rows created through either GraphQL or PostgREST.
 
-`status` reports progress or the outcome. `queued` includes both waiting and running. `errors` reads the current `draft_errors`, with the shared and mutable semantics described in the schema.
+`status` reports progress or the outcome. `queued` includes both waiting and running. `success` means that discovery merged its results into the draft, not that the draft passed publication validation. `errors` returns the draft's current errors, which can change independently of this discover's status.
 
-Staging new specs leaves these errors in place. Each discover or publication replaces them when it applies its outcome. Some discover failures record no errors: `noDataPlane`, `tagFailed`, `wrongProtocol`, and `imageForbidden` report only the status.
+Staging definitions leaves existing errors in place. Each discover or publication replaces them when it applies its outcome. Some discover failures clear the errors without inserting new ones: `noDataPlane`, `tagFailed`, `wrongProtocol`, and `imageForbidden` report only the status.
 
-`DiscoverStatus` values are camelCase so that they equal the stored `job_status.type` strings, as with the publication `StatusType`. Enums defined only for GraphQL use SCREAMING_CASE. The executor's `JobStatus` moves from `agent` to `models::discovers` so that `control-plane-api` can expose its status. The stored JSON doesn't change.
-
-All existing variants are retained, including `mergeFailed`, `deprecatedBackground`, and `pullFailed`, so historical rows remain readable. Their GraphQL descriptions mark them as historical outcomes. The success fields `publication_id` and `specs_unchanged` keep their existing serialization and aren't exposed by `Discover`.
+The enum retains all existing status values, including `mergeFailed`, `deprecatedBackground`, and `pullFailed`, so historical rows remain readable. The schema marks those values as historical outcomes. `Discover.status` exposes only the discriminator from `job_status`. It does not expose additional properties such as a historical `publication_id`. The stored JSON remains unchanged for PostgREST readers.
 
 ## Logs
 
 ### Ordering
 
-The agent's log writer ([`control_plane_api::logs::serve_sink`](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/control-plane-api/src/logs.rs#L66-L146)) inserts each batch of lines in one statement with the default `logged_at = now()`. Every line in a batch shares one timestamp, and `internal.log_lines` has no other ordering column. Lines within a batch have no defined order, and a page with a size limit can't resume from the middle of a batch.
+The agent's [log writer](https://github.com/estuary/flow/blob/93f99e1f780406796bbc9dcaa02918c91201fc44/crates/control-plane-api/src/logs.rs#L66-L146) currently gives all lines in a batch the same timestamp. The table has no other ordering field. A cursor containing only a timestamp cannot resume from the middle of a batch.
 
-The writer will give each line an increasing timestamp: the later of the current time and the previous line's timestamp plus 1µs. The data-plane controller's log writer does this within each batch ([`data-plane-controller/src/shared/logs.rs` L103-105](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/data-plane-controller/src/shared/logs.rs#L103-L105)). Carrying the timestamp across batches also keeps the order from one batch to the next. This needs no migration of the log table, which an ordering column would.
+Change this writer to assign timestamps at PostgreSQL's microsecond precision. Each timestamp must be at least one microsecond later than the previous timestamp from that writer, including across batches. It must also be no earlier than the writer's current clock reading at that precision. The writer must retain the previous timestamp between batches, even if its clock moves backward.
 
-Consequences:
+The data-plane controller's writer already increments timestamps by one microsecond [within each batch](https://github.com/estuary/flow/blob/93f99e1f780406796bbc9dcaa02918c91201fc44/crates/data-plane-controller/src/shared/logs.rs#L103-L105). The proposed change also orders separate batches from the same writer. It requires no table migration.
 
-- Timestamps increase within one agent's log sink. Retries may use another agent; sinks do not coordinate their timestamps or commits.
-- `logged_at` comes from the agent's clock instead of Postgres. Only the two-day expiry in `internal.delete_old_log_lines` compares it with the database clock, and clock skew doesn't matter at that scale.
-- Lines written before the change keep shared timestamps until they expire, and a page boundary inside such a group can skip lines. This affects only discovers that ran in the two days before the change.
+This changes logs for every operation that uses the agent's writer, including publications, connector tag jobs, and validation. It provides order within one writer's lifetime. A restarted writer or another agent can produce duplicate or earlier timestamps for the same discover, because writers do not coordinate clocks or commits.
+
+Timestamps will come from the agent's clock instead of the database's. Differences between those clocks can affect both pagination across writers and retention. Cleanup compares `logged_at` with the database clock and deletes lines older than two days. Small clock differences only shift that retention window slightly, but the API cannot assume all clock differences are small.
+
+Existing lines retain their shared timestamps until cleanup deletes them. Agents that still run the old writer during deployment can also produce such lines. A page boundary within one of these groups can skip lines.
 
 ### Reading
 
-`Discover.logs` provides best-effort pagination in `loggedAt` order. The cursor is the last line's timestamp, using the existing `TimestampCursor`. A delayed write from an earlier retry attempt can have a timestamp at or before a cursor already returned to the client, and subsequent pages will miss it. The page size has a default and no ceiling, like the other connections. A read covers one discover's lines, which the existing index on `token` already selects.
+`Discover.logs` returns lines in ascending `loggedAt` order. It uses the existing `TimestampCursor`, with the last returned line's timestamp as the next cursor. Subsequent pages select timestamps strictly greater than that cursor. Invalid cursors and negative page sizes return errors. The default page size is 100, with no maximum, matching the draft connections.
 
-Lines reach the table asynchronously, so some can arrive after the status leaves `queued`, and there is no signal that a discover's logs are complete. `hasNextPage: false` means there are no more lines yet. A client can keep reading for a short time after the status becomes terminal to pick up late lines, but an empty page doesn't prove that none remain. A completion guarantee would need the log writer to acknowledge committed lines to the executor before it writes the status, and there is no such path today.
+A delayed write from an earlier attempt can have a timestamp at or before a cursor the client already received. Subsequent pages will miss those lines. Duplicate timestamps from separate writers have the same problem. Pagination therefore remains best effort, even after the writer change.
 
-The reader takes a log token, and `LogLine` isn't specific to discovers, so a later `Publication.logs` reuses both. Nesting logs under the discover keeps the token out of the API. Log lines expire after two days.
+The existing index on `token` can locate a discover's logs. The query must then sort them by timestamp. This plan adds no index or migration.
+
+Lines reach the table asynchronously, and some can arrive after the status leaves `queued`. There is no signal that all logs are available. `hasNextPage: false` means the query found no additional visible lines beyond the returned page. A client can continue polling after discovery finishes, but an empty page does not prove that no more lines will arrive.
+
+A completion guarantee would require the log writer to acknowledge committed lines before the executor records the final status. No such coordination exists today.
+
+`LogLine` and its connection can later support publication logs as well. Resolving logs through their parent discover keeps `logs_token` out of the GraphQL API. Each log query must enforce draft ownership, as the draft's nested resolvers do.
 
 ## Authorization
 
-The mutation checks `SpecEdit` with the caller's token. Copying a live capture also requires `CatalogRead` with that token. An unreadable live capture is treated as absent, so the fallback does not reveal its definition. The executor retains its own authorization checks with the user's full grants.
+The mutation checks `SpecEdit` with the caller's token. Copying a live capture also requires `CatalogRead` with that token. The mutation treats an unreadable live capture as absent and does not copy its definition. The executor makes its own checks with the user's full grants.
 
-Consequences:
+Two existing authorization limitations remain:
 
-- Once capability-scoped tokens land, a token's restrictions apply when the discover is submitted. The executor doesn't see the token. It merges existing collections into the draft using the user's full `CatalogRead`, so a scoped token can then read collection specs in the draft that it couldn't read directly. The draft API has the same property, since ownership alone governs a draft's contents. Narrowing this belongs to the scoped-token work, for drafts, discovers, and publications together.
-- The data-plane check uses legacy `read`, which requires every Viewer bit. The Editor bundle lacks `ViewDataPlanePrivateNetworking`, so a user whose grants reach the plane only through Editor fails the check, and a token scoped to Editor alone can't discover. The API matches the executor, because it must not accept a discover the executor will reject. Publications make the same check ([`publications/specs.rs` L960](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/control-plane-api/src/publications/specs.rs#L960)), so narrowing it is one decision for both.
-- Reading a discover, its errors, and its logs requires owning its draft.
+- The executor never receives the token or its restrictions. It can copy existing collection definitions into the draft using the user's full `CatalogRead` permission. A restricted token can then read those definitions through the draft, even if it cannot read them directly from the live catalog. Draft ownership alone controls access to staged contents. Enforcing token restrictions through execution requires coordinated changes to drafts, discovers, and publications.
+- Legacy `read` on the data plane requires every Viewer capability. The Editor bundle lacks `ViewDataPlanePrivateNetworking`. A user authorized on the plane only through Editor therefore fails this check. So does a token restricted to Editor capabilities. The API applies the same check at submission to detect this failure before scheduling the job. Publications also require legacy `read` on the plane.
+
+Reading a discover, its errors, and its logs requires ownership of its draft. Each resolver must enforce this ownership requirement.
 
 ## Orphaned discover tasks
 
-Deleting a draft deletes its `discovers` rows ([migration](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/supabase/migrations/01_compacted.sql#L7932)), but a queued row's task remains. The executor then fails to load the row ([`discovers/db.rs` L30-59](https://github.com/estuary/flow/blob/8898a170a1cc979711b2efc0ed35c25b81ade1ce/crates/control-plane-api/src/discovers/db.rs#L30-L59)) and logs a warning. The task is retried after each heartbeat timeout, without limit. The draft API's `deleteDraft` makes this easy to reach.
+Deleting a draft deletes its `discovers` rows, but their executor tasks remain. The executor then [fails to load the row](https://github.com/estuary/flow/blob/93f99e1f780406796bbc9dcaa02918c91201fc44/crates/control-plane-api/src/discovers/db.rs#L30-L59). The automation server logs a warning and retries after the task's heartbeat expires. This repeats without limit today, including after `deleteDraft`.
 
-The executor will finish the task when its row no longer exists. The executor already decides when its task is done, so this is the smallest change.
+Change the executor to finish the task when its discover row no longer exists. A missing row is the only error that this change treats as completion. Database failures must still propagate and allow a retry.
 
-A draft can also be deleted while its discover runs. Applying the outcome then fails, because the results can't be written into a deleted draft, and the task is retried. The retry finds the row gone and finishes. This costs one heartbeat timeout, so the fix doesn't add a second check when the outcome is applied.
+A draft can also disappear while its discover runs. The executor cannot apply results to the deleted draft, so that attempt fails. The next attempt finds no discover row and finishes the task.
 
-A discover doesn't need to outlive its draft. Its results, the merged specs and the errors, live in the draft, so a retained row would hold only a status. The `discovers` table gets no user column.
+This change does not cancel a running connector. The task continues to receive heartbeats while execution is in progress. Cleanup therefore has no fixed deadline after draft deletion. It depends on the current attempt finishing or failing and the scheduler running another attempt after the heartbeat expires.
+
+The discover row does not need to outlive its draft. Its merged definitions and errors belong to the draft. The table therefore needs no separate user column for this API.
 
 ## Delivery
 
-The first PR has three commits:
+The work lands as two independent PRs: the API, including log ordering, and the executor fix for tasks whose discover rows no longer exist.
 
-1. `discover(id)` with `errors`, and the move of `JobStatus` into `models::discovers`.
-2. `createDiscover`, including the transactional live-capture copy and discovery-specific plane selection.
-3. Log ordering in the writer, and `Discover.logs`.
-
-The second PR is the orphaned-task fix. Its tests delete the draft before the task runs, and while it runs, and check that the task finishes in both cases.
-
-Tests use `sqlx::test` fixtures and snapshot whole GraphQL responses. Submission tests also check the draft, discover row, and queued task:
+Submission tests check the persisted draft, discover row, and scheduled task as well as the response. They cover:
 
 - Unauthenticated requests.
-- A foreign draft and a missing draft, which give the same result.
-- A staged capture takes precedence over a different live definition. Submission preserves the staged model, its metadata, and unrelated draft entries.
-- Live fallback succeeds in both an empty draft and a draft containing unrelated specifications. The copy is visible before the executor runs and carries the live definition's `last_pub_id` as `expect_pub_id`. The test checks that the draft timestamp changes and unrelated entries remain unchanged.
-- A capture missing from both the draft and readable live specs is rejected without creating a starter definition or a job.
-- A staged deletion, `delete: true`, invalid capture model, another catalog type, or a non-image endpoint is rejected. A live capture of the same name must not bypass an invalid staged entry.
-- A caller without `SpecEdit`, and a caller with `SpecEdit` but no `CatalogRead` for live fallback. An unreadable live capture and a missing live capture give the same error. The fallback's read requirement does not impose a new live-read requirement on a valid staged definition.
-- Data-plane choice: omission and null use the live plane for an existing capture or the mapping's primary plane for a new capture. An explicit permitted plane overrides that selection for either case. The test checks the returned plane and the stored `data_plane_name`.
-- An explicit plane outside an `acmeCo/` storage mapping is rejected, and the existing `ops/` exception remains supported. A missing plane and an unauthorized one give the same error. A new capture without a mapped primary plane fails when `dataPlane` is omitted.
-- An unknown image, a tag that isn't a capture, and a tag whose spec has not succeeded.
-- Policy defaults for missing, null, empty, and explicitly configured `autoDiscover`. Submission preserves the model's settings and writes the expected `update_only` value.
-- JSON member order survives both copying a live definition and writing `endpoint_config` from either definition source.
-- Submission failures leave the draft, its errors, its timestamp, and the job queue unchanged. Successful submissions retain existing draft errors until the executor applies its outcome.
-- `discover(id)` for a foreign row and a missing one, historical status values, and `errors` after a failed run.
-- Log pages whose boundaries fall inside one batch and between batches, in order.
+- A missing draft and a draft owned by someone else return the same error.
+- A staged capture takes precedence over a different live definition. Submission preserves its model, metadata, unrelated entries, and the draft's modification time.
+- Copying a live capture succeeds in an empty draft and in a draft containing unrelated definitions. The copied definition is visible before execution and retains the live capture's last publication ID as `expectPubId`. It reports `isUnchanged: true` to an authorized reader while the live definition still matches. Only the new entry and the draft's modification time change.
+- A concurrent insertion under the capture's name prevents the mutation from overwriting that entry with the live definition.
+- The mutation rejects a capture absent from both the draft and readable live definitions. It creates neither an initial definition nor a job.
+- The mutation rejects staged deletions, `delete: true`, other catalog types, and malformed capture models. A live capture of the same name does not bypass these errors.
+- The mutation rejects endpoints without a connector image and configurations that are not inline JSON objects, including file references.
+- The mutation rejects a caller without `SpecEdit`. Copying a live definition also requires `CatalogRead`. Missing and unreadable live captures give the same error. A valid staged capture needs no `CatalogRead` on the live definition, but discovery still uses the live capture's plane.
+- Omission and null select the current plane for an existing capture and the mapping's primary plane for a new capture. An explicit permitted plane works for a new capture. For an existing capture, only an explicit selection of its current plane succeeds, including when the draft contains an edited definition. The stored and returned plane names match.
+- Selection rejects missing mappings, mappings without a required primary plane, disallowed planes, and planes without usable signing keys. Missing and unauthorized planes give the same error. The tests also cover publication's exception for the `ops/` storage mapping.
+- The mutation rejects unregistered image references, tags for other protocols, and tags whose job did not succeed.
+- Missing, null, empty, and explicitly configured `autoDiscover` produce the documented policy. Submission preserves the capture's settings and stores the expected `update_only`.
+- Encrypted endpoint configurations still pass SOPS verification after submission, whether the client staged the capture or the mutation copied it from live.
+- Rejections leave the draft, errors, modification time, and job queue unchanged, including failures after writes begin. Successful submissions retain existing draft errors.
 
-Agent integration coverage runs GraphQL-created discovers from both a staged definition and a live fallback. It checks the merged capture and collections, including disabled new bindings and collection resets under the selected policy. A connector failure after successful live fallback leaves the copied capture in the draft and records the failure. A publication using the copied `expect_pub_id` rejects an intervening live change.
+Query tests cover ownership, missing rows, historical statuses, and the current errors after a failed job. They also check that a later job can replace the errors without changing the earlier discover's status. Logs must not disclose another draft's lines.
 
-Testing also includes a manual run on a local stack, `.sqlx` regenerated from a clean database, and the regenerated schema.
+Log tests cover page boundaries within and between batches, empty pages, invalid cursors, and negative page sizes. They check timestamp order after PostgreSQL stores and returns the values. They also cover a backward clock adjustment between batches and logs that arrive after discovery finishes.
 
-[#3514](https://github.com/estuary/flow/pull/3514) overlaps this plan in four places:
+Agent integration tests run discovers submitted through GraphQL using both staged and copied capture definitions. They cover:
 
-- It edits `agent/src/discovers.rs`, which the `JobStatus` move also edits.
-- It adds a `can_sign()` filter to the executor's data-plane check, which `createDiscover` mirrors.
-- It rewrites validation's placement helpers and publications' data-plane resolution. Reuse the updated helpers while preserving discovery's explicit-plane override for existing captures.
-- It replaces the executor's connector interface and the test harness's mock connectors, which the integration test uses.
+- Updated capture bindings and target collection definitions, including new disabled bindings, removed bindings, and collection definitions marked for reset under the selected policy.
+- A connector failure that leaves the copied capture in the draft and records the failure.
+- An unrelated malformed draft entry that prevents the executor from committing merged definitions and produces draft errors.
+- A later publication that uses the copied `expectPubId` and rejects an intervening live change.
 
-`createDiscover`'s checks and the integration test follow whatever is on master when this work lands. Neither PR needs to wait for the other.
+The executor fix has separate tests for deletion before execution and deletion during execution. The latter lets the running attempt finish, then checks that the next attempt completes the task. Database failures must still cause retries.
 
 ## Deferred work
 
-The behavior decisions for this API are settled. These separate changes do not block implementation:
+The API leaves these changes to separate work:
 
-- Rename or alias `autoDiscover` to `discovery`, preserving the existing distinction between an absent stanza and an empty object.
-- Revisit the data-plane check for the Editor bundle in a separate issue. This API keeps the executor's current authorization rule.
-- Address shared-draft concurrency and scoped-token access to specifications that executors add to drafts. This plan documents the existing limitations without changing those contracts.
+- Rename or alias `autoDiscover` to `discovery`, preserving the distinction between an absent field and an empty object.
+- Revisit the permission required on a data plane, including the effect on the Editor bundle. This API keeps the executor's current authorization rule.
+- Coordinate concurrent edits and jobs on the same draft.
+- Enforce token restrictions on definitions that executors copy into drafts.
