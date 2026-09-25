@@ -18,8 +18,6 @@ const HANDLE_PREFIX: &str = "sbx-";
 const EXEC_DIR: &str = ".estuary/exec";
 const SPRITE_HOME: &str = "/home/sprite";
 
-/// Runs a user's command with its output captured in the sandbox.
-///
 /// Invoked as `bash -c EXEC_WRAPPER flow-exec <exec id> <command> <stdin bytes> <metadata JSON>`,
 /// so the arguments need no quoting. The wrapper stages stdin to a file, opens
 /// it, and unlinks it: the command keeps the descriptor after the client
@@ -85,14 +83,11 @@ const FILE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60
 
 const STDIN_MAX_BYTES: usize = 1024 * 1024;
 
-/// Most bytes one [`read_file`] returns. Clients read longer files over
-/// several calls.
 pub const READ_MAX_BYTES: u64 = 1024 * 1024;
 
 /// Bounds only the wait for the wrapper's startup announcement, not the command.
 const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// A row of `internal.sandboxes`.
 #[derive(Debug, Clone)]
 pub struct Sandbox {
     pub id: models::Id,
@@ -116,7 +111,6 @@ pub struct ExecEvent {
     pub exit_code: Option<i32>,
 }
 
-/// A file [`EXEC_WRAPPER`] writes in an exec's directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecFile {
     Stdout,
@@ -126,7 +120,7 @@ pub enum ExecFile {
 }
 
 impl ExecFile {
-    /// Relative to [`SPRITE_HOME`], as [`read_file`] takes a path.
+    /// Relative to [`SPRITE_HOME`].
     pub fn path(self, exec_id: models::Id) -> String {
         let name = match self {
             ExecFile::Stdout => "stdout",
@@ -140,7 +134,6 @@ impl ExecFile {
 #[derive(Debug)]
 pub struct FileChunk {
     pub bytes: Vec<u8>,
-    /// Byte offset after `bytes`, where the next read continues.
     pub offset: u64,
     pub exists: bool,
 }
@@ -343,7 +336,6 @@ fn execs_from_metadata(data: &[u8]) -> anyhow::Result<Vec<ExecEvent>> {
     Ok(events)
 }
 
-/// The global catalog-name index arbitrates concurrent creates.
 async fn persist_record(
     conn: &mut sqlx::PgConnection,
     user_id: uuid::Uuid,
@@ -378,10 +370,8 @@ async fn persist_record(
     Ok(sandbox)
 }
 
-/// Returns once `command` is running. The control plane does not follow the
-/// command after that; clients read its output and exit status with
-/// [`read_file`]. If the connection fails before startup is acknowledged, the
-/// command may still be running, and this does not retry.
+/// Returns once `command` is running, not when it exits. If the connection
+/// fails before startup is acknowledged, the command may still be running.
 pub async fn exec(
     client: &crate::sprites::Client,
     id: models::Id,
@@ -506,8 +496,7 @@ async fn launch(
     )))
 }
 
-/// Reads up to `limit` bytes of `path`, relative to [`SPRITE_HOME`], from
-/// `offset`. [`READ_MAX_BYTES`] caps `limit`.
+/// `path` is relative to [`SPRITE_HOME`].
 pub async fn read_file(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
@@ -666,7 +655,6 @@ async fn provision(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
     result
 }
 
-/// Installs flowctl and returns the ID of the baseline checkpoint.
 async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
     const INSTALL_FLOWCTL: &str = "mkdir -p $HOME/.local/bin \
         && curl -fsSL -o $HOME/.local/bin/flowctl.download \

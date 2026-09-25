@@ -1,6 +1,4 @@
-//! Client for the Fly.io Sprites API, which backs GraphQL sandboxes.
-//!
-//! Supports creating, inspecting, and deleting sprites, and running commands.
+//! Client for the Fly.io Sprites API, which backs [`crate::sandboxes`].
 
 use anyhow::Context;
 use futures::{SinkExt, StreamExt};
@@ -9,14 +7,12 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 const BASE_URL: &str = "https://api.sprites.dev";
 
-/// Sprites API client authenticated with an organization token.
 pub struct Client {
     http: reqwest::Client,
     base_url: url::Url,
     token: String,
 }
 
-/// Sprite metadata exposed by the sandbox API.
 #[derive(Debug, serde::Deserialize)]
 pub struct Sprite {
     pub name: String,
@@ -25,16 +21,13 @@ pub struct Sprite {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Checkpoint metadata. The list also includes `Current`, the synthetic live state.
 #[derive(Debug, serde::Deserialize)]
 pub struct Checkpoint {
     pub id: String,
 }
 
-/// Collected stdout, stderr, and exit code of a completed Sprites API exec.
 #[derive(Debug, PartialEq)]
 pub struct Output {
-    /// Command output may contain invalid UTF-8.
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
     pub exit_code: i32,
@@ -77,7 +70,6 @@ impl Client {
         }
     }
 
-    /// Deletes `name` and its storage, returning whether it existed.
     pub async fn delete_sprite(&self, name: &str) -> anyhow::Result<bool> {
         let url = self.url(["v1", "sprites", name]);
 
@@ -90,13 +82,13 @@ impl Client {
             .context("failed to reach the Sprites API")?;
 
         match response.status() {
+            // Deleting a non-existent sprite succeeds, but returns false
             reqwest::StatusCode::NOT_FOUND => Ok(false),
             status if status.is_success() => Ok(true),
             _ => Err(api_error("failed to delete sprite", response).await),
         }
     }
 
-    /// Snapshots `name`'s filesystem into a new checkpoint.
     pub async fn create_checkpoint(&self, name: &str) -> anyhow::Result<()> {
         let url = self.url(["v1", "sprites", name, "checkpoint"]);
 
@@ -113,7 +105,6 @@ impl Client {
         stream_result("create checkpoint", response).await
     }
 
-    /// Lists saved checkpoints
     pub async fn list_checkpoints(&self, name: &str) -> anyhow::Result<Vec<Checkpoint>> {
         let url = self.url(["v1", "sprites", name, "checkpoints"]);
 
@@ -134,8 +125,6 @@ impl Client {
             .context("failed to decode checkpoints")
     }
 
-    /// Restores `name` to checkpoint `id`, reverting its filesystem and
-    /// restarting the environment.
     pub async fn restore_checkpoint(&self, name: &str, id: &str) -> anyhow::Result<()> {
         let url = self.url(["v1", "sprites", name, "checkpoints", id, "restore"]);
 
@@ -253,9 +242,6 @@ impl Client {
         Ok(exit_code)
     }
 
-    /// Streams the output of `argv` running in `name`. `argv[0]` is the
-    /// executable and the rest are its arguments.
-    ///
     /// The timeout applies to the request and response stream; it does not stop the command.
     pub async fn exec_stream(
         &self,
@@ -274,8 +260,7 @@ impl Client {
             }
             query.append_pair("stdin", if stdin.is_some() { "true" } else { "false" });
             query.append_pair("tty", "false");
-            // Sandbox launches drop the connection after startup; the wrapper
-            // must keep running to wait for the command and record its exit status.
+            // Allow the command to run indefinitely after client disconnects
             query.append_pair("max_run_after_disconnect", "0");
         }
         let mut request = url
@@ -323,8 +308,7 @@ impl Client {
         let stdin = stdin.unwrap_or_default().to_owned();
         let (mut writer, mut reader) = socket.split();
         let frames = async_stream::try_stream! {
-            // Drive input and output together: a command may produce output before
-            // consuming its input. Dropping the stream also drops both socket halves.
+            // Send input and receive command output concurrently so one doesn't block the other.
             let send_input = async move {
                 for chunk in stdin.as_bytes().chunks(32 * 1024) {
                     let mut payload = Vec::with_capacity(chunk.len() + 1);
@@ -365,7 +349,6 @@ impl Client {
         Ok(frames.boxed())
     }
 
-    /// Runs `argv` to completion in `name` and returns its whole output.
     pub async fn exec(
         &self,
         name: &str,
@@ -388,37 +371,28 @@ const TAG_STDOUT: u8 = 1;
 const TAG_STDERR: u8 = 2;
 const TAG_EXIT: u8 = 3;
 
-/// A session announcement, output, or exit status from an exec.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
-    SessionInfo {
-        session_id: String,
-    },
+    SessionInfo { session_id: String },
     Stdout(bytes::Bytes),
     Stderr(bytes::Bytes),
-    /// The command's exit status, which is always the final frame.
     Exit(i32),
 }
 
-/// Why a command could not be started in a sprite.
 #[derive(Debug, thiserror::Error)]
 pub enum ExecError {
-    /// The named sprite does not exist.
     #[error("sprite not found")]
     SpriteMissing,
-    /// HTTP 503; this does not necessarily mean the sprite is sleeping.
     #[error("sprite not ready")]
     NotReady,
     /// No response was received. The command may have started, so retrying
     /// could run it twice.
     #[error(transparent)]
     Transport(anyhow::Error),
-    /// The API rejected the request.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
-/// Collects command output, requiring an exit status.
 pub async fn collect_output(
     mut frames: futures::stream::BoxStream<'static, anyhow::Result<Frame>>,
 ) -> anyhow::Result<Output> {
@@ -435,7 +409,6 @@ pub async fn collect_output(
         }
     }
 
-    // A closed response does not mean the command has exited.
     let exit_code = exit_code.context("sprite closed the exec response without an exit status")?;
     Ok(Output {
         stdout,
@@ -444,7 +417,6 @@ pub async fn collect_output(
     })
 }
 
-/// WebSocket message boundaries delimit payloads, including arbitrary binary output.
 fn decode_message(message: tungstenite::Message) -> anyhow::Result<Option<Frame>> {
     match message {
         tungstenite::Message::Binary(data) => {
@@ -486,12 +458,8 @@ fn decode_message(message: tungstenite::Message) -> anyhow::Result<Option<Frame>
     }
 }
 
-/// Resolves a checkpoint or restore call, whose outcome the API streams as
-/// NDJSON events under HTTP 200.
-///
-/// Success ends with a `complete` event and failure carries an `error` event,
-/// so the HTTP status alone does not report the outcome. This reads the whole
-/// stream and maps those events to a `Result`.
+/// Checkpoint and restore report their outcome as NDJSON events
+/// 200 doesn't necessarily indicate success
 async fn stream_result(context: &str, response: reqwest::Response) -> anyhow::Result<()> {
     let status = response.status();
     let body = response
@@ -530,7 +498,6 @@ async fn stream_result(context: &str, response: reqwest::Response) -> anyhow::Re
     Ok(())
 }
 
-/// Includes the API error message when available, otherwise the raw response.
 async fn api_error(context: &str, response: reqwest::Response) -> anyhow::Error {
     #[derive(serde::Deserialize)]
     struct Body {

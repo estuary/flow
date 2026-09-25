@@ -1,21 +1,13 @@
-//! Sandboxes: per-user Linux VMs that run shell commands, backed by Fly.io
-//! Sprites. See `crate::sprites` for the API client and `crate::sandboxes` for
-//! the records and lifecycle these operations drive.
+//! GraphQL operations over [`crate::sandboxes`].
 
 use async_graphql::Context;
 use std::sync::Arc;
 
-/// A user's sandbox: a persistent Linux VM that runs their shell commands.
-///
-/// The provider's own name for the VM stays internal: clients address a
-/// sandbox by its `catalogName`, scoped to the authenticated user. Creation
-/// is authorized on that catalog name.
+/// A persistent Linux VM that runs the user's shell commands.
 #[derive(Debug, async_graphql::SimpleObject)]
 #[graphql(complex)]
 pub struct Sandbox {
-    /// Catalog name used to address this sandbox in queries and mutations.
     pub catalog_name: models::Name,
-    /// When the sandbox was created.
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// Whether flowctl installation and baseline checkpoint creation completed.
     pub ready: bool,
@@ -23,9 +15,7 @@ pub struct Sandbox {
 
 #[async_graphql::ComplexObject]
 impl Sandbox {
-    /// Commands run in this sandbox, newest first. Each is the record of a
-    /// command that started, with its observed exit result. A reset or delete
-    /// discards them along with their output.
+    /// Commands started in this sandbox
     async fn execs(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<ExecEvent>>> {
         let env = ctx.data::<crate::Envelope>()?;
 
@@ -52,26 +42,17 @@ impl From<crate::sandboxes::Sandbox> for Sandbox {
     }
 }
 
-/// A command run in a sandbox: what ran, when it was requested, and where the
-/// sandbox holds its output. Read output with `sandboxFileRead` and poll
-/// `sandbox.execs` for the exit result.
+/// A command run in a sandbox.
 #[derive(Debug, async_graphql::SimpleObject)]
 pub struct ExecEvent {
-    /// Identifier of the exec, passed with `catalogName` to `sandboxExecCancel`.
     pub exec_id: models::Id,
-    /// The bash command that ran.
     pub command: String,
-    /// When the command was requested. It started shortly after.
     pub requested_at: chrono::DateTime<chrono::Utc>,
-    /// Path of the file the command's stdout is written to, to pass as `path`
-    /// to `sandboxFileRead`.
+    /// Poll stdout with this `path` and `sandboxFileRead`.
     pub stdout_path: String,
-    /// Path of the file the command's stderr is written to, to pass as `path`
-    /// to `sandboxFileRead`.
+    /// Poll stderr with this `path` and `sandboxFileRead`.
     pub stderr_path: String,
-    /// Recorded exit code, or null if no status was recorded. Null can mean
-    /// still running, cancelled, or a wrapper failure. Zero means success.
-    /// The initial `sandboxExec` response returns null without waiting for exit.
+    /// Null until the command exits (crashed execs may not record their exit code)
     pub exit_code: Option<i32>,
 }
 
@@ -90,34 +71,21 @@ impl From<crate::sandboxes::ExecEvent> for ExecEvent {
     }
 }
 
-/// A read of a sandbox file.
 #[derive(Debug, async_graphql::SimpleObject)]
 #[graphql(complex)]
 pub struct FileRead {
     #[graphql(skip)]
     pub data: Vec<u8>,
-    /// Byte offset into the file after this chunk. Pass it as `offset` on the next
-    /// read. It is the requested offset when the file does not exist.
     pub offset: i32,
-    /// Whether the file was there. A file the sandbox writes later, such as a
-    /// running command's output, reports `false` until it appears, so this
-    /// is an answer rather than a failure.
     pub exists: bool,
 }
 
 #[async_graphql::ComplexObject]
 impl FileRead {
-    /// Raw file bytes encoded as standard padded base64. Empty when the file
-    /// does not exist. Offset and limit count raw bytes, not encoded characters.
     async fn base64(&self) -> String {
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &self.data)
     }
 
-    /// File bytes decoded as UTF-8, replacing invalid sequences with U+FFFD.
-    /// Byte offsets and limits may split a multi-byte character, so replacements
-    /// can appear at chunk boundaries even for valid UTF-8 files. For lossless
-    /// text across reads, use `base64` with a streaming UTF-8 decoder.
-    /// Empty when the file does not exist.
     async fn utf8(&self) -> String {
         String::from_utf8_lossy(&self.data).into_owned()
     }
@@ -128,10 +96,6 @@ pub struct SandboxesQuery;
 
 #[async_graphql::Object]
 impl SandboxesQuery {
-    /// Look up one of the authenticated user's sandboxes by `catalogName`.
-    ///
-    /// A sandbox that is not theirs, and one since deleted, are both null: the
-    /// answer says nothing about whether the catalog name names anything at all.
     async fn sandbox(
         &self,
         ctx: &Context<'_>,
@@ -144,7 +108,6 @@ impl SandboxesQuery {
             .map(Sandbox::from))
     }
 
-    /// List the authenticated user's sandboxes, newest first.
     async fn sandboxes(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<Sandbox>> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
@@ -159,26 +122,6 @@ impl SandboxesQuery {
         Ok(sandboxes.into_iter().map(Sandbox::from).collect())
     }
 
-    /// Read `path` in the authenticated user's sandbox `catalogName`, resolved
-    /// against the sandbox user's home directory, from byte `offset` onwards.
-    /// `path` must be relative and must not contain `..` components. A read
-    /// returns at most `limit` bytes, and never more than 1 MiB, so continue a
-    /// longer file from the `offset` you are handed.
-    /// Offset and limit count raw file bytes for both `base64` and `utf8`, before
-    /// base64 encoding or UTF-8 decoding.
-    ///
-    /// A path that does not exist returns `exists: false` rather than an
-    /// error, because a sandbox writes files while a client watches for them.
-    ///
-    /// This reads a command's result too. An `ExecEvent` carries
-    /// `stdoutPath` and `stderrPath`; read them while the command runs or
-    /// afterwards, and poll `sandbox.execs` for a non-null `exitCode`.
-    /// The wrapper records that result after the command's last output, so once
-    /// you see it, read output through EOF from your current offset to get the
-    /// remainder.
-    ///
-    /// A sandbox reset discards past commands, taking their output files with
-    /// them, after which those paths no longer exist.
     async fn sandbox_file_read(
         &self,
         ctx: &Context<'_>,
@@ -213,7 +156,6 @@ impl SandboxesQuery {
 
         Ok(FileRead {
             data: chunk.bytes,
-            // GraphQL `Int` is 32 bits, so a file beyond two gigabytes saturates.
             offset: i32::try_from(chunk.offset).unwrap_or(i32::MAX),
             exists: chunk.exists,
         })
@@ -225,13 +167,7 @@ pub struct SandboxesMutation;
 
 #[async_graphql::Object]
 impl SandboxesMutation {
-    /// Create a sandbox for the authenticated user at `catalogName`.
-    /// Requires CreateSandbox on that catalog name, which must differ from all
-    /// other live sandboxes. A deleted sandbox frees its catalog name.
-    ///
-    /// When this returns the sandbox is ready to use: it accepts commands,
-    /// flowctl is installed, and the baseline that `sandboxReset` restores
-    /// exists.
+    /// Returns once flowctl is installed and the baseline that `sandboxReset` restores exists.
     async fn sandbox_create(
         &self,
         ctx: &Context<'_>,
@@ -249,8 +185,6 @@ impl SandboxesMutation {
         .await?;
         let client = sprites_client(ctx)?;
 
-        // A refused name is the caller's to fix and says so in its
-        // message; only a failure of the control plane or provider is logged.
         let sandbox =
             crate::sandboxes::create(&client, &env.pg_pool, claims.sub, catalog_name.as_str())
                 .await
@@ -266,24 +200,13 @@ impl SandboxesMutation {
         Ok(sandbox.into())
     }
 
-    /// Run a bash command in the authenticated user's sandbox `catalogName`.
-    /// This returns once the command is running, without waiting for it to
-    /// finish, and the command then runs for as long as it takes. The returned
-    /// `ExecEvent` carries the paths its result lands at: read `stdoutPath`
-    /// and `stderrPath` with `sandboxFileRead` while the command runs or
-    /// afterwards, and poll `sandbox.execs` for `exitCode`. A command that
-    /// fails to start is not recorded, and this returns the failure instead.
-    ///
-    /// The command is passed to `bash -lc`, so it may use shell syntax such as
-    /// pipes and redirection. The server generates a new `execId` for each call.
+    /// Returns once the command has started - read its output by polling `sandboxFileRead`
+    /// and `sandbox.execs` for `exitCode`.
     async fn sandbox_exec(
         &self,
         ctx: &Context<'_>,
         catalog_name: models::Name,
-        command: String,
-        #[graphql(
-            desc = "Complete UTF-8 stdin (at most 1 MiB), followed by EOF. Omitted or empty input gives immediate EOF. Sent in the request body, not stored in the exec record."
-        )]
+        bash_command: String,
         stdin: Option<String>,
     ) -> async_graphql::Result<ExecEvent> {
         let env = ctx.data::<crate::Envelope>()?;
@@ -297,27 +220,18 @@ impl SandboxesMutation {
             .unwrap()
             .next();
 
-        // The command may carry credentials, so it is recorded in
-        // exec metadata and logged nowhere.
-        let event = crate::sandboxes::exec(&client, exec_id, &sandbox, &command, stdin.as_deref())
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, "failed to start sandbox command");
-                async_graphql::Error::new(format!("failed to start command: {err:#}"))
-            })?;
+        let event =
+            crate::sandboxes::exec(&client, exec_id, &sandbox, &bash_command, stdin.as_deref())
+                .await
+                .map_err(|err| {
+                    tracing::error!(?err, %sandbox.id, "failed to start sandbox command");
+                    async_graphql::Error::new(format!("failed to start command: {err:#}"))
+                })?;
 
         tracing::info!(%sandbox.id, %event.id, "started sandbox command");
         Ok(event.into())
     }
 
-    /// Stop the native exec session for the authenticated user's `execId`,
-    /// including descendants in its process group. Returns false if an exit
-    /// status was already recorded or the session no longer exists.
-    ///
-    /// The output it wrote before it stopped stays readable at its
-    /// `stdoutPath` and `stderrPath`. The final exit code returned by Fly is
-    /// recorded after termination; if recording fails, this returns an error
-    /// and the exit code may remain null.
     async fn sandbox_exec_cancel(
         &self,
         ctx: &Context<'_>,
@@ -339,10 +253,8 @@ impl SandboxesMutation {
         Ok(cancelled)
     }
 
-    /// Reset the authenticated user's sandbox `catalogName` to its provisioning
-    /// baseline, discarding every change made since. Past commands and their
-    /// output are discarded too, so their exec ids stop resolving. The sandbox
-    /// keeps its catalog name.
+    /// Restore the sandbox to its baseline, discarding all changes, past
+    /// commands, and their output.
     async fn sandbox_reset(
         &self,
         ctx: &Context<'_>,
@@ -362,10 +274,6 @@ impl SandboxesMutation {
         Ok(true)
     }
 
-    /// Delete the authenticated user's sandbox `catalogName`, including its
-    /// filesystem and the record of commands run in it. Its catalog name becomes
-    /// available for reuse. Unready records can be deleted even if provider
-    /// cleanup fails.
     async fn sandbox_delete(
         &self,
         ctx: &Context<'_>,
@@ -386,9 +294,6 @@ impl SandboxesMutation {
     }
 }
 
-/// Fetches sandbox `catalog_name` if it is the caller's. A sandbox that is not theirs,
-/// and one that no longer exists, are both absent, so an answer built from
-/// this cannot tell them apart.
 async fn fetch_sandbox(
     env: &crate::Envelope,
     catalog_name: &str,
@@ -403,8 +308,6 @@ async fn fetch_sandbox(
         })
 }
 
-/// Resolves sandbox `catalog_name` for an operation that must act on one, turning the
-/// absence [`fetch_sandbox`] reports into the error the caller sees.
 async fn resolve_sandbox(
     env: &crate::Envelope,
     catalog_name: &str,
