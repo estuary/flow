@@ -1,45 +1,30 @@
-//! Sandbox records and lifecycle.
-//!
 //! A sandbox is a Fly.io Sprite (see [`crate::sprites`]) that runs a user's
-//! shell commands, recorded in `internal.sandboxes`. Every operation resolves
-//! a sandbox's catalog name against the caller, so a caller reaches only their
-//! own sandboxes. Exec metadata, output, and exit status live only in the
+//! shell commands. Exec metadata, output, and exit status live only in the
 //! sandbox under `.estuary/exec/<id>`, so reset and delete discard them.
 
 use anyhow::Context;
 use futures::StreamExt;
 
-/// Prefix of every sandbox handle, which separates sandboxes from sprites that
-/// Estuary provisions for other purposes.
 const HANDLE_PREFIX: &str = "sbx-";
 
-/// Relative to [`SPRITE_HOME`]. [`EXEC_WRAPPER`] and [`LIST_EXECS`] hardcode
-/// the same path.
 const EXEC_DIR: &str = ".estuary/exec";
 const SPRITE_HOME: &str = "/home/sprite";
 
-/// Invoked as `bash -c EXEC_WRAPPER flow-exec <exec id> <command> <stdin bytes> <metadata JSON>`,
-/// so the arguments need no quoting. The wrapper stages stdin to a file, opens
-/// it, and unlinks it: the command keeps the descriptor after the client
-/// detaches, and no input (which can hold credentials) remains on disk.
-///
-/// The command and wrapper share the exec session's process group so Fly's
-/// native kill endpoint can stop both.
+/// This wrapper script separates command execution from the request connection -
+/// stdin is written to a file immediately, and command output is redirected to a file,
+/// allowing clients to drop the connection and poll for (or potentially stream, in
+/// the future) the output on their own terms.
+/// This approach also meets the requirement of excluding sensitive user data contained in the command i/o
+/// from the control plane database
 const EXEC_WRAPPER: &str = r#"
 d="$HOME/.estuary/exec/$1"
 mkdir -p "$HOME/.estuary/exec" && mkdir "$d" || exit 125
 exec 2> "$d/wrapper.err"
-trap 'rm -f "$d/stdin"' EXIT
-# Stage all input before announcing startup, so detachment cannot truncate it.
-(umask 077; cat > "$d/stdin") || exit 125
+# write stdin to a file for the command to read after the connection is dropped
+cat > "$d/stdin" || exit 125
 [ "$(wc -c < "$d/stdin")" -eq "${3:-0}" ] || exit 125
-exec 3< "$d/stdin" || exit 125
-rm "$d/stdin" || exit 125
-# Commands can carry secrets. Listings show the exec only once `started` exists.
-(umask 077; printf '%s\n' "${4:?missing exec metadata}" > "$d/metadata.json") || exit 125
-trap - EXIT
-bash -lc "$2" <&3 3<&- > "$d/stdout" 2> "$d/stderr" &
-exec 3<&-
+printf '%s\n' "${4:?missing exec metadata}" > "$d/metadata.json" || exit 125
+bash -lc "$2" < "$d/stdin" > "$d/stdout" 2> "$d/stderr" &
 job=$!
 touch "$d/started"
 echo started
@@ -95,7 +80,7 @@ pub struct Sandbox {
     /// The provider's name for the sandbox. It appears in the sprite's
     /// hostname, so it derives from `id` and carries no user identifier.
     pub handle: String,
-    /// Catalog name on which creation was authorized. The provider never sees it.
+    /// Catalog name on which creation was authorized.
     pub catalog_name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub baseline_checkpoint_id: Option<String>,
@@ -296,7 +281,7 @@ pub async fn list(pool: &sqlx::PgPool, user_id: uuid::Uuid) -> anyhow::Result<Ve
     .context("listing sandbox records")
 }
 
-/// Lists started execs, newest first.
+/// Lists started execs.
 pub async fn list_execs(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
