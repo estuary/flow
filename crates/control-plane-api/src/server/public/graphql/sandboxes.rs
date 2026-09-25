@@ -321,7 +321,8 @@ async fn fetch_sandbox(
         })?;
 
     // A sandbox is visible only to the user who created it.
-    // This will eventually be replaced with a proper authorization check on the incoming catalog_name based on user capabilities.
+    // This will eventually be replaced with a proper authorization check on the incoming catalog_name
+    // based on user capabilities and respect for token limits (like capability_mask)
     Ok(sandboxes
         .into_iter()
         .find(|sandbox| sandbox.user_id == claims.sub))

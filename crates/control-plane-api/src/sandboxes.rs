@@ -22,10 +22,14 @@ const EXEC_WRAPPER: &str = r#"
 d="$HOME/.estuary/exec/$1"
 mkdir -p "$d" || exit 125
 exec 2> "$d/wrapper.err"
+# Keep user content out of the exec URL: JSON occupies one line, followed
+# by a NUL-terminated command and the remaining bytes as command stdin.
+IFS= read -r metadata || exit 125
+IFS= read -r -d '' command || exit 125
 # write stdin to a file for the command to read after the connection is dropped
 cat > "$d/stdin" || exit 125
-printf '%s\n' "$3" > "$d/metadata.json" || exit 125
-bash -lc "$2" < "$d/stdin" > "$d/stdout" 2> "$d/stderr" &
+printf '%s\n' "$metadata" > "$d/metadata.json" || exit 125
+bash -lc "$command" < "$d/stdin" > "$d/stdout" 2> "$d/stderr" &
 job=$!
 echo started
 wait "$job"
@@ -276,6 +280,10 @@ pub async fn exec(
         sandbox.baseline_checkpoint_id.is_some(),
         "sandbox is not ready"
     );
+    anyhow::ensure!(
+        !command.contains('\0'),
+        "command must not contain NUL bytes"
+    );
     let event = ExecEvent {
         id,
         command: command.to_owned(),
@@ -284,17 +292,10 @@ pub async fn exec(
     };
     let metadata = serde_json::to_string(&event).context("serializing exec metadata")?;
     let exec_id = event.id.to_string();
-    let argv = [
-        "bash",
-        "-c",
-        EXEC_WRAPPER,
-        "flow-exec",
-        &exec_id,
-        command,
-        &metadata,
-    ];
+    let argv = ["bash", "-c", EXEC_WRAPPER, "flow-exec", &exec_id];
+    let input = format!("{metadata}\n{command}\0{}", stdin.unwrap_or_default());
 
-    let session_id = launch(client, sandbox, &argv, stdin).await?;
+    let session_id = launch(client, sandbox, &argv, Some(&input)).await?;
     // TODO: The command is already running here. If this write fails,
     // the caller gets an error and no exec id, yet the exec is listed
     // and runs to completion, cannot be cancelled without its session
