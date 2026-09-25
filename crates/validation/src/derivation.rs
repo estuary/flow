@@ -253,10 +253,8 @@ async fn walk_derivation(
     let scope = scope.push_prop("derive");
     let mut model_fixes = Vec::new();
 
-    // Collect imports of this derivation, so that we can present the connector
-    // with a relative mapping of its imports. This is used to generate more
-    // helpful errors, where temporary files within the connector are re-mapped
-    // to the user's relative filesystem.
+    // Collect imports of this derivation for the deprecated `import_map`,
+    // which older connectors may still read.
     let import_map = {
         let scope = scope.flatten();
 
