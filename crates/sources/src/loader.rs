@@ -146,6 +146,7 @@ impl<F: Fetcher> Loader<F> {
         let is_dom = match content_type {
             CT::Catalog | CT::JsonSchema | CT::DocumentsFixture => true,
             CT::Config => crate::is_dom_path(scope.resource().path()),
+            CT::Text => false,
         };
 
         // We must map the raw `content` into a document object model.
