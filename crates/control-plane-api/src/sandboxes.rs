@@ -51,13 +51,10 @@ done
 /// so the arguments need no quoting. Exits 0 for a read, 3 for a missing
 /// path, and 1 otherwise. A missing path is not an error, because clients
 /// poll for files that appear later, such as `exit`.
-///
-/// Base64 keeps file bytes from being mistaken for exec stream tags.
 const READ_FILE: &str = r#"
-set -o pipefail
 cd "$HOME" || exit 1
 [ -e "$1" ] || exit 3
-dd if="$1" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=none | base64 --wrap=0
+dd if="$1" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=none
 "#;
 
 const FILE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -424,12 +421,9 @@ fn chunk_from_output(offset: u64, output: crate::sprites::Output) -> anyhow::Res
         ));
     }
 
-    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &output.stdout)
-        .context("decoding sandbox file bytes")?;
-
     Ok(FileChunk {
-        offset: offset + bytes.len() as u64,
-        bytes,
+        offset: offset + output.stdout.len() as u64,
+        bytes: output.stdout,
         exists: true,
     })
 }
