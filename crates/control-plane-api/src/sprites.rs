@@ -36,7 +36,6 @@ pub struct Output {
 impl Client {
     pub fn new(token: String) -> Self {
         let base_url = url::Url::parse(BASE_URL).expect("BASE_URL is a valid URL");
-        assert_eq!(base_url.scheme(), "https", "BASE_URL must use HTTPS");
         Self {
             http: reqwest::Client::new(),
             base_url,

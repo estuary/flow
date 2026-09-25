@@ -22,8 +22,7 @@ mkdir -p "$HOME/.estuary/exec" && mkdir "$d" || exit 125
 exec 2> "$d/wrapper.err"
 # write stdin to a file for the command to read after the connection is dropped
 cat > "$d/stdin" || exit 125
-[ "$(wc -c < "$d/stdin")" -eq "${3:-0}" ] || exit 125
-printf '%s\n' "${4:?missing exec metadata}" > "$d/metadata.json" || exit 125
+printf '%s\n' "$3" > "$d/metadata.json" || exit 125
 bash -lc "$2" < "$d/stdin" > "$d/stdout" 2> "$d/stderr" &
 job=$!
 touch "$d/started"
@@ -40,8 +39,7 @@ exit "$status"
 /// serializes the metadata, so newlines in a command stay escaped.
 const LIST_EXECS: &str = r#"
 for d in "$HOME"/.estuary/exec/*; do
-    # Older execs used their process group file as the startup marker.
-    { [ -f "$d/started" ] || [ -f "$d/pgid" ]; } && [ -f "$d/metadata.json" ] || continue
+    [ -f "$d/started" ] && [ -f "$d/metadata.json" ] || continue
     printf '['
     cat "$d/metadata.json" || exit 1
     printf ','
@@ -50,7 +48,7 @@ for d in "$HOME"/.estuary/exec/*; do
 done
 "#;
 
-/// Invoked as `bash -c READ_FILE flow-read-file <relative path> <offset> <limit>`,
+/// Invoked as `bash -c READ_FILE flow-read-file <path> <offset> <limit>`,
 /// so the arguments need no quoting. Exits 0 for a read, 3 for a missing
 /// path, and 1 otherwise. A missing path is not an error, because clients
 /// poll for files that appear later, such as `exit`.
@@ -58,10 +56,9 @@ done
 /// Base64 keeps file bytes from being mistaken for exec stream tags.
 const READ_FILE: &str = r#"
 set -o pipefail
-f="$HOME/$1"
-[ -e "$f" ] || exit 3
-[ -d "$f" ] && { echo "path is a directory" >&2; exit 1; }
-dd if="$f" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=none | base64 --wrap=0
+cd "$HOME" || exit 1
+[ -e "$1" ] || exit 3
+dd if="$1" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=none | base64 --wrap=0
 "#;
 
 const FILE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -123,10 +120,6 @@ pub struct FileChunk {
     pub exists: bool,
 }
 
-pub fn handle(id: models::Id) -> String {
-    format!("{HANDLE_PREFIX}{id}")
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum CreateError {
     /// Catalog names are unique across all users.
@@ -136,43 +129,6 @@ pub enum CreateError {
     InvalidName(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PathError {
-    #[error("path must not be empty")]
-    Empty,
-    #[error("path must not be absolute")]
-    Absolute,
-    #[error("path must not contain '..' components")]
-    ParentComponent,
-    #[error("path must not end with '/'")]
-    TrailingSlash,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum FileReadError {
-    #[error(transparent)]
-    Path(#[from] PathError),
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
-}
-
-/// A path to an existing directory passes this check; [`READ_FILE`] refuses it.
-fn validate_relative_path(path: &str) -> Result<(), PathError> {
-    if path.is_empty() {
-        return Err(PathError::Empty);
-    }
-    if path.starts_with('/') {
-        return Err(PathError::Absolute);
-    }
-    if path.ends_with('/') {
-        return Err(PathError::TrailingSlash);
-    }
-    if path.split('/').any(|part| part == "..") {
-        return Err(PathError::ParentComponent);
-    }
-    Ok(())
 }
 
 /// Returns once the sandbox has flowctl installed and the baseline that
@@ -223,26 +179,6 @@ pub async fn create(
     }
     tracing::info!(%sandbox.id, %sandbox.handle, %user_id, "created sandbox");
     Ok(sandbox)
-}
-
-pub async fn fetch(
-    pool: &sqlx::PgPool,
-    id: models::Id,
-    user_id: uuid::Uuid,
-) -> anyhow::Result<Option<Sandbox>> {
-    sqlx::query_as!(
-        Sandbox,
-        r#"
-        select id as "id!: models::Id", user_id, handle, catalog_name, created_at, baseline_checkpoint_id
-        from internal.sandboxes
-        where id = $1 and user_id = $2
-        "#,
-        id as models::Id,
-        user_id,
-    )
-    .fetch_optional(pool)
-    .await
-    .context("fetching sandbox record")
 }
 
 pub async fn fetch_by_catalog_name(
@@ -326,11 +262,8 @@ async fn persist_record(
     user_id: uuid::Uuid,
     catalog_name: &str,
 ) -> Result<Sandbox, CreateError> {
-    validator::Validate::validate(&models::Name::new(catalog_name))
-        .map_err(|err| CreateError::InvalidName(err.to_string()))?;
-
     // The handle derives from the generated id, so both come from one statement.
-    // `replace` strips the colons of the macaddr8 text form to match [`handle`].
+    // `replace` strips the colons of the macaddr8 text form.
     let sandbox = sqlx::query_as!(
         Sandbox,
         r#"
@@ -380,7 +313,6 @@ pub async fn exec(
     };
     let metadata = serde_json::to_string(&event).context("serializing exec metadata")?;
     let exec_id = event.id.to_string();
-    let stdin_len = stdin.unwrap_or_default().len().to_string();
     let argv = [
         "bash",
         "-c",
@@ -388,7 +320,6 @@ pub async fn exec(
         "flow-exec",
         &exec_id,
         command,
-        &stdin_len,
         &metadata,
     ];
 
@@ -481,16 +412,14 @@ async fn launch(
     )))
 }
 
-/// `path` is relative to [`SPRITE_HOME`].
+/// A relative `path` resolves against [`SPRITE_HOME`].
 pub async fn read_file(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
     path: &str,
     offset: u64,
     limit: Option<u64>,
-) -> Result<FileChunk, FileReadError> {
-    validate_relative_path(path)?;
-
+) -> anyhow::Result<FileChunk> {
     let offset_arg = offset.to_string();
     let limit_arg = limit
         .unwrap_or(READ_MAX_BYTES)
@@ -511,10 +440,7 @@ pub async fn read_file(
     chunk_from_output(offset, output)
 }
 
-fn chunk_from_output(
-    offset: u64,
-    output: crate::sprites::Output,
-) -> Result<FileChunk, FileReadError> {
+fn chunk_from_output(offset: u64, output: crate::sprites::Output) -> anyhow::Result<FileChunk> {
     if output.exit_code == 3 {
         return Ok(FileChunk {
             bytes: Vec::new(),
@@ -527,7 +453,7 @@ fn chunk_from_output(
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stderr = stderr.trim();
 
-        return Err(FileReadError::Other(anyhow::anyhow!(
+        return Err(anyhow::anyhow!(
             "{}",
             if stderr.is_empty() {
                 format!(
@@ -537,7 +463,7 @@ fn chunk_from_output(
             } else {
                 stderr.to_string()
             }
-        )));
+        ));
     }
 
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &output.stdout)

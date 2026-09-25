@@ -146,12 +146,9 @@ impl SandboxesQuery {
 
         let chunk = crate::sandboxes::read_file(&client, &sandbox, &path, offset, limit)
             .await
-            .map_err(|err| match err {
-                crate::sandboxes::FileReadError::Other(err) => {
-                    tracing::error!(?err, %sandbox.id, %path, "failed to read sandbox file");
-                    async_graphql::Error::new(format!("failed to read sandbox file: {err:#}"))
-                }
-                refused => async_graphql::Error::new(refused.to_string()),
+            .map_err(|err| {
+                tracing::error!(?err, %sandbox.id, %path, "failed to read sandbox file");
+                async_graphql::Error::new(format!("failed to read sandbox file: {err:#}"))
             })?;
 
         Ok(FileRead {
@@ -175,8 +172,6 @@ impl SandboxesMutation {
     ) -> async_graphql::Result<Sandbox> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
-        validator::Validate::validate(&catalog_name)
-            .map_err(|err| async_graphql::Error::new(format!("invalid catalog name: {err}")))?;
         super::verify_authorization(
             env,
             catalog_name.as_str(),
