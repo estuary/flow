@@ -409,6 +409,7 @@ enum CapabilityBit {
 	DecryptSecret
 	Delegate
 	Assume
+	CreateSandbox
 }
 
 """
@@ -1298,9 +1299,36 @@ type Error {
 	detail: String!
 }
 
+"""
+A command run in a sandbox.
+"""
+type ExecEvent {
+	execId: Id!
+	command: String!
+	requestedAt: DateTime!
+	"""
+	Poll stdout with this `path` and `sandboxFileRead`.
+	"""
+	stdoutPath: String!
+	"""
+	Poll stderr with this `path` and `sandboxFileRead`.
+	"""
+	stderrPath: String!
+	"""
+	Null until the command exits (crashed execs may not record their exit code)
+	"""
+	exitCode: Int
+}
+
 type FieldProvenance {
 	path: String!
 	source: String
+}
+
+type FileRead {
+	offset: Int!
+	base64: String!
+	utf8: String!
 }
 
 type GCPPrivateServiceConnect {
@@ -1835,6 +1863,21 @@ type MutationRoot {
 	via createApiKey and revokeApiKey.
 	"""
 	revokeRefreshToken(id: Id!): Boolean!
+	"""
+	Returns after flowctl is installed.
+	"""
+	sandboxCreate(catalogName: Name!): Sandbox!
+	"""
+	Returns once the command has started - read its output by polling `sandboxFileRead`.
+	"""
+	sandboxExec(catalogName: Name!, command: String!, stdin: String): ExecEvent!
+	sandboxExecCancel(catalogName: Name!, execId: Id!): Boolean!
+	"""
+	Restore the sandbox to its baseline, discarding all changes, past
+	commands, and their output.
+	"""
+	sandboxReset(catalogName: Name!): Boolean!
+	sandboxDelete(catalogName: Name!): Boolean!
 	"""
 	Create a service account homed at the specified catalog name, seeded
 	with the given user_grants.
@@ -2455,6 +2498,18 @@ type QueryRoot {
 	given grain, over the half-open window `[start, end)`.
 	"""
 	catalogStats(by: CatalogStatsBy!): CatalogStatsConnection!
+	sandbox(catalogName: Name!): Sandbox
+	sandboxes: [Sandbox!]!
+	sandboxFileRead(		catalogName: Name!,		path: String!,
+		"""
+		Byte offset
+		"""
+		offset: Int! = 0,
+		"""
+		Max 1 MiB
+		"""
+		limit: Int
+	): FileRead!
 }
 
 """
@@ -2531,6 +2586,22 @@ type RepublishRequested {
 	and complete.
 	"""
 	lastBuildId: Id!
+}
+
+"""
+A persistent Linux VM that runs the user's shell commands.
+"""
+type Sandbox {
+	catalogName: Name!
+	createdAt: DateTime!
+	"""
+	False until a new sandbox reaches its baseline state (flowctl installed).
+	"""
+	ready: Boolean!
+	"""
+	Commands started in this sandbox
+	"""
+	execs: [ExecEvent!]
 }
 
 """
