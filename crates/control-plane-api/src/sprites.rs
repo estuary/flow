@@ -14,14 +14,6 @@ pub struct Client {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct Sprite {
-    pub name: String,
-    /// Runtime state: `running`, `warm`, or `cold`.
-    pub status: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, serde::Deserialize)]
 pub struct Checkpoint {
     pub id: String,
 }
@@ -44,7 +36,7 @@ impl Client {
     }
 
     /// Creates `name`, failing if it already exists.
-    pub async fn create_sprite(&self, name: &str) -> anyhow::Result<Sprite> {
+    pub async fn create_sprite(&self, name: &str) -> anyhow::Result<()> {
         let url = self.url(["v1", "sprites"]);
 
         // TODO: This request has no timeout, and `http` sets no default. With
@@ -61,10 +53,7 @@ impl Client {
             .context("failed to reach the Sprites API")?;
 
         match response.status() {
-            reqwest::StatusCode::CREATED => response
-                .json()
-                .await
-                .context("failed to decode the created sprite"),
+            reqwest::StatusCode::CREATED => Ok(()),
             _ => Err(api_error("failed to create sprite", response).await),
         }
     }
@@ -392,7 +381,7 @@ pub enum ExecError {
     Other(#[from] anyhow::Error),
 }
 
-pub async fn collect_output(
+async fn collect_output(
     mut frames: futures::stream::BoxStream<'static, anyhow::Result<Frame>>,
 ) -> anyhow::Result<Output> {
     let mut stdout = Vec::new();

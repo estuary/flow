@@ -18,14 +18,13 @@ const SPRITE_HOME: &str = "/home/sprite";
 /// from the control plane database
 const EXEC_WRAPPER: &str = r#"
 d="$HOME/.estuary/exec/$1"
-mkdir -p "$HOME/.estuary/exec" && mkdir "$d" || exit 125
+mkdir -p "$d" || exit 125
 exec 2> "$d/wrapper.err"
 # write stdin to a file for the command to read after the connection is dropped
 cat > "$d/stdin" || exit 125
 printf '%s\n' "$3" > "$d/metadata.json" || exit 125
 bash -lc "$2" < "$d/stdin" > "$d/stdout" 2> "$d/stderr" &
 job=$!
-touch "$d/started"
 echo started
 wait "$job"
 status=$?
@@ -34,12 +33,12 @@ echo "$status" > "$d/exit.tmp" && mv "$d/exit.tmp" "$d/exit"
 exit "$status"
 "#;
 
-/// Prints one `[metadata, exit status or null]` JSON line per started exec.
-/// Failed launches can leave directories without a `started` marker. Rust
+/// Prints one `[metadata, exit status or null]` JSON line per exec with
+/// metadata. Failed launches can leave directories without it. Rust
 /// serializes the metadata, so newlines in a command stay escaped.
 const LIST_EXECS: &str = r#"
 for d in "$HOME"/.estuary/exec/*; do
-    [ -f "$d/started" ] && [ -f "$d/metadata.json" ] || continue
+    [ -f "$d/metadata.json" ] || continue
     printf '['
     cat "$d/metadata.json" || exit 1
     printf ','
@@ -62,8 +61,6 @@ dd if="$1" iflag=skip_bytes,count_bytes bs=65536 skip="$2" count="$3" status=non
 "#;
 
 const FILE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-
-const STDIN_MAX_BYTES: usize = 1024 * 1024;
 
 pub const READ_MAX_BYTES: u64 = 1024 * 1024;
 
@@ -217,7 +214,6 @@ pub async fn list(pool: &sqlx::PgPool, user_id: uuid::Uuid) -> anyhow::Result<Ve
     .context("listing sandbox records")
 }
 
-/// Lists started execs.
 pub async fn list_execs(
     client: &crate::sprites::Client,
     sandbox: &Sandbox,
@@ -301,10 +297,6 @@ pub async fn exec(
         sandbox.baseline_checkpoint_id.is_some(),
         "sandbox is not ready"
     );
-    anyhow::ensure!(
-        stdin.unwrap_or_default().len() <= STDIN_MAX_BYTES,
-        "stdin exceeds the {STDIN_MAX_BYTES}-byte limit"
-    );
     let event = ExecEvent {
         id,
         command: command.to_owned(),
@@ -323,51 +315,21 @@ pub async fn exec(
         &metadata,
     ];
 
-    match launch(client, sandbox, &argv, stdin).await {
-        Ok(session_id) => {
-            // TODO: The command is already running here. If this write fails,
-            // the caller gets an error and no exec id, yet the exec is listed
-            // and runs to completion, cannot be cancelled without its session
-            // ID, and runs again if the caller retries.
-            client
-                .write_file(
-                    &sandbox.handle,
-                    SPRITE_HOME,
-                    &format!("{EXEC_DIR}/{exec_id}/session_id"),
-                    session_id,
-                )
-                .await
-                .context("command started but saving its cancellation session ID failed")?;
-            Ok(event)
-        }
-        Err(LaunchError::Failed(err)) => Err(err),
-        Err(LaunchError::Lost(err)) => Err(err.context("command startup is uncertain")),
-    }
-}
-
-#[derive(Debug)]
-enum LaunchError {
-    /// The command did not start: the API refused it, or the wrapper failed
-    /// before it launched the command.
-    Failed(anyhow::Error),
-    /// The connection was lost before the wrapper announced itself, so the
-    /// command may or may not have started.
-    Lost(anyhow::Error),
-}
-
-impl From<crate::sprites::ExecError> for LaunchError {
-    fn from(err: crate::sprites::ExecError) -> Self {
-        match err {
-            crate::sprites::ExecError::Transport(err) => LaunchError::Lost(err),
-            crate::sprites::ExecError::NotReady => {
-                LaunchError::Failed(anyhow::anyhow!("sandbox is not ready"))
-            }
-            err @ crate::sprites::ExecError::SpriteMissing => {
-                LaunchError::Failed(anyhow::Error::new(err))
-            }
-            crate::sprites::ExecError::Other(err) => LaunchError::Failed(err),
-        }
-    }
+    let session_id = launch(client, sandbox, &argv, stdin).await?;
+    // TODO: The command is already running here. If this write fails,
+    // the caller gets an error and no exec id, yet the exec is listed
+    // and runs to completion, cannot be cancelled without its session
+    // ID, and runs again if the caller retries.
+    client
+        .write_file(
+            &sandbox.handle,
+            SPRITE_HOME,
+            &format!("{EXEC_DIR}/{exec_id}/session_id"),
+            session_id,
+        )
+        .await
+        .context("command started but saving its cancellation session ID failed")?;
+    Ok(event)
 }
 
 /// Returns the session ID once the wrapper announces that the command is
@@ -378,7 +340,7 @@ async fn launch(
     sandbox: &Sandbox,
     argv: &[&str],
     stdin: Option<&str>,
-) -> Result<String, LaunchError> {
+) -> anyhow::Result<String> {
     let mut frames = client
         .exec_stream(&sandbox.handle, argv, stdin, START_TIMEOUT)
         .await?;
@@ -386,30 +348,26 @@ async fn launch(
     let mut session_id = None;
     let mut started = false;
     while let Some(frame) = frames.next().await {
-        match frame
-            .map_err(|err| LaunchError::Lost(err.context("waiting for the command to start")))?
-        {
+        match frame.context("waiting for the command to start")? {
             crate::sprites::Frame::SessionInfo { session_id: id } => session_id = Some(id),
             crate::sprites::Frame::Stdout(_) => started = true,
             crate::sprites::Frame::Stderr(message) => {
-                return Err(LaunchError::Failed(anyhow::anyhow!(
+                anyhow::bail!(
                     "command failed to start: {}",
                     String::from_utf8_lossy(&message).trim()
-                )));
+                );
             }
             crate::sprites::Frame::Exit(status) => {
-                return Err(LaunchError::Failed(anyhow::anyhow!(
+                anyhow::bail!(
                     "command wrapper exited with status {status} before startup was confirmed"
-                )));
+                );
             }
         }
         if started && let Some(id) = session_id.take() {
             return Ok(id);
         }
     }
-    Err(LaunchError::Lost(anyhow::anyhow!(
-        "exec stream ended before startup and session ID were received"
-    )))
+    anyhow::bail!("exec stream ended before startup and session ID were received")
 }
 
 /// A relative `path` resolves against [`SPRITE_HOME`].
@@ -501,23 +459,10 @@ pub async fn cancel_exec(
             SPRITE_HOME,
             &format!("{EXEC_DIR}/{exec_id}/session_id"),
         )
-        .await?;
-    let Some(session_id) = session_id else {
-        let metadata = client
-            .read_file(
-                &sandbox.handle,
-                SPRITE_HOME,
-                &format!("{EXEC_DIR}/{exec_id}/metadata.json"),
-            )
-            .await?;
-        anyhow::ensure!(
-            metadata.is_some(),
-            "exec {exec_id} not found in this sandbox"
-        );
-        anyhow::bail!("exec {exec_id} has no saved cancellation session ID");
-    };
+        .await?
+        .with_context(|| format!("exec {exec_id} not found in this sandbox"))?;
     let session_id = std::str::from_utf8(&session_id).context("invalid exec session ID")?;
-    let Some(exit_code) = client.kill_exec(&sandbox.handle, session_id.trim()).await? else {
+    let Some(exit_code) = client.kill_exec(&sandbox.handle, session_id).await? else {
         return Ok(false);
     };
     client
@@ -568,10 +513,9 @@ async fn provision(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
 
 async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
     const INSTALL_FLOWCTL: &str = "mkdir -p $HOME/.local/bin \
-        && curl -fsSL -o $HOME/.local/bin/flowctl.download \
+        && curl -fsSL -o $HOME/.local/bin/flowctl \
         https://github.com/estuary/flow/releases/latest/download/flowctl-x86_64-linux \
-        && chmod +x $HOME/.local/bin/flowctl.download \
-        && mv $HOME/.local/bin/flowctl.download $HOME/.local/bin/flowctl";
+        && chmod +x $HOME/.local/bin/flowctl";
     const INSTALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
     let output = client
@@ -593,19 +537,13 @@ async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Res
 
     // Creation reports the ID only in human-readable progress messages.
     // Before handing the sprite to its user, this is its only saved checkpoint.
-    let mut checkpoints = client
+    let baseline = client
         .list_checkpoints(handle)
         .await
         .context("identifying the sandbox baseline checkpoint")?
         .into_iter()
-        .filter(|checkpoint| checkpoint.id != "Current");
-    let baseline = checkpoints
-        .next()
+        .find(|checkpoint| checkpoint.id != "Current")
         .context("new sprite has no baseline checkpoint")?;
-    anyhow::ensure!(
-        checkpoints.next().is_none(),
-        "new sprite has multiple checkpoints"
-    );
 
     tracing::info!(%handle, "bootstrapped sandbox");
     Ok(baseline.id)
