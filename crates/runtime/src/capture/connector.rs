@@ -91,11 +91,12 @@ pub async fn start<L: LogHandler>(
         }
     };
 
-    // Send an initial Spec request
+    // Send an initial Spec request, carrying the sealed configuration so that
+    // a connector may use its non-secret portions to describe itself.
     connector_tx
         .try_send(Request {
             kind: Some(request::Kind::Spec(request::Spec {
-                config_json: "{}".into(),
+                config_json: sealed_config.get().to_string().into(),
                 connector_type: connector_type,
             })),
             ..Default::default()
