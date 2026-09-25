@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        select id as \"id!: models::Id\", user_id, handle, catalog_name, created_at, baseline_checkpoint_id\n        from internal.sandboxes\n        where catalog_name = $1 and user_id = $2\n        ",
+  "query": "\n        select id as \"id!: models::Id\", user_id, handle, catalog_name, created_at, baseline_checkpoint_id\n        from internal.sandboxes\n        where catalog_name = any($1) or catalog_name ^@ any($2)\n        order by created_at desc\n        ",
   "describe": {
     "columns": [
       {
@@ -72,8 +72,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Uuid"
+        "TextArray",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -85,5 +85,5 @@
       true
     ]
   },
-  "hash": "f6d4c01644b0c9a1e77560ecd3a976f058199a1615821a5d789f7ab9a994bfd6"
+  "hash": "9853eaa7f99001ee69dc20e182121a15a02b1ce04cf227ea010d6fc585a2a2c9"
 }

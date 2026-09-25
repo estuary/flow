@@ -102,6 +102,7 @@ impl SandboxesQuery {
     ) -> async_graphql::Result<Option<Sandbox>> {
         let env = ctx.data::<crate::Envelope>()?;
 
+        // fetch_sandbox will return nothing if the user doesn't own the sandbox at catalog_name
         Ok(fetch_sandbox(env, catalog_name.as_str())
             .await?
             .map(Sandbox::from))
@@ -111,7 +112,21 @@ impl SandboxesQuery {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        let sandboxes = crate::sandboxes::list(&env.pg_pool, claims.sub)
+        // A sandbox is readable only by the user who created it.
+        // TODO: Authorize by prefix once a sandbox read capability exists,
+        // passing `authorized_prefixes` for that capability to `fetch`.
+        let names = sqlx::query_scalar!(
+            "select catalog_name from internal.sandboxes where user_id = $1",
+            claims.sub,
+        )
+        .fetch_all(&env.pg_pool)
+        .await
+        .map_err(|err| {
+            tracing::error!(?err, %claims.sub, "failed to list sandbox names");
+            async_graphql::Error::new("failed to list sandboxes")
+        })?;
+
+        let sandboxes = crate::sandboxes::fetch(&env.pg_pool, &names, &[])
             .await
             .map_err(|err| {
                 tracing::error!(?err, %claims.sub, "failed to list sandboxes");
@@ -131,6 +146,8 @@ impl SandboxesQuery {
     ) -> async_graphql::Result<FileRead> {
         let env = ctx.data::<crate::Envelope>()?;
         let client = sprites_client(ctx)?;
+
+        // resolve_sandbox will error if the user doesn't own catalog_name
         let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
 
         let offset = u64::try_from(offset)
@@ -200,6 +217,8 @@ impl SandboxesMutation {
     ) -> async_graphql::Result<ExecEvent> {
         let env = ctx.data::<crate::Envelope>()?;
         let client = sprites_client(ctx)?;
+
+        // resolve_sandbox will error if the user doesn't own catalog_name
         let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
 
         let exec_id = ctx
@@ -228,6 +247,8 @@ impl SandboxesMutation {
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let client = sprites_client(ctx)?;
+
+        // resolve_sandbox will error if the user doesn't own catalog_name
         let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
 
         let cancelled = crate::sandboxes::cancel_exec(&client, &sandbox, exec_id)
@@ -250,6 +271,8 @@ impl SandboxesMutation {
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let client = sprites_client(ctx)?;
+
+        // resolve_sandbox will error if the user doesn't own catalog_name
         let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
 
         crate::sandboxes::reset(&client, &sandbox)
@@ -269,6 +292,8 @@ impl SandboxesMutation {
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let client = sprites_client(ctx)?;
+
+        // resolve_sandbox will error if the user doesn't own catalog_name
         let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
 
         crate::sandboxes::delete(&client, &env.pg_pool, &sandbox)
@@ -288,14 +313,21 @@ async fn fetch_sandbox(
 ) -> async_graphql::Result<Option<crate::sandboxes::Sandbox>> {
     let claims = env.claims()?;
 
-    crate::sandboxes::fetch_by_catalog_name(&env.pg_pool, catalog_name, claims.sub)
+    let sandboxes = crate::sandboxes::fetch(&env.pg_pool, &[catalog_name.to_string()], &[])
         .await
         .map_err(|err| {
             tracing::error!(?err, %catalog_name, %claims.sub, "failed to look up sandbox");
             async_graphql::Error::new("failed to look up sandbox")
-        })
+        })?;
+
+    // A sandbox is visible only to the user who created it.
+    // This will eventually be replaced with a proper authorization check on the incoming catalog_name based on user capabilities.
+    Ok(sandboxes
+        .into_iter()
+        .find(|sandbox| sandbox.user_id == claims.sub))
 }
 
+/// Errors if sandbox not found
 async fn resolve_sandbox(
     env: &crate::Envelope,
     catalog_name: &str,

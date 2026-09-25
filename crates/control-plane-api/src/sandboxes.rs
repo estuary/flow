@@ -169,40 +169,28 @@ pub async fn create(
     Ok(sandbox)
 }
 
-pub async fn fetch_by_catalog_name(
+/// Fetches sandboxes whose catalog name is one of `names` or starts with one of
+/// `prefixes`, newest first. The caller must have authorized access to each of
+/// `names` and `prefixes`.
+pub async fn fetch(
     pool: &sqlx::PgPool,
-    catalog_name: &str,
-    user_id: uuid::Uuid,
-) -> anyhow::Result<Option<Sandbox>> {
+    names: &[String],
+    prefixes: &[String],
+) -> anyhow::Result<Vec<Sandbox>> {
     sqlx::query_as!(
         Sandbox,
         r#"
         select id as "id!: models::Id", user_id, handle, catalog_name, created_at, baseline_checkpoint_id
         from internal.sandboxes
-        where catalog_name = $1 and user_id = $2
-        "#,
-        catalog_name,
-        user_id,
-    )
-    .fetch_optional(pool)
-    .await
-    .context("fetching sandbox record")
-}
-
-pub async fn list(pool: &sqlx::PgPool, user_id: uuid::Uuid) -> anyhow::Result<Vec<Sandbox>> {
-    sqlx::query_as!(
-        Sandbox,
-        r#"
-        select id as "id!: models::Id", user_id, handle, catalog_name, created_at, baseline_checkpoint_id
-        from internal.sandboxes
-        where user_id = $1
+        where catalog_name = any($1) or catalog_name ^@ any($2)
         order by created_at desc
         "#,
-        user_id,
+        names,
+        prefixes,
     )
     .fetch_all(pool)
     .await
-    .context("listing sandbox records")
+    .context("fetching sandbox records")
 }
 
 pub async fn list_execs(
