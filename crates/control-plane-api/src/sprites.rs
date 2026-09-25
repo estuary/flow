@@ -422,28 +422,26 @@ pub enum ExecError {
 pub async fn collect_output(
     mut frames: futures::stream::BoxStream<'static, anyhow::Result<Frame>>,
 ) -> anyhow::Result<Output> {
-    let mut output = Output {
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-        exit_code: -1,
-    };
-    let mut exited = false;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut exit_code = None;
 
     while let Some(frame) = frames.next().await {
         match frame? {
             Frame::SessionInfo { .. } => {}
-            Frame::Stdout(bytes) => output.stdout.extend_from_slice(&bytes),
-            Frame::Stderr(bytes) => output.stderr.extend_from_slice(&bytes),
-            Frame::Exit(code) => (output.exit_code, exited) = (code, true),
+            Frame::Stdout(bytes) => stdout.extend_from_slice(&bytes),
+            Frame::Stderr(bytes) => stderr.extend_from_slice(&bytes),
+            Frame::Exit(code) => exit_code = Some(code),
         }
     }
 
     // A closed response does not mean the command has exited.
-    anyhow::ensure!(
-        exited,
-        "sprite closed the exec response without an exit status"
-    );
-    Ok(output)
+    let exit_code = exit_code.context("sprite closed the exec response without an exit status")?;
+    Ok(Output {
+        stdout,
+        stderr,
+        exit_code,
+    })
 }
 
 /// WebSocket message boundaries delimit payloads, including arbitrary binary output.
