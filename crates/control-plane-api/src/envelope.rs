@@ -263,7 +263,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
     }
 }
 
-async fn parse_authorization_header(
+pub async fn parse_authorization_header(
     bearer: TypedHeader<Authorization<Bearer>>,
     state: &Arc<crate::App>,
 ) -> tonic::Result<MaybeControlClaims> {
