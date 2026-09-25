@@ -2721,7 +2721,7 @@ type Sandbox {
 	command that started, with its observed exit result. A reset or delete
 	discards them along with their output.
 	"""
-	execs: [ExecEvent!]!
+	execs: [ExecEvent!]
 }
 
 """

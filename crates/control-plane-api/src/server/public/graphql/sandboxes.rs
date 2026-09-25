@@ -26,7 +26,7 @@ impl Sandbox {
     /// Commands run in this sandbox, newest first. Each is the record of a
     /// command that started, with its observed exit result. A reset or delete
     /// discards them along with their output.
-    async fn execs(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<ExecEvent>> {
+    async fn execs(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<ExecEvent>>> {
         let env = ctx.data::<crate::Envelope>()?;
 
         let client = sprites_client(ctx)?;
@@ -38,7 +38,7 @@ impl Sandbox {
                 async_graphql::Error::new("failed to list execs")
             })?;
 
-        Ok(execs.into_iter().map(ExecEvent::from).collect())
+        Ok(Some(execs.into_iter().map(ExecEvent::from).collect()))
     }
 }
 
