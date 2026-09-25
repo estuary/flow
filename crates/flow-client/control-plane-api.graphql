@@ -867,6 +867,27 @@ The input/output is a string in RFC3339 format.
 scalar DateTime
 
 """
+An asynchronous capture discovery that merges its results into a draft.
+"""
+type Discover {
+	id: Id!
+	draftId: Id!
+	captureName: Name!
+	dataPlaneName: String!
+	status: DiscoverStatus!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	Current draft errors, which may predate this discover or be replaced by a later job.
+	"""
+	errors: [Error!]!
+	"""
+	Lines may arrive after discovery finishes. Pagination is by timestamp and is best effort.
+	"""
+	logs(after: String, first: Int): LogLineConnection!
+}
+
+"""
 A capture binding that has changed as a result of a discover
 """
 type DiscoverChange {
@@ -882,6 +903,32 @@ type DiscoverChange {
 	Whether the capture binding is disabled.
 	"""
 	disable: Boolean!
+}
+
+enum DiscoverStatus {
+	"""
+	The discover is queued or in progress.
+	"""
+	queued
+	success
+	wrongProtocol
+	tagFailed
+	imageForbidden
+	discoverFailed
+	noDataPlane
+	notAuthorized
+	"""
+	This status occurs only on historical discovers.
+	"""
+	mergeFailed
+	"""
+	This status occurs only on historical discovers.
+	"""
+	deprecatedBackground
+	"""
+	This status occurs only on historical discovers.
+	"""
+	pullFailed
 }
 
 """
@@ -1421,6 +1468,37 @@ type LockFailure {
 	actual: Id
 }
 
+type LogLine {
+	loggedAt: DateTime!
+	stream: String!
+	line: String!
+}
+
+type LogLineConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [LogLineEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type LogLineEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: LogLine!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
 type MutationRoot {
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
@@ -1704,6 +1782,12 @@ type MutationRoot {
 	Returns the deleted ID. Nothing published is affected.
 	"""
 	deleteDraft(id: Id!): Id!
+	"""
+	Discover bindings using a staged capture, or copy a readable live capture first.
+	The resulting definitions remain in the draft until published separately.
+	`dataPlane` selects the plane for this discovery operation, not publication.
+	"""
+	createDiscover(draftId: Id!, captureName: Name!, dataPlane: String): Discover!
 }
 
 """
@@ -2165,6 +2249,10 @@ type QueryRoot {
 	The caller's own drafts, in stable ID order.
 	"""
 	drafts(after: String, first: Int): DraftConnection!
+	"""
+	Returns null if the discover does not exist or the caller does not own its draft.
+	"""
+	discover(id: Id!): Discover
 }
 
 """

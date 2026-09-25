@@ -176,37 +176,45 @@ impl Draft {
     ) -> async_graphql::Result<Vec<models::draft_error::Error>> {
         let env = ctx.data::<crate::Envelope>()?;
         let user_id = env.claims()?.subject().user_id;
-        let rows = sqlx::query!(
-            r#"
+        errors_for_draft(self.id, user_id, &env.pg_pool).await
+    }
+}
+
+pub(super) async fn errors_for_draft(
+    draft_id: models::Id,
+    user_id: uuid::Uuid,
+    pool: &sqlx::PgPool,
+) -> async_graphql::Result<Vec<models::draft_error::Error>> {
+    let rows = sqlx::query!(
+        r#"
             SELECT de.scope, de.detail
             FROM draft_errors de
             JOIN drafts d ON d.id = de.draft_id
             WHERE de.draft_id = $1 AND d.user_id = $2
             ORDER BY de.scope, de.detail
             "#,
-            self.id as models::Id,
-            user_id,
-        )
-        .fetch_all(&env.pg_pool)
-        .await?;
+        draft_id as models::Id,
+        user_id,
+    )
+    .fetch_all(pool)
+    .await?;
 
-        let mut errors = Vec::with_capacity(rows.len());
-        for row in rows {
-            let catalog_name = url::Url::parse(&row.scope)
-                .ok()
-                .as_ref()
-                .and_then(tables::parse_synthetic_scope)
-                .map(|(_, catalog_name)| catalog_name)
-                .unwrap_or_default();
+    let mut errors = Vec::with_capacity(rows.len());
+    for row in rows {
+        let catalog_name = url::Url::parse(&row.scope)
+            .ok()
+            .as_ref()
+            .and_then(tables::parse_synthetic_scope)
+            .map(|(_, catalog_name)| catalog_name)
+            .unwrap_or_default();
 
-            errors.push(models::draft_error::Error {
-                catalog_name,
-                scope: Some(row.scope),
-                detail: row.detail,
-            });
-        }
-        Ok(errors)
+        errors.push(models::draft_error::Error {
+            catalog_name,
+            scope: Some(row.scope),
+            detail: row.detail,
+        });
     }
+    Ok(errors)
 }
 
 #[derive(Debug, Default)]
