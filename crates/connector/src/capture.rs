@@ -20,10 +20,10 @@ impl Protocol for Capture {
     const NAME: &'static str = "Capture";
     const TASK_TYPE: ops::TaskType = ops::TaskType::Capture;
 
-    fn spec_request(connector_type: i32) -> Request {
+    fn spec_request(connector_type: i32, config: models::RawValue) -> Request {
         Request {
             kind: Some(request::Kind::Spec(request::Spec {
-                config_json: "{}".into(),
+                config_json: bytes::Bytes::from(config),
                 connector_type,
             })),
             ..Default::default()

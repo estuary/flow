@@ -63,8 +63,11 @@ pub(crate) trait Protocol: Sized + 'static {
     /// Labels a connector container, and reports which runtime started it.
     const TASK_TYPE: ops::TaskType;
 
-    /// Internal Spec request which opens a connector stream.
-    fn spec_request(connector_type: i32) -> Self::Request;
+    /// Internal Spec request which opens a connector stream. It carries the
+    /// sealed configuration, whose non-secret portions a connector may use
+    /// to describe itself: a built-in connector reads the spec its task model
+    /// declares from it.
+    fn spec_request(connector_type: i32, config: models::RawValue) -> Self::Request;
 
     /// Map a connector request into a request of this protocol,
     /// or None if the request is the wrong protocol.
@@ -193,11 +196,16 @@ pub(crate) async fn start<P: Protocol>(
         ));
         refresh = Some(stop_tx);
     }
+    let sealed_config = match &endpoint {
+        Endpoint::Image { config, .. } | Endpoint::InProcess { config, .. } => config,
+        Endpoint::Local { config } => &config.config,
+    }
+    .clone();
 
     let (connector_tx, connector_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
     if !spec_on_own_rpc {
         connector_tx
-            .send(P::spec_request(connector_type))
+            .send(P::spec_request(connector_type, sealed_config))
             .await
             .expect("new connector request channel is open");
     }
@@ -646,7 +654,8 @@ pub(super) async fn spec_rpc<P: Protocol>(
     channel: tonic::transport::Channel,
     connector_type: i32,
 ) -> anyhow::Result<proto::response::started::Spec> {
-    let request = P::spec_request(connector_type);
+    let config = models::RawValue::from_str("{}").unwrap();
+    let request = P::spec_request(connector_type, config);
     let mut responses = P::open_rpc(channel, futures::stream::once(async move { request }))
         .await?
         .into_inner();
