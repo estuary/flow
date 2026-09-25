@@ -60,6 +60,20 @@ fn sanitize_null_bytes(line: String) -> String {
     }
 }
 
+/// PostgreSQL stores timestamps at microsecond precision. Keep the cursor
+/// strictly increasing across batches, including when the local clock recedes.
+fn next_logged_at(
+    previous: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    let now = chrono::DateTime::from_timestamp_micros(now.timestamp_micros())
+        .expect("current time is representable");
+    previous
+        .map(|previous| previous + chrono::Duration::microseconds(1))
+        .filter(|next| *next > now)
+        .unwrap_or(now)
+}
+
 // serve_sink consumes log Lines from the receiver, streaming each
 // to the `logs` table of the database.
 #[tracing::instrument(ret, skip_all)]
@@ -71,6 +85,8 @@ pub async fn serve_sink(
     let mut tokens = Vec::new();
     let mut streams = Vec::new();
     let mut lines = Vec::new();
+    let mut logged_at = Vec::new();
+    let mut previous_logged_at = None;
 
     let mut held_conn = None;
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -118,6 +134,13 @@ pub async fn serve_sink(
             lines.push(sanitize_null_bytes(line));
         }
 
+        let mut next = next_logged_at(previous_logged_at, chrono::Utc::now());
+        for _ in &lines {
+            logged_at.push(next);
+            next += chrono::Duration::microseconds(1);
+        }
+        previous_logged_at = logged_at.last().copied();
+
         if let None = held_conn {
             held_conn = Some(pg_pool.acquire().await?);
             debug!("acquired new pg_conn");
@@ -127,13 +150,14 @@ pub async fn serve_sink(
         // Dispatch the vector of lines to the table.
         let r = sqlx::query(
             r#"
-            insert into internal.log_lines (token, stream, log_line)
-            select * from unnest($1, $2, $3)
+            insert into internal.log_lines (token, stream, log_line, logged_at)
+            select * from unnest($1, $2, $3, $4)
             "#,
         )
         .bind(&tokens)
         .bind(&streams)
         .bind(&lines)
+        .bind(&logged_at)
         .execute(held_conn.as_deref_mut().unwrap())
         .await?;
 
@@ -142,6 +166,7 @@ pub async fn serve_sink(
         tokens.clear();
         streams.clear();
         lines.clear();
+        logged_at.clear();
     }
 }
 
@@ -238,8 +263,75 @@ fn render_ops_log_for_ui(log: &ops::Log) -> String {
 
 #[cfg(test)]
 mod test {
-    use super::render_ops_log_for_ui;
+    use super::{Line, next_logged_at, render_ops_log_for_ui, serve_sink};
     use proto_flow::ops;
+
+    #[test]
+    fn timestamps_advance_across_batches_and_clock_recession() {
+        let now = "2026-01-01T00:00:00.123456789Z".parse().unwrap();
+        let first = next_logged_at(None, now);
+        assert_eq!(first.to_rfc3339(), "2026-01-01T00:00:00.123456+00:00");
+        let second = next_logged_at(Some(first), now);
+        assert_eq!(second - first, chrono::Duration::microseconds(1));
+        let backwards = next_logged_at(Some(second), now - chrono::Duration::seconds(1));
+        assert_eq!(backwards - second, chrono::Duration::microseconds(1));
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn writer_persists_unique_microsecond_timestamps_across_batches(pool: sqlx::PgPool) {
+        let token = uuid::Uuid::new_v4();
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        let writer = tokio::spawn(serve_sink(pool.clone(), rx));
+
+        for (index, line) in ["first", "second", "third"].into_iter().enumerate() {
+            tx.send(Line {
+                token,
+                stream: "test".to_owned(),
+                line: line.to_owned(),
+            })
+            .await
+            .unwrap();
+            // Waiting for each insert forces separate writer batches.
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    let count: i64 = sqlx::query_scalar(
+                        "SELECT count(*) FROM internal.log_lines WHERE token = $1",
+                    )
+                    .bind(token)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                    if count == index as i64 + 1 {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        drop(tx);
+        writer.await.unwrap().unwrap();
+
+        let rows: Vec<(chrono::DateTime<chrono::Utc>, String)> = sqlx::query_as(
+            "SELECT logged_at, log_line FROM internal.log_lines WHERE token = $1 ORDER BY logged_at",
+        )
+        .bind(token)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|(_, line)| line.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second", "third"]
+        );
+        assert!(rows.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        assert!(
+            rows.iter()
+                .all(|(timestamp, _)| timestamp.timestamp_subsec_nanos() % 1_000 == 0)
+        );
+    }
 
     #[test]
     fn test_log_rendering() {
