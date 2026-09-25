@@ -132,5 +132,8 @@ fn validated(validate: request::Validate) -> anyhow::Result<response::Validated>
             ..Default::default()
         });
     }
-    Ok(response::Validated { bindings })
+    Ok(response::Validated {
+        bindings,
+        ..Default::default()
+    })
 }

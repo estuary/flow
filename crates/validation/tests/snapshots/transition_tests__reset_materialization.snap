@@ -93,6 +93,7 @@ expression: outcome.built_materializations
                     ],
                 },
             ],
+            generated_files: {},
         },
         spec: MaterializationSpec {
             name: "the/materialization",

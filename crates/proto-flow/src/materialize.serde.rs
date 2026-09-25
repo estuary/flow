@@ -1993,6 +1993,9 @@ impl serde::Serialize for request::Validate {
         if !self.secrets.is_empty() {
             len += 1;
         }
+        if !self.project_root.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Validate", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -2022,6 +2025,9 @@ impl serde::Serialize for request::Validate {
         if !self.secrets.is_empty() {
             struct_ser.serialize_field("secrets", &self.secrets)?;
         }
+        if !self.project_root.is_empty() {
+            struct_ser.serialize_field("projectRoot", &self.project_root)?;
+        }
         struct_ser.end()
     }
 }
@@ -2045,6 +2051,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             "linked_collections",
             "linkedCollections",
             "secrets",
+            "project_root",
+            "projectRoot",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2057,6 +2065,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             LastVersion,
             LinkedCollections,
             Secrets,
+            ProjectRoot,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2087,6 +2096,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
                             "secrets" => Ok(GeneratedField::Secrets),
+                            "projectRoot" | "project_root" => Ok(GeneratedField::ProjectRoot),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2114,6 +2124,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 let mut last_version__ = None;
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
+                let mut project_root__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -2168,6 +2179,12 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                                 map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ProjectRoot => {
+                            if project_root__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("projectRoot"));
+                            }
+                            project_root__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2182,6 +2199,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                     last_version: last_version__.unwrap_or_default(),
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
+                    project_root: project_root__.unwrap_or_default(),
                 })
             }
         }
@@ -3423,9 +3441,15 @@ impl serde::Serialize for response::Validated {
         if !self.bindings.is_empty() {
             len += 1;
         }
+        if !self.generated_files.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated", len)?;
         if !self.bindings.is_empty() {
             struct_ser.serialize_field("bindings", &self.bindings)?;
+        }
+        if !self.generated_files.is_empty() {
+            struct_ser.serialize_field("generatedFiles", &self.generated_files)?;
         }
         struct_ser.end()
     }
@@ -3438,11 +3462,14 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
     {
         const FIELDS: &[&str] = &[
             "bindings",
+            "generated_files",
+            "generatedFiles",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Bindings,
+            GeneratedFiles,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3466,6 +3493,7 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                     {
                         match value {
                             "bindings" => Ok(GeneratedField::Bindings),
+                            "generatedFiles" | "generated_files" => Ok(GeneratedField::GeneratedFiles),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3486,6 +3514,7 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut bindings__ = None;
+                let mut generated_files__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Bindings => {
@@ -3494,6 +3523,14 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                             }
                             bindings__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::GeneratedFiles => {
+                            if generated_files__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("generatedFiles"));
+                            }
+                            generated_files__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3501,6 +3538,7 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                 }
                 Ok(response::Validated {
                     bindings: bindings__.unwrap_or_default(),
+                    generated_files: generated_files__.unwrap_or_default(),
                 })
             }
         }

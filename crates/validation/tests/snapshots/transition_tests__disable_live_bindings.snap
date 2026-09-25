@@ -29,6 +29,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "the/capture",
@@ -1265,6 +1266,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "the/materialization",
