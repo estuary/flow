@@ -32,7 +32,7 @@ pub struct RefreshTokenResponse {
     pub id: models::Id,
     pub secret: String,
 }
-#[axum::debug_handler]
+
 pub async fn handle_post_token(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
     authorization_header: Result<
@@ -122,7 +122,7 @@ async fn mint_capability_token<'a>(
     >,
     capability_mask: Vec<String>,
     app: &'a Arc<crate::App>,
-) -> tonic::Result<TokenResponse> {
+) -> Result<TokenResponse, crate::ApiError> {
     // Reading the delayed header parsing.
 
     let maybe_claims = match bearer_token_header {
@@ -135,13 +135,15 @@ async fn mint_capability_token<'a>(
                     crate::MaybeControlClaims::with_unauthenticated()
                 }
                 axum_extra::typed_header::TypedHeaderRejectionReason::Error(error) => {
-                    return Err(tonic::Status::invalid_argument(error.to_string()));
+                    return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
+                        error.to_string(),
+                    )));
                 }
                 &_ => {
                     // NOTE(BB): This exists because the reason is marked non-exhaustive.
-                    return Err(tonic::Status::internal(
+                    return Err(crate::ApiError::Status(tonic::Status::internal(
                         "An unknown authentication error occurred, unable to read header",
-                    ));
+                    )));
                 }
             }
         }
@@ -149,34 +151,20 @@ async fn mint_capability_token<'a>(
     let claims = maybe_claims.result()?;
 
     if claims.capability_mask.is_some() {
-        return Err(tonic::Status::permission_denied(
+        return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Unable to mint a new token from a token with a capability mask",
-        ));
+        )));
     }
-
-    crate::server::public::graphql::service_accounts::verify_not_service_account(
+    if crate::server::public::graphql::service_accounts::verify_not_service_account(
         &app.pg_pool,
         claims.sub,
     )
-    .await
-    .map_err(|err| {
-        // The helper reports both its denial and any database failure as an
-        // async_graphql::Error. Only the denial is a 403; a failed lookup is
-        // an internal fault and must not masquerade as a permission decision.
-        let is_db_error = err
-            .source
-            .as_ref()
-            .is_some_and(|source| source.is::<sqlx::Error>());
-
-        if is_db_error {
-            tracing::error!(?err, "failed to check service account status");
-            tonic::Status::internal("database error, please retry the request")
-        } else {
-            tonic::Status::permission_denied(
-                "Service account tokens cannot be used to mint capability masked tokens",
-            )
-        }
-    })?;
+    .await?
+    {
+        return Err(crate::ApiError::Status(tonic::Status::permission_denied(
+            "Service account tokens cannot be used to mint capability masked tokens",
+        )));
+    }
 
     let invalid_capabilities = capability_mask
         .iter()
@@ -188,9 +176,11 @@ async fn mint_capability_token<'a>(
         })
         .collect::<Vec<&String>>();
     if !invalid_capabilities.is_empty() {
-        return Err(tonic::Status::invalid_argument(format!(
-            "Invalid capability requested: {}",
-            invalid_capabilities.iter().join(", ")
+        return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
+            format!(
+                "Invalid capability requested: {}",
+                invalid_capabilities.iter().join(", ")
+            ),
         )));
     }
 

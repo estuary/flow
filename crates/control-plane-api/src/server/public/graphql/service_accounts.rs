@@ -749,7 +749,7 @@ impl ServiceAccountsMutation {
 pub(crate) async fn verify_not_service_account(
     pg_pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
-) -> async_graphql::Result<()> {
+) -> sqlx::Result<bool> {
     let is_service_account = sqlx::query_scalar!(
         r#"
         SELECT EXISTS(
@@ -761,13 +761,7 @@ pub(crate) async fn verify_not_service_account(
     .fetch_one(pg_pool)
     .await?;
 
-    if is_service_account {
-        return Err(async_graphql::Error::new(
-            "service accounts cannot manage refresh tokens: their API keys are \
-             administered via createApiKey and revokeApiKey",
-        ));
-    }
-    Ok(())
+    Ok(is_service_account)
 }
 
 /// Rewrite a terminal permission-denied authorization error into the generic

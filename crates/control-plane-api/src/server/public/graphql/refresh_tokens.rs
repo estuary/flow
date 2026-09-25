@@ -137,7 +137,12 @@ impl RefreshTokensMutation {
                 "tokens with a capability mask set cannot create refresh tokens.",
             ));
         }
-        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
+        if super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "service accounts cannot manage refresh tokens: their API keys are \
+             administered via createApiKey and revokeApiKey",
+            ));
+        }
 
         // ISO 8601 durations begin with 'P'; considering this cheap and good enough validation for now.
         if !valid_for.starts_with('P') {
@@ -215,7 +220,12 @@ impl RefreshTokensMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
+        if super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "service accounts cannot manage refresh tokens: their API keys are \
+             administered via createApiKey and revokeApiKey",
+            ));
+        }
 
         let result = sqlx::query!(
             "UPDATE refresh_tokens SET valid_for = interval '0' \
