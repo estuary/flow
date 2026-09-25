@@ -521,6 +521,23 @@ fn validate_resource_paths<'a>(
     }
 }
 
+/// Generate errors for keys of a connector's generated files which aren't URLs.
+fn validate_generated_file_urls(
+    scope: Scope,
+    generated_files: &std::collections::BTreeMap<String, String>,
+    errors: &mut tables::Errors,
+) {
+    for maybe_url in generated_files.keys() {
+        if let Err(err) = url::Url::parse(maybe_url) {
+            Error::InvalidGeneratedFileUrl {
+                url: maybe_url.clone(),
+                detail: err,
+            }
+            .push(scope, errors)
+        }
+    }
+}
+
 /// Look up an unprefixed shard feature flag by name, returning its value.
 /// `flags` is a task's `shards.flags`; the `estuary.dev/flag/` label prefix is
 /// applied only when shard labels are emitted, not in the model.

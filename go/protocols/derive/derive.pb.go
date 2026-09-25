@@ -155,9 +155,10 @@ type Request_Validate struct {
 	ProjectRoot string `protobuf:"bytes,6,opt,name=project_root,json=projectRoot,proto3" json:"project_root,omitempty"`
 	// Map of relative JSON pointers to the derivation specification,
 	// and the absolute URL from which the location's content was resolved.
-	// Connectors may use this for generating more helpful errors which are
-	// framed to the user's filesystem, rather than the filesystem within
-	// the connector.
+	//
+	// Deprecated, and to be removed: specifications are inlined before
+	// validation, so this is effectively always empty. It's still populated
+	// for the benefit of older connectors, but new connectors must not use it.
 	ImportMap map[string]string `protobuf:"bytes,7,rep,name=import_map,json=importMap,proto3" json:"import_map,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Last CollectionSpec which was validated and published.
 	LastCollection *flow.CollectionSpec `protobuf:"bytes,8,opt,name=last_collection,json=lastCollection,proto3" json:"last_collection,omitempty"`

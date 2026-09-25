@@ -26,6 +26,7 @@ pub(crate) async fn no_op_connector(
                                 resource_path: vec![format!("binding-{i}")],
                             })
                             .collect(),
+                        generated_files: Default::default(),
                     },
                 )),
                 ..Default::default()
@@ -96,6 +97,7 @@ pub(crate) async fn no_op_connector(
                                 }
                             })
                             .collect(),
+                        generated_files: Default::default(),
                     },
                 )),
                 ..Default::default()

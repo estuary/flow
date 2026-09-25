@@ -116,6 +116,12 @@ message Request {
     // into that location, as an RFC 7396 merge patch, before handing the
     // configuration to the connector.
     map<string, string> secrets = 8;
+    // URL which roots the current Flow project.
+    //
+    // Materialization connectors which generate project files should locate
+    // them underneath this URL, returning them with
+    // Response.Validated.generated_files.
+    string project_root = 9;
   }
   Validate validate = 2;
 
@@ -493,6 +499,13 @@ message Response {
       // Next tag: 7
     }
     repeated Binding bindings = 1;
+    // Generated files returned by the connector.
+    // Keys are absolute URLs of the generated resource, and values are its
+    // generated file content.
+    //
+    // This can include project-level files, which should be underneath
+    // Request.Validate.project_root.
+    map<string, string> generated_files = 2;
   }
   Validated validated = 2;
 

@@ -2051,6 +2051,7 @@ impl serde::Serialize for ContentType {
             Self::JsonSchema => "JSON_SCHEMA",
             Self::Config => "CONFIG",
             Self::DocumentsFixture => "DOCUMENTS_FIXTURE",
+            Self::Text => "TEXT",
         };
         serializer.serialize_str(variant)
     }
@@ -2066,6 +2067,7 @@ impl<'de> serde::Deserialize<'de> for ContentType {
             "JSON_SCHEMA",
             "CONFIG",
             "DOCUMENTS_FIXTURE",
+            "TEXT",
         ];
 
         struct GeneratedVisitor;
@@ -2110,6 +2112,7 @@ impl<'de> serde::Deserialize<'de> for ContentType {
                     "JSON_SCHEMA" => Ok(ContentType::JsonSchema),
                     "CONFIG" => Ok(ContentType::Config),
                     "DOCUMENTS_FIXTURE" => Ok(ContentType::DocumentsFixture),
+                    "TEXT" => Ok(ContentType::Text),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

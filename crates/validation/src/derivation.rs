@@ -572,16 +572,7 @@ async fn walk_derivation(
         .push(scope, errors);
     }
 
-    // Sanity check the URLs of generated files.
-    for (maybe_url, _) in generated_files {
-        if let Err(err) = url::Url::parse(&maybe_url) {
-            Error::InvalidGeneratedFileUrl {
-                url: maybe_url.clone(),
-                detail: err,
-            }
-            .push(scope, errors)
-        }
-    }
+    super::validate_generated_file_urls(scope, generated_files, errors);
 
     // Join transform models and their Validate requests with their Validated responses.
     let transforms = transforms.into_iter().scan(

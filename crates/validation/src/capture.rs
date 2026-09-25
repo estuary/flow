@@ -258,6 +258,7 @@ async fn walk_capture(
         },
         linked_collections: Vec::new(),
         secrets: secrets_spec.clone(),
+        project_root: String::new(),
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
@@ -293,7 +294,10 @@ async fn walk_capture(
 
     let capture::response::Validated {
         bindings: bindings_validated,
+        generated_files,
     } = &validated_response;
+
+    super::validate_generated_file_urls(scope, generated_files, errors);
 
     if bindings_validate_len != bindings_validated.len() {
         Error::WrongConnectorBindings {

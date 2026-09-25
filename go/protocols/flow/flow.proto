@@ -819,6 +819,9 @@ enum ContentType {
   JSON_SCHEMA = 1;
   CONFIG = 4;
   DOCUMENTS_FIXTURE = 5;
+  // Text content which is never parsed as a document,
+  // such as the files of a Python project.
+  TEXT = 6;
 }
 
 // BuildAPI is deprecated and will be removed.

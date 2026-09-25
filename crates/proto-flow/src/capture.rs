@@ -124,6 +124,12 @@ pub mod request {
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,
+        /// URL which roots the current Flow project.
+        ///
+        /// Capture connectors which generate project files should locate them
+        /// underneath this URL, returning them with Response.Validated.generated_files.
+        #[prost(string, tag = "9")]
+        pub project_root: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
@@ -362,6 +368,17 @@ pub mod response {
     pub struct Validated {
         #[prost(message, repeated, tag = "1")]
         pub bindings: ::prost::alloc::vec::Vec<validated::Binding>,
+        /// Generated files returned by the connector.
+        /// Keys are absolute URLs of the generated resource, and values are its
+        /// generated file content.
+        ///
+        /// This can include project-level files, which should be underneath
+        /// Request.Validate.project_root.
+        #[prost(btree_map = "string, string", tag = "2")]
+        pub generated_files: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::alloc::string::String,
+        >,
     }
     /// Nested message and enum types in `Validated`.
     pub mod validated {

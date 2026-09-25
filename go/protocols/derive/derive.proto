@@ -91,9 +91,10 @@ message Request {
     string project_root = 6;
     // Map of relative JSON pointers to the derivation specification,
     // and the absolute URL from which the location's content was resolved.
-    // Connectors may use this for generating more helpful errors which are
-    // framed to the user's filesystem, rather than the filesystem within
-    // the connector.
+    //
+    // Deprecated, and to be removed: specifications are inlined before
+    // validation, so this is effectively always empty. It's still populated
+    // for the benefit of older connectors, but new connectors must not use it.
     map<string, string> import_map = 7;
     // Last CollectionSpec which was validated and published.
     flow.CollectionSpec last_collection = 8;

@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/materialization_collection_resets.rs
+assertion_line: 40
 expression: outcome.built_materializations
 ---
 [
@@ -105,6 +106,7 @@ expression: outcome.built_materializations
                     ],
                 },
             ],
+            generated_files: {},
         },
         spec: MaterializationSpec {
             name: "testing/materialize",

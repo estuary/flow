@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 1582
 expression: json_catalogue(ex_materialize_responses())
 ---
 // spec
@@ -69,7 +70,10 @@ expression: json_catalogue(ex_materialize_responses())
           }
         ]
       }
-    ]
+    ],
+    "generatedFiles": {
+      "file:///project/root/uv.lock": "version = 1"
+    }
   }
 }
 

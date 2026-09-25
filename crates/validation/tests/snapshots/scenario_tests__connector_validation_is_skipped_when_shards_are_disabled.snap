@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 43
 expression: outcome
 ---
 Outcome {
@@ -31,6 +32,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "acmeCo/testCapture",
@@ -452,6 +454,7 @@ Outcome {
             model_fixes: [],
             validated: Validated {
                 bindings: [],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "acmeCo/testMaterialization",

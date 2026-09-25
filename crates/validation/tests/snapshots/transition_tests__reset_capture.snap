@@ -36,6 +36,7 @@ expression: outcome.built_captures
                     ],
                 },
             ],
+            generated_files: {},
         },
         spec: CaptureSpec {
             name: "the/capture",

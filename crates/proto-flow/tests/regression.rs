@@ -489,6 +489,7 @@ fn ex_capture_requests() -> Vec<(&'static str, capture::Request)> {
             last_version: "11:22:33:44".to_string(),
             linked_collections: Vec::new(),
             secrets: ex_secrets(),
+            project_root: "file:///project/root".to_string(),
         })),
         Kind::Apply(Box::new(capture::request::Apply {
             capture: Some(ex_capture_spec()),
@@ -578,6 +579,11 @@ fn ex_capture_responses() -> Vec<(&'static str, capture::Response)> {
             bindings: vec![capture::response::validated::Binding {
                 resource_path: vec!["some".to_string(), "path".to_string()],
             }],
+            generated_files: [(
+                "file:///project/root/uv.lock".to_string(),
+                "version = 1".to_string(),
+            )]
+            .into(),
         }),
         Kind::Applied(capture::response::Applied {
             action_description: "I did some stuff".to_string(),
@@ -845,6 +851,7 @@ fn ex_materialize_requests() -> Vec<(&'static str, materialize::Request)> {
             last_version: "00:11:22:33".to_string(),
             linked_collections: Vec::new(),
             secrets: ex_secrets(),
+            project_root: "file:///project/root".to_string(),
         })),
         Kind::Apply(Box::new(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),
@@ -986,6 +993,11 @@ fn ex_materialize_responses() -> Vec<(&'static str, materialize::Response)> {
                     array_truncate_after: 1000,
                 }),
             }],
+            generated_files: [(
+                "file:///project/root/uv.lock".to_string(),
+                "version = 1".to_string(),
+            )]
+            .into(),
         }),
         Kind::Applied(materialize::response::Applied {
             action_description: "I did some stuff".to_string(),

@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 8
 expression: outcome
 ---
 Outcome {
@@ -42,6 +43,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "testing/db-cdc",
@@ -560,6 +562,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "testing/s3-source",
@@ -6501,6 +6504,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/db-views",
@@ -7155,6 +7159,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/webhook/deliveries",

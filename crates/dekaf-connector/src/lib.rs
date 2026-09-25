@@ -177,6 +177,7 @@ where
                         kind: Some(materialize::response::Kind::Validated(
                             materialize::response::Validated {
                                 bindings: validated_bindings,
+                                ..Default::default()
                             },
                         )),
                         ..Default::default()

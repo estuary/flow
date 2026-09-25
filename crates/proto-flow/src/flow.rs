@@ -1289,6 +1289,9 @@ pub enum ContentType {
     JsonSchema = 1,
     Config = 4,
     DocumentsFixture = 5,
+    /// Text content which is never parsed as a document,
+    /// such as the files of a Python project.
+    Text = 6,
 }
 impl ContentType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1301,6 +1304,7 @@ impl ContentType {
             Self::JsonSchema => "JSON_SCHEMA",
             Self::Config => "CONFIG",
             Self::DocumentsFixture => "DOCUMENTS_FIXTURE",
+            Self::Text => "TEXT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1310,6 +1314,7 @@ impl ContentType {
             "JSON_SCHEMA" => Some(Self::JsonSchema),
             "CONFIG" => Some(Self::Config),
             "DOCUMENTS_FIXTURE" => Some(Self::DocumentsFixture),
+            "TEXT" => Some(Self::Text),
             _ => None,
         }
     }

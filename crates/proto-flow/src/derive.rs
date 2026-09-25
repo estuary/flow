@@ -75,9 +75,10 @@ pub mod request {
         pub project_root: ::prost::alloc::string::String,
         /// Map of relative JSON pointers to the derivation specification,
         /// and the absolute URL from which the location's content was resolved.
-        /// Connectors may use this for generating more helpful errors which are
-        /// framed to the user's filesystem, rather than the filesystem within
-        /// the connector.
+        ///
+        /// Deprecated, and to be removed: specifications are inlined before
+        /// validation, so this is effectively always empty. It's still populated
+        /// for the benefit of older connectors, but new connectors must not use it.
         #[prost(btree_map = "string, string", tag = "7")]
         pub import_map: ::prost::alloc::collections::BTreeMap<
             ::prost::alloc::string::String,

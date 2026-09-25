@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 1577
 expression: proto_catalogue(ex_materialize_requests())
 ---
 // spec
@@ -8,7 +9,7 @@ expression: proto_catalogue(ex_materialize_requests())
                                                        00000017
 
 // validate
-|12bf050a 1876616c 69646174 652f6d61| .....validate/ma 00000000
+|12d5050a 1876616c 69646174 652f6d61| .....validate/ma 00000000
 |74657269 616c697a 6174696f 6e10081a| terialization... 00000010
 |157b2276 616c6964 61746522 3a22636f| .{"validate":"co 00000020
 |6e666967 227d22bb 040a157b 22726573| nfig"}"....{"res 00000030
@@ -52,8 +53,9 @@ expression: proto_catalogue(ex_materialize_requests())
 |776f7264 12152f63 72656465 6e746961| word../credentia 00000290
 |6c732f70 61737377 6f726442 150a1361| ls/passwordB...a 000002a0
 |636d6543 6f2f7768 6f6c652d 636f6e66| cmeCo/whole-conf 000002b0
-|6967|                                ig               000002c0
-                                                       000002c2
+|69674a14 66696c65 3a2f2f2f 70726f6a| igJ.file:///proj 000002c0
+|6563742f 726f6f74|                   ect/root         000002d0
+                                                       000002d8
 
 // apply
 |1aee0a0a ba0a0a16 61636d65 436f2f6d| ........acmeCo/m 00000000

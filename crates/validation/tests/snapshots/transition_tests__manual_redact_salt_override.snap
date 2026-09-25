@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/transition_tests.rs
+assertion_line: 645
 expression: outcome
 ---
 Outcome {
@@ -36,6 +37,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: CaptureSpec {
                 name: "the/capture",
@@ -1989,6 +1991,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "the/materialization",

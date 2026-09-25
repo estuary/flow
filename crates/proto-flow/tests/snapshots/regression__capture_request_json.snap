@@ -128,7 +128,8 @@ expression: json_catalogue(ex_capture_requests())
     "secrets": {
       "acmeCo/password": "/credentials/password",
       "acmeCo/whole-config": ""
-    }
+    },
+    "projectRoot": "file:///project/root"
   }
 }
 

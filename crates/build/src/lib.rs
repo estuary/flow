@@ -305,12 +305,21 @@ pub fn generate_files(
 ) -> anyhow::Result<()> {
     let mut files = BTreeMap::new();
 
-    for row in validations.built_collections.iter() {
-        let Some(validated) = &row.validated else {
-            continue;
-        };
+    let collections = validations
+        .built_collections
+        .iter()
+        .filter_map(|row| Some(&row.validated.as_ref()?.generated_files));
+    let captures = validations
+        .built_captures
+        .iter()
+        .filter_map(|row| Some(&row.validated.as_ref()?.generated_files));
+    let materializations = validations
+        .built_materializations
+        .iter()
+        .filter_map(|row| Some(&row.validated.as_ref()?.generated_files));
 
-        for (url, content) in &validated.generated_files {
+    for generated_files in collections.chain(captures).chain(materializations) {
+        for (url, content) in generated_files {
             if let Ok(url) = url::Url::parse(&url) {
                 files.insert(url, content.as_bytes());
             }

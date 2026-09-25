@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/transition_tests.rs
+assertion_line: 471
 expression: outcome.built_materializations
 ---
 [
@@ -93,6 +94,7 @@ expression: outcome.built_materializations
                     ],
                 },
             ],
+            generated_files: {},
         },
         spec: MaterializationSpec {
             name: "the/materialization",

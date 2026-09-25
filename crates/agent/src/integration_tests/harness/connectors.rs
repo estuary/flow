@@ -143,7 +143,10 @@ fn validate_capture(
         },
         connector::response::Kind::Capture(capture::Response {
             kind: Some(capture::response::Kind::Validated(
-                capture::response::Validated { bindings },
+                capture::response::Validated {
+                    bindings,
+                    ..Default::default()
+                },
             )),
             ..Default::default()
         }),
@@ -246,7 +249,10 @@ fn validate_materialization(
         },
         connector::response::Kind::Materialize(materialize::Response {
             kind: Some(materialize::response::Kind::Validated(
-                materialize::response::Validated { bindings },
+                materialize::response::Validated {
+                    bindings,
+                    ..Default::default()
+                },
             )),
             ..Default::default()
         }),

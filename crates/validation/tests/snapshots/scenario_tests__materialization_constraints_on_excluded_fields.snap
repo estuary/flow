@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 586
 expression: outcome
 ---
 Outcome {
@@ -376,6 +377,7 @@ Outcome {
                         ],
                     },
                 ],
+                generated_files: {},
             },
             spec: MaterializationSpec {
                 name: "testing/db-views",
