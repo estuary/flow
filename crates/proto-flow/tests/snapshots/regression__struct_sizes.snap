@@ -1,11 +1,12 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 1613
 expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::request::Discover, capture::request::Validate,\ncapture::request::validate::Binding, capture::request::Apply,\ncapture::request::Open, capture::request::Acknowledge, capture::Response,\ncapture::response::Spec, capture::response::Discovered,\ncapture::response::Validated, capture::response::Applied,\ncapture::response::Opened, capture::response::Captured,\ncapture::response::SourcedSchema, capture::response::Checkpoint,\ncapture::response::BackfillBegin, capture::response::BackfillComplete,\nderive::Request, derive::request::Spec, derive::request::Validate,\nderive::request::validate::Transform, derive::request::Open,\nderive::request::Read, derive::request::Flush, derive::request::StartCommit,\nderive::request::Reset, derive::Response, derive::response::Spec,\nderive::response::Validated, derive::response::Opened,\nderive::response::Published, derive::response::Flushed,\nderive::response::StartedCommit, materialize::Request,\nmaterialize::request::Spec, materialize::request::Validate,\nmaterialize::request::validate::Binding, materialize::request::Apply,\nmaterialize::request::Open, materialize::request::Load,\nmaterialize::request::Flush, materialize::request::Store,\nmaterialize::request::StartCommit, materialize::request::Acknowledge,\nmaterialize::Response, materialize::response::Spec,\nmaterialize::response::Validated, materialize::response::Applied,\nmaterialize::response::Opened, materialize::response::Loaded,\nmaterialize::response::Flushed, materialize::response::StartedCommit,\nmaterialize::response::Acknowledged, connector::Request, connector::Response,\nflow::CollectionSpec, flow::collection_spec::Derivation,\nflow::collection_spec::derivation::Transform, flow::CaptureSpec,\nflow::capture_spec::Binding, flow::MaterializationSpec,\nflow::materialization_spec::Binding, flow::Projection, flow::Inference,\nflow::RangeSpec, flow::ConnectorState, flow::OAuth2, flow::FieldSelection,)"
 ---
     80  capture::Request
     40  capture::request::Spec
    112  capture::request::Discover
-   816  capture::request::Validate
+   840  capture::request::Validate
     48  capture::request::validate::Binding
   1392  capture::request::Apply
    768  capture::request::Open
@@ -13,7 +14,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     96  capture::Response
    408  capture::response::Spec
     24  capture::response::Discovered
-    24  capture::response::Validated
+    48  capture::response::Validated
     64  capture::response::Applied
      1  capture::response::Opened
     40  capture::response::Captured
@@ -39,7 +40,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     40  derive::response::StartedCommit
    200  materialize::Request
     40  materialize::request::Spec
-   848  materialize::request::Validate
+   872  materialize::request::Validate
     96  materialize::request::validate::Binding
   1456  materialize::request::Apply
    800  materialize::request::Open
@@ -50,7 +51,7 @@ expression: "sizes_table!(capture::Request, capture::request::Spec,\ncapture::re
     32  materialize::request::Acknowledge
    104  materialize::Response
    384  materialize::response::Spec
-    24  materialize::response::Validated
+    48  materialize::response::Validated
     64  materialize::response::Applied
     64  materialize::response::Opened
     40  materialize::response::Loaded

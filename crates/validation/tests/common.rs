@@ -695,6 +695,8 @@ struct MockCaptureValidateCall {
     /// `secrets` plaintext invariant reads. Defaults to a permissive schema.
     #[serde(default)]
     config_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    generated_files: BTreeMap<String, String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -738,6 +740,8 @@ struct MockMaterializationValidateCall {
     /// `secrets` plaintext invariant reads. Defaults to a permissive schema.
     #[serde(default)]
     config_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    generated_files: BTreeMap<String, String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -841,7 +845,10 @@ impl MockDriverCalls {
             })),
             connector::response::Kind::Capture(capture::Response {
                 kind: Some(capture::response::Kind::Validated(
-                    capture::response::Validated { bindings },
+                    capture::response::Validated {
+                        bindings,
+                        generated_files: call.generated_files.clone(),
+                    },
                 )),
                 ..Default::default()
             }),
@@ -991,7 +998,10 @@ impl MockDriverCalls {
             )),
             connector::response::Kind::Materialize(materialize::Response {
                 kind: Some(materialize::response::Kind::Validated(
-                    materialize::response::Validated { bindings },
+                    materialize::response::Validated {
+                        bindings,
+                        generated_files: call.generated_files.clone(),
+                    },
                 )),
                 ..Default::default()
             }),

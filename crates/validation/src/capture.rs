@@ -244,6 +244,7 @@ async fn walk_capture(
         })
         .collect();
     let bindings_validate_len = bindings_validate.len();
+    let project_root = super::project_root(&scope.flatten());
 
     let mut validate_request = capture::request::Validate {
         name: capture.to_string(),
@@ -258,10 +259,11 @@ async fn walk_capture(
         },
         linked_collections: Vec::new(),
         secrets: secrets_spec.clone(),
+        project_root: project_root.clone(),
     };
     linked::install_capture_validate(&mut validate_request, interner, indirect_specs);
 
-    let (validated_response, network_ports, config_schema_json) = super::validate_connector(
+    let (mut validated_response, network_ports, config_schema_json) = super::validate_connector(
         scope,
         connectors,
         noop_captures || shards.disable,
@@ -291,8 +293,16 @@ async fn walk_capture(
         errors,
     );
 
+    super::validate_generated_files(
+        scope,
+        &project_root,
+        &mut validated_response.generated_files,
+        errors,
+    );
+
     let capture::response::Validated {
         bindings: bindings_validated,
+        generated_files: _,
     } = &validated_response;
 
     if bindings_validate_len != bindings_validated.len() {

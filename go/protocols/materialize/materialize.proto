@@ -116,6 +116,10 @@ message Request {
     // into that location, as an RFC 7396 merge patch, before handing the
     // configuration to the connector.
     map<string, string> secrets = 8;
+    // URL of the directory of this task's specification, without a trailing
+    // slash. The connector must locate each file it generates underneath this
+    // URL, and return them with Response.Validated.generated_files.
+    string project_root = 9;
   }
   Validate validate = 2;
 
@@ -493,6 +497,12 @@ message Response {
       // Next tag: 7
     }
     repeated Binding bindings = 1;
+    // Generated files returned by the connector.
+    // Keys are absolute URLs of the generated resource, and values are its
+    // generated file content.
+    //
+    // Each key must be underneath Request.Validate.project_root.
+    map<string, string> generated_files = 2;
   }
   Validated validated = 2;
 

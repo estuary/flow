@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 1572
 expression: json_catalogue(ex_materialize_requests())
 ---
 // spec
@@ -121,7 +122,8 @@ expression: json_catalogue(ex_materialize_requests())
     "secrets": {
       "acmeCo/password": "/credentials/password",
       "acmeCo/whole-config": ""
-    }
+    },
+    "projectRoot": "file:///project/root"
   }
 }
 

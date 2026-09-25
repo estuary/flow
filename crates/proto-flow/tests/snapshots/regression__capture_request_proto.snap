@@ -19,7 +19,7 @@ expression: proto_catalogue(ex_capture_requests())
                                                        0000007a
 
 // validate
-|1afa040a 1076616c 69646174 652f6361| .....validate/ca 00000000
+|1a90050a 1076616c 69646174 652f6361| .....validate/ca 00000000
 |70747572 6510071a 157b2276 616c6964| pture....{"valid 00000010
 |61746522 3a22636f 6e666967 227d22fe| ate":"config"}". 00000020
 |030a157b 22726573 6f757263 65223a22| ...{"resource":" 00000030
@@ -58,8 +58,10 @@ expression: proto_catalogue(ex_capture_requests())
 |61636d65 436f2f70 61737377 6f726412| acmeCo/password. 00000240
 |152f6372 6564656e 7469616c 732f7061| ./credentials/pa 00000250
 |7373776f 72644215 0a136163 6d65436f| sswordB...acmeCo 00000260
-|2f77686f 6c652d63 6f6e6669 67|       /whole-config    00000270
-                                                       0000027d
+|2f77686f 6c652d63 6f6e6669 674a1466| /whole-configJ.f 00000270
+|696c653a 2f2f2f70 726f6a65 63742f72| ile:///project/r 00000280
+|6f6f74|                              oot              00000290
+                                                       00000293
 
 // apply
 |22be070a 85070a0e 61636d65 436f2f63| ".......acmeCo/c 00000000
