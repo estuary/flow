@@ -150,6 +150,8 @@ to leave it running.
   client's initial request follows after its configuration is unsealed, then
   subsequent client requests pass directly to the transport.
   `Started` carries the `Spec` response so the client can use it as well.
+  The internal Spec carries the *sealed* configuration. Some meta-connectors
+  (capture-python, derive-python) answer using contents of the sealed config.
 
 - **A local data plane's `*.localhost` services get a host-gateway mapping.**
   A `.localhost` name denotes the loopback of whoever resolves it, which inside
