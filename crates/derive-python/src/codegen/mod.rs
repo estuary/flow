@@ -2,11 +2,8 @@ use itertools::Itertools;
 use proto_flow::flow;
 use std::fmt::Write;
 
-mod ast;
-mod mapper;
-
 use super::LambdaConfig;
-use mapper::Mapper;
+use python_connector::pydantic::{Mapper, to_pascal_case};
 
 /// Generate Pydantic models and protocol types for a Python derivation.
 pub fn types_py(
@@ -304,23 +301,6 @@ class Derivation(IDerivation):
     w
 }
 
-fn to_pascal_case(name: &str) -> String {
-    let mut result = String::new();
-    let mut uppercase_next = true;
-
-    for c in name.chars() {
-        if !c.is_alphanumeric() {
-            uppercase_next = true;
-        } else if uppercase_next {
-            result.extend(c.to_uppercase());
-            uppercase_next = false;
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
 fn to_snake_case(name: &str) -> String {
     lazy_static::lazy_static! {
         static ref CAMEL_BOUNDARY: regex::Regex = regex::Regex::new(r"([a-z0-9])([A-Z])").unwrap();
@@ -348,7 +328,7 @@ fn to_snake_case(name: &str) -> String {
 pub fn module_path_parts(collection_name: &str) -> impl Iterator<Item = String> {
     collection_name
         .split('/')
-        .map(mapper::sanitize_python_identifier)
+        .map(python_connector::pydantic::sanitize_python_identifier)
 }
 
 #[cfg(test)]
