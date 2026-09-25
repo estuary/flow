@@ -237,7 +237,7 @@ impl Client {
         argv: &[&str],
         stdin: Option<&str>,
         timeout: std::time::Duration,
-    ) -> Result<futures::stream::BoxStream<'static, anyhow::Result<Frame>>, ExecError> {
+    ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<Frame>>> {
         let deadline = tokio::time::Instant::now() + timeout;
         let mut url = self.url(["v1", "sprites", name, "exec"]);
         url.set_scheme("wss").expect("valid WebSocket scheme");
@@ -261,38 +261,22 @@ impl Client {
                 .parse()
                 .context("invalid Sprites token header")?,
         );
-        let socket = match tokio::time::timeout_at(
-            deadline,
-            tokio_tungstenite::connect_async(request),
-        )
-        .await
-        {
-            Ok(Ok((socket, _))) => socket,
-            Ok(Err(tungstenite::Error::Http(response))) => {
-                let status = response.status();
-                let body = String::from_utf8_lossy(response.body().as_deref().unwrap_or_default());
-                if status == reqwest::StatusCode::NOT_FOUND {
-                    return Err(ExecError::SpriteMissing);
+        let socket =
+            match tokio::time::timeout_at(deadline, tokio_tungstenite::connect_async(request))
+                .await
+                .context("timed out connecting to Sprites exec")?
+            {
+                Ok((socket, _)) => socket,
+                Err(tungstenite::Error::Http(response)) => {
+                    let status = response.status();
+                    let body =
+                        String::from_utf8_lossy(response.body().as_deref().unwrap_or_default());
+                    anyhow::bail!("failed to start command: HTTP {status}: {body}");
                 }
-                if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
-                    tracing::warn!(sprite = name, %status, %body, "Sprites exec endpoint unavailable");
-                    return Err(ExecError::NotReady);
+                Err(err) => {
+                    return Err(anyhow::Error::new(err).context("connecting to Sprites exec"));
                 }
-                return Err(
-                    anyhow::anyhow!("failed to start command: HTTP {status}: {body}").into(),
-                );
-            }
-            Ok(Err(err)) => {
-                return Err(ExecError::Transport(
-                    anyhow::Error::new(err).context("connecting to Sprites exec"),
-                ));
-            }
-            Err(err) => {
-                return Err(ExecError::Transport(
-                    anyhow::Error::new(err).context("connecting to Sprites exec"),
-                ));
-            }
-        };
+            };
         let stdin = stdin.unwrap_or_default().to_owned();
         let (mut writer, mut reader) = socket.split();
         let frames = async_stream::try_stream! {
@@ -365,20 +349,6 @@ pub enum Frame {
     Stdout(bytes::Bytes),
     Stderr(bytes::Bytes),
     Exit(i32),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ExecError {
-    #[error("sprite not found")]
-    SpriteMissing,
-    #[error("sprite not ready")]
-    NotReady,
-    /// No response was received. The command may have started, so retrying
-    /// could run it twice.
-    #[error(transparent)]
-    Transport(anyhow::Error),
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
 }
 
 async fn collect_output(

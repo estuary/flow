@@ -5,6 +5,8 @@
 use anyhow::Context;
 use futures::StreamExt;
 
+// TODO: Add a reaper that deletes `sbx-` sprites with no `internal.sandboxes`
+// record. Failed creates and deletes leave such sprites behind.
 const HANDLE_PREFIX: &str = "sbx-";
 
 const EXEC_DIR: &str = ".estuary/exec";
@@ -144,8 +146,9 @@ pub async fn create(
         persist_record(&mut conn, user_id, catalog_name).await?
     };
     let result = async {
-        let baseline_checkpoint_id = provision(client, &sandbox.handle).await?;
-        let updated = sqlx::query(
+        client.create_sprite(&sandbox.handle).await?;
+        let baseline_checkpoint_id = bootstrap(client, &sandbox.handle).await?;
+        sqlx::query(
             "update internal.sandboxes set baseline_checkpoint_id = $2, updated_at = now() where id = $1",
         )
         .bind(sandbox.id)
@@ -153,17 +156,12 @@ pub async fn create(
         .execute(pool)
         .await
         .context("marking sandbox ready")?;
-        anyhow::ensure!(
-            updated.rows_affected() == 1,
-            "sandbox record disappeared during provisioning"
-        );
         sandbox.baseline_checkpoint_id = Some(baseline_checkpoint_id);
         Ok::<_, anyhow::Error>(())
     }
     .await;
 
     if let Err(err) = result {
-        // Even a provider timeout must release the catalog name for a fresh attempt.
         sqlx::query("delete from internal.sandboxes where id = $1")
             .bind(sandbox.id)
             .execute(pool)
@@ -484,27 +482,6 @@ async fn exec_output(
     client.exec(&sandbox.handle, argv, timeout).await
 }
 
-async fn provision(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
-    client.create_sprite(handle).await?;
-    let result = bootstrap(client, handle).await;
-
-    // After a timeout, a provider operation may still be running, so a
-    // delete here could race it. The sprite is left for orphan cleanup.
-    // TODO: Add an orphan reaper for sandbox sprites without database records.
-    if let Err(err) = &result
-        && !err.chain().any(|cause| {
-            cause
-                .downcast_ref::<reqwest::Error>()
-                .is_some_and(reqwest::Error::is_timeout)
-        })
-    {
-        if let Err(err) = client.delete_sprite(handle).await {
-            tracing::warn!(%handle, ?err, "failed to delete an incompletely provisioned sandbox");
-        }
-    }
-    result
-}
-
 async fn bootstrap(client: &crate::sprites::Client, handle: &str) -> anyhow::Result<String> {
     const INSTALL_FLOWCTL: &str = "mkdir -p $HOME/.local/bin \
         && curl -fsSL -o $HOME/.local/bin/flowctl \
@@ -568,19 +545,13 @@ pub async fn reset(client: &crate::sprites::Client, sandbox: &Sandbox) -> anyhow
     Ok(())
 }
 
-/// Deletes the sprite, then the record. If the sprite delete fails, a ready
-/// sandbox keeps its record. An unready one loses it anyway, so a stuck
-/// provisioning attempt cannot hold its catalog name.
 pub async fn delete(
     client: &crate::sprites::Client,
     pool: &sqlx::PgPool,
     sandbox: &Sandbox,
 ) -> anyhow::Result<()> {
     if let Err(err) = client.delete_sprite(&sandbox.handle).await {
-        if sandbox.baseline_checkpoint_id.is_some() {
-            return Err(err.context("deleting sprite"));
-        }
-        tracing::warn!(%sandbox.handle, ?err, "failed to clean up an unready sandbox sprite");
+        tracing::warn!(%sandbox.handle, ?err, "failed to delete sandbox sprite");
     }
     sqlx::query!(
         r#"
