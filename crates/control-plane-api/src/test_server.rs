@@ -175,23 +175,37 @@ impl TestServer {
         email: Option<&str>,
         capability_mask: Option<Vec<String>>,
     ) -> String {
+        self.make_access_token_with(user_id, email, capability_mask, chrono::Duration::hours(1))
+    }
+
+    /// The fully-parameterized form of `make_access_token`: an unmasked or
+    /// masked token that expires `ttl` after now, for tests that care about
+    /// the bearer's remaining lifetime.
+    pub fn make_access_token_with(
+        &self,
+        user_id: uuid::Uuid,
+        email: Option<&str>,
+        capability_mask: Option<Vec<String>>,
+        ttl: chrono::Duration,
+    ) -> String {
         let now = tokens::now();
-        let claims = models::authorizations::ControlClaims {
+        self.sign_claims(&models::authorizations::ControlClaims {
             iat: now.timestamp() as u64,
-            exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
+            exp: (now + ttl).timestamp() as u64,
             sub: user_id,
             role: "authenticated".to_string(),
             aud: "authenticated".to_string(),
             email: email.map(String::from),
             capability_mask,
-        };
+        })
+    }
 
-        jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &self.encoding_key,
-        )
-        .expect("failed to encode JWT")
+    /// Sign arbitrary claims with the server's key. Tests use this to forge
+    /// bearers that the `make_access_token*` helpers deliberately never
+    /// produce, such as a non-`authenticated` Postgres role.
+    pub fn sign_claims(&self, claims: &models::authorizations::ControlClaims) -> String {
+        jsonwebtoken::encode(&jsonwebtoken::Header::default(), claims, &self.encoding_key)
+            .expect("failed to encode JWT")
     }
 
     /// Verify an access token the server minted, using the same keys the

@@ -109,6 +109,8 @@ pub(crate) async fn generate_access_token(
     })
 }
 
+/// Upper bound on a minted capability token's lifetime. The actual lifetime
+/// is the lesser of this and the minting bearer's remaining lifetime.
 pub const CAPABILITY_TOKEN_DURATION: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Mint a capability-masked access token for the authenticated caller.
@@ -124,7 +126,6 @@ async fn mint_capability_token<'a>(
     app: &'a Arc<crate::App>,
 ) -> Result<TokenResponse, crate::ApiError> {
     // Reading the delayed header parsing.
-
     let maybe_claims = match bearer_token_header {
         Ok(bearer_header) => {
             crate::envelope::parse_authorization_header(bearer_header, app).await?
@@ -149,7 +150,11 @@ async fn mint_capability_token<'a>(
         }
     };
     let claims = maybe_claims.result()?;
-
+    if claims.role != "authenticated" {
+        return Err(crate::ApiError::Status(tonic::Status::permission_denied(
+            "Unable to mint a capability masked token without the role of authenticated",
+        )));
+    }
     if claims.capability_mask.is_some() {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Unable to mint a new token from a token with a capability mask",
@@ -185,11 +190,15 @@ async fn mint_capability_token<'a>(
     }
 
     let iat = tokens::now().timestamp() as u64;
+    // A minted token must never outlive the bearer that minted it. Otherwise
+    // re-minting would extend a leaked or expiring credential indefinitely,
+    // and revoking a session would leave live masked tokens behind.
+    let exp = (iat + CAPABILITY_TOKEN_DURATION.as_secs()).min(claims.exp);
 
     let claims = models::authorizations::ControlClaims {
         aud: claims.aud.clone(),
         iat,
-        exp: iat + CAPABILITY_TOKEN_DURATION.as_secs(),
+        exp,
         sub: claims.sub,
         role: claims.role.clone(),
         email: claims.email.clone(),
@@ -197,6 +206,12 @@ async fn mint_capability_token<'a>(
     };
 
     let access_token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)?;
+    tracing::info!(
+        %claims.sub,
+        capability_mask = ?claims.capability_mask,
+        exp = claims.exp,
+        "minted capability-masked token"
+    );
 
     Ok(TokenResponse {
         access_token,
@@ -227,7 +242,14 @@ mod test {
         .await;
 
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
-        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        // The bearer outlives CAPABILITY_TOKEN_DURATION so that the minted
+        // lifetime below is set by the constant, not by the bearer's expiry.
+        let alice_token = server.make_access_token_with(
+            alice,
+            Some("alice@example.test"),
+            None,
+            chrono::Duration::hours(2),
+        );
 
         // === Unknown and wrong-case bundle names are rejected ===
         // Every offender is listed, and a valid name alongside them does not
@@ -337,6 +359,44 @@ mod test {
         }
         "#);
 
+        // === The minted lifetime is capped by the bearer's remaining lifetime ===
+        // A masked token must never outlive the credential that minted it:
+        // otherwise a leaked bearer's expiry could be extended indefinitely by
+        // re-minting, and an expiring session would leave live tokens behind.
+        let short_lived_token = server.make_access_token_with(
+            alice,
+            Some("alice@example.test"),
+            None,
+            chrono::Duration::minutes(10),
+        );
+        let bearer_exp = server.verify_access_token(&short_lived_token).exp;
+
+        let minted = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({
+                    "grant_type": "capability_token",
+                    "capability_mask": ["viewer"],
+                }),
+                Some(&short_lived_token),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(minted.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = minted.json().await.unwrap();
+
+        let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
+        assert_eq!(
+            claims.exp, bearer_exp,
+            "a minted token expires no later than the bearer that minted it"
+        );
+        assert!(
+            claims.exp - claims.iat < super::CAPABILITY_TOKEN_DURATION.as_secs(),
+            "the bearer's expiry, not CAPABILITY_TOKEN_DURATION, bounds this token"
+        );
+
         // === The grant requires an authenticated caller ===
         // The route itself accepts anonymous requests (the refresh_token grant
         // needs no bearer), so the 401 comes from this grant's use of the
@@ -358,6 +418,44 @@ mod test {
         insta::assert_snapshot!(
             anonymous.text().await.unwrap(),
             @"This is an authenticated API but the request is missing a required Authorization: Bearer token"
+        );
+
+        // === Only the `authenticated` Postgres role may mint ===
+        // The `role` claim is what PostgREST assumes with SET ROLE. Scoped CI
+        // and dekaf bearers carry other roles, and a masked token copies the
+        // bearer's role verbatim, so refusing here keeps those roles from
+        // being laundered into a fresh, longer-lived credential.
+        let dekaf_claims = {
+            let now = tokens::now();
+            models::authorizations::ControlClaims {
+                iat: now.timestamp() as u64,
+                exp: (now + chrono::Duration::hours(1)).timestamp() as u64,
+                sub: alice,
+                role: "dekaf".to_string(),
+                aud: "authenticated".to_string(),
+                email: None,
+                capability_mask: None,
+            }
+        };
+        let dekaf_token = server.sign_claims(&dekaf_claims);
+
+        let refused = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({
+                    "grant_type": "capability_token",
+                    "capability_mask": ["viewer"],
+                }),
+                Some(&dekaf_token),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
+        insta::assert_snapshot!(
+            refused.text().await.unwrap(),
+            @"Unable to mint a capability masked token without the role of authenticated"
         );
 
         // === Service accounts cannot mint ===
