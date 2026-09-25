@@ -1,9 +1,13 @@
+use axum_extra::{
+    TypedHeader,
+    headers::{Authorization, authorization::Bearer},
+};
 use itertools::Itertools;
 use serde::Deserialize;
 use std::sync::Arc;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(tag = "grant_type")]
+#[serde(tag = "grant_type", deny_unknown_fields)]
 pub enum TokenRequest {
     #[serde(rename = "capability_token")]
     CapabilityToken { capability_mask: Vec<String> },
@@ -28,10 +32,13 @@ pub struct RefreshTokenResponse {
     pub id: models::Id,
     pub secret: String,
 }
-
+#[axum::debug_handler]
 pub async fn handle_post_token(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
-    env: crate::Envelope,
+    authorization_header: Result<
+        TypedHeader<Authorization<Bearer>>,
+        axum_extra::typed_header::TypedHeaderRejection,
+    >,
     axum::Json(req): axum::Json<TokenRequest>,
 ) -> Result<axum::Json<TokenResponse>, crate::ApiError> {
     match req {
@@ -43,7 +50,8 @@ pub async fn handle_post_token(
             Ok(axum::Json(response))
         }
         TokenRequest::CapabilityToken { capability_mask } => {
-            let response = mint_capability_token(&env, capability_mask, &app).await?;
+            let response =
+                mint_capability_token(authorization_header, capability_mask, &app).await?;
             Ok(axum::Json(response))
         }
     }
@@ -107,21 +115,47 @@ pub const CAPABILITY_TOKEN_DURATION: std::time::Duration = std::time::Duration::
 ///
 /// This creates a capability masked token, that has a mask limiting what the
 /// minted token is allowed to do.
-async fn mint_capability_token(
-    env: &crate::Envelope,
+async fn mint_capability_token<'a>(
+    bearer_token_header: Result<
+        TypedHeader<Authorization<Bearer>>,
+        axum_extra::typed_header::TypedHeaderRejection,
+    >,
     capability_mask: Vec<String>,
-    app: &crate::App,
-) -> Result<TokenResponse, crate::ApiError> {
-    let claims = env.claims()?;
+    app: &'a Arc<crate::App>,
+) -> tonic::Result<TokenResponse> {
+    // Reading the delayed header parsing.
+
+    let maybe_claims = match bearer_token_header {
+        Ok(bearer_header) => {
+            crate::envelope::parse_authorization_header(bearer_header, app).await?
+        }
+        Err(err) => {
+            match err.reason() {
+                axum_extra::typed_header::TypedHeaderRejectionReason::Missing => {
+                    crate::MaybeControlClaims::with_unauthenticated()
+                }
+                axum_extra::typed_header::TypedHeaderRejectionReason::Error(error) => {
+                    return Err(tonic::Status::invalid_argument(error.to_string()));
+                }
+                &_ => {
+                    // NOTE(BB): This exists because the reason is marked non-exhaustive.
+                    return Err(tonic::Status::internal(
+                        "An unknown authentication error occurred, unable to read header",
+                    ));
+                }
+            }
+        }
+    };
+    let claims = maybe_claims.result()?;
 
     if claims.capability_mask.is_some() {
-        return Err(crate::ApiError::Status(tonic::Status::permission_denied(
+        return Err(tonic::Status::permission_denied(
             "Unable to mint a new token from a token with a capability mask",
-        )));
+        ));
     }
 
     crate::server::public::graphql::service_accounts::verify_not_service_account(
-        &env.pg_pool,
+        &app.pg_pool,
         claims.sub,
     )
     .await
@@ -136,13 +170,11 @@ async fn mint_capability_token(
 
         if is_db_error {
             tracing::error!(?err, "failed to check service account status");
-            crate::ApiError::Status(tonic::Status::internal(
-                "database error, please retry the request",
-            ))
+            tonic::Status::internal("database error, please retry the request")
         } else {
-            crate::ApiError::Status(tonic::Status::permission_denied(
+            tonic::Status::permission_denied(
                 "Service account tokens cannot be used to mint capability masked tokens",
-            ))
+            )
         }
     })?;
 
@@ -156,11 +188,9 @@ async fn mint_capability_token(
         })
         .collect::<Vec<&String>>();
     if !invalid_capabilities.is_empty() {
-        return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
-            format!(
-                "Invalid capability requested: {}",
-                invalid_capabilities.iter().join(", ")
-            ),
+        return Err(tonic::Status::invalid_argument(format!(
+            "Invalid capability requested: {}",
+            invalid_capabilities.iter().join(", ")
         )));
     }
 
