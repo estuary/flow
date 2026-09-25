@@ -1,5 +1,5 @@
 ---
-source: crates/derive-python/src/codegen/mapper.rs
+source: crates/python-connector/src/pydantic/mapper.rs
 expression: w
 ---
 Schema for test/collection-anchor with CURI test://example/catalog.yaml?ptr=/collections/test~1collection-anchor/schema:
