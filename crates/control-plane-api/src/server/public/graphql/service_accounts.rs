@@ -746,7 +746,7 @@ impl ServiceAccountsMutation {
 /// service-account caller: a valid key could otherwise mint replacement
 /// credentials for its own account — sidestepping the CreateApiKey gate and
 /// the admin-chosen expiry — or revoke keys outside the admin-facing flow.
-pub(crate) async fn verify_not_service_account(
+pub(crate) async fn is_not_service_account(
     pg_pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
 ) -> sqlx::Result<bool> {
