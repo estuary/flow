@@ -70,6 +70,7 @@ pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watc
 pub struct TestServer {
     pub addr: std::net::SocketAddr,
     pub encoding_key: tokens::jwt::EncodingKey,
+    pub decoding_keys: Vec<tokens::jwt::DecodingKey>,
     _shutdown_tx: tokio::sync::oneshot::Sender<()>,
 }
 
@@ -148,6 +149,7 @@ impl TestServer {
             Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
+        let decoding_keys = app.control_plane_jwt_decode_keys.clone();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -169,6 +171,7 @@ impl TestServer {
         TestServer {
             addr,
             encoding_key,
+            decoding_keys,
             _shutdown_tx: shutdown_tx,
         }
     }
@@ -209,6 +212,17 @@ impl TestServer {
             &self.encoding_key,
         )
         .expect("failed to encode JWT")
+    }
+
+    /// Verify an access token the server minted, using the same keys the
+    /// server verifies bearers with, and return its claims. Panics on a bad
+    /// signature or expired token, since a test holding such a token has
+    /// already failed.
+    pub fn verify_access_token(&self, token: &str) -> crate::ControlClaims {
+        tokens::jwt::verify::<crate::ControlClaims>(token.as_bytes(), 0, &self.decoding_keys)
+            .expect("server-minted access token must verify")
+            .claims()
+            .clone()
     }
 
     /// Create a fixed user token PendingWatch (immutable).

@@ -1,0 +1,12 @@
+---
+source: crates/control-plane-api/src/server/public/token_exchange.rs
+expression: response
+---
+{
+  "data": {
+    "updateAlertConfig": {
+      "catalogPrefixOrName": "aliceCo/",
+      "created": true
+    }
+  }
+}

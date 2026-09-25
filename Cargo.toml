@@ -23,6 +23,7 @@ aide = { version = "0", features = [
     "scalar",
     "redoc",
     "axum-extra",
+    "axum-extra-headers",
     "axum-extra-query",
 ] }
 anyhow = "1"
