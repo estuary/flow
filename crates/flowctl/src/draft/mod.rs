@@ -263,8 +263,7 @@ pub async fn stage_draft_specs(
     Ok(())
 }
 
-/// Splits `specs` into batches of bounded model size, because the agent API
-/// rejects request bodies larger than 2MiB. A larger spec is batched on its own.
+/// Keeps ordinary requests small while allowing a larger model to be sent alone.
 fn batch_draft_specs(specs: Vec<DraftSpecInput>) -> Vec<Vec<DraftSpecInput>> {
     const BATCH_SPECS: usize = 100;
     const BATCH_MODEL_BYTES: usize = 1 << 20;
@@ -297,7 +296,7 @@ async fn unstage_draft_specs(
     draft_id: models::Id,
     catalog_names: Vec<models::Name>,
 ) -> anyhow::Result<Vec<models::Name>> {
-    // Bounds each request well under the agent API's 2MiB body limit.
+    // Bounds the work done by each unstage transaction.
     const BATCH_NAMES: usize = 1000;
 
     let mut removed = Vec::new();

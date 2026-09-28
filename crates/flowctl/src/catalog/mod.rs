@@ -272,38 +272,6 @@ pub struct SpecSummaryItem {
     pub spec_type: CatalogType,
 }
 
-impl SpecSummaryItem {
-    fn summarize_catalog(catalog: tables::DraftCatalog) -> Vec<SpecSummaryItem> {
-        let mut summary = Vec::new();
-        let tables::DraftCatalog {
-            captures,
-            collections,
-            materializations,
-            tests,
-            ..
-        } = catalog;
-
-        summary.extend(captures.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.capture.to_string(),
-            spec_type: CatalogType::Capture,
-        }));
-        summary.extend(collections.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.collection.to_string(),
-            spec_type: CatalogType::Collection,
-        }));
-        summary.extend(materializations.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.materialization.to_string(),
-            spec_type: CatalogType::Materialization,
-        }));
-        summary.extend(tests.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.test.to_string(),
-            spec_type: CatalogType::Test,
-        }));
-
-        summary
-    }
-}
-
 impl CliOutput for SpecSummaryItem {
     type TableAlt = ();
     type CellValue = JsonCell;
