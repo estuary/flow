@@ -34,12 +34,7 @@ pub async fn update_l2_reporting(
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let claims = env.claims()?;
 
-    let policy_result = super::evaluate_names_authorization(
-        env.snapshot(),
-        claims,
-        models::Capability::Admin,
-        ["ops/"],
-    );
+    let policy_result = env.evaluate_names_authorization(models::Capability::Admin, ["ops/"]);
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let template = include_str!("../../../../ops-catalog/reporting-L2-template.bundle.json");

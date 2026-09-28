@@ -50,16 +50,9 @@ impl PrefixesQuery {
         let env = ctx.data::<crate::Envelope>()?;
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
-            let snapshot = env.snapshot();
-            let subject = env.claims()?.subject();
-
             let min_bits: models::authz::CapabilitySet = by.min_capability.into();
 
-            let reachable = tables::UserGrant::reachable_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                &subject,
-            );
+            let reachable = env.reachable_prefixes()?;
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
             // prefix, rather than iterating from the start and filtering
@@ -71,7 +64,7 @@ impl PrefixesQuery {
                 .range::<str, _>((start, std::ops::Bound::Unbounded))
                 .filter(|(_, (bits, _))| bits.is_superset(min_bits))
                 .map(|(prefix, (bits, legacy))| PrefixRef {
-                    prefix: models::Prefix::new(*prefix),
+                    prefix: models::Prefix::new(prefix.as_str()),
                     user_capability: *legacy,
                     capabilities: bits.iter().collect(),
                 })

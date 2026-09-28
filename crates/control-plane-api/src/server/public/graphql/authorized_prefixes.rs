@@ -1,4 +1,4 @@
-/// Returns catalog prefixes where the authenticated user has at least
+/// Filters reachable catalog prefixes to those with at least
 /// `min_capability`, optionally narrowed to those overlapping `prefix_filter`.
 ///
 /// Intended for use by GraphQL queries that list resources scoped to the
@@ -9,9 +9,10 @@
 /// bidirectional check lets callers query with a filter that is either broader
 /// or narrower than their grants.
 pub(super) fn authorized_prefixes(
-    role_grants: &tables::RoleGrants,
-    user_grants: &tables::UserGrants,
-    subject: &models::authz::Subject,
+    reachable: std::collections::BTreeMap<
+        String,
+        (models::authz::CapabilitySet, models::Capability),
+    >,
     min_capability: impl Into<models::authz::CapabilitySet>,
     prefix_filter: Option<&str>,
 ) -> Vec<String> {
@@ -19,13 +20,13 @@ pub(super) fn authorized_prefixes(
 
     // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
     // so the parent-prune step below can run directly on it.
-    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, subject)
+    let prefixes = reachable
         .into_iter()
         .filter(|(prefix, _)| {
-            prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
+            prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(prefix.as_str()))
         })
         .filter(|(_, (bits, _))| bits.is_superset(min_bits))
-        .map(|(prefix, _)| prefix.to_string());
+        .map(|(prefix, _)| prefix);
 
     let mut pruned: Vec<String> = Vec::new();
     for p in prefixes {
@@ -40,7 +41,7 @@ pub(super) fn authorized_prefixes(
     pruned
 }
 
-/// Resolves the caller's prefixes for `min_capability`, narrowed by an optional
+/// Filters reachable prefixes for `min_capability`, narrowed by an optional
 /// `PrefixFilter`, and returns them with the filter's decomposed
 /// `startsWith`/`in` parts (which callers bind into their own SQL). `field`
 /// names the GraphQL input field for the mutual-exclusion error.
@@ -50,9 +51,10 @@ pub(super) fn authorized_prefixes(
 /// `PrefixFilter::narrow_to_exact_set` — so the narrow-only invariant (a filter
 /// can only remove authorized prefixes, never add them) has a single owner.
 pub(super) fn filtered_authorized_prefixes(
-    role_grants: &tables::RoleGrants,
-    user_grants: &tables::UserGrants,
-    subject: &models::authz::Subject,
+    reachable: std::collections::BTreeMap<
+        String,
+        (models::authz::CapabilitySet, models::Capability),
+    >,
     min_capability: impl Into<models::authz::CapabilitySet>,
     filter: Option<super::filters::PrefixFilter>,
     field: &str,
@@ -61,13 +63,7 @@ pub(super) fn filtered_authorized_prefixes(
         Some(cp) => cp.into_parts(field)?,
         None => (None, None),
     };
-    let mut prefixes = authorized_prefixes(
-        role_grants,
-        user_grants,
-        subject,
-        min_capability,
-        starts_with.as_deref(),
-    );
+    let mut prefixes = authorized_prefixes(reachable, min_capability, starts_with.as_deref());
     if let Some(exact) = r#in.as_deref() {
         super::filters::PrefixFilter::narrow_to_exact_set(&mut prefixes, exact);
     }
@@ -80,6 +76,18 @@ mod tests {
     use super::{authorized_prefixes, filtered_authorized_prefixes};
     use crate::test_server::make_grants;
     use models::Capability::{Admin, Read, Write};
+
+    fn reachable_prefixes(
+        role_grants: &tables::RoleGrants,
+        user_grants: &tables::UserGrants,
+        subject: &models::authz::Subject,
+    ) -> std::collections::BTreeMap<String, (models::authz::CapabilitySet, models::Capability)>
+    {
+        tables::UserGrant::reachable_prefixes(role_grants, user_grants, subject)
+            .into_iter()
+            .map(|(prefix, capabilities)| (prefix.to_string(), capabilities))
+            .collect()
+    }
 
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
@@ -95,27 +103,21 @@ mod tests {
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             None,
         );
         assert_eq!(result, vec!["acmeCo/"]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Write,
             None,
         );
         assert_eq!(result, vec!["acmeCo/", "widgets/"]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Read,
             None,
         );
@@ -129,9 +131,7 @@ mod tests {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             Some("acmeCo/data/"),
         );
@@ -145,9 +145,7 @@ mod tests {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/data/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             Some("acmeCo/"),
         );
@@ -159,9 +157,7 @@ mod tests {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "other/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             Some("acmeCo/"),
         );
@@ -173,9 +169,7 @@ mod tests {
         let (ug, rg) = make_grants(&[], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             None,
         );
@@ -191,9 +185,7 @@ mod tests {
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Write,
             None,
         );
@@ -201,9 +193,7 @@ mod tests {
 
         // Admin threshold excludes the transitive Write grant.
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             None,
         );
@@ -220,9 +210,7 @@ mod tests {
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             None,
         );
@@ -239,9 +227,7 @@ mod tests {
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Write,
             None,
         );
@@ -254,9 +240,7 @@ mod tests {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(bob),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(bob)),
             Read,
             None,
         );
@@ -287,7 +271,7 @@ mod tests {
         ]);
         let rg = tables::RoleGrants::new();
         let subject = models::authz::Subject::unrestricted(ALICE);
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, &subject);
+        let reachable = reachable_prefixes(&rg, &ug, &subject);
         assert_eq!(
             reachable["acmeCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -324,7 +308,7 @@ mod tests {
             },
         ]);
         let subject = models::authz::Subject::unrestricted(ALICE);
-        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, &subject);
+        let reachable = reachable_prefixes(&rg, &ug, &subject);
         assert_eq!(
             reachable["sharedCo/"].0,
             CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
@@ -359,9 +343,7 @@ mod tests {
         // ancestors, acmeCo/data/ would qualify on its own (Writer +
         // inherited Admin bits) — it does not.
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             None,
         );
@@ -369,9 +351,7 @@ mod tests {
 
         // min=Write: both qualify on their own bits; parent prunes child.
         let result = authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Write,
             None,
         );
@@ -383,9 +363,7 @@ mod tests {
         let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             None,
             "filter.catalogPrefix",
@@ -405,9 +383,7 @@ mod tests {
             r#in: None,
         };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             Some(filter),
             "filter.catalogPrefix",
@@ -430,9 +406,7 @@ mod tests {
             r#in: Some(vec!["acmeCo/".to_string()]),
         };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             Some(filter),
             "filter.catalogPrefix",
@@ -452,9 +426,7 @@ mod tests {
             r#in: Some(vec!["acmeCo/".to_string()]),
         };
         let err = filtered_authorized_prefixes(
-            &rg,
-            &ug,
-            &models::authz::Subject::unrestricted(ALICE),
+            reachable_prefixes(&rg, &ug, &models::authz::Subject::unrestricted(ALICE)),
             Admin,
             Some(filter),
             "filter.catalogPrefix",

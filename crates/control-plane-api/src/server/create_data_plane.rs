@@ -66,12 +66,7 @@ pub async fn create_data_plane(
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
     let claims = env.claims()?;
 
-    let policy_result = super::evaluate_names_authorization(
-        env.snapshot(),
-        claims,
-        models::Capability::Admin,
-        ["ops/"],
-    );
+    let policy_result = env.evaluate_names_authorization(models::Capability::Admin, ["ops/"]);
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let (data_plane_fqdn, base_name, pulumi_stack) = match &private {

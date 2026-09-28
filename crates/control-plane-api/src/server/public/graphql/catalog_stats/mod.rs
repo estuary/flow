@@ -77,9 +77,7 @@ impl CatalogStatsQuery {
 
         // Authorize before validating anything else, so that error messages
         // cannot be used to probe for names the caller cannot see.
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            env.claims()?,
+        let policy_result = env.evaluate_names_authorization(
             models::Capability::Read,
             names.iter().map(String::as_str),
         );

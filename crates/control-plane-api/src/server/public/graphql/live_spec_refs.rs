@@ -183,20 +183,15 @@ pub async fn paginate_live_specs_refs(
     if all_names.is_empty() {
         return Ok(connection::Connection::new(false, false));
     }
-    let all_refs = crate::server::attach_user_capabilities(
-        env.snapshot(),
-        env.claims()?,
-        all_names,
-        |name, maybe_capability| {
-            if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
-                return None;
-            }
-            Some(LiveSpecRef {
-                catalog_name: models::Name::new(name),
-                user_capability: maybe_capability,
-            })
-        },
-    );
+    let all_refs = env.attach_user_capabilities(all_names, |name, maybe_capability| {
+        if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
+            return None;
+        }
+        Some(LiveSpecRef {
+            catalog_name: models::Name::new(name),
+            user_capability: maybe_capability,
+        })
+    })?;
     apply_pagination(all_refs, after, before, first, last).await
 }
 
@@ -288,9 +283,7 @@ impl LiveSpecsQuery {
         let names = names.unwrap_or_default();
 
         // Fail the entire request if it passed a name or prefix that the user is unauthorized to.
-        let policy_result = crate::server::evaluate_names_authorization(
-            env.snapshot(),
-            env.claims()?,
+        let policy_result = env.evaluate_names_authorization(
             models::Capability::Read,
             names
                 .iter()
@@ -358,20 +351,15 @@ impl LiveSpecsQuery {
         // We already know that the user at least has read capability to the prefix,
         // but it's possible that they may have a greater capability to specific
         // sub-prefixes, so resolve those here.
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names,
-            |name, user_capability| {
-                Some(connection::Edge::new(
-                    name.clone(),
-                    LiveSpecRef {
-                        catalog_name: models::Name::new(name),
-                        user_capability,
-                    },
-                ))
-            },
-        );
+        let edges = env.attach_user_capabilities(names, |name, user_capability| {
+            Some(connection::Edge::new(
+                name.clone(),
+                LiveSpecRef {
+                    catalog_name: models::Name::new(name),
+                    user_capability,
+                },
+            ))
+        })?;
 
         let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
         conn.edges = edges;

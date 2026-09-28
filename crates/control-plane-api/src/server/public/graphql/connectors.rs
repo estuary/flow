@@ -189,7 +189,7 @@ impl ConnectorsQuery {
         full_image_name: String,
     ) -> async_graphql::Result<Option<ConnectorSpec>> {
         let env = ctx.data::<Envelope>()?;
-        let _claims = env.claims()?;
+        env.require_authenticated()?;
 
         let (image, tag) = models::split_image_tag(&full_image_name);
         if tag.is_empty() {
@@ -232,7 +232,7 @@ impl ConnectorsQuery {
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
         let env = ctx.data::<Envelope>()?;
-        let _claims = env.claims()?;
+        env.require_authenticated()?;
         let locale: &str = env.locale.as_ref();
         sqlx::query_as!(
             Connector,
@@ -289,7 +289,7 @@ impl ConnectorsQuery {
         // randos. There's no authorization checks to perform, though, as our
         // ACLs don't currently cover connectors.
         let env = ctx.data::<Envelope>()?;
-        let _claims = env.claims()?;
+        env.require_authenticated()?;
         let locale = env.locale;
 
         connection::query_with::<models::Id, _, _, _, async_graphql::Error>(

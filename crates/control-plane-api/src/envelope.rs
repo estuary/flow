@@ -78,6 +78,116 @@ impl Envelope {
         self.maybe_claims.result()
     }
 
+    /// Rejects requests without verified bearer claims.
+    pub fn require_authenticated(&self) -> tonic::Result<()> {
+        self.claims().map(|_| ())
+    }
+
+    /// Constructs the authorization subject for this request.
+    pub fn subject(&self) -> tonic::Result<models::authz::Subject> {
+        Ok(self.claims()?.subject())
+    }
+
+    /// Evaluate whether the authenticated request user is authorized to access all
+    /// of the enumerated `prefixes_or_names` with at least `min_capability`.
+    /// Return a policy_result shape which fits Envelope::authorization_outcome.
+    ///
+    /// `min_capability` accepts any value that converts into a `CapabilitySet`:
+    /// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
+    /// `models::authz::Capability` bit, or an explicit `CapabilitySet`.
+    pub fn evaluate_names_authorization<Iter, S, C>(
+        &self,
+        min_capability: C,
+        prefixes_or_names: Iter,
+    ) -> crate::AuthZResult<()>
+    where
+        Iter: IntoIterator<Item = S>,
+        S: AsRef<str> + std::fmt::Display,
+        C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
+    {
+        let claims = self.claims()?;
+        let models::authorizations::ControlClaims {
+            email: user_email, ..
+        } = claims;
+        let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+
+        for prefix_or_name in prefixes_or_names.into_iter() {
+            if !self.is_authorized(prefix_or_name.as_ref(), min_capability)? {
+                return Err(tonic::Status::permission_denied(format!(
+                    "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
+                )));
+            }
+        }
+        Ok((None, ()))
+    }
+
+    /// Looks up the user's authorization grants for each item in
+    /// `prefixes_or_names`, and calls the provided `attach` function with each
+    /// item and its capability. The `Some` results are returned in a vec.
+    ///
+    /// Unsure if this belongs on the envelope, but putting it here lets us construct the subject once and reuse it for each capability lookup.
+    pub fn attach_user_capabilities<I, F, T>(
+        &self,
+        prefixes_or_names: I,
+        mut attach: F,
+    ) -> tonic::Result<Vec<T>>
+    where
+        I: IntoIterator<Item = String>,
+        F: FnMut(String, Option<models::Capability>) -> Option<T>,
+    {
+        let subject = self.subject()?;
+        Ok(prefixes_or_names
+            .into_iter()
+            .flat_map(|prefix| {
+                let capability = self.snapshot().user_capability(&subject, &prefix);
+                attach(prefix, capability)
+            })
+            .collect())
+    }
+
+    /// Returns the authenticated user's reachable prefixes using this request's snapshot.
+    pub fn reachable_prefixes(
+        &self,
+    ) -> tonic::Result<
+        std::collections::BTreeMap<String, (models::authz::CapabilitySet, models::Capability)>,
+    > {
+        let subject = self.subject()?;
+        let snapshot = self.snapshot();
+        // A scoped prefix can borrow from the local subject, so results must
+        // own their keys before the subject is dropped.
+        Ok(tables::UserGrant::reachable_prefixes(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            &subject,
+        )
+        .into_iter()
+        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities))
+        .collect())
+    }
+
+    /// Returns the request user's legacy capability for a prefix or name.
+    pub fn get_user_capability(
+        &self,
+        object_role_or_name: &str,
+    ) -> tonic::Result<Option<models::Capability>> {
+        let subject = self.subject()?;
+        Ok(self
+            .snapshot()
+            .user_capability(&subject, object_role_or_name))
+    }
+
+    /// Checks the request user's capabilities for a prefix or name.
+    pub fn is_authorized(
+        &self,
+        object_role_or_name: &str,
+        capability: impl Into<models::authz::CapabilitySet>,
+    ) -> tonic::Result<bool> {
+        let subject = self.subject()?;
+        Ok(self
+            .snapshot()
+            .is_user_authorized(&subject, object_role_or_name, capability))
+    }
+
     /// Returns the request's associated Snapshot.
     pub fn snapshot(&self) -> &crate::Snapshot {
         self.refresh.result().expect("Snapshot refresh never fails")
@@ -288,3 +398,89 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
 // Empty impl allows aide to generate OpenAPI specs for handlers using this extractor.
 // The extractor is an internal detail and doesn't appear in the API documentation.
 impl aide::operation::OperationInput for Envelope {}
+
+#[cfg(test)]
+mod tests {
+    use crate::Snapshot;
+    use crate::test_server::snapshot_of_grants;
+
+    fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
+        models::authorizations::ControlClaims {
+            iat: 0,
+            exp: (tokens::now() + chrono::Duration::hours(1)).timestamp() as u64,
+            sub: user_id,
+            role: "authenticated".to_string(),
+            aud: "authenticated".to_string(),
+            email: Some("user@example.test".to_string()),
+            capability_mask: None,
+            prefix_scope: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn authorization_helpers_require_authenticated_envelope() {
+        let env = crate::test_server::envelope(Snapshot::empty()).await;
+        assert_eq!(
+            env.get_user_capability("acmeCo/").unwrap_err().code(),
+            tonic::Code::Unauthenticated
+        );
+        assert_eq!(
+            env.is_authorized("acmeCo/", models::Capability::Read)
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unauthenticated
+        );
+        assert_eq!(
+            env.reachable_prefixes().unwrap_err().code(),
+            tonic::Code::Unauthenticated
+        );
+        let status = env
+            .evaluate_names_authorization(models::Capability::Read, ["acmeCo/"])
+            .unwrap_err();
+        assert_eq!(status.code(), tonic::Code::Unauthenticated);
+        let status = env
+            .attach_user_capabilities(["acmeCo/".to_string()], |name, _| Some(name))
+            .unwrap_err();
+        assert_eq!(status.code(), tonic::Code::Unauthenticated);
+    }
+
+    /// The `ops/` admin gate of the /admin/* endpoints, expressed as
+    /// evaluate_names_authorization over the Snapshot's grant walk.
+    #[tokio::test]
+    async fn test_evaluate_ops_admin_gate() {
+        use models::Capability::{Admin, Read};
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let evaluate = async |snapshot: Snapshot| {
+            let mut env = crate::test_server::envelope(snapshot).await;
+            let secret = b"test-authorization-secret";
+            let token =
+                tokens::jwt::sign(claims(user), &tokens::jwt::EncodingKey::from_secret(secret))
+                    .unwrap();
+            let verified = tokens::jwt::verify(
+                token.as_bytes(),
+                0,
+                &[tokens::jwt::DecodingKey::from_secret(secret)],
+            )
+            .unwrap();
+            env.maybe_claims = crate::MaybeControlClaims::with_verified(verified);
+            env.evaluate_names_authorization(Admin, ["ops/"])
+        };
+
+        // A direct admin grant to `ops/` is authorized.
+        let snapshot = snapshot_of_grants(&[(user, "ops/", Admin)], &[]);
+        assert!(evaluate(snapshot).await.is_ok());
+
+        // Admin of an unrelated tenant is denied.
+        let snapshot = snapshot_of_grants(&[(user, "acmeCo/", Admin)], &[]);
+        let status = evaluate(snapshot).await.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
+        assert_eq!(
+            status.message(),
+            "user@example.test is not authorized to access prefix or name 'ops/' with required capability admin"
+        );
+
+        // A read grant to `ops/` is not admin.
+        let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
+        assert!(evaluate(snapshot).await.is_err());
+    }
+}

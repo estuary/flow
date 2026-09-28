@@ -484,7 +484,7 @@ impl DataPlanesQuery {
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedDataPlanes> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
+        env.require_authenticated()?;
         let snapshot = env.snapshot();
 
         let DataPlanesFilter {
@@ -539,15 +539,14 @@ impl DataPlanesQuery {
                         return false;
                     }
                 }
-                tables::UserGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        &claims.subject(),
-                        &dp.data_plane_name,
-                        models::Capability::Read,
-                    )
+                true
             })
-            .collect();
+            .filter_map(|dp| match env.is_authorized(&dp.data_plane_name, models::Capability::Read) {
+                Ok(true) => Some(Ok(dp)),
+                Ok(false) => None,
+                Err(err) => Some(Err(err)),
+            })
+            .collect::<tonic::Result<Vec<_>>>()?;
         accessible_data_planes.sort_by(|a, b| a.data_plane_name.cmp(&b.data_plane_name));
 
         // Narrow to the requested `closed` value before pagination, so page
@@ -589,11 +588,8 @@ impl DataPlanesQuery {
         // Fetch detail fields from the database for all data planes in this page.
         let details_map = fetch_data_plane_details(&env.pg_pool, &names).await?;
 
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names.into_iter(),
-            |data_plane_name, user_capability| {
+        let edges =
+            env.attach_user_capabilities(names.into_iter(), |data_plane_name, user_capability| {
                 let dp = row_data.get(&data_plane_name)?;
                 let details = details_map.get(&data_plane_name);
                 let (cloud_provider, region, tag, is_public) =
@@ -627,8 +623,7 @@ impl DataPlanesQuery {
                         .unwrap_or_default(),
                 };
                 Some(connection::Edge::new(data_plane_name, node))
-            },
-        );
+            })?;
 
         let mut conn = PaginatedDataPlanes::new(has_prev, has_next);
         conn.edges = edges;

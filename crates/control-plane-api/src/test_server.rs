@@ -42,6 +42,22 @@ impl tokens::Source for GatedSnapshot {
     }
 }
 
+/// An envelope for grant-policy tests, without database IO or authentication.
+pub async fn envelope(snapshot: Snapshot) -> crate::Envelope {
+    crate::Envelope {
+        original_uri: axum::http::Uri::from_static("/api/graphql"),
+        maybe_claims: crate::MaybeControlClaims::with_unauthenticated(),
+        retry_after: tokens::DateTime::UNIX_EPOCH,
+        refresh: tokens::fixed(Ok(snapshot)).ready_owned().await.token(),
+        started: tokens::now(),
+        started_set: false,
+        pg_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@localhost/unused")
+            .unwrap(),
+        locale: crate::Locale::EnUS,
+    }
+}
+
 pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watch<Snapshot>> {
     use tokens::Source;
 

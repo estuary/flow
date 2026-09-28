@@ -511,37 +511,30 @@ async fn evaluate_authorization(
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> Result<(), crate::ApiError> {
-    let policy_result =
-        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
+    let policy_result = check_authorization(env, claims, catalog_prefix, data_plane_names);
     env.authorization_outcome(policy_result).await?;
     Ok(())
 }
 
 fn check_authorization(
-    snapshot: &crate::Snapshot,
+    env: &crate::Envelope,
     claims: &crate::ControlClaims,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> crate::AuthZResult<()> {
-    let subject = claims.subject();
     let models::authorizations::ControlClaims {
         email: user_email, ..
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
     // Verify the User admins `catalog_prefix`.
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        &subject,
-        catalog_prefix,
-        models::Capability::Admin,
-    ) {
+    if !env.is_authorized(catalog_prefix, models::Capability::Admin)? {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
         )));
     }
 
+    let snapshot = env.snapshot();
     for data_plane_name in data_plane_names {
         // Verify `catalog_prefix` is authorized to access the data-plane for Read.
         if !tables::RoleGrant::is_authorized(
@@ -700,12 +693,9 @@ impl StorageMappingsQuery {
             (None, filter_catalog_prefix) => filter_catalog_prefix,
         };
 
-        let snapshot = env.snapshot();
         let (read_prefixes, under_prefix, exact_prefixes) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                &env.claims()?.subject(),
+                env.reachable_prefixes()?,
                 models::authz::Capability::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -768,23 +758,17 @@ impl StorageMappingsQuery {
             )
             .await?;
 
-        let snapshot = env.snapshot();
-        let claims = env.claims()?;
         let edges = rows
             .into_iter()
             .map(|row| {
-                let user_capability = tables::UserGrant::get_user_capability(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    &claims.subject(),
-                    &row.catalog_prefix,
-                )
-                .ok_or_else(|| {
-                    async_graphql::Error::new(format!(
-                        "missing capability for catalog prefix '{}'",
-                        row.catalog_prefix
-                    ))
-                })?;
+                let user_capability =
+                    env.get_user_capability(&row.catalog_prefix)?
+                        .ok_or_else(|| {
+                            async_graphql::Error::new(format!(
+                                "missing capability for catalog prefix '{}'",
+                                row.catalog_prefix
+                            ))
+                        })?;
 
                 Ok(connection::Edge::new(
                     row.catalog_prefix.clone(),

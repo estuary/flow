@@ -97,12 +97,9 @@ impl SecretsQuery {
     ) -> async_graphql::Result<PaginatedSecrets> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let snapshot = env.snapshot();
         let (view_prefixes, name_starts_with, name_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                &env.claims()?.subject(),
+                env.reachable_prefixes()?,
                 models::authz::Capability::ViewSecret,
                 filter.and_then(|f| f.catalog_name),
                 "filter.catalogName",

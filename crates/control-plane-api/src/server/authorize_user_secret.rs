@@ -24,12 +24,8 @@ pub async fn authorize_user_secret(
         return Err(tonic::Status::invalid_argument("`started` is a required parameter").into());
     }
 
-    let policy_result = super::evaluate_names_authorization(
-        env.snapshot(),
-        env.claims()?,
-        models::authz::Capability::DecryptSecret,
-        [name.as_str()],
-    );
+    let policy_result =
+        env.evaluate_names_authorization(models::authz::Capability::DecryptSecret, [name.as_str()]);
 
     match env.authorization_outcome(policy_result).await {
         Ok((_expiry, ())) => (),
