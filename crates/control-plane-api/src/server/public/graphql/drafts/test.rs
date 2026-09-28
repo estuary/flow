@@ -776,6 +776,84 @@ async fn stage_draft_specs(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts")
     )
 )]
+async fn stage_draft_specs_body_limit(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let draft_id = id(0x80);
+    insert_draft(
+        &pool,
+        draft_id,
+        ALICE,
+        "large model",
+        ts("2024-03-01T00:00:00Z"),
+    )
+    .await;
+
+    let server = start(&pool).await;
+    let alice_token = token(&server, ALICE);
+    let model = serde_json::json!({
+        "schema": { "type": "object", "description": "x".repeat(3 * 1024 * 1024) },
+        "key": []
+    });
+    let mut request = serde_json::json!({
+        "query": STAGE_SPECS_MUTATION,
+        "variables": {
+            "draftId": draft_id,
+            "specs": [{
+                "catalogName": "aliceCo/large",
+                "catalogType": "collection",
+                "model": model
+            }]
+        }
+    });
+    let staged: serde_json::Value = server.graphql(&request, Some(&alice_token)).await;
+    assert_eq!(
+        staged["data"]["stageDraftSpecs"],
+        serde_json::json!(["aliceCo/large"])
+    );
+
+    let stored: (
+        sqlx::types::Json<serde_json::Value>,
+        chrono::DateTime<chrono::Utc>,
+    ) = sqlx::query_as("SELECT spec, updated_at FROM draft_specs WHERE draft_id = $1")
+        .bind(draft_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        stored.0.0 == model,
+        "large model must persist without truncation"
+    );
+
+    request["variables"]["specs"][0]["model"]["schema"]["description"] =
+        serde_json::Value::String("x".repeat(16 * 1024 * 1024));
+    let response = server
+        .rest_client()
+        .post("/api/graphql", &request, Some(&alice_token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    let after: (
+        sqlx::types::Json<serde_json::Value>,
+        chrono::DateTime<chrono::Utc>,
+    ) = sqlx::query_as("SELECT spec, updated_at FROM draft_specs WHERE draft_id = $1")
+        .bind(draft_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        after == stored,
+        "rejected request must not change the staged model or its timestamp"
+    );
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts")
+    )
+)]
 async fn stage_preserves_spec_key_order(pool: sqlx::PgPool) {
     let _guard = test_server::init();
 
