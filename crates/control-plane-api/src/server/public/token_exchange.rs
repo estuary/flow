@@ -352,7 +352,7 @@ mod test {
           "iat": "[iat]",
           "exp": "[exp]",
           "sub": "11111111-1111-1111-1111-111111111111",
-          "role": "authenticated",
+          "role": "authenticated_mask",
           "email": "alice@example.test",
           "capability_mask": []
         }
