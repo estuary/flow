@@ -65,7 +65,9 @@ pub(crate) fn api_v1_router(
         )
         .route(
             "/api/graphql",
-            axum::routing::post(graphql::graphql_handler),
+            axum::routing::post(graphql::graphql_handler)
+                // Catalog models can exceed Axum's default 2 MiB request limit.
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
         // Stripe webhook receiver. Registered as a plain route (not `.api_route`)
