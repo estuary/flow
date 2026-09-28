@@ -244,13 +244,20 @@ async fn do_draft(
         spec = None;
     }
 
+    // Staging replaces all editable fields, so carry forward the existing description.
+    let detail = crate::draft::fetch_draft_specs(ctx, draft_id, false)
+        .await?
+        .into_iter()
+        .find(|spec| spec.catalog_name.as_str() == catalog_name)
+        .and_then(|spec| spec.detail);
+
     let draft_spec = crate::draft::DraftSpecInput {
         catalog_name: models::Name::new(&catalog_name),
         // A drafted deletion has neither a model nor a type.
         catalog_type: spec.is_some().then_some(spec_type),
         model: spec,
         expect_pub_id: Some(last_pub_id),
-        detail: None,
+        detail,
     };
     tracing::debug!(?draft_spec, "staging draft spec");
 
