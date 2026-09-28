@@ -179,15 +179,26 @@ pub struct DraftRow {
     pub created_at: Option<DateTime>,
 }
 impl CliOutput for DraftRow {
-    type TableAlt = ();
+    type TableAlt = bool;
     type CellValue = JsonCell;
 
-    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
-        vec!["Draft ID", "Created"]
+    fn table_headers(include_created: Self::TableAlt) -> Vec<&'static str> {
+        if include_created {
+            vec!["Draft ID", "Created"]
+        } else {
+            vec!["Draft ID"]
+        }
     }
 
-    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-        to_table_row(self, &["/id", "/created_at"])
+    fn into_table_row(self, include_created: Self::TableAlt) -> Vec<Self::CellValue> {
+        to_table_row(
+            self,
+            if include_created {
+                &["/id", "/created_at"]
+            } else {
+                &["/id"]
+            },
+        )
     }
 }
 
@@ -319,7 +330,7 @@ async fn unstage_draft_specs(
 }
 
 /// Fetches all specs of the draft, in catalog-name order.
-async fn fetch_draft_specs(
+pub(crate) async fn fetch_draft_specs(
     ctx: &crate::CliContext,
     draft_id: models::Id,
     include_models: bool,
@@ -359,7 +370,7 @@ async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     let row = create_draft(ctx).await?;
 
     ctx.config.draft = Some(row.id.clone());
-    ctx.write_all(Some(row), ())
+    ctx.write_all(Some(row), true)
 }
 
 async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
@@ -367,7 +378,7 @@ async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     let row = delete_draft(ctx, draft_id).await?;
 
     ctx.config.draft.take();
-    ctx.write_all(Some(row), ())
+    ctx.write_all(Some(row), false)
 }
 
 async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
