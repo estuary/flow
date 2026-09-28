@@ -181,16 +181,16 @@ impl TestServer {
     /// Create a valid access token for a test user.
     /// The token includes all required claims for the server's JWT validation.
     pub fn make_access_token(&self, user_id: uuid::Uuid, email: Option<&str>) -> String {
-        self.make_masked_access_token(user_id, email, None)
+        self.make_restricted_access_token(user_id, email, None, None)
     }
 
-    /// Like `make_access_token`, but with a `capability_mask` claim naming
-    /// the given capability bundles, as a scoped token minted for CI would.
-    pub fn make_masked_access_token(
+    /// Like `make_access_token`, with optional capability and prefix restrictions.
+    pub fn make_restricted_access_token(
         &self,
         user_id: uuid::Uuid,
         email: Option<&str>,
         capability_mask: Option<Vec<String>>,
+        prefix_scope: Option<String>,
     ) -> String {
         let now = tokens::now();
         let claims = models::authorizations::ControlClaims {
@@ -201,6 +201,7 @@ impl TestServer {
             aud: "authenticated".to_string(),
             email: email.map(String::from),
             capability_mask,
+            prefix_scope,
         };
 
         jsonwebtoken::encode(
