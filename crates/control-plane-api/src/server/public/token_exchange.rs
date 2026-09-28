@@ -199,7 +199,7 @@ async fn mint_capability_token(
         iat,
         exp,
         sub: claims.sub,
-        role: claims.role.clone(),
+        role: "authenticated_mask".to_string(),
         email: claims.email.clone(),
         capability_mask: Some(capability_mask),
     };
@@ -310,7 +310,7 @@ mod test {
           "iat": "[iat]",
           "exp": "[exp]",
           "sub": "11111111-1111-1111-1111-111111111111",
-          "role": "authenticated",
+          "role": "authenticated_mask",
           "email": "alice@example.test",
           "capability_mask": [
             "viewer",
@@ -608,7 +608,7 @@ mod test {
         assert_eq!(widened.status(), reqwest::StatusCode::FORBIDDEN);
         insta::assert_snapshot!(
             widened.text().await.unwrap(),
-            @"Unable to mint a new token from a token with a capability mask"
+            @"Unable to mint a capability masked token without the role of authenticated"
         );
     }
 
