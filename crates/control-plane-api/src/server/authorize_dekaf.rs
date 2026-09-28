@@ -95,6 +95,7 @@ pub async fn authorize_dekaf(
         role: DEKAF_ROLE.to_string(),
         email: None,
         capability_mask: None,
+        prefix_scope: None,
     };
 
     // Only return a token if we are not redirecting

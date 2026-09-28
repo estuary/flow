@@ -124,14 +124,24 @@ impl super::RoleGrant {
     }
 }
 
+/// Prefix ranges overlap only when one contains the other;
+/// their intersection is the more specific prefix.
+fn intersect_prefixes<'a>(left: &'a str, right: &'a str) -> Option<&'a str> {
+    if right.starts_with(left) {
+        Some(right)
+    } else if left.starts_with(right) {
+        Some(left)
+    } else {
+        None
+    }
+}
+
 impl super::UserGrant {
     pub fn reachable_nodes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject: &authz::Subject,
+        subject: &'a authz::Subject,
     ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
-        // Copy out what the walk needs so the returned iterator borrows only
-        // the grant tables, not `subject`.
         let user_id = subject.user_id;
         let seed = super::NodeRef {
             object_role: "",
@@ -139,8 +149,7 @@ impl super::UserGrant {
             legacy: models::Capability::None,
         };
         let capability_mask = subject.capability_mask;
-
-        pathfinding::directed::bfs::bfs_reach(seed, move |f| {
+        let user_nodes = pathfinding::directed::bfs::bfs_reach(seed, move |f| {
             next_neighbors(
                 f.clone(),
                 role_grants,
@@ -149,7 +158,29 @@ impl super::UserGrant {
                 capability_mask,
             )
         })
-        .skip(1)
+        .skip(1);
+
+        let Some(scope) = subject.prefix_scope.as_deref() else {
+            return itertools::Either::Left(user_nodes);
+        };
+
+        // Include the scope itself as well as reachable_nodes starting at the scope.
+        let mut scope_nodes = vec![super::NodeRef {
+            object_role: scope,
+            capabilities: EnumSet::all(),
+            legacy: models::Capability::None,
+        }];
+        scope_nodes.extend(super::RoleGrant::reachable_nodes(role_grants, scope));
+
+        itertools::Either::Right(
+            itertools::Itertools::cartesian_product(user_nodes, scope_nodes).filter_map(
+                |(mut user, scope)| {
+                    user.object_role = intersect_prefixes(user.object_role, scope.object_role)?;
+                    user.capabilities &= scope.capabilities;
+                    Some(user)
+                },
+            ),
+        )
     }
 
     /// Returns each prefix reachable for `subject`, mapped to the union
@@ -164,7 +195,7 @@ impl super::UserGrant {
     pub fn reachable_prefixes<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject: &authz::Subject,
+        subject: &'a authz::Subject,
     ) -> std::collections::BTreeMap<&'a str, (authz::CapabilitySet, models::Capability)> {
         let mut out: std::collections::BTreeMap<
             &'a str,
@@ -194,7 +225,7 @@ impl super::UserGrant {
     pub fn get_user_capability<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject: &authz::Subject,
+        subject: &'a authz::Subject,
         object_role_or_name: &str,
     ) -> Option<models::Capability> {
         Self::reachable_nodes(role_grants, user_grants, subject)
@@ -207,7 +238,7 @@ impl super::UserGrant {
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        subject: &authz::Subject,
+        subject: &'a authz::Subject,
         object_role_or_name: &'a str,
         capability: impl Into<authz::CapabilitySet>,
     ) -> bool {
@@ -351,6 +382,32 @@ mod test {
     use crate::{Import, Imports, RoleGrant, RoleGrants, UserGrant, UserGrants};
     use enumset::EnumSet;
     use models::authz::{self, Capability, CapabilityBundle, Subject};
+
+    #[test]
+    fn test_intersect_prefixes() {
+        for (left, right, expected) in [
+            ("acmeCo/", "acmeCo/", Some("acmeCo/")),
+            ("acmeCo/", "acmeCo/team/", Some("acmeCo/team/")),
+            ("acmeCo/team/", "acmeCo/", Some("acmeCo/team/")),
+            ("acmeCo/team/", "acmeCo/other/", None),
+            ("acmeCo/team/", "acmeCo/teammate/", None),
+            ("acmeCo/", "otherCo/", None),
+            ("/", "acmeCo/", None),
+            ("", "acmeCo/", Some("acmeCo/")),
+            ("", "", Some("")),
+        ] {
+            assert_eq!(
+                super::intersect_prefixes(left, right),
+                expected,
+                "{left:?}, {right:?}"
+            );
+            assert_eq!(
+                super::intersect_prefixes(right, left),
+                expected,
+                "{right:?}, {left:?}"
+            );
+        }
+    }
 
     #[test]
     fn test_transitive_imports() {
@@ -1782,6 +1839,121 @@ mod test {
     }
 
     #[test]
+    fn test_prefix_scope_intersects_reachable_authority() {
+        let (role_grants, user_grants, user_id) = masked_walk_scenario();
+        // The scope may be reached indirectly; its downstream roles remain
+        // available only where the user's own traversal also reaches them.
+        for (scope, expected) in [
+            (
+                "acmeCo/team/",
+                vec!["acmeCo/team/", "bobCo/shared/", "carolCo/upstream/"],
+            ),
+            ("bobCo/", vec!["bobCo/shared/", "carolCo/upstream/"]),
+            ("carolCo/upstream/team/", vec!["carolCo/upstream/team/"]),
+            ("daveCo/team/", vec!["daveCo/team/"]),
+            ("unknownCo/", vec![]),
+        ] {
+            let mut subject = Subject::unrestricted(user_id);
+            subject.prefix_scope = Some(scope.to_string());
+            let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
+            assert_eq!(reachable.keys().copied().collect::<Vec<_>>(), expected);
+            for name in [
+                "acmeCo/team/task",
+                "acmeCo/teammate/task",
+                "bobCo/shared/task",
+                "carolCo/upstream/team/task",
+                "daveCo/team/task",
+                "unknownCo/task",
+            ] {
+                assert_eq!(
+                    UserGrant::is_authorized(
+                        &role_grants,
+                        &user_grants,
+                        &subject,
+                        name,
+                        Capability::CatalogRead
+                    ),
+                    expected.iter().any(|prefix| name.starts_with(*prefix)),
+                    "scope {scope}, name {name}"
+                );
+            }
+            subject.capability_mask = Some(authz::CapabilitySet::empty());
+            assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject).is_empty());
+        }
+        // An empty token scope normalizes to `/`, not unrestricted authority.
+        let mut empty = Subject::unrestricted(user_id);
+        empty.prefix_scope = Some("/".to_string());
+        assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &empty).is_empty());
+    }
+
+    #[test]
+    fn test_prefix_scope_intersects_capabilities_and_excludes_unreachable_roles() {
+        let (role_grants, user_grants, user_id) = build_scenario(
+            vec![
+                ("acmeCo/a/", vec![CapabilityBundle::Editor]),
+                ("acmeCo/private/", vec![CapabilityBundle::Admin]),
+            ],
+            vec![
+                ("acmeCo/a/", "acmeCo/b/", vec![CapabilityBundle::Editor]),
+                ("acmeCo/b/", "acmeCo/c/", vec![CapabilityBundle::Editor]),
+                ("acmeCo/scope/", "acmeCo/b/", vec![CapabilityBundle::Viewer]),
+                (
+                    "acmeCo/scope/",
+                    "acmeCo/unreachable/",
+                    vec![CapabilityBundle::Admin],
+                ),
+            ],
+        );
+        let mut subject = Subject::unrestricted(user_id);
+        subject.prefix_scope = Some("acmeCo/b/".to_string());
+        assert_reachable(
+            &role_grants,
+            &user_grants,
+            &subject,
+            vec![
+                ("acmeCo/b/", CapabilityBundle::Editor.capabilities()),
+                ("acmeCo/c/", CapabilityBundle::Editor.capabilities()),
+            ],
+        );
+        // The scope reaches B with Viewer only, so it cannot reach C or
+        // preserve the user's edit authority at B. Its other edge grants
+        // nothing because the user cannot reach that destination.
+        subject.prefix_scope = Some("acmeCo/scope/".to_string());
+        assert_reachable(
+            &role_grants,
+            &user_grants,
+            &subject,
+            vec![(
+                "acmeCo/b/",
+                Capability::CatalogRead | Capability::JournalRead,
+            )],
+        );
+        subject.capability_mask = Some(Capability::CatalogRead.into());
+        assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject).is_empty());
+    }
+
+    #[test]
+    fn test_prefix_scope_limits_legacy_authority() {
+        let user_id = uuid::Uuid::from_bytes([1; 16]);
+        let user_grants = UserGrants::from_iter([UserGrant {
+            user_id,
+            object_role: models::Prefix::new("acmeCo/"),
+            capability: models::Capability::Admin,
+            bundles: vec![],
+        }]);
+        let mut subject = Subject::unrestricted(user_id);
+        subject.prefix_scope = Some("acmeCo/team/".to_string());
+        assert_eq!(
+            UserGrant::get_user_capability(&[], &user_grants, &subject, "acmeCo/team/task"),
+            Some(models::Capability::Admin)
+        );
+        assert_eq!(
+            UserGrant::get_user_capability(&[], &user_grants, &subject, "acmeCo/other/task"),
+            None
+        );
+    }
+
+    #[test]
     fn test_masked_walk_unmasked_parity() {
         use Capability::*;
 
@@ -1815,6 +1987,7 @@ mod test {
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
+            prefix_scope: None,
         };
 
         for object in ["acmeCo/thing", "bobCo/shared/thing", "daveCo/thing"] {
@@ -1840,6 +2013,7 @@ mod test {
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
+            prefix_scope: None,
         };
 
         assert_reachable(
@@ -1873,6 +2047,7 @@ mod test {
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
+            prefix_scope: None,
         };
 
         assert_reachable(
@@ -1915,6 +2090,7 @@ mod test {
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
+            prefix_scope: None,
         };
 
         assert_reachable(
@@ -1955,11 +2131,8 @@ mod test {
             bundles: vec![],
         });
 
-        let unmasked = UserGrant::reachable_prefixes(
-            &role_grants,
-            &user_grants,
-            &Subject::unrestricted(user_id),
-        );
+        let subject = Subject::unrestricted(user_id);
+        let unmasked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
         assert_eq!(
             unmasked.keys().collect::<Vec<_>>(),
             vec![
@@ -1979,6 +2152,7 @@ mod test {
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(authz::CapabilitySet::from(CatalogRead | Delegate)),
+            prefix_scope: None,
         };
         let masked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
         assert_eq!(
@@ -2014,6 +2188,7 @@ mod test {
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
+            prefix_scope: None,
         };
 
         assert_eq!(
@@ -2042,6 +2217,7 @@ mod test {
         let subject_delegation = authz::Subject {
             user_id,
             capability_mask: Some(mask),
+            prefix_scope: None,
         };
         assert_eq!(
             UserGrant::get_user_capability(
