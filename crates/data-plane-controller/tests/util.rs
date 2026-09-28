@@ -153,7 +153,8 @@ pub fn initial_state() -> stack::State {
       "connector_limits": {
         "cpu": "200m",
         "memory": "1g"
-      }
+      },
+      "runtime_worker_threads": 2
     }))
     .unwrap();
 
