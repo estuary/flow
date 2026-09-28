@@ -53,8 +53,23 @@ pub const FIXTURE_PRODUCER: uuid::Producer = uuid::Producer([7, 19, 83, 3, 3, 17
 pub const FIXTURE_BLOCK_ENTRIES: usize = 32 * 1024;
 pub const FIXTURE_BLOCK_BYTES: usize = 64 * 1024 * 1024;
 
-/// A transaction of documents tagged with their source collection names.
-pub type Transaction = Vec<(String, serde_json::Value)>;
+/// A transaction of items tagged with their source collection names.
+pub type Transaction = Vec<TxnItem>;
+
+/// One collection-tagged item of a [`Transaction`].
+#[derive(Debug, PartialEq)]
+pub enum TxnItem {
+    /// A document of the named collection.
+    Doc(String, serde_json::Value),
+    /// Begin a backfill of every binding sourcing the named collection.
+    BackfillBegin(String),
+    /// Complete the open backfill of every binding sourcing the named collection.
+    BackfillComplete(String),
+}
+
+/// Open backfills of a run: the begin clock of each binding (by index) whose
+/// latest backfill has not yet completed.
+pub type OpenBackfills = HashMap<u16, uuid::Clock>;
 
 /// One queued item of a replay opener's channel.
 pub enum FixtureItem {
@@ -297,8 +312,11 @@ pub struct TxnState {
     block_journals: HashMap<String, u16>,
     /// (journal, binding) => (max committed clock, source bytes this txn).
     frontier_acc: BTreeMap<(String, u16), (uuid::Clock, i64)>,
-    /// Clock seconds stamped on the next document pushed by [`push_doc`], which
-    /// advances it per document. Unused (and left zero) when the caller stamps
+    /// Backfill begin and complete clocks of this transaction, by binding index.
+    backfill_begin: BTreeMap<u16, uuid::Clock>,
+    backfill_complete: BTreeMap<u16, uuid::Clock>,
+    /// Clock seconds stamped on the next document pushed by [`push_doc`] or
+    /// backfill begin pushed by [`push_item`], each of which advances it. Unused (and left zero) when the caller stamps
     /// each document itself via [`push_binding`].
     doc_seconds: u64,
 }
@@ -312,6 +330,8 @@ impl TxnState {
             entries_bytes: vec![0; n_shards],
             block_journals: HashMap::new(),
             frontier_acc: BTreeMap::new(),
+            backfill_begin: BTreeMap::new(),
+            backfill_complete: BTreeMap::new(),
             doc_seconds: 0,
         }
     }
@@ -508,6 +528,99 @@ pub fn push_doc(
     Ok(())
 }
 
+/// Push one collection-tagged [`TxnItem`] into `state`: a document through
+/// [`push_doc`], or a backfill marker through [`push_backfill_begin`] or
+/// [`push_backfill_complete`].
+#[allow(clippy::too_many_arguments)]
+pub fn push_item(
+    state: &mut TxnState,
+    item: &TxnItem,
+    bindings: &[shuffle::Binding],
+    sources: &[shuffle::Source],
+    validators: &mut [doc::Validator],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [ShardWriter],
+    sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
+    journal_offsets: &mut HashMap<(String, u16), i64>,
+    open_backfills: &mut OpenBackfills,
+    packed_key: &mut bytes::BytesMut,
+) -> anyhow::Result<()> {
+    match item {
+        TxnItem::Doc(collection, doc) => push_doc(
+            state,
+            collection,
+            doc,
+            bindings,
+            sources,
+            validators,
+            collection_bindings,
+            shards,
+            writers,
+            sealed,
+            journal_offsets,
+            packed_key,
+        ),
+        TxnItem::BackfillBegin(collection) => {
+            push_backfill_begin(
+                state,
+                collection,
+                bindings,
+                collection_bindings,
+                open_backfills,
+            );
+            Ok(())
+        }
+        TxnItem::BackfillComplete(collection) => push_backfill_complete(
+            state,
+            collection,
+            bindings,
+            collection_bindings,
+            open_backfills,
+        ),
+    }
+}
+
+/// Begin a backfill of every binding of `collection`, consuming one document
+/// clock as the marker's publication time. That clock is the truncation
+/// boundary, so documents pushed before the marker fall below it and documents
+/// pushed after it do not.
+fn push_backfill_begin(
+    state: &mut TxnState,
+    collection: &str,
+    bindings: &[shuffle::Binding],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    open_backfills: &mut OpenBackfills,
+) {
+    let clock = uuid::Clock::from_unix(state.doc_seconds, 0);
+    state.doc_seconds += 1;
+
+    for &bi in collection_bindings.get(collection).into_iter().flatten() {
+        let binding = bindings[bi].index;
+        state.backfill_begin.insert(binding, clock);
+        open_backfills.insert(binding, clock);
+    }
+}
+
+/// Complete the open backfill of every binding of `collection`. A completion
+/// carries its begin's clock, so a binding with no open backfill is an error.
+fn push_backfill_complete(
+    state: &mut TxnState,
+    collection: &str,
+    bindings: &[shuffle::Binding],
+    collection_bindings: &HashMap<String, Vec<usize>>,
+    open_backfills: &mut OpenBackfills,
+) -> anyhow::Result<()> {
+    for &bi in collection_bindings.get(collection).into_iter().flatten() {
+        let binding = bindings[bi].index;
+        let Some(clock) = open_backfills.remove(&binding) else {
+            anyhow::bail!("backfill complete of {collection} has no open backfill begin");
+        };
+        state.backfill_complete.insert(binding, clock);
+    }
+    Ok(())
+}
+
 /// Close a transaction: append each shard's remaining documents and return the
 /// checkpoint frontier which makes the transaction's documents visible.
 ///
@@ -526,6 +639,8 @@ pub fn finish_txn(
         entries,
         block_journals,
         frontier_acc,
+        backfill_begin,
+        backfill_complete,
         ..
     } = state;
 
@@ -563,7 +678,11 @@ pub fn finish_txn(
         .collect();
 
     let flushed_lsn: Vec<u64> = writers.iter().map(|w| w.last_lsn.as_u64()).collect();
-    shuffle::Frontier::new(journals, flushed_lsn).context("building fixture checkpoint frontier")
+    let mut frontier = shuffle::Frontier::new(journals, flushed_lsn)
+        .context("building fixture checkpoint frontier")?;
+    frontier.latest_backfill_begin = backfill_begin;
+    frontier.latest_backfill_complete = backfill_complete;
+    Ok(frontier)
 }
 
 /// Write one whole binding-tagged transaction and return its checkpoint
@@ -605,7 +724,7 @@ pub fn write_transaction_for_bindings(
 
 /// Write one whole collection-tagged transaction — the `txn_ordinal`-th of the
 /// run — and return its checkpoint frontier: a [`TxnState::for_txn`] ->
-/// [`push_doc`] -> [`finish_txn`] sequence over its documents.
+/// [`push_item`] -> [`finish_txn`] sequence over its items.
 #[allow(clippy::too_many_arguments)]
 pub fn write_transaction(
     transaction: &Transaction,
@@ -618,16 +737,16 @@ pub fn write_transaction(
     sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
     txn_ordinal: &mut u64,
     journal_offsets: &mut HashMap<(String, u16), i64>,
+    open_backfills: &mut OpenBackfills,
     packed_key: &mut bytes::BytesMut,
 ) -> anyhow::Result<shuffle::Frontier> {
     let mut state = TxnState::for_txn(writers.len(), *txn_ordinal);
     *txn_ordinal += 1;
 
-    for (collection, doc) in transaction {
-        push_doc(
+    for item in transaction {
+        push_item(
             &mut state,
-            collection,
-            doc,
+            item,
             bindings,
             sources,
             validators,
@@ -636,6 +755,7 @@ pub fn write_transaction(
             writers,
             sealed,
             journal_offsets,
+            open_backfills,
             packed_key,
         )?;
     }
