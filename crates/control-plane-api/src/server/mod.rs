@@ -138,34 +138,6 @@ where
     Ok((None, ()))
 }
 
-/// Looks up the user's authorization grants for each item in
-/// `prefixes_or_names`, and calls the provided `attach` function with each
-/// item and its capability. The `Some` results are returned in a vec.
-pub fn attach_user_capabilities<I, F, T>(
-    snapshot: &Snapshot,
-    claims: &crate::ControlClaims,
-    prefixes_or_names: I,
-    mut attach: F,
-) -> Vec<T>
-where
-    I: IntoIterator<Item = String>,
-    F: FnMut(String, Option<models::Capability>) -> Option<T>,
-{
-    let subject = claims.subject();
-    prefixes_or_names
-        .into_iter()
-        .flat_map(|prefix| {
-            let capability = tables::UserGrant::get_user_capability(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                &subject,
-                &prefix,
-            );
-            attach(prefix, capability)
-        })
-        .collect()
-}
-
 /// Build the agent's API router.
 pub fn build_router(
     app: Arc<App>,
