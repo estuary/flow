@@ -1,0 +1,65 @@
+---
+source: crates/connector-vmm/src/image.rs
+expression: table
+---
+## the full contract
+{
+  "Cmd": [
+    "/flow-guest-init",
+    "--guest-ip",
+    "192.0.2.2/30",
+    "--gateway",
+    "192.0.2.1",
+    "--nameserver",
+    "192.0.2.1",
+    "--uid",
+    "1000",
+    "--gid",
+    "1001",
+    "--connector-mount",
+    "/tmp/connector-mounts-0/mount-acme",
+    "--",
+    "/tmp/connector-mounts-0/mount-acme/flow-connector-init",
+    "--image-inspect-json-path=/tmp/connector-mounts-0/mount-acme/image-inspect.json",
+    "--vsock-port=49092"
+  ],
+  "Env": [
+    "CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme",
+    "LOG_FORMAT=json",
+    "LOG_LEVEL=warn",
+    "PATH=/usr/local/bin:/usr/bin",
+    "LOG_LEVEL=trace",
+    "CONNECTOR_MOUNT=/somewhere/else"
+  ],
+  "WorkingDir": "/opt/acmeCo"
+}
+
+## the runtime set no log variables
+{
+  "Cmd": [
+    "/flow-guest-init",
+    "--guest-ip",
+    "192.0.2.2/30",
+    "--gateway",
+    "192.0.2.1",
+    "--nameserver",
+    "192.0.2.1",
+    "--uid",
+    "1000",
+    "--gid",
+    "1001",
+    "--connector-mount",
+    "/tmp/connector-mounts-0/mount-acme",
+    "--",
+    "/tmp/connector-mounts-0/mount-acme/flow-connector-init",
+    "--image-inspect-json-path=/tmp/connector-mounts-0/mount-acme/image-inspect.json",
+    "--vsock-port=49092"
+  ],
+  "Env": [
+    "CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme",
+    "PATH=/usr/local/bin:/usr/bin",
+    "LOG_LEVEL=trace",
+    "CONNECTOR_MOUNT=/somewhere/else"
+  ],
+  "WorkingDir": "/opt/acmeCo"
+}

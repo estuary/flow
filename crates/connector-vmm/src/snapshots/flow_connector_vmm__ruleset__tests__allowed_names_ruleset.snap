@@ -1,0 +1,57 @@
+---
+source: crates/connector-vmm/src/ruleset.rs
+expression: render(ALLOWED_NAMES)
+---
+# flow-connector-vmm egress ruleset: egress=public allowAll=false allowedNames=3 declaredCidrs=0 connectionsPerMinute=None distinctDestinationsPerMinute=None ttlFloorSecs=120 ttlCapSecs=1800
+table inet flow_egress {}
+delete table inet flow_egress
+
+table inet flow_egress {
+	set baseline {
+		type ipv4_addr
+		flags interval
+		auto-merge
+		elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.88.99.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
+	}
+
+	set resolved {
+		type ipv4_addr
+		flags timeout
+		size 1024
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		iifname "tap0" ip saddr != 192.0.2.2 counter drop comment "anti-spoof"
+		ct state established,related counter accept comment "replies"
+		meta nfproto ipv6 counter drop comment "no-ipv6"
+		meta l4proto != { tcp, udp } counter drop comment "tcp-udp-only"
+		ip daddr @baseline counter drop comment "baseline"
+		tcp dport 25 counter drop comment "smtp"
+		ct state new counter jump egress_accept comment "egress"
+		counter comment "forward-drop"
+	}
+
+	chain egress_accept {
+		ip daddr @resolved counter accept comment "resolved"
+	}
+
+	chain input {
+		type filter hook input priority filter; policy drop;
+		iif lo counter accept comment "loopback"
+		iifname "tap0" ip saddr != 192.0.2.2 counter drop comment "anti-spoof"
+		ct state established,related counter accept comment "replies"
+		iifname "tap0" ip saddr 192.0.2.2 ip daddr 192.0.2.1 udp dport 53 counter accept comment "tap-dns"
+		counter comment "input-drop"
+	}
+
+	chain output {
+		type filter hook output priority filter; policy accept;
+		oifname "tap0" ct state != established counter drop comment "no-inbound"
+	}
+
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		ip saddr 192.0.2.2 oifname "eth0" counter masquerade comment "masquerade"
+	}
+}

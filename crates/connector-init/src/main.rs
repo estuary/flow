@@ -2,7 +2,25 @@ use clap::Parser;
 use tracing_subscriber::prelude::*;
 
 fn main() {
-    let args = connector_init::Args::parse();
+    let args = match connector_init::Args::try_parse() {
+        Ok(args) => args,
+        // `--help` and `--version` are clap's other "errors", and go to stdout.
+        Err(error) if !error.use_stderr() => {
+            let _ = error.print();
+            std::process::exit(error.exit_code());
+        }
+        Err(error) => {
+            // The launcher treats a leading space on stderr as readiness;
+            // prefix clap's indented argument lists to avoid signaling on failure.
+            for line in error.render().to_string().trim_end().lines() {
+                match line.is_empty() {
+                    true => eprintln!("flow-connector-init:"),
+                    false => eprintln!("flow-connector-init: {line}"),
+                }
+            }
+            std::process::exit(error.exit_code());
+        }
+    };
 
     // Map the LOG_LEVEL variable to an equivalent tracing EnvFilter.
     // Restrict logged modules to the current crate, as debug logging

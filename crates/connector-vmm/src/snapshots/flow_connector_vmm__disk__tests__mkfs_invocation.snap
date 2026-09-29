@@ -1,0 +1,5 @@
+---
+source: crates/connector-vmm/src/disk.rs
+expression: "super::mkfs_argv(&super::proc_path(3)).join(\" \")"
+---
+mkfs.ext4 -E lazy_itable_init=0 -O ^has_journal -m 0 -q -F /proc/self/fd/3

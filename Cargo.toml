@@ -112,6 +112,7 @@ jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 kafka-protocol = "0.15"
 lazy_static = "1"
 libc = "0"
+libloading = "0"
 librocksdb-sys = { version = "0", default-features = false, features = [
     "bindgen-runtime",
     "snappy",
@@ -141,6 +142,7 @@ prost = "0"
 protobuf = "3"
 protobuf-json-mapping = "3"
 protobuf-parse = "3"
+psl = "2"
 regex = "1"
 reqwest = { version = "0", default-features = false, features = [
     "json",
@@ -217,6 +219,7 @@ tokio = { version = "1", features = [
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0", features = ["io", "compat", "rt"] }
 tokio-stream = { version = "0" }
+tokio-vsock = { version = "0", features = ["tonic014"] }
 tonic = { version = "0", features = ["tls-native-roots"] }
 tonic-prost = "0"
 hyper-util = "0"

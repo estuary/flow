@@ -1,0 +1,6 @@
+---
+source: crates/connector-vmm/src/launch.rs
+expression: table
+---
+/ is writable; the VMM container must be launched with `--read-only`
+/tmp/connector-mounts-0/mount-acme is writable; the VMM container must be launched with `--mount type=bind,source=M,target=M,readonly`

@@ -1,0 +1,58 @@
+---
+source: crates/connector-vmm/src/launch.rs
+expression: table
+---
+## base
+init_log(target=2, debug=false)
+create_ctx()
+set_vm_config(ctx=7, vcpus=2, memory_mib=1024)
+add_virtiofs3(ctx=7, tag="/dev/root", path="/rootfs", read_only=false)
+add_virtiofs3(ctx=7, tag="connector-mount", path="/tmp/connector-mounts-0/mount-acme", read_only=true)
+add_overlay_file(ctx=7, path="flow-guest-init", len=20, mode=100755)
+add_overlay_file(ctx=7, path=".krun_config.json", len=36, mode=100644)
+add_scratch_disk(ctx=7, id="scratch", path="/proc/self/fd/3")
+add_net_tap(ctx=7, tap="tap0", mac=02:f1:0f:00:00:02)
+disable_implicit_vsock(ctx=7)
+add_vsock(ctx=7, tsi_features=0)
+add_vsock_port2(ctx=7, port=49092, path="/sock/init.sock", listen=true)
+disable_implicit_console(ctx=7)
+add_console(ctx=7, input=4, output=1, error=2)
+start_enter(ctx=7)
+-> the recording implementation does not start a VM
+
+## with a persistent disk
+init_log(target=2, debug=false)
+create_ctx()
+set_vm_config(ctx=7, vcpus=2, memory_mib=1024)
+add_virtiofs3(ctx=7, tag="/dev/root", path="/rootfs", read_only=false)
+add_virtiofs3(ctx=7, tag="connector-mount", path="/tmp/connector-mounts-0/mount-acme", read_only=true)
+add_virtiofs3(ctx=7, tag="persistent-disk", path="/persistent-disk", read_only=false)
+add_overlay_file(ctx=7, path="flow-guest-init", len=20, mode=100755)
+add_overlay_file(ctx=7, path=".krun_config.json", len=36, mode=100644)
+add_scratch_disk(ctx=7, id="scratch", path="/proc/self/fd/3")
+add_net_tap(ctx=7, tap="tap0", mac=02:f1:0f:00:00:02)
+disable_implicit_vsock(ctx=7)
+add_vsock(ctx=7, tsi_features=0)
+add_vsock_port2(ctx=7, port=49092, path="/sock/init.sock", listen=true)
+disable_implicit_console(ctx=7)
+add_console(ctx=7, input=4, output=1, error=2)
+start_enter(ctx=7)
+-> the recording implementation does not start a VM
+
+## --debug
+init_log(target=2, debug=true)
+create_ctx()
+set_vm_config(ctx=7, vcpus=2, memory_mib=1024)
+add_virtiofs3(ctx=7, tag="/dev/root", path="/rootfs", read_only=false)
+add_virtiofs3(ctx=7, tag="connector-mount", path="/tmp/connector-mounts-0/mount-acme", read_only=true)
+add_overlay_file(ctx=7, path="flow-guest-init", len=20, mode=100755)
+add_overlay_file(ctx=7, path=".krun_config.json", len=36, mode=100644)
+add_scratch_disk(ctx=7, id="scratch", path="/proc/self/fd/3")
+add_net_tap(ctx=7, tap="tap0", mac=02:f1:0f:00:00:02)
+disable_implicit_vsock(ctx=7)
+add_vsock(ctx=7, tsi_features=0)
+add_vsock_port2(ctx=7, port=49092, path="/sock/init.sock", listen=true)
+disable_implicit_console(ctx=7)
+add_console(ctx=7, input=4, output=6, error=2)
+start_enter(ctx=7)
+-> the recording implementation does not start a VM

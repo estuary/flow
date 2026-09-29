@@ -1,0 +1,103 @@
+---
+source: crates/connector-vmm/src/image.rs
+expression: table
+---
+## default workload
+/flow-guest-init
+--guest-ip
+192.0.2.2/30
+--gateway
+192.0.2.1
+--nameserver
+192.0.2.1
+--uid
+1000
+--gid
+1001
+--connector-mount
+/tmp/connector-mounts-0/mount-acme
+--
+/tmp/connector-mounts-0/mount-acme/flow-connector-init
+--image-inspect-json-path=/tmp/connector-mounts-0/mount-acme/image-inspect.json
+--vsock-port=49092
+
+## with a persistent disk
+/flow-guest-init
+--guest-ip
+192.0.2.2/30
+--gateway
+192.0.2.1
+--nameserver
+192.0.2.1
+--uid
+1000
+--gid
+1001
+--connector-mount
+/tmp/connector-mounts-0/mount-acme
+--persistent-disk
+/acmeCo/state
+--
+/tmp/connector-mounts-0/mount-acme/flow-connector-init
+--image-inspect-json-path=/tmp/connector-mounts-0/mount-acme/image-inspect.json
+--vsock-port=49092
+
+## as root, with a root command first
+/flow-guest-init
+--guest-ip
+192.0.2.2/30
+--gateway
+192.0.2.1
+--nameserver
+192.0.2.1
+--uid
+1000
+--gid
+1001
+--connector-mount
+/tmp/connector-mounts-0/mount-acme
+--run-as-root
+--as-root-exec
+sysctl -w vm.drop_caches=3
+--
+/tmp/connector-mounts-0/mount-acme/flow-connector-init
+--image-inspect-json-path=/tmp/connector-mounts-0/mount-acme/image-inspect.json
+--vsock-port=49092
+
+## --exec replaces the workload, not the init
+/flow-guest-init
+--guest-ip
+192.0.2.2/30
+--gateway
+192.0.2.1
+--nameserver
+192.0.2.1
+--uid
+1000
+--gid
+1001
+--connector-mount
+/tmp/connector-mounts-0/mount-acme
+--
+/bin/sh
+-c
+exit 7
+
+## root image user
+/flow-guest-init
+--guest-ip
+192.0.2.2/30
+--gateway
+192.0.2.1
+--nameserver
+192.0.2.1
+--uid
+0
+--gid
+0
+--connector-mount
+/tmp/connector-mounts-0/mount-acme
+--
+/tmp/connector-mounts-0/mount-acme/flow-connector-init
+--image-inspect-json-path=/tmp/connector-mounts-0/mount-acme/image-inspect.json
+--vsock-port=49092
