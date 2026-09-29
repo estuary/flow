@@ -160,47 +160,29 @@ impl LiveSpecRef {
     }
 }
 
-/// Applies the given pagination parameters to `all_names` and returns a
-/// `Connection` suitable for a graphql response. `all_names` is expected to
-/// contain the complete list of **sorted** live specs names. Note that the sort
-/// order, both of `all_names` and the query results, must always be ascending,
-/// regardless of whether forward or reverse pagination is being used. Source:
-/// https://relay.dev/graphql/connections.htm#sec-Edge-order
-/// If `require_min_capability` is `Some`, then `all_specs` will be filtered to
-/// only include those specs for which the user has the required minimum
-/// capability.
-pub async fn paginate_live_specs_refs(
+/// Resolves legacy capabilities for each reference without filtering names.
+pub fn live_spec_refs(
     ctx: &Context<'_>,
-    require_min_capability: Option<models::Capability>,
     all_names: Vec<String>,
-    after: Option<String>,
-    before: Option<String>,
-    first: Option<i32>,
-    last: Option<i32>,
-) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+) -> async_graphql::Result<Vec<LiveSpecRef>> {
     let env = ctx.data::<crate::Envelope>()?;
-
-    if all_names.is_empty() {
-        return Ok(connection::Connection::new(false, false));
-    }
-    let all_refs = crate::server::attach_user_capabilities(
-        env.snapshot(),
-        env.claims()?,
-        all_names,
-        |name, maybe_capability| {
-            if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
-                return None;
-            }
-            Some(LiveSpecRef {
+    let subject = env.claims()?.subject();
+    let all_refs = all_names
+        .into_iter()
+        .map(|name| {
+            let user_capability = env.snapshot().user_capability(&subject, &name);
+            LiveSpecRef {
                 catalog_name: models::Name::new(name),
-                user_capability: maybe_capability,
-            })
-        },
-    );
-    apply_pagination(all_refs, after, before, first, last).await
+                user_capability,
+            }
+        })
+        .collect();
+    Ok(all_refs)
 }
 
-async fn apply_pagination(
+/// References and results must remain sorted by ascending catalog name, including
+/// when paginating backwards: https://relay.dev/graphql/connections.htm#sec-Edge-order
+pub async fn paginate_live_specs_refs(
     mut all_refs: Vec<LiveSpecRef>,
     after: Option<String>,
     before: Option<String>,
@@ -358,20 +340,20 @@ impl LiveSpecsQuery {
         // We already know that the user at least has read capability to the prefix,
         // but it's possible that they may have a greater capability to specific
         // sub-prefixes, so resolve those here.
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names,
-            |name, user_capability| {
-                Some(connection::Edge::new(
+        let subject = env.claims()?.subject();
+        let edges = names
+            .into_iter()
+            .map(|name| {
+                let user_capability = env.snapshot().user_capability(&subject, &name);
+                connection::Edge::new(
                     name.clone(),
                     LiveSpecRef {
                         catalog_name: models::Name::new(name),
                         user_capability,
                     },
-                ))
-            },
-        );
+                )
+            })
+            .collect();
 
         let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
         conn.edges = edges;

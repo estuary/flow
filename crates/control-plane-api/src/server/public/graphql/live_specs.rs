@@ -1,5 +1,5 @@
 use crate::server::public::graphql::live_spec_refs::{
-    LiveSpecRef, PaginatedLiveSpecsRefs, paginate_live_specs_refs,
+    LiveSpecRef, PaginatedLiveSpecsRefs, live_spec_refs, paginate_live_specs_refs,
 };
 use async_graphql::{ComplexObject, Context, SimpleObject, dataloader};
 use chrono::{DateTime, Utc};
@@ -50,16 +50,8 @@ impl LiveSpec {
         if self.reads_from.is_empty() {
             return Ok(None);
         }
-        let conn = paginate_live_specs_refs(
-            ctx,
-            None,
-            self.reads_from.clone(),
-            after,
-            before,
-            first,
-            last,
-        )
-        .await?;
+        let refs = live_spec_refs(ctx, self.reads_from.clone())?;
+        let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
     }
 
@@ -74,16 +66,8 @@ impl LiveSpec {
         if self.writes_to.is_empty() {
             return Ok(None);
         }
-        let conn = paginate_live_specs_refs(
-            ctx,
-            None,
-            self.writes_to.clone(),
-            after,
-            before,
-            first,
-            last,
-        )
-        .await?;
+        let refs = live_spec_refs(ctx, self.writes_to.clone())?;
+        let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
     }
 
@@ -96,18 +80,13 @@ impl LiveSpec {
         let Some(source_capture_name) = &self.source_capture else {
             return Ok(None);
         };
-        let attached = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            [source_capture_name.clone()],
-            |name, user_capability| {
-                Some(LiveSpecRef {
-                    catalog_name: models::Name::new(name),
-                    user_capability,
-                })
-            },
-        );
-        Ok(attached.into_iter().next())
+        let subject = env.claims()?.subject();
+        Ok(Some(LiveSpecRef {
+            catalog_name: models::Name::new(source_capture_name.clone()),
+            user_capability: env
+                .snapshot()
+                .user_capability(&subject, source_capture_name),
+        }))
     }
 
     // Note that we must filter the `writtenBy` and `readBy` names before
@@ -133,16 +112,12 @@ impl LiveSpec {
         if self.written_by.is_empty() {
             return Ok(None);
         }
-        let conn = paginate_live_specs_refs(
-            ctx,
-            Some(models::Capability::Read),
-            self.written_by.clone(),
-            after,
-            before,
-            first,
-            last,
-        )
-        .await?;
+        let refs = live_spec_refs(ctx, self.written_by.clone())?;
+        let refs = refs
+            .into_iter()
+            .filter(|r| r.user_capability >= Some(models::Capability::Read))
+            .collect();
+        let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
     }
 
@@ -159,16 +134,12 @@ impl LiveSpec {
         if self.read_by.is_empty() {
             return Ok(None);
         }
-        let conn = paginate_live_specs_refs(
-            ctx,
-            Some(models::Capability::Read),
-            self.read_by.clone(),
-            after,
-            before,
-            first,
-            last,
-        )
-        .await?;
+        let refs = live_spec_refs(ctx, self.read_by.clone())?;
+        let refs = refs
+            .into_iter()
+            .filter(|r| r.user_capability >= Some(models::Capability::Read))
+            .collect();
+        let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
     }
 
