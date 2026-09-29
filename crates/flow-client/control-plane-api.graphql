@@ -2068,6 +2068,16 @@ type MutationRoot {
 	Returns the deleted ID. Nothing published is affected.
 	"""
 	deleteDraft(id: Id!): Id!
+	"""
+	Queue discovery for a capture using its staged or live definition.
+	Discovery updates the given draft with its results.
+	"""
+	createDiscover(		draftId: Id!,		captureName: Name!,
+		"""
+		Optional data plane name for discovery. Selected automatically when omitted.
+		"""
+		dataPlane: String
+	): Discover!
 }
 
 """

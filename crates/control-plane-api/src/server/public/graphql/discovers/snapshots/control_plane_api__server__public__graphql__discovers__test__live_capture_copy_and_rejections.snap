@@ -1,0 +1,17 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: "serde_json::json!({\n    \"copiedPlane\": copied[\"data\"][\"createDiscover\"][\"dataPlaneName\"],\n    \"copiedErrors\": copied[\"data\"][\"createDiscover\"][\"errors\"], \"stagedPlane\":\n    staged[\"data\"][\"createDiscover\"][\"dataPlaneName\"], \"missing\":\n    denied[\"errors\"][0][\"message\"], \"wrongPlane\":\n    wrong_plane[\"errors\"][0][\"message\"],\n})"
+---
+{
+  "copiedErrors": [
+    {
+      "catalogName": "",
+      "detail": "existing error",
+      "scope": "collection://aliceCo/unrelated"
+    }
+  ],
+  "copiedPlane": "ops/dp/public/aws-us-west-2-c1",
+  "missing": "capture not found",
+  "stagedPlane": "ops/dp/public/aws-us-west-2-c1",
+  "wrongPlane": "data plane differs from the live capture"
+}

@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ls.spec::text AS spec, ls.spec_type::text AS spec_type,\n                   dp.data_plane_name::text AS \"data_plane_name?\"\n            FROM live_specs ls\n            LEFT JOIN data_planes dp ON dp.id = ls.data_plane_id\n            WHERE ls.catalog_name = $1\n            FOR SHARE OF ls\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "spec",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "spec_type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "data_plane_name?",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "0e1cb2ed749b3675f428f9a49631f18956c1b385e3bb46af7b6c13a69b21c818"
+}
