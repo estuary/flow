@@ -182,7 +182,7 @@ where
 }
 
 #[allow(dead_code)]
-async fn read_stdout(mut reader: async_process::ChildStdio) -> Result<Vec<u8>, Error> {
+async fn read_stdout(mut reader: async_process::ChildOutput) -> Result<Vec<u8>, Error> {
     let mut buffer = Vec::new();
     let _ = tokio::io::copy(&mut reader, &mut buffer)
         .await
