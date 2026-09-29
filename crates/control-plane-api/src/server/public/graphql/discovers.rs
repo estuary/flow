@@ -121,40 +121,81 @@ impl DiscoversQuery {
         id: models::Id,
     ) -> async_graphql::Result<Option<Discover>> {
         let env = ctx.data::<crate::Envelope>()?;
-        fetch_discover(id, env.claims()?.subject().user_id, &env.pg_pool).await
+        let user_id = env.claims()?.subject().user_id;
+        let row = sqlx::query!(
+            r#"
+            SELECT di.id AS "id!: models::Id", di.draft_id AS "draft_id!: models::Id",
+                   di.capture_name AS "capture_name!: models::Name", di.data_plane_name,
+                   di.job_status AS "status!: sqlx::types::Json<models::discovers::JobStatus>",
+                   di.created_at, di.updated_at
+            FROM discovers di
+            JOIN drafts d ON d.id = di.draft_id
+            WHERE di.id = $1 AND d.user_id = $2
+            "#,
+            id as models::Id,
+            user_id,
+        )
+        .fetch_optional(&env.pg_pool)
+        .await?;
+
+        Ok(row.map(|row| Discover {
+            id: row.id,
+            draft_id: row.draft_id,
+            capture_name: row.capture_name,
+            data_plane_name: row.data_plane_name,
+            status: row.status.0,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }))
     }
 }
 
-async fn fetch_discover(
-    id: models::Id,
-    user_id: uuid::Uuid,
-    pool: &sqlx::PgPool,
-) -> async_graphql::Result<Option<Discover>> {
-    let row = sqlx::query!(
-        r#"
-        SELECT di.id AS "id!: models::Id", di.draft_id AS "draft_id!: models::Id",
-               di.capture_name AS "capture_name!: models::Name", di.data_plane_name,
-               di.job_status AS "status!: sqlx::types::Json<models::discovers::JobStatus>",
-               di.created_at, di.updated_at
-        FROM discovers di
-        JOIN drafts d ON d.id = di.draft_id
-        WHERE di.id = $1 AND d.user_id = $2
-        "#,
-        id as models::Id,
-        user_id,
-    )
-    .fetch_optional(pool)
-    .await?;
+#[derive(Debug, Default)]
+pub struct DiscoversMutation;
 
-    Ok(row.map(|row| Discover {
-        id: row.id,
-        draft_id: row.draft_id,
-        capture_name: row.capture_name,
-        data_plane_name: row.data_plane_name,
-        status: row.status.0,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    }))
+#[async_graphql::Object]
+impl DiscoversMutation {
+    /// Queue discovery for a capture using its staged or live definition.
+    /// Discovery updates the given draft with its results.
+    async fn create_discover(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        draft_id: models::Id,
+        capture_name: models::Name,
+        #[graphql(
+            desc = "Optional data plane name for discovery. Selected automatically when omitted."
+        )]
+        data_plane: Option<String>,
+    ) -> async_graphql::Result<Discover> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let subject = env.claims()?.subject();
+
+        super::verify_authorization(
+            env,
+            capture_name.as_str(),
+            models::authz::Capability::SpecEdit,
+        )
+        .await?;
+
+        let row = crate::discovers::create(
+            &env.pg_pool,
+            env.snapshot(),
+            &subject,
+            draft_id,
+            capture_name.as_str(),
+            data_plane.as_deref(),
+        )
+        .await?;
+        Ok(Discover {
+            id: row.id,
+            draft_id,
+            capture_name,
+            data_plane_name: row.data_plane_name,
+            status: models::discovers::JobStatus::Queued,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
+    }
 }
 
 #[cfg(test)]

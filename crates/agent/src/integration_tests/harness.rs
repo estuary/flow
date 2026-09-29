@@ -414,9 +414,11 @@ impl TestHarness {
         self.add_data_plane(
             "ops/dp/public/test",
             "test.dp.estuary-data.com",
-            vec!["secret-key".to_string()],
+            vec!["dGVzdA==".to_string()],
         )
         .await;
+        sqlx::query("UPDATE data_planes SET hmac_keys = ARRAY['dGVzdA=='] WHERE data_plane_name = 'ops/dp/public/test'")
+            .execute(&self.pool).await.unwrap();
     }
 
     /// Ideally, we'd get a whole separate database for each integration test

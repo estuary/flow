@@ -1,0 +1,38 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: rejections
+---
+[
+  {
+    "capture": "aliceCo/deleted",
+    "message": "draft entry is a deletion"
+  },
+  {
+    "capture": "aliceCo/other-type",
+    "message": "draft entry is not a capture"
+  },
+  {
+    "capture": "aliceCo/malformed",
+    "message": "invalid capture model"
+  },
+  {
+    "capture": "aliceCo/delete-flag",
+    "message": "capture is staged for deletion"
+  },
+  {
+    "capture": "aliceCo/local",
+    "message": "capture requires a connector endpoint"
+  },
+  {
+    "capture": "aliceCo/untagged",
+    "message": "capture requires a tagged connector image"
+  },
+  {
+    "capture": "aliceCo/file-config",
+    "message": "endpoint configuration must be an inline JSON object"
+  },
+  {
+    "capture": "aliceCo/failed-tag",
+    "message": "capture connector tag is not ready"
+  }
+]

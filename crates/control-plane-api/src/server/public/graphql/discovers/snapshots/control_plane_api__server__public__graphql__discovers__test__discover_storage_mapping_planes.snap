@@ -1,0 +1,36 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: outcomes
+---
+[
+  {
+    "capture": "aliceCo/parent-default",
+    "dataPlane": "ops/dp/public/aws-us-west-2-c1",
+    "error": null
+  },
+  {
+    "capture": "aliceCo/private/nested-default",
+    "dataPlane": "ops/dp/public/gcp-us-central1-c2",
+    "error": null
+  },
+  {
+    "capture": "aliceCo/private/nested-explicit",
+    "dataPlane": "ops/dp/public/gcp-us-central1-c2",
+    "error": null
+  },
+  {
+    "capture": "aliceCo/private/parent-plane",
+    "dataPlane": null,
+    "error": "storage mapping aliceCo/private/ doesn't permit data plane ops/dp/public/aws-us-west-2-c1"
+  },
+  {
+    "capture": "aliceCo/planeless/capture",
+    "dataPlane": null,
+    "error": "storage mapping aliceCo/planeless/ is missing associated data planes"
+  },
+  {
+    "capture": "carolCo/unmapped",
+    "dataPlane": null,
+    "error": "no storage mapping for capture"
+  }
+]

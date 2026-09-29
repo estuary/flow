@@ -1,0 +1,10 @@
+---
+source: crates/agent/src/integration_tests/user_discovers.rs
+expression: earlier
+---
+{
+  "discover": {
+    "errors": [],
+    "status": "DISCOVER_FAILED"
+  }
+}

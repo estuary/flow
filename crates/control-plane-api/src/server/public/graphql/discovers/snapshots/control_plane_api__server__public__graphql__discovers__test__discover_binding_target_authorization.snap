@@ -1,0 +1,30 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/discovers/test.rs
+expression: outcomes
+---
+[
+  {
+    "capture": "aliceCo/in/readable",
+    "error": null,
+    "status": "QUEUED",
+    "token": "scoped"
+  },
+  {
+    "capture": "aliceCo/in/readable",
+    "error": null,
+    "status": "QUEUED",
+    "token": "owner"
+  },
+  {
+    "capture": "aliceCo/in/unreadable",
+    "error": "not authorized to read binding target aliceCo/other/foo",
+    "status": null,
+    "token": "scoped"
+  },
+  {
+    "capture": "aliceCo/in/unreadable",
+    "error": null,
+    "status": "QUEUED",
+    "token": "owner"
+  }
+]
