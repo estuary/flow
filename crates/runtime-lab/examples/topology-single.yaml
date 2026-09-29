@@ -1,0 +1,18 @@
+# One host running one shard of each reference task: the smallest topology,
+# and a baseline against which scale-out is compared. Its reactor, sidecar,
+# and connectors share two CPUs, which a backfill saturates: the baseline is
+# CPU-bound by design (transactions may then run past maxTxnDuration). As the
+# processes share CPUs, capping one frees CPU which the others take up.
+catalog: catalog.flow.yaml
+
+hosts:
+  h1:
+    reactor: { cgroup: { cpuset.cpus: "0-1" } }
+    sidecar: { cgroup: { cpuset.cpus: "0-1" } }
+    connectors: { cgroup: { cpuset.cpus: "0-1" } }
+
+tasks:
+  acmeCo/lab/sink:
+    shards: [h1]
+  acmeCo/lab/identity:
+    shards: [h1]
