@@ -1,0 +1,50 @@
+---
+source: crates/runtime-lab/src/controller/broker.rs
+expression: spec
+---
+{
+  "name": "ops/lab/stats/kind=capture/name=acmeCo%2Flab%2Fpg/pivot=00",
+  "replication": 1,
+  "labels": {
+    "labels": [
+      {
+        "name": "app.gazette.dev/managed-by",
+        "value": "estuary.dev/flow"
+      },
+      {
+        "name": "content-type",
+        "value": "application/x-ndjson"
+      },
+      {
+        "name": "estuary.dev/collection",
+        "value": "ops/lab/stats"
+      },
+      {
+        "name": "estuary.dev/field/kind",
+        "value": "capture"
+      },
+      {
+        "name": "estuary.dev/field/name",
+        "value": "acmeCo%2Flab%2Fpg"
+      },
+      {
+        "name": "estuary.dev/key-begin",
+        "value": "00000000"
+      },
+      {
+        "name": "estuary.dev/key-end",
+        "value": "ffffffff"
+      }
+    ]
+  },
+  "fragment": {
+    "length": "67108864",
+    "compressionCodec": "NONE",
+    "stores": [
+      "file:///"
+    ],
+    "refreshInterval": "300s",
+    "flushInterval": "300s"
+  },
+  "flags": 4
+}

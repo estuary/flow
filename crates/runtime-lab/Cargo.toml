@@ -1,0 +1,61 @@
+[package]
+name = "runtime-lab"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+activate = { path = "../activate" }
+allocator = { path = "../allocator" }
+assemble = { path = "../assemble" }
+build = { path = "../build" }
+connector-init = { path = "../connector-init" }
+flow-client-next = { path = "../flow-client-next" }
+flowctl = { path = "../flowctl" }
+gazette = { path = "../gazette" }
+labels = { path = "../labels" }
+models = { path = "../models" }
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = ["runtime_client"] }
+runtime-local = { path = "../runtime-local" }
+runtime-next = { path = "../runtime-next" }
+service-kit = { path = "../service-kit" }
+shuffle = { path = "../shuffle" }
+tables = { path = "../tables" }
+tokens = { path = "../tokens" }
+
+anyhow = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+humantime = { workspace = true }
+hyper-util = { workspace = true, features = ["tokio"] }
+libc = { workspace = true }
+postgrest = { workspace = true }
+prost = { workspace = true }
+reqwest = { workspace = true }
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
+tokio-util = { workspace = true }
+tokio-stream = { workspace = true, features = ["net"] }
+tonic = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+tempfile = { workspace = true }

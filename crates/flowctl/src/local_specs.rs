@@ -194,7 +194,7 @@ pub(crate) fn pick_policy(
     }
 }
 
-pub(crate) struct Resolver {
+pub struct Resolver {
     pub pg: postgrest::Postgrest,
     pub access_token: Option<String>,
 }
