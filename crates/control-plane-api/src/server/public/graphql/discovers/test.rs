@@ -2,6 +2,13 @@ use crate::test_server;
 
 const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 const BOB: uuid::Uuid = uuid::Uuid::from_bytes([0x22; 16]);
+const CREATE: &str = r#"
+mutation ($draftId: Id!, $captureName: Name!, $dataPlane: String) {
+  createDiscover(draftId: $draftId, captureName: $captureName, dataPlane: $dataPlane) {
+    id draftId captureName dataPlaneName status createdAt updatedAt
+    errors { catalogName scope detail }
+  }
+}"#;
 const LOOKUP: &str = r#"
 query ($id: Id!, $after: String, $first: Int) {
   discover(id: $id) {
@@ -13,6 +20,8 @@ query ($id: Id!, $after: String, $first: Int) {
     }
   }
 }"#;
+const MODEL: &str =
+    r#"{"endpoint":{"connector":{"image":"source/test:test","config":{}}},"bindings":[]}"#;
 
 /// Insert a draft owned by Alice, then start a server over a Snapshot read
 /// from `pool`. The Snapshot is fixed, so fixtures it carries (grants, storage
@@ -75,6 +84,46 @@ async fn insert_discover(pool: &sqlx::PgPool, draft_id: models::Id, name: &str) 
     .unwrap()
 }
 
+/// `MODEL` with `fields` replacing its top-level fields.
+fn model_with(fields: serde_json::Value) -> String {
+    let serde_json::Value::Object(fields) = fields else {
+        panic!("fields must be an object");
+    };
+    let mut model: serde_json::Value = serde_json::from_str(MODEL).unwrap();
+    model.as_object_mut().unwrap().extend(fields);
+    model.to_string()
+}
+
+async fn stage_capture(pool: &sqlx::PgPool, draft_id: models::Id, name: &str, model: &str) {
+    sqlx::query(
+        "INSERT INTO draft_specs (draft_id, catalog_name, spec_type, spec) VALUES ($1, $2, 'capture', $3::json)",
+    )
+    .bind(draft_id)
+    .bind(name)
+    .bind(model)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn submit(
+    server: &test_server::TestServer,
+    token: Option<&str>,
+    draft_id: models::Id,
+    name: &str,
+    plane: Option<&str>,
+) -> serde_json::Value {
+    server
+        .graphql(
+            &serde_json::json!({
+                "query": CREATE,
+                "variables": { "draftId": draft_id, "captureName": name, "dataPlane": plane }
+            }),
+            token,
+        )
+        .await
+}
+
 async fn lookup(
     server: &test_server::TestServer,
     token: Option<&str>,
@@ -86,6 +135,31 @@ async fn lookup(
             token,
         )
         .await
+}
+
+/// The `endpoint_config` and `update_only` which a successful submission queued.
+async fn queued(pool: &sqlx::PgPool, response: &serde_json::Value) -> (String, bool) {
+    let id: models::Id = serde_json::from_value(response["data"]["createDiscover"]["id"].clone())
+        .unwrap_or_else(|err| panic!("{err}: {response}"));
+    let (config, update_only): (String, bool) =
+        sqlx::query_as("SELECT endpoint_config::text, update_only FROM discovers WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    (config.trim().to_owned(), update_only)
+}
+
+async fn draft_state(pool: &sqlx::PgPool, draft_id: models::Id) -> serde_json::Value {
+    sqlx::query_scalar(r#"
+        SELECT jsonb_build_object(
+            'draft', (SELECT to_jsonb(d) FROM drafts d WHERE id = $1),
+            'specs', (SELECT jsonb_agg(to_jsonb(s) ORDER BY catalog_name) FROM draft_specs s WHERE draft_id = $1),
+            'errors', (SELECT jsonb_agg(to_jsonb(e) ORDER BY scope, detail) FROM draft_errors e WHERE draft_id = $1),
+            'jobs', (SELECT jsonb_agg(to_jsonb(j) ORDER BY id) FROM discovers j WHERE draft_id = $1),
+            'tasks', (SELECT jsonb_agg(to_jsonb(t) ORDER BY task_id) FROM internal.tasks t)
+        )
+    "#).bind(draft_id).fetch_one(pool).await.unwrap()
 }
 
 #[sqlx::test(
@@ -109,6 +183,125 @@ async fn lookup_is_private_to_the_draft_owner(pool: sqlx::PgPool) {
         "[].data.discover.id" => "[id]",
         "[].data.discover.draftId" => "[draft-id]",
     });
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn staged_submission_and_ownership(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let (server, draft_id, alice, _) = setup(&pool).await;
+    stage_capture(&pool, draft_id, "aliceCo/new-capture", MODEL).await;
+
+    let response = submit(&server, Some(&alice), draft_id, "aliceCo/new-capture", None).await;
+    insta::assert_json_snapshot!("staged_discover_submission", response, {
+        ".data.createDiscover.id" => "[id]",
+        ".data.createDiscover.draftId" => "[draft-id]",
+        ".data.createDiscover.createdAt" => "[ts]",
+        ".data.createDiscover.updatedAt" => "[ts]",
+    });
+    let tasks: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM internal.tasks WHERE task_id IN (SELECT id FROM discovers WHERE draft_id = $1)",
+    )
+    .bind(draft_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(tasks, 1, "submission schedules the executor");
+
+    // A draft owned by someone else is indistinguishable from a missing one.
+    let foreign_draft_id = insert_draft(&pool, BOB).await;
+    let missing_draft_id = models::Id::new(u64::MAX.to_be_bytes());
+    for draft_id in [foreign_draft_id, missing_draft_id] {
+        let response = submit(&server, Some(&alice), draft_id, "aliceCo/new-capture", None).await;
+        assert_eq!(
+            response["errors"][0]["message"], "draft not found",
+            "{response}"
+        );
+    }
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn submission_selects_staged_or_live_capture(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    // Keys are deliberately unsorted: SOPS authenticates an encrypted config by
+    // walking it in order, so the queued config must preserve its bytes.
+    const LIVE: &str = r#"{"zebra":"live","alpha":{"zulu":1,"bravo":2}}"#;
+    const STAGED: &str = r#"{"zebra":"staged","alpha":{"zulu":1,"bravo":2}}"#;
+    let model = |config: &str| {
+        format!(
+            r#"{{"endpoint":{{"connector":{{"image":"source/test:test","config":{config}}}}},"bindings":[]}}"#
+        )
+    };
+    sqlx::query(
+        "UPDATE live_specs SET spec = $1::json WHERE catalog_name = 'aliceCo/in/capture-foo'",
+    )
+    .bind(model(LIVE))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (server, draft_id, alice, _) = setup(&pool).await;
+    sqlx::query("INSERT INTO draft_specs (draft_id, catalog_name, spec_type, spec) VALUES ($1, 'aliceCo/unrelated', 'collection', '{}'::json)")
+        .bind(draft_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO draft_errors (draft_id, scope, detail) VALUES ($1, 'flow://collection/aliceCo/unrelated', 'existing error')")
+        .bind(draft_id).execute(&pool).await.unwrap();
+
+    // Without a staged entry, the readable live capture is used, and the draft
+    // keeps its entries and errors.
+    let before = draft_state(&pool, draft_id).await;
+    let live = submit(
+        &server,
+        Some(&alice),
+        draft_id,
+        "aliceCo/in/capture-foo",
+        None,
+    )
+    .await;
+    let after = draft_state(&pool, draft_id).await;
+    for field in ["draft", "specs", "errors"] {
+        assert_eq!(after[field], before[field], "{field}");
+    }
+    // A staged entry takes precedence over the live capture.
+    stage_capture(&pool, draft_id, "aliceCo/in/capture-foo", &model(STAGED)).await;
+    let staged = submit(
+        &server,
+        Some(&alice),
+        draft_id,
+        "aliceCo/in/capture-foo",
+        None,
+    )
+    .await;
+    assert_eq!(queued(&pool, &live).await.0, LIVE);
+    assert_eq!(queued(&pool, &staged).await.0, STAGED);
+
+    let missing = submit(&server, Some(&alice), draft_id, "aliceCo/missing", None).await;
+    let wrong_plane = submit(
+        &server,
+        Some(&alice),
+        draft_id,
+        "aliceCo/in/capture-foo",
+        Some("ops/dp/public/gcp-us-central1-c2"),
+    )
+    .await;
+    insta::assert_json_snapshot!(
+        "live_capture_submission_and_rejections",
+        serde_json::json!({
+            "livePlane": live["data"]["createDiscover"]["dataPlaneName"],
+            "stagedPlane": staged["data"]["createDiscover"]["dataPlaneName"],
+            "missing": missing["errors"][0]["message"],
+            "wrongPlane": wrong_plane["errors"][0]["message"],
+        })
+    );
 }
 
 #[sqlx::test(
@@ -205,6 +398,244 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
     migrations = "../../supabase/migrations",
     fixtures(
         path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn update_only_follows_auto_discover(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let (server, draft_id, alice, _) = setup(&pool).await;
+    for (name, fields, update_only) in [
+        ("aliceCo/absent-policy", serde_json::json!({}), false),
+        (
+            "aliceCo/null-policy",
+            serde_json::json!({ "autoDiscover": null }),
+            false,
+        ),
+        (
+            "aliceCo/empty-policy",
+            serde_json::json!({ "autoDiscover": {} }),
+            true,
+        ),
+        (
+            "aliceCo/enabled-policy",
+            serde_json::json!({ "autoDiscover": { "addNewBindings": true } }),
+            false,
+        ),
+    ] {
+        stage_capture(&pool, draft_id, name, &model_with(fields)).await;
+        let response = submit(&server, Some(&alice), draft_id, name, None).await;
+        assert_eq!(queued(&pool, &response).await.1, update_only, "{name}");
+    }
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn invalid_submissions_change_nothing(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let (server, draft_id, alice, _) = setup(&pool).await;
+    let connector = |image: &str, config: serde_json::Value| {
+        Some(model_with(serde_json::json!({
+            "endpoint": { "connector": { "image": image, "config": config } }
+        })))
+    };
+    let cases = [
+        ("aliceCo/deleted", "capture", None),
+        ("aliceCo/other-type", "collection", Some("{}".to_owned())),
+        ("aliceCo/malformed", "capture", Some("{}".to_owned())),
+        (
+            "aliceCo/delete-flag",
+            "capture",
+            Some(model_with(serde_json::json!({ "delete": true }))),
+        ),
+        (
+            "aliceCo/local",
+            "capture",
+            Some(model_with(serde_json::json!({
+                "endpoint": { "local": { "command": ["true"], "config": {} } }
+            }))),
+        ),
+        (
+            "aliceCo/untagged",
+            "capture",
+            connector("source/test", serde_json::json!({})),
+        ),
+        (
+            "aliceCo/file-config",
+            "capture",
+            connector("source/test:test", serde_json::json!("config.json")),
+        ),
+        (
+            "aliceCo/failed-tag",
+            "capture",
+            connector("source/multi-tag-test:v2", serde_json::json!({})),
+        ),
+    ];
+    for (name, spec_type, model) in &cases {
+        sqlx::query("INSERT INTO draft_specs (draft_id, catalog_name, spec_type, spec) VALUES ($1, $2, $3::catalog_spec_type, $4::json)")
+            .bind(draft_id)
+            .bind(name)
+            .bind(spec_type)
+            .bind(model)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let before = draft_state(&pool, draft_id).await;
+    let mut rejections = Vec::new();
+    for (name, _, _) in cases {
+        let response = submit(&server, Some(&alice), draft_id, name, None).await;
+        rejections.push(serde_json::json!({
+            "capture": name,
+            "message": response["errors"][0]["message"],
+        }));
+    }
+    insta::assert_json_snapshot!("discover_invalid_submissions", rejections);
+    assert_eq!(draft_state(&pool, draft_id).await, before);
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn new_captures_use_their_storage_mapping(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    sqlx::query(
+        "INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ('aliceCo/planeless/', '{}')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // `carolCo/` has no storage mapping at all.
+    sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'carolCo/', 'admin')")
+        .bind(ALICE).execute(&pool).await.unwrap();
+    let (server, draft_id, alice, revoke) = setup(&pool).await;
+
+    let mut outcomes = Vec::new();
+    for (name, plane) in [
+        ("aliceCo/parent-default", None),
+        ("aliceCo/private/nested-default", None),
+        (
+            "aliceCo/private/nested-explicit",
+            Some("ops/dp/public/gcp-us-central1-c2"),
+        ),
+        // The most specific mapping decides alone, though its parent admits this plane.
+        (
+            "aliceCo/private/parent-plane",
+            Some("ops/dp/public/aws-us-west-2-c1"),
+        ),
+        ("aliceCo/planeless/capture", None),
+        ("carolCo/unmapped", None),
+    ] {
+        stage_capture(&pool, draft_id, name, MODEL).await;
+        let response = submit(&server, Some(&alice), draft_id, name, plane).await;
+        outcomes.push(serde_json::json!({
+            "capture": name,
+            "dataPlane": response["data"]["createDiscover"]["dataPlaneName"],
+            "error": response["errors"][0]["message"],
+        }));
+    }
+    insta::assert_json_snapshot!("discover_storage_mapping_planes", outcomes);
+    assert!(
+        revoke.is_cancelled(),
+        "mapping rejections request a Snapshot refresh"
+    );
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    sqlx::query(
+        "UPDATE live_specs SET spec = $1::json WHERE catalog_name = 'aliceCo/in/capture-foo'",
+    )
+    .bind(MODEL)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (server, draft_id, _, _) = setup(&pool).await;
+
+    // Discovery needs SpecEdit on the capture and legacy `read` of its data
+    // plane, which the editor bundle alone doesn't convey.
+    let mut outcomes = Vec::new();
+    for mask in [&["viewer"][..], &["editor"], &["editor", "viewer"]] {
+        let token = server.make_restricted_access_token(
+            ALICE,
+            None,
+            Some(mask.iter().map(|bundle| bundle.to_string()).collect()),
+            None,
+        );
+        let response = submit(
+            &server,
+            Some(&token),
+            draft_id,
+            "aliceCo/in/capture-foo",
+            None,
+        )
+        .await;
+        outcomes.push(serde_json::json!({
+            "mask": mask,
+            "status": response["data"]["createDiscover"]["status"],
+            "error": response["errors"][0]["message"],
+        }));
+    }
+    insta::assert_json_snapshot!("discover_token_capabilities", outcomes);
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn submission_requires_reading_binding_targets(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    let (server, draft_id, alice, _) = setup(&pool).await;
+    // Scoped to `aliceCo/in/`, a token can edit captures there and read the
+    // `aliceCo/data/` collections they write, but not the rest of `aliceCo/`,
+    // which Alice's own grant covers.
+    let scoped =
+        server.make_restricted_access_token(ALICE, None, None, Some("aliceCo/in/".to_owned()));
+
+    let mut outcomes = Vec::new();
+    for (name, target) in [
+        ("aliceCo/in/readable", "aliceCo/data/foo"),
+        ("aliceCo/in/unreadable", "aliceCo/other/foo"),
+    ] {
+        let bindings = serde_json::json!([{ "resource": { "id": "foo" }, "target": target }]);
+        let model = model_with(serde_json::json!({ "bindings": bindings }));
+        stage_capture(&pool, draft_id, name, &model).await;
+        for (token, credential) in [("scoped", &scoped), ("owner", &alice)] {
+            let response = submit(&server, Some(credential), draft_id, name, None).await;
+            outcomes.push(serde_json::json!({
+                "capture": name,
+                "token": token,
+                "status": response["data"]["createDiscover"]["status"],
+                "error": response["errors"][0]["message"],
+            }));
+        }
+    }
+    insta::assert_json_snapshot!("discover_binding_target_authorization", outcomes);
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
         scripts("data_planes", "alice", "drafts", "connectors")
     )
 )]
@@ -255,4 +686,72 @@ async fn log_page_arguments(pool: sqlx::PgPool) {
             .push(serde_json::json!({ argument: value, "message": page["errors"][0]["message"] }));
     }
     insta::assert_json_snapshot!("discover_log_arguments", rejected);
+}
+
+#[sqlx::test(
+    migrations = "../../supabase/migrations",
+    fixtures(
+        path = "../../../../fixtures",
+        scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
+    )
+)]
+async fn plane_gate_requests_refresh_without_waiting(pool: sqlx::PgPool) {
+    let _guard = test_server::init();
+    sqlx::query(
+        "UPDATE live_specs SET spec = $1::json WHERE catalog_name = 'aliceCo/in/capture-foo'",
+    )
+    .bind(MODEL)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let draft_id = insert_draft(&pool, ALICE).await;
+    let mut no_access = crate::snapshot::try_fetch(&pool, &mut Default::default())
+        .await
+        .unwrap();
+    let mut unlisted = no_access.clone();
+    no_access
+        .role_grants
+        .retain(|grant| grant.object_role.as_str() != "ops/dp/public/");
+    unlisted
+        .data_planes
+        .retain(|plane| plane.data_plane_name != "ops/dp/public/aws-us-west-2-c1");
+    sqlx::query("UPDATE data_planes SET hmac_keys = ARRAY['invalid-base64%%%'], encrypted_hmac_keys = '{}'::json WHERE data_plane_name = 'ops/dp/public/aws-us-west-2-c1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let unsigned = crate::snapshot::try_fetch(&pool, &mut Default::default())
+        .await
+        .unwrap();
+
+    for (case, data) in [
+        ("access", no_access),
+        ("snapshot lookup", unlisted),
+        ("signing readiness", unsigned),
+    ] {
+        // A Snapshot taken before the request starts would make a provisional
+        // authorization failure await a refresh, which a fixed watch never serves.
+        let (server, revoke) =
+            start(&pool, data, tokens::now() - chrono::TimeDelta::minutes(1)).await;
+        let alice = server.make_access_token(ALICE, Some("alice@example.com"));
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            submit(
+                &server,
+                Some(&alice),
+                draft_id,
+                "aliceCo/in/capture-foo",
+                None,
+            ),
+        )
+        .await
+        .expect("plane rejection must not await a new snapshot");
+        assert_eq!(
+            response["errors"][0]["message"], "data plane not found or unauthorized",
+            "{case}"
+        );
+        assert!(
+            revoke.is_cancelled(),
+            "{case} must request a background refresh"
+        );
+    }
 }

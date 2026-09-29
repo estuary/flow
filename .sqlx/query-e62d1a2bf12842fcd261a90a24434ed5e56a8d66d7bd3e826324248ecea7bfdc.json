@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT di.id AS \"id!: models::Id\", di.draft_id AS \"draft_id!: models::Id\",\n               di.capture_name AS \"capture_name!: models::Name\", di.data_plane_name,\n               di.job_status AS \"status!: sqlx::types::Json<models::discovers::JobStatus>\",\n               di.created_at, di.updated_at\n        FROM discovers di\n        JOIN drafts d ON d.id = di.draft_id\n        WHERE di.id = $1 AND d.user_id = $2\n        ",
+  "query": "\n            SELECT di.id AS \"id!: models::Id\", di.draft_id AS \"draft_id!: models::Id\",\n                   di.capture_name AS \"capture_name!: models::Name\", di.data_plane_name,\n                   di.job_status AS \"status!: sqlx::types::Json<models::discovers::JobStatus>\",\n                   di.created_at, di.updated_at\n            FROM discovers di\n            JOIN drafts d ON d.id = di.draft_id\n            WHERE di.id = $1 AND d.user_id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -97,5 +97,5 @@
       false
     ]
   },
-  "hash": "5d53ab4cf24739fbc363d697cad9531f7e35b13e7cb35b38579efcd69d0eba07"
+  "hash": "e62d1a2bf12842fcd261a90a24434ed5e56a8d66d7bd3e826324248ecea7bfdc"
 }

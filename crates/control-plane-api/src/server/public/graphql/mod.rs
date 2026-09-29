@@ -154,6 +154,7 @@ pub struct MutationRoot(
     service_accounts::ServiceAccountsMutation,
     secrets::SecretsMutation,
     drafts::DraftsMutation,
+    discovers::DiscoversMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {
