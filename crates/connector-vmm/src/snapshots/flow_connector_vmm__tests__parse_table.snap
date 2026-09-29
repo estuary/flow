@@ -1,5 +1,6 @@
 ---
 source: crates/connector-vmm/src/main.rs
+assertion_line: 144
 expression: table
 ---
 $ flow-connector-vmm print-ruleset --policy /init/policy.json
@@ -72,7 +73,38 @@ flow-connector-vmm:
 flow-connector-vmm: Commands:
 flow-connector-vmm:   run            Run one connector in a micro-VM. Does not return: libkrun takes over the process and exits with the guest workload's code
 flow-connector-vmm:   print-ruleset  Compile a policy into its nftables ruleset and write it to stdout
+flow-connector-vmm:   boundary       Install, verify or remove the host's boundary around every VMM bridge. Runs in the host's network namespace, never in a VMM container
 flow-connector-vmm:   help           Print this message or the help of the given subcommand(s)
 flow-connector-vmm:
 flow-connector-vmm: Options:
 flow-connector-vmm:   -h, --help  Print help
+
+$ flow-connector-vmm boundary install
+ok: boundary Install
+
+$ flow-connector-vmm boundary verify
+ok: boundary Verify
+
+$ flow-connector-vmm boundary remove
+ok: boundary Remove
+
+$ flow-connector-vmm boundary
+flow-connector-vmm: Install, verify or remove the host's boundary around every VMM bridge. Runs in the host's network namespace, never in a VMM container
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm boundary <COMMAND>
+flow-connector-vmm:
+flow-connector-vmm: Commands:
+flow-connector-vmm:   install  Replace both tables in one transaction, then verify them. Fails, having installed them, if VMM bridges already existed while a table was absent: those VMMs ran without the boundary and must be replaced
+flow-connector-vmm:   verify   Exit zero only if both tables are exactly those this binary installs
+flow-connector-vmm:   remove   Delete both tables. Refused while any VMM bridge exists
+flow-connector-vmm:   help     Print this message or the help of the given subcommand(s)
+flow-connector-vmm:
+flow-connector-vmm: Options:
+flow-connector-vmm:   -h, --help  Print help
+
+$ flow-connector-vmm boundary flush
+flow-connector-vmm: error: unrecognized subcommand 'flush'
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm boundary <COMMAND>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.

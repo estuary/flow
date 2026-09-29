@@ -1,0 +1,43 @@
+---
+source: crates/connector-vmm-tests/src/launch.rs
+assertion_line: 179
+expression: "launch(Some((\"/var/lib/flow/disks/acmeCo-state\", \"/acmeCo/state\")))"
+---
+run
+--rm
+--name=fv_0123456789abcdef
+--network=fv_0123456789abcdef
+--log-driver=none
+--read-only
+--read-only-tmpfs=false
+--device=/dev/kvm
+--device=/dev/net/tun
+--cap-add=CAP_NET_ADMIN
+--sysctl=net.ipv4.ip_forward=1
+--sysctl=net.ipv4.conf.default.rp_filter=1
+--sysctl=net.ipv6.conf.default.disable_ipv6=1
+--memory=1280m
+--cpus=2
+--mount=type=image,source=ghcr.io/acmeco/source-acme:v1,destination=/rootfs,rw=true
+--mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/init,target=/init,readonly
+--mount=type=bind,source=/tmp/connector-mounts-0/mount-acme,target=/tmp/connector-mounts-0/mount-acme,readonly
+--mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/sock,target=/sock
+--mount=type=bind,source=/var/lib/flow/connector-vmm/fv_0123456789abcdef/scratch,target=/scratch-backing
+--mount=type=bind,source=/var/lib/flow/disks/acmeCo-state,target=/persistent-disk
+--env=CONNECTOR_MOUNT=/tmp/connector-mounts-0/mount-acme
+--env=LOG_FORMAT=json
+--env=LOG_LEVEL=warn
+ghcr.io/estuary/connector-vmm:dev
+run
+--policy
+/init/policy.json
+--connector-mount
+/tmp/connector-mounts-0/mount-acme
+--memory-mib
+1024
+--vcpus
+2
+--disk-mib
+4096
+--persistent-disk
+/acmeCo/state

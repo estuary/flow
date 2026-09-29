@@ -48,6 +48,27 @@ pub fn run(program: &str, args: &[&str], stdin: Option<&[u8]>) -> anyhow::Result
     Ok(())
 }
 
+/// Run a command for what it writes to stdout, framing only its stderr. For
+/// listings the caller parses rather than shows.
+pub fn output(program: &str, args: &[&str]) -> anyhow::Result<Vec<u8>> {
+    let output = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| anyhow::anyhow!("running {program}: {e}"))?;
+
+    if !output.stderr.is_empty() {
+        eprint!(
+            "{}",
+            crate::framed(&String::from_utf8_lossy(&output.stderr))
+        );
+    }
+    if !output.status.success() {
+        anyhow::bail!("{program} {}: {}", args.join(" "), output.status);
+    }
+    Ok(output.stdout)
+}
+
 /// What the command said, framed, whether or not it succeeded: a warning from
 /// a command that exited zero is still worth seeing.
 ///

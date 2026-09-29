@@ -2,7 +2,11 @@
 //! connector's egress policy into the nftables ruleset that bounds the guest's
 //! network, serves the guest's DNS, prepares its disks and shares, and enters
 //! the VM. The crate README maps out how the pieces fit.
+//!
+//! `boundary` is the other half of that network, run on the host rather than
+//! in a VMM container: the tables outside every VMM's reach.
 
+mod boundary;
 mod console;
 mod disk;
 mod image;
@@ -46,6 +50,13 @@ enum Command {
         #[arg(long, value_name = "CIDR", value_parser = vmm_subnet)]
         vmm_subnet: Vec<ipnetwork::Ipv4Network>,
     },
+
+    /// Install, verify or remove the host's boundary around every VMM bridge.
+    /// Runs in the host's network namespace, never in a VMM container.
+    Boundary {
+        #[command(subcommand)]
+        action: boundary::Action,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -83,6 +94,7 @@ fn run(args: &Args) -> anyhow::Result<()> {
             print!("{}", ruleset::render(&policy, vmm_subnets)?);
             Ok(())
         }
+        Command::Boundary { action } => boundary::run(action),
     }
 }
 
@@ -203,6 +215,11 @@ mod tests {
             with_mount("/"),
             vec!["flow-connector-vmm", "run", "--policy", "/init/policy.json"],
             vec!["flow-connector-vmm"],
+            vec!["flow-connector-vmm", "boundary", "install"],
+            vec!["flow-connector-vmm", "boundary", "verify"],
+            vec!["flow-connector-vmm", "boundary", "remove"],
+            vec!["flow-connector-vmm", "boundary"],
+            vec!["flow-connector-vmm", "boundary", "flush"],
         ]
     }
 
@@ -266,6 +283,7 @@ mod tests {
                 args.resolver_upstream.map(|u| u.to_string()),
                 args.exec,
             ),
+            super::Command::Boundary { action } => format!("ok: boundary {action:?}\n"),
         }
     }
 }

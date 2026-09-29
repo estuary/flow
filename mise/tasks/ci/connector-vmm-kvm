@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Run the connector VMM's KVM integration suite (needs /dev/kvm, passwordless sudo, rootful podman and docker buildx)"
+#USAGE arg "[filter]" help="Run only suite tests whose names match. The run is then partial: connector-init's vsock test is skipped."
+#USAGE flag "--allow-missing-vsock-loopback" help="Let connector-init's vsock test skip where vsock_loopback cannot load. The suite's own guest still proves connector-init serving over vsock."
+
+# Must match `run::ROOT` in crates/connector-vmm-tests/src/run.rs.
+ROOT=/var/tmp/connector-vmm-kvm
+FIXTURES=crates/connector-vmm-tests/fixtures
+WORK="${CARGO_TARGET_DIR:?run this task under mise}/connector-vmm-kvm"
+RUN_DIR="${WORK}/run"
+BUILDX_CACHE="${WORK}/buildx-cache"
+# Must match boundary::TABLE in crates/connector-vmm/src/boundary.rs.
+TABLE=flow_vmm_boundary
+DERIVE_PYTHON=ghcr.io/estuary/derive-python:stable
+HELLO_WORLD=ghcr.io/estuary/source-hello-world:dev
+
+# The controlled endpoints: unused addresses in AS112-v4 (192.31.196.0/24),
+# which IANA marks globally reachable, so the unchanged ruleset treats them as
+# public. They live in a network namespace one routed hop from this host, not
+# on it, because the host boundary refuses a VMM anything addressed to the
+# host itself. The decoys are baseline-excluded addresses routed the same way,
+# so only the boundary keeps a VMM from them. Each /28 is also blackholed
+# beneath its route, so nothing addressed there can leave the host, even if
+# the link disappears mid-run.
+NETNS=connector-vmm-kvm
+LINK=vmm-kvm0
+PEER=vmm-kvm1
+FENCE=192.31.196.240/28
+ENDPOINTS=(192.31.196.241 192.31.196.242 192.31.196.243 192.31.196.244 192.31.196.245 192.31.196.246)
+# The host's end of the hop, and so the address endpoints see VMMs come from.
+ENDPOINT_PEER=192.31.196.254
+DECOY_FENCE=198.18.255.240/28
+DECOYS=(198.18.255.241)
+
+FILTER="${usage_filter:-}"
+ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"
+
+fail() {
+    echo "ci:connector-vmm-kvm: $*" >&2
+    exit 1
+}
+
+[ "$(uname -m)" = x86_64 ] || fail "the VMM image is linux/amd64 only, and this host is $(uname -m)"
+sudo -n true 2>/dev/null || fail "passwordless sudo is unavailable"
+sudo -n podman info >/dev/null 2>&1 || fail "rootful podman is unavailable (sudo -n podman info failed)"
+sudo -n sh -c 'exec 3<>/dev/kvm' 2>/dev/null || fail "/dev/kvm does not open"
+docker buildx version >/dev/null 2>&1 || fail "docker buildx is unavailable"
+command -v python3 >/dev/null || fail "python3 is unavailable (the inbound probe runs it in a VMM's network namespace)"
+command -v x86_64-linux-musl-gcc >/dev/null || fail "x86_64-linux-musl-gcc is unavailable (install musl-tools to build the guest binaries)"
+sudo -n sh -c 'command -v conntrack' >/dev/null || fail "conntrack is unavailable (install conntrack to read a VMM's flow table)"
+
+# One run per host: the endpoints and the fence are host-wide.
+sudo -n install -d -m 0755 "${ROOT}"
+for file in lock resources; do
+    [ -e "${ROOT}/${file}" ] || sudo -n install -m 0644 -o "$(id -u)" -g "$(id -g)" /dev/null "${ROOT}/${file}"
+done
+exec 9>>"${ROOT}/lock"
+flock -n 9 || fail "another run holds ${ROOT}/lock"
+sudo -n chown "$(id -u):$(id -g)" "${ROOT}/resources"
+
+# Everything this run creates, the tests' containers and directories included,
+# is appended to ${ROOT}/resources before it exists, and removed exactly from
+# that list, newest first. Nothing is ever removed by age or by a name pattern.
+record() {
+    printf '%s %s\n' "$1" "$2" >>"${ROOT}/resources"
+}
+
+# `flow-connector-vmm boundary ACTION` from VMM image $1, in the host's network
+# namespace. Must match `launch::boundary` in crates/connector-vmm-tests.
+boundary() {
+    sudo -n podman run --rm --network=host --log-driver=none --read-only \
+        --cap-drop=all --cap-add=CAP_NET_ADMIN "$1" boundary "$2"
+}
+
+release() {
+    # One removal failing must not stop the rest.
+    local - kind value
+    set +e
+    while read -r kind value; do
+        case "${kind}" in
+        container) sudo -n podman rm -f --time 0 --ignore "${value}" >/dev/null ;;
+        image) sudo -n podman image rm "${value}" >/dev/null 2>&1 || true ;;
+        builder) docker buildx rm "${value}" >/dev/null 2>&1 || true ;;
+        network)
+            if sudo -n podman network exists "${value}"; then
+                sudo -n podman network rm "${value}" >/dev/null 2>&1 || echo "Left network ${value}: it is in use"
+            fi
+            ;;
+        netns) sudo -n ip netns del "${value}" 2>/dev/null || true ;;
+        # Refused while any VMM bridge remains, this run's or another owner's.
+        boundary) boundary "${value}" remove || echo "Left the host's ${TABLE} tables" ;;
+        link) sudo -n ip link del "${value}" 2>/dev/null || true ;;
+        # "blackhole <prefix> metric <n>", deliberately split.
+        route) sudo -n ip route del ${value} 2>/dev/null || true ;;
+        dir)
+            case "${value}" in
+            "${ROOT}"/state/fv_* | "${ROOT}"/connector-mounts-0/mount-*)
+                sudo -n rm -rf --one-file-system "${value}"
+                ;;
+            *) echo "Not removing ${value}: it is outside ${ROOT}" >&2 ;;
+            esac
+            ;;
+        *) echo "Not removing unknown resource: ${kind} ${value}" >&2 ;;
+        esac
+    done < <(tac "${ROOT}/resources")
+    : >"${ROOT}/resources"
+}
+
+if [ -s "${ROOT}/resources" ]; then
+    echo "=== Removing what an interrupted run recorded ==="
+    sed 's/^/  /' "${ROOT}/resources"
+    release
+fi
+trap release EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+echo "=== Building flow-connector-vmm, flow-guest-init and flow-connector-init ==="
+rustup target add x86_64-unknown-linux-musl >/dev/null
+cargo build --locked --release -p connector-vmm
+cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p guest-init
+
+# The two files docker/connector-vmm.Dockerfile reads from a package directory.
+# Not ~/flow-package, which ci:package owns.
+rm -rf "${RUN_DIR}"
+mkdir -p "${RUN_DIR}/package/amd64" "${BUILDX_CACHE}"
+cp "${CARGO_TARGET_DIR}/release/flow-connector-vmm" \
+    "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-guest-init" \
+    "${RUN_DIR}/package/amd64/"
+
+# The libkrun stage takes minutes uncached and seconds cached. `mode=min` is
+# enough to skip it and is a tenth the size of `mode=max`.
+CACHE=(--cache-to "type=local,dest=${BUILDX_CACHE}.new,mode=min")
+if [ -f "${BUILDX_CACHE}/index.json" ]; then
+    CACHE+=(--cache-from "type=local,src=${BUILDX_CACHE}")
+fi
+
+BUILDER="connector-vmm-kvm-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+echo "=== Building the VMM image (log: ${RUN_DIR}/connector-vmm.build.log) ==="
+record builder "${BUILDER}"
+docker buildx create --name "${BUILDER}" --driver docker-container --bootstrap >/dev/null 2>&1
+if ! docker buildx build --builder "${BUILDER}" --progress=plain --platform linux/amd64 \
+    -f docker/connector-vmm.Dockerfile "${CACHE[@]}" \
+    --output "type=docker,dest=${RUN_DIR}/connector-vmm.tar" \
+    "${RUN_DIR}/package" >"${RUN_DIR}/connector-vmm.build.log" 2>&1; then
+    tail -40 "${RUN_DIR}/connector-vmm.build.log" >&2
+    if grep -q 'No match for argument: libkrunfw' "${RUN_DIR}/connector-vmm.build.log"; then
+        fail "the libkrunfw pin in docker/connector-vmm.Dockerfile is no longer in Fedora 43's repositories; moving it changes the guest kernel, which is deliberate"
+    fi
+    fail "building the VMM image failed"
+fi
+docker buildx rm "${BUILDER}" >/dev/null 2>&1
+if [ -d "${BUILDX_CACHE}.new" ]; then
+    rm -rf "${BUILDX_CACHE}"
+    mv "${BUILDX_CACHE}.new" "${BUILDX_CACHE}"
+fi
+
+VMM_IMAGE=$(sudo -n podman load -q -i "${RUN_DIR}/connector-vmm.tar" | grep -oE 'sha256:[0-9a-f]{64}')
+record image "${VMM_IMAGE}"
+rm -f "${RUN_DIR}/connector-vmm.tar"
+
+echo "=== Pulling ${DERIVE_PYTHON} and ${HELLO_WORLD}, and building the test guest ==="
+sudo -n podman pull -q "${DERIVE_PYTHON}" >/dev/null
+sudo -n podman pull -q "${HELLO_WORLD}" >/dev/null
+FIXTURE_HASH=$(cat "${FIXTURES}/guest.Containerfile" "${FIXTURES}/probes.py" | sha256sum | cut -c1-16)
+GUEST_IMAGE="localhost/connector-vmm-test-guest:${FIXTURE_HASH}"
+record image "${GUEST_IMAGE}"
+sudo -n podman build -q -t "${GUEST_IMAGE}" -f "${FIXTURES}/guest.Containerfile" "${FIXTURES}" >/dev/null
+
+# Before any VMM network exists. Tables another owner installed are used and
+# left alone, if they are exactly this checkout's; any other tables are not
+# this run's to replace.
+echo "=== The host boundary around VMM bridges ==="
+if boundary "${VMM_IMAGE}" verify 2>/dev/null; then
+    echo "Using the host's existing ${TABLE} tables, which are not this run's"
+else
+    BOUNDARY_TABLES=$(sudo -n podman run --rm --network=host --cap-drop=all --cap-add=CAP_NET_ADMIN \
+        --entrypoint=nft "${VMM_IMAGE}" list tables) \
+        || fail "could not list the host's nftables tables; refusing to install ${TABLE}"
+    if grep -q " ${TABLE}\$" <<<"${BOUNDARY_TABLES}"; then
+        boundary "${VMM_IMAGE}" verify || true
+        fail "the host's ${TABLE} tables are not this checkout's, and not this run's to replace"
+    fi
+    record boundary "${VMM_IMAGE}"
+    boundary "${VMM_IMAGE}" install
+fi
+
+echo "=== Setting up the controlled endpoints in network namespace ${NETNS} ==="
+for fence in "${FENCE}" "${DECOY_FENCE}"; do
+    [ -z "$(ip route show exact "${fence}")" ] || fail "a route for ${fence} already exists, and it is not this run's"
+done
+! ip link show "${LINK}" >/dev/null 2>&1 || fail "link ${LINK} already exists, and it is not this run's"
+[ ! -e "/run/netns/${NETNS}" ] || fail "network namespace ${NETNS} already exists, and it is not this run's"
+# The fences go up before any address they guard, beneath the routes that
+# use them.
+for fence in "${FENCE}" "${DECOY_FENCE}"; do
+    record route "blackhole ${fence} metric 4000"
+    sudo -n ip route add blackhole "${fence}" metric 4000
+done
+record netns "${NETNS}"
+sudo -n ip netns add "${NETNS}"
+record link "${LINK}"
+sudo -n ip link add "${LINK}" type veth peer name "${PEER}" netns "${NETNS}"
+sudo -n ip addr add "${ENDPOINT_PEER}/32" dev "${LINK}"
+sudo -n ip link set "${LINK}" up
+for fence in "${FENCE}" "${DECOY_FENCE}"; do
+    sudo -n ip route add "${fence}" dev "${LINK}" src "${ENDPOINT_PEER}" metric 100
+done
+sudo -n ip -n "${NETNS}" link set lo up
+for address in "${ENDPOINTS[@]}" "${DECOYS[@]}"; do
+    sudo -n ip -n "${NETNS}" addr add "${address}/32" dev "${PEER}"
+done
+sudo -n ip -n "${NETNS}" link set "${PEER}" up
+# Replies go back the way they came, and nowhere else: no default route.
+sudo -n ip -n "${NETNS}" route add "${ENDPOINT_PEER}/32" dev "${PEER}"
+
+jq -n \
+    --arg runDir "${RUN_DIR}" \
+    --arg vmmImage "${VMM_IMAGE}" \
+    --arg guestImage "${GUEST_IMAGE}" \
+    --arg helloWorldImage "${HELLO_WORLD}" \
+    --arg connectorInit "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-init" \
+    --arg endpointNetns "${NETNS}" \
+    --arg endpointPeer "${ENDPOINT_PEER}" \
+    --argjson decoys "$(printf '%s\n' "${DECOYS[@]}" | jq -R . | jq -s .)" \
+    '{$runDir, $vmmImage, $guestImage, $helloWorldImage, $connectorInit, endpoints: $ARGS.positional, $endpointNetns, $endpointPeer, $decoys}' \
+    --args "${ENDPOINTS[@]}" | sudo -n tee "${ROOT}/run.json" >/dev/null
+
+status=0
+if [ -n "${FILTER}" ]; then
+    echo "=== Partial run: suite tests matching '${FILTER}' only; connector-init's vsock test is skipped ==="
+elif [ "${ALLOW_MISSING_VSOCK}" = true ]; then
+    echo "=== connector-init's vsock test may skip (--allow-missing-vsock-loopback); the suite's guest still proves vsock serving ==="
+    cargo nextest run --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
+else
+    CONNECTOR_VMM_KVM=1 cargo nextest run --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
+fi
+
+echo "=== The KVM suite ==="
+CONNECTOR_VMM_KVM=1 cargo nextest run --locked --profile connector-vmm-kvm -p connector-vmm-tests \
+    --no-fail-fast ${FILTER:+"${FILTER}"} || status=$?
+
+echo "Every launch's stdout and stderr: ${RUN_DIR}"
+exit "${status}"

@@ -1,0 +1,39 @@
+---
+source: crates/connector-vmm-tests/tests/kvm.rs
+assertion_line: 123
+expression: mount_matrix(&vmm)
+---
+$CONNECTOR_MOUNT ext4 ro
+/ overlay ro
+/dev tmpfs ro,nosuid
+/dev/mqueue mqueue rw,nosuid,nodev,noexec
+/dev/pts devpts rw,nosuid,noexec
+/dev/shm tmpfs ro,nosuid,nodev,noexec
+/etc/hostname tmpfs ro,nosuid,nodev,noexec
+/etc/hosts tmpfs ro,nosuid,nodev,noexec
+/etc/resolv.conf tmpfs ro,nosuid,nodev,noexec
+/init ext4 ro
+/persistent-disk ext4 rw
+/proc proc rw,nosuid,nodev,noexec
+/proc/acpi tmpfs ro
+/proc/bus proc ro,nosuid,nodev,noexec
+/proc/fs proc ro,nosuid,nodev,noexec
+/proc/irq proc ro,nosuid,nodev,noexec
+/proc/kcore masked
+/proc/keys masked
+/proc/latency_stats masked
+/proc/scsi tmpfs ro
+/proc/sys proc ro,nosuid,nodev,noexec
+/proc/sysrq-trigger proc ro,nosuid,nodev,noexec
+/proc/timer_list masked
+/rootfs overlay rw
+/run/.containerenv tmpfs ro,nosuid,nodev,noexec
+/scratch-backing ext4 rw
+/sock ext4 rw
+/sys sysfs ro,nosuid,nodev,noexec
+/sys/dev/block tmpfs ro
+/sys/firmware tmpfs ro
+/sys/fs/cgroup cgroup2 ro,nosuid,nodev,noexec
+
+# /dev
+core fd full kvm mqueue net null ptmx pts random shm stderr stdin stdout tty urandom zero

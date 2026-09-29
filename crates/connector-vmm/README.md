@@ -9,6 +9,9 @@ that starts it.
 `run` is the whole launch. `print-ruleset` compiles a connector's egress policy
 into the nftables ruleset that the VM will run behind, without touching the
 kernel, so the policy can be reviewed and snapshot-tested on any machine.
+`boundary` installs, verifies and removes the host's tables around every VMM
+container's network; it runs on the host, not in a VMM container. See
+[The host boundary](#the-host-boundary).
 
 ## Roadmap
 
@@ -24,8 +27,12 @@ kernel, so the policy can be reviewed and snapshot-tested on any machine.
   to, plus the tap, the ruleset apply and the upstream nameserver.
 - `src/console.rs`: the console descriptors and the `--debug` tee.
 - `src/policy.rs`: the policy JSON, the baseline exclusions, and every refusal.
-- `src/ruleset.rs`: policy in, `inet flow_egress` text out. Nothing else in the
-  crate renders nft syntax.
+- `src/ruleset.rs`: policy in, `inet flow_egress` text out, for the VMM's own
+  network namespace.
+- `src/boundary.rs`: the host's `inet` and `bridge` `flow_vmm_boundary` tables,
+  as the nft JSON document `boundary install` applies and the comparison
+  `boundary verify` makes. `src/boundary/listing.json` is the kernel's listing
+  of them.
 - `src/resolver/mod.rs`: the thread, the gate, the CNAME memory and the
   lifetime of an authorization.
 - `src/resolver/dns.rs`: reads a message, rewrites TTLs in place, synthesizes
@@ -77,12 +84,25 @@ to `guest-init::root`.
 ## What a guest escape reaches
 
 A guest with a compromised kernel is assumed (not measured) to reach code
-execution in this process via virtiofs and `/proc`; from there the metadata
-service answers and `nft flush ruleset` succeeds (measured). Public-plane use
-requires the launcher to enforce the baseline exclusions outside this process's
-authority; nothing here does.
+execution in this process via virtiofs and `/proc`; from there
+`nft flush ruleset` succeeds (measured). The baseline exclusions then hold only
+because the host boundary enforces them outside this process's authority. A
+VMM that has flushed its rules can still reach any public address, including
+names its policy never allowed, and its guest can too once the VMM
+masquerades it again: the boundary excludes networks, and says nothing about
+which public destinations a connector uses or how often.
 
 ## Launcher requirements
+
+Each VMM container is alone on a podman network of its own, created with
+`--interface-name` beginning `fvm` (`boundary::BRIDGE_PREFIX`) and podman's
+resolver left enabled. That interface name is what places the container
+behind the host boundary, so no other interface on the host may use the
+prefix. Before creating that network the launcher runs `boundary verify` from
+the same VMM image, in the host's network namespace, and launches only if it
+exits zero; nothing is cached between launches. The reference lines for all
+three are in [`crates/connector-vmm-tests`](../connector-vmm-tests/README.md)'s
+`src/launch.rs`.
 
 The launcher owns access control on `/sock`: the VMM sets `umask(0)` so
 unprivileged clients can connect to `/sock/init.sock`. The socket outlives the
@@ -92,10 +112,14 @@ fit a Unix socket address, under 108 bytes.
 
 Pass `--sysctl net.ipv6.conf.default.disable_ipv6=1` so the tap inherits disabled
 IPv6. Podman mounts `/proc/sys` read-only, preventing the VMM from setting this
-itself. `net::check_ipv6_disabled` verifies it after creating the tap.
+itself. `net::check_ipv6_disabled` verifies it after creating the tap. The
+container's `eth0` exists before the sysctl applies and keeps an IPv6
+link-local address (measured); the host boundary drops what it sends.
 
 `launch::check_read_only` verifies the container root and connector bind are
-read-only before VM setup.
+read-only before VM setup. The integration suite,
+[`crates/connector-vmm-tests`](../connector-vmm-tests/README.md), checks the full
+mount matrix.
 
 ## Images
 
@@ -139,6 +163,57 @@ capabilities. What it does not stand in for:
 - Supervision. socat and the follow loop run beside connector-init, which is
   PID 1, and nothing notices if either dies.
 
+## The host boundary
+
+`boundary install` puts two tables in the host's network namespace,
+`inet flow_vmm_boundary` and `bridge flow_vmm_boundary`, that bound every VMM
+container from outside the container's authority. Rules match the host
+interface a packet crosses, `fvm*`, never an address, because a VMM holding
+`CAP_NET_ADMIN` chooses its own addresses, routes, MAC and ruleset. Keyed that
+way the tables hold nothing about a particular network or launch: one
+installation, made before any VMM network exists, covers every VMM bridge
+the host will have, and every owner installs identical tables.
+
+| hook | drops, for traffic from or to an `fvm*` bridge |
+|---|---|
+| inet prerouting (raw) | IPv6; a source that does not route back out of the bridge it came in on; IP fragments (none arrive while conntrack reassembles) |
+| inet input | everything addressed to the host, except UDP/53 to the address of the bridge it arrived on |
+| inet forward | anything to another VMM bridge or back out of its own; `policy::baseline` destinations; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
+| inet output | IPv6, and anything that is not a reply, from the host into a VMM |
+| bridge prerouting, output | frames that are neither IPv4 nor ARP |
+| bridge forward | every frame from one port of a VMM bridge to another |
+
+The one accept is the VMM's nameserver: podman's resolver on the gateway of the
+VMM's own bridge, which podman writes into the container's `resolv.conf` and
+`net::upstream_nameserver` reads. The rule names the arrival bridge rather than
+an address, so it cannot disagree with the resolver's configuration. Every
+other rule drops, and a drop in any base chain is final, so netavark's, Docker's
+and anyone else's accepts do not undo them. The chains run at filter priority
+-10 so their counters see packets first; the drops would hold at any priority.
+
+One bridge per VMM is what makes the sibling guarantee hold at layer 2. On a
+shared bridge a VMM could rewrite the host's neighbour and forwarding entries
+for a sibling's address and take its replies; alone on its bridge, the only
+entries it can disturb are its own.
+
+`install` applies both tables as one nft transaction that declares, deletes and
+redefines them, so a reinstall or an upgrade never passes through a permissive
+state, then verifies. If either table was absent while `fvm*` interfaces
+existed, it installs anyway and exits 2 naming them: those VMMs ran without the
+boundary and must be replaced. `verify` lists the ruleset and compares both
+tables, less handles and counter values, against exactly what `install`
+applies; a dormant table, a missing set element, a moved priority, an added
+rule or chain are all failures, and each is named in a framed line. `remove`
+refuses while any `fvm*` interface exists, and removes both tables in one
+transaction otherwise. It does not know about VMM networks created but not
+yet started, so an operator stops launchers before removing it.
+
+Verification happens before launch, not continuously: tables removed between a
+verify and the container starting would go unnoticed until the next verify.
+A verify and a VMM image come from the same build, so a host upgrades the
+tables and its launchers' VMM image together. Host-side limits on new
+connections or distinct destinations are not here.
+
 ## The policy
 
 ```json
@@ -168,7 +243,7 @@ at the head of the acceptance chain and removes the requirement that a
 destination be *named* - not the requirement that it be public.
 
 Only `egress`, `allowAll` and the two TTL bounds have a producer today.
-`allowedNames` is populated by hand; `declaredCidrs`,
+`allowedNames` is populated by hand and by the test suites; `declaredCidrs`,
 `connectionsPerMinute` and `distinctDestinationsPerMinute` are carried at full
 shape, validated and snapshot-tested, but nothing generates them until the
 catalog model that owns them exists.
@@ -275,8 +350,8 @@ DNS is UDP-only: the ruleset does not admit TCP retries for oversized answers.
   upstream nameserver on loopback and record what the resolver asked of the set
   rather than writing to one, and the launch sequence is snapshotted through a
   recording implementation of the libkrun trait. An applied ruleset, a batch
-  that reaches a real kernel, and a guest that actually boots require an
-  integration environment.
+  that reaches a real kernel, and a guest that actually boots are proven by the
+  integration suite, [`crates/connector-vmm-tests`](../connector-vmm-tests/README.md).
 - **The descriptor sweep is tested in a subprocess.** It closes descriptors the
   test harness owns, so it cannot run inside one.
 
@@ -305,4 +380,6 @@ control.
 
 The properties this layer does carry are the ones above: no private or
 special-use destination, no IPv6, no protocol other than TCP and UDP, no
-inbound connection, and no path to the VMM itself except the one DNS rule.
+inbound connection, and no path to the VMM itself except the one DNS rule. Of
+these, the host boundary holds the destination, IPv6 and inbound properties
+even against a VMM that has removed this layer.

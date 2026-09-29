@@ -1,0 +1,34 @@
+---
+source: crates/connector-vmm/src/boundary.rs
+assertion_line: 518
+expression: "lines.join(\"\\n\")"
+---
+{"add":{"table":{"family":"inet","name":"flow_vmm_boundary"}}}
+{"delete":{"table":{"family":"inet","name":"flow_vmm_boundary"}}}
+{"add":{"table":{"family":"bridge","name":"flow_vmm_boundary"}}}
+{"delete":{"table":{"family":"bridge","name":"flow_vmm_boundary"}}}
+{"add":{"table":{"family":"inet","name":"flow_vmm_boundary"}}}
+{"add":{"set":{"elem":[{"prefix":{"addr":"0.0.0.0","len":8}},{"prefix":{"addr":"10.0.0.0","len":8}},{"prefix":{"addr":"100.64.0.0","len":10}},{"prefix":{"addr":"127.0.0.0","len":8}},{"prefix":{"addr":"169.254.0.0","len":16}},{"prefix":{"addr":"172.16.0.0","len":12}},{"prefix":{"addr":"192.0.0.0","len":24}},{"prefix":{"addr":"192.0.2.0","len":24}},{"prefix":{"addr":"192.88.99.0","len":24}},{"prefix":{"addr":"192.168.0.0","len":16}},{"prefix":{"addr":"198.18.0.0","len":15}},{"prefix":{"addr":"198.51.100.0","len":24}},{"prefix":{"addr":"203.0.113.0","len":24}},{"prefix":{"addr":"224.0.0.0","len":4}},{"prefix":{"addr":"240.0.0.0","len":4}}],"family":"inet","flags":["interval"],"name":"baseline","table":"flow_vmm_boundary","type":"ipv4_addr"}}}
+{"add":{"chain":{"family":"inet","hook":"prerouting","name":"prerouting","policy":"accept","prio":-300,"table":"flow_vmm_boundary","type":"filter"}}}
+{"add":{"chain":{"family":"inet","hook":"input","name":"input","policy":"accept","prio":-10,"table":"flow_vmm_boundary","type":"filter"}}}
+{"add":{"chain":{"family":"inet","hook":"forward","name":"forward","policy":"accept","prio":-10,"table":"flow_vmm_boundary","type":"filter"}}}
+{"add":{"chain":{"family":"inet","hook":"output","name":"output","policy":"accept","prio":-10,"table":"flow_vmm_boundary","type":"filter"}}}
+{"add":{"rule":{"chain":"prerouting","comment":"no-ipv6","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"meta":{"key":"nfproto"}},"op":"==","right":"ipv6"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"prerouting","comment":"anti-spoof","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"fib":{"flags":["saddr","iif"],"result":"oif"}},"op":"==","right":false}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"prerouting","comment":"fragment","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"&":[{"payload":{"field":"frag-off","protocol":"ip"}},8191]},"op":"!=","right":0}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"input","comment":"gateway-dns","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"fib":{"flags":["daddr","iif"],"result":"type"}},"op":"==","right":"local"}},{"match":{"left":{"payload":{"field":"dport","protocol":"udp"}},"op":"==","right":53}},{"counter":null},{"accept":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"input","comment":"host","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"forward","comment":"vmm-to-vmm","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"forward","comment":"baseline","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"payload":{"field":"daddr","protocol":"ip"}},"op":"==","right":"@baseline"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"forward","comment":"smtp","expr":[{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"payload":{"field":"dport","protocol":"tcp"}},"op":"==","right":25}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"forward","comment":"no-ipv6-inbound","expr":[{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"meta":{"key":"nfproto"}},"op":"==","right":"ipv6"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"forward","comment":"no-inbound","expr":[{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"ct":{"key":"state"}},"op":"!=","right":{"set":["established","related"]}}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"output","comment":"no-ipv6-inbound","expr":[{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"meta":{"key":"nfproto"}},"op":"==","right":"ipv6"}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"output","comment":"no-inbound","expr":[{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"ct":{"key":"state"}},"op":"!=","right":{"set":["established","related"]}}},{"counter":null},{"drop":null}],"family":"inet","table":"flow_vmm_boundary"}}}
+{"add":{"table":{"family":"bridge","name":"flow_vmm_boundary"}}}
+{"add":{"chain":{"family":"bridge","hook":"prerouting","name":"prerouting","policy":"accept","prio":-210,"table":"flow_vmm_boundary","type":"filter"}}}
+{"add":{"chain":{"family":"bridge","hook":"forward","name":"forward","policy":"accept","prio":-210,"table":"flow_vmm_boundary","type":"filter"}}}
+{"add":{"chain":{"family":"bridge","hook":"output","name":"output","policy":"accept","prio":-210,"table":"flow_vmm_boundary","type":"filter"}}}
+{"add":{"rule":{"chain":"prerouting","comment":"ipv4-arp-only","expr":[{"match":{"left":{"meta":{"key":"ibrname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"payload":{"field":"type","protocol":"ether"}},"op":"!=","right":{"set":["ip","arp"]}}},{"counter":null},{"drop":null}],"family":"bridge","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"forward","comment":"no-peers","expr":[{"match":{"left":{"meta":{"key":"ibrname"}},"op":"==","right":"fvm*"}},{"counter":null},{"drop":null}],"family":"bridge","table":"flow_vmm_boundary"}}}
+{"add":{"rule":{"chain":"output","comment":"ipv4-arp-only","expr":[{"match":{"left":{"meta":{"key":"obrname"}},"op":"==","right":"fvm*"}},{"match":{"left":{"payload":{"field":"type","protocol":"ether"}},"op":"!=","right":{"set":["ip","arp"]}}},{"counter":null},{"drop":null}],"family":"bridge","table":"flow_vmm_boundary"}}}
