@@ -202,7 +202,7 @@ where
 /// the connector is already gone. Logging it at `warn` puts pure downstream noise beside
 /// the causal error, so it's logged at `debug`. Any other error is unexpected and remains
 /// a `warn`.
-async fn write_stdin(stdin: &mut async_process::ChildStdio, buffer: &[u8]) {
+async fn write_stdin(stdin: &mut async_process::ChildStdin, buffer: &[u8]) {
     let Err(error) = stdin.write_all(buffer).await else {
         return;
     };
