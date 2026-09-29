@@ -24,9 +24,6 @@
 //!    remembered until at least its clamped TTL, and the set is updated and
 //!    acknowledged before the answer is sent.
 
-// The VM launch subcommand that will call `start` is not implemented yet.
-#![allow(dead_code)]
-
 mod dns;
 mod nftset;
 

@@ -111,6 +111,7 @@ jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 kafka-protocol = "0.15"
 lazy_static = "1"
 libc = "0"
+libloading = "0"
 librocksdb-sys = { version = "0", default-features = false, features = [
     "bindgen-runtime",
     "snappy",

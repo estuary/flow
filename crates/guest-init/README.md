@@ -45,6 +45,8 @@ the workload and becoming it. The VMM injects it into the guest root at
   root owned by root while the workload runs as the image's user. The
   persistent disk is the task's own, and its owner formats its root for the
   client and reads a later `chown` as a delta.
+- **Scratch has no `nodev`, `nosuid` or `noexec`.** The writable root also lacks
+  these flags, so restricting scratch alone would leave the same access on `/`.
 - **Exit codes are a shell's.** 127 for a workload that is not there, 126 for
   one that cannot be run, 125 for a failure of this binary's own - the codes
   libkrun's init would have used.

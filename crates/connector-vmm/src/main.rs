@@ -1,12 +1,18 @@
-//! `flow-connector-vmm` runs one connector in a micro-VM. Today it compiles
-//! the connector's egress policy into the nftables ruleset that bounds the
-//! guest's network, and holds the resolver that fills that ruleset's
-//! `resolved` set; the crate README maps out the rest.
+//! `flow-connector-vmm` runs one connector in a micro-VM: it compiles the
+//! connector's egress policy into the nftables ruleset that bounds the guest's
+//! network, serves the guest's DNS, prepares its disks and shares, and enters
+//! the VM. The crate README maps out how the pieces fit.
 
+mod console;
+mod disk;
+mod image;
+mod krun;
+mod launch;
 mod net;
 mod policy;
 mod resolver;
 mod ruleset;
+mod sys;
 
 /// Every failure before the VM starts, so that a caller reading the exit code
 /// cannot confuse one with a workload's.
@@ -24,6 +30,10 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Command {
+    /// Run one connector in a micro-VM. Does not return: libkrun takes over
+    /// the process and exits with the guest workload's code.
+    Run(launch::Args),
+
     /// Compile a policy into its nftables ruleset and write it to stdout.
     PrintRuleset {
         /// The policy JSON, as the launcher writes it into /init/policy.json.
@@ -60,14 +70,20 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: &Args) -> anyhow::Result<()> {
-    let Command::PrintRuleset {
-        policy,
-        vmm_subnet: vmm_subnets,
-    } = &args.command;
-
-    let policy = policy::load(policy)?;
-    print!("{}", ruleset::render(&policy, vmm_subnets)?);
-    Ok(())
+    match &args.command {
+        Command::Run(args) => {
+            let Err(error) = launch::run(args);
+            Err(error)
+        }
+        Command::PrintRuleset {
+            policy,
+            vmm_subnet: vmm_subnets,
+        } => {
+            let policy = policy::load(policy)?;
+            print!("{}", ruleset::render(&policy, vmm_subnets)?);
+            Ok(())
+        }
+    }
 }
 
 /// IPv4 only: the guest has IPv6 disabled and the ruleset drops it outright,
@@ -79,8 +95,10 @@ fn vmm_subnet(raw: &str) -> Result<ipnetwork::Ipv4Network, String> {
     raw.parse().map_err(|e| format!("{e}"))
 }
 
-/// Prefix every line so clap's indentation cannot trigger the launcher's
-/// readiness signal (a leading space on stderr).
+/// Prefix every line so neither clap's indentation nor a diagnostic of our
+/// own can trigger the launcher's readiness signal (a leading space on
+/// stderr). connector-init's own marker and the workload's stderr pass through
+/// the guest console untouched.
 fn framed(message: &str) -> String {
     let mut framed = String::with_capacity(message.len());
 
@@ -104,7 +122,7 @@ mod tests {
         let mut table = String::new();
 
         for case in cases() {
-            table.push_str(&format!("$ {}\n", case.join(" ")));
+            table.push_str(&format!("$ {}\n", command_line(&case)));
             match super::Args::try_parse_from(&case) {
                 Ok(args) => table.push_str(&describe(&args)),
                 Err(error) => table.push_str(&crate::framed(&error.render().to_string())),
@@ -127,6 +145,16 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn command_line(argv: &[&str]) -> String {
+        argv.iter()
+            .map(|argument| match argument.contains(' ') {
+                true => format!("{argument:?}"),
+                false => argument.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     fn cases() -> Vec<Vec<&'static str>> {
@@ -164,24 +192,80 @@ mod tests {
                 "10.89.0.0/33",
             ],
             vec!["flow-connector-vmm", "print-ruleset"],
+            run(&[]),
+            run(&["--persistent-disk", "/acmeCo/state"]),
+            // `--exec` takes every remaining argument, flag-shaped ones
+            // included, which is why it has to come last.
+            run(&["--debug", "--exec", "/bin/sh", "-c", "exit 7"]),
+            run(&["--exec", "/bin/sh", "-c", "exit 7", "--debug"]),
+            run(&["--exec"]),
+            with_mount("relative/mount"),
+            with_mount("/"),
             vec!["flow-connector-vmm", "run", "--policy", "/init/policy.json"],
             vec!["flow-connector-vmm"],
         ]
     }
 
-    fn describe(args: &super::Args) -> String {
-        let super::Command::PrintRuleset {
-            policy,
-            vmm_subnet: vmm_subnets,
-        } = &args.command;
+    fn run(extra: &[&'static str]) -> Vec<&'static str> {
+        const REQUIRED: &[&str] = &[
+            "flow-connector-vmm",
+            "run",
+            "--policy",
+            "/init/policy.json",
+            "--connector-mount",
+            "/tmp/connector-mounts-0/mount-acme",
+            "--memory-mib",
+            "1024",
+            "--vcpus",
+            "2",
+            "--disk-mib",
+            "512",
+        ];
+        [REQUIRED, extra].concat()
+    }
 
-        format!(
-            "ok: print-ruleset policy={} vmm_subnets={:?}\n",
-            policy.display(),
-            vmm_subnets
-                .iter()
-                .map(ipnetwork::Ipv4Network::to_string)
-                .collect::<Vec<_>>(),
-        )
+    /// A `run` line whose `--connector-mount` value is replaced, so a
+    /// rejection reaches the value parser rather than clap's duplicate check.
+    fn with_mount(mount: &'static str) -> Vec<&'static str> {
+        let mut argv = run(&[]);
+        let value = argv
+            .iter()
+            .position(|argument| *argument == "--connector-mount")
+            .expect("run() passes --connector-mount")
+            + 1;
+        argv[value] = mount;
+        argv
+    }
+
+    fn describe(args: &super::Args) -> String {
+        match &args.command {
+            super::Command::PrintRuleset {
+                policy,
+                vmm_subnet: vmm_subnets,
+            } => format!(
+                "ok: print-ruleset policy={} vmm_subnets={:?}\n",
+                policy.display(),
+                vmm_subnets
+                    .iter()
+                    .map(ipnetwork::Ipv4Network::to_string)
+                    .collect::<Vec<_>>(),
+            ),
+            super::Command::Run(args) => format!(
+                "ok: run policy={} connector_mount={} memory_mib={} vcpus={} disk_mib={} \
+                 persistent_disk={:?} run_as_root={} as_root_exec={:?} debug={} \
+                 resolver_upstream={:?} exec={:?}\n",
+                args.policy.display(),
+                args.connector_mount,
+                args.memory_mib,
+                args.vcpus,
+                args.disk_mib,
+                args.persistent_disk,
+                args.run_as_root,
+                args.as_root_exec,
+                args.debug,
+                args.resolver_upstream.map(|u| u.to_string()),
+                args.exec,
+            ),
+        }
     }
 }
