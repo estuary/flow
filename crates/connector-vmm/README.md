@@ -31,6 +31,8 @@ kernel, so the policy can be reviewed and snapshot-tested on any machine.
 - `src/resolver/dns.rs`: reads a message, rewrites TTLs in place, synthesizes
   the replies the resolver invents. Never re-encodes a message.
 - `src/resolver/nftset.rs`: the nfnetlink batch, by hand.
+- `docker/connector-vmm.Dockerfile`, `docker/connector-vmm-fake.Dockerfile` and
+  `fake-entrypoint.sh`: the two images; see [Images](#images).
 
 ## Launch constraints
 
@@ -59,7 +61,7 @@ records the header version used for its ABI bindings.
 | `/scratch-backing` | rw | holds the `O_TMPFILE` scratch, sized by `--disk-mib` and formatted ext4. `src/disk.rs` has the descriptor and format details. Reclaimed when the VM exits. |
 | `/persistent-disk` | rw | only with `--persistent-disk`. `guest-init` mounts it `nodev,nosuid,noexec` and does not chown it. |
 
-Those four are the entire writable set when the launcher passes
+Those four are the entire writable set, because the launch line passes
 `--read-only-tmpfs=false`: podman's `/tmp`, `/run` and `/var/tmp` are read-only
 too, as are `/dev` and `/dev/shm`. Device and proc interfaces are not storage
 and are not in that set - the only added devices are `/dev/kvm` and
@@ -74,27 +76,19 @@ to `guest-init::root`.
 
 ## What a guest escape reaches
 
-libkrun's virtiofs passthrough server resolves guest-supplied paths without
-`RESOLVE_BENEATH`, so a guest whose kernel is already compromised can reach
-outside a share. What it reaches is the VMM container's filesystem, and through
-the VMM process's own `/proc`, code execution in the process holding
-`CAP_NET_ADMIN`.
-
-An escaped guest can reach the instance metadata service and flush the egress
-ruleset. This risk is accepted because connectors running without a VM already
-have that access; a guest whose kernel is intact reaches neither. A `..` probe
-from a cooperating guest does not test containment of a compromised kernel.
-
-The remedies are `RESOLVE_BENEATH` in the upstream passthrough server or a
-user-namespace design, neither reachable from this privilege level. Cheaper,
-and independent of which escape vector is used: excluding the baseline from the
-VMM's own output chain, and dropping `CAP_NET_ADMIN` before `krun_start_enter`
-- which the tap attach survives, but the resolver's nfnetlink updates do not.
+A guest with a compromised kernel is assumed (not measured) to reach code
+execution in this process via virtiofs and `/proc`; from there the metadata
+service answers and `nft flush ruleset` succeeds (measured). Public-plane use
+requires the launcher to enforce the baseline exclusions outside this process's
+authority; nothing here does.
 
 ## Launcher requirements
 
 The launcher owns access control on `/sock`: the VMM sets `umask(0)` so
-unprivileged clients can connect to `/sock/init.sock`.
+unprivileged clients can connect to `/sock/init.sock`. The socket outlives the
+container, and libkrun refuses to bind over one (`krun_add_vsock_port2: File
+exists`, exit 2), so each launch needs an empty `/sock`. Its host-side path must
+fit a Unix socket address, under 108 bytes.
 
 Pass `--sysctl net.ipv6.conf.default.disable_ipv6=1` so the tap inherits disabled
 IPv6. Podman mounts `/proc/sys` read-only, preventing the VMM from setting this
@@ -102,6 +96,48 @@ itself. `net::check_ipv6_disabled` verifies it after creating the tap.
 
 `launch::check_read_only` verifies the container root and connector bind are
 read-only before VM setup.
+
+## Images
+
+`ci:docker-images` builds both with the flow tags, for `linux/amd64` only.
+
+`connector-vmm` is Fedora 43 with libkrun built from source, the guest kernel
+from Fedora's `libkrunfw`, and the commands `run` invokes before the VM (`ip`,
+`nft`, `mkfs.ext4`). `flow-guest-init` sits at `launch::GUEST_INIT`. The
+Dockerfile pins libkrun's commit and lockfile, and its version ARGs are also
+the `dev.estuary.libkrun` and `dev.estuary.libkrunfw` labels. Packaging
+constraints:
+
+- Fedora's updates repository keeps only the newest `libkrunfw`, so the image
+  stops building once it moves past the pin. Moving the pin changes the guest
+  kernel, and is meant to be deliberate.
+- `flow-connector-vmm` is built on the Ubuntu runner and runs against Fedora's
+  glibc, which must be at least as new.
+- Nothing in the image is written at runtime; the container root is read-only.
+
+`connector-vmm-fake` implements `run`'s launch contract without a VM, for
+exercising a launcher where KVM is unavailable. `fake-entrypoint.sh`, at the
+real binary's path, takes the same CLI, applies the same launch-line guards,
+serves `/sock/init.sock` at mode 0777 and hands the workload `CONNECTOR_MOUNT`,
+`LOG_FORMAT` and `LOG_LEVEL`. connector-init runs chrooted into `/rootfs`, from
+a copy of the connector mount staged at the mount's own path, and socat bridges
+the socket to its TCP port. It needs none of the launch line's devices or
+capabilities. What it does not stand in for:
+
+- The guest. No VM, tap, ruleset, resolver, scratch disk or guest init, and
+  connector-init also listens on the container's network, as an ordinary
+  connector's does.
+- The connector's image config. The connector runs as root, in `/`, with this
+  image's environment plus the contract's: its own `Env`, `User` and
+  `WorkingDir` are not applied, so only self-contained connectors run under it.
+- The share. The connector mount is a writable copy, and nested mounts within
+  it are not reproduced. `task-update.json` is followed into it once a second,
+  which gives a connector the runtime's rewrites but says nothing about whether
+  the real VMM's share shows them to a guest.
+- Flags a launcher does not pass. `--persistent-disk` and the test-only flags
+  are refused, not ignored.
+- Supervision. socat and the follow loop run beside connector-init, which is
+  PID 1, and nothing notices if either dies.
 
 ## The policy
 
