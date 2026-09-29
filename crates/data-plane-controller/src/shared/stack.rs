@@ -169,6 +169,12 @@ pub struct DataPlane {
     pub deployments: Vec<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_limits: Option<ConnectorLimits>,
+    // Tokio worker threads of each reactor shard's runtime, passed through as
+    // FLOW_RUNTIME_WORKER_THREADS. The count is per-shard and multiplies by a
+    // reactor's shard count, so raise it only for a plane whose shards are
+    // async-executor bound. Unset means the runtime's default of one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_worker_threads: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
