@@ -90,7 +90,10 @@ async fn serve(args: Args, registry: service_kit::Registry) -> anyhow::Result<()
         true, // Disarm AuthN+AuthZ (local loopback).
     );
 
+    // As runtime-sidecar: shuffle streams from a peer share one connection,
+    // and must not stall one another through its flow-control window.
     let server = tonic::transport::Server::builder()
+        .initial_connection_window_size(i32::MAX as u32)
         .add_service(shuffle_svc.into_tonic_service())
         .add_service(leader_svc.into_tonic_service())
         .serve_with_incoming_shutdown(
