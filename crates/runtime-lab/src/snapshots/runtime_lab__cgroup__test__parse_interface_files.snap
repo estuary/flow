@@ -1,0 +1,35 @@
+---
+source: crates/runtime-lab/src/cgroup.rs
+expression: "serde_json::json!({\n    \"cpu\":\n    super::flat_keyed(\"usage_usec 1234\\nnr_throttled 5\\nthrottled_usec 678\\n\"),\n    \"io\":\n    super::nested_keyed(\"259:0 rbytes=10 wbytes=20 rios=1 wios=2 dbytes=0 dios=0\\n\"),\n    \"pressure\":\n    super::nested_keyed(\"some avg10=1.50 avg60=0.00 avg300=0.00 total=99\\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=7\\n\"),\n})"
+---
+{
+  "cpu": {
+    "nr_throttled": 5,
+    "throttled_usec": 678,
+    "usage_usec": 1234
+  },
+  "io": {
+    "259:0": {
+      "dbytes": 0,
+      "dios": 0,
+      "rbytes": 10,
+      "rios": 1,
+      "wbytes": 20,
+      "wios": 2
+    }
+  },
+  "pressure": {
+    "full": {
+      "avg10": 0.0,
+      "avg300": 0.0,
+      "avg60": 0.0,
+      "total": 7
+    },
+    "some": {
+      "avg10": 1.5,
+      "avg300": 0.0,
+      "avg60": 0.0,
+      "total": 99
+    }
+  }
+}
