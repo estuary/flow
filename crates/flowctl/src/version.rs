@@ -14,12 +14,6 @@ pub async fn check_latest() -> Option<(String, String)> {
 
 /// Whether `current` predates the `latest` release, comparing only the
 /// `MAJOR.MINOR.PATCH` of each.
-///
-/// Release binaries carry the exact release tag, such as `v0.6.13`. Binaries
-/// built by CI from master carry a `git describe` version such as
-/// `v0.6.13-180-gafc54b0` or `v0.6.13-dirty`, which is at or ahead of the
-/// `v0.6.13` release. A local `cargo build` carries the `dev` default from
-/// `.cargo/config.toml`, which has no release to compare against.
 fn is_outdated(current: &str, latest: &str) -> bool {
     match (parse_release(current), parse_release(latest)) {
         (Some(current), Some(latest)) => current < latest,
