@@ -1127,6 +1127,29 @@ type DeriveTransformStats {
 }
 
 """
+An asynchronous capture discovery that merges its results into a draft.
+"""
+type Discover {
+	id: Id!
+	draftId: Id!
+	captureName: Name!
+	dataPlaneName: String!
+	status: DiscoverStatus!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	Errors currently recorded on the associated draft.
+	"""
+	errors: [Error!]!
+	"""
+	Discovery logs in timestamp order. Pagination is best effort, and logs
+	may arrive after discovery completes.
+	`first` controls page size and cannot exceed 1000 log lines.
+	"""
+	logs(after: String, first: Int): LogLineConnection!
+}
+
+"""
 A capture binding that has changed as a result of a discover
 """
 type DiscoverChange {
@@ -1142,6 +1165,23 @@ type DiscoverChange {
 	Whether the capture binding is disabled.
 	"""
 	disable: Boolean!
+}
+
+enum DiscoverStatus {
+	"""
+	The discover is queued or in progress.
+	"""
+	QUEUED
+	SUCCESS
+	WRONG_PROTOCOL
+	TAG_FAILED
+	IMAGE_FORBIDDEN
+	DISCOVER_FAILED
+	NO_DATA_PLANE
+	NOT_AUTHORIZED
+	MERGE_FAILED
+	DEPRECATED_BACKGROUND
+	PULL_FAILED
 }
 
 """
@@ -1760,6 +1800,37 @@ type LockFailure {
 	The actual id that was found.
 	"""
 	actual: Id
+}
+
+type LogLine {
+	loggedAt: DateTime!
+	stream: String!
+	line: String!
+}
+
+type LogLineConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [LogLineEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type LogLineEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: LogLine!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
 }
 
 """
@@ -2590,6 +2661,10 @@ type QueryRoot {
 		"""
 		limit: Int
 	): FileRead!
+	"""
+	Returns a discover visible to the caller, or null.
+	"""
+	discover(id: Id!): Discover
 }
 
 """
