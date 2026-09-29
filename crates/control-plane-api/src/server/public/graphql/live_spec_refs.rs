@@ -28,15 +28,13 @@ pub struct LiveSpecsBy {
 pub struct LiveSpecRef {
     /// The catalog_name of the referent.
     pub catalog_name: models::Name,
-    /// The current user's capability to the referent. Null indicates no access.
-    /// A query can obtain a reference to a catalog spec that the user has no
-    /// access to, which happens in scenarios where a LiveSpec that the user
-    /// does have access to references a spec in a different catalog namespace
-    /// that the user cannot access. It can also happen simply by listing by
-    /// name, and passing a name that the user cannot access. In either case,
-    /// the result would be `userCapability: null`, and all other fields on the
-    /// LiveSpecRef would also be null.
+    /// The current user's legacy capability to the referent, retained for compatibility.
+    /// Authorization is evaluated independently using the CatalogRead capability bit.
+    #[graphql(deprecation = "Legacy capability reporting does not reflect effective permissions.")]
     pub user_capability: Option<models::Capability>,
+    // Legacy capability reporting does not reflect effective bits or token restrictions.
+    #[graphql(skip)]
+    pub can_read: bool,
 }
 
 #[ComplexObject]
@@ -46,7 +44,7 @@ impl LiveSpecRef {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<live_specs::LiveSpec>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
 
@@ -65,7 +63,7 @@ impl LiveSpecRef {
 
     /// Returns all alerts that are currently firing for this live spec.
     async fn active_alerts(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<Alert>>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
@@ -85,7 +83,7 @@ impl LiveSpecRef {
         before: Option<String>,
         last: i32,
     ) -> async_graphql::Result<Option<alerts::PaginatedAlerts>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         alerts::live_spec_alert_history_no_authz(ctx, &self.catalog_name, before, last)
@@ -98,7 +96,7 @@ impl LiveSpecRef {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<status::LiveSpecStatus>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
@@ -113,7 +111,7 @@ impl LiveSpecRef {
         &self,
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Option<publication_history::SpecPublicationHistoryItem>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
 
@@ -137,7 +135,7 @@ impl LiveSpecRef {
         before: Option<String>,
         last: Option<i32>,
     ) -> async_graphql::Result<Option<publication_history::SpecHistoryConnection>> {
-        if self.user_capability.is_none() {
+        if !self.can_read {
             return Ok(None);
         }
         let include_model = ctx
@@ -160,7 +158,7 @@ impl LiveSpecRef {
     }
 }
 
-/// Resolves legacy capabilities for each reference without filtering names.
+/// Resolves can_read for each ref
 pub fn live_spec_refs(
     ctx: &Context<'_>,
     all_names: Vec<String>,
@@ -170,10 +168,17 @@ pub fn live_spec_refs(
     let all_refs = all_names
         .into_iter()
         .map(|name| {
+            // user_capability deprecated in the gql schema, going away soon
             let user_capability = env.snapshot().user_capability(&subject, &name);
+            let can_read = env.snapshot().is_user_authorized(
+                &subject,
+                &name,
+                models::authz::Capability::CatalogRead,
+            );
             LiveSpecRef {
                 catalog_name: models::Name::new(name),
                 user_capability,
+                can_read,
             }
         })
         .collect();
@@ -273,7 +278,7 @@ impl LiveSpecsQuery {
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
             env.claims()?,
-            models::Capability::Read,
+            models::authz::Capability::CatalogRead,
             names
                 .iter()
                 .map(models::Name::as_str)
@@ -348,6 +353,11 @@ impl LiveSpecsQuery {
                 connection::Edge::new(
                     name.clone(),
                     LiveSpecRef {
+                        can_read: env.snapshot().is_user_authorized(
+                            &subject,
+                            &name,
+                            models::authz::Capability::CatalogRead,
+                        ),
                         catalog_name: models::Name::new(name),
                         user_capability,
                     },
