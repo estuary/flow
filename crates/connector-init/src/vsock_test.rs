@@ -6,14 +6,16 @@
 //! fails, because the transport is unreachable from userspace at all. The
 //! opt-in KVM suite sets `CONNECTOR_VMM_KVM` and then a missing loopback is a
 //! failure: that job exists to prove the transport, not to skip it.
+//!
+//! A unit test rather than an integration test under `tests/`: Cargo builds a
+//! package's binaries for its integration tests, which would put a glibc
+//! `flow-connector-init` in `$CARGO_TARGET_DIR/debug`, where `locate_bin` and
+//! $PATH lookups prefer it over the musl build that connector containers need.
 
 use futures::TryStreamExt;
 
 // Guest AF_VSOCK port the connector VMM maps to its host-side Unix socket.
 const VSOCK_PORT: u32 = 49092;
-
-// Version that connector-init requires of a connector's Spec response.
-const EXPECT_PROTOCOL: u32 = 3032023;
 
 #[tokio::test]
 async fn spec_rpc_over_vsock() {
@@ -34,7 +36,7 @@ async fn spec_rpc_over_vsock() {
     let expect = proto_flow::capture::Response {
         kind: Some(proto_flow::capture::response::Kind::Spec(Box::new(
             proto_flow::capture::response::Spec {
-                protocol: EXPECT_PROTOCOL,
+                protocol: crate::EXPECT_PROTOCOL,
                 config_schema_json: "{}".into(),
                 resource_config_schema_json: "{}".into(),
                 documentation_url: "https://example.com".to_string(),
@@ -63,19 +65,15 @@ async fn spec_rpc_over_vsock() {
     )
     .unwrap();
 
-    std::mem::drop(probe); // Free the port for the child.
+    std::mem::drop(probe); // Free the port for the server.
 
-    // Served in-process rather than by spawning the package's binary: a
-    // `CARGO_BIN_EXE_` reference would build a glibc `flow-connector-init` into
-    // `$CARGO_TARGET_DIR/debug`, where `locate_bin` and $PATH lookups prefer it
-    // over the musl build that connector containers require.
-    let args = <connector_init::Args as clap::Parser>::try_parse_from([
+    let args = <crate::Args as clap::Parser>::try_parse_from([
         "flow-connector-init".to_string(),
         format!("--image-inspect-json-path={}", inspect_path.display()),
         format!("--vsock-port={VSOCK_PORT}"),
     ])
     .unwrap();
-    let server = tokio::spawn(connector_init::run(args, "warn".to_string()));
+    let server = tokio::spawn(crate::run(args, "warn".to_string()));
 
     let channel = tonic::transport::Endpoint::from_static("http://[::1]:0")
         .connect_with_connector(tower::service_fn(|_: tonic::transport::Uri| async {
@@ -126,7 +124,7 @@ async fn dial() -> std::io::Result<tokio_vsock::VsockStream> {
 /// then dialing it at CID 1. Binding alone is not enough: a host with some
 /// other vsock transport binds fine and only fails the connect, which is the
 /// case that must skip rather than fail. Returns the listener so the caller can
-/// hold the port until it spawns.
+/// hold the port until it starts the server.
 async fn bind_probe() -> Option<tokio_vsock::VsockListener> {
     let listener = tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(
         tokio_vsock::VMADDR_CID_ANY,

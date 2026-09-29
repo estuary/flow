@@ -10,6 +10,9 @@ pub mod inspect;
 mod materialize;
 pub mod rpc;
 
+#[cfg(all(test, target_os = "linux"))]
+mod vsock_test;
+
 #[derive(clap::Parser, Debug)]
 #[clap(about = "Command to start connector proxies for Flow runtime.")]
 #[clap(group(

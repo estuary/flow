@@ -176,9 +176,9 @@ if [ -n "${FILTER}" ]; then
     echo "=== Partial run: suite tests matching '${FILTER}' only; connector-init's vsock test is skipped ==="
 elif [ "${ALLOW_MISSING_VSOCK}" = true ]; then
     echo "=== connector-init's vsock test may skip (--allow-missing-vsock-loopback); the suite's guest still proves vsock serving ==="
-    cargo nextest run --locked -p connector-init --test vsock || status=$?
+    cargo nextest run --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
 else
-    CONNECTOR_VMM_KVM=1 cargo nextest run --locked -p connector-init --test vsock || status=$?
+    CONNECTOR_VMM_KVM=1 cargo nextest run --locked -p connector-init --lib -E 'test(=vsock_test::spec_rpc_over_vsock)' || status=$?
 fi
 
 echo "=== The KVM suite ==="

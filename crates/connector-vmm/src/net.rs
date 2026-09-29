@@ -79,10 +79,9 @@ pub fn vmm_subnets() -> anyhow::Result<Vec<Ipv4Network>> {
     let mut subnets: Vec<Ipv4Network> = Vec::new();
     let mut cursor = head;
 
-    while !cursor.is_null() {
-        // SAFETY: the list is owned by this thread until `freeifaddrs` below,
-        // and every non-null entry is a valid `ifaddrs`.
-        let entry = unsafe { &*cursor };
+    // SAFETY: the list is owned by this thread until `freeifaddrs` below, and
+    // every non-null entry is a valid `ifaddrs`; `as_ref` maps null to `None`.
+    while let Some(entry) = unsafe { cursor.as_ref() } {
         cursor = entry.ifa_next;
 
         if entry.ifa_flags & libc::IFF_LOOPBACK as u32 != 0 {

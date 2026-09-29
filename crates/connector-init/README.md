@@ -22,7 +22,10 @@ codec the image speaks.
   pipes.
 - `src/{capture,derive,materialize}.rs`: one `Proxy` per protocol, each a thin
   binding of `rpc` to its generated tonic service.
-- `tests/vsock.rs`: a Spec RPC over AF_VSOCK against the built binary.
+- `src/vsock_test.rs`: a Spec RPC over AF_VSOCK against an in-process server
+  (Linux only). A unit test because an integration test would make Cargo
+  build a glibc `flow-connector-init` into `target/debug`, where `locate_bin`
+  finds it ahead of the musl build connector containers need.
 
 ## Transports
 
@@ -39,7 +42,7 @@ name rather than letting clap print its indented argument lists.
 
 ## Testing
 
-`tests/vsock.rs` dials CID 1, which needs the `vsock_loopback` kernel module.
+`src/vsock_test.rs` dials CID 1, which needs the `vsock_loopback` kernel module.
 Without it the test skips, unless `CONNECTOR_VMM_KVM` is set, in which case a
 missing loopback is a failure; `mise run ci:connector-vmm-kvm` sets it.
 `sudo modprobe vsock_loopback` enables it.
