@@ -39,9 +39,13 @@ become visible on the dashboard.
 
 - **No auth.** Bind admin on loopback only.
 - **Trace-override is additive** — it raises verbosity for one handler but
-  never suppresses what the base filter would keep. Cost when no override
-  is set is one extra `enabled()` check per disabled callsite (atomic load,
-  short scope walk only inside a handler span).
+  never suppresses what the base filter would keep. With no override set,
+  disabled callsites cost nothing extra: `OverrideFilter` reports
+  `Interest::never` and an `INFO` level hint. Setting the first override (or
+  clearing the last) rebuilds the process's callsite interest cache, and
+  while any is set every callsite below the base level is checked
+  dynamically (a scope walk per event or span — costly under h2's per-frame
+  spans), so overrides are for debugging sessions, not standing config.
 - **Handler spans must always be created.** `OverrideFilter` short-circuits
   to `true` for the `service_kit::handler` target — that's where override
   state is hung. Don't filter the target out at the base.
