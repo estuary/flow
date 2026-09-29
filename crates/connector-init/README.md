@@ -41,4 +41,5 @@ name rather than letting clap print its indented argument lists.
 
 `tests/vsock.rs` dials CID 1, which needs the `vsock_loopback` kernel module.
 Without it the test skips, unless `CONNECTOR_VMM_KVM` is set, in which case a
-missing loopback is a failure. `sudo modprobe vsock_loopback` enables it.
+missing loopback is a failure; `mise run ci:connector-vmm-kvm` sets it.
+`sudo modprobe vsock_loopback` enables it.

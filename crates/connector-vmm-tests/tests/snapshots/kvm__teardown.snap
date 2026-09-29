@@ -1,0 +1,14 @@
+---
+source: crates/connector-vmm-tests/tests/kvm.rs
+assertion_line: 566
+expression: split
+---
+the guest, seen as its held init.sock connection: gone at process death
+the VMM process: gone at process death
+its scratch file: gone at process death
+its network namespace: gone at process death
+its host-side veth, and so the tap beside it: gone at process death
+its cgroup: gone at process death
+its rootfs layer: gone at process death
+the container record: gone at container removal
+init.sock: still present after container removal

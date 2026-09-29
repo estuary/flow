@@ -95,7 +95,9 @@ IPv6. Podman mounts `/proc/sys` read-only, preventing the VMM from setting this
 itself. `net::check_ipv6_disabled` verifies it after creating the tap.
 
 `launch::check_read_only` verifies the container root and connector bind are
-read-only before VM setup.
+read-only before VM setup. The integration suite,
+[`crates/connector-vmm-tests`](../connector-vmm-tests/README.md), checks the full
+mount matrix.
 
 ## Images
 
@@ -168,7 +170,7 @@ at the head of the acceptance chain and removes the requirement that a
 destination be *named* - not the requirement that it be public.
 
 Only `egress`, `allowAll` and the two TTL bounds have a producer today.
-`allowedNames` is populated by hand; `declaredCidrs`,
+`allowedNames` is populated by hand and by the test suites; `declaredCidrs`,
 `connectionsPerMinute` and `distinctDestinationsPerMinute` are carried at full
 shape, validated and snapshot-tested, but nothing generates them until the
 catalog model that owns them exists.
@@ -275,8 +277,8 @@ DNS is UDP-only: the ruleset does not admit TCP retries for oversized answers.
   upstream nameserver on loopback and record what the resolver asked of the set
   rather than writing to one, and the launch sequence is snapshotted through a
   recording implementation of the libkrun trait. An applied ruleset, a batch
-  that reaches a real kernel, and a guest that actually boots require an
-  integration environment.
+  that reaches a real kernel, and a guest that actually boots are proven by the
+  integration suite, [`crates/connector-vmm-tests`](../connector-vmm-tests/README.md).
 - **The descriptor sweep is tested in a subprocess.** It closes descriptors the
   test harness owns, so it cannot run inside one.
 
