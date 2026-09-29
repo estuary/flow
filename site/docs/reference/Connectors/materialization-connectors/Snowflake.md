@@ -326,12 +326,13 @@ channel on the table, the task refuses to start, naming the table and what is ou
 task was running, let it commit one transaction to finish that work, then move the binding onto this path again.
 Backfilling the binding also clears it, at the cost of materializing it again.
 
-A binding can also leave this write path at any time — by removing the feature flag, changing the binding away from
-delta updates, or changing the endpoint's authentication. When the task starts on the new path, it drops the
-binding's streaming channels. If a transaction was interrupted before it committed, the rows Snowflake had already
-received from it are materialized again by the new path, and because the binding uses delta updates, those duplicates
-remain in the table. The task must stay on the V2 runtime until that first transaction completes: removing the
-`enable-runtime-v2` shard flag at the same time is rejected.
+A binding can also leave this write path at any time — by removing the feature flag or changing the binding away from
+delta updates. When the task starts on the new path, it drops the binding's streaming channels, which requires
+key-pair authentication, so keep the endpoint on key-pair authentication while the binding leaves. If a transaction
+was interrupted before it committed, the rows Snowflake had already received from it are materialized again by the
+new path, and because the binding uses delta updates, those duplicates remain in the table. The task must stay on the
+V2 runtime until that first transaction completes: removing the `enable-runtime-v2` shard flag at the same time is
+rejected.
 
 Two tasks cannot stream into the same table. A task that tries fails when it first writes to the table, with an
 error naming the channels of the task already streaming into it. If that other task was deleted or renamed, backfill the binding with the
