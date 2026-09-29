@@ -2116,6 +2116,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "connector-vmm"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "insta",
+ "ipnetwork",
+ "libc",
+ "psl",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6802,9 +6817,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.147"
+version = "2.1.238"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b0efc2f09945ea5ef176dc4f1cb703b0efa41b112d5eb27489afc880db860a7"
+checksum = "2e6aa2cd4e8e062e78ac5d7df6206e2f8e39b624f658efd6f34f9aa1928ac5da"
 dependencies = [
  "psl-types",
 ]

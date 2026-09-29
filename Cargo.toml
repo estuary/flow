@@ -140,6 +140,7 @@ prost = "0"
 protobuf = "3"
 protobuf-json-mapping = "3"
 protobuf-parse = "3"
+psl = "2"
 regex = "1"
 reqwest = { version = "0", default-features = false, features = [
     "json",

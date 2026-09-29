@@ -1,0 +1,46 @@
+---
+source: crates/connector-vmm/src/main.rs
+expression: table
+---
+$ flow-connector-vmm print-ruleset --policy /init/policy.json
+ok: print-ruleset policy=/init/policy.json vmm_subnets=[]
+
+$ flow-connector-vmm print-ruleset --policy /init/policy.json --vmm-subnet 10.89.0.4/24 --vmm-subnet 192.0.2.1/30
+ok: print-ruleset policy=/init/policy.json vmm_subnets=["10.89.0.4/24", "192.0.2.1/30"]
+
+$ flow-connector-vmm print-ruleset --policy /init/policy.json --vmm-subnet fd00::/8
+flow-connector-vmm: error: invalid value 'fd00::/8' for '--vmm-subnet <CIDR>': expected an IPv4 subnet; the ruleset drops IPv6 outright
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm print-ruleset --policy /init/policy.json --vmm-subnet 10.89.0.0/33
+flow-connector-vmm: error: invalid value '10.89.0.0/33' for '--vmm-subnet <CIDR>': invalid prefix
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm print-ruleset
+flow-connector-vmm: error: the following required arguments were not provided:
+flow-connector-vmm:   --policy <PATH>
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm print-ruleset --policy <PATH>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm run --policy /init/policy.json
+flow-connector-vmm: error: unrecognized subcommand 'run'
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm <COMMAND>
+flow-connector-vmm:
+flow-connector-vmm: For more information, try '--help'.
+
+$ flow-connector-vmm
+flow-connector-vmm: Run one connector in a micro-VM.
+flow-connector-vmm:
+flow-connector-vmm: Usage: flow-connector-vmm <COMMAND>
+flow-connector-vmm:
+flow-connector-vmm: Commands:
+flow-connector-vmm:   print-ruleset  Compile a policy into its nftables ruleset and write it to stdout
+flow-connector-vmm:   help           Print this message or the help of the given subcommand(s)
+flow-connector-vmm:
+flow-connector-vmm: Options:
+flow-connector-vmm:   -h, --help  Print help
