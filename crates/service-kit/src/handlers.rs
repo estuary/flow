@@ -159,7 +159,13 @@ impl Registry {
             return false;
         };
         let value = level.map(|l| level_to_u8(&l)).unwrap_or(0);
-        slot.trace_override.store(value, Ordering::Relaxed);
+        let prev = slot.trace_override.swap(value, Ordering::Relaxed);
+        let rebuild = crate::trace::count_override_change(prev, value);
+        drop(inner);
+
+        if rebuild {
+            crate::trace::rebuild_interest();
+        }
         true
     }
 
@@ -224,11 +230,19 @@ impl Registry {
 
     fn finish(&self, id: u64, view: FinishedView) {
         let mut inner = self.0.lock().unwrap();
-        inner.live.remove(&id);
+        // A finished handler's override no longer admits anything.
+        let rebuild = inner.live.remove(&id).is_some_and(|slot| {
+            crate::trace::count_override_change(slot.trace_override.swap(0, Ordering::Relaxed), 0)
+        });
         if inner.recent.len() == RECENT_CAPACITY {
             inner.recent.pop_front();
         }
         inner.recent.push_back(view);
+        drop(inner);
+
+        if rebuild {
+            crate::trace::rebuild_interest();
+        }
     }
 }
 
