@@ -736,3 +736,236 @@ async fn test_discover_merge_filters_unauthorized_collection() {
         result.draft
     );
 }
+
+#[tokio::test]
+async fn test_discover_task_completes_after_draft_deleted() {
+    let mut harness = TestHarness::init("test_discover_task_completes_after_draft_deleted").await;
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    let deleted_draft = harness
+        .create_draft(user_id, "deleted", Default::default())
+        .await;
+    let deleted_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/deleted",
+            deleted_draft,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), acorns_discovered())),
+        )
+        .await;
+    let other_draft = harness
+        .create_draft(user_id, "other", Default::default())
+        .await;
+    let other_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/other",
+            other_draft,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), acorns_discovered())),
+        )
+        .await;
+
+    // Deleting the draft cascades to its `discovers` row, but not to its task.
+    delete_draft(&harness, deleted_draft).await;
+    let mut expect_tasks = task_ids(&harness).await;
+    assert!(expect_tasks.contains(&deleted_id));
+    assert!(expect_tasks.contains(&other_id));
+    expect_tasks.retain(|id| *id != deleted_id);
+
+    // The orphaned task was queued first, and is polled first.
+    assert_eq!(
+        Some(deleted_id),
+        harness
+            .run_automation_task(automations::task_types::DISCOVERS)
+            .await
+    );
+    assert_eq!(expect_tasks, task_ids(&harness).await);
+    assert!(
+        harness
+            .connectors
+            .last_discover_request("squirrels/deleted")
+            .is_none(),
+        "expected the connector not to be invoked"
+    );
+
+    let result = harness.run_queued_discover(other_id).await;
+    assert!(
+        result.job_status.is_success(),
+        "expected success, got: {:?}",
+        result.job_status
+    );
+}
+
+#[tokio::test]
+async fn test_discover_task_completes_after_draft_deleted_during_discover() {
+    let mut harness =
+        TestHarness::init("test_discover_task_completes_after_draft_deleted_during_discover").await;
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    let draft_id = harness
+        .create_draft(user_id, "deleted", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), acorns_discovered())),
+        )
+        .await;
+
+    // Poll the executor and apply its outcome as separate steps, so that the
+    // draft is deleted after the connector responds but before its results
+    // are applied.
+    harness.refresh_snapshot().await;
+    let executor = crate::DiscoverExecutor {
+        handler: harness.discover_handler.clone(),
+        snapshot_watch: harness.snapshot_watch.clone(),
+    };
+    let outcome = automations::Executor::poll(
+        &executor,
+        &harness.pool,
+        discover_id,
+        None,
+        &mut None,
+        &mut Default::default(),
+    )
+    .await
+    .expect("discover poll failed");
+    assert!(
+        harness
+            .connectors
+            .last_discover_request("squirrels/capture")
+            .is_some()
+    );
+
+    delete_draft(&harness, draft_id).await;
+
+    let mut txn = harness.pool.begin().await.unwrap();
+    assert!(
+        automations::Outcome::apply(outcome, &mut *txn)
+            .await
+            .is_err(),
+        "expected applying results to a deleted draft to fail"
+    );
+    txn.rollback().await.unwrap();
+
+    let mut expect_tasks = task_ids(&harness).await;
+    assert!(expect_tasks.contains(&discover_id));
+    expect_tasks.retain(|id| *id != discover_id);
+
+    // The next attempt finds no `discovers` row, and completes the task.
+    assert_eq!(
+        Some(discover_id),
+        harness
+            .run_automation_task(automations::task_types::DISCOVERS)
+            .await
+    );
+    assert_eq!(expect_tasks, task_ids(&harness).await);
+}
+
+#[tokio::test]
+async fn test_discover_task_retained_on_database_error() {
+    let mut harness = TestHarness::init("test_discover_task_retained_on_database_error").await;
+    let user_id = harness.setup_tenant("squirrels").await;
+
+    let draft_id = harness
+        .create_draft(user_id, "retained", Default::default())
+        .await;
+    let discover_id = harness
+        .queue_user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture",
+            draft_id,
+            r#"{}"#,
+            false,
+            Ok((spec_fixture(), acorns_discovered())),
+        )
+        .await;
+    let expect_tasks = task_ids(&harness).await;
+
+    // Hold an exclusive lock on `discovers`, and poll through a pool with a
+    // short lock timeout, so that the discover lookup fails while the task's
+    // own row remains writable.
+    let mut locker = harness.pool.begin().await.unwrap();
+    sqlx::query("lock table discovers in access exclusive mode")
+        .execute(&mut *locker)
+        .await
+        .unwrap();
+    let timeout_pool = sqlx::PgPool::connect_lazy_with(
+        (*harness.pool.connect_options())
+            .clone()
+            .options([("lock_timeout", "100ms")]),
+    );
+
+    let executor = crate::DiscoverExecutor {
+        handler: harness.discover_handler.clone(),
+        snapshot_watch: harness.snapshot_watch.clone(),
+    };
+    let err = automations::executors::ObjSafe::poll(
+        &executor,
+        &timeout_pool,
+        discover_id,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect_err("expected the discover lookup to fail");
+    assert!(
+        format!("{err:#}").contains("lock timeout"),
+        "unexpected error: {err:#}"
+    );
+    locker.rollback().await.unwrap();
+    assert_eq!(expect_tasks, task_ids(&harness).await);
+
+    let result = harness.run_queued_discover(discover_id).await;
+    assert!(
+        result.job_status.is_success(),
+        "expected success, got: {:?}",
+        result.job_status
+    );
+}
+
+fn acorns_discovered() -> Discovered {
+    Discovered {
+        bindings: vec![Binding {
+            recommended_name: "acorns".to_string(),
+            document_schema_json: document_schema(1),
+            resource_config_json: r#"{"id": "acorns"}"#.into(),
+            key: vec!["/id".to_string()],
+            disable: false,
+            resource_path: Vec::new(),
+            is_fallback_key: false,
+        }],
+    }
+}
+
+async fn delete_draft(harness: &TestHarness, draft_id: models::Id) {
+    sqlx::query!(
+        "delete from drafts where id = $1 returning 1 as \"must_exist: bool\"",
+        draft_id as models::Id,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to delete draft");
+}
+
+async fn task_ids(harness: &TestHarness) -> Vec<models::Id> {
+    sqlx::query_scalar!(
+        r#"select task_id as "task_id: models::Id" from internal.tasks order by task_id"#
+    )
+    .fetch_all(&harness.pool)
+    .await
+    .expect("failed to query tasks")
+}

@@ -44,11 +44,16 @@ type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct DiscoverState {}
 
-pub struct DiscoverOutcome {
-    id: Id,
-    draft_id: Id,
-    result: ProcessResult,
-    status: JobStatus,
+pub enum DiscoverOutcome {
+    /// The `discovers` row no longer exists, typically because deleting its
+    /// draft cascaded to it, so there's nothing to resolve.
+    Deleted,
+    Resolved {
+        id: Id,
+        draft_id: Id,
+        result: ProcessResult,
+        status: JobStatus,
+    },
 }
 
 impl automations::Outcome for DiscoverOutcome {
@@ -56,12 +61,15 @@ impl automations::Outcome for DiscoverOutcome {
         self,
         txn: &'s mut sqlx::PgConnection,
     ) -> anyhow::Result<automations::Action> {
-        let DiscoverOutcome {
+        let DiscoverOutcome::Resolved {
             id,
             draft_id,
             result,
             status,
-        } = self;
+        } = self
+        else {
+            return Ok(automations::Action::Done);
+        };
 
         control_plane_api::draft::delete_errors(draft_id, txn)
             .await
@@ -110,7 +118,13 @@ impl automations::Executor for DiscoverExecutor {
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
         tracing::debug!(?inbox, %task_id, "executing discover task");
-        let row = fetch_discover(task_id, pool).await?;
+        let Some(row) = fetch_discover(task_id, pool).await? else {
+            // Deleting a draft cascades to its `discovers` rows, but not to
+            // their tasks. Clear the inbox so that `Done` removes the task.
+            tracing::info!(%task_id, "discover no longer exists, completing its task");
+            inbox.clear();
+            return Ok(DiscoverOutcome::Deleted);
+        };
         let draft_id = row.draft_id;
         assert_eq!(row.id, task_id);
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
@@ -126,7 +140,7 @@ impl automations::Executor for DiscoverExecutor {
         let (status, result) = self.process(row, snapshot, pool).await?;
         tracing::info!(id=%task_id, %time_queued, ?status, "finished");
         inbox.clear();
-        Ok(DiscoverOutcome {
+        Ok(DiscoverOutcome::Resolved {
             id: task_id,
             draft_id,
             result,
