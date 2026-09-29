@@ -160,47 +160,29 @@ impl LiveSpecRef {
     }
 }
 
-/// Applies the given pagination parameters to `all_names` and returns a
-/// `Connection` suitable for a graphql response. `all_names` is expected to
-/// contain the complete list of **sorted** live specs names. Note that the sort
-/// order, both of `all_names` and the query results, must always be ascending,
-/// regardless of whether forward or reverse pagination is being used. Source:
-/// https://relay.dev/graphql/connections.htm#sec-Edge-order
-/// If `require_min_capability` is `Some`, then `all_specs` will be filtered to
-/// only include those specs for which the user has the required minimum
-/// capability.
-pub async fn paginate_live_specs_refs(
+/// Resolves legacy capabilities for each reference without filtering names.
+pub fn live_spec_refs(
     ctx: &Context<'_>,
-    require_min_capability: Option<models::Capability>,
     all_names: Vec<String>,
-    after: Option<String>,
-    before: Option<String>,
-    first: Option<i32>,
-    last: Option<i32>,
-) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
+) -> async_graphql::Result<Vec<LiveSpecRef>> {
     let env = ctx.data::<crate::Envelope>()?;
-
-    if all_names.is_empty() {
-        return Ok(connection::Connection::new(false, false));
-    }
     let subject = env.claims()?.subject();
     let all_refs = all_names
         .into_iter()
-        .filter_map(|name| {
+        .map(|name| {
             let user_capability = env.snapshot().user_capability(&subject, &name);
-            if require_min_capability.is_some_and(|min_cap| user_capability < Some(min_cap)) {
-                return None;
-            }
-            Some(LiveSpecRef {
+            LiveSpecRef {
                 catalog_name: models::Name::new(name),
                 user_capability,
-            })
+            }
         })
         .collect();
-    apply_pagination(all_refs, after, before, first, last).await
+    Ok(all_refs)
 }
 
-async fn apply_pagination(
+/// References and results must remain sorted by ascending catalog name, including
+/// when paginating backwards: https://relay.dev/graphql/connections.htm#sec-Edge-order
+pub async fn paginate_live_specs_refs(
     mut all_refs: Vec<LiveSpecRef>,
     after: Option<String>,
     before: Option<String>,
