@@ -315,22 +315,46 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     let (server, draft_id, alice, _) = setup(&pool).await;
     let id = insert_discover(&pool, draft_id, "aliceCo/logged").await;
-    sqlx::query(
-        r#"
-        INSERT INTO internal.log_lines (token, stream, log_line, logged_at)
-        SELECT logs_token, 'test', line, ts::timestamptz FROM discovers,
-        (VALUES ('first', '2026-01-01T00:00:00.000001Z'),
-                ('second', '2026-01-01T00:00:00.000002Z'),
-                ('third', '2026-01-01T00:00:00.000003Z'),
-                ('fourth', '2026-01-01T00:00:00.000004Z'),
-                ('fifth', '2026-01-01T00:00:00.000005Z')) AS lines(line, ts)
-        WHERE id = $1
-        "#,
+    let token: uuid::Uuid = sqlx::query_scalar("SELECT logs_token FROM discovers WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel(8);
+    // Queue the first batch before starting the writer so a page splits it.
+    crate::logs::capture_lines(
+        tx.clone(),
+        "test".into(),
+        token,
+        &b"first\nsecond\nthird"[..],
     )
-    .bind(id)
-    .execute(&pool)
     .await
     .unwrap();
+    let writer = tokio::spawn(crate::logs::serve_sink(pool.clone(), rx));
+    let wait_pool = &pool;
+    let wait_for_lines = |expected| async move {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let count: i64 =
+                    sqlx::query_scalar("SELECT count(*) FROM internal.log_lines WHERE token = $1")
+                        .bind(token)
+                        .fetch_one(wait_pool)
+                        .await
+                        .unwrap();
+                if count == expected {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    };
+    wait_for_lines(3).await;
+    crate::logs::capture_lines(tx.clone(), "test".into(), token, &b"fourth\nfifth"[..])
+        .await
+        .unwrap();
+    wait_for_lines(5).await;
     // Lines of another user's discover are never returned.
     sqlx::query(r#"
         WITH foreign_draft AS (
@@ -369,19 +393,43 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO internal.log_lines (token, stream, log_line, logged_at) SELECT logs_token, 'test', 'late line', '2026-01-01T00:00:01Z' FROM discovers WHERE id = $1",
-    )
-    .bind(id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    crate::logs::capture_lines(tx.clone(), "test".into(), token, &b"late line"[..])
+        .await
+        .unwrap();
+    wait_for_lines(6).await;
+    drop(tx);
+    writer.await.unwrap().unwrap();
     let later = lookup(
         &server,
         Some(&alice),
         serde_json::json!({ "id": id, "after": after }),
     )
     .await;
+
+    // The writer stamps lines from its own clock, so check their order here and
+    // redact them from the snapshot.
+    let logged_at = pages
+        .iter()
+        .chain([&later["data"]["discover"]["logs"]])
+        .flat_map(|logs| logs["edges"].as_array().unwrap())
+        .map(|edge| {
+            edge["node"]["loggedAt"]
+                .as_str()
+                .unwrap()
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert!(logged_at.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(
+        logged_at
+            .iter()
+            .all(|ts| ts.timestamp_subsec_nanos() % 1_000 == 0)
+    );
+    assert_eq!(
+        logged_at[2] - logged_at[0],
+        chrono::Duration::microseconds(2)
+    );
     insta::assert_json_snapshot!(
         "discover_log_pages",
         serde_json::json!({
@@ -390,7 +438,15 @@ async fn logs_paginate_and_arrive_after_completion(pool: sqlx::PgPool) {
                 "status": later["data"]["discover"]["status"],
                 "logs": later["data"]["discover"]["logs"],
             },
-        })
+        }),
+        {
+            ".pages[].edges[].cursor" => "[cursor]",
+            ".pages[].edges[].node.loggedAt" => "[ts]",
+            ".pages[].pageInfo.endCursor" => "[cursor]",
+            ".afterCompletion.logs.edges[].cursor" => "[cursor]",
+            ".afterCompletion.logs.edges[].node.loggedAt" => "[ts]",
+            ".afterCompletion.logs.pageInfo.endCursor" => "[cursor]",
+        }
     );
 }
 
