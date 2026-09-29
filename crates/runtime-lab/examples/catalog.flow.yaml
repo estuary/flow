@@ -1,0 +1,50 @@
+# Example catalog of the lab's two reference tasks, over Estuary's public demo
+# collection `demo/wikipedia/recentchange`.
+#
+# `notBefore` bounds the backfill each run reads. Keep it inside the collection's
+# actual retention, as a fragment removed between a listing and its read can
+# fail the run, a ~5m widow.
+
+materializations:
+  acmeCo/lab/sink:
+    endpoint:
+      local:
+        command: ["materialize-sink"]
+        protobuf: true
+        config: {}
+    shards:
+      maxTxnDuration: 10s
+    bindings:
+      - source:
+          name: demo/wikipedia/recentchange
+          notBefore: 2026-09-27T00:00:00Z
+        resource:
+          table: recentchange
+
+collections:
+  acmeCo/lab/identity:
+    schema:
+      type: object
+      properties:
+        _meta:
+          type: object
+          properties:
+            file: { type: string }
+            offset: { type: integer }
+          required: [file, offset]
+      required: [_meta]
+    key: [/_meta/file, /_meta/offset]
+    derive:
+      using:
+        local:
+          command: ["derive-identity"]
+          protobuf: true
+          config: {}
+      shards:
+        maxTxnDuration: 10s
+      transforms:
+        - name: recentchange
+          source:
+            name: demo/wikipedia/recentchange
+            notBefore: 2026-09-27T00:00:00Z
+          shuffle: { key: [/_meta/file, /_meta/offset] }
