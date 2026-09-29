@@ -205,10 +205,13 @@ pub async fn paginate_live_specs_refs(
                 } else {
                     0
                 };
-                (start, first.unwrap_or(usize::MAX).min(all_refs.len()))
+                let end = start
+                    .saturating_add(first.unwrap_or(usize::MAX))
+                    .min(all_refs.len());
+                (start, end)
             };
             let has_prev = start_index > 0;
-            let has_next = end_index < all_refs.len().saturating_sub(1);
+            let has_next = end_index < all_refs.len();
             let edges = all_refs
                 .drain(start_index..end_index)
                 .map(|r| connection::Edge::new(r.catalog_name.to_string(), r))
