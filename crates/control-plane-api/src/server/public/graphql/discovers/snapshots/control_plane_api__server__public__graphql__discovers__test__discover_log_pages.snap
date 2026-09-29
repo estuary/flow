@@ -7,16 +7,16 @@ expression: "serde_json::json!({\n    \"pages\": pages, \"afterCompletion\":\n  
     "logs": {
       "edges": [
         {
-          "cursor": "2026-01-01T00:00:01+00:00",
+          "cursor": "[cursor]",
           "node": {
             "line": "late line",
-            "loggedAt": "2026-01-01T00:00:01+00:00",
+            "loggedAt": "[ts]",
             "stream": "test"
           }
         }
       ],
       "pageInfo": {
-        "endCursor": "2026-01-01T00:00:01+00:00",
+        "endCursor": "[cursor]",
         "hasNextPage": false
       }
     },
@@ -26,64 +26,64 @@ expression: "serde_json::json!({\n    \"pages\": pages, \"afterCompletion\":\n  
     {
       "edges": [
         {
-          "cursor": "2026-01-01T00:00:00.000001+00:00",
+          "cursor": "[cursor]",
           "node": {
             "line": "first",
-            "loggedAt": "2026-01-01T00:00:00.000001+00:00",
+            "loggedAt": "[ts]",
             "stream": "test"
           }
         },
         {
-          "cursor": "2026-01-01T00:00:00.000002+00:00",
+          "cursor": "[cursor]",
           "node": {
             "line": "second",
-            "loggedAt": "2026-01-01T00:00:00.000002+00:00",
+            "loggedAt": "[ts]",
             "stream": "test"
           }
         }
       ],
       "pageInfo": {
-        "endCursor": "2026-01-01T00:00:00.000002+00:00",
+        "endCursor": "[cursor]",
         "hasNextPage": true
       }
     },
     {
       "edges": [
         {
-          "cursor": "2026-01-01T00:00:00.000003+00:00",
+          "cursor": "[cursor]",
           "node": {
             "line": "third",
-            "loggedAt": "2026-01-01T00:00:00.000003+00:00",
+            "loggedAt": "[ts]",
             "stream": "test"
           }
         },
         {
-          "cursor": "2026-01-01T00:00:00.000004+00:00",
+          "cursor": "[cursor]",
           "node": {
             "line": "fourth",
-            "loggedAt": "2026-01-01T00:00:00.000004+00:00",
+            "loggedAt": "[ts]",
             "stream": "test"
           }
         }
       ],
       "pageInfo": {
-        "endCursor": "2026-01-01T00:00:00.000004+00:00",
+        "endCursor": "[cursor]",
         "hasNextPage": true
       }
     },
     {
       "edges": [
         {
-          "cursor": "2026-01-01T00:00:00.000005+00:00",
+          "cursor": "[cursor]",
           "node": {
             "line": "fifth",
-            "loggedAt": "2026-01-01T00:00:00.000005+00:00",
+            "loggedAt": "[ts]",
             "stream": "test"
           }
         }
       ],
       "pageInfo": {
-        "endCursor": "2026-01-01T00:00:00.000005+00:00",
+        "endCursor": "[cursor]",
         "hasNextPage": false
       }
     }
