@@ -96,18 +96,13 @@ impl LiveSpec {
         let Some(source_capture_name) = &self.source_capture else {
             return Ok(None);
         };
-        let attached = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            [source_capture_name.clone()],
-            |name, user_capability| {
-                Some(LiveSpecRef {
-                    catalog_name: models::Name::new(name),
-                    user_capability,
-                })
-            },
-        );
-        Ok(attached.into_iter().next())
+        let subject = env.claims()?.subject();
+        Ok(Some(LiveSpecRef {
+            catalog_name: models::Name::new(source_capture_name.clone()),
+            user_capability: env
+                .snapshot()
+                .user_capability(&subject, source_capture_name),
+        }))
     }
 
     // Note that we must filter the `writtenBy` and `readBy` names before

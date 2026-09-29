@@ -183,20 +183,20 @@ pub async fn paginate_live_specs_refs(
     if all_names.is_empty() {
         return Ok(connection::Connection::new(false, false));
     }
-    let all_refs = crate::server::attach_user_capabilities(
-        env.snapshot(),
-        env.claims()?,
-        all_names,
-        |name, maybe_capability| {
-            if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
+    let subject = env.claims()?.subject();
+    let all_refs = all_names
+        .into_iter()
+        .filter_map(|name| {
+            let user_capability = env.snapshot().user_capability(&subject, &name);
+            if require_min_capability.is_some_and(|min_cap| user_capability < Some(min_cap)) {
                 return None;
             }
             Some(LiveSpecRef {
                 catalog_name: models::Name::new(name),
-                user_capability: maybe_capability,
+                user_capability,
             })
-        },
-    );
+        })
+        .collect();
     apply_pagination(all_refs, after, before, first, last).await
 }
 
@@ -358,20 +358,20 @@ impl LiveSpecsQuery {
         // We already know that the user at least has read capability to the prefix,
         // but it's possible that they may have a greater capability to specific
         // sub-prefixes, so resolve those here.
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names,
-            |name, user_capability| {
-                Some(connection::Edge::new(
+        let subject = env.claims()?.subject();
+        let edges = names
+            .into_iter()
+            .map(|name| {
+                let user_capability = env.snapshot().user_capability(&subject, &name);
+                connection::Edge::new(
                     name.clone(),
                     LiveSpecRef {
                         catalog_name: models::Name::new(name),
                         user_capability,
                     },
-                ))
-            },
-        );
+                )
+            })
+            .collect();
 
         let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
         conn.edges = edges;
