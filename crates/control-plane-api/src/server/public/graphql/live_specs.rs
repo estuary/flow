@@ -110,7 +110,7 @@ impl LiveSpec {
         }
         let env = ctx.data::<crate::Envelope>()?;
         let refs = live_spec_refs(env, self.written_by.iter().cloned())?
-            .filter(|r| r.user_capability >= Some(models::Capability::Read))
+            .filter(|r| r.can_read)
             .collect();
         let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
@@ -131,7 +131,7 @@ impl LiveSpec {
         }
         let env = ctx.data::<crate::Envelope>()?;
         let refs = live_spec_refs(env, self.read_by.iter().cloned())?
-            .filter(|r| r.user_capability >= Some(models::Capability::Read))
+            .filter(|r| r.can_read)
             .collect();
         let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
