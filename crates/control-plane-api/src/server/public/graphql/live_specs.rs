@@ -82,6 +82,11 @@ impl LiveSpec {
         };
         let subject = env.claims()?.subject();
         Ok(Some(LiveSpecRef {
+            can_read: env.snapshot().is_user_authorized(
+                &subject,
+                source_capture_name,
+                models::authz::Capability::CatalogRead,
+            ),
             catalog_name: models::Name::new(source_capture_name.clone()),
             user_capability: env
                 .snapshot()
@@ -113,10 +118,7 @@ impl LiveSpec {
             return Ok(None);
         }
         let refs = live_spec_refs(ctx, self.written_by.clone())?;
-        let refs = refs
-            .into_iter()
-            .filter(|r| r.user_capability >= Some(models::Capability::Read))
-            .collect();
+        let refs = refs.into_iter().filter(|r| r.can_read).collect();
         let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
     }
@@ -135,10 +137,7 @@ impl LiveSpec {
             return Ok(None);
         }
         let refs = live_spec_refs(ctx, self.read_by.clone())?;
-        let refs = refs
-            .into_iter()
-            .filter(|r| r.user_capability >= Some(models::Capability::Read))
-            .collect();
+        let refs = refs.into_iter().filter(|r| r.can_read).collect();
         let conn = paginate_live_specs_refs(refs, after, before, first, last).await?;
         Ok(Some(conn))
     }
