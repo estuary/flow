@@ -1,5 +1,10 @@
 # control-plane-api
 
+Service-account API keys are minted by `server/public/graphql/service_accounts.rs`.
+Like refresh-token creation, API-key creation rejects access tokens carrying a
+capability mask or prefix scope, because the new credential would not preserve
+those restrictions.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

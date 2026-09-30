@@ -511,6 +511,19 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
+        // API keys inherit the service account's full authority, so minting one
+        // would let a scoped caller escape its token's restrictions.
+        if claims.capability_mask.is_some() {
+            return Err(async_graphql::Error::new(
+                "tokens with a capability mask set cannot create API keys.",
+            ));
+        }
+        if claims.prefix_scope.is_some() {
+            return Err(async_graphql::Error::new(
+                "tokens with a prefix scope set cannot create API keys.",
+            ));
+        }
+
         super::verify_authorization(
             env,
             catalog_name.as_str(),
@@ -1174,6 +1187,66 @@ mod test {
             foreign_grant["errors"].is_array(),
             "a grant to an unadministered prefix should be rejected: {foreign_grant}"
         );
+
+        // Even scopes that retain CreateApiKey and cover the account cannot
+        // mint an unrestricted credential. Empty scopes must also fail closed.
+        for (mask, scope, expected_error) in [
+            (
+                Some(vec!["admin".to_string()]),
+                None,
+                "tokens with a capability mask set cannot create API keys.",
+            ),
+            (
+                Some(Vec::new()),
+                None,
+                "tokens with a capability mask set cannot create API keys.",
+            ),
+            (
+                None,
+                Some("aliceCo/".to_string()),
+                "tokens with a prefix scope set cannot create API keys.",
+            ),
+            (
+                None,
+                Some(String::new()),
+                "tokens with a prefix scope set cannot create API keys.",
+            ),
+            (
+                Some(vec!["admin".to_string()]),
+                Some("aliceCo/".to_string()),
+                "tokens with a capability mask set cannot create API keys.",
+            ),
+        ] {
+            let scoped_token = server.make_restricted_access_token(
+                uuid::Uuid::from_bytes([0x11; 16]),
+                Some("alice@example.test"),
+                mask,
+                scope,
+            );
+            let create: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        mutation {
+                            createApiKey(catalogName: "aliceCo/ci-deploy-bot", detail: "scoped", validFor: "P30D") { id }
+                        }"#
+                    }),
+                    Some(&scoped_token),
+                )
+                .await;
+            assert_eq!(
+                create["errors"][0]["message"], expected_error,
+                "a scoped token must be refused: {create}"
+            );
+        }
+
+        let token_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.refresh_tokens WHERE user_id = $1")
+                .bind(uuid::Uuid::parse_str(&sa_user_id).unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(token_count, 0, "scoped callers must not create credentials");
 
         // === Mint a service-account token ===
         let create_key: serde_json::Value = server
