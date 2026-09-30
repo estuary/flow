@@ -142,7 +142,7 @@ impl RefreshTokensMutation {
                 "tokens with a prefix scope set cannot create refresh tokens.",
             ));
         }
-        if super::service_accounts::is_not_service_account(&env.pg_pool, claims.sub).await? {
+        if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
             return Err(async_graphql::Error::new(
                 "service accounts cannot manage refresh tokens: their API keys are \
              administered via createApiKey and revokeApiKey",
@@ -225,7 +225,7 @@ impl RefreshTokensMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        if super::service_accounts::is_not_service_account(&env.pg_pool, claims.sub).await? {
+        if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
             return Err(async_graphql::Error::new(
                 "service accounts cannot manage refresh tokens: their API keys are \
              administered via createApiKey and revokeApiKey",

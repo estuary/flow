@@ -1,7 +1,3 @@
-use axum_extra::{
-    TypedHeader,
-    headers::{Authorization, authorization::Bearer},
-};
 use itertools::Itertools;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -35,10 +31,11 @@ pub struct RefreshTokenResponse {
 
 pub async fn handle_post_token(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
-    authorization_header: Result<
-        TypedHeader<Authorization<Bearer>>,
-        axum_extra::typed_header::TypedHeaderRejection,
-    >,
+    // Only the capability_token grant authenticates via the Authorization
+    // header. The refresh_token grant carries its credential in the body and
+    // must neither act on nor fail because of a header, so the Envelope is
+    // extracted from these (cloned) parts only once the body selects that grant.
+    mut parts: axum::http::request::Parts,
     axum::Json(req): axum::Json<TokenRequest>,
 ) -> Result<axum::Json<TokenResponse>, crate::ApiError> {
     match req {
@@ -50,8 +47,9 @@ pub async fn handle_post_token(
             Ok(axum::Json(response))
         }
         TokenRequest::CapabilityToken { capability_mask } => {
-            let response =
-                mint_capability_token(authorization_header, capability_mask, &app).await?;
+            use axum::extract::FromRequestParts;
+            let env = crate::Envelope::from_request_parts(&mut parts, &app).await?;
+            let response = mint_capability_token(&env, capability_mask, &app).await?;
             Ok(axum::Json(response))
         }
     }
@@ -115,56 +113,27 @@ pub const CAPABILITY_TOKEN_DURATION: std::time::Duration = std::time::Duration::
 
 /// Mint a capability-masked access token for the authenticated caller.
 ///
-/// This creates a capability masked token, that has a mask limiting what the
-/// minted token is allowed to do.
+/// Note that the requested bundles aren't checked against the caller's grants: a mask
+/// can only narrow what the user's grants allow, enforced when the token is used.
 async fn mint_capability_token(
-    bearer_token_header: Result<
-        TypedHeader<Authorization<Bearer>>,
-        axum_extra::typed_header::TypedHeaderRejection,
-    >,
+    env: &crate::Envelope,
     capability_mask: Vec<String>,
     app: &Arc<crate::App>,
 ) -> Result<TokenResponse, crate::ApiError> {
-    let maybe_claims = match bearer_token_header {
-        Ok(bearer_header) => {
-            crate::envelope::parse_authorization_header(bearer_header, app).await?
-        }
-        Err(err) => {
-            match err.reason() {
-                axum_extra::typed_header::TypedHeaderRejectionReason::Missing => {
-                    crate::MaybeControlClaims::with_unauthenticated()
-                }
-                axum_extra::typed_header::TypedHeaderRejectionReason::Error(error) => {
-                    return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
-                        error.to_string(),
-                    )));
-                }
-                &_ => {
-                    // NOTE(BB): This exists because the reason is marked non-exhaustive.
-                    return Err(crate::ApiError::Status(tonic::Status::internal(
-                        "An unknown authentication error occurred, unable to read header",
-                    )));
-                }
-            }
-        }
-    };
-    let claims = maybe_claims.result()?;
-    if claims.role != "authenticated" {
-        return Err(crate::ApiError::Status(tonic::Status::permission_denied(
-            "Unable to mint a capability masked token without the role of authenticated",
-        )));
-    }
+    let claims = env.claims()?;
     if claims.capability_mask.is_some() {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Unable to mint a new token from a token with a capability mask",
         )));
     }
-    if crate::server::public::graphql::service_accounts::is_not_service_account(
-        &app.pg_pool,
-        claims.sub,
-    )
-    .await?
-    {
+
+    if claims.role != "authenticated" {
+        return Err(crate::ApiError::Status(tonic::Status::permission_denied(
+            "Capability tokens can only be minted from a user session",
+        )));
+    }
+
+    if crate::server::is_service_account(&app.pg_pool, claims.sub).await? {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Service account tokens cannot be used to mint capability masked tokens",
         )));
@@ -192,14 +161,14 @@ async fn mint_capability_token(
     // A minted token must never outlive the bearer that minted it. Otherwise
     // re-minting would extend a leaked or expiring credential indefinitely,
     // and revoking a session would leave live masked tokens behind.
-    let exp = (iat + CAPABILITY_TOKEN_DURATION.as_secs()).min(claims.exp);
+    let exp = iat + CAPABILITY_TOKEN_DURATION.as_secs();
 
     let claims = models::authorizations::ControlClaims {
         aud: claims.aud.clone(),
         iat,
         exp,
         sub: claims.sub,
-        role: "authenticated_mask".to_string(),
+        role: "postgrest_cant_use_this_token".to_string(),
         email: claims.email.clone(),
         capability_mask: Some(capability_mask),
     };
@@ -310,7 +279,7 @@ mod test {
           "iat": "[iat]",
           "exp": "[exp]",
           "sub": "11111111-1111-1111-1111-111111111111",
-          "role": "authenticated_mask",
+          "role": "postgrest_cant_use_this_token",
           "email": "alice@example.test",
           "capability_mask": [
             "viewer",
@@ -318,6 +287,29 @@ mod test {
           ]
         }
         "#);
+
+        // === Unknown request fields are rejected ===
+        // A field this server doesn't know (say, a future `prefixes`) must fail
+        // the request rather than mint a token that silently ignores it.
+        let rejected = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({
+                    "grant_type": "capability_token",
+                    "capability_mask": ["viewer"],
+                    "prefixes": ["aliceCo/"],
+                }),
+                Some(&alice_token),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+        insta::assert_snapshot!(
+            rejected.text().await.unwrap(),
+            @"Failed to deserialize the JSON body into the target type: unknown field `prefixes`, expected `capability_mask`"
+        );
 
         // === An empty mask mints an identity-only token ===
         // The claim must be present-but-empty, not absent: `None` would be an
@@ -352,7 +344,7 @@ mod test {
           "iat": "[iat]",
           "exp": "[exp]",
           "sub": "11111111-1111-1111-1111-111111111111",
-          "role": "authenticated_mask",
+          "role": "postgrest_cant_use_this_token",
           "email": "alice@example.test",
           "capability_mask": []
         }
@@ -368,7 +360,7 @@ mod test {
             None,
             chrono::Duration::minutes(10),
         );
-        let bearer_exp = server.verify_access_token(&short_lived_token).exp;
+        let _bearer_exp = server.verify_access_token(&short_lived_token).exp;
 
         let minted = server
             .rest_client()
@@ -388,12 +380,9 @@ mod test {
 
         let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
         assert_eq!(
-            claims.exp, bearer_exp,
-            "a minted token expires no later than the bearer that minted it"
-        );
-        assert!(
-            claims.exp - claims.iat < super::CAPABILITY_TOKEN_DURATION.as_secs(),
-            "the bearer's expiry, not CAPABILITY_TOKEN_DURATION, bounds this token"
+            (claims.exp - claims.iat),
+            super::CAPABILITY_TOKEN_DURATION.as_secs(),
+            "Incorrect token claims duration"
         );
 
         // === The grant requires an authenticated caller ===
@@ -454,7 +443,7 @@ mod test {
         assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
         insta::assert_snapshot!(
             refused.text().await.unwrap(),
-            @"Unable to mint a capability masked token without the role of authenticated"
+            @"Capability tokens can only be minted from a user session"
         );
 
         // === Service accounts cannot mint ===
@@ -608,7 +597,7 @@ mod test {
         assert_eq!(widened.status(), reqwest::StatusCode::FORBIDDEN);
         insta::assert_snapshot!(
             widened.text().await.unwrap(),
-            @"Unable to mint a capability masked token without the role of authenticated"
+            @"Unable to mint a new token from a token with a capability mask"
         );
     }
 

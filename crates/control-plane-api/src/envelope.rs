@@ -1,7 +1,3 @@
-use axum_extra::{
-    TypedHeader,
-    headers::{Authorization, authorization::Bearer},
-};
 use std::sync::Arc;
 
 /// MaybeControlClaims wraps an optional Verified<ControlClaims> and represents
@@ -239,7 +235,33 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                     .await?;
 
             let maybe_claims = match maybe_bearer {
-                Some(bearer_header) => parse_authorization_header(bearer_header, state).await?,
+                Some(TypedHeader(auth)) => {
+                    let mut token = auth.token();
+                    let exchanged_token: Option<String>;
+
+                    // Is this is a refresh token? If so, first exchange for an access token.
+                    if !token.contains(".") {
+                        exchanged_token = Some(
+                            crate::server::exchange_refresh_token(&state.pg_pool, token).await?,
+                        );
+                        token = exchanged_token.as_ref().unwrap();
+                    }
+
+                    let verified = tokens::jwt::verify::<crate::ControlClaims>(
+                        token.as_bytes(),
+                        0,
+                        &state.control_plane_jwt_decode_keys,
+                    )?;
+
+                    if verified.claims().aud != "authenticated" {
+                        return Err(tonic::Status::unauthenticated(
+                            "authorization bearer claims missing required `aud` of 'authenticated'",
+                        )
+                        .into());
+                    }
+
+                    MaybeControlClaims::with_verified(verified)
+                }
                 None => MaybeControlClaims::with_unauthenticated(),
             };
 
@@ -261,36 +283,6 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
             })
         }
     }
-}
-
-pub async fn parse_authorization_header(
-    bearer: TypedHeader<Authorization<Bearer>>,
-    state: &Arc<crate::App>,
-) -> tonic::Result<MaybeControlClaims> {
-    let TypedHeader(auth) = bearer;
-    let mut token = auth.token();
-    let exchanged_token: Option<String>;
-
-    // Is this is a refresh token? If so, first exchange for an access token.
-    if !token.contains(".") {
-        exchanged_token = Some(crate::server::exchange_refresh_token(&state.pg_pool, token).await?);
-        token = exchanged_token.as_ref().unwrap();
-    }
-
-    let verified = tokens::jwt::verify::<crate::ControlClaims>(
-        token.as_bytes(),
-        0,
-        &state.control_plane_jwt_decode_keys,
-    )?;
-
-    if verified.claims().aud != "authenticated" {
-        return Err(tonic::Status::unauthenticated(
-            "authorization bearer claims missing required `aud` of 'authenticated'",
-        )
-        .into());
-    }
-
-    Ok(MaybeControlClaims::with_verified(verified))
 }
 
 // Empty impl allows aide to generate OpenAPI specs for handlers using this extractor.

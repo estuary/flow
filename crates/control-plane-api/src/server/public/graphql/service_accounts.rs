@@ -747,31 +747,6 @@ impl ServiceAccountsMutation {
     }
 }
 
-/// Verify that `user_id` is not a service-account identity, erroring if it is.
-///
-/// Service-account credentials are administered through createApiKey /
-/// revokeApiKey. The self-service refresh-token mutations reject a
-/// service-account caller: a valid key could otherwise mint replacement
-/// credentials for its own account — sidestepping the CreateApiKey gate and
-/// the admin-chosen expiry — or revoke keys outside the admin-facing flow.
-pub(crate) async fn is_not_service_account(
-    pg_pool: &sqlx::PgPool,
-    user_id: uuid::Uuid,
-) -> sqlx::Result<bool> {
-    let is_service_account = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM internal.service_accounts WHERE user_id = $1
-        ) AS "is_service_account!"
-        "#,
-        user_id,
-    )
-    .fetch_one(pg_pool)
-    .await?;
-
-    Ok(is_service_account)
-}
-
 /// Rewrite a terminal permission-denied authorization error into the generic
 /// "service account API key not found" error, so a denial is indistinguishable
 /// from a missing token id.
@@ -2102,8 +2077,7 @@ mod test {
             )
             .await;
         assert_eq!(
-            mint["errors"][0]["message"],
-            "Unable to create a new API key using a token with a capability mask",
+            mint["errors"][0]["message"], "tokens with a capability mask cannot create API keys",
             "a masked token must be refused: {mint}"
         );
         assert!(
