@@ -1589,7 +1589,13 @@ type LiveSpecRef {
 	"""
 	lastPublication: SpecPublicationHistoryItem
 	"""
-	The complete history of publications of this spec
+	The change to this specification recorded by the given publication,
+	or null if no accessible matching record exists. This is an exact lookup,
+	not the specification as of a publication that did not change it.
+	"""
+	publicationForId(id: Id!): SpecPublicationHistoryItem
+	"""
+	The complete history of publications of this spec.
 	"""
 	publicationHistory(after: String, first: Int, before: String, last: Int): SpecPublicationHistoryItemConnection
 }
@@ -2794,6 +2800,11 @@ type SpecPublicationHistoryItem {
 	"""
 	publicationId: Id!
 	"""
+	Type of the published catalog specification, if recorded.
+	This may be null for a deletion.
+	"""
+	catalogType: CatalogType
+	"""
 	Timestamp of the publication
 	"""
 	publishedAt: DateTime!
@@ -2819,7 +2830,7 @@ type SpecPublicationHistoryItem {
 	"""
 	detail: String
 	"""
-	The live spec model that was published
+	Catalog specification published by this publication, or null for a deletion.
 	"""
 	model: JSON
 }
