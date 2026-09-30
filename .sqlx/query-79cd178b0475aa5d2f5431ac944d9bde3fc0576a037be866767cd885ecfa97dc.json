@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n            ps.pub_id as \"publication_id: models::Id\",\n            ps.published_at as \"published_at: DateTime<Utc>\",\n            ps.user_id as \"user_id: uuid::Uuid\",\n            u.email as \"user_email: String\",\n            u.raw_user_meta_data->>'picture' as \"user_avatar_url: String\",\n            u.raw_user_meta_data->>'full_name' as \"user_full_name: String\",\n            ps.detail as \"detail: String\",\n            case when $2::boolean then ps.spec else null end as \"model: models::RawValue\"\n          from live_specs ls\n          join publication_specs ps on ls.id = ps.live_spec_id\n          left outer join auth.users u on ps.user_id = u.id\n          where ls.catalog_name = $1::catalog_name\n            and ps.published_at > $3::timestamptz\n          order by ps.published_at asc\n          limit $4\n          ",
+  "query": "select\n            ps.pub_id as \"publication_id: models::Id\",\n            ps.spec_type as \"catalog_type: models::CatalogType\",\n            ps.published_at as \"published_at: DateTime<Utc>\",\n            ps.user_id as \"user_id: uuid::Uuid\",\n            u.email as \"user_email: String\",\n            u.raw_user_meta_data->>'picture' as \"user_avatar_url: String\",\n            u.raw_user_meta_data->>'full_name' as \"user_full_name: String\",\n            ps.detail as \"detail: String\",\n            case when $2::boolean then ps.spec else null end as \"model: models::RawValue\"\n          from live_specs ls\n          join publication_specs ps on ls.id = ps.live_spec_id\n          left outer join auth.users u on ps.user_id = u.id\n          where ls.catalog_name = $1::catalog_name\n            and ps.published_at > $3::timestamptz\n          order by ps.published_at asc\n          limit $4\n          ",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,29 @@
       },
       {
         "ordinal": 1,
+        "name": "catalog_type: models::CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "publication_specs",
+            "name": "spec_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "published_at: DateTime<Utc>",
         "type_info": "Timestamptz",
         "origin": {
@@ -26,7 +49,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "user_id: uuid::Uuid",
         "type_info": "Uuid",
         "origin": {
@@ -37,7 +60,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "user_email: String",
         "type_info": "Varchar",
         "origin": {
@@ -48,19 +71,19 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "user_avatar_url: String",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "user_full_name: String",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "detail: String",
         "type_info": "Text",
         "origin": {
@@ -71,7 +94,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "model: models::RawValue",
         "type_info": "Json",
         "origin": "Expression"
@@ -94,6 +117,7 @@
     },
     "nullable": [
       false,
+      true,
       false,
       false,
       true,
@@ -103,5 +127,5 @@
       null
     ]
   },
-  "hash": "233c63cc630ad7a7e3ecfde33c8944a2108c30740c489d4a9b11412ce9a5431e"
+  "hash": "79cd178b0475aa5d2f5431ac944d9bde3fc0576a037be866767cd885ecfa97dc"
 }
