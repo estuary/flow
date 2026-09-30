@@ -175,11 +175,6 @@ async fn create_tenant(
         return Err(error("INVALID_TENANT_NAME", "Invalid organization name"));
     }
 
-    // The operations namespace is privileged even without a tenant or reservation row.
-    if name.eq_ignore_ascii_case("ops") {
-        return Err(error("TENANT_UNAVAILABLE", TENANT_UNAVAILABLE_MESSAGE));
-    }
-
     // Lock this user to prevent concurrent tenant create mutations.
     sqlx::query!(
         "SELECT id FROM auth.users WHERE id = $1 FOR UPDATE",
