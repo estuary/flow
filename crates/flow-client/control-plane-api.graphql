@@ -1717,7 +1717,7 @@ type MutationRoot {
 	Create a tenant for the authenticated user. Users with an existing direct
 	tenant-admin grant cannot provision another tenant.
 	"""
-	tenantCreate(input: TenantCreateInput!): TenantCreatePayload!
+	tenantCreate(input: TenantCreateInput!): Boolean!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
@@ -3074,10 +3074,6 @@ input TenantCreateInput {
 	"""
 	name: String!
 	survey: JSON
-}
-
-type TenantCreatePayload {
-	tenant: Tenant!
 }
 
 """

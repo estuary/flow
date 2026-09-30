@@ -105,11 +105,6 @@ pub struct TenantCreateInput {
     pub survey: Option<async_graphql::Json<serde_json::Value>>,
 }
 
-#[derive(async_graphql::SimpleObject)]
-pub struct TenantCreatePayload {
-    pub tenant: Tenant,
-}
-
 #[async_graphql::Object]
 impl TenantMutation {
     /// Create a tenant for the authenticated user. Users with an existing direct
@@ -118,7 +113,7 @@ impl TenantMutation {
         &self,
         ctx: &async_graphql::Context<'_>,
         input: TenantCreateInput,
-    ) -> async_graphql::Result<TenantCreatePayload> {
+    ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env
             .claims()
@@ -153,12 +148,9 @@ impl TenantMutation {
         txn.commit().await?;
 
         tracing::info!(user_id = %claims.sub, tenant = %tenant_name, "created tenant");
-        Ok(TenantCreatePayload {
-            tenant: Tenant {
-                name: tenant_name,
-                sensitive: false,
-            },
-        })
+        // Nested Tenant resolvers could retry authorization with the pre-creation
+        // snapshot, replaying this mutation after it has already committed.
+        Ok(true)
     }
 }
 
@@ -263,7 +255,7 @@ mod test {
 
     fn request(tenant: &str) -> serde_json::Value {
         serde_json::json!({
-            "query": "mutation($input: TenantCreateInput!) { tenantCreate(input: $input) { tenant { name } } }",
+            "query": "mutation($input: TenantCreateInput!) { tenantCreate(input: $input) }",
             "variables": { "input": {
                 "name": tenant,
                 "survey": { "origin": "search", "details": "testing" },
@@ -283,11 +275,7 @@ mod test {
         insta::assert_json_snapshot!(response, @r#"
         {
           "data": {
-            "tenantCreate": {
-              "tenant": {
-                "name": "acmeCo/"
-              }
-            }
+            "tenantCreate": true
           }
         }
         "#);
