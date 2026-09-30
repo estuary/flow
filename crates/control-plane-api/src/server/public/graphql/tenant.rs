@@ -33,8 +33,6 @@ impl TenantQuery {
 #[graphql(complex)]
 pub struct Tenant {
     pub name: String,
-    /// Whether the tenant has a HIPAA BAA or declares GDPR Article 9 data.
-    /// Its data must not be sent to external processors.
     pub sensitive: bool,
 }
 
@@ -51,9 +49,6 @@ mod tests {
     use crate::test_server;
     use serde_json::json;
 
-    /// `sensitive` tells internal tooling which tenants' data must not be sent
-    /// to external processors, so check that both values reach the response.
-    /// Bob administers both tenants, and only `bobCo2/` is flagged.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("sso_tenant", "bob_co", "bob_co2"))

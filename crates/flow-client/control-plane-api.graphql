@@ -3041,10 +3041,6 @@ input StringFilter {
 
 type Tenant {
 	name: String!
-	"""
-	Whether the tenant has a HIPAA BAA or declares GDPR Article 9 data.
-	Its data must not be sent to external processors.
-	"""
 	sensitive: Boolean!
 	billing: TenantBilling!
 }
