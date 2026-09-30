@@ -1,0 +1,15 @@
+query DraftFromPublicationQuery($name: Name!, $publication_id: Id!) {
+    liveSpecs(by: { names: [$name] }) {
+        edges {
+            node {
+                lastPublication {
+                    publicationId
+                }
+                publicationForId(id: $publication_id) {
+                    catalogType
+                    model
+                }
+            }
+        }
+    }
+}

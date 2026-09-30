@@ -7,9 +7,11 @@ mod status;
 mod test;
 
 use self::list::{List, do_list};
+use crate::graphql::{Id, JSON, Name, post_graphql};
 use crate::output::{CliOutput, JsonCell, to_table_row};
-use models::{CatalogType, RawValue};
-use serde::{Deserialize, Serialize};
+use anyhow::Context;
+use models::CatalogType;
+use serde::Serialize;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -190,6 +192,14 @@ impl Catalog {
     }
 }
 
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/catalog/draft-query.graphql",
+    extern_enums("CatalogType")
+)]
+struct DraftFromPublicationQuery;
+
 async fn do_draft(
     ctx: &mut crate::CliContext,
     Draft {
@@ -200,45 +210,54 @@ async fn do_draft(
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
 
-    #[derive(Deserialize)]
-    struct Row {
-        catalog_name: String,
-        last_pub_id: models::Id,
-        pub_id: models::Id,
-        spec: Option<RawValue>,
-        spec_type: CatalogType,
-    }
-
-    let Row {
-        catalog_name,
-        last_pub_id,
-        pub_id,
-        mut spec,
-        spec_type,
-    } = if let Some(publication_id) = publication_id {
-        flow_client_next::postgrest::exec(
-            ctx.pg
-                .from("publication_specs_ext")
-                .eq("catalog_name", name)
-                .eq("pub_id", publication_id.to_string())
-                .select("catalog_name,last_pub_id,pub_id,spec,spec_type")
-                .single(),
+    let (last_pub_id, mut spec, spec_type) = if let Some(publication_id) = publication_id {
+        let mut response = post_graphql::<DraftFromPublicationQuery>(
+            &ctx.rest,
             ctx.access_token().as_deref(),
+            draft_from_publication_query::Variables {
+                name: models::Name::new(name),
+                publication_id: *publication_id,
+            },
         )
-        .await?
+        .await?;
+        let reference = response
+            .live_specs
+            .edges
+            .pop()
+            .with_context(|| format!("catalog specification '{name}' not found"))?
+            .node;
+        let historical = reference
+            .publication_for_id
+            .with_context(|| format!("publication {publication_id} of '{name}' not found"))?;
+        let spec_type = historical.catalog_type.with_context(|| {
+            format!("publication {publication_id} of '{name}' has no recorded catalog type")
+        })?;
+        // A revert is conditional on the current publication, including a deletion,
+        // rather than the historical publication whose model is being restored.
+        let last_pub_id = reference
+            .last_publication
+            .with_context(|| format!("latest publication of '{name}' not found"))?
+            .publication_id;
+        (last_pub_id, historical.model, spec_type)
     } else {
-        flow_client_next::postgrest::exec(
-            ctx.pg
-                .from("live_specs")
-                .eq("catalog_name", name)
-                .not("is", "spec_type", "null")
-                .select("catalog_name,last_pub_id,pub_id:last_pub_id,spec,spec_type")
-                .single(),
-            ctx.access_token().as_deref(),
+        let live = list::fetch_live_specs(
+            ctx,
+            List {
+                name_selector: NameSelector {
+                    name: vec![name.clone()],
+                    ..Default::default()
+                },
+                include_models: !*delete,
+                ..Default::default()
+            },
         )
         .await?
+        .pop()
+        .and_then(|reference| reference.live_spec)
+        .with_context(|| format!("live catalog specification '{name}' not found"))?;
+        (live.last_pub_id, live.model, live.catalog_type)
     };
-    tracing::info!(%catalog_name, %last_pub_id, %pub_id, ?spec_type, "resolved live catalog spec");
+    tracing::info!(catalog_name = %name, %last_pub_id, ?publication_id, ?spec_type, "resolved catalog spec");
 
     if *delete {
         spec = None;
@@ -248,11 +267,11 @@ async fn do_draft(
     let detail = crate::draft::fetch_draft_specs(ctx, draft_id, false)
         .await?
         .into_iter()
-        .find(|spec| spec.catalog_name.as_str() == catalog_name)
+        .find(|spec| spec.catalog_name.as_str() == name.as_str())
         .and_then(|spec| spec.detail);
 
     let draft_spec = crate::draft::DraftSpecInput {
-        catalog_name: models::Name::new(&catalog_name),
+        catalog_name: models::Name::new(name),
         // A drafted deletion has neither a model nor a type.
         catalog_type: spec.is_some().then_some(spec_type),
         model: spec,
@@ -265,7 +284,7 @@ async fn do_draft(
 
     ctx.write_all(
         Some(SpecSummaryItem {
-            catalog_name,
+            catalog_name: name.clone(),
             spec_type,
         }),
         (),
