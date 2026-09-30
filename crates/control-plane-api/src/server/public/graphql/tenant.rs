@@ -122,12 +122,11 @@ impl TenantMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env
             .claims()
-            .map_err(|_| error("UNAUTHENTICATED", "Authentication is required"))?;
+            .map_err(|_| async_graphql::Error::new("Authentication is required"))?;
 
         // Agents using restricted tokens cannot create tenants (for now)
         if claims.capability_mask.is_some() {
-            return Err(error(
-                "FORBIDDEN",
+            return Err(async_graphql::Error::new(
                 "Restricted tokens cannot create tenants",
             ));
         }
@@ -139,7 +138,9 @@ impl TenantMutation {
         .fetch_one(&mut *txn)
         .await?;
         if is_service_account {
-            return Err(error("FORBIDDEN", "Service accounts cannot create tenants"));
+            return Err(async_graphql::Error::new(
+                "Service accounts cannot create tenants",
+            ));
         }
 
         let tenant_name = create_tenant(
@@ -169,10 +170,10 @@ async fn create_tenant(
 ) -> async_graphql::Result<String> {
     models::Token::new(name)
         .validate()
-        .map_err(|_| error("INVALID_TENANT_NAME", "Invalid organization name"))?;
+        .map_err(|_| async_graphql::Error::new("Invalid organization name"))?;
 
     if !unicode_normalization::is_nfkc(name) {
-        return Err(error("INVALID_TENANT_NAME", "Invalid organization name"));
+        return Err(async_graphql::Error::new("Invalid organization name"));
     }
 
     // Lock this user to prevent concurrent tenant create mutations.
@@ -184,8 +185,7 @@ async fn create_tenant(
     .await?;
 
     if crate::directives::beta_onboard::is_user_provisioned(user_id, txn).await? {
-        return Err(error(
-            "ALREADY_PROVISIONED",
+        return Err(async_graphql::Error::new(
             "Cannot provision a new tenant because the user has existing grants",
         ));
     }
@@ -200,7 +200,7 @@ async fn create_tenant(
     .fetch_optional(&mut **txn)
     .await?;
     if banned.is_some() {
-        return Err(error("TENANT_UNAVAILABLE", TENANT_UNAVAILABLE_MESSAGE));
+        return Err(async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE));
     }
 
     crate::directives::beta_onboard::provision_tenant(
@@ -218,7 +218,7 @@ async fn create_tenant(
                 db.constraint(),
                 Some("tenants_tenant_key" | "tenants_tenant_lower_key")
             ) {
-                return error("TENANT_UNAVAILABLE", TENANT_UNAVAILABLE_MESSAGE);
+                return async_graphql::Error::new(TENANT_UNAVAILABLE_MESSAGE);
             }
         }
         err.into()
@@ -242,11 +242,6 @@ async fn create_tenant(
     .await?;
 
     Ok(tenant_name)
-}
-
-fn error(code: &'static str, message: impl Into<String>) -> async_graphql::Error {
-    use async_graphql::ErrorExtensions;
-    async_graphql::Error::new(message).extend_with(|_, ext| ext.set("code", code))
 }
 
 #[cfg(test)]
@@ -274,16 +269,6 @@ mod test {
                 "survey": { "origin": "search", "details": "testing" },
             }}
         })
-    }
-
-    fn code(response: &serde_json::Value) -> &str {
-        response["errors"][0]["extensions"]["code"]
-            .as_str()
-            .unwrap_or(if response.get("errors").is_some() {
-                "UNEXPECTED_ERROR"
-            } else {
-                "SUCCESS"
-            })
     }
 
     #[sqlx::test(
@@ -336,19 +321,28 @@ mod test {
         let token = server.make_access_token(ALICE, None);
         let req = request("acmeCo");
         let unauth: serde_json::Value = server.graphql(&req, None).await;
-        assert_eq!(code(&unauth), "UNAUTHENTICATED");
+        assert_eq!(unauth["errors"][0]["message"], "Authentication is required");
         let masked = server.make_masked_access_token(ALICE, None, Some(vec![]));
         let denied: serde_json::Value = server.graphql(&req, Some(&masked)).await;
-        assert_eq!(code(&denied), "FORBIDDEN");
+        assert_eq!(
+            denied["errors"][0]["message"],
+            "Restricted tokens cannot create tenants"
+        );
         sqlx::query("INSERT INTO internal.service_accounts (user_id, catalog_name, created_by) VALUES ($1, 'acmeCo/bot', $2)")
             .bind(BOB).bind(ALICE).execute(&pool).await.unwrap();
         let bot = server.make_access_token(BOB, None);
         let denied: serde_json::Value = server.graphql(&req, Some(&bot)).await;
-        assert_eq!(code(&denied), "FORBIDDEN");
+        assert_eq!(
+            denied["errors"][0]["message"],
+            "Service accounts cannot create tenants"
+        );
 
         for name in ["invalid/name", "Ａcme"] {
             let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
-            assert_eq!(code(&response), "INVALID_TENANT_NAME", "{response}");
+            assert_eq!(
+                response["errors"][0]["message"], "Invalid organization name",
+                "{response}"
+            );
         }
         // Reserved names and existing names are both case insensitive.
         sqlx::query("INSERT INTO tenants (tenant) VALUES ('takenCo/')")
@@ -357,29 +351,62 @@ mod test {
             .unwrap();
         for name in ["AdMiN", "TaKeNcO"] {
             let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
-            assert_eq!(code(&response), "TENANT_UNAVAILABLE", "{response}");
+            assert_eq!(
+                response["errors"][0]["message"],
+                super::TENANT_UNAVAILABLE_MESSAGE,
+                "{response}"
+            );
         }
+
+        let mut without_survey = request("acmeCo");
+        without_survey["variables"]["input"]
+            .as_object_mut()
+            .unwrap()
+            .remove("survey");
+        let response: serde_json::Value = server.graphql(&without_survey, Some(&token)).await;
+        assert!(response.get("errors").is_none(), "{response}");
+
+        let metadata: serde_json::Value =
+            sqlx::query_scalar("SELECT metadata FROM tenants WHERE tenant = 'acmeCo/'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        insta::assert_json_snapshot!(metadata, @r#"{}"#);
+
+        let response: serde_json::Value = server.graphql(&request("anotherCo"), Some(&token)).await;
+        assert_eq!(
+            response["errors"][0]["message"],
+            "Cannot provision a new tenant because the user has existing grants",
+            "{response}"
+        );
     }
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes"))
     )]
-    async fn tenant_create_rejects_ops_without_reservation(pool: sqlx::PgPool) {
-        sqlx::query("DELETE FROM internal.illegal_tenant_names WHERE lower(name) = 'ops/'")
-            .execute(&pool)
-            .await
-            .unwrap();
+    async fn tenant_create_rejects_reserved_names(pool: sqlx::PgPool) {
         let server = server(&pool).await;
         let token = server.make_access_token(ALICE, None);
 
-        for name in ["ops", "OPS", "oPs"] {
+        for name in [
+            "ops",
+            "oPs",
+            "recovery",
+            "ReCoVeRy",
+            "ops.us-central1.v1",
+            "Ops.Us-Central1.V1",
+        ] {
             let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
-            assert_eq!(code(&response), "TENANT_UNAVAILABLE", "{response}");
+            assert_eq!(
+                response["errors"][0]["message"],
+                super::TENANT_UNAVAILABLE_MESSAGE,
+                "{response}"
+            );
         }
 
         let count: i64 = sqlx::query_scalar(
-            "SELECT (SELECT count(*) FROM tenants WHERE lower(tenant) = 'ops/')
+            "SELECT (SELECT count(*) FROM tenants WHERE lower(tenant) IN ('ops/', 'recovery/', 'ops.us-central1.v1/'))
                   + (SELECT count(*) FROM user_grants WHERE user_id = $1)",
         )
         .bind(ALICE)
