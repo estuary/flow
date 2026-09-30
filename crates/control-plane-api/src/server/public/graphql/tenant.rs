@@ -175,6 +175,11 @@ async fn create_tenant(
         return Err(error("INVALID_TENANT_NAME", "Invalid organization name"));
     }
 
+    // The operations namespace is privileged even without a tenant or reservation row.
+    if name.eq_ignore_ascii_case("ops") {
+        return Err(error("TENANT_UNAVAILABLE", TENANT_UNAVAILABLE_MESSAGE));
+    }
+
     // Lock this user to prevent concurrent tenant create mutations.
     sqlx::query!(
         "SELECT id FROM auth.users WHERE id = $1 FOR UPDATE",
@@ -359,6 +364,34 @@ mod test {
             let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
             assert_eq!(code(&response), "TENANT_UNAVAILABLE", "{response}");
         }
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn tenant_create_rejects_ops_without_reservation(pool: sqlx::PgPool) {
+        sqlx::query("DELETE FROM internal.illegal_tenant_names WHERE lower(name) = 'ops/'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let server = server(&pool).await;
+        let token = server.make_access_token(ALICE, None);
+
+        for name in ["ops", "OPS", "oPs"] {
+            let response: serde_json::Value = server.graphql(&request(name), Some(&token)).await;
+            assert_eq!(code(&response), "TENANT_UNAVAILABLE", "{response}");
+        }
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT (SELECT count(*) FROM tenants WHERE lower(tenant) = 'ops/')
+                  + (SELECT count(*) FROM user_grants WHERE user_id = $1)",
+        )
+        .bind(ALICE)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[sqlx::test(
