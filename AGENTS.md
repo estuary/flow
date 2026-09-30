@@ -15,7 +15,9 @@ Estuary is built with:
 - **Protobuf** - communication between control plane, data planes, and connectors
 - **Supabase** - migrations are under `supabase/migrations/`
   - pgTAP tests under `supabase/tests/`
-- **Docs** - external user-facing product documentation under `site/` (Docusaurus)
+- **Docs** - external user-facing product documentation is not in this repo.
+  Platform docs live in `estuary/docs`; connector reference pages live in
+  `estuary/connectors` under `docs/reference/Connectors/`
 
 ## Essential Commands
 
