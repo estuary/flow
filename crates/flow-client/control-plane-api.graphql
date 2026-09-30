@@ -3052,6 +3052,7 @@ input StringFilter {
 
 type Tenant {
 	name: String!
+	sensitive: Boolean!
 	billing: TenantBilling!
 }
 
