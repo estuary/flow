@@ -136,6 +136,7 @@ pub struct QueryRoot(
 // Represents the portion of the GraphQL schema that deals with mutations.
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
+    tenant::TenantMutation,
     billing::BillingMutation,
     storage_mappings::StorageMappingsMutation,
     alert_configs::AlertConfigsMutation,
