@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE public.tenants\n           SET created_by = $1,\n               metadata = metadata || $2::jsonb\n           WHERE tenant = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cec9cf83e2a7f155e967e9498c132c4a6c0c7b0112e0496db73e3ea794f0255e"
+}

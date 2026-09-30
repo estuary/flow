@@ -1713,6 +1713,11 @@ type MaterializeBindingStats {
 }
 
 type MutationRoot {
+	"""
+	Create a tenant for the authenticated user. Users with an existing direct
+	tenant-admin grant cannot provision another tenant.
+	"""
+	tenantCreate(input: TenantCreateInput!): TenantCreatePayload!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
@@ -3061,6 +3066,18 @@ type TenantBilling {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+}
+
+input TenantCreateInput {
+	"""
+	Organization name as a single catalog token, without a trailing slash.
+	"""
+	name: String!
+	survey: JSON
+}
+
+type TenantCreatePayload {
+	tenant: Tenant!
 }
 
 """
