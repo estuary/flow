@@ -297,6 +297,10 @@ pub enum SequenceOutcome {
     /// Producers are expected to store ACK_TXN in a durable write-head log before
     /// writing them to journals, making this case impossible in normal operation
     /// (but possible in certain disaster recovery scenarios).
+    ///
+    /// The last-committed Clock is retained rather than regressed to this
+    /// ACK_TXN's, as it continues to cover the producer's preceding commits.
+    /// A producer's last-committed Clock therefore never decreases.
     AckDeepRollback,
     /// This ACK_TXN commits a non-empty sequence of preceding CONTINUE_TXN messages.
     AckCommit,
@@ -372,7 +376,6 @@ pub fn sequence(
                 // Given pending CONTINUEs (which are not possible under a
                 // conservative re-read of journal content), this is a deep
                 // rollback.
-                *last_commit = clock;
                 *max_continue = Clock::zero();
                 Ok(SequenceOutcome::AckDeepRollback)
             }
@@ -513,7 +516,7 @@ mod test {
             (A, 10, 10, 0, AckDuplicate, (10, 0)),
             (A, 10, 10, 20, AckCleanRollback, (10, 0)),
             (A, 3, 10, 0, AckDuplicate, (10, 0)), // No pending CONTINUEs: stale ACK, not rollback.
-            (A, 3, 10, 20, AckDeepRollback, (3, 0)), // Pending CONTINUEs: genuine deep rollback.
+            (A, 3, 10, 20, AckDeepRollback, (10, 0)), // Pending CONTINUEs: genuine deep rollback.
         ];
         for (flags, clock, lc_in, mc_in, expected, (lc_out, mc_out)) in ok_cases {
             let (mut lc, mut mc) = (clk(*lc_in), clk(*mc_in));
