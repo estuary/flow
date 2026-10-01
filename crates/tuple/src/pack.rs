@@ -480,7 +480,7 @@ macro_rules! impl_fx {
         #[inline]
         pub(super) fn $fx_to_ux_be_bytes(f: $fx) -> [u8; $ux_width] {
             let u = if f.is_sign_negative() {
-                f.to_bits() ^ ::std::$ux::MAX
+                f.to_bits() ^ $ux::MAX
             } else {
                 f.to_bits() ^ sign_bit!($ux)
             };
@@ -514,7 +514,7 @@ macro_rules! impl_fx {
                 Ok((
                     input,
                     $fx::from_bits(if (u & sign_bit!($ux)) == 0 {
-                        u ^ ::std::$ux::MAX
+                        u ^ $ux::MAX
                     } else {
                         u ^ sign_bit!($ux)
                     }),

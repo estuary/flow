@@ -112,7 +112,7 @@ pub extern "C" fn upper_case_naive(
     let code = if in_ == b"whoops" {
         let err = std::io::Error::new(std::io::ErrorKind::Other, "whoops");
         write!(svc.arena, "{:?}", err).unwrap();
-        std::u32::MAX
+        u32::MAX
     } else {
         svc.arena.extend(in_.iter().map(u8::to_ascii_uppercase));
         svc.sum_length += in_.len() as u32;

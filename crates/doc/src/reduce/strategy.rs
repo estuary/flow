@@ -893,12 +893,12 @@ mod test {
                 },
                 // Add maximum f64.
                 Partial {
-                    rhs: json!(std::f64::MAX),
-                    expect: Ok(json!(std::f64::MAX)),
+                    rhs: json!(f64::MAX),
+                    expect: Ok(json!(f64::MAX)),
                 },
                 // Number which overflows returns an error.
                 Partial {
-                    rhs: json!(std::f64::MAX / 10.0),
+                    rhs: json!(f64::MAX / 10.0),
                     expect: Err(
                         "reduction failed at location '': sum strategy encountered a numeric overflow",
                     ),
@@ -906,15 +906,15 @@ mod test {
                 // Sometimes changes are too small to represent.
                 Partial {
                     rhs: json!(-1.0),
-                    expect: Ok(json!(std::f64::MAX)),
+                    expect: Ok(json!(f64::MAX)),
                 },
                 // Sometimes they aren't.
                 Partial {
-                    rhs: json!(std::f64::MIN / 2.0),
-                    expect: Ok(json!(std::f64::MAX / 2.)),
+                    rhs: json!(f64::MIN / 2.0),
+                    expect: Ok(json!(f64::MAX / 2.)),
                 },
                 Partial {
-                    rhs: json!(std::f64::MIN / 2.0),
+                    rhs: json!(f64::MIN / 2.0),
                     expect: Ok(json!(0.0)),
                 },
                 // Non-numeric type (now with LHS) returns an error.
