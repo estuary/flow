@@ -118,8 +118,9 @@ impl LiveSpecRef {
         }
 
         let include_model = ctx.look_ahead().field("model").exists();
-        let key = publication_history::LastPublicationInfoKey {
+        let key = publication_history::PublicationInfoKey {
             catalog_name: self.catalog_name.clone(),
+            publication_id: None,
             include_model,
         };
 
@@ -128,7 +129,28 @@ impl LiveSpecRef {
         Ok(pub_info)
     }
 
-    /// The complete history of publications of this spec
+    /// The change to this specification recorded by the given publication,
+    /// or null if no accessible matching record exists. This is an exact lookup,
+    /// not the specification as of a publication that did not change it.
+    async fn publication_for_id(
+        &self,
+        ctx: &Context<'_>,
+        id: models::Id,
+    ) -> async_graphql::Result<Option<publication_history::SpecPublicationHistoryItem>> {
+        if self.user_capability.is_none() {
+            return Ok(None);
+        }
+
+        let key = publication_history::PublicationInfoKey {
+            catalog_name: self.catalog_name.clone(),
+            publication_id: Some(id),
+            include_model: ctx.look_ahead().field("model").exists(),
+        };
+        let loader = ctx.data::<async_graphql::dataloader::DataLoader<PgDataLoader>>()?;
+        Ok(loader.load_one(key).await?)
+    }
+
+    /// The complete history of publications of this spec.
     async fn publication_history(
         &self,
         ctx: &Context<'_>,
@@ -160,47 +182,24 @@ impl LiveSpecRef {
     }
 }
 
-/// Applies the given pagination parameters to `all_names` and returns a
-/// `Connection` suitable for a graphql response. `all_names` is expected to
-/// contain the complete list of **sorted** live specs names. Note that the sort
-/// order, both of `all_names` and the query results, must always be ascending,
-/// regardless of whether forward or reverse pagination is being used. Source:
-/// https://relay.dev/graphql/connections.htm#sec-Edge-order
-/// If `require_min_capability` is `Some`, then `all_specs` will be filtered to
-/// only include those specs for which the user has the required minimum
-/// capability.
-pub async fn paginate_live_specs_refs(
-    ctx: &Context<'_>,
-    require_min_capability: Option<models::Capability>,
-    all_names: Vec<String>,
-    after: Option<String>,
-    before: Option<String>,
-    first: Option<i32>,
-    last: Option<i32>,
-) -> async_graphql::Result<PaginatedLiveSpecsRefs> {
-    let env = ctx.data::<crate::Envelope>()?;
-
-    if all_names.is_empty() {
-        return Ok(connection::Connection::new(false, false));
-    }
-    let all_refs = crate::server::attach_user_capabilities(
-        env.snapshot(),
-        env.claims()?,
-        all_names,
-        |name, maybe_capability| {
-            if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
-                return None;
-            }
-            Some(LiveSpecRef {
-                catalog_name: models::Name::new(name),
-                user_capability: maybe_capability,
-            })
-        },
-    );
-    apply_pagination(all_refs, after, before, first, last).await
+/// Resolves legacy capabilities for each reference without filtering names.
+pub fn live_spec_refs(
+    env: &crate::Envelope,
+    all_names: impl IntoIterator<Item = String>,
+) -> async_graphql::Result<impl Iterator<Item = LiveSpecRef>> {
+    let subject = env.claims()?.subject();
+    Ok(all_names.into_iter().map(move |name| {
+        let user_capability = env.snapshot().user_capability(&subject, &name);
+        LiveSpecRef {
+            catalog_name: models::Name::new(name),
+            user_capability,
+        }
+    }))
 }
 
-async fn apply_pagination(
+/// References and results must remain sorted by ascending catalog name, including
+/// when paginating backwards: https://relay.dev/graphql/connections.htm#sec-Edge-order
+pub async fn paginate_live_specs_refs(
     mut all_refs: Vec<LiveSpecRef>,
     after: Option<String>,
     before: Option<String>,
@@ -228,10 +227,13 @@ async fn apply_pagination(
                 } else {
                     0
                 };
-                (start, first.unwrap_or(usize::MAX).min(all_refs.len()))
+                let end = start
+                    .saturating_add(first.unwrap_or(usize::MAX))
+                    .min(all_refs.len());
+                (start, end)
             };
             let has_prev = start_index > 0;
-            let has_next = end_index < all_refs.len().saturating_sub(1);
+            let has_next = end_index < all_refs.len();
             let edges = all_refs
                 .drain(start_index..end_index)
                 .map(|r| connection::Edge::new(r.catalog_name.to_string(), r))
@@ -358,20 +360,9 @@ impl LiveSpecsQuery {
         // We already know that the user at least has read capability to the prefix,
         // but it's possible that they may have a greater capability to specific
         // sub-prefixes, so resolve those here.
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names,
-            |name, user_capability| {
-                Some(connection::Edge::new(
-                    name.clone(),
-                    LiveSpecRef {
-                        catalog_name: models::Name::new(name),
-                        user_capability,
-                    },
-                ))
-            },
-        );
+        let edges = live_spec_refs(env, names)?
+            .map(|reference| connection::Edge::new(reference.catalog_name.to_string(), reference))
+            .collect();
 
         let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
         conn.edges = edges;

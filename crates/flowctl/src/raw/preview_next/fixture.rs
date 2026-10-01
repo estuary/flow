@@ -4,9 +4,11 @@
 //! it. Turning transactions into shuffle-log segments, and relaying the matching
 //! checkpoint frontiers to the runtime, is [`runtime_local::segments`]'s job.
 //!
-//! Fixture format (one JSON value per line, matching legacy `flowctl preview`):
-//! - a document:      `["collection/name", { ...document... }]`
-//! - a commit marker: `{"commit": true}`
+//! Fixture format (one JSON value per line, extending legacy `flowctl preview`):
+//! - a document:          `["collection/name", { ...document... }]`
+//! - a commit marker:     `{"commit": true}`
+//! - a backfill begin:    `{"backfillBegin": "collection/name"}`
+//! - a backfill complete: `{"backfillComplete": "collection/name"}`
 //!
 //! Documents between commit markers form one transaction. A transaction is
 //! written as one or more log blocks per shard — see
@@ -19,6 +21,12 @@
 //! consecutive commit markers — are deliberate and preserved: connectors-repo
 //! fixtures lead with one to drive an initial empty commit cycle, and
 //! apply-only tests use a fixture that is a single bare `{"commit": true}` line.
+//!
+//! A backfill marker applies to every binding of its collection and is
+//! delivered in the `Flush` of its transaction. A begin's truncation boundary is
+//! its position in the fixture, so documents before it fall below the boundary
+//! and documents after it do not. A complete carries the boundary of its
+//! collection's open begin.
 //!
 //! ## Per-session segments
 //!
@@ -61,8 +69,8 @@
 use anyhow::Context;
 use futures::StreamExt;
 use runtime_local::segments::{
-    self, FixtureItem, ShardWriter, Transaction, TxnState, finish_txn, open_shard_writers,
-    push_doc, write_transaction,
+    self, FixtureItem, OpenBackfills, ShardWriter, Transaction, TxnItem, TxnState, finish_txn,
+    open_shard_writers, push_item, write_transaction,
 };
 use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
@@ -147,13 +155,15 @@ pub fn build(
     let mut session_dirs = Vec::with_capacity(session_targets.len());
     let mut session_frontiers = Vec::with_capacity(session_targets.len());
 
-    // Publication clock and per-(journal, binding) committed offsets advance
-    // globally across sessions; segment LSNs restart per session. Offsets are
-    // tracked per binding to mirror live reads, where each binding of a shared
-    // journal independently observes that journal's (single) offset space.
+    // Publication clock, per-(journal, binding) committed offsets, and open
+    // backfills advance globally across sessions; segment LSNs restart per
+    // session. Offsets are tracked per binding to mirror live reads, where
+    // each binding of a shared journal independently observes that journal's
+    // (single) offset space.
     let shards = segments::full_range_shards(n_shards);
     let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
+    let mut open_backfills = OpenBackfills::new();
     let mut packed_key = bytes::BytesMut::new();
     let mut transactions = transactions.into_iter();
 
@@ -182,6 +192,7 @@ pub fn build(
                 &mut keepalive._sealed,
                 &mut txn_ordinal,
                 &mut journal_offsets,
+                &mut open_backfills,
                 &mut packed_key,
             )?);
         }
@@ -314,7 +325,7 @@ async fn feed_stream(
     result
 }
 
-/// Incrementally read fixture lines, writing each document as it is parsed and
+/// Incrementally read fixture lines, writing each item as it is parsed and
 /// relaying a frontier per commit marker. Returns at stream EOF, when the run
 /// ends (`hold` cancels), or on a stream / fixture error.
 #[allow(clippy::too_many_arguments)]
@@ -349,11 +360,12 @@ async fn feed_lines(
 
     let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
+    let mut open_backfills = OpenBackfills::new();
     let mut packed_key = bytes::BytesMut::new();
 
     let mut txn = TxnState::for_txn(writers.len(), txn_ordinal);
     txn_ordinal += 1;
-    let mut txn_docs = 0usize;
+    let mut txn_items = 0usize;
     let mut committed = 0usize;
     let mut lineno = 0usize;
 
@@ -411,11 +423,10 @@ async fn feed_lines(
 
         match parse_line(&line, lineno)? {
             None => (),
-            Some(Line::Doc(collection, doc)) => {
-                push_doc(
+            Some(Line::Item(item)) => {
+                push_item(
                     &mut txn,
-                    &collection,
-                    &doc,
+                    &item,
                     bindings,
                     sources,
                     validators,
@@ -424,15 +435,17 @@ async fn feed_lines(
                     writers,
                     &mut rolled,
                     &mut journal_offsets,
+                    &mut open_backfills,
                     &mut packed_key,
-                )?;
-                txn_docs += 1;
+                )
+                .with_context(|| format!("fixture line {lineno}"))?;
+                txn_items += 1;
             }
             Some(Line::Commit) => {
                 let closing =
                     std::mem::replace(&mut txn, TxnState::for_txn(writers.len(), txn_ordinal));
                 txn_ordinal += 1;
-                txn_docs = 0;
+                txn_items = 0;
 
                 let frontier = finish_txn(closing, writers, &mut rolled, &journal_offsets)?;
                 committed += 1;
@@ -451,11 +464,11 @@ async fn feed_lines(
         }
     }
 
-    // Trailing documents without a final commit marker form a final
-    // transaction, and an entirely-empty stream still runs one empty
-    // transaction (the connector's Apply and one empty commit cycle) — both
-    // mirroring eager parsing.
-    if txn_docs != 0 || committed == 0 {
+    // Trailing items without a final commit marker form a final transaction,
+    // and an entirely-empty stream still runs one empty transaction (the
+    // connector's Apply and one empty commit cycle) — both mirroring eager
+    // parsing.
+    if txn_items != 0 || committed == 0 {
         let frontier = finish_txn(txn, writers, &mut rolled, &journal_offsets)?;
         let _ = frontier_tx.send(FixtureItem::Frontier(frontier));
     }
@@ -545,7 +558,7 @@ fn parse(path: &std::path::Path) -> anyhow::Result<Vec<Transaction>> {
 }
 
 /// Parse fixture content into transactions, splitting on `{"commit": true}`
-/// lines. Trailing documents without a final commit marker form a final
+/// lines. Trailing items without a final commit marker form a final
 /// transaction.
 fn parse_content(content: &str) -> anyhow::Result<Vec<Transaction>> {
     let mut transactions: Vec<Transaction> = Vec::new();
@@ -555,7 +568,7 @@ fn parse_content(content: &str) -> anyhow::Result<Vec<Transaction>> {
         match parse_line(line, lineno + 1)? {
             None => continue,
             Some(Line::Commit) => transactions.push(std::mem::take(&mut current)),
-            Some(Line::Doc(collection, doc)) => current.push((collection, doc)),
+            Some(Line::Item(item)) => current.push(item),
         }
     }
 
@@ -566,10 +579,31 @@ fn parse_content(content: &str) -> anyhow::Result<Vec<Transaction>> {
     Ok(transactions)
 }
 
-/// One parsed fixture line: a transaction boundary or a sourced document.
+/// One parsed fixture line: a transaction boundary or a transaction item.
+#[derive(Debug, PartialEq)]
 enum Line {
     Commit,
+    Item(TxnItem),
+}
+
+/// The JSON spelling of one fixture line.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum FixtureLine {
+    /// `["collection/name", { ...document... }]`
     Doc(String, serde_json::Value),
+    /// `{"commit": true}`
+    Commit { commit: bool },
+    /// `{"backfillBegin": "collection/name"}`
+    BackfillBegin {
+        #[serde(rename = "backfillBegin")]
+        collection: String,
+    },
+    /// `{"backfillComplete": "collection/name"}`
+    BackfillComplete {
+        #[serde(rename = "backfillComplete")]
+        collection: String,
+    },
 }
 
 /// Parse a single fixture line (`None` for blank lines); `lineno` is 1-based.
@@ -578,23 +612,21 @@ fn parse_line(line: &str, lineno: usize) -> anyhow::Result<Option<Line>> {
     if line.is_empty() {
         return Ok(None);
     }
-    if is_commit_line(line) {
-        return Ok(Some(Line::Commit));
-    }
-    let (collection, doc): (String, serde_json::Value) = serde_json::from_str(line)
-        .with_context(|| format!("fixture line {lineno} is not [collection, document]: {line}"))?;
-    Ok(Some(Line::Doc(collection, doc)))
-}
+    let not_a_line = || format!("fixture line {lineno} is not a document or marker: {line}");
 
-/// True if `line` is a `{"commit": true}` transaction boundary marker.
-fn is_commit_line(line: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(line)
-        .ok()
-        .as_ref()
-        .and_then(|v| v.as_object())
-        .and_then(|o| o.get("commit"))
-        .and_then(|c| c.as_bool())
-        .unwrap_or(false)
+    Ok(Some(
+        match serde_json::from_str(line).with_context(not_a_line)? {
+            FixtureLine::Doc(collection, doc) => Line::Item(TxnItem::Doc(collection, doc)),
+            FixtureLine::Commit { commit: true } => Line::Commit,
+            FixtureLine::Commit { commit: false } => anyhow::bail!(not_a_line()),
+            FixtureLine::BackfillBegin { collection } => {
+                Line::Item(TxnItem::BackfillBegin(collection))
+            }
+            FixtureLine::BackfillComplete { collection } => {
+                Line::Item(TxnItem::BackfillComplete(collection))
+            }
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -629,16 +661,25 @@ mod test {
 
 [\"a/coll\", {\"k\": 3}]
 {\"commit\": true}
+{\"backfillBegin\": \"a/coll\"}
 [\"a/coll\", {\"k\": 4}]
+{\"backfillComplete\": \"a/coll\"}
 ";
         let txns = parse_content(content).unwrap();
         // Three transactions: two committed, plus a trailing un-committed one.
-        assert_eq!(txns.len(), 3);
-        assert_eq!(txns[0].len(), 2);
-        assert_eq!(txns[0][0].0, "a/coll");
-        assert_eq!(txns[1].len(), 1);
-        assert_eq!(txns[2].len(), 1);
-        assert_eq!(txns[2][0].1, serde_json::json!({"k": 4}));
+        let doc = |c: &str, k: i64| TxnItem::Doc(c.to_string(), serde_json::json!({ "k": k }));
+        assert_eq!(
+            txns,
+            vec![
+                vec![doc("a/coll", 1), doc("b/coll", 2)],
+                vec![doc("a/coll", 3)],
+                vec![
+                    TxnItem::BackfillBegin("a/coll".to_string()),
+                    doc("a/coll", 4),
+                    TxnItem::BackfillComplete("a/coll".to_string()),
+                ],
+            ]
+        );
     }
 
     /// A Task with no bindings: fixture documents are skipped (no collection is
@@ -810,10 +851,10 @@ mod test {
         feeder.await.unwrap().unwrap();
     }
 
-    /// A Task with one materialization binding on `acmeCo/events`, keyed on
-    /// `/id`: fixture documents for that collection are routed and written, so
-    /// tests can observe what the feeder actually puts on disk.
-    fn one_binding_task() -> shuffle::proto::Task {
+    /// A Task with `n_bindings` materialization bindings on `acmeCo/events`,
+    /// keyed on `/id`: fixture documents for that collection are routed and
+    /// written, so tests can observe what the feeder actually puts on disk.
+    fn events_task(n_bindings: usize) -> shuffle::proto::Task {
         let collection = proto_flow::flow::CollectionSpec {
             name: "acmeCo/events".to_string(),
             key: vec!["/id".to_string()],
@@ -835,11 +876,14 @@ mod test {
             task: Some(shuffle::proto::task::Task::Materialization(
                 proto_flow::flow::MaterializationSpec {
                     name: "acmeCo/sink".to_string(),
-                    bindings: vec![proto_flow::flow::materialization_spec::Binding {
-                        collection: Some(Box::new(collection)),
-                        partition_selector: Some(Default::default()),
-                        ..Default::default()
-                    }],
+                    bindings: vec![
+                        proto_flow::flow::materialization_spec::Binding {
+                            collection: Some(Box::new(collection)),
+                            partition_selector: Some(Default::default()),
+                            ..Default::default()
+                        };
+                        n_bindings
+                    ],
                     ..Default::default()
                 },
             )),
@@ -932,7 +976,7 @@ mod test {
         let hold = tokio_util::sync::CancellationToken::new();
 
         let (dir, feeder) = start_streaming(
-            &one_binding_task(),
+            &events_task(1),
             Some(path.clone()),
             tmp.path(),
             1,
@@ -1030,7 +1074,7 @@ mod test {
         let hold = tokio_util::sync::CancellationToken::new();
 
         let (dir, feeder) = start_streaming(
-            &one_binding_task(),
+            &events_task(1),
             Some(path.clone()),
             tmp.path(),
             1,
@@ -1079,12 +1123,129 @@ mod test {
         feeder.abort();
     }
 
+    /// Plan `content` over two bindings of `acmeCo/events`, in one session.
+    fn plan_events(content: &str) -> anyhow::Result<FixturePlan> {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("fixture");
+        std::fs::write(&path, content).unwrap();
+        build(&events_task(2), &path, tmp.path(), &[0], 1)
+    }
+
+    /// Each frontier's backfill begins and completes, as clock seconds by
+    /// binding index.
+    fn backfill_seconds(plan: &FixturePlan) -> Vec<(Vec<(u16, u64)>, Vec<(u16, u64)>)> {
+        let seconds = |m: &std::collections::BTreeMap<u16, proto_gazette::uuid::Clock>| {
+            m.iter()
+                .map(|(b, c)| (*b, c.to_unix().0))
+                .collect::<Vec<_>>()
+        };
+        plan.session_frontiers[0]
+            .iter()
+            .map(|f| {
+                (
+                    seconds(&f.latest_backfill_begin),
+                    seconds(&f.latest_backfill_complete),
+                )
+            })
+            .collect()
+    }
+
     #[test]
-    fn test_is_commit_line() {
-        assert!(is_commit_line(r#"{"commit": true}"#));
-        assert!(!is_commit_line(r#"{"commit": false}"#));
-        assert!(!is_commit_line(r#"["a/coll", {"commit": true}]"#));
-        assert!(!is_commit_line(r#"{"other": true}"#));
-        assert!(!is_commit_line("not json"));
+    fn test_backfill_markers() {
+        let plan = plan_events(
+            r#"["acmeCo/events", {"id": 1}]
+["acmeCo/events", {"id": 2}]
+{"commit": true}
+["acmeCo/events", {"id": 3}]
+{"backfillBegin": "acmeCo/events"}
+["acmeCo/events", {"id": 1}]
+{"commit": true}
+{"backfillComplete": "acmeCo/events"}
+{"commit": true}
+{"backfillBegin": "acmeCo/events"}
+{"backfillComplete": "acmeCo/events"}
+{"backfillBegin": "acmeCo/other"}
+{"backfillComplete": "acmeCo/other"}
+"#,
+        )
+        .unwrap();
+
+        // A begin fans out to both bindings, at the clock following the
+        // document before it. Its complete carries that same clock, and a
+        // begin and complete may share a transaction. Markers of a collection
+        // no binding sources are ignored.
+        assert_eq!(
+            backfill_seconds(&plan),
+            vec![
+                (vec![], vec![]),
+                (vec![(0, 3601), (1, 3601)], vec![]),
+                (vec![], vec![(0, 3601), (1, 3601)]),
+                (vec![(0, 10800), (1, 10800)], vec![(0, 10800), (1, 10800)]),
+            ]
+        );
+
+        // The re-stored document follows the boundary, so it is not truncated.
+        let last_commit = plan.session_frontiers[0][1].journals[0].producers[0].last_commit;
+        assert_eq!(last_commit.to_unix().0, 3602);
+    }
+
+    #[test]
+    fn test_backfill_complete_without_begin() {
+        let err = plan_events(
+            r#"{"backfillBegin": "acmeCo/events"}
+{"backfillComplete": "acmeCo/events"}
+{"commit": true}
+{"backfillComplete": "acmeCo/events"}
+"#,
+        )
+        .err()
+        .unwrap();
+        assert!(
+            format!("{err:#}")
+                .contains("backfill complete of acmeCo/events has no open backfill begin"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn test_parse_line() {
+        let parse = |line| parse_line(line, 7).map_err(|err| format!("{err:#}"));
+
+        assert_eq!(parse("  "), Ok(None));
+        assert_eq!(parse(r#"{"commit": true}"#), Ok(Some(Line::Commit)));
+        assert_eq!(
+            parse(r#"{"backfillBegin": "a/coll"}"#),
+            Ok(Some(Line::Item(TxnItem::BackfillBegin(
+                "a/coll".to_string()
+            ))))
+        );
+        assert_eq!(
+            parse(r#"{"backfillComplete": "a/coll"}"#),
+            Ok(Some(Line::Item(TxnItem::BackfillComplete(
+                "a/coll".to_string()
+            ))))
+        );
+        assert_eq!(
+            parse(r#"["a/coll", {"commit": true}]"#),
+            Ok(Some(Line::Item(TxnItem::Doc(
+                "a/coll".to_string(),
+                serde_json::json!({"commit": true})
+            ))))
+        );
+
+        for bad in [
+            r#"{"commit": false}"#,
+            r#"{"backfillBegin": true}"#,
+            r#"{"other": true}"#,
+            "not json",
+        ] {
+            let err = parse(bad).unwrap_err();
+            assert!(
+                err.starts_with(&format!(
+                    "fixture line 7 is not a document or marker: {bad}"
+                )),
+                "{err}"
+            );
+        }
     }
 }

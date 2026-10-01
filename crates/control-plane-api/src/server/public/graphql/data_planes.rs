@@ -484,7 +484,7 @@ impl DataPlanesQuery {
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedDataPlanes> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
+        let subject = env.claims()?.subject();
         let snapshot = env.snapshot();
 
         let DataPlanesFilter {
@@ -542,7 +542,7 @@ impl DataPlanesQuery {
                 tables::UserGrant::is_authorized(
                         &snapshot.role_grants,
                         &snapshot.user_grants,
-                        &claims.subject(),
+                        &subject,
                         &dp.data_plane_name,
                         models::Capability::Read,
                     )
@@ -577,24 +577,16 @@ impl DataPlanesQuery {
             )
             .await?;
 
-        // Preserve sorted order from pagination before moving into HashMap.
         let names: Vec<String> = rows.iter().map(|dp| dp.data_plane_name.clone()).collect();
-
-        // Build row data map for attach_user_capabilities.
-        let row_data: HashMap<String, &crate::snapshot::DataPlane> = rows
-            .into_iter()
-            .map(|dp| (dp.data_plane_name.clone(), dp))
-            .collect();
 
         // Fetch detail fields from the database for all data planes in this page.
         let details_map = fetch_data_plane_details(&env.pg_pool, &names).await?;
 
-        let edges = crate::server::attach_user_capabilities(
-            env.snapshot(),
-            env.claims()?,
-            names.into_iter(),
-            |data_plane_name, user_capability| {
-                let dp = row_data.get(&data_plane_name)?;
+        let edges = rows
+            .into_iter()
+            .map(|dp| {
+                let data_plane_name = dp.data_plane_name.clone();
+                let user_capability = snapshot.user_capability(&subject, &data_plane_name);
                 let details = details_map.get(&data_plane_name);
                 let (cloud_provider, region, tag, is_public) =
                     parse_data_plane_name(&data_plane_name).expect("name validated by pre-filter");
@@ -626,9 +618,9 @@ impl DataPlanesQuery {
                         .map(|d| d.gcp_psc_endpoints.clone())
                         .unwrap_or_default(),
                 };
-                Some(connection::Edge::new(data_plane_name, node))
-            },
-        );
+                connection::Edge::new(data_plane_name, node)
+            })
+            .collect();
 
         let mut conn = PaginatedDataPlanes::new(has_prev, has_next);
         conn.edges = edges;

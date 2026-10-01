@@ -244,74 +244,39 @@ async fn do_draft(
         spec = None;
     }
 
-    // Build up the array of `draft_specs` to upsert.
-    #[derive(Serialize, Debug)]
-    struct DraftSpec {
-        draft_id: models::Id,
-        catalog_name: String,
-        spec_type: CatalogType,
-        spec: Option<RawValue>,
-        expect_pub_id: models::Id,
-    }
-    let draft_spec = DraftSpec {
-        draft_id,
-        catalog_name,
-        spec_type,
-        spec,
-        expect_pub_id: last_pub_id,
+    // Staging replaces all editable fields, so carry forward the existing description.
+    let detail = crate::draft::fetch_draft_specs(ctx, draft_id, false)
+        .await?
+        .into_iter()
+        .find(|spec| spec.catalog_name.as_str() == catalog_name)
+        .and_then(|spec| spec.detail);
+
+    let draft_spec = crate::draft::DraftSpecInput {
+        catalog_name: models::Name::new(&catalog_name),
+        // A drafted deletion has neither a model nor a type.
+        catalog_type: spec.is_some().then_some(spec_type),
+        model: spec,
+        expect_pub_id: Some(last_pub_id),
+        detail,
     };
-    tracing::debug!(?draft_spec, "inserting draft");
+    tracing::debug!(?draft_spec, "staging draft spec");
 
-    let rows: Vec<SpecSummaryItem> = flow_client_next::postgrest::exec(
-        ctx.pg
-            .from("draft_specs")
-            .select("catalog_name,spec_type")
-            .upsert(serde_json::to_string(&draft_spec).unwrap())
-            .on_conflict("draft_id,catalog_name"),
-        ctx.access_token().as_deref(),
+    crate::draft::stage_draft_specs(ctx, draft_id, vec![draft_spec]).await?;
+
+    ctx.write_all(
+        Some(SpecSummaryItem {
+            catalog_name,
+            spec_type,
+        }),
+        (),
     )
-    .await?;
-
-    ctx.write_all(rows, ())
 }
 
 /// Used for simple listings of specs, such as for listing the specs contained within a draft.
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize)]
 pub struct SpecSummaryItem {
     pub catalog_name: String,
     pub spec_type: CatalogType,
-}
-
-impl SpecSummaryItem {
-    fn summarize_catalog(catalog: tables::DraftCatalog) -> Vec<SpecSummaryItem> {
-        let mut summary = Vec::new();
-        let tables::DraftCatalog {
-            captures,
-            collections,
-            materializations,
-            tests,
-            ..
-        } = catalog;
-
-        summary.extend(captures.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.capture.to_string(),
-            spec_type: CatalogType::Capture,
-        }));
-        summary.extend(collections.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.collection.to_string(),
-            spec_type: CatalogType::Collection,
-        }));
-        summary.extend(materializations.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.materialization.to_string(),
-            spec_type: CatalogType::Materialization,
-        }));
-        summary.extend(tests.into_iter().map(|r| SpecSummaryItem {
-            catalog_name: r.test.to_string(),
-            spec_type: CatalogType::Test,
-        }));
-
-        summary
-    }
 }
 
 impl CliOutput for SpecSummaryItem {

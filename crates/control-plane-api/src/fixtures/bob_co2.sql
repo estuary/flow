@@ -12,14 +12,17 @@
 --     `bobCo2/` and never chains through the `role_grants` edges out to the
 --     private plane. Public planes come from a `user_grants` row addressed
 --     directly at `ops/dp/public/`, which needs no chaining to apply.
+--
+-- The tenant is also flagged `sensitive`, while `bobCo/` keeps the default, so
+-- tests can compare a sensitive tenant against one that isn't.
 do $$
 declare
   bob_uid uuid := '22222222-2222-2222-2222-222222222222';
   carol_uid uuid := '33333333-3333-3333-3333-333333333333';
 begin
 
-  insert into public.tenants (id, tenant) values
-    (internal.id_generator(), 'bobCo2/')
+  insert into public.tenants (id, tenant, sensitive) values
+    (internal.id_generator(), 'bobCo2/', true)
   ;
 
   -- Mirrors the single-plane shape of `bob_co.sql`, down to the region and

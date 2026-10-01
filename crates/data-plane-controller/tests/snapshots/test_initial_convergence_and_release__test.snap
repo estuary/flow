@@ -120,7 +120,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }
@@ -488,7 +489,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }
@@ -595,7 +597,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }
@@ -942,7 +945,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }
@@ -1049,7 +1053,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }
@@ -1392,7 +1397,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }
@@ -1495,7 +1501,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }
@@ -1821,7 +1828,8 @@ expression: trace.lock().unwrap().as_slice()
           "connector_limits": {
             "cpu": "200m",
             "memory": "1g"
-          }
+          },
+          "runtime_worker_threads": 2
         }
       }
     }

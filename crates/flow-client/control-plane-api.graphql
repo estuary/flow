@@ -1589,7 +1589,13 @@ type LiveSpecRef {
 	"""
 	lastPublication: SpecPublicationHistoryItem
 	"""
-	The complete history of publications of this spec
+	The change to this specification recorded by the given publication,
+	or null if no accessible matching record exists. This is an exact lookup,
+	not the specification as of a publication that did not change it.
+	"""
+	publicationForId(id: Id!): SpecPublicationHistoryItem
+	"""
+	The complete history of publications of this spec.
 	"""
 	publicationHistory(after: String, first: Int, before: String, last: Int): SpecPublicationHistoryItemConnection
 }
@@ -1707,6 +1713,11 @@ type MaterializeBindingStats {
 }
 
 type MutationRoot {
+	"""
+	Create a tenant for the authenticated user. Users with an existing direct
+	tenant-admin grant cannot provision another tenant.
+	"""
+	tenantCreate(input: TenantCreateInput!): Boolean!
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
@@ -2794,6 +2805,11 @@ type SpecPublicationHistoryItem {
 	"""
 	publicationId: Id!
 	"""
+	Type of the published catalog specification, if recorded.
+	This may be null for a deletion.
+	"""
+	catalogType: CatalogType
+	"""
 	Timestamp of the publication
 	"""
 	publishedAt: DateTime!
@@ -2819,7 +2835,7 @@ type SpecPublicationHistoryItem {
 	"""
 	detail: String
 	"""
-	The live spec model that was published
+	Catalog specification published by this publication, or null for a deletion.
 	"""
 	model: JSON
 }
@@ -3041,6 +3057,7 @@ input StringFilter {
 
 type Tenant {
 	name: String!
+	sensitive: Boolean!
 	billing: TenantBilling!
 }
 
@@ -3049,6 +3066,14 @@ type TenantBilling {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+}
+
+input TenantCreateInput {
+	"""
+	Organization name as a single catalog token, without a trailing slash.
+	"""
+	name: String!
+	survey: JSON
 }
 
 """

@@ -65,7 +65,10 @@ pub struct Preview {
     sessions: Option<Vec<isize>>,
     /// Path to a transactions fixture to feed in place of live collection data.
     /// Newline-delimited JSON: documents `["collection/name", {...}]` separated
-    /// by `{"commit": true}` transaction markers. Fixtures are only for
+    /// by `{"commit": true}` transaction markers. A materialization fixture may
+    /// also mark a collection's backfill with `{"backfillBegin": "collection/name"}`
+    /// and `{"backfillComplete": "collection/name"}`, which are delivered in the
+    /// `Flush` of their transaction. Fixtures are only for
     /// derivations and materializations. Under `--shards N`, fixture documents
     /// are hash-routed to shards by their collection key, mirroring live
     /// shuffled reads.

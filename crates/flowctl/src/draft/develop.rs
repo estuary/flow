@@ -1,7 +1,4 @@
 use crate::local_specs;
-use futures::TryStreamExt;
-use models::{CatalogType, RawValue};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -36,24 +33,31 @@ pub async fn develop(
     overwrite: bool,
     flat: bool,
 ) -> anyhow::Result<()> {
-    let rows: Vec<DraftSpecRow> = flow_client_next::postgrest::exec_paginated(
-        ctx.pg
-            .from("draft_specs")
-            .select("catalog_name,spec,spec_type,expect_pub_id")
-            .not("is", "spec_type", "null")
-            .eq("draft_id", draft_id.to_string()),
-        ctx.access_token().as_deref(),
-    )
-    .await
-    .try_collect::<Vec<_>>()
-    .await?;
+    let mut catalog = tables::DraftCatalog::default();
+    for spec in super::fetch_draft_specs(ctx, draft_id, true).await? {
+        // Drafted deletions have no model to develop, and are skipped.
+        let (Some(model), Some(catalog_type)) = (spec.model, spec.catalog_type) else {
+            continue;
+        };
+        let scope = tables::synthetic_scope("control", &spec.catalog_name);
+        catalog
+            .add_spec(
+                catalog_type,
+                &spec.catalog_name,
+                scope,
+                spec.expect_pub_id,
+                Some(&model),
+                false, // !is_touch
+            )
+            .map_err(|err| err.error)?;
+    }
 
     let target = build::arg_source_to_url(&target, true)?;
     let mut sources = local_specs::surface_errors(local_specs::load(&target).await.into_result())?;
 
     let count = local_specs::extend_from_catalog(
         &mut sources,
-        collect_specs(rows)?,
+        catalog,
         local_specs::pick_policy(overwrite, flat),
     );
     let sources = local_specs::indirect_and_write_resources(sources)?;
@@ -62,91 +66,4 @@ pub async fn develop(
     let () = local_specs::generate_files(ctx, sources).await?;
 
     Ok(())
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct DraftSpecRow {
-    pub catalog_name: String,
-    pub spec: RawValue,
-    pub spec_type: CatalogType,
-    pub expect_pub_id: Option<models::Id>,
-}
-
-impl DraftSpecRow {
-    fn catalog_name(&self) -> &str {
-        &self.catalog_name
-    }
-    fn spec_type(&self) -> CatalogType {
-        self.spec_type
-    }
-    fn spec(&self) -> Option<&RawValue> {
-        Some(&self.spec)
-    }
-    fn expect_pub_id(&self) -> Option<models::Id> {
-        self.expect_pub_id
-    }
-}
-
-/// Collects an iterator of `SpecRow`s into a `tables::DraftCatalog`.
-fn collect_specs(
-    rows: impl IntoIterator<Item = DraftSpecRow>,
-) -> anyhow::Result<tables::DraftCatalog> {
-    let mut catalog = tables::DraftCatalog::default();
-
-    fn parse<T: serde::de::DeserializeOwned>(
-        model: Option<&RawValue>,
-    ) -> anyhow::Result<Option<T>> {
-        if let Some(model) = model {
-            Ok(Some(serde_json::from_str::<T>(model.get())?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    for row in rows {
-        let scope = url::Url::parse(&format!("flow://control/{}", row.catalog_name())).unwrap();
-
-        match row.spec_type() {
-            CatalogType::Capture => {
-                catalog.captures.insert_row(
-                    models::Capture::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    models::Id::zero(), // Local drafts make no placement.
-                    parse::<models::CaptureDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-            CatalogType::Collection => {
-                catalog.collections.insert_row(
-                    models::Collection::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    models::Id::zero(), // Local drafts make no placement.
-                    parse::<models::CollectionDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-            CatalogType::Materialization => {
-                catalog.materializations.insert_row(
-                    models::Materialization::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    models::Id::zero(), // Local drafts make no placement.
-                    parse::<models::MaterializationDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-            CatalogType::Test => {
-                catalog.tests.insert_row(
-                    models::Test::new(row.catalog_name()),
-                    &scope,
-                    row.expect_pub_id(),
-                    parse::<models::TestDef>(row.spec())?,
-                    false, // !is_touch
-                );
-            }
-        }
-    }
-    Ok(catalog)
 }

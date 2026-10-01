@@ -1,0 +1,177 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n                ls.catalog_name as \"catalog_name!: models::Name\",\n                args.publication_id as \"requested_publication_id: models::Id\",\n                args.include_model as \"include_model!: bool\",\n                ps.pub_id as \"publication_id!: models::Id\",\n                ps.spec_type as \"catalog_type: models::CatalogType\",\n                ps.published_at as \"published_at!: DateTime<Utc>\",\n                ps.user_id as \"user_id!: uuid::Uuid\",\n                u.email as \"user_email: String\",\n                u.raw_user_meta_data->>'picture' as \"user_avatar_url: String\",\n                u.raw_user_meta_data->>'full_name' as \"user_full_name: String\",\n                ps.detail as \"detail: String\",\n                case when args.include_model then ps.spec else null end as \"model: models::RawValue\"\n              from unnest($1::catalog_name[], $2::flowid[], $3::boolean[]) as args(name, publication_id, include_model)\n              join live_specs ls on args.name = ls.catalog_name\n              join publication_specs ps on ls.id = ps.live_spec_id and ps.pub_id = coalesce(args.publication_id, ls.last_pub_id)\n              left outer join auth.users u on ps.user_id = u.id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: models::Name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "live_specs",
+            "name": "catalog_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "requested_publication_id: models::Id",
+        "type_info": "Macaddr8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "include_model!: bool",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "publication_id!: models::Id",
+        "type_info": "Macaddr8",
+        "origin": {
+          "Table": {
+            "table": "publication_specs",
+            "name": "pub_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "catalog_type: models::CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "publication_specs",
+            "name": "spec_type"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "published_at!: DateTime<Utc>",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "publication_specs",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "user_id!: uuid::Uuid",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "publication_specs",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "user_email: String",
+        "type_info": "Varchar",
+        "origin": {
+          "Table": {
+            "table": "auth.users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "user_avatar_url: String",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "user_full_name: String",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "detail: String",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "publication_specs",
+            "name": "detail"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "model: models::RawValue",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_name[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "catalog_name",
+                  "kind": {
+                    "Domain": "Text"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "BoolArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      false,
+      true,
+      false,
+      false,
+      true,
+      null,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "135e271be9749b172f2c7e08b7573a67ae6f60a88398a4aa1d97e902da741902"
+}
