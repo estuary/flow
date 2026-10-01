@@ -120,7 +120,7 @@ impl TenantMutation {
             .map_err(|_| async_graphql::Error::new("Authentication is required"))?;
 
         // Agents using restricted tokens cannot create tenants (for now)
-        if claims.capability_mask.is_some() {
+        if claims.capability_mask.is_some() || claims.prefix_scope.is_some() {
             return Err(async_graphql::Error::new(
                 "Restricted tokens cannot create tenants",
             ));
@@ -310,12 +310,26 @@ mod test {
         let req = request("acmeCo");
         let unauth: serde_json::Value = server.graphql(&req, None).await;
         assert_eq!(unauth["errors"][0]["message"], "Authentication is required");
-        let masked = server.make_masked_access_token(ALICE, None, Some(vec![]));
-        let denied: serde_json::Value = server.graphql(&req, Some(&masked)).await;
-        assert_eq!(
-            denied["errors"][0]["message"],
-            "Restricted tokens cannot create tenants"
-        );
+        for (mask, scope) in [
+            (Some(vec![]), None),
+            (Some(vec!["admin".to_string()]), None),
+            (None, Some("acmeCo/".to_string())),
+            (None, Some(String::new())),
+            (Some(vec!["admin".to_string()]), Some("acmeCo/".to_string())),
+        ] {
+            let restricted = server.make_restricted_access_token(ALICE, None, mask, scope);
+            let denied: serde_json::Value = server.graphql(&req, Some(&restricted)).await;
+            assert_eq!(
+                denied["errors"][0]["message"], "Restricted tokens cannot create tenants",
+                "{denied}"
+            );
+        }
+        let created: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tenants WHERE tenant = 'acmeCo/')")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!created, "restricted callers must not create a tenant");
         sqlx::query("INSERT INTO internal.service_accounts (user_id, catalog_name, created_by) VALUES ($1, 'acmeCo/bot', $2)")
             .bind(BOB).bind(ALICE).execute(&pool).await.unwrap();
         let bot = server.make_access_token(BOB, None);
